@@ -1,0 +1,27 @@
+{
+  "shell": "New minimal Prime-only code; no donor desktop implementation or privileged bridge copied.",
+  "donor_reference": {
+    "repository": "https://github.com/aumara-xyz/aukora-genesis",
+    "commit": "645d3213b8aede3b544269b4224ae09df06b0a42",
+    "files": [
+      "apps/aukora-desktop/main.mjs",
+      "apps/aukora-desktop/url-policy.mjs",
+      "apps/aukora-desktop/package-lock.json"
+    ],
+    "use": "Read-only minimal shell reference and selected Electron dependency lock closure; no old app invocation."
+  },
+  "prime_reference": {
+    "commit": "f0f2ec0a11ec96857da9bedb967f05abb494ec93",
+    "file": "packages/ops/gates.mjs",
+    "use": "Private launch exchange schema and validation compatibility."
+  },
+  "electron": {
+    "version": "44.4.3",
+    "license": "MIT",
+    "npm_integrity": "sha512-LTpSFTB40qVCXIX5xMo+cgHI/Jjkbjw7VpB26PccEbroqOn72LBukeaDwPVo1fBYzSzs0c9iPuAucFCO7Tw81Q==",
+    "registry": "https://registry.npmjs.org/electron/-/electron-44.4.3.tgz",
+    "selected_lock_packages": 13,
+    "local_binary_sha256": "52591945c62a357a093d45bab2a13ef95636e5e16c40ea960e428123ce58365e",
+    "local_runtime": "Official existing dist copied intact to ignored package-local .runtime/electron; LICENSE and LICENSES.chromium.html retained alongside it. This receipt is an observed local hash, not vendor signature attestation."
+  }
+}
