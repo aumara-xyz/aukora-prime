@@ -28,6 +28,14 @@ for name in ['layout','sidebar','threads','apps','messages','memory','aumlok','d
   elif (src/n).is_file():shutil.copy2(src/n,dst/n)
  shutil.copy2(root/'harness/ui-host.mjs',dst/'lib/prime-host.mjs')
 shutil.copytree(root/'harness',release/'harness')
+# Browser composition stays inside this release. No source checkout discovery.
+client_binding=release/'harness/owner-memory-client.mjs'
+client_text=client_binding.read_text()
+for module in ['ui-adapter.mjs','owner-memory-workflow.mjs']:
+ old="'../packages/runtime-bridge/src/"+module+"'"
+ if client_text.count(old)!=1:raise SystemExit('owner-memory-import-mismatch: '+module)
+ client_text=client_text.replace(old,"'../prime-packages/runtime-bridge/src/"+module+"'")
+client_binding.write_text(client_text)
 for package in ['contracts','execution','authority','memory','inference','ops','runtime-bridge']:
  shutil.copytree(root/'packages'/package,release/'prime-packages'/package,symlinks=True,ignore=lambda directory,names:[n for n in names if n in ['test','tests','checks'] or n in ['check.mjs','build-sdk.py']])
 ui=release/'prime-packages/ui';ui.mkdir(parents=True)
