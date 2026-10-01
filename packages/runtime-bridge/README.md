@@ -228,3 +228,11 @@ witness records original-byte digest and retained citation head. The read phase
 verifies exact bytes and C settlement across service restart. H must separately
 observe actual PostgreSQL/version/fsync and distinct UID/ACL properties. This
 source and its same-UID SQLite worker fixture do not supply those observations.
+# Synthetic private C/D PostgreSQL fixture
+
+The fixture entry points, closed configuration/signing grammar, H/operator
+ownership and source/deployment evidence limits are in
+[test/deployed-fixture.md](test/deployed-fixture.md). These files are outside the
+package exports and preserve public runtime unavailability. The signer stays
+inside the Mac owner's trust boundary, outside Linux workloads; fixed strict
+SSH reaches only the approved protected app actor.
