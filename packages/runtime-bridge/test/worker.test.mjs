@@ -2,7 +2,7 @@
 // Actual authority and memory child workers. Test-only SQLite factory; same UID.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync,realpathSync,mkdirSync,writeFileSync,rmSync} from 'node:fs'
+import {mkdtempSync,realpathSync,mkdirSync,writeFileSync,rmSync,chmodSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {pathToFileURL,fileURLToPath} from 'node:url'
@@ -30,6 +30,18 @@ async function child(config) {
   return processChild
 }
 async function stop(processChild){if(!processChild||processChild.exitCode!==null)return;const closed=once(processChild,'exit');processChild.kill('SIGTERM');await closed}
+test('worker and synthetic client refuse readable secret-bearing config before importing it',async()=>{
+  const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-config-')),config=join(root,'readable.mjs')
+  writeFileSync(config,"throw new Error('CONFIG_MUST_NOT_BE_IMPORTED');\n",{mode:0o600});chmodSync(config,0o644)
+  try {
+    for(const [source,args] of [[workerPath,['--config',config]],[fileURLToPath(new URL('../src/verify-deployed.mjs',import.meta.url)),['--config',config,'--phase','save']]]) {
+      const spawned=spawn(process.execPath,[source,...args],{stdio:['ignore','pipe','pipe']})
+      let output='';spawned.stderr.on('data',b=>{output+=b})
+      assert.equal((await once(spawned,'exit'))[0],1)
+      assert(!output.includes('CONFIG_MUST_NOT_BE_IMPORTED'));assert.match(output,/REFUSED|NOT_VERIFIED/)
+    }
+  } finally {rmSync(root,{recursive:true,force:true})}
+})
 test('actual separate C/D worker processes preserve real passkey + locked observation + save/settle/cited restart; no PG or UID proof',async()=>{
   const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-workers-'));mkdirSync(join(root,'c'),{mode:0o700});mkdirSync(join(root,'d'),{mode:0o700})
   const fixture=authorityFixture({root,audience:'aukora-prime.memory',authorizeTask:()=>null,observeTarget:()=>null})
@@ -41,7 +53,7 @@ test('actual separate C/D worker processes preserve real passkey + locked observ
   writeFileSync(cConfig,'export default '+JSON.stringify({kind:'authority',ipc:{socketPath:cSocket,credentials:[{id:'memory',role:'memory_effect',secret:privateSecret}]},registryEntries,authorityConfig})+'\n',{mode:0o600})
   const event=Buffer.from(JSON.stringify({type:'turn',text:'Synthetic owner likes banana.',seq:0,at})+'\n')
   const host={privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(event)}}
-  const config={kind:'memory',ipc:{socketPath:dSocket,credentials:[{id:'app',role:'owner_control',secret:publicSecret}]},authorityChannel:{socketPath:cSocket,credential:{id:'memory',secret:privateSecret}},registryEntries,initializeSchema:true}
+  const config={kind:'memory',ipc:{socketPath:dSocket,credentials:[{id:'app',role:'owner_control',secret:publicSecret}]},authorityChannel:{socketPath:cSocket,credential:{id:'memory',secret:privateSecret},limits:{maxRequestsPerConnection:1}},registryEntries,initializeSchema:true}
   writeFileSync(dConfig,`import {FixturePool} from ${JSON.stringify(sqlFixture)};\nconst cfg=${JSON.stringify(config)};\nconst host=${JSON.stringify(host)};host.events=[Buffer.from(${JSON.stringify(event.toString('base64'))},'base64')];\ncfg.createPgPool=()=>new FixturePool(${JSON.stringify(join(root,'memory.sqlite'))});\ncfg.resolveHostContext=({session})=>session?{task_id:'synthetic-task',memory_host:host}:{login_owner_id:${JSON.stringify(fixture.identity.owner_id)}};\nexport default cfg;\n`,{mode:0o600})
   let c,d,client
   try {
@@ -58,6 +70,13 @@ test('actual separate C/D worker processes preserve real passkey + locked observ
     const record=saved.record,read={record_id:record.record_id,revision:null}
     const cited=await adapters.memory.cite({...read,retained_head:null});assert.equal(cited.citation.verdict,'VERIFIED')
     assert.equal((await client.request('capability.status',{})).state,'unqualified')
+    // One private request per connection forces rotation across this workflow.
+    // C-only restart must not require D restart or replay any previous call.
+    const memoryPid=d.pid;await stop(c);c=null
+    assert.equal((await adapters.memory.status(read)).ok,false)
+    c=await child(cConfig);assert.equal(d.pid,memoryPid)
+    const afterAuthorityRestart=await adapters.memory.status(read)
+    assert.equal(afterAuthorityRestart.ok,true,JSON.stringify(afterAuthorityRestart));assert.equal(afterAuthorityRestart.record.canonical_bytes,record.canonical_bytes)
     await client.close();await stop(d);await stop(c);client=null
     c=await child(cConfig);d=await child(dConfig)
     client=await createIpcClient({socketPath:dSocket,credential:{id:'app',secret:publicSecret}})

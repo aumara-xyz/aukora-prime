@@ -152,6 +152,12 @@ The immutable host module's default export is one of these closed records:
 - Memory: `{kind:'memory',ipc,registryEntries,authorityChannel,createPgPool,
   resolveHostContext,initializeSchema?,indexTarget?,indexGeneration?}`.
 
+Worker and synthetic client CLI config modules must be canonical regular files
+with exact mode 0600, owned by root or their running UID. G/H must also keep
+imported secret material private, and source/config/state ancestors protected
+from app modification. The entry-file check alone does not qualify all imported
+module permissions or deployment ACLs.
+
 `ipc` is `{socketPath,credentials,limits?,socketAccess?}`. Authority credentials
 accept only the fixed `memory_effect` role/private authority method list.
 `authorityChannel` is `{socketPath,credential,limits?,socketAccess?}`. Memory
@@ -176,6 +182,10 @@ calls its synchronous real method and clears in `finally`. There is no await or
 cache inside that C scope. C independently verifies registered task/owner/route,
 operation digest and normal proof. Dispatch IDs/digests come from D's committed
 intent. Settlement carries no observation and no caller-produced receipt.
+The memory proxy opens a fresh authenticated authority channel for each unsent
+call and closes it afterward. C-only restart, idle closure and request-count
+limits therefore do not permanently disable D. Every call sends once; timeout
+or disconnect still leaves the caller's outcome unknown and is never retried.
 
 H can run `node packages/runtime-bridge/src/verify-deployed.mjs --config
 /absolute/synthetic-client.mjs --phase save`, restart the approved services, then

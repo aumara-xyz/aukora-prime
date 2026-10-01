@@ -73,7 +73,6 @@ export async function startMemoryWorker(config) {
   configRecord(config,['kind','ipc','authorityChannel','registryEntries','resolveHostContext','createPgPool'],['initializeSchema','indexTarget','indexGeneration'])
   if(config.kind!=='memory'||typeof config.resolveHostContext!=='function'||typeof config.createPgPool!=='function'||(config.initializeSchema!==undefined&&typeof config.initializeSchema!=='boolean'))throw new TypeError('INVALID: memory worker config')
   const registry=createTrustedTaskRegistry(config.registryEntries)
-  const channel=await createAuthorityIpcClient(config.authorityChannel)
   const reviews=new Map()
   let memory,pool,server
   const proxy=Object.freeze(Object.fromEntries(Object.entries(METHODS).map(([name,method])=>[name,async input=>{
@@ -87,7 +86,12 @@ export async function startMemoryWorker(config) {
     const observation=live.has(name)?memory.authorityTargetObservation(operation):null
     // Dispatch binding comes only from D's committed intent and genuine D path;
     // no app/public method reaches this proxy or supplies this wrapper directly.
-    return channel.request(method,{input:detached,operation,operation_digest:operation?contracts.operationDigest(operation):null,observation})
+    // A fresh channel is opened only for this unsent call. A closed/idle/bounded
+    // channel never poisons subsequent independent calls, including C restart.
+    // There is one request and no replay after an uncertain response.
+    const channel=await createAuthorityIpcClient(config.authorityChannel)
+    try {return await channel.request(method,{input:detached,operation,operation_digest:operation?contracts.operationDigest(operation):null,observation})}
+    finally {await channel.close()}
   }])))
   try {
     pool=await config.createPgPool()
@@ -105,8 +109,8 @@ export async function startMemoryWorker(config) {
     // Trusted internal service IPC, not a qualified HTTP/public app mount. Every
     // call still passes C sessions/proofs and the fixed channel role allowlist.
     server=await createIpcServer({...config.ipc,handlePublic:bridge.handleTrusted})
-    return Object.freeze({async close(){await server.close();await channel.close();await pool.end?.()},status:()=>({kind:'memory',qualification:'unqualified',socket:server.address}),bridge})
-  } catch(error){await server?.close();await channel.close();await pool?.end?.();throw error}
+    return Object.freeze({async close(){await server.close();await pool.end?.()},status:()=>({kind:'memory',qualification:'unqualified',socket:server.address}),bridge})
+  } catch(error){await server?.close();await pool?.end?.();throw error}
 }
 
 export async function startWorker(config) {
@@ -119,7 +123,7 @@ async function main() {
   const args=process.argv.slice(2)
   if(args.length!==2||args[0]!=='--config'||resolve(args[1])!==args[1])throw new TypeError('INVALID: explicit absolute worker config required')
   const configPath=args[1],stat=await lstat(configPath)
-  if(!stat.isFile()||stat.isSymbolicLink()||await realpath(configPath)!==configPath||(stat.mode&0o022)||process.getuid&&![0,process.getuid()].includes(stat.uid))throw refuse('WORKER_IMMUTABLE_CONFIG_REQUIRED')
+  if(!stat.isFile()||stat.isSymbolicLink()||await realpath(configPath)!==configPath||(stat.mode&0o7777)!==0o600||process.getuid&&![0,process.getuid()].includes(stat.uid))throw refuse('WORKER_PRIVATE_CONFIG_REQUIRED')
   const imported=await import(pathToFileURL(configPath).href),worker=await startWorker(imported.default)
   process.stdout.write(JSON.stringify({status:'STARTED',...worker.status()})+'\n')
   let closing=false

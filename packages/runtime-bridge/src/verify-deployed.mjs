@@ -13,7 +13,7 @@ const hash=value=>'sha256:'+createHash('sha256').update(value).digest('hex')
 async function main() {
   const args=process.argv.slice(2)
   if(args.length!==4||args[0]!=='--config'||args[2]!=='--phase'||!['save','read'].includes(args[3])||resolve(args[1])!==args[1])throw new TypeError('INVALID: explicit config and save/read phase required')
-  const stat=await lstat(args[1]);if(!stat.isFile()||stat.isSymbolicLink()||(stat.mode&0o022)||await realpath(args[1])!==args[1])throw new TypeError('INVALID: immutable synthetic client config required')
+  const stat=await lstat(args[1]);if(!stat.isFile()||stat.isSymbolicLink()||(stat.mode&0o7777)!==0o600||await realpath(args[1])!==args[1]||process.getuid&&![0,process.getuid()].includes(stat.uid))throw new TypeError('INVALID: private synthetic client config required')
   const cfg=(await import(pathToFileURL(args[1]).href)).default
   if(cfg?.profile!=='synthetic-prime-cd-check/v1'||typeof cfg.passkeySigner!=='function'||resolve(cfg.witness_path)!==cfg.witness_path)throw new TypeError('INVALID: synthetic check config required')
   const client=await createIpcClient(cfg.client)
