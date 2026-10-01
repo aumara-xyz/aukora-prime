@@ -57,15 +57,16 @@ class PilotChecks(unittest.TestCase):
     def test_render_closes_pins_and_verifier_without_host_effects(self):
         with patch.object(pilot, 'command', side_effect=AssertionError('host command')), \
              patch.object(pilot, 'linux_root', side_effect=AssertionError('root mutation')):
-            pilot.verify_inputs(self.spec)
-            with self.assertRaisesRegex(pilot.Refusal, pilot.WORKER_CONFIG_HOLD):
-                pilot.render(self.spec, self.base / 'rendered')
-        self.assertFalse((self.base / 'rendered').exists())
-        texts = {kind: pilot.unit(kind, self.spec) for kind in pilot.UNITS}
-        value = pilot.expectations(self.spec, texts)
+            result = pilot.render(self.spec, self.base / 'rendered')
+        self.assertEqual(result['runtime_qualification'], 'PENDING')
+        self.assertFalse(result['services_started'])
+        value = json.loads((self.base / 'rendered/expected-privileges.json').read_bytes())
         verify.validate_spec(value)
         observation = verify.verify(value, 'source', pilot.sha(pilot.json_bytes(value)))
         self.assertEqual(observation['verdict'], 'PENDING')
+        self.assertEqual(observation['known_source_conflicts'], [])
+        with self.assertRaisesRegex(pilot.Refusal, 'RENDER_OUTPUT_MUST_BE_NEW'):
+            pilot.render(self.spec, self.base / 'rendered')
         for operation in (pilot.install_code, pilot.install_units):
             with self.assertRaisesRegex(pilot.Refusal, pilot.WORKER_CONFIG_HOLD): operation(self.spec)
 
@@ -125,7 +126,7 @@ class PilotChecks(unittest.TestCase):
         self.assertNotIn(str(pilot.CONF), rows)
         self.assertEqual(rows[str(pilot.WITNESS)]['mode'], '0700')
         self.assertNotIn(pilot.STATE, pilot.WITNESS.parents)
-        self.assertEqual(set(parents.GROUPS), {'prime-app', 'prime-authority', 'prime-memory', 'prime-authority-ipc', 'prime-memory-ipc'})
+        self.assertEqual(set(parents.GROUPS), {'prime-app', 'prime-authority', 'prime-memory', 'prime-authority-ipc', 'prime-memory-ipc', 'prime-pg-socket'})
         self.assertNotIn('prime-authority-ipc', parents.SUPPLEMENTARY['app'])
 
     def test_existing_identity_refuses_before_any_privileged_command(self):
@@ -163,7 +164,7 @@ class PilotChecks(unittest.TestCase):
             self.assertIn('worker.mjs --config /etc/aukora-prime/' + kind + '/config.mjs', units[kind])
             self.assertNotIn('--kind', units[kind])
         pg = units['postgres']
-        self.assertIn('User=postgres\nGroup=postgres\nSupplementaryGroups=prime-memory', pg)
+        self.assertIn('User=postgres\nGroup=postgres\nSupplementaryGroups=prime-pg-socket', pg)
         self.assertIn('-D /var/lib/aukora-prime/postgres ', pg)
         self.assertNotIn('/postgres/data', pg)
         self.assertIn('RemoveIPC=no', pg)
@@ -171,7 +172,7 @@ class PilotChecks(unittest.TestCase):
     def test_peer_only_pg_target_no_password_or_tcp_access(self):
         configs = pilot.postgres_files()
         self.assertIn("listen_addresses = ''", configs['postgresql.conf'])
-        self.assertIn("unix_socket_group = 'prime-memory'\nunix_socket_permissions = 0770", configs['postgresql.conf'])
+        self.assertIn("unix_socket_group = 'prime-pg-socket'\nunix_socket_permissions = 0770", configs['postgresql.conf'])
         self.assertIn('local aukora_prime_synthetic prime_memory peer map=prime_memory_role', configs['pg_hba.conf'])
         self.assertEqual(configs['pg_ident.conf'], 'prime_memory_role prime-memory prime_memory\n')
         self.assertIn('PASSWORD NULL', pilot.peer_role_sql())

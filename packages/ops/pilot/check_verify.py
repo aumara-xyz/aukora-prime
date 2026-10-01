@@ -33,7 +33,7 @@ def fixture_spec():
                     directory(verify.WITNESS, 'prime-authority', 'prime-authority', '0700'),
                     directory(verify.RUN + '/authority', 'prime-authority', 'prime-authority-ipc', '0710'),
                     directory(verify.RUN + '/memory', 'prime-memory', 'prime-memory-ipc', '0710'),
-                    directory(verify.RUN + '/postgres', 'postgres', 'prime-memory', '0750')]
+                    directory(verify.RUN + '/postgres', 'postgres', 'prime-pg-socket', '0750')]
     files = [file(code_file), file(config_file, group='prime-authority', mode='0440'),
              file(memory_config, group='prime-memory', mode='0440')]
     units = []
@@ -74,7 +74,29 @@ class VerifierChecks(unittest.TestCase):
         self.assertEqual(result['unit_status'], 'NOT_RUN')
         self.assertTrue(result['source_only'])
         self.assertTrue(all(value == 'PENDING' for value in result['qualification'].values()))
-        self.assertEqual(result['known_source_conflicts'], ['PG_MEMORY_CONFIG_READ_GROUP_CONFLICT'])
+        self.assertEqual(result['known_source_conflicts'], [])
+
+    def test_old_postgres_memory_group_conflict_and_socket_scope_regressions_refused(self):
+        postgres = lambda s: next(row for row in s['subjects'] if row['user'] == 'postgres')
+        pg_unit = lambda s: next(row for row in s['units'] if row['user'] == 'postgres')
+        self.refusal('PG_MEMORY_CONFIG_READ_GROUP_CONFLICT', lambda s: postgres(s).update(supplementary_groups=['prime-memory']))
+        self.refusal('PG_MEMORY_CONFIG_READ_GROUP_CONFLICT', lambda s: pg_unit(s).update(supplementary_groups=['prime-memory']))
+        self.refusal('UNSAFE_POSTGRES_SOCKET_DIRECTORY', lambda s: next(row for row in s['directories']
+                     if row['path'] == verify.RUN + '/postgres').update(group='prime-memory'))
+        self.refusal('INVALID_SOCKET_PERMISSIONS', lambda s: next(row for row in s['sockets']
+                     if row['owner'] == 'postgres').update(group='prime-memory'))
+        self.refusal('INVALID_SOCKET_PATH', lambda s: next(row for row in s['sockets']
+                     if row['owner'] == 'postgres').update(path=verify.RUN + '/postgres/.s.PGSQL.55432'))
+        self.refusal('INVALID_SUBJECT_GROUPS', lambda s: next(row for row in s['subjects']
+                     if row['user'] == 'prime-memory')['supplementary_groups'].remove('prime-pg-socket'))
+
+    def test_observed_postgres_nss_or_process_private_memory_group_is_failure(self):
+        # Distinct synthetic GIDs exercise both NSS/running-process callers without host probes.
+        verify.reject_postgres_private_group('postgres', {114, 812}, memory_gid=811)
+        for observed_groups in ({114, 811}, {114, 812, 811}):
+            with self.assertRaisesRegex(verify.Refusal, '^PG_MEMORY_CONFIG_READ_GROUP_CONFLICT$'):
+                verify.reject_postgres_private_group('postgres', observed_groups, memory_gid=811)
+        verify.reject_postgres_private_group('prime-memory', {811, 812}, memory_gid=811)
 
     def test_worker_private_configs_require_root_readonly_primary_group_and_pinned_parent(self):
         config = lambda s: next(row for row in s['files'] if row['path'].startswith(verify.CONFIG + '/memory/'))

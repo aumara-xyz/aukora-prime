@@ -33,17 +33,17 @@ PACKAGES = {
     'postgresql-16': '16.15-0ubuntu0.24.04.1',
 }
 GROUPS = ['prime-app', 'prime-authority', 'prime-memory', 'prime-authority-ipc',
-          'prime-memory-ipc']
+          'prime-memory-ipc', 'prime-pg-socket']
 SUPPLEMENTARY = {'app': ['prime-memory-ipc'], 'authority': ['prime-authority-ipc'],
-                 'memory': ['prime-authority-ipc', 'prime-memory-ipc'],
-                 'postgres': ['prime-memory']}
+                 'memory': ['prime-authority-ipc', 'prime-memory-ipc', 'prime-pg-socket'],
+                 'postgres': ['prime-pg-socket']}
 POLICY = b'#!/bin/sh\n[ "${1-}" = --quiet ] && shift\ncase "${1-}" in\n  postgresql|postgresql.service|postgresql@*.service) exit 101 ;;\n  *) exit 0 ;;\nesac\n'
 CREATE_POLICY = b'create_main_cluster = false\n'
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
        'DEBIAN_FRONTEND': 'noninteractive', 'UCF_FORCE_CONFFOLD': '1',
        'NEEDRESTART_MODE': 'l', 'NEEDRESTART_SUSPEND': '1'}
 HASH = re.compile(r'[0-9a-f]{64}')
-WORKER_CONFIG_HOLD = 'PG_MEMORY_CONFIG_READ_GROUP_CONFLICT'
+WORKER_CONFIG_HOLD = 'WORKER_ACTIVATION_QUALIFICATION_PENDING'
 
 class Refusal(ValueError):
     pass
@@ -231,9 +231,9 @@ def unit(kind, spec):
 
 def postgres_files():
     return {
-        'postgresql.conf': ("listen_addresses = ''\nport = 55432\n"
+        'postgresql.conf': ("listen_addresses = ''\nport = 55434\n"
             f"unix_socket_directories = '{RUN / 'postgres'}'\n"
-            "unix_socket_group = 'prime-memory'\nunix_socket_permissions = 0770\n"
+            "unix_socket_group = 'prime-pg-socket'\nunix_socket_permissions = 0770\n"
             f"hba_file = '{CONF / 'postgres/pg_hba.conf'}'\n"
             f"ident_file = '{CONF / 'postgres/pg_ident.conf'}'\n"
             "ssl = off\nmax_connections = 12\n"
@@ -265,7 +265,7 @@ def code_layout():
 def layout():
     return shared_layout() + code_layout() + [
         dict(path=str(STATE / 'postgres'), owner='postgres', group='postgres', mode='0700'),
-        dict(path=str(RUN / 'postgres'), owner='postgres', group='prime-memory', mode='0750'),
+        dict(path=str(RUN / 'postgres'), owner='postgres', group='prime-pg-socket', mode='0750'),
         dict(path=str(CONF / 'postgres'), owner='root', group='postgres', mode='0750')]
 
 def expectations(spec, texts):
@@ -307,7 +307,7 @@ def expectations(spec, texts):
             denied_traverse=[], allowed_traverse=[str(RUN / kind)]))
     sockets = [dict(path=str(RUN / 'authority/authority.sock'), owner='prime-authority', group='prime-authority-ipc', mode='0660', allowed_users=['prime-memory'], denied_users=['prime-app']),
                dict(path=str(RUN / 'memory/memory.sock'), owner='prime-memory', group='prime-memory-ipc', mode='0660', allowed_users=['prime-app'], denied_users=['prime-authority']),
-               dict(path=str(RUN / 'postgres/.s.PGSQL.55432'), owner='postgres', group='prime-memory', mode='0770', allowed_users=['prime-memory'], denied_users=['prime-app'])]
+               dict(path=str(RUN / 'postgres/.s.PGSQL.55434'), owner='postgres', group='prime-pg-socket', mode='0770', allowed_users=['prime-memory'], denied_users=['prime-app'])]
     units = [dict(name=UNITS[k], sha256=sha(text.encode()), user='postgres' if k == 'postgres' else 'prime-' + k,
                   group='postgres' if k == 'postgres' else 'prime-' + k, supplementary_groups=SUPPLEMENTARY[k]) for k, text in texts.items()]
     return dict(schema='prime-pilot-privileges-v1', source_only=True, release_root=str(release_path(spec)),
@@ -315,13 +315,8 @@ def expectations(spec, texts):
                 files=files, subjects=subjects, sockets=sockets, units=units)
 
 def render(spec, out):
-    # task40 ca382593 adds the root0440 guard, but the PG process's proposed
-    # prime-memory group would read D private material. No emission until resolved.
-    raise Refusal(WORKER_CONFIG_HOLD)
-
-def render_after_contract_release(spec, out):
-    """Held implementation draft. Group confidentiality agreement still required."""
-    raise Refusal(WORKER_CONFIG_HOLD)
+    # Source rendering only. ca382593 root0440 guard and the distinct PG socket
+    # group resolve the prior source conflict; actual OS/API qualification stays pending.
     verify_inputs(spec)
     out = Path(out)
     need(not out.exists(), 'RENDER_OUTPUT_MUST_BE_NEW')
@@ -536,8 +531,8 @@ def install_code(spec):
     need(full_digest(release) == spec['release_digest'], 'COPIED_RELEASE_PIN_MISMATCH')
     for kind, row in spec['services'].items():
         if 'config_source' in row:
-            # Proposed task40 root0440 contract. Held until actual guard pin and
-            # PG/memory shared-group confidentiality conflict are resolved.
+            # task40 root0440 contract. Deployment stays held until H's imported
+            # API/config/bootstrap joins are qualified; no automatic activation.
             exclusive(CONF / kind / 'config.mjs', regular(row['config_source'], row['config_sha256']), 0o440,
                       0, grp.getgrnam('prime-' + kind).gr_gid)
     exclusive(CONF / 'preview-deployment.json', regular(spec['deployment_manifest_source'], spec['deployment_manifest_sha256']), 0o644)
@@ -580,6 +575,7 @@ def main():
             mutations_by={'PG':'exclusive Nebius operator designated PostgreSQL operator','app_C_D_layout':'H coordinates with PG operator'},
             package_status='OPERATOR_REPORTED_INSTALLED_16_15_NOT_REVERIFIED_G',
             worker_config_guard_source='ca382593545c9877e0fce4f19e406c90f7a84027',
+            source_group_conflicts=[], pg_socket_group='prime-pg-socket', pg_port=55434,
             blocked=[WORKER_CONFIG_HOLD, 'worker/app entrypoint and config pins',
                      'assigned UID/GID-bound config', 'protected Prime-contained pg Pool import',
                      'operator passwordless peer role setup', 'C reviewed authority-store setup API', 'H boot manifest API pin'],

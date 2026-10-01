@@ -11,7 +11,7 @@ try {
   assert.equal(pool.options.host,'/run/aukora-prime/postgres')
   assert.equal(pool.options.database,'aukora_prime_synthetic')
   assert.equal(pool.options.user,'prime_memory')
-  assert.equal(pool.options.port,55432)
+  assert.equal(pool.options.port,55434)
   assert.equal(pool.options.ssl,false)
   assert.equal(pool.options.max,6)
   assert.equal(pool.options.connectionTimeoutMillis,3000)

@@ -22,13 +22,14 @@ UNITS = {'prime-app.service': 'prime-app', 'prime-authority.service': 'prime-aut
          'prime-memory.service': 'prime-memory', 'prime-postgresql.service': 'postgres'}
 GROUPS = {'prime-app': ['prime-memory-ipc'],
           'prime-authority': ['prime-authority-ipc'],
-          'prime-memory': ['prime-memory-ipc', 'prime-authority-ipc'], 'postgres': ['prime-memory']}
+          'prime-memory': ['prime-memory-ipc', 'prime-authority-ipc', 'prime-pg-socket'],
+          'postgres': ['prime-pg-socket']}
 PRIMARY_GROUPS = {'prime-app': 'prime-app', 'prime-authority': 'prime-authority',
                   'prime-memory': 'prime-memory', 'postgres': 'postgres'}
 UNIT_FILES = {'/etc/systemd/system/' + unit for unit in UNITS}
 SOCKETS = {RUN + '/authority/authority.sock': ('prime-authority', 'prime-authority-ipc', '0660', ['prime-memory'], ['prime-app']),
            RUN + '/memory/memory.sock': ('prime-memory', 'prime-memory-ipc', '0660', ['prime-app'], ['prime-authority']),
-           RUN + '/postgres/.s.PGSQL.55432': ('postgres', 'prime-memory', '0770', ['prime-memory'], ['prime-app'])}
+           RUN + '/postgres/.s.PGSQL.55434': ('postgres', 'prime-pg-socket', '0770', ['prime-memory'], ['prime-app'])}
 SHA = re.compile(r'^[0-9a-f]{64}$')
 MODE = re.compile(r'^0[0-7]{3}$')
 MAX_SPEC = 1024 * 1024
@@ -107,7 +108,7 @@ def validate_boundary(entry, kind):
         expected = ('prime-authority', 'prime-authority-ipc') if path.endswith('/authority') else ('prime-memory', 'prime-memory-ipc')
         require((owner, group) == expected and mode == 0o710, 'UNSAFE_IPC_DIRECTORY')
     if kind == 'directories' and path == RUN + '/postgres':
-        require((owner, group, mode) == ('postgres', 'prime-memory', 0o750), 'UNSAFE_POSTGRES_SOCKET_DIRECTORY')
+        require((owner, group, mode) == ('postgres', 'prime-pg-socket', 0o750), 'UNSAFE_POSTGRES_SOCKET_DIRECTORY')
 
 
 def validate_spec(spec):
@@ -126,7 +127,7 @@ def validate_spec(spec):
             require(entry['path'] not in paths, 'DUPLICATE_PATH')
             paths.add(entry['path'])
             require(isinstance(entry['owner'], str) and entry['owner'] in {'root', *GROUPS}
-                    and isinstance(entry['group'], str) and entry['group'] in {'root', *GROUPS, 'prime-authority-ipc', 'prime-memory-ipc'}, 'UNKNOWN_IDENTITY')
+                    and isinstance(entry['group'], str) and entry['group'] in {'root', *GROUPS, 'prime-authority-ipc', 'prime-memory-ipc', 'prime-pg-socket'}, 'UNKNOWN_IDENTITY')
             require(isinstance(entry['mode'], str) and MODE.fullmatch(entry['mode']) is not None, 'INVALID_MODE')
             validate_boundary(entry, kind)
             if kind == 'files':
@@ -148,7 +149,10 @@ def validate_spec(spec):
         user = subject['user']
         require(isinstance(user, str) and user in GROUPS and subject['group'] == PRIMARY_GROUPS[user] and user not in subjects, 'INVALID_SUBJECT_IDENTITY')
         subjects.add(user)
-        require(sorted(strings(subject['supplementary_groups'])) == sorted(GROUPS[user]), 'INVALID_SUBJECT_GROUPS')
+        supplemental = strings(subject['supplementary_groups'])
+        if user == 'postgres':
+            require('prime-memory' not in supplemental, 'PG_MEMORY_CONFIG_READ_GROUP_CONFLICT')
+        require(sorted(supplemental) == sorted(GROUPS[user]), 'INVALID_SUBJECT_GROUPS')
         for key in ('denied_write', 'denied_read', 'denied_traverse', 'allowed_traverse'):
             for path in strings(subject[key]):
                 scoped_path(path, unit=True, witness_parent=True)
@@ -165,7 +169,10 @@ def validate_spec(spec):
         require(isinstance(entry['name'], str) and entry['name'] in UNITS and entry['name'] not in found, 'INVALID_UNIT_NAME')
         found.add(entry['name'])
         require(entry['user'] == UNITS[entry['name']] and entry['group'] == PRIMARY_GROUPS[entry['user']], 'INVALID_UNIT_IDENTITY')
-        require(sorted(strings(entry['supplementary_groups'])) == sorted(GROUPS[entry['user']]), 'INVALID_UNIT_GROUPS')
+        supplemental = strings(entry['supplementary_groups'])
+        if entry['user'] == 'postgres':
+            require('prime-memory' not in supplemental, 'PG_MEMORY_CONFIG_READ_GROUP_CONFLICT')
+        require(sorted(supplemental) == sorted(GROUPS[entry['user']]), 'INVALID_UNIT_GROUPS')
         require(isinstance(entry['sha256'], str) and SHA.fullmatch(entry['sha256']) is not None, 'INVALID_UNIT_DIGEST')
         pins = [e for e in spec['files'] if e['path'] == '/etc/systemd/system/' + entry['name']]
         if pins:
@@ -372,6 +379,11 @@ def validate_host_account(user, account, account_primary):
         require(account.pw_shell in ('/usr/sbin/nologin', '/sbin/nologin', '/bin/false', '/usr/bin/false'), 'LOGIN_NOT_DISABLED')
 
 
+def reject_postgres_private_group(user, effective_groups, memory_gid):
+    if user == 'postgres':
+        require(memory_gid not in effective_groups, 'PG_MEMORY_CONFIG_READ_GROUP_CONFLICT')
+
+
 def host_observations(spec):
     require(sys.platform.startswith('linux') and os.geteuid() == 0, 'HOST_MODE_REQUIRES_LINUX_ROOT')
     import grp
@@ -386,6 +398,7 @@ def host_observations(spec):
             supplemental = [grp.getgrnam(name).gr_gid for name in GROUPS[user]]
             identities[user] = (account.pw_uid, effective_primary.gr_gid, supplemental)
             actual = set(os.getgrouplist(user, account_primary.gr_gid))
+            reject_postgres_private_group(user, actual, grp.getgrnam('prime-memory').gr_gid)
             extra = actual - {account_primary.gr_gid, *supplemental}
             observations.append({'check': 'identity', 'user': user,
                                  'status': 'PENDING' if user == 'postgres' else ('FAIL' if extra else 'OBSERVED'),
@@ -393,8 +406,9 @@ def host_observations(spec):
                                  'uid': account.pw_uid, 'nss_primary_gid': account_primary.gr_gid,
                                  'effective_unit_gid': effective_primary.gr_gid, 'nss_groups': sorted(actual),
                                  'unexpected_nss_groups': sorted(extra)})
-        except (KeyError, Refusal):
-            observations.append({'check': 'identity', 'user': user, 'status': 'FAIL', 'reason': 'IDENTITY_UNAVAILABLE_OR_UNSAFE'})
+        except (KeyError, Refusal) as error:
+            observations.append({'check': 'identity', 'user': user, 'status': 'FAIL',
+                                 'reason': str(error) if isinstance(error, Refusal) else 'IDENTITY_UNAVAILABLE_OR_UNSAFE'})
     if len(identities) != len(GROUPS) or len({i[0] for i in identities.values()}) != len(GROUPS):
         observations.append({'check': 'identity_separation', 'status': 'FAIL', 'reason': 'IDENTITY_NOT_DISTINCT_OR_MISSING'})
         return observations
@@ -504,6 +518,7 @@ def unit_observations(spec):
                         and all(int(x) == expected_gid for x in proc['Gid'].split()), 'RUNNING_UNIT_IDENTITY_MISMATCH')
                 allowed = {expected_gid, *(grp.getgrnam(g).gr_gid for g in unit['supplementary_groups'])}
                 actual = {int(x) for x in proc['Groups'].split()}
+                reject_postgres_private_group(unit['user'], actual, grp.getgrnam('prime-memory').gr_gid)
                 if unit['user'] == 'postgres' and not actual <= allowed:
                     row.update(status='PENDING', running_supplementary_groups=sorted(actual),
                                reason='POSTGRES_NSS_GROUPS_REQUIRE_SEPARATE_QUALIFICATION')
@@ -530,11 +545,8 @@ def verify(spec, mode, expected_sha256):
                                 'postgres_worker_secret_separation': 'PENDING',
                                 'retained_witness_restore_fence': 'PENDING', 'release_full_tree_digest': 'PENDING'},
               'known_source_conflicts': []}
-    # The closed proposed layout gives PG the same group that can traverse and read D's config.
-    # This is a visible source blocker, never an inferred runtime-enforcement qualification.
-    postgres = next(subject for subject in spec['subjects'] if subject['user'] == 'postgres')
-    if 'prime-memory' in [postgres['group'], *postgres['supplementary_groups']]:
-        result['known_source_conflicts'].append('PG_MEMORY_CONFIG_READ_GROUP_CONFLICT')
+    # The separate socket group resolves the source conflict only. The old D-private
+    # group grant is explicitly refused by validate_spec, and real process access is pending.
     if mode == 'host':
         dac = host_observations(spec)
         units = unit_observations(spec)

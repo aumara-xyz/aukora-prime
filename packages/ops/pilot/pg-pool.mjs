@@ -7,7 +7,7 @@ export function createPeerPgPool({Pool,memoryUid}={}) {
   if(typeof Pool!=='function' || !Number.isSafeInteger(memoryUid) || memoryUid<=0
       || typeof process.getuid!=='function' || process.getuid()!==memoryUid
       || Object.keys(process.env).some(name=>name.startsWith('PG'))) refuse()
-  return new Pool({host:'/run/aukora-prime/postgres',port:55432,
+  return new Pool({host:'/run/aukora-prime/postgres',port:55434,
     database:'aukora_prime_synthetic',user:'prime_memory',ssl:false,
     client_encoding:'UTF8',options:'-c search_path=public',replication:'false',
     // Truthy callback suppresses pg's inherited PGPASSWORD default; a password
