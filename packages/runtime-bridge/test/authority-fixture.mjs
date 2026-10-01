@@ -3,7 +3,7 @@
 import {createHash,generateKeyPairSync,randomBytes,sign} from 'node:crypto'
 import {mkdirSync} from 'node:fs'
 import {join} from 'node:path'
-import {createAuthorityService} from '../../authority/src/index.mjs'
+import {createAuthorityService,provisionNewAuthorityStore} from '../../authority/src/index.mjs'
 import {didKeyFromEd25519PublicKey} from '../../authority/upstream/plugins/aukora-aumlok/lib/did-key.mjs'
 const hash=value=>createHash('sha256').update(value).digest()
 export function authorityFixture({root,audience,authorizeTask,observeTarget,actions=['memory.save']}={}) {
@@ -15,6 +15,8 @@ export function authorityFixture({root,audience,authorizeTask,observeTarget,acti
   const webauthn={rp_id:'prime.example.test',origins:['https://prime.example.test'],credentials:[credential]}
   const config={statePath:join(root,'state','authority.json'),stateRoot:join(root,'state'),witnessDir:join(root,'witness'),audience,identities:[identity],webauthn,
     policy:{version:'synthetic-policy',actions,agents:['synthetic-agent'],data_scope:['synthetic'],maximum_cost:{currency:'USD',amount:'0'}},provisionTrustedState:true,authorizeTask,observeTarget}
+  const provisioned=provisionNewAuthorityStore(config)
+  if(provisioned.ok!==true)throw new Error('synthetic explicit provisioning failed:'+JSON.stringify(provisioned))
   let counter=0
   function assertion(challenge) {
     const client=Buffer.from(JSON.stringify({type:'webauthn.get',challenge,origin:webauthn.origins[0],crossOrigin:false}))

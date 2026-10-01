@@ -24,7 +24,7 @@ async function main() {
     await ui.login({owner_id:cfg.owner_id})
     if(args[3]==='save') {
       const draft={extraction_json:cfg.extraction_json,idempotency_key:cfg.idempotency_key}
-      const proposed=check(await adapters.memory.proposeSave(draft)),approved=await ui.approve(await ui.prepareApproval(proposed.operation))
+      const proposed=check(await adapters.memory.proposeSave(draft)),approved=await ui.approve(await ui.prepareApproval(proposed.operation,{memoryCapture:proposed.memory_capture}))
       const saved=check(await adapters.memory.save({...draft,operation:proposed.operation,approval_proof:approved.approval_proof}))
       if(saved.authority_settlement!=='completed'||saved.record.storage_status!=='saved')throw new Error('DEPLOYED_JOIN_SETTLEMENT_PENDING')
       const cite=check(await adapters.memory.cite({record_id:saved.record.record_id,revision:null,retained_head:null})).citation

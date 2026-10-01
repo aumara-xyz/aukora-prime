@@ -2,6 +2,7 @@
 import {randomUUID,randomBytes} from 'node:crypto'
 import {canonicalJson,parseStrictJson,validateContract,operationDigest} from '../../contracts/src/runtime.mjs'
 import {parseOriginal} from '../../memory/src/codecs.mjs'
+import {validateCaptureDraft,validateCaptureReview} from '../../memory/src/capture-review.mjs'
 import {closed,copy,freeze,createTrustedTaskRegistry} from './registry.mjs'
 import {IPC_METHOD_ROLES,PUBLIC_METHODS} from './ipc.mjs'
 export {createTrustedTaskRegistry,PUBLIC_METHODS}
@@ -29,6 +30,10 @@ export function createRuntimeBridge({authority,memory,taskRegistry,resolveHostCo
   const authorityMethods=['authenticateSession','propose','loginChallenge','loginComplete','approvalChallenge','approvalComplete','declineApproval','status','reserve','claimDispatch','settleMemory','markOutcomeUnknown']
   const memoryMethods=['prepareCaptureBinding','captureAuthorizedRemembered','withAuthorityTargetObservation','status','cite','recall']
   const mounted=authorityMethods.every(k=>typeof authority?.[k]==='function')&&memoryMethods.every(k=>typeof memory?.[k]==='function')&&typeof taskRegistry?.getOwned==='function'&&typeof taskRegistry?.authorizeTask==='function'&&typeof resolveHostContext==='function'
+  // The production bridge receives only the approved save and read facade.
+  // Unsigned capture, tombstones, import/restore and administrative writers
+  // are never retained by this boundary or exposed through its dispatch.
+  memory=Object.freeze(Object.fromEntries(memoryMethods.filter(name=>typeof memory?.[name]==='function').map(name=>[name,memory[name].bind(memory)])))
   async function accepted() {
     if(!mounted || typeof verifyHostQualification!=='function')return null
     // H owns acceptance. A boolean or a synthetic profile cannot qualify public routes.
@@ -101,14 +106,21 @@ export function createRuntimeBridge({authority,memory,taskRegistry,resolveHostCo
     if(method==='memory.proposeSave') {
       closed(input,['session_token','extraction_json','idempotency_key']);text(input.idempotency_key)
       requireMethod(memory,'prepareCaptureBinding');requireMethod(authority,'propose')
-      const binding=await memory.prepareCaptureBinding(host,extraction(input.extraction_json),input.idempotency_key)
-      closed(binding,['target_identity','state_version','canonical_parameters'])
+      const captured=extraction(input.extraction_json)
+      // Expected review text comes from the detached actual extraction and the
+      // trusted host attribution, independently of any proposed parameters.
+      const memoryCapture=validateCaptureDraft({statement:captured.statement,attributed_to:host.attributedTo})
+      const binding=await memory.prepareCaptureBinding(host,captured,input.idempotency_key)
+      closed(binding,['target_identity','state_version','canonical_parameters','memory_capture'])
+      if(canonicalJson(validateCaptureDraft(binding.memory_capture))!==canonicalJson(memoryCapture))fail('INVALID','EXACT_HOST_CAPTURE_DRAFT_REQUIRED')
+      validateCaptureReview(binding.canonical_parameters,memoryCapture)
       const operation=copy({version:1,operation_id:randomUUID(),task_id:entry.task.task_id,owner_id:identity.owner_id,agent_id:entry.task.agent_id,
         audience:entry.audience,action_type:'memory.save',target_identity:binding.target_identity,canonical_parameters:binding.canonical_parameters,
         data_scope:entry.data_scope,expected_state_version:binding.state_version,provider_and_region:entry.provider_and_region,
         maximum_cost:{currency:'USD',amount:'0'},expiry:new Date(Math.min(Date.now()+120_000,Date.parse(identity.expiry))).toISOString(),nonce:randomBytes(32).toString('hex'),policy_version:entry.policy_version,authorization_epoch:identity.authorization_epoch})
       validateContract('OperationProposal',operation)
-      return authority.propose(operation)
+      const proposed=await authority.propose({session_token:input.session_token,operation})
+      return proposed?.ok===true?{...proposed,memory_capture:memoryCapture}:proposed
     }
     if(method==='owner.approvalChallenge') {
       closed(input,['session_token','operation']);const operation=operationForContext(input.operation,identity,entry)

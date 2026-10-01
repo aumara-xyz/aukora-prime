@@ -77,12 +77,20 @@ D's duplicate/depth/finite-number parser reads it; the OperationProposal contain
 only hashes and exact live heads. The frozen v1 digest profile is unchanged.
 
 `memory.proposeSave` obtains D's exact capture binding and builds the operation
-from C's verified owner plus host-owned task/route/policy. Approval methods scope
+from C's verified owner plus host-owned task/route/policy. C proposal admission
+receives the closed authenticated `{session_token,operation}` envelope. A transport
+role alone cannot admit a proposal or consume owner pending capacity. Approval methods scope
 C's target checks through D's current locked observation. `memory.save` delegates
 to `captureAuthorizedRemembered`; it never claims dispatch itself. D reserves,
 commits an intent, rechecks live state under the owner lock, claims once, saves
 record/events/chain/outbox/effect ledger, commits, then settles C using the genuine
-memory receipt. A save can be `saved/pending` or `saved/failed` before indexing.
+memory receipt. Save parameters contain exactly `capture_sha256`,
+`idempotency_key_sha256`, `heads`, `statement` and `attributed_to`. Literal statement
+and attribution come from the captured extraction and trusted host. They accompany
+the proposed operation as the independent `memory_capture` draft; expected review
+text is never reconstructed from operation parameters or their hash. D verifies
+all parameters again under its database lock before reserve and dispatch. A save
+can be `saved/pending` or `saved/failed` before indexing.
 Only D's later ACK makes the record searchable. Citation verifies original bytes,
 source evidence, chain/member and retained head and grants no authority.
 
@@ -100,6 +108,15 @@ and digest per session, checks completion binding, and attaches it to completion
 for D's target observation. Its 16-review cache is discarded before submission;
 an uncertain result requires a new explicit reconciliation path. Memory methods
 use the successful C login token held in this adapter and reject caller overrides.
+The adapter retains the successful sibling `memory_capture` and verifies exact
+literal equality before review and save. H passes the sibling to B as
+`controller.setOperation(operation,{memoryCapture:response.memory_capture})`;
+direct transport users pass it to `prepareApproval(operation,{memoryCapture})`.
+Missing or changed statement/attribution refuses before signing. This browser
+comparison makes no claim to reproduce D's private full capture hash.
+Logout and new login invalidate pending replies before they can restore a token
+or repopulate captures/reviews. The 16-slot quotas reserve pending calls before
+dispatch, so parallel responses cannot exceed the retained state bounds.
 This package changes no face source or projection registration. Aura's durable
 projection still needs H's host join; one save does not qualify all app features.
 
@@ -142,6 +159,9 @@ and F's explicit test-only SDK mock. It does not run OpenShell or establish runt
 confinement. The IPC check uses a distinct child process and disposable socket.
 No real owner enrollment, credentials, private memory, paid inference, live app
 activation, new UID/security setup or deployment is performed here.
+The adapted review checks additionally cover 129 unauthenticated proposals before
+valid admission, hidden raw mutation routes, independently paired review text,
+exact saved whitespace/Unicode/markup bytes, stale UI replies and parallel quotas.
 
 ## Worker followup for H's approved isolated setup
 
@@ -170,6 +190,11 @@ credentials accept the public role matrix. `createPgPool()` supplies the explici
 host pg 8.16.3 closure and config; it is not discovered. `initializeSchema:true`
 is only for H's freshly authorized disposable schema. Both workers report
 unqualified, and do not enable the app's HTTP routes.
+Before starting a fresh synthetic authority worker, H's setup-only local path
+must explicitly call C's `provisionNewAuthorityStore(trustedOptions)` once with
+approved public configuration and a pristine dedicated witness namespace. Normal
+services never provision missing state, even with a sticky provision flag. The
+bridge and both worker method lists expose no provisioning or recovery reset.
 
 Separate-UID `socketAccess` is exactly `{server_uid,client_uid,group_gid}`.
 H/G must provision a canonical server-owned directory with exact mode 0710 and

@@ -19,7 +19,7 @@ const task={version:1,task_id:'synthetic-task',owner_id:ownerId,agent_id:'synthe
 const registry=()=>createTrustedTaskRegistry([{task,provider_and_region:{provider:'local',region:'local'},audience:'aukora-prime.memory',policy_version:'synthetic-policy',data_scope:['synthetic']}])
 const ok=result=>{assert.equal(result.ok,true,JSON.stringify(result));return result}
 const refused=result=>{assert.equal(result.ok,false,JSON.stringify(result));return result}
-const input={category:'fact',statement:'banana',validFrom:'2026-10-01',observedAt:at,confidence:0.7,sensitivity:'none'}
+const input={category:'fact',statement:'  banana <tag>&\n\t🍌  ',validFrom:'2026-10-01',observedAt:at,confidence:0.7,sensitivity:'none'}
 
 test('real C passkey + D save/index/cite/restart via existing injected B transport; SQLite fixture is not PostgreSQL acceptance',async()=>{
   const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-bridge-cd-')),taskRegistry=registry()
@@ -52,7 +52,8 @@ test('real C passkey + D save/index/cite/restart via existing injected B transpo
     for(const wrong of [{host:'127.0.0.1:18731',origin:'http://127.0.0.1:18731'},{host:'localhost:18731',origin:'http://localhost:18732'},{host:'localhost.:18731',origin:'http://localhost:18731'}])assert.throws(()=>pilot(wrong),/PILOT_HOST_ORIGIN_REFUSED/)
     let sessionToken
     const adapters=createUiAdapters({call:async(method,value)=>{const result=await bridge.handleTrusted(method,value,trusted);if(method==='owner.loginComplete'&&result.ok)sessionToken=result.session_token;return result}})
-    const ui=createPrimeTransport({authority:adapters.authority,contracts,passkeySigner:({public_key})=>auth.assertion(public_key.challenge)})
+    let signerCalls=0
+    const ui=createPrimeTransport({authority:adapters.authority,contracts,passkeySigner:({public_key})=>{signerCalls++;return auth.assertion(public_key.challenge)}})
     await ui.login({owner_id:ownerId})
     const draft={extraction_json:JSON.stringify(input),idempotency_key:'synthetic-save-one'}
     const proposed=ok(await adapters.memory.proposeSave(draft)),operation=proposed.operation
@@ -66,12 +67,31 @@ test('real C passkey + D save/index/cite/restart via existing injected B transpo
       return {profile:'prime-separated-runtime-host/v1',environment:'production',accepted:true,app_uid:101,broker_uid:102,transport:'authenticated-ipc',owner_enrollment:'qualified',postgres_runtime:'qualified',source_commit:'0'.repeat(40),release_digest:'sha256:'+'0'.repeat(64)}
     }})
     assert.equal(ok(await ingress.handlePublic('owner.status',callInput,callContext)).status,'PROPOSED')
-    const review=await ui.prepareApproval(operation),approved=await ui.approve(review)
+    assert.deepEqual(proposed.memory_capture,{statement:input.statement,attributed_to:'owner'})
+    assert.equal(operation.canonical_parameters.statement,input.statement)
+    assert.equal(operation.canonical_parameters.attributed_to,'owner')
+    await assert.rejects(ui.prepareApproval(operation),error=>error.code==='TARGET_MISMATCH')
+    await assert.rejects(ui.prepareApproval(operation,{memoryCapture:{statement:'changed display',attributed_to:'owner'}}),error=>error.code==='TARGET_MISMATCH')
+    await assert.rejects(ui.prepareApproval(operation,{memoryCapture:{statement:input.statement,attributed_to:'agent'}}),error=>error.code==='TARGET_MISMATCH')
+    assert.equal(signerCalls,1,'missing/altered review draft must never reach the signer after login')
+    const review=await ui.prepareApproval(operation,{memoryCapture:proposed.memory_capture}),approved=await ui.approve(review)
+    assert.equal(signerCalls,2)
+    assert.deepEqual({statement:review.memory_review.statement,attributed_to:review.memory_review.attributed_to},proposed.memory_capture)
     assert.notEqual(approved.approval_proof.nonce,operation.nonce)
     const modified=await adapters.memory.save({...draft,operation:{...operation,canonical_parameters:{...operation.canonical_parameters,capture_sha256:'f'.repeat(64)}},approval_proof:approved.approval_proof})
     refused(modified)
     refused(await adapters.memory.save({...draft,extraction_json:JSON.stringify({...input,statement:'changed'}),operation,approval_proof:approved.approval_proof}))
+    // Bypass the browser adapter to exercise real D's under-lock literal checks.
+    for(const changed of [{statement:'changed displayed text'},{attributed_to:'agent'}]) {
+      refused(await bridge.handleTrusted('memory.save',{session_token:sessionToken,...draft,
+        operation:{...operation,canonical_parameters:{...operation.canonical_parameters,...changed}},approval_proof:approved.approval_proof},trusted))
+      assert.equal(ok(authority.status({session_token:sessionToken,operation_id:operation.operation_id})).status,'APPROVED')
+      assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_records').get().n,0)
+    }
     const saved=ok(await adapters.memory.save({...draft,operation,approval_proof:approved.approval_proof}))
+    const exactSaved=JSON.parse(saved.record.canonical_bytes)
+    assert.equal(exactSaved.statement,review.memory_review.statement)
+    assert.equal(exactSaved.attributedTo,review.memory_review.attributed_to)
     assert.equal(saved.record.storage_status,'saved');assert.equal(saved.record.index_status,'pending')
     assert.equal(saved.authority_settlement,'completed');assert.equal(saved.reconciliation_required,false)
     const statusInput={record_id:saved.record.record_id,revision:null}
@@ -122,7 +142,7 @@ test('real C/D post-dispatch interruption stays consumed and reconciles receipts
     const adapters=createUiAdapters({call:async(method,value)=>{const result=await bridge.handleTrusted(method,value,{role:'owner_control'});if(method==='owner.loginComplete'&&result.ok)sessionToken=result.session_token;return result}})
     const ui=createPrimeTransport({authority:adapters.authority,contracts,passkeySigner:({public_key})=>auth.assertion(public_key.challenge)})
     await ui.login({owner_id:ownerId})
-    const approve=async key=>{const draft={extraction_json:JSON.stringify(input),idempotency_key:key};const operation=ok(await adapters.memory.proposeSave(draft)).operation;const proof=(await ui.approve(await ui.prepareApproval(operation))).approval_proof;return {...draft,operation,approval_proof:proof}}
+    const approve=async key=>{const draft={extraction_json:JSON.stringify(input),idempotency_key:key};const proposed=ok(await adapters.memory.proposeSave(draft)),operation=proposed.operation;const proof=(await ui.approve(await ui.prepareApproval(operation,{memoryCapture:proposed.memory_capture}))).approval_proof;return {...draft,operation,approval_proof:proof}}
     const first=await approve('commit-reply-lost');pool.commitAfterEffect=true
     const unknown=refused(await adapters.memory.save(first));assert.equal(unknown.error_code,'OUTCOME_UNKNOWN');assert.equal(unknown.reconciliation_required,true)
     const state=ok(auth.service.status({session_token:sessionToken,operation_id:first.operation.operation_id}));assert.equal(state.status,'OUTCOME_UNKNOWN')

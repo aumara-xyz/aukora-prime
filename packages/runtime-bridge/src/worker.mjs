@@ -45,7 +45,7 @@ export async function startAuthorityWorker(config) {
     if(operation!==null) {
       requireMemoryOperation(operation,registry,identities,{factualOnly:factual.has(name)})
       if(wrapper.operation_digest!==contracts.operationDigest(operation))throw refuse('WORKER_OPERATION_DIGEST_REQUIRED')
-      if(name==='propose'&&contracts.canonicalJson(wrapper.input)!==contracts.canonicalJson(operation))throw refuse('WORKER_PROPOSAL_BINDING_REQUIRED')
+      if(name==='propose')closed(wrapper.input,['session_token','operation'])
       if(wrapper.input.operation&&contracts.canonicalJson(wrapper.input.operation)!==contracts.canonicalJson(operation))throw refuse('WORKER_OPERATION_BINDING_REQUIRED')
     } else if(wrapper.operation_digest!==null)throw refuse('WORKER_OPERATION_DIGEST_UNEXPECTED')
     if(live.has(name)) {
@@ -77,7 +77,7 @@ export async function startMemoryWorker(config) {
   let memory,pool,server
   const proxy=Object.freeze(Object.fromEntries(Object.entries(METHODS).map(([name,method])=>[name,async input=>{
     const detached=copy(input)
-    let operation=name==='propose'?detached:detached.operation??null
+    let operation=detached.operation??null
     if(name==='approvalComplete') {
       const proof=detached.proof
       operation=reviews.get(proof?.owner_id+'\0'+proof?.operation_id+'\0'+proof?.operation_digest)??null
@@ -97,7 +97,8 @@ export async function startMemoryWorker(config) {
     pool=await config.createPgPool()
     memory=createPostgresMemory({pool,authority:proxy,contracts,indexTarget:config.indexTarget,indexGeneration:config.indexGeneration})
     if(config.initializeSchema===true)await memory.migrate()
-    const localMemory=Object.freeze({...memory,async withAuthorityTargetObservation(host,operation,fn){
+    const localMemory=Object.freeze({prepareCaptureBinding:memory.prepareCaptureBinding,captureAuthorizedRemembered:memory.captureAuthorizedRemembered,
+      status:memory.status,cite:memory.cite,recall:memory.recall,async withAuthorityTargetObservation(host,operation,fn){
       const op=copy(operation),key=op.owner_id+'\0'+op.operation_id+'\0'+contracts.operationDigest(op)
       return memory.withAuthorityTargetObservation(host,op,async()=>{
         if(reviews.has(key))throw refuse('WORKER_REVIEW_SCOPE_REENTRANT')

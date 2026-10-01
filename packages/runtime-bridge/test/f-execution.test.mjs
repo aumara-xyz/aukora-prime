@@ -7,7 +7,7 @@ import {generateKeyPairSync,sign} from 'node:crypto'
 import {mkdtempSync,mkdirSync,readFileSync,realpathSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {createAuthorityService,loginSigningBytes,approvalSigningBytes} from '../../authority/src/index.mjs'
+import {createAuthorityService,provisionNewAuthorityStore,loginSigningBytes,approvalSigningBytes} from '../../authority/src/index.mjs'
 import {didKeyFromEd25519PublicKey} from '../../authority/upstream/plugins/aukora-aumlok/lib/did-key.mjs'
 import {operationDigest} from '../../contracts/src/runtime.mjs'
 import {OwnedLedger,executorRequestDigest} from '../../execution/src/index.mjs'
@@ -42,11 +42,12 @@ function authorityFixture() {
       data_scope:['public'],maximum_cost:{currency:'USD',amount:'0'}},
     authorizeTask:registry.authorizeTask,
     observeTarget:()=>({target_identity:clone(target),state_version:stateVersion})}
+  accepted(provisionNewAuthorityStore(config))
   const service=createAuthorityService(config)
   const challenge=accepted(service.loginChallenge({owner_id:identity.owner_id,kind:'owner_key'})).challenge
   const token=accepted(service.loginComplete({challenge,
     material:{kind:'owner_key',signature:sign(null,loginSigningBytes(challenge),keys.privateKey).toString('hex')}})).session_token
-  accepted(service.propose(r.operation))
+  accepted(service.propose({session_token:token,operation:r.operation}))
   const review=accepted(service.approvalChallenge({session_token:token,operation:r.operation}))
   const proof={...review.proof_template,material:{kind:'owner_key',request:review.approval_request,
     signature:sign(null,approvalSigningBytes(review.approval_request),keys.privateKey).toString('hex')}}

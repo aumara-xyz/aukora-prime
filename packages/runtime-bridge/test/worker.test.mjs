@@ -69,7 +69,8 @@ test('actual separate C/D worker processes preserve real passkey + locked observ
     await ui.login({owner_id:fixture.identity.owner_id})
     const draft={extraction_json:JSON.stringify({category:'fact',statement:'banana',validFrom:'2026-10-01',observedAt:at,confidence:0.7,sensitivity:'none'}),idempotency_key:'worker-synthetic-save'}
     const proposed=await adapters.memory.proposeSave(draft);assert.equal(proposed.ok,true,JSON.stringify(proposed))
-    const approved=await ui.approve(await ui.prepareApproval(proposed.operation))
+    assert.deepEqual(proposed.memory_capture,{statement:'banana',attributed_to:'owner'})
+    const approved=await ui.approve(await ui.prepareApproval(proposed.operation,{memoryCapture:proposed.memory_capture}))
     const saved=await adapters.memory.save({...draft,operation:proposed.operation,approval_proof:approved.approval_proof})
     assert.equal(saved.ok,true,JSON.stringify(saved));assert.equal(saved.authority_settlement,'completed');assert.equal(saved.record.storage_status,'saved');assert.equal(saved.record.index_status,'pending')
     const record=saved.record,read={record_id:record.record_id,revision:null}
