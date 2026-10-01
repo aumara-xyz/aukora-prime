@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Closed ordinary source profile. Expected check-source pins were reviewed from
-// H's clean 795f32337dd27848eaf85952b70ab86a27c54b24 checkout; never derive-and-pass.
+// H's clean bceed00be4148507a7353725aff70da39823706b checkout; never derive-and-pass.
+// Publication correspondence only: original review preceded privacy redactions.
+// Check-source pins remain the independently reviewed bytes; this is no new runtime receipt.
 // No authority audit, wildcard, shell, package manager, live service or guest call.
 export const NODE_VERSION = 'v24.11.1'
-export const SOURCE_REVIEW_COMMIT = '795f32337dd27848eaf85952b70ab86a27c54b24'
+export const SOURCE_REVIEW_COMMIT = 'bceed00be4148507a7353725aff70da39823706b'
 const frozen = row => Object.freeze({...row, args: Object.freeze(row.args ?? []),
   nodeArgs: Object.freeze(row.unsupportedReason ? [] : ['--max-old-space-size=512', ...(row.nodeArgs ?? [])]),
   pins: Object.freeze((row.pins ?? []).map(Object.freeze))})

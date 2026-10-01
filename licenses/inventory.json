@@ -1305,5 +1305,7 @@
     "pg_lock_sha256": "a2bace04322eef963b4ae155fe2d7ba6c49ac33fe56d5b8008ccd27e27c1dbfc",
     "genuine_new_build": "UNPERFORMED",
     "foundation_adaptation": "packages/ui/foundation/prime-import-manifest.json"
-  }
+  },
+  "original_source_commit_scope": "Historical private pre-rewrite source. Original inventory rows and exact notices retained; corresponding sanitized source is separately identified.",
+  "corresponding_sanitized_source_commit": "0ce8a13aeb95762c7397a22af0f058ac87f3f9ad"
 }
