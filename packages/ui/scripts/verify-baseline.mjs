@@ -3,11 +3,12 @@ import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { resolve, sep } from 'node:path'
 import { faces } from '../adapters/mount-plan.mjs'
+import { baselineFileRecords } from '../../../harness/release-integrity.mjs'
 
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const manifest = JSON.parse(await readFile(new URL('../baseline-manifest.json', import.meta.url), 'utf8'))
 let bytes = 0
-for (const item of manifest.files) {
+for (const item of baselineFileRecords(manifest)) {
   const path = resolve(root, item.path)
   if (!path.startsWith(root + sep) && path !== root) throw new Error(`baseline:path-escape:${item.path}`)
   const stat = await lstat(path)
@@ -27,6 +28,9 @@ for (const face of faces) {
 }
 console.log(JSON.stringify({
   result: 'PASS', donor: manifest.commit, faces: faces.length,
-  files: manifest.files.length, bytes, source_asset_diff: 0,
+  files: manifest.files.length, bytes, source_asset_diff: manifest.source_adaptations?.length ?? 0,
+  exact_donor_files: manifest.files.length - (manifest.source_adaptations?.length ?? 0),
+  source_adaptations: manifest.source_adaptations?.length ?? 0, served_asset_diff: 0,
+  build_qualification: 'historical donor bundles and input records; no new compilation',
   runtime_parity: 'UNPERFORMED: pinned harness and browser composition required',
 }))

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createStaticAppRoutes } from '../adapters/static-assets.mjs'
+import { baselineFileRecords } from '../../../harness/release-integrity.mjs'
 
 const appRoot = fileURLToPath(new URL('../faces/apps/', import.meta.url))
 const routes = await createStaticAppRoutes({ appRoot })
@@ -38,6 +39,17 @@ assert(raw.includes('const isUnlocked = (day, s) =>'))
 assert.equal((await call('/app/auma/auma.js')).body.toString(), raw)
 assert.equal(await readFile(join(appRoot, 'vendor/auma-lingwa/runtime/app/auma/auma.js'), 'utf8'), raw)
 const manifest = JSON.parse(await readFile(new URL('../baseline-manifest.json', import.meta.url), 'utf8'))
+baselineFileRecords(manifest)
+const adaptationRefused = reason => error => error.code === 'PRIME_UI_INTEGRITY' && error.reason === reason
+const omittedAdaptation = structuredClone(manifest); delete omittedAdaptation.source_adaptations
+assert.throws(() => baselineFileRecords(omittedAdaptation), adaptationRefused('baseline-adaptation-missing'))
+for (const field of ['donor', 'current']) {
+  const changed = structuredClone(manifest); changed.source_adaptations[0][field].sha256 = '0'.repeat(64)
+  assert.throws(() => baselineFileRecords(changed), adaptationRefused('baseline-adaptation-pin'))
+}
+const omittedSource = structuredClone(manifest)
+omittedSource.files = omittedSource.files.filter(item => item.path !== omittedSource.source_adaptations[0].path)
+assert.throws(() => baselineFileRecords(omittedSource), adaptationRefused('baseline-adaptation-binding'))
 await assert.rejects(createStaticAppRoutes({ appRoot, manifest: { ...manifest, commit: 'wrong' } }), /donor mismatch/)
 const first = manifest.files.find(item => item.path === 'faces/apps/vendor/auma-lingwa/runtime/auma-lingwa.html')
 await assert.rejects(createStaticAppRoutes({ appRoot, manifest: { ...manifest, files: [{ ...first, sha256: '0'.repeat(64) }] } }), /baseline changed/)
@@ -48,5 +60,6 @@ try {
   await symlink(join(temp, 'fixture'), join(temp, 'vendor/auma-lingwa/runtime/auma-lingwa.html'))
   await assert.rejects(createStaticAppRoutes({ appRoot: temp, manifest: { ...manifest, files: [first] } }), /symlink refused/)
 } finally { await rm(temp, { recursive: true, force: true }) }
-console.log(JSON.stringify({ result: 'PASS', routes: routes.length, fixture_groups: 5, source_asset_diff: 0,
+console.log(JSON.stringify({ result: 'PASS', routes: routes.length, fixture_groups: 5, adaptation_refusals: 4,
+  source_asset_diff: manifest.source_adaptations.length, served_asset_diff: 0,
   effects: 'none', connection_gate: 'H must wrap each returned handler before registration', runtime_parity: 'UNPERFORMED' }))

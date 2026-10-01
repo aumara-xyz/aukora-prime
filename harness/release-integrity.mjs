@@ -48,7 +48,27 @@ async function pinned(root,entry){const bytes=await bytesAt(root,entry.path);if(
 async function pin(root,path){const bytes=await bytesAt(root,path);return {path,bytes:bytes.length,sha256:sha(bytes)}}
 // Manifest JSON is bounded and duplicate keys are refused before JSON.parse.
 function json(bytes){if(bytes.length>8388608)fail('manifest-too-large');const text=bytes.toString('utf8');if(!Buffer.from(text).equals(bytes))fail('manifest-utf8');let i=0;const ws=()=>{while(/\s/.test(text[i]??'')&&i<text.length)i++};function string(){const start=i++;while(i<text.length){const char=text[i++];if(char==='\\'){i++;continue}if(char==='"')return JSON.parse(text.slice(start,i))}fail('manifest-json')};function value(depth=0){if(depth>64)fail('manifest-depth');ws();if(text[i]==='"'){string();return}if(text[i]==='{'){i++;ws();const seen=new Set();if(text[i]==='}'){i++;return}while(true){ws();if(text[i]!=='"')fail('manifest-json');const name=string();if(seen.has(name))fail('manifest-duplicate-key');seen.add(name);ws();if(text[i++]!==':')fail('manifest-json');value(depth+1);ws();if(text[i]==='}'){i++;return}if(text[i++]!==',')fail('manifest-json')}}if(text[i]==='['){i++;ws();if(text[i]===']'){i++;return}while(true){value(depth+1);ws();if(text[i]===']'){i++;return}if(text[i++]!==',')fail('manifest-json')}}const match=/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(text.slice(i));if(!match)fail('manifest-json');i+=match[0].length}try{value();ws();if(i!==text.length)fail('manifest-json');return JSON.parse(text)}catch(error){if(error.code==='PRIME_UI_INTEGRITY')throw error;fail('manifest-json')}}
-function servedFaces(manifest){if(manifest.schema_version!==1||manifest.commit!==DONOR||JSON.stringify(manifest.faces)!==JSON.stringify(FACES))fail('donor-pin');const all=items(manifest.files);const served=all.filter(entry=>{const parts=entry.path.split('/');return parts[0]==='faces'&&FACES.includes(parts[1])&&['package.json','lib','assets','vendor'].includes(parts[2])});for(const face of FACES)if(!served.some(x=>x.path===`faces/${face}/lib/client.js`))fail('face-client-missing',face);return {all,served}}
+export function baselineFileRecords(manifest){
+ const records=items(manifest.files),adaptations=manifest.source_adaptations??[]
+ if(!Array.isArray(adaptations)||adaptations.length>1)fail('baseline-adaptation-set')
+ const original=records.find(entry=>entry.path==='faces/apps/src/vendor/organism.ts')
+ if(!adaptations.length&&original&&(original.bytes!==33076||original.sha256!=='a2c2de1e4599f68b01712cb2aaec0bf7d51bddd216326611030997fbaad61a6c'))fail('baseline-adaptation-missing')
+ if(adaptations.length){
+  const adaptation=adaptations[0]
+  keys(adaptation,['path','kind','donor','current','scope','build_qualification'])
+  keys(adaptation.donor,['bytes','sha256','git_blob_sha1']);keys(adaptation.current,['bytes','sha256'])
+  if(adaptation.path!=='faces/apps/src/vendor/organism.ts'||adaptation.kind!=='private-comment-redaction'
+   ||adaptation.donor.bytes!==33076||adaptation.donor.sha256!=='a2c2de1e4599f68b01712cb2aaec0bf7d51bddd216326611030997fbaad61a6c'
+   ||adaptation.donor.git_blob_sha1!=='7000e803d7ddc9dbb8570f60bdf75e1537d717d5'
+   ||adaptation.current.bytes!==32882||adaptation.current.sha256!=='e88fd0cfa5496aa02fe617b3a1ac039a94d4ae1889e36f298c27c0837817e810'
+   ||typeof adaptation.scope!=='string'||!adaptation.scope||typeof adaptation.build_qualification!=='string'||!adaptation.build_qualification)fail('baseline-adaptation-pin')
+  const current=records.find(entry=>entry.path===adaptation.path)
+  if(!current||current.bytes!==adaptation.current.bytes||current.sha256!==adaptation.current.sha256
+   ||manifest.files.find(entry=>entry.path===adaptation.path).role!=='source')fail('baseline-adaptation-binding')
+ }
+ return records
+}
+function servedFaces(manifest){if(manifest.schema_version!==1||manifest.commit!==DONOR||JSON.stringify(manifest.faces)!==JSON.stringify(FACES))fail('donor-pin');const all=baselineFileRecords(manifest);const served=all.filter(entry=>{const parts=entry.path.split('/');return parts[0]==='faces'&&FACES.includes(parts[1])&&['package.json','lib','assets','vendor'].includes(parts[2])});for(const face of FACES)if(!served.some(x=>x.path===`faces/${face}/lib/client.js`))fail('face-client-missing',face);return {all,served}}
 function faceReleasePath(path){const [,face,...rest]=path.split('/');return `plugins/aukora-face-${face}/${rest.join('/')}`}
 async function walk(root,prefix){await subRoot(root,prefix);const result=[];for(const dirent of await readdir(join(root,prefix),{withFileTypes:true})){const path=prefix+'/'+dirent.name;if(dirent.isSymbolicLink())fail('file-symlink',path);if(dirent.isDirectory())result.push(...await walk(root,path));else if(dirent.isFile())result.push(path);else fail('not-regular-file',path)}return result.sort()}
 function sameList(left,right){return JSON.stringify(left.map(item).sort((a,b)=>a.path.localeCompare(b.path)))===JSON.stringify(right.map(item).sort((a,b)=>a.path.localeCompare(b.path)))}

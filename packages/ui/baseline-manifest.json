@@ -14,7 +14,7 @@
     "documents",
     "settings"
   ],
-  "source_asset_policy": "unchanged byte copies; adapters live outside faces/",
+  "source_asset_policy": "366 selected files retain exact donor bytes; one Apps source file has a comment-only publication privacy adaptation; adapters live outside faces/",
   "public_main_observed": "645d3213b8aede3b544269b4224ae09df06b0a42",
   "pending_items": [
     {
@@ -1253,8 +1253,8 @@
     {
       "source": "plugins/aukora-face/apps/src/vendor/organism.ts",
       "path": "faces/apps/src/vendor/organism.ts",
-      "bytes": 33076,
-      "sha256": "a2c2de1e4599f68b01712cb2aaec0bf7d51bddd216326611030997fbaad61a6c",
+      "bytes": 32882,
+      "sha256": "e88fd0cfa5496aa02fe617b3a1ac039a94d4ae1889e36f298c27c0837817e810",
       "role": "source"
     },
     {
@@ -3292,10 +3292,11 @@
   ],
   "donor_bundle_source_freshness": {
     "apps": {
-      "result": "MATCH",
+      "result": "HISTORICAL_MATCH",
       "srcDigest": "4be10a33aac25d9bb7bdb44631ebd87f619a9a4bb7f99ff94c8d63c440aeb5f8",
       "builtAt": "2026-10-01T07:19:28Z",
-      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+      "scope": "complete original donor input set, before selected historical vendor pruning and the publication privacy comment adaptation; not a current-source or rebuilt Prime bundle claim",
+      "current_source_qualification": "SOURCE-ONLY: one comment adaptation; historical srcDigest was not regenerated; no new build receipt"
     },
     "aumlok": {
       "result": "MATCH",
@@ -3345,5 +3346,22 @@
       "builtAt": "2026-09-30T07:50:42Z",
       "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
     }
-  }
+  },
+  "source_adaptations": [
+    {
+      "path": "faces/apps/src/vendor/organism.ts",
+      "kind": "private-comment-redaction",
+      "donor": {
+        "bytes": 33076,
+        "sha256": "a2c2de1e4599f68b01712cb2aaec0bf7d51bddd216326611030997fbaad61a6c",
+        "git_blob_sha1": "7000e803d7ddc9dbb8570f60bdf75e1537d717d5"
+      },
+      "current": {
+        "bytes": 32882,
+        "sha256": "e88fd0cfa5496aa02fe617b3a1ac039a94d4ae1889e36f298c27c0837817e810"
+      },
+      "scope": "Only historical private session metadata in a block comment was redacted. Bytes outside the comment are unchanged; selected served assets and donor bundles are unchanged.",
+      "build_qualification": "SOURCE-ONLY: no new compilation or runtime qualification. The Apps lib/.build-inputs.json retains its historical original-donor input digest and timestamp."
+    }
+  ]
 }
