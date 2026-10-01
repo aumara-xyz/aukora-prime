@@ -10,6 +10,15 @@ Root A/H forwards `./prime check G1` to:
 node packages/ops/cli.mjs check G1 --root . --evidence-dir /tmp/prime-evidence
 ```
 
+Optional disposable DSH launch handshake: add `--ui-launch-access true`. The runner
+opens only the status-named private `.prime-state/launch-url.json`, checks owner/mode,
+PID and the sanitized localhost origin, requests the token URL with manual redirects,
+keeps its host-only HttpOnly/SameSite=Strict cookie in memory, and then requests the
+clean base URL. It never prints/persists the raw launch URL, token or cookie. An
+explicit alternate private file can be selected with `--ui-access-file /named/private/launch-url.json`
+and must match status. No directory scan or credential-store import occurs. This is
+DSH disposable launch access, not owner-key/passkey authentication; G2 stays PENDING.
+
 PASS exits 0, FAIL 1, PENDING 2. G1 reads `./prime status --json`, observes its PID,
 recomputes the reported release digest and fetches only its local HTML endpoint.
 It reports the running observations separately from the complete acceptance gate.

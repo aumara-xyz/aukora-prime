@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { fullTreeDigest, runGate, evaluatorDigest } from './gates.mjs'
+import { createServer } from 'node:http'
+import { fullTreeDigest, runGate, evaluatorDigest, observeLocalUi } from './gates.mjs'
 import { runOwned } from './owned-process.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -87,8 +88,56 @@ try {
   const ev = JSON.parse(readFileSync(result.evidence_path, 'utf8'))
   assert.ok(ev.cases[0].findings.includes('CANDIDATE_VERDICT_NOT_EVIDENCE'))
   assert.equal(ev.cases[1].status, 'PENDING')
+  // Disposable local DSH-shaped exchange: verifies evaluator cookie handling, not DSH/owner authority.
+  const state = join(candidate, '.prime-state'); mkdirSync(state, { mode: 0o700 })
+  const access = join(state, 'launch-url.json')
+  let requests = 0, cookie, redirect = '/'
+  const server = createServer((req, res) => {
+    requests++
+    if (req.url === '/?token=synthetic-launch-token') {
+      res.writeHead(303, { location: redirect, 'set-cookie': `${cookie}; Max-Age=60; Path=/; HttpOnly; SameSite=Strict` }); res.end(); return
+    }
+    if (req.url === '/' && req.headers.cookie === cookie) {
+      res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Disposable ops fixture</title>'); return
+    }
+    res.writeHead(401); res.end()
+  })
+  try {
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
+    const base = `http://127.0.0.1:${server.address().port}/`
+    cookie = `dsh-auth-${createHash('sha256').update(new URL(base).host).digest('base64url')}=v1.syntheticbody.syntheticsignature`
+    const uiStatus = { pid: process.pid, ui_url: base, ui_access_file: access }
+    const save = (value) => writeFileSync(access, JSON.stringify(value), { mode: 0o600 })
+    save({ url: base + '?token=synthetic-launch-token', pid: process.pid })
+    assert.equal((await observeLocalUi(candidate, uiStatus)).http.status, 401)
+    const observed = await observeLocalUi(candidate, uiStatus, { uiLaunchAccess: true })
+    assert.equal(observed.status, 'OBSERVED'); assert.equal(observed.http.status, 200)
+    assert.equal(observed.auth.owner_passkey, 'NOT_VERIFIED')
+    assert.ok(!JSON.stringify(observed).includes('synthetic-launch-token')); assert.ok(!JSON.stringify(observed).includes(cookie))
+    assert.equal((await observeLocalUi(candidate, uiStatus)).http.status, 401)
+    const beforeWrongPid = requests
+    save({ url: base + '?token=synthetic-launch-token', pid: process.pid + 1 })
+    assert.equal((await observeLocalUi(candidate, uiStatus, { uiLaunchAccess: true })).blocker, 'UI_ACCESS_PID_OR_FORMAT_MISMATCH')
+    assert.equal(requests, beforeWrongPid)
+    save({ url: 'http://127.0.0.1:1/?token=synthetic-launch-token', pid: process.pid })
+    assert.equal((await observeLocalUi(candidate, uiStatus, { uiLaunchAccess: true })).blocker, 'UI_LAUNCH_ORIGIN_OR_FORMAT_MISMATCH')
+    assert.equal(requests, beforeWrongPid)
+    save({ url: base + '?token=synthetic-launch-token', pid: process.pid }); chmodSync(access, 0o644)
+    assert.equal((await observeLocalUi(candidate, uiStatus, { uiLaunchAccess: true })).blocker, 'UI_ACCESS_FILE_NOT_PRIVATE')
+    assert.equal(requests, beforeWrongPid); chmodSync(access, 0o600)
+    redirect = 'http://127.0.0.1:1/'
+    assert.equal((await observeLocalUi(candidate, uiStatus, { uiLaunchAccess: true })).blocker, 'UI_LAUNCH_HANDSHAKE_MISMATCH')
+    assert.equal(requests, beforeWrongPid + 1)
+    const g1 = await runGate('G1', { root: candidate, evidenceDir: evidence, uiLaunchAccess: true, disposableHome: temp })
+    assert.equal(g1.status, 'PENDING')
+    assert.ok(!readFileSync(g1.evidence_path, 'utf8').includes('synthetic-launch-token'))
+  } finally {
+    server.closeAllConnections()
+    await new Promise(resolve => server.close(resolve))
+  }
   console.log(JSON.stringify({ status: 'PASS', scope: 'ops packaging/digest/data-staging/redaction/owned-cancel/evaluator refusal only',
-    prime_gates: 'NOT_PERFORMED', other_repos: 'NOT_ACCESSED', network: 'NOT_USED', live_app_changed: false }))
+    launch_handshake: 'DISPOSABLE_LOCAL_FIXTURE_PASS', prime_gates: 'NOT_PERFORMED', other_repos: 'NOT_ACCESSED',
+    network: 'DISPOSABLE_LOOPBACK_ONLY', live_app_changed: false }))
 } finally {
   // Delete only the disposable directory created by this invocation.
   rmSync(temp, { recursive: true, force: true })
