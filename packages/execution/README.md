@@ -10,6 +10,10 @@ Qualification requires a closed record binding the exact SDK/image/policy/worksp
 
 The operation uses action `shell.bash.foreground`. Closed target fields are `backend,workspace,image_digest,policy_digest,logical_workspace_root`. Closed canonical parameters are `command,workdir,sandbox_mode,stdin,env,dsh_env,timeout_ms,max_output_bytes`. Omitted stdin/env/dsh_env map to empty string/maps at the trusted boundary. `policyDigest(mode)` identifies the exact camel-case protobuf guest policy, distinct from the gateway's admission hash.
 
+C/F unknown-outcome recovery retains the factual receipt, consumed grant, launch fences, settlement outbox and evidence. A complete typed result durably recorded before process loss can be reconciled after independently observed owned cleanup. A lost RPC completion remains unknown. The pinned ExecSandbox protocol provides a launch fence, not reattachment or replay of output; this package has no trusted result-lookup adapter. Any future result evidence must come from a trusted SDK/control-plane record bound to the original request, sandbox, immutable deployment and ledger, preserving prior typed exit/output/start evidence. Stdout text and logs do not establish RPC completion.
+
+A future `execution.abandon_unknown` is a separately reviewed C-owned owner action, currently UNIMPLEMENTED. Its fresh step-up proof would bind `store_id`, owner ID/subject and current epoch, exact operation/grant/request/receipt digests, immutable deployment/ledger identity and independent cleanup/late-create fencing evidence. A disposition would remain separate from the factual `OUTCOME_UNKNOWN` receipt. Cleanup, ownership or late-creation uncertainty prevents disposition. Confirmed absence proves termination and does not prove absence of prior external effects; the owner would explicitly accept that residual risk before an independent new operation obtains fresh approval. Original jobs/grants remain permanently fenced, with no reuse, relaunch or unconsumption. There is no acknowledgement/abandonment implementation or clearing endpoint in this repair.
+
 One local SQLite database holds an OS-released exclusive live-process lease while a separate FULL-sync database saves create/exec/delete fences, ownership and bounded output/exit checkpoints. An ordered durable settlement outbox delivers every receipt to C, including reconciliation invoked internally before a new admission. Lost replies repeat only the exact receipt delivery, which C treats idempotently; changed later evidence uses `reconcileSettlement`. Cleanup-complete but unsettled receipts remain recoverable. Acknowledged `OUTCOME_UNKNOWN` effects still block admission until factual reconciliation, and commands are never relaunched.
 
 Cancellation records C intent and requests abort, then performs owned cleanup independently of the canceled SDK RPC. Only a recorded cancellation with proven no execution (`rpc_completion=not_started`, `started_at=null`, `exit_code=null`) and `not_created`/`confirmed_absent` can claim cancelled. Started execution with lost RPC completion remains outcome_unknown even after cleanup: termination does not prove the command's prior effects. A drained typed result remains completed/failed after late abort. Typed exit 1 output is retained; stdout text never determines exit. DSH nonzero drained results resolve, while infrastructure/settlement uncertainty rejects with retained receipts.
@@ -22,6 +26,7 @@ Run the scoped disposable checks from the integrated Prime root:
 
     node packages/execution/checks/protocol.mjs
     node packages/execution/checks/controls.mjs
+    node packages/execution/checks/mechanisms.mjs
     node packages/execution/checks/joined.mjs
     python3 packages/execution/checks/mutations.py
 
