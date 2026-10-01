@@ -20,8 +20,11 @@ Disposable checks:
 
 ```sh
 node packages/ui/prime-authority/checks/controller.mjs packages/contracts/src/browser.mjs
+node packages/ui/prime-authority/checks/render.mjs vendor/dsh packages/contracts/src/browser.mjs
 node packages/ui/prime-authority/checks/render-fixture.mjs --dsh vendor/dsh --client-dist .runtime/client-dist --contracts packages/contracts/src --output .runtime/owner-fixture
 node packages/ui/prime-authority/checks/serve-fixture.mjs .runtime/owner-fixture
 ```
 
 The generated fixture loads the actual production client factory and frozen native primitives with pinned React 18.3.1, but injects explicitly synthetic C-shaped responses and assertions. Its permanent banner identifies these as synthetic; no credential is enrolled or requested, no real identity is authenticated, and no operation is executed. It is excluded from the production client bundle. Browser checks use visible controls to verify pending host confirmation, full exact rendering, approval, denial, expiry, and an unknown reply. Stop only the named fixture server after checks.
+
+`render.mjs` separately checks five native-component server-render groups: all exact fields, literal markup escaping, no token/signature leak, disabled duplicate approval, pending login without identity claim, denial, expiry, and an unknown result with retry disabled. This is component render evidence; it does not substitute for browser observation or real owner authentication.

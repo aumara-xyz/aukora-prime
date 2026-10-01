@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {pathToFileURL} from 'node:url'
 import {createPrimeOwnerController,createHttpAuthority} from '../src/client/controller.mjs'
 import {createOwnerUiFixture} from './fixture.mjs'
-const contracts = await import(process.argv[2] ? pathToFileURL(process.argv[2]).href : '@aukora-prime/contracts')
+const contracts = await import(process.argv[2] ? pathToFileURL(process.argv[2]).href : new URL('../../../contracts/src/runtime.mjs', import.meta.url).href)
 let clock = Date.parse('2030-01-01T00:00:00Z')
 const make = options => {const binding=createOwnerUiFixture(contracts,{now:()=>clock,...options});const controller=createPrimeOwnerController({now:()=>clock});controller.connect(binding);return {binding,controller}}
 let cases=0
