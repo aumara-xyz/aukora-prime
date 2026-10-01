@@ -19,8 +19,10 @@ explicit alternate private file can be selected with `--ui-access-file /named/pr
 and must match status. No directory scan or credential-store import occurs. This is
 DSH disposable launch access, not owner-key/passkey authentication; G2 stays PENDING.
 
-PASS exits 0, FAIL 1, PENDING 2. G1 reads `./prime status --json`, observes its PID,
-recomputes the reported release digest and fetches only its local HTML endpoint.
+PASS exits 0, FAIL 1, PENDING 2. G1 reads status through the equivalent
+`process.execPath root/harness/cli.mjs status --json` call, so the scrubbed child PATH
+need not contain the approved user-local Node binary. It observes the PID, recomputes
+the reported release digest and fetches only the local HTML endpoint.
 It reports the running observations separately from the complete acceptance gate.
 Source path/disk hashes are host observations, not loaded-memory attestation.
 No status flag or installation marker alone passes G1. Unsupported/unconnected gates

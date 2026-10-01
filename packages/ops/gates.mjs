@@ -145,17 +145,18 @@ export async function observeLocalUi(root, status, options = {}) {
 }
 
 async function observeG1(root, options) {
-  const command = join(root, 'prime')
+  const command = join(root, 'harness', 'cli.mjs')
   let entry
-  try { entry = lstatSync(command) } catch { return { status: 'PENDING', blocker: 'ROOT_PRIME_ENTRY_UNAVAILABLE' } }
-  if (!entry.isFile() || !(entry.mode & 0o111)) return { status: 'PENDING', blocker: 'ROOT_PRIME_ENTRY_NOT_EXECUTABLE' }
-  const result = await runOwned(command, ['status', '--json'], { cwd: root, timeoutMs: 10_000, home: options.disposableHome, tmpdir: options.disposableHome })
+  try { entry = lstatSync(command) } catch { return { status: 'PENDING', blocker: 'ROOT_STATUS_ENTRY_UNAVAILABLE' } }
+  if (!entry.isFile()) return { status: 'PENDING', blocker: 'ROOT_STATUS_ENTRY_NOT_REGULAR' }
+  // Keep the scrubbed child environment; status uses this evaluator's explicit Node.
+  const result = await runOwned(process.execPath, [command, 'status', '--json'], { cwd: root, timeoutMs: 10_000, home: options.disposableHome, tmpdir: options.disposableHome })
   const execution = { exit_code: result.exit_code, completion: result.completion, timed_out: result.timed_out,
     output_overflow: result.output_overflow, token_leak: result.token_leak, error: result.error, status_output: 'NOT_RETAINED' }
   if (result.error || result.timed_out) return { status: 'PENDING', blocker: 'ROOT_STATUS_UNAVAILABLE', execution }
   if (result.token_leak) return { status: 'FAIL', blocker: 'TOKEN_IN_STATUS_OUTPUT', execution }
   let status
-  try { status = JSON.parse(result.stdout) } catch { return { status: 'FAIL', blocker: 'INVALID_STATUS_JSON', execution: result } }
+  try { status = JSON.parse(result.stdout) } catch { return { status: 'FAIL', blocker: 'INVALID_STATUS_JSON', execution } }
   const observation = statusObservation(status)
   if (status.status !== 'running') return { status: 'PENDING', blocker: 'PRIME_NOT_RUNNING', observation }
   const required = ['pid', 'version', 'ui_url', 'release_dir', 'release_digest', 'unavailable_capabilities']

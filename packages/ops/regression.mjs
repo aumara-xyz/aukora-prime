@@ -88,6 +88,15 @@ try {
   const ev = JSON.parse(readFileSync(result.evidence_path, 'utf8'))
   assert.ok(ev.cases[0].findings.includes('CANDIDATE_VERDICT_NOT_EVIDENCE'))
   assert.equal(ev.cases[1].status, 'PENDING')
+  // The shell wrapper may lack Node in its scrubbed PATH; G1 must use evaluator Node.
+  writeFileSync(join(candidate, 'prime'), '#!/bin/sh\nprintf \'wrapper-must-not-run\\n\' >&2\nexit 127\n'); chmodSync(join(candidate, 'prime'), 0o755)
+  mkdirSync(join(candidate, 'harness'))
+  writeFileSync(join(candidate, 'harness/cli.mjs'), 'if(process.argv.slice(2).join(",")!=="status,--json")process.exit(1);console.log(JSON.stringify({status:"stopped",pid:null,version:"fixture",ui_url:null,release_dir:null,release_digest:null,unavailable_capabilities:[]}));\n', { mode: 0o644 })
+  const statusGate = await runGate('G1', { root: candidate, evidenceDir: evidence, disposableHome: temp })
+  assert.equal(statusGate.status, 'PENDING'); assert.equal(statusGate.running_status, 'stopped')
+  assert.equal(statusGate.running_blocker, 'PRIME_NOT_RUNNING')
+  const statusEvidence = JSON.parse(readFileSync(statusGate.evidence_path, 'utf8'))
+  assert.equal(statusEvidence.running_observation.observation.version, 'fixture')
   // Disposable local DSH-shaped exchange: verifies evaluator cookie handling, not DSH/owner authority.
   const state = join(candidate, '.prime-state'); mkdirSync(state, { mode: 0o700 })
   const access = join(state, 'launch-url.json')
