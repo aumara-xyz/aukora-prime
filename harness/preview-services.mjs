@@ -15,7 +15,7 @@ export class PreviewCredentials extends CredentialProvider {
  modifyRecord=async(key,mutate)=>{if(key!==browserKey||this.#record!==undefined)return unavailable();const next=await mutate(undefined);if(next?.kind!=='grant'||next?.payload?.version!==1||typeof next.payload.secret!=='string')return unavailable();this.#record=structuredClone(next);return structuredClone(this.#record);};
 }
 export class PreviewSettings extends SettingsProvider {
- writable=true;#document={};
+ writable=true;#document={'ui-theme':{preference:'dark',fontSize:14}};
  load=()=>Promise.resolve(structuredClone(this.#document));
  persist=(ns,section)=>{if(!['ui-onboarding','ui-theme','locale'].includes(ns))return unavailable();this.#document[ns]=structuredClone(section);return Promise.resolve();};
 }
@@ -27,7 +27,7 @@ export class UnavailableUploads extends Service {
 export const previewReads=new Set(['session/list','session/search','session/modelCatalog','session/page','session/canOpenWorkspacePath','settings/describe','settings/canOpenAgentPresetDirectory','settings/canOpenDocument','llm/listProviders','llm/listConfigurableProviders','credentials/describe']);
 export function previewRpcAllowed(endpoint,payload) {
  if(previewReads.has(endpoint))return true;
- if(endpoint==='settings/update')return ['ui-onboarding','ui-theme','locale'].includes(payload?.ns);
+ if(['settings/update','settings/mutate'].includes(endpoint))return ['ui-onboarding','ui-theme','locale'].includes(payload?.args?.ns);
  return false;
 }
 export class PreviewGateway extends TypertGatewayService {

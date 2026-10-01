@@ -7,7 +7,7 @@ sandbox-policy approval permission shell-env commands goal token-meter tools sys
 workspace session-reference session-stats session-turn-outline session-controller settings-controller
 webserver web-runtime modules api-remotes
 ui-theme locale ui-renderer ui-session resources ui-sidebar-right ui-sidebar-documentpreview
-cordis-client-runner ui-workspace ui-settings ui-settings-models ui-settings-unarchive-sessions ui-conversation ui-approval ui-chat
+ui-settings ui-settings-models ui-settings-unarchive-sessions ui-conversation ui-approval ui-chat
 ui-brand-official ui-attachment ui-tool ui-input-trigger ui-commands ui-reference ui-message-feedback
 ui-model-selection ui-permission ui-user-questions ui-trajectory
 `.trim().split(/\s+/));
