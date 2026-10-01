@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {"rootDir":"src","outDir":"lib/types","tsBuildInfoFile":"lib/tsconfig.client.tsbuildinfo"},
+  "include": ["src/client","src/css-modules.d.ts"],
+  "references": [{"path":"../aukora-face-layout"},{"path":"../ui-slots"},{"path":"../ui-renderer"},{"path":"../locale"},{"path":"../../../vendor/cordis"}]
+}

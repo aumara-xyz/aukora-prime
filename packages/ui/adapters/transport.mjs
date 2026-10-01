@@ -187,6 +187,7 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       operation,
       operation_digest: digest,
       approval_expiry: proofTemplate.expiry,
+      review_challenge: request,
       // This is the complete exact operation, suitable for the existing approval seat.
       canonical_operation: canonicalJson(operation),
       rows: Object.keys(labels).map(key => ({ key, label: labels[key], value: operation[key], exact: canonicalJson(operation[key]) })),
