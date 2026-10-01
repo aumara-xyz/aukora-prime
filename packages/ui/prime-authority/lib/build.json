@@ -67,15 +67,15 @@
       "face": "prime-authority",
       "id": "@aukora/prime-authority-ui",
       "path": "prime-authority/client.js",
-      "bytes": 49272,
-      "sha256": "7ce6ee45b3a061953a94ae95525ad183f1ab836ce629588c3af2ee1265fe6c17"
+      "bytes": 50777,
+      "sha256": "c278d5367de1fb4cfbac9c4ea0eb4a0e18d6639fd9d1c2b0fa86c265f86752eb"
     },
     {
       "face": "prime-authority",
       "id": "@aukora/prime-authority-ui",
       "path": "prime-authority/client.js.map",
-      "bytes": 66592,
-      "sha256": "920aed14ac6f52350e71779b6d551cccecf092abe95b4a5708fd9db0ca9e33ea"
+      "bytes": 68925,
+      "sha256": "21cd9c6ab88527eee74bb98bf95fb13eeab6c6cacb1816bacfe83c7299daa2a5"
     }
   ]
 }

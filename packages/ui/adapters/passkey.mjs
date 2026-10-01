@@ -22,14 +22,32 @@ function decode(value) {
 }
 
 /** Existing-credential assertion only. This module has no credentials.create or enrollment route. */
-export function createBrowserPasskeySigner({ getCredential, contracts } = {}) {
+export function createBrowserPasskeySigner({ getCredential, contracts, profile, environment = globalThis } = {}) {
+  if (profile && typeof profile === 'object') profile = Object.freeze({ ...profile })
   const get = getCredential ?? (async options => {
-    if (typeof globalThis.navigator?.credentials?.get !== 'function') {
+    if (typeof environment.navigator?.credentials?.get !== 'function') {
       throw new PrimeTransportError('UNAVAILABLE', 'ui:passkey-api-unavailable')
     }
-    return globalThis.navigator.credentials.get(options)
+    return environment.navigator.credentials.get(options)
   })
   return async ({ purpose, request, public_key, signal }) => {
+    if (!profile || Object.keys(profile).sort().join(',') !== 'origin,profile,rp_id' ||
+        typeof profile.origin !== 'string' || typeof profile.rp_id !== 'string') {
+      throw new PrimeTransportError('UNAVAILABLE', 'ui:passkey-profile-unavailable')
+    }
+    let origin
+    try { origin = new URL(profile.origin) }
+    catch { throw new PrimeTransportError('UNAVAILABLE', 'ui:passkey-profile-unavailable') }
+    const validRp = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(profile.rp_id) &&
+      !/^\d+(?:\.\d+){3}$/.test(profile.rp_id)
+    const configuredHttps = profile.profile === 'https' && origin.protocol === 'https:' && validRp &&
+      (origin.hostname === profile.rp_id || origin.hostname.endsWith('.' + profile.rp_id))
+    const localhostPilot = profile.profile === 'localhost-pilot-v1' && profile.origin === 'http://localhost:18731' && profile.rp_id === 'localhost'
+    if (origin.origin !== profile.origin || (!configuredHttps && !localhostPilot) || environment.location?.origin !== profile.origin ||
+        environment.isSecureContext !== true || typeof environment.navigator?.credentials?.get !== 'function' ||
+        typeof environment.PublicKeyCredential !== 'function' || public_key?.rpId !== profile.rp_id) {
+      throw new PrimeTransportError('UNAVAILABLE', 'ui:passkey-browser-profile-unavailable')
+    }
     if (!public_key || public_key.userVerification !== 'required' ||
         typeof public_key.rpId !== 'string' || !public_key.rpId ||
         !Array.isArray(public_key.allowCredentials) || !public_key.allowCredentials.length) {

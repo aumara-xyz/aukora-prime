@@ -112,7 +112,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       binding = next
       try {
         transport = createPrimeTransport({ authority: next.authority, contracts: next.contracts,
-          ownerSigner: next.ownerSigner, passkeySigner: next.passkeySigner ?? createBrowserPasskeySigner({ contracts: next.contracts }), now })
+          ownerSigner: next.ownerSigner, passkeySigner: next.passkeySigner ?? createBrowserPasskeySigner({ contracts: next.contracts, profile:next.passkeyProfile }), now })
         const available = next.requiresCapabilities !== true
         notify({ phase: available ? 'logged_out' : 'unavailable', owner: null, owner_id: next.owner_id ?? '', presentation: null, operation_available: false,
           login_kinds: Object.freeze((next.loginKinds ?? ['passkey']).filter(kind => kind === 'passkey' || kind === 'owner_key')),

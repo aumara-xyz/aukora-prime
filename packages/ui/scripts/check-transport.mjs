@@ -131,7 +131,9 @@ let cases = 0
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('aukora-prime.owner-login.v1\0' + contracts.canonicalJson(request)))
   const public_key = { challenge: Buffer.from(digest).toString('base64url'), rpId: 'fixture.invalid',
     allowCredentials: [{ type: 'public-key', id: 'AQID' }], userVerification: 'required', timeout: 60000 }
-  const signer = createBrowserPasskeySigner({ contracts, getCredential: async ({ publicKey }) => {
+  const profile={profile:'https',origin:'https://fixture.invalid',rp_id:'fixture.invalid'}
+  const environment={location:{origin:profile.origin},isSecureContext:true,navigator:{credentials:{get:()=>{throw Error('Real browser API must not be called')}}},PublicKeyCredential:class {}}
+  const signer = createBrowserPasskeySigner({ contracts, profile, environment, getCredential: async ({ publicKey }) => {
     credentialCalls++
     assert.equal(publicKey.userVerification, 'required')
     assert.deepEqual([...publicKey.allowCredentials[0].id], [1, 2, 3])
@@ -144,6 +146,22 @@ let cases = 0
   await rejects(signer({ purpose: 'login', request, public_key: { ...public_key, challenge: 'AQID' } }), 'TARGET_MISMATCH')
   await rejects(signer({ purpose: 'login', request, public_key: null }), 'UNAVAILABLE')
   assert.equal(credentialCalls, 1)
+  for(const [changedProfile,changedEnvironment] of [
+    [undefined,environment],
+    [{profile:'localhost-pilot-v1',origin:'http://127.0.0.1:18731',rp_id:'localhost'},{...environment,location:{origin:'http://127.0.0.1:18731'}}],
+    [{profile:'localhost-pilot-v1',origin:'http://localhost:18732',rp_id:'localhost'},environment],
+    [profile,{...environment,isSecureContext:false}],
+    [profile,{...environment,PublicKeyCredential:undefined}],
+    [profile,{...environment,navigator:{}}],
+    [profile,{...environment,location:{origin:'https://other.invalid'}}],
+  ]) {
+    const unavailable=createBrowserPasskeySigner({contracts,profile:changedProfile,environment:changedEnvironment,getCredential:async()=>{credentialCalls++;throw Error('Must not run')}})
+    await rejects(unavailable({purpose:'login',request,public_key}),'UNAVAILABLE')
+  }
+  const pilot=createBrowserPasskeySigner({contracts,profile:{profile:'localhost-pilot-v1',origin:'http://localhost:18731',rp_id:'localhost'},
+    environment:{...environment,location:{origin:'http://localhost:18731'}},getCredential:async()=>null})
+  await rejects(pilot({purpose:'login',request,public_key:{...public_key,rpId:'localhost'}}),'CANCELLED')
+  assert.equal(credentialCalls,1)
   cases++
 }
 {

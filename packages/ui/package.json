@@ -9,6 +9,7 @@
     "./transport": "./adapters/transport.mjs",
     "./passkey": "./adapters/passkey.mjs",
     "./static-assets": "./adapters/static-assets.mjs",
+    "./provider-settings": "./adapters/provider-settings.mjs",
     "./owner-package": "./prime-authority/package.json",
     "./foundation-package": "./foundation/package.json",
     "./baseline-manifest": "./baseline-manifest.json",
