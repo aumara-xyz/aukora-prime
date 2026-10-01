@@ -4,17 +4,10 @@ import json,shutil,subprocess,sys,hashlib
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 source=root/'vendor/dsh'
-release=root/'.runtime/release'
+release=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else root/'.runtime/release'
+if not release.is_relative_to(root/'.runtime'):raise SystemExit('release-path-refused')
 subprocess.run([sys.executable,str(root/'scripts/build-dsh.py'),'--verify-built'],cwd=root,check=True)
 subprocess.run(['node',str(root/'packages/ui/scripts/verify-baseline.mjs')],cwd=root,check=True)
-client=root/'.runtime/client-dist'
-if not (client/'build.json').is_file(): raise SystemExit('client-build-required: node packages/ui/scripts/build-client.mjs --dsh vendor/dsh --output .runtime/client-dist')
-client_receipt=json.loads((client/'build.json').read_text())
-if client_receipt['source_commit']!='0d1f50007f9bca3f52b06e1c3074fa14d5fb0720' or client_receipt['source_lock_sha256']!='ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1' or client_receipt['overlay_lock_sha256']!=client_receipt['source_lock_sha256'] or client_receipt['legacy_hosts_mounted'] is not False: raise SystemExit('client-build-pin-mismatch')
-if hashlib.sha256((source/'.dsh-build/pinned-harness-build.json').read_bytes()).hexdigest()!=client_receipt['harness_receipt_sha256']: raise SystemExit('client-build-harness-receipt-mismatch')
-for artifact in client_receipt['artifacts']:
- path=client/artifact['path']
- if path.stat().st_size!=artifact['bytes'] or hashlib.sha256(path.read_bytes()).hexdigest()!=artifact['sha256']: raise SystemExit('client-build-artifact-mismatch: '+str(path))
 if release.exists(): raise SystemExit('release-exists: keep previous bytes; remove only this task-owned release before explicit rebuild')
 release.parent.mkdir(exist_ok=True)
 def ignored(directory,names):
@@ -28,26 +21,34 @@ for name in ['layout','sidebar','threads','apps','messages','memory','aumlok','d
   if (src/n).is_dir():shutil.copytree(src/n,dst/n,symlinks=True)
   elif (src/n).is_file():shutil.copy2(src/n,dst/n)
  shutil.copy2(root/'harness/ui-host.mjs',dst/'lib/prime-host.mjs')
- for artifact in client_receipt['artifacts']:
-  if artifact['face']==name: shutil.copy2(client/artifact['path'],dst/'lib'/Path(artifact['path']).name)
 shutil.copytree(root/'harness',release/'harness')
 for package in ['contracts','execution','authority','memory','inference']:
  shutil.copytree(root/'packages'/package,release/'prime-packages'/package,symlinks=True,ignore=lambda directory,names:[n for n in names if n in ['test','tests','checks'] or n in ['check.mjs','build-sdk.py']])
 ui=release/'prime-packages/ui';ui.mkdir(parents=True)
 shutil.copytree(root/'packages/ui/adapters',ui/'adapters')
 shutil.copy2(root/'packages/ui/baseline-manifest.json',ui/'baseline-manifest.json')
-shutil.copy2(client/'build.json',release/'prime-client-build.json')
+# The nine face bundles are immutable donor baseline bytes, never rebuilt substitutions.
+manifest=json.loads((root/'packages/ui/baseline-manifest.json').read_text())
+served=[]
+for item in manifest['files']:
+ parts=Path(item['path']).parts
+ if len(parts)<3 or parts[0]!='faces' or parts[2] not in ['package.json','lib','assets','vendor']:continue
+ path=release/'plugins'/('aukora-face-'+parts[1])/Path(*parts[2:])
+ if not path.is_file() or path.stat().st_size!=item['bytes'] or hashlib.sha256(path.read_bytes()).hexdigest()!=item['sha256']:raise SystemExit('served-baseline-mismatch: '+item['path'])
+ served.append(item)
+(release/'prime-served-baseline.json').write_text(json.dumps({'version':1,'donor':manifest['commit'],'files':served,'rebuilt_substitutions':False},indent=2)+'\n')
+for package,target in [('foundation','aukora-foundation'),('prime-authority','prime-authority')]:
+ src=root/'packages/ui'/package;dst=release/'plugins'/target
+ shutil.copytree(src,dst,symlinks=True,ignore=lambda directory,names:[n for n in names if n in ['src','checks','licenses']])
+shutil.copy2(root/'harness/preview-connection.mjs',release/'packages/client/connection/lib/prime-host.mjs')
+for target in ['packages/api/workspace-controller','packages/client/file-upload']:
+ shutil.copy2(root/'harness/ui-host.mjs',release/target/'lib/prime-host.mjs')
 removed_links=[]
 for link in release.rglob('*'):
  if link.is_symlink() and not link.exists():
   removed_links.append(str(link.relative_to(release)));link.unlink()
 (release/'prime-stripped-links.json').write_text(json.dumps(removed_links,indent=2)+'\n')
-disabled=['ui-layout','ui-settings-general','ui-sidebar','ui-workspace','llm-deepseek','llm-pi-ai','bash-sandbox','pwsh-sandbox','tool-pwsh','tool-jobs','terminal-controller','ui-sidebar-terminal','tool-subagent','tool-subagent-fork','subagent-spawn-in-process','subagent-fork-in-process','subagent-codex','subagent-claude-code','subagent-dsh-sdk','ptc-runtime','workflow-ptc','tool-workflow','tool-web','web-fetch-http','web-search-deepseek','mcp-resources','tool-fs','tool-fs-search','tool-skill','skill-filesystem','tool-ralph']
-text=''.join('- id: '+x+'\n  disabled: true\n' for x in disabled)
-text+='- insert:\n    - id: prime-shell\n      name: ./harness/shell-unavailable.mjs\n    - id: prime-host\n      name: ./harness/host.mjs\n'
-for name in ['layout','sidebar','threads','apps','messages','memory','aumlok','documents','settings']:
- text+='    - id: aukora-face-'+name+'\n      name: ./plugins/aukora-face-'+name+'/lib/prime-host.mjs\n'
-(release/'prime.patch.yml').write_text(text)
+subprocess.run(['node',str(root/'scripts/compose-entries.mjs'),str(release)],check=True)
 commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
 (release/'prime-release.json').write_text(json.dumps({'version':'0.1.0','source_commit':commit,'dsh_commit':'0d1f50007f9bca3f52b06e1c3074fa14d5fb0720','cordis':'4.0.2','ui_donor':'645d3213b8aede3b544269b4224ae09df06b0a42','unavailable_capabilities':['owner-passkey','approved-shell','sdk-child-launchers','model-inference','durable-memory','messaging','media-generation']},indent=2)+'\n')
 print('COMPOSED',release)

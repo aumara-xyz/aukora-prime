@@ -1,0 +1,38 @@
+import {createRequire} from 'node:module';
+import {readFileSync,writeFileSync,realpathSync} from 'node:fs';
+import {resolve,relative} from 'node:path';
+import {createHash} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
+import {pinnedIds,ownedEntries,assertEntrySet} from '../harness/composition-policy.mjs';
+const root=resolve(process.argv[2]);
+const req=createRequire(resolve(root,'apps/cli/package.json'));
+const anchors=[req,...['base','web-app'].map(x=>createRequire(resolve(root,`packages/bundle/${x}/package.json`)))];
+const y=req('js-yaml');const schema=y.DEFAULT_SCHEMA.extend([new y.Type('tag:yaml.org,2002:js',{kind:'scalar',construct:x=>({prime_expression:x})})]);
+const {composeEntries}=await import(pathToFileURL(resolve(root,'packages/boot/app-boot/lib/index.js')));
+const original=composeEntries(['base','web-app'].map(x=>y.load(readFileSync(resolve(root,`packages/bundle/${x}/cordis.patch.yml`),'utf8'),{schema})));
+const entries=pinnedIds.map(id=>{
+ const old=original.find(e=>e.id===id);if(!old)throw new Error('PINNED_PLUGIN_MISSING:'+id);
+ const entry={id,name:old.name,...old.config?{config:old.config}:{}};
+ if(id==='session-persistence-jsonl'||id==='storage-json')entry.config={root:id==='storage-json'?'$PRIME_STATE/storages':'$PRIME_STATE/sessions'};
+ if(id==='webserver')entry.config={host:'127.0.0.1',port:'$PRIME_PORT',compression:'gzip',compressionLevel:1,compressionThresholdBytes:1024};
+ if(id==='web-runtime')entry.config={openBrowser:false,printUrl:false,surfaceContext:false,trustedHosts:[]};
+ if(id==='connection')entry.config={trustedHosts:[],cookieMaxAgeDays:1,maxRequestBodyBytes:8*1024*1024};
+ if(id==='attachment-local')entry.config={maxMessageImageBytes:1024*1024};
+ if(id==='sandbox-policy')entry.config={mode:'read-only',workspaceRoot:'$PRIME_STATE/workspace'};
+ if(id==='approval')entry.config={policy:'ask'};
+ if(id==='permission')entry.config={presets:{'read-only':{sandbox:'read-only',approval:'ask'}}};
+ if(id==='tools')entry.config={mode:'native'};
+ if(id==='session-controller'||id==='settings-controller')entry.config={nativeOpen:false};
+ if(JSON.stringify(entry).includes('prime_expression'))throw new Error('CONFIG_EXPRESSION_REFUSED:'+id);
+ return entry;
+});
+entries.push(...ownedEntries);assertEntrySet(entries);
+const inputs=entries.map(e=>{
+ let path=e.name.startsWith('.')?resolve(root,e.name):undefined;
+ if(!path)for(const anchor of anchors){try{path=anchor.resolve(e.name);break;}catch(error){if(!['MODULE_NOT_FOUND','ERR_PACKAGE_PATH_NOT_EXPORTED'].includes(error.code))throw error;}}
+ if(!path)throw new Error('PINNED_MODULE_UNRESOLVED:'+e.id);
+ const physical=realpathSync(path);const rel=relative(root,physical);if(rel.startsWith('..')||rel.startsWith('/'))throw new Error('PLUGIN_ESCAPE');
+ return {id:e.id,specifier:e.name,path:relative(root,path),sha256:createHash('sha256').update(readFileSync(path)).digest('hex')};
+});
+writeFileSync(resolve(root,'prime-composition.json'),JSON.stringify({version:1,entries,inputs,user_config_sources:[],hmr:false,shell:'prime-shell'},null,2)+'\n');
+console.log('LOCKED_COMPOSITION',entries.length);
