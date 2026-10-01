@@ -89,6 +89,28 @@ is a refusal guard, not a complete secret scanner. Contained pnpm links hash pat
 text, with all physical target bytes/modes included; dangling/cyclic/outside links are
 refused. Memory exports reject links entirely. No source path is a trusted key.
 
+Release digest and archive entrypoints reject C0 characters (U+0000–U+001F) and DEL
+(U+007F) in raw/resolved release paths, entry names and raw symlink targets before
+computing a release digest, accepting an archive or staging. Raw path checks precede
+canonicalization, so a control-containing component cannot disappear through `..`.
+Ordinary v1 domain, sorting, file/executable
+classes and serialized bytes stay unchanged. The retained newline collision pair is
+refused before hashing; this fixes a row serialization ambiguity, not a SHA-256
+collision. Archive canonical manifests and archive SHA remain separate pins.
+
+`fullTreeDigest` confines physical link targets to the release. An exact `..` or
+`../` prefix means outside; ordinary contained names such as `..module` remain valid.
+Archive link validation still requires canonical relative entry names and rejects
+absolute, escaping, dangling and cyclic targets. The donor `treeDigest` retains its
+legacy exclusions and opaque link-text scope for byte compatibility; it does not
+prove physical link containment. Its new controls guard does not upgrade that scope.
+Digest JS refusals are `RELEASE_PATH_CONTROL_CHARACTER` or
+`RELEASE_LINK_CONTROL_CHARACTER`. Archive refusals are `INVALID_ARTIFACT_PATH` for
+entry names, `ARTIFACT_PATH_CONTROL_CHARACTER` for input/output path arguments and
+`RELEASE_LINK_CONTROL_CHARACTER` for targets. Python pilot digest names use
+`UNSAFE_RELEASE_NAME`; root and target controls use the JS refusal names. No exported
+function signature, archive schema or digest algorithm identifier changes.
+
 Backup scope is ONLY a D-created memory export. Use `--kind memory-export`; never pass
 raw state, database directories or authority stores. `restore` accepts this kind into
 an existing empty directory and returns STAGED, authority_restored:false. It does not
@@ -124,3 +146,12 @@ It uses only disposable files, its own PID and an ephemeral localhost protocol f
 to check exact status argv, state/release/file/PID binding, default behavior, private
 file bounds, path refusals, token redaction and all three missing G1 probes. It performs
 no actual Prime/DSH qualification or live app observation.
+
+Focused metadata regression: `node packages/ops/check-digest-controls.mjs`.
+It checks the exact newline collision pair, frozen ordinary v1 hashes, all 33 C0/DEL
+code points, contained dependency links and correctly hashed malformed archives.
+It reuses a few disposable entries and performs no network or service action. NUL
+cannot be an OS entry name or link target; its coverage uses raw path and serialized
+metadata inputs. Qualification remains PENDING; source checks establish no independent
+host boundary, protected deployment or loaded-code attestation. A changed evaluator
+closure requires a newly retained external `evaluator-digest` before a future run.

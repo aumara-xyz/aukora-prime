@@ -6,7 +6,7 @@
  * does not re-check it at each boot. The same uid can still rewrite the tree after apply.
  */
 import { createHash } from 'node:crypto'
-import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const RELEASE_TREE_DOMAIN = 'aukora:release-tree:v1'
@@ -14,19 +14,28 @@ export const RELEASE_TREE_DOMAIN = 'aukora:release-tree:v1'
 const EXCLUDED = new Set(['.dsh-build/plugin-set.json'])
 
 export function treeDigest(dir) {
+  if (/[\x00-\x1f\x7f]/.test(String(dir)) || /[\x00-\x1f\x7f]/.test(realpathSync(dir))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
   const rows = []
   const walk = (rel) => {
     for (const name of readdirSync(join(dir, rel)).sort()) {
       const path = rel ? `${rel}/${name}` : name
-      if (EXCLUDED.has(path)) continue
+      if (/[\x00-\x1f\x7f]/.test(path)) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
       const stat = lstatSync(join(dir, path))
+      let target
+      if (stat.isSymbolicLink()) {
+        target = readlinkSync(join(dir, path))
+        if (/[\x00-\x1f\x7f]/.test(target)) throw new Error('RELEASE_LINK_CONTROL_CHARACTER')
+      }
+      if (EXCLUDED.has(path)) continue
       // Finder's header, not just a filename/mode: a renamed JavaScript module stays covered.
       let content
       if (name === '.DS_Store' && stat.isFile() && !(stat.mode & 0o111)) {
         content = readFileSync(join(dir, path))
         if (content.subarray(0, 8).equals(Buffer.from('0000000142756431', 'hex'))) continue
       }
-      if (stat.isSymbolicLink()) rows.push(`l ${path}\0${readlinkSync(join(dir, path))}`)
+      if (stat.isSymbolicLink()) {
+        rows.push(`l ${path}\0${target}`)
+      }
       else if (stat.isDirectory()) walk(path)
       else if (stat.isFile()) rows.push(`${stat.mode & 0o111 ? 'x' : 'f'} ${path}\0${createHash('sha256').update(content ?? readFileSync(join(dir, path))).digest('hex')}`)
       else throw new Error(`${join(dir, path)} is not a file, directory or symlink`)
@@ -40,6 +49,8 @@ export function treeDigest(dir) {
 
 /** What the record carries and the popup shows: the commit, the release tree and the shell. */
 export function releaseBinding({ commit, release, shell }) {
+  if (/[\x00-\x1f\x7f]/.test(String(release)) || /[\x00-\x1f\x7f]/.test(String(shell))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
+  if (/[\x00-\x1f\x7f]/.test(realpathSync(release)) || /[\x00-\x1f\x7f]/.test(realpathSync(shell))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
   if (!/^[0-9a-f]{40}$/u.test(commit)) throw new Error('release binding needs a full commit id')
   const tipSha = JSON.parse(readFileSync(join(release, '.dsh-build', 'aukora-release.json'), 'utf8')).tipSha
   if (commit !== tipSha) throw new Error(`bind commit ${commit} does not match release tipSha ${String(tipSha)}`)

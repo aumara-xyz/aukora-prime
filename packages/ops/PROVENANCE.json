@@ -8,8 +8,9 @@
     {
       "source": "scripts/aukora/release-digest.mjs",
       "destination": "vendor/release-digest.mjs",
-      "sha256": "40f4c6c6b21e9b875d77f96a8c7e10d0cf8c5d8288239651336f056f33fd7108",
-      "modifications": "none"
+      "sha256": "ab9732419c52d13eca9f5690515ec20bde3f18a6bf75ecdbe0d1358ab12050c3",
+      "modifications": "Reject C0/DEL in raw/resolved roots, entry names and raw link targets before legacy v1 hashing; retain domain, row serialization, exclusions and opaque link-text scope.",
+      "source_sha256": "40f4c6c6b21e9b875d77f96a8c7e10d0cf8c5d8288239651336f056f33fd7108"
     },
     {
       "source": "LICENSE",
@@ -27,7 +28,8 @@
     "owned-process.mjs",
     "regression.mjs",
     "README.md",
-    "package.json"
+    "package.json",
+    "check-digest-controls.mjs"
   ],
   "contract_base": "f502d539a01e5efae4fc688ad4759162205aa0f4",
   "pending_dispositions": [
@@ -51,6 +53,6 @@
     "library_file_id": "private-source-reference-redacted",
     "version": 2
   },
-  "legacy_digest_scope": "Original retained for algorithm compatibility; new full-release digest covers marker too; no installation/loaded-code claim",
+  "legacy_digest_scope": "Retained v1 bytes for ordinary metadata, with C0/DEL guard; legacy exclusions and opaque link text do not establish physical containment or installation/loaded-code identity. Full-release digest separately covers marker and contained target bytes/modes.",
   "owned_repo_build_runtime_dependencies": []
 }

@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { lstatSync, readdirSync, readFileSync, readSync, readlinkSync, mkdirSync, writeFileSync, realpathSync, openSync, fstatSync, closeSync, constants } from 'node:fs'
-import { dirname, basename, join, resolve, relative, isAbsolute } from 'node:path'
+import { dirname, basename, join, resolve, relative, isAbsolute, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { treeDigest } from './vendor/release-digest.mjs'
 import { runOwned, sanitized } from './owned-process.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
+const outsideRelative = path => path === '..' || path.startsWith('..' + sep) || isAbsolute(path)
 export const CASES = Object.freeze({
   G1: ['harness-ui-boot', 'unavailable-executor', 'prime-only-build'],
   G2: ['owner-scope', 'origin-ipc', 'approval-presentation', 'denial-expiry'],
@@ -18,18 +19,22 @@ export const CASES = Object.freeze({
 
 /** Covers regular bytes/modes and contained links; no weak installation markers. */
 export function fullTreeDigest(root) {
+  if (/[\x00-\x1f\x7f]/.test(String(root))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
   root = realpathSync(root)
+  if (/[\x00-\x1f\x7f]/.test(root)) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
   const rows = []
   const visit = rel => {
     for (const name of readdirSync(join(root, rel)).sort()) {
       const path = rel ? `${rel}/${name}` : name
+      if (/[\x00-\x1f\x7f]/.test(path)) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
       const stat = lstatSync(join(root, path))
       if (stat.isSymbolicLink()) {
         const target = readlinkSync(join(root, path))
+        if (/[\x00-\x1f\x7f]/.test(target)) throw new Error('RELEASE_LINK_CONTROL_CHARACTER')
         if (isAbsolute(target)) throw new Error('ABSOLUTE_RELEASE_LINK')
         const actual = realpathSync(join(root, path))
         const relTarget = relative(root, actual)
-        if (relTarget.startsWith('..') || isAbsolute(relTarget)) throw new Error('RELEASE_LINK_ESCAPES_ROOT')
+        if (outsideRelative(relTarget)) throw new Error('RELEASE_LINK_ESCAPES_ROOT')
         rows.push(`l ${path}\0${target}`)
       } else if (stat.isDirectory()) visit(path)
       else if (stat.isFile()) rows.push(`${stat.mode & 0o111 ? 'x' : 'f'} ${path}\0${sha(readFileSync(join(root, path)))}`)
@@ -228,9 +233,11 @@ async function observeG1(root, options, args) {
  */
 export async function runGate(gate, options) {
   if (!(gate in CASES)) throw new Error('UNKNOWN_GATE')
+  if (/[\x00-\x1f\x7f]/.test(String(options.root))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
   const root = realpathSync(options.root)
+  if (/[\x00-\x1f\x7f]/.test(root)) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
   const evidenceDir = resolve(options.evidenceDir)
-  const inRoot = p => { const r = relative(root, p); return r === '' || (!r.startsWith('..') && !isAbsolute(r)) }
+  const inRoot = p => !outsideRelative(relative(root, p))
   if (inRoot(evidenceDir)) throw new Error('EVIDENCE_MUST_BE_OUTSIDE_CANDIDATE')
   const initial = evaluatorDigest()
   const evidence = { schema: 'prime-gate-evidence-v1', gate, created_at: new Date().toISOString(),
@@ -259,6 +266,7 @@ export async function runGate(gate, options) {
     evidence.probe_digest = planHash
     if (!options.releaseDir || !options.expectedCandidateDigest) evidence.blocker = 'FROZEN_CANDIDATE_RELEASE_REQUIRED'
     else {
+      if (/[\x00-\x1f\x7f]/.test(String(options.releaseDir))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
       const releaseDir = realpathSync(options.releaseDir)
       evidence.candidate = fullTreeDigest(releaseDir)
       if (evidence.candidate.digest !== options.expectedCandidateDigest) throw new Error('CANDIDATE_DIGEST_MISMATCH')
@@ -269,9 +277,10 @@ export async function runGate(gate, options) {
           evidence.cases.push({ case: name, status: 'PENDING', reason: 'ACTUAL_ADAPTER_REQUIRED' }); continue
         }
         // Entry point is confined to the frozen release; no command selected from a sibling repo.
+        if (/[\x00-\x1f\x7f]/.test(String(probe.executable))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
         const executable = realpathSync(resolve(releaseDir, probe.executable))
         const rel = relative(releaseDir, executable)
-        if (rel.startsWith('..') || isAbsolute(rel) || !Array.isArray(probe.args)) throw new Error('PROBE_ENTRY_OUTSIDE_RELEASE')
+        if (outsideRelative(rel) || !Array.isArray(probe.args)) throw new Error('PROBE_ENTRY_OUTSIDE_RELEASE')
         if (['ssh', 'sudo', 'curl', 'wget', 'docker'].includes(probe.executable)) throw new Error('REMOTE_OR_SYSTEM_PROBE_NOT_ALLOWED')
         const result = await runOwned(executable, probe.args, { cwd: releaseDir, home: options.disposableHome,
           tmpdir: options.disposableHome, timeoutMs: probe.timeout_ms ?? 30_000, signal: options.signal })

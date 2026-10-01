@@ -28,6 +28,7 @@ try {
   } else if (command === 'check') {
     const gate = argv.shift()
     const opts = options(argv)
+    if (/[\x00-\x1f\x7f]/.test(String(opts.root ?? '.'))) throw new Error('RELEASE_PATH_CONTROL_CHARACTER')
     opts.root = resolve(opts.root ?? '.')
     opts.evidenceDir ??= mkdtempSync(join(tmpdir(), 'prime-gate-'))
     opts.disposableHome ??= mkdtempSync(join(tmpdir(), 'prime-probe-'))
@@ -37,7 +38,7 @@ try {
     process.exitCode = result.status === 'PASS' ? 0 : result.status === 'FAIL' ? 1 : 2
   } else if (command === 'digest') {
     const opts = options(argv)
-    console.log(JSON.stringify(fullTreeDigest(resolve(opts.root ?? '.'))))
+    console.log(JSON.stringify(fullTreeDigest(opts.root ?? '.')))
   } else if (command === 'evaluator-digest') {
     console.log(JSON.stringify({ evaluator_digest: evaluatorDigest() }))
   } else if (command === 'plan') {

@@ -109,6 +109,8 @@ def fixed_spec(spec):
     need(spec['schema'] == 'prime-pilot-deployment-v1', 'DEPLOYMENT_SCHEMA')
     for field in ['release_source', 'node_source', 'deployment_manifest_source']:
         need(isinstance(spec[field], str) and Path(spec[field]).is_absolute(), 'ABSOLUTE_SOURCE_REQUIRED')
+        if field == 'release_source':
+            need(not re.search(r'[\x00-\x1f\x7f]', spec[field]), 'RELEASE_PATH_CONTROL_CHARACTER')
     digest_value(spec['release_digest']); digest_value(spec['node_sha256']); digest_value(spec['deployment_manifest_sha256'])
     need(set(spec['services']) == {'app', 'authority', 'memory'}, 'EXACT_THREE_NODE_SERVICES_REQUIRED')
     for kind, row in spec['services'].items():
@@ -129,18 +131,21 @@ def release_path(spec):
 
 def full_digest(root):
     """Same byte/mode/contained-link domain as ops fullTreeDigest, no omission."""
+    need(not re.search(r'[\x00-\x1f\x7f]', os.fspath(root)), 'RELEASE_PATH_CONTROL_CHARACTER')
     root = Path(root)
     need(root.is_dir() and not root.is_symlink(), 'REAL_RELEASE_ROOT_REQUIRED')
     root = root.resolve(strict=True)
+    need(not re.search(r'[\x00-\x1f\x7f]', str(root)), 'RELEASE_PATH_CONTROL_CHARACTER')
     rows = []
     for parent, dirs, files in os.walk(root, followlinks=False):
         for name in dirs + files:
             p = Path(parent) / name
             rel = p.relative_to(root).as_posix()
-            need('\n' not in rel and '\x00' not in rel, 'UNSAFE_RELEASE_NAME')
+            need(not re.search(r'[\x00-\x1f\x7f]', rel), 'UNSAFE_RELEASE_NAME')
             st = p.lstat()
             if stat.S_ISLNK(st.st_mode):
                 target = os.readlink(p)
+                need(not re.search(r'[\x00-\x1f\x7f]', target), 'RELEASE_LINK_CONTROL_CHARACTER')
                 actual = p.resolve(strict=True)
                 need(not os.path.isabs(target) and (actual == root or root in actual.parents), 'RELEASE_LINK_ESCAPES_ROOT')
                 rows.append('l ' + rel + '\0' + target)
