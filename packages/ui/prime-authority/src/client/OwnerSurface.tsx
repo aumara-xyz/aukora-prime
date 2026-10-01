@@ -3,6 +3,7 @@ import { ActionButton, Panel, SectionHeader } from '@aukora/face-layout/client'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { Controller } from './controller.mjs'
 import { CAPABILITY_LABELS } from './controller.mjs'
+import { validateCaptureReview } from '../../../adapters/capture-review.mjs'
 import css from './OwnerSurface.module.css'
 
 export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.surface'> & {controller:Controller}) {
@@ -10,6 +11,15 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
   const busy = state.phase.endsWith('_pending')
   const locked = busy || state.phase === 'outcome_unknown'
   const view = state.presentation
+  let memoryReady = view?.operation.action_type !== 'memory.save'
+  if (!memoryReady && view?.memory_review) {
+    try {
+      validateCaptureReview(view.operation.canonical_parameters, {
+        statement: view.memory_review.statement, attributed_to: view.memory_review.attributed_to,
+      })
+      memoryReady = view.memory_review.capture_sha256 === (view.operation.canonical_parameters as {capture_sha256:string}).capture_sha256
+    } catch { /* Missing or changed memory content must remain unapprovable. */ }
+  }
   return <section className={css.surface} hidden={activeSurface !== 'prime-owner'} data-prime-owner-surface data-phase={state.phase}>
     <SectionHeader className={css.header}><h1>Owner access and approvals</h1>
       <p>Use an existing credential. Enrollment is unavailable here.</p></SectionHeader>
@@ -33,6 +43,14 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
       {state.operation_available && <ActionButton disabled={!state.owner || locked || !state.authority_available || state.phase === 'approved' || state.phase === 'denied'}
         onClick={() => { void controller.prepare() }}>Request fresh review</ActionButton>}
       {view && <>
+        {view.operation.action_type === 'memory.save' && <div data-memory-capture-review>
+          <h3>Exact memory statement</h3>
+          {memoryReady ? <><pre data-memory-statement>{view.memory_review!.statement}</pre>
+            <p>Attribution</p><pre data-memory-attribution>{view.memory_review!.attributed_to}</pre>
+            <p>Capture hash</p><pre data-memory-capture-hash>{view.memory_review!.capture_sha256}</pre>
+            <p>The operation digest below binds this exact statement and attribution. The host verifies the private capture.</p></>
+            : <p role="alert" data-memory-review-refused>The exact memory statement and attribution are missing or do not match the capture draft. Approval is unavailable.</p>}
+        </div>}
         <dl className={css.fields} data-exact-operation>{view.rows.map(row => <div key={row.key} data-operation-field={row.key}>
           <dt>{row.label} <code>({row.key})</code></dt><dd><pre>{row.exact}</pre></dd></div>)}</dl>
         <p>Operation digest</p><pre data-operation-digest>{view.operation_digest}</pre>
@@ -40,7 +58,7 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
         <p>Fresh review challenge</p><pre data-review-challenge>{JSON.stringify(view.review_challenge, null, 2)}</pre>
         <p>Exact canonical operation</p><pre data-canonical-operation>{view.canonical_operation}</pre>
         <div className={css.actions}>
-          <ActionButton variant="gold" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available}
+          <ActionButton variant="gold" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available || !memoryReady}
             onClick={() => { void controller.approve() }}>Approve exact operation</ActionButton>
           <ActionButton variant="red-warning" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available}
             onClick={() => { void controller.decline() }}>Decline</ActionButton>

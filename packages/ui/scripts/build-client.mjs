@@ -1,9 +1,10 @@
-import { readFile, writeFile, mkdir, readdir, lstat, mkdtemp, cp, realpath, symlink, glob } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, lstat, mkdtemp, cp, realpath, symlink, glob, rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { dirname, resolve, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { faces } from '../adapters/mount-plan.mjs'
+import { snapshotOwnerSources, snapshotOwnerBuildInputs, inputDigest, createOwnerReceipt } from './verify-owner-build.mjs'
 
 // Prime's already materialized pinned third-party harness is the sole build input.
 // The source tree and frozen face bytes are never written; all compilation happens in a fresh overlay.
@@ -113,6 +114,24 @@ for (const face of entries) {
   }
 }
 const targets = []
+const authorityDirectory = join(overlay, 'packages/client/aukora-prime-authority')
+// Fresh owner outputs must come from this compilation, not a copied incremental cache.
+await rm(join(authorityDirectory, 'lib/types'), { recursive: true, force: true })
+await rm(join(authorityDirectory, 'lib/tsconfig.client.tsbuildinfo'), { force: true })
+const adapterSeats = [join(authorityDirectory, 'adapters'), join(overlay, 'packages/client/adapters')]
+for (const seat of adapterSeats) {
+  await rm(seat, { recursive: true, force: true })
+  await mkdir(seat, { recursive: true })
+  for (const adapter of (await readdir(join(ui, 'adapters'))).filter(path => path.endsWith('.mjs') || path.endsWith('.d.mts'))) {
+    await cp(join(ui, 'adapters', adapter), join(seat, adapter))
+  }
+}
+const ownerSourceRoots = { uiRoot: ui, ownerRoot: authorityDirectory,
+  adapterRoot: join(authorityDirectory, 'adapters'), layoutRoot: join(overlay, 'packages/client/aukora-face-layout') }
+const sourceBefore = await snapshotOwnerSources(ownerSourceRoots)
+if (inputDigest(sourceBefore) !== inputDigest(await snapshotOwnerSources({ uiRoot: ui }))) throw new Error('ui-build:overlay-source-mismatch')
+if (inputDigest(sourceBefore) !== inputDigest(await snapshotOwnerSources({ ...ownerSourceRoots, adapterRoot: adapterSeats[1] }))) throw new Error('ui-build:typecheck-adapter-seat-mismatch')
+const buildBefore = await snapshotOwnerBuildInputs({ ownerRoot: authorityDirectory, dsh: overlay })
 for (const face of selected) {
   const directory = join(overlay, 'packages/client', face.folder)
   const config = (await readdir(directory)).includes('tsconfig.client.json') ? 'tsconfig.client.json' : 'tsconfig.json'
@@ -120,12 +139,10 @@ for (const face of selected) {
 }
 console.log('UI build type-checking exact face sources')
 await run('node', ['--max-old-space-size=3072', join(overlay, 'node_modules/typescript/bin/tsc'), '-b', ...targets], overlay, 'ui-build:client-typecheck')
-const authorityDirectory = join(overlay, 'packages/client/aukora-prime-authority')
 await cp(join(authorityDirectory, 'src/client/controller.mjs'), join(authorityDirectory, 'lib/types/client/controller.mjs'))
 await cp(join(authorityDirectory, 'src/client/controller.d.mts'), join(authorityDirectory, 'lib/types/client/controller.d.mts'))
-await mkdir(join(authorityDirectory, 'adapters'))
-for (const adapter of ['transport.mjs', 'passkey.mjs']) await cp(join(ui, 'adapters', adapter), join(authorityDirectory, 'adapters', adapter))
 const artifacts = []
+const ownerOutputs = []
 for (const face of selected) {
   console.log(`UI build bundling ${face.face}`)
   const directory = join(overlay, 'packages/client', face.folder)
@@ -143,19 +160,44 @@ for (const face of selected) {
   if (face.face === 'prime-authority') await cp(join(directory, 'lib/index.js'), join(destination, 'index.js'))
   artifacts.push({ face: face.face, id: face.id, path: relative(output, join(destination, 'client.js')),
     bytes: Buffer.byteLength(code), sha256: digest(Buffer.from(code)) })
+  if (face.face === 'prime-authority') ownerOutputs.push({ path: 'prime-authority/lib/client.js',
+    output_path: 'prime-authority/client.js', bytes: Buffer.byteLength(code), sha256: digest(Buffer.from(code)) })
   if (hasMap) {
     const map = await readFile(join(destination, 'client.js.map'))
     artifacts.push({ face: face.face, id: face.id, path: relative(output, join(destination, 'client.js.map')),
       bytes: map.length, sha256: digest(map) })
+    if (face.face === 'prime-authority') ownerOutputs.push({ path: 'prime-authority/lib/client.js.map',
+      output_path: 'prime-authority/client.js.map', bytes: map.length, sha256: digest(map) })
+  }
+  if (face.face === 'prime-authority') {
+    const host = await readFile(join(destination, 'index.js'))
+    ownerOutputs.push({ path: 'prime-authority/lib/index.js', output_path: 'prime-authority/index.js', bytes: host.length, sha256: digest(host) })
+    for await (const typePath of glob('**/*', { cwd: join(directory, 'lib/types') })) {
+      const metadata = await lstat(join(directory, 'lib/types', typePath))
+      if (metadata.isSymbolicLink()) throw new Error(`ui-build:symlinked-owner-output:${typePath}`)
+      if (!metadata.isFile()) continue
+      const type = await readFile(join(directory, 'lib/types', typePath))
+      await mkdir(dirname(join(destination, 'types', typePath)), { recursive: true })
+      await writeFile(join(destination, 'types', typePath), type)
+      const path = typePath.split(sep).join('/')
+      ownerOutputs.push({ path: `prime-authority/lib/types/${path}`, output_path: `prime-authority/types/${path}`, bytes: type.length, sha256: digest(type) })
+    }
   }
 }
 if (digest(await readFile(receiptPath)) !== digest(receiptBytes) || digest(await readFile(join(dsh, 'pnpm-lock.yaml'))) !== lockBefore) {
   throw new Error('ui-build:input-harness-changed')
 }
-await writeFile(join(output, 'build.json'), JSON.stringify({ version: 1, source_commit: compatibility.dsh.commit,
+const sourceAfter = await snapshotOwnerSources(ownerSourceRoots)
+if (inputDigest(sourceAfter) !== inputDigest(await snapshotOwnerSources({ uiRoot: ui }))) throw new Error('ui-build:source-changed-during-compilation')
+if (inputDigest(sourceAfter) !== inputDigest(await snapshotOwnerSources({ ...ownerSourceRoots, adapterRoot: adapterSeats[1] }))) throw new Error('ui-build:typecheck-adapter-seat-changed')
+const buildAfter = await snapshotOwnerBuildInputs({ ownerRoot: authorityDirectory, dsh: overlay })
+const ownerBuild = createOwnerReceipt({ sourceBefore, sourceAfter, buildBefore, buildAfter,
+  outputs: ownerOutputs.sort((a, b) => a.path.localeCompare(b.path, 'en')) })
+await writeFile(join(output, 'build.json'), JSON.stringify({ version: 2, source_commit: compatibility.dsh.commit,
+  source_commit_attribution: 'pinned-dsh-upstream; not Prime/UI source proof', upstream_commit: compatibility.dsh.commit,
   harness_receipt_sha256: digest(receiptBytes), source_lock_sha256: lockBefore,
   overlay_lock_sha256: digest(await readFile(join(overlay, 'pnpm-lock.yaml'))), dependency_versions: dependencies,
-  mode: 'client-only', legacy_hosts_mounted: false, artifacts }, null, 2) + '\n')
+  mode: 'client-only', legacy_hosts_mounted: false, artifacts, owner_build: ownerBuild }, null, 2) + '\n')
 console.log(JSON.stringify({ result: 'PASS', output, faces: selected.filter(entry => entry.face !== 'prime-authority').length,
   separate_plugins: selected.filter(entry => entry.face === 'prime-authority').length, source_faces_changed: false,
   harness_lock_changed: false, runtime_parity: 'UNPERFORMED: browser boot required' }))

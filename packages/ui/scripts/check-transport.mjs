@@ -57,6 +57,44 @@ const login = f => f.transport.login({ owner_id: operation.owner_id, kind: 'owne
 let cases = 0
 
 {
+  const memoryCapture = { statement: '  <script>literal memory</script>\nwith\ttabs 😀  ', attributed_to: 'owner-voice' }
+  const parameters = { capture_sha256: 'a'.repeat(64), idempotency_key_sha256: 'b'.repeat(64),
+    heads: { remembered: 'c'.repeat(64) }, ...memoryCapture }
+  const proposal = { ...operation, action_type: 'memory.save', canonical_parameters: parameters }
+  const f = fixture(); await login(f)
+  const view = await f.transport.prepareApproval(proposal, { memoryCapture })
+  memoryCapture.statement = 'Caller changed the draft after review'
+  assert.equal(view.memory_review.statement, parameters.statement)
+  assert.equal(view.memory_review.attributed_to, parameters.attributed_to)
+  assert.equal(view.operation_digest, await contracts.operationDigest(proposal))
+  assert(Object.isFrozen(view.memory_review))
+  await f.transport.approve(view, { kind: 'owner_key' }); assert.equal(f.counts.approve, 1)
+  cases++
+}
+{
+  const draft = { statement: 'Exact memory statement', attributed_to: 'owner' }
+  const parameters = { capture_sha256: 'a'.repeat(64), idempotency_key_sha256: 'b'.repeat(64), heads: {}, ...draft }
+  const proposal = { ...operation, action_type: 'memory.save', canonical_parameters: parameters }
+  let reviews = 0
+  const f = fixture({ authority: { async approvalChallenge() { reviews++; throw new Error('Must not request review') } } })
+  await login(f)
+  for (const memoryCapture of [undefined, { ...draft, statement: 'Changed' }, { ...draft, attributed_to: 'agent' }]) {
+    await rejects(f.transport.prepareApproval(proposal, { memoryCapture }), 'TARGET_MISMATCH')
+  }
+  for (const bad of [
+    { capture_sha256: parameters.capture_sha256, idempotency_key_sha256: parameters.idempotency_key_sha256, heads: {} },
+    { ...parameters, extra: 'unreviewed' }, { ...parameters, capture_sha256: 'A'.repeat(64) },
+    { ...parameters, heads: { unknown: 'a'.repeat(64) } },
+  ]) await rejects(f.transport.prepareApproval({ ...proposal, canonical_parameters: bad }, { memoryCapture: draft }), 'TARGET_MISMATCH')
+  for (const statement of [' ', 'x'.repeat(4097), 'a\rb', 'a\u061cb', 'a\u200eb', 'a\u200fb', 'a\u202eb', 'a\u2069b', 'a\u0000b', 'a\u007fb']) {
+    await rejects(f.transport.prepareApproval({ ...proposal, canonical_parameters: { ...parameters, statement } },
+      { memoryCapture: { ...draft, statement } }), 'TARGET_MISMATCH')
+  }
+  assert.equal(reviews, 0); assert.equal(f.counts.sign, 1); assert.equal(f.counts.approve, 0)
+  cases++
+}
+
+{
   const f = fixture()
   await login(f)
   assert.equal(Object.hasOwn(f.transport.owner(), 'session_token'), false)

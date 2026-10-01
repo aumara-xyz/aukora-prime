@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "source_package": "@aukora-prime/memory",
+  "source_path": "packages/memory/src/capture-review.mjs",
+  "source_status": "D owned helper checkpoint pending",
+  "copied_path": "packages/ui/adapters/capture-review.mjs",
+  "bytes": 2635,
+  "sha256": "89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96c0",
+  "license": "AGPL-3.0-or-later",
+  "purpose": "Exact literal display/draft comparison only; private full capture digest stays verified by D under lock."
+}

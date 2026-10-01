@@ -7,6 +7,68 @@ window.__ModuleLoader__.load({
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let react = require("react");
 		let _aukora_face_layout_client = require("@aukora/face-layout/client");
+		const CAPTURE_ATTRIBUTIONS = Object.freeze([
+			"owner",
+			"owner-voice",
+			"owner-edit",
+			"backfill",
+			"lane-requester",
+			"dream",
+			"agent"
+		]);
+		const CAPTURE_PARAMETER_FIELDS = Object.freeze([
+			"capture_sha256",
+			"idempotency_key_sha256",
+			"heads",
+			"statement",
+			"attributed_to"
+		]);
+		const fail$1 = () => {
+			throw new TypeError("memory:capture-review-invalid");
+		};
+		const object = (value, fields) => {
+			if (!value || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) fail$1();
+			const keys = Reflect.ownKeys(value);
+			if (keys.length !== fields.length || keys.some((k) => typeof k !== "string" || !fields.includes(k))) fail$1();
+			for (const key of keys) {
+				const descriptor = Object.getOwnPropertyDescriptor(value, key);
+				if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) fail$1();
+			}
+		};
+		function statement(value) {
+			if (typeof value !== "string" || value.length === 0 || value.length > 4096 || !value.trim() || /[\u0000-\u0008\u000b-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value)) fail$1();
+			for (let i = 0; i < value.length; i++) {
+				const unit = value.charCodeAt(i);
+				if (unit >= 55296 && unit <= 56319) {
+					const next = value.charCodeAt(++i);
+					if (!(next >= 56320 && next <= 57343)) fail$1();
+				} else if (unit >= 56320 && unit <= 57343) fail$1();
+			}
+		}
+		function validateCaptureDraft(draft) {
+			object(draft, ["statement", "attributed_to"]);
+			statement(draft.statement);
+			if (!CAPTURE_ATTRIBUTIONS.includes(draft.attributed_to)) fail$1();
+			return Object.freeze({
+				statement: draft.statement,
+				attributed_to: draft.attributed_to
+			});
+		}
+		function validateCaptureReview(parameters, immutableDraft) {
+			object(parameters, CAPTURE_PARAMETER_FIELDS);
+			const draft = validateCaptureDraft(immutableDraft);
+			if (typeof parameters.capture_sha256 !== "string" || typeof parameters.idempotency_key_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(parameters.capture_sha256) || !/^[0-9a-f]{64}$/.test(parameters.idempotency_key_sha256)) fail$1();
+			if (!parameters.heads || ![Object.prototype, null].includes(Object.getPrototypeOf(parameters.heads))) fail$1();
+			object(parameters.heads, Object.keys(parameters.heads));
+			for (const [domain, head] of Object.entries(parameters.heads)) if (![
+				"remembered",
+				"approved",
+				"legacy-presplit"
+			].includes(domain) || typeof head !== "string" || !(head === "aukora:aura-record:v1" || /^[0-9a-f]{64}$/.test(head))) fail$1();
+			if (parameters.statement !== draft.statement || parameters.attributed_to !== draft.attributed_to) fail$1();
+			return draft;
+		}
+		//#endregion
 		//#region adapters/transport.mjs
 		/**
 		* UI transport boundary. Authority owns challenges, signature verification and durable grants.
@@ -216,10 +278,19 @@ window.__ModuleLoader__.load({
 					loginOwner = null;
 				}
 			}
-			async function prepareApproval(proposal, { signal } = {}) {
+			async function prepareApproval(proposal, { signal, memoryCapture } = {}) {
 				const current = ownerSession();
 				validateContract("OperationProposal", proposal);
 				const operation = copy(proposal);
+				let memoryDraft = null;
+				if (operation.action_type === "memory.save") {
+					try {
+						validateCaptureReview(operation.canonical_parameters, memoryCapture);
+					} catch {
+						fail("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
+					}
+					memoryDraft = copy(memoryCapture, "memory-capture-draft");
+				}
 				if (operation.owner_id !== current.owner_id) fail("UNAUTHORIZED", "ui:operation-owner-mismatch");
 				checkExpiry(operation.expiry);
 				const digest = await operationDigest(operation);
@@ -252,7 +323,12 @@ window.__ModuleLoader__.load({
 						label: labels[key],
 						value: operation[key],
 						exact: canonicalJson(operation[key])
-					}))
+					})),
+					memory_review: memoryDraft ? {
+						statement: memoryDraft.statement,
+						attributed_to: memoryDraft.attributed_to,
+						capture_sha256: operation.canonical_parameters.capture_sha256
+					} : null
 				});
 				presentations.set(presentation, {
 					operation,
@@ -261,7 +337,8 @@ window.__ModuleLoader__.load({
 					request,
 					owner_id: current.owner_id,
 					session_token: current.session_token,
-					public_key: answer.public_key ? copy(answer.public_key) : void 0
+					public_key: answer.public_key ? copy(answer.public_key) : void 0,
+					memoryDraft
 				});
 				return presentation;
 			}
@@ -278,6 +355,11 @@ window.__ModuleLoader__.load({
 					return prior.pending;
 				}
 				if (prior) fail(prior.code, prior.reason);
+				if (record.operation.action_type === "memory.save") try {
+					validateCaptureReview(record.operation.canonical_parameters, record.memoryDraft);
+				} catch {
+					fail("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
+				}
 				checkExpiry(record.operation.expiry);
 				checkExpiry(record.proofTemplate.expiry);
 				const pending = (async () => {
@@ -571,7 +653,7 @@ window.__ModuleLoader__.load({
 		/** Observable presentation owner; only the injected host can authenticate or approve. */
 		function createPrimeOwnerController({ now = Date.now, schedule = setTimeout, unschedule = clearTimeout } = {}) {
 			const listeners = /* @__PURE__ */ new Set();
-			let binding, transport, pending, timer, revision = 0, operation, ownerKind;
+			let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture;
 			let state = Object.freeze({
 				phase: "unavailable",
 				owner: null,
@@ -674,6 +756,7 @@ window.__ModuleLoader__.load({
 					stopTimer();
 					operation = void 0;
 					ownerKind = void 0;
+					memoryCapture = void 0;
 					binding = next;
 					try {
 						transport = createPrimeTransport({
@@ -702,7 +785,7 @@ window.__ModuleLoader__.load({
 							error_code: available ? null : "UNAVAILABLE",
 							reason: available ? "Sign in with an existing credential. The host must confirm your identity." : "Owner access is unavailable until the host supplies its capability status."
 						});
-						if (next.operation) api.setOperation(next.operation);
+						if (next.operation) api.setOperation(next.operation, { memoryCapture: next.memoryCapture });
 					} catch (error) {
 						transport = void 0;
 						fail(error);
@@ -732,10 +815,28 @@ window.__ModuleLoader__.load({
 				setOwnerId(owner_id) {
 					if (!pending && !state.owner) notify({ owner_id });
 				},
-				setOperation(proposal) {
+				setOperation(proposal, options = {}) {
 					if (pending || state.phase === "outcome_unknown") throw new PrimeTransportError("RECONCILIATION_REQUIRED", "An authority request is pending or needs reconciliation.");
-					binding.contracts.validateContract("OperationProposal", proposal);
-					operation = immutable(JSON.parse(binding.contracts.canonicalJson(proposal)));
+					try {
+						binding.contracts.validateContract("OperationProposal", proposal);
+						const proposed = immutable(JSON.parse(binding.contracts.canonicalJson(proposal)));
+						if (proposed.action_type === "memory.save") try {
+							validateCaptureReview(proposed.canonical_parameters, options.memoryCapture);
+						} catch {
+							throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
+						}
+						memoryCapture = proposed.action_type === "memory.save" ? immutable(JSON.parse(binding.contracts.canonicalJson(options.memoryCapture))) : void 0;
+						operation = proposed;
+					} catch (error) {
+						operation = void 0;
+						memoryCapture = void 0;
+						notify({
+							operation_available: false,
+							presentation: null
+						});
+						fail(error);
+						throw error;
+					}
 					notify({
 						operation_available: true,
 						presentation: null,
@@ -771,7 +872,10 @@ window.__ModuleLoader__.load({
 						fail(new PrimeTransportError("UNAVAILABLE", "An available authority and a host operation are required."));
 						return Promise.resolve(null);
 					}
-					return action("review_pending", (signal) => transport.prepareApproval(operation, { signal }), (presentation) => {
+					return action("review_pending", (signal) => transport.prepareApproval(operation, {
+						signal,
+						memoryCapture
+					}), (presentation) => {
 						notify({
 							phase: "review_ready",
 							presentation,
@@ -830,6 +934,7 @@ window.__ModuleLoader__.load({
 					transport = void 0;
 					ownerKind = void 0;
 					operation = void 0;
+					memoryCapture = void 0;
 					stopTimer();
 					notify({
 						phase: "unavailable",
@@ -855,7 +960,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css = ".rHd7va_surface[hidden]{display:none!important}.rHd7va_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.rHd7va_header{flex-direction:column;align-items:flex-start;gap:4px}.rHd7va_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.rHd7va_header p{color:var(--aukora-text-secondary);margin:0}.rHd7va_card{min-width:0;padding:16px}.rHd7va_card h2{margin-top:0;font-size:16px;font-weight:600}.rHd7va_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.rHd7va_fields{flex-direction:column;gap:12px;display:flex}.rHd7va_fields dd{margin:0}.rHd7va_fields dt{color:var(--aukora-text-secondary);font-size:13px}.rHd7va_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.rHd7va_owner{flex-direction:column;gap:8px;display:flex}.rHd7va_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.rHd7va_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.rHd7va_error{color:var(--aukora-red-warning)}.rHd7va_menu{width:100%}.rHd7va_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.rHd7va_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.rHd7va_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.rHd7va_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.rHd7va_badgePanel h2{font-size:14px}";
+		const css = ".XMZmGq_surface[hidden]{display:none!important}.XMZmGq_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.XMZmGq_header{flex-direction:column;align-items:flex-start;gap:4px}.XMZmGq_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.XMZmGq_header p{color:var(--aukora-text-secondary);margin:0}.XMZmGq_card{min-width:0;padding:16px}.XMZmGq_card h2{margin-top:0;font-size:16px;font-weight:600}.XMZmGq_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.XMZmGq_fields{flex-direction:column;gap:12px;display:flex}.XMZmGq_fields dd{margin:0}.XMZmGq_fields dt{color:var(--aukora-text-secondary);font-size:13px}.XMZmGq_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.XMZmGq_owner{flex-direction:column;gap:8px;display:flex}.XMZmGq_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.XMZmGq_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.XMZmGq_error{color:var(--aukora-red-warning)}.XMZmGq_menu{width:100%}.XMZmGq_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.XMZmGq_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.XMZmGq_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.XMZmGq_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.XMZmGq_badgePanel h2{font-size:14px}";
 		const tagId = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -865,17 +970,17 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "rHd7va_actions",
-			"badge": "rHd7va_badge",
-			"badgePanel": "rHd7va_badgePanel",
-			"capabilities": "rHd7va_capabilities",
-			"card": "rHd7va_card",
-			"error": "rHd7va_error",
-			"fields": "rHd7va_fields",
-			"header": "rHd7va_header",
-			"menu": "rHd7va_menu",
-			"owner": "rHd7va_owner",
-			"surface": "rHd7va_surface"
+			"actions": "XMZmGq_actions",
+			"badge": "XMZmGq_badge",
+			"badgePanel": "XMZmGq_badgePanel",
+			"capabilities": "XMZmGq_capabilities",
+			"card": "XMZmGq_card",
+			"error": "XMZmGq_error",
+			"fields": "XMZmGq_fields",
+			"header": "XMZmGq_header",
+			"menu": "XMZmGq_menu",
+			"owner": "XMZmGq_owner",
+			"surface": "XMZmGq_surface"
 		};
 		//#endregion
 		//#region lib/types/client/OwnerSurface.js
@@ -884,6 +989,14 @@ window.__ModuleLoader__.load({
 			const busy = state.phase.endsWith("_pending");
 			const locked = busy || state.phase === "outcome_unknown";
 			const view = state.presentation;
+			let memoryReady = view?.operation.action_type !== "memory.save";
+			if (!memoryReady && view?.memory_review) try {
+				validateCaptureReview(view.operation.canonical_parameters, {
+					statement: view.memory_review.statement,
+					attributed_to: view.memory_review.attributed_to
+				});
+				memoryReady = view.memory_review.capture_sha256 === view.operation.canonical_parameters.capture_sha256;
+			} catch {}
 			return (0, react_jsx_runtime.jsxs)("section", {
 				className: OwnerSurface_module_css_default.surface,
 				hidden: activeSurface !== "prime-owner",
@@ -949,6 +1062,30 @@ window.__ModuleLoader__.load({
 								children: "Request fresh review"
 							}),
 							view && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+								view.operation.action_type === "memory.save" && (0, react_jsx_runtime.jsxs)("div", {
+									"data-memory-capture-review": true,
+									children: [(0, react_jsx_runtime.jsx)("h3", { children: "Exact memory statement" }), memoryReady ? (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+										(0, react_jsx_runtime.jsx)("pre", {
+											"data-memory-statement": true,
+											children: view.memory_review.statement
+										}),
+										(0, react_jsx_runtime.jsx)("p", { children: "Attribution" }),
+										(0, react_jsx_runtime.jsx)("pre", {
+											"data-memory-attribution": true,
+											children: view.memory_review.attributed_to
+										}),
+										(0, react_jsx_runtime.jsx)("p", { children: "Capture hash" }),
+										(0, react_jsx_runtime.jsx)("pre", {
+											"data-memory-capture-hash": true,
+											children: view.memory_review.capture_sha256
+										}),
+										(0, react_jsx_runtime.jsx)("p", { children: "The operation digest below binds this exact statement and attribution. The host verifies the private capture." })
+									] }) : (0, react_jsx_runtime.jsx)("p", {
+										role: "alert",
+										"data-memory-review-refused": true,
+										children: "The exact memory statement and attribution are missing or do not match the capture draft. Approval is unavailable."
+									})]
+								}),
 								(0, react_jsx_runtime.jsx)("dl", {
 									className: OwnerSurface_module_css_default.fields,
 									"data-exact-operation": true,
@@ -988,7 +1125,7 @@ window.__ModuleLoader__.load({
 									className: OwnerSurface_module_css_default.actions,
 									children: [(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
 										variant: "gold",
-										disabled: state.phase !== "review_ready" || state.expired || !state.authority_available,
+										disabled: state.phase !== "review_ready" || state.expired || !state.authority_available || !memoryReady,
 										onClick: () => {
 											controller.approve();
 										},

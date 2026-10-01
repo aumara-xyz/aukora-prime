@@ -8,6 +8,8 @@ An optional trusted client service `ctx.primeAuthority` may inject `{authority,c
 
 The view renders every frozen proposal field, canonical operation, digest, and fresh review challenge read-only. It waits for C confirmation before displaying an authenticated owner or approved/declined result. A confirmed approval says execution is unconfirmed. Expired, unavailable, credential cancellation, pending, and uncertain responses stay visible; unknown results disable approval retries and require reconciliation. Session tokens and signature material are excluded from presentation.
 
+For `memory.save`, supply the separately prepared immutable capture draft with `setOperation(response.operation, {memoryCapture:response.memory_capture})`, or paired `operation` and `memoryCapture` in the injected binding. The draft must come from the exact extraction statement and trusted host attribution before awaits; never derive it from the proposed operation's parameters. The copied browser-safe D helper checks the exact five canonical parameters (`capture_sha256`, `idempotency_key_sha256`, `heads`, `statement`, `attributed_to`), literal bounds, and equality with that draft. Missing, old hash-only, or mismatched content cannot request a review or sign. The surface shows the exact escaped statement and attribution separately alongside the capture hash and full operation digest; it refuses approval for missing or changed review content. No markup is interpreted or text normalized. D remains responsible for the private full capture preimage, source evidence, and heads under its owner lock; the browser does not reconstruct that hash.
+
 Clean client-only build (Prime-owned pinned DSH required):
 
 ```sh

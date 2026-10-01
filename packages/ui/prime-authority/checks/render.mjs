@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {createRequire} from 'node:module'
-import {runInNewContext} from 'node:vm'
 import {resolve,join} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {createPrimeOwnerController} from '../src/client/controller.mjs'
@@ -14,8 +13,11 @@ const require=createRequire(join(resolve(harness),'node_modules/.pnpm/node_modul
 const React=require('react'),server=require('react-dom/server'),contracts=await import(pathToFileURL(resolve(contractFile)).href)
 const modules={'react':React,'react/jsx-runtime':require('react/jsx-runtime'),'@deepseek-ai/dsh-client-store':{}}
 const factories={}
-const sandbox={window:{__ModuleLoader__:{load:({id,factory})=>{factories[id]=factory}}},AbortController,setTimeout,clearTimeout,Date,console}
-for(const name of ['../../faces/layout/lib/client.js','../lib/client.js'])runInNewContext(await readFile(new URL(name,import.meta.url),'utf8'),sandbox)
+// Keep JSON prototypes in the same realm as the injected controller/contracts,
+// as in the browser. The inert loader receives only these verified owned bundles;
+// no global window, native apply hook, credential API, or host is installed.
+const loaderWindow={__ModuleLoader__:{load:({id,factory})=>{factories[id]=factory}}}
+for(const name of ['../../faces/layout/lib/client.js','../lib/client.js'])new Function('window',await readFile(new URL(name,import.meta.url),'utf8'))(loaderWindow)
 const get=name=>{if(name in modules)return modules[name];return modules[name]=factories[name.replace(/\/client$/,'')](get)}
 get('@aukora/face-layout/client')
 const ui=get('@aukora/prime-authority-ui/client')
@@ -23,6 +25,26 @@ const render=controller=>server.renderToStaticMarkup(React.createElement(ui.Owne
 const badge=controller=>server.renderToStaticMarkup(React.createElement(ui.CapabilityBadge,{controller}))
 let count=0,clock=Date.parse('2030-01-01T00:00:00Z')
 const make=options=>{const binding=createOwnerUiFixture(contracts,{now:()=>clock,...options});const controller=createPrimeOwnerController({now:()=>clock});controller.connect(binding);return {binding,controller}}
+{
+  const f=make();await f.controller.login()
+  const memoryCapture={statement:'  <img src=x onerror=alert(1)>\n<script>exact memory</script> 😀  ',attributed_to:'owner-voice'}
+  const operation={...f.binding.operation,action_type:'memory.save',canonical_parameters:{capture_sha256:'a'.repeat(64),
+    idempotency_key_sha256:'b'.repeat(64),heads:{},...memoryCapture}}
+  f.controller.setOperation(operation,{memoryCapture});await f.controller.prepare()
+  const html=render(f.controller)
+  assert(html.includes('data-memory-statement'));assert(html.includes('data-memory-attribution'));assert(html.includes('data-memory-capture-hash'))
+  assert(html.includes('owner-voice'));assert(!html.includes('<img src=x'));assert(!html.includes('<script>exact memory'))
+  assert(html.includes('  &lt;img src=x onerror=alert(1)&gt;\n&lt;script&gt;exact memory&lt;/script&gt; 😀  '))
+  assert(html.includes(await contracts.operationDigest(operation)));assert(!/disabled=""[^>]*>Approve exact operation/.test(html))
+  for(const review of [null,{...f.controller.getSnapshot().presentation.memory_review,statement:'Different'},
+    {...f.controller.getSnapshot().presentation.memory_review,attributed_to:'agent'},
+    {...f.controller.getSnapshot().presentation.memory_review,capture_sha256:'b'.repeat(64)}]) {
+    const snapshot={...f.controller.getSnapshot(),presentation:{...f.controller.getSnapshot().presentation,memory_review:review}}
+    const guarded=render({...f.controller,getSnapshot:()=>snapshot})
+    assert(guarded.includes('data-memory-review-refused'));assert(/disabled=""[^>]*>Approve exact operation/.test(guarded))
+  }
+  f.controller.dispose();count++
+}
 {
   const f=make();let html=render(f.controller)
   assert(html.includes('Disposable UI fixture.'));assert(html.includes('Sign in with passkey'));assert(!html.includes('Host-confirmed owner:'))

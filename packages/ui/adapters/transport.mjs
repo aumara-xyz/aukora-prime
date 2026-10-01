@@ -3,6 +3,8 @@
  * The composition injects browser-safe frozen contract helpers and transport methods; no URLs
  * or signing keys live here. Session tokens remain in memory, outside presentation objects.
  */
+import { validateCaptureReview } from './capture-review.mjs'
+
 export class PrimeTransportError extends Error {
   constructor(code, reason) {
     super(reason)
@@ -181,10 +183,16 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     finally { loginPending = null; loginOwner = null }
   }
 
-  async function prepareApproval(proposal, { signal } = {}) {
+  async function prepareApproval(proposal, { signal, memoryCapture } = {}) {
     const current = ownerSession()
     validateContract('OperationProposal', proposal)
     const operation = copy(proposal)
+    let memoryDraft = null
+    if (operation.action_type === 'memory.save') {
+      try { validateCaptureReview(operation.canonical_parameters, memoryCapture) }
+      catch { fail('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
+      memoryDraft = copy(memoryCapture, 'memory-capture-draft')
+    }
     if (operation.owner_id !== current.owner_id) fail('UNAUTHORIZED', 'ui:operation-owner-mismatch')
     checkExpiry(operation.expiry)
     const digest = await operationDigest(operation)
@@ -210,9 +218,11 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       // This is the complete exact operation, suitable for the existing approval seat.
       canonical_operation: canonicalJson(operation),
       rows: Object.keys(labels).map(key => ({ key, label: labels[key], value: operation[key], exact: canonicalJson(operation[key]) })),
+      memory_review: memoryDraft ? { statement: memoryDraft.statement, attributed_to: memoryDraft.attributed_to,
+        capture_sha256: operation.canonical_parameters.capture_sha256 } : null,
     })
     presentations.set(presentation, { operation, digest, proofTemplate, request, owner_id: current.owner_id,
-      session_token: current.session_token, public_key: answer.public_key ? copy(answer.public_key) : undefined })
+      session_token: current.session_token, public_key: answer.public_key ? copy(answer.public_key) : undefined, memoryDraft })
     return presentation
   }
 
@@ -231,6 +241,10 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       return prior.pending
     }
     if (prior) fail(prior.code, prior.reason)
+    if (record.operation.action_type === 'memory.save') {
+      try { validateCaptureReview(record.operation.canonical_parameters, record.memoryDraft) }
+      catch { fail('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
+    }
     checkExpiry(record.operation.expiry)
     checkExpiry(record.proofTemplate.expiry)
     const pending = (async () => {
