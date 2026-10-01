@@ -17,9 +17,9 @@ import sys
 STATE = Path('/var/lib/aukora-prime')
 RUN = Path('/run/aukora-prime')
 WITNESS = Path('/var/lib/aukora-prime-witness/pilot')
-GROUPS = ['prime-app', 'prime-authority', 'prime-memory', 'prime-authority-ipc', 'prime-memory-ipc']
+GROUPS = ['prime-app', 'prime-authority', 'prime-memory', 'prime-authority-ipc', 'prime-memory-ipc', 'prime-pg-socket']
 SUPPLEMENTARY = {'app': ['prime-memory-ipc'], 'authority': ['prime-authority-ipc'],
-                 'memory': ['prime-authority-ipc', 'prime-memory-ipc']}
+                 'memory': ['prime-authority-ipc', 'prime-memory-ipc', 'prime-pg-socket']}
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C'}
 HASH = re.compile(r'[0-9a-f]{64}')
 

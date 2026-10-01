@@ -16,14 +16,14 @@ The operator-reported distro PostgreSQL identity must remain UID113/GID114. Exis
 | `/run/aukora-prime/authority` | prime-authority:prime-authority-ipc | 0710 |
 | `/run/aukora-prime/memory` | prime-memory:prime-memory-ipc | 0710 |
 
-Three same-name primary groups/users are created as system accounts with locked passwords, `/usr/sbin/nologin`, and no home creation. Two IPC groups are created. App supplementary groups: `prime-memory-ipc`; authority: `prime-authority-ipc`; memory: `prime-authority-ipc,prime-memory-ipc`. App gains no authority IPC or memory primary-group membership. The retained authority witness lies outside every D restore namespace; its same authority UID does not establish an independent witness.
+Three same-name primary groups/users are created as system accounts with locked passwords, `/usr/sbin/nologin`, and no home creation. Two IPC groups and one distinct PG socket group `prime-pg-socket` are created. App supplementary groups: `prime-memory-ipc`; authority: `prime-authority-ipc`; memory: `prime-authority-ipc,prime-memory-ipc,prime-pg-socket`. App gains no authority IPC or memory primary-group membership. The retained authority witness lies outside every D restore namespace; its same authority UID does not establish an independent witness.
 
 H must stage the reviewed bytes in an already authorized root-owned task directory with root-owned canonical ancestors and no group/other write permissions. Copy into a new root-owned file, confirm its final SHA-256 using a trusted outer tool against the independently retained handoff digest, then execute only that verified staged path. Do not privileged-execute a candidate/Ubuntu-writable upload and rely on its own hash check. The internal pin catches accidental drift after trusted staging; code can never establish its own independent identity. The staged artifact must remain root-owned/non-writable throughout execution.
 
 Source SHA-256 of `parents.py`:
 
 ```
-f73240dd89cb589188f82fff79b6b0cbaecdebd32ee40d0cba68916ca8b7ad78
+8c20c620e324cdc163fdd681bd2c71573300f32d99ee6d0634129df7e92caa07
 ```
 
 Read-only local plan:
@@ -35,11 +35,15 @@ python3 -B packages/ops/pilot/parents.py plan
 After H completes the trusted outer staging/verification, the exact approved phase is:
 
 ```
-/usr/bin/python3 -B /absolute/root-protected/staged/parents.py provision-layout --expected-artifact-sha256 f73240dd89cb589188f82fff79b6b0cbaecdebd32ee40d0cba68916ca8b7ad78
+/usr/bin/python3 -B /absolute/root-protected/staged/parents.py provision-layout --expected-artifact-sha256 8c20c620e324cdc163fdd681bd2c71573300f32d99ee6d0634129df7e92caa07
 ```
 
 The displayed staged path is an explicit operator input, not an existing-file claim. H verifies the returned identities, account locks/no-login shell, actual supplementary memberships, canonical ownership/modes and traversal before passing actual UID/GID values to worker configuration. A partial account/directory error requires reconciliation from retained output and scoped observations; the script refuses automatic retry and never deletes or repairs pre-existing state. `/run` entries are volatile; reboot reconstruction needs a separately reviewed scoped artifact after qualification.
 
-The PG operator exclusively creates `/var/lib/aukora-prime/postgres` postgres:postgres0700 and `/run/aukora-prime/postgres` postgres:prime-memory0750. PG Unix socket mode0770/group prime-memory, private peer mapping `prime-memory -> prime_memory`, and dedicated synthetic database `aukora_prime_synthetic` remain the operator's steps. No PG child is created by this artifact, no ACL/password is generated, and app has no PG traversal grant. Eight pinned PG packages were reported installed already; do not run a duplicate install.
+The PG operator exclusively creates `/var/lib/aukora-prime/postgres` postgres:postgres0700 and `/run/aukora-prime/postgres` postgres:prime-pg-socket0750. PG Unix socket mode0770/group prime-pg-socket on port55434, private peer mapping `prime-memory -> prime_memory`, and dedicated synthetic database `aukora_prime_synthetic` remain the operator's steps. No PG child is created by this artifact, no ACL/password is generated, and app has no PG traversal grant. Eight pinned PG packages were reported installed already; do not run a duplicate install.
 
-Config and unit emission is held. Task40 guard source `ca382593545c9877e0fce4f19e406c90f7a84027` now requires root-owned0440/worker-primary-group with root:worker0750 parent. PostgreSQL unit-only supplementary `prime-memory` membership would also permit reading a D config owned root:prime-memory0440 under that parent, including D's private C-channel material. Ordinary DAC does not distinguish NSS membership from process supplementary membership. H/task40 must resolve that boundary for every PG launch context before emitting secret-bearing D config or starting workers. No extra group/ACL or activation workaround is introduced here. New C authority-store bootstrap API, C/D/B repairs, exact app deployment-manifest interface and actual Linux PG/UID checks remain pending. The parent/UID step is independent of these holds.
+H resolved the earlier PG/D config-read group conflict by approving this sixth distinct socket group before the fresh-parent phase ran. PostgreSQL may use `prime-pg-socket` at process/unit scope only; it never gains the memory worker's primary `prime-memory` group. Private D config remains root:prime-memory0440 under root:prime-memory0750. App gains neither group. Task40 guard source `ca382593545c9877e0fce4f19e406c90f7a84027` requires root-owned0440/worker-primary-group with protected matching0750 parent. The verifier retains negative PG-read probes on every D private config and checks actual process/group contexts; new source agreement is not actual OS qualification.
+
+The intended PG unit has User/Group postgres and `SupplementaryGroups=prime-pg-socket`; any approved manual operator process uses only `-g prime-pg-socket`, never prime-memory. Socket dir postgres:prime-pg-socket0750/socket0770 at55434; no global postgres account group change. The unchanged PG data owner/group remains postgres:postgres0700. H and the exclusive operator must serialize parent creation before PG child creation.
+
+Worker activation remains held for reviewed authority-store bootstrap, C/D/B/bridge joins, exact H deployment-manifest boot and actual Linux PG/UID checks. The parent/UID artifact is independent of those qualification holds. Source PostgreSQL peer configs and disabled unit templates are separate pinned preparation; no service starts, secret generation or private import is performed by G.
