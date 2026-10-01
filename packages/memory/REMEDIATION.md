@@ -4,6 +4,8 @@ This work responds to the supplied findings with source changes and bounded synt
 
 ## Restore and control retention
 
+The follow-up to `4e6d033` supplies an owned unavailable default and explicit file reader/publisher. See [CONTROL_RETENTION.md](CONTROL_RETENTION.md) for closed constructors, epoch/checkpoint binding, storage preconditions, persistent pending markers, factual publication recovery and required H write coordination. No production path or identity is assigned. Current-pointer publication alone cannot cover a crash before its marker; the atomic control-write/restore gate remains H/D/C integration work and unqualified here.
+
 `exportSnapshot` remains a record-data snapshot. It cannot serve as a control backup. `exportControlState(trustedHost)` separately encodes the exact durable purge, idempotency, intent/effect, tombstone, control, redaction and replay-fence rows. Its complete schema is documented in README and the exported `MEMORY_CONTROL_TABLES` mapping. Bytea values remain original bytes inside `{bytes_base64,sha256}` envelopes. The outer `control_sha256` is a domain-separated integrity digest, not independent authority.
 
 Configure `restoreAnchorProvider(trustedHost)` to return the latest complete control bundle retained independently of the recoverable database and incoming snapshot, for the exact distinct `owner_id` and `owner_subject`. The independently protected current pointer must not be reconstructed from the snapshot or a stale backup. Heads-only providers now refuse with `memory:trusted-control-anchor-required`.

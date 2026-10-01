@@ -273,6 +273,8 @@ async function prepare(config, statePath, Pool, driverManifest) {
     for (const table of ['prime_memory_records', 'prime_memory_requests', 'prime_memory_effects', 'prime_memory_intents']) {
       assert.equal(Number((await pool.query('SELECT count(*) AS n FROM ' + table)).rows[0].n), 1)
     }
+    const replayFenceRows=await pool.query('SELECT owner_subject,operation_id,operation_digest,grant_id,action,request_id,request_digest,status FROM prime_memory_replay_fences WHERE owner_subject=$1',[state.owner_subject])
+    assert.equal(replayFenceRows.rows.length,0)
     fault.fail = true; assert.equal((await memory.drainOutbox(host)).failed, 1)
     const failed = await memory.status(host, result.record.record_id)
     assert.equal(failed.saved, true); assert.equal(failed.record.index_status, 'failed'); assert.equal(failed.searchable, false)
@@ -286,6 +288,7 @@ async function prepare(config, statePath, Pool, driverManifest) {
     const retainedHeads = await headsOf(pool, state.owner_subject)
     const controlState=await memory.exportControlState(host)
     durableJSON(statePath + '.anchors.json', { version: 1, kind: ANCHOR_KIND, run_id, owner_subject: state.owner_subject,
+      owner_id:host.owner_id,authorization_epoch:authorization.operation.authorization_epoch,
       config_sha256: state.config_sha256, heads: retainedHeads, control_state:controlState }, { exclusive: true })
     state.anchor_sha256 = sha256(readFileSync(statePath + '.anchors.json'))
     state.snapshot = await memory.exportSnapshot(host)
@@ -297,6 +300,7 @@ async function prepare(config, statePath, Pool, driverManifest) {
     state.phase = 'prepared'; durableJSON(statePath, state)
     return { phase: 'prepared', state: statePath, schemas: [state.source_schema, state.restore_schema],
       checks: state.prepare_checks, postgres: state.postgres_before, authority_fixture: state.authority_fixture,
+      control_retention_profile:'explicit-toy-host-provider/not-production-file-reader',new_replay_fence_schema_checked:true,
       next: 'Operator restarts the isolated PostgreSQL cluster, then runs verify with the same config and state files.' }
   } catch (error) { state.phase = 'prepare-failed'; state.failure_code = error.code ?? 'operator:check-failed'; durableJSON(statePath, state); throw error }
   finally { if (pool) await pool.end(); await bootstrap.end() }
@@ -336,6 +340,8 @@ async function verify(config, statePath, Pool) {
       assert.equal(trustedHost.owner_subject, state.owner_subject)
       const independent = readJSON(anchorPath)
       check(sha256(readFileSync(anchorPath)) === state.anchor_sha256, 'operator:retained-anchor-changed')
+      check(trustedHost.owner_id===independent.owner_id && independent.authorization_epoch===state.operation.authorization_epoch,
+        'operator:retained-owner-epoch-changed')
       check(independent.control_state && canonicalJSON(independent.control_state.heads)===canonicalJSON(independent.heads),
         'operator:independent-control-anchor-required')
       return structuredClone(independent.control_state)
@@ -358,6 +364,7 @@ async function verify(config, statePath, Pool) {
       'committed-receipt-reconcile-no-reserve-or-dispatch', 'Prime-only-independent-head-cold-verification', 'fresh-schema-anchored-restore']
     durableJSON(statePath, state)
     return { phase: 'verified', state: statePath, checks: state.verify_checks, postgres: postgres_after,
+      control_retention_profile:'explicit-toy-host-provider/not-production-file-reader',new_replay_fence_schema_checked:true,
       authority_fixture: state.authority_fixture, production_C_tested: false, private_memory_imported: false }
   } finally { if (source) await source.end(); if (restored) await restored.end(); await bootstrap.end() }
 }

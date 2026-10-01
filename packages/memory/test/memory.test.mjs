@@ -2,7 +2,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, writeFileSync, cpSync, readFileSync, realpathSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, cpSync, readFileSync, realpathSync, chmodSync, statSync } from 'node:fs'
+import retentionFiles from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +20,7 @@ import { snapshotReadOnlyKiraFiles } from '../src/read-only-snapshot.mjs'
 import { runMemoryCommand } from '../src/cli.mjs'
 import { validateCaptureReview, validateCaptureDraft } from '../src/capture-review.mjs'
 import { memoryTarget, MEMORY_AUDIENCE, memoryStateVersion, memoryReceiptDigest } from '../src/authorization.mjs'
+import { createFileControlRetentionPublisher, createFileControlRetentionReader } from '../src/control-retention.mjs'
 
 // A disposable SQLite-backed SQL fixture, not PostgreSQL acceptance. Translation is limited to the
 // dialect differences below; all records, transactions, bytea and restart storage are real file bytes.
@@ -717,6 +719,90 @@ test('cold restore retains owner-bound idempotency, committed receipts and unres
     assert.equal((await restored.prepareCaptureBinding(h,input,'retained-key')).canonical_parameters.capture_sha256,binding.canonical_parameters.capture_sha256)
     await assert.rejects(restored.prepareCaptureBinding(h,{...input,statement:'changed'},'retained-key'),{code:'memory:idempotency-conflict'})
   } finally {sourcePool.close();targetPool.close();rmSync(dir,{recursive:true,force:true})}
+})
+
+test('file-reader checkpoint and epoch bind synthetic cold restore and preserve exact retained control bytes',async t=>{
+  // SQLite + same actual OS UID only. Model reader identity and the macOS-stripped setgid bit;
+  // this checks the source join, not PG, distinct UIDs or a production write-coordination gate.
+  const dir=mkdtempSync(join(realpathSync('/tmp'),'prime-memory-file-retention-'))
+  const retentionDirectory=mkdtempSync(join(dir,'independent-control-'))
+  chmodSync(retentionDirectory,0o2750)
+  const actualUid=process.getuid(),readerUid=actualUid+100000,gid=statSync(retentionDirectory).gid
+  const uid=t.mock.method(process,'getuid',()=>actualUid),euid=t.mock.method(process,'geteuid',()=>actualUid)
+  t.mock.method(process,'getgroups',()=>[gid])
+  const role=value=>{uid.mock.mockImplementation(()=>value);euid.mock.mockImplementation(()=>value)}
+  if(process.platform==='darwin' && (statSync(retentionDirectory).mode & 0o2000)===0) {
+    const setgid=stat=>Object.assign(Object.create(Object.getPrototypeOf(stat)),stat,
+      {mode:typeof stat.mode==='bigint'?stat.mode|0o2000n:stat.mode|0o2000})
+    const lstat=retentionFiles.lstat,open=retentionFiles.open
+    t.mock.method(retentionFiles,'lstat',async(filename,...args)=>{
+      const stat=await lstat(filename,...args)
+      return filename===retentionDirectory && stat.isDirectory()?setgid(stat):stat
+    })
+    t.mock.method(retentionFiles,'open',async(filename,...args)=>{
+      const handle=await open(filename,...args)
+      if(filename===retentionDirectory) {
+        const stat=handle.stat.bind(handle)
+        t.mock.method(handle,'stat',async(...statArgs)=>setgid(await stat(...statArgs)))
+      }
+      return handle
+    })
+  }
+  const sourcePool=new FixturePool(join(dir,'source.sqlite'))
+  let targetPool=new FixturePool(join(dir,'target.sqlite')),effectPool=sourcePool,checkpoint
+  const h={...host(),owner_id:'distinct-file-retention-owner',authorization_epoch:0}
+  const retainedHost={owner_id:h.owner_id,owner_subject:h.owner_subject,authorization_epoch:0}
+  const config={directory:retentionDirectory,publisher_uid:actualUid,reader_uid:readerUid,retention_gid:gid,contracts:toyContracts}
+  const publisher=createFileControlRetentionPublisher(config)
+  const markedAuthority={...toyAuthority,async claimDispatch(args) {
+    const intent=effectPool.db.prepare('SELECT operation_digest FROM prime_memory_intents WHERE operation_id=?').get(args.operation.operation_id)
+    assert.equal(intent.operation_digest,toyContracts.operationDigest(args.operation))
+    const previousRole=process.getuid();role(actualUid)
+    try {await publisher.beginUpdate({host:retainedHost,expected_checkpoint_sha256:checkpoint.checkpoint_sha256,
+      operation_id:args.operation.operation_id,operation_digest:toyContracts.operationDigest(args.operation)})}
+    finally {role(previousRole)}
+    return toyAuthority.claimDispatch(args)
+  }}
+  try {
+    const source=service(sourcePool,{authority:markedAuthority});await source.migrate()
+    checkpoint=await publisher.publish({host:retainedHost,control_state:await source.exportControlState(h),expected_checkpoint_sha256:null})
+    const captureBinding=await source.prepareCaptureBinding(h,input,'file-retained-key')
+    const saveOptions=toyBoundOperation(h,'memory.save',captureBinding.canonical_parameters)
+    const saved=await source.captureAuthorizedRemembered(h,input,'file-retained-key',saveOptions)
+    const snapshot=await source.exportSnapshot(h),control=await source.exportControlState(h)
+    role(readerUid)
+    const reader=createFileControlRetentionReader(config)
+    let target=createPostgresMemory({pool:targetPool,authority:markedAuthority,contracts:toyContracts,controlRetention:reader})
+    await target.migrate();assert.equal(target.controlRetentionStatus().kind,'file-reader')
+    await assert.rejects(target.prepareRestoreBinding(h,snapshot),{code:'memory:trusted-restore-anchor-unavailable'})
+    role(actualUid)
+    checkpoint=await publisher.publish({host:retainedHost,control_state:control,expected_checkpoint_sha256:checkpoint.checkpoint_sha256})
+    role(readerUid)
+    const proposal=await target.prepareRestoreBinding(h,snapshot)
+    assert.equal(proposal.canonical_parameters.control_anchor_sha256,control.control_sha256)
+    assert.equal(proposal.canonical_parameters.retention_checkpoint_sha256,checkpoint.checkpoint_sha256)
+    assert.equal(proposal.canonical_parameters.retention_epoch,0)
+    await assert.rejects(target.prepareRestoreBinding({...h,authorization_epoch:1},snapshot),{code:'memory:trusted-restore-anchor-unavailable'})
+    const changed=toyBoundOperation(h,'memory.restore',{...proposal.canonical_parameters,retention_checkpoint_sha256:'0'.repeat(64)})
+    await assert.rejects(target.restoreSnapshot(h,snapshot,changed),{code:'memory:operation-binding-mismatch'})
+    assert.equal(preparedOperations.has(changed.approval_proof.operation_digest),false)
+    effectPool=targetPool
+    const options=toyBoundOperation(h,'memory.restore',proposal.canonical_parameters)
+    const result=await target.restoreSnapshot(h,snapshot,options)
+    assert.equal(result.retention_checkpoint_sha256,checkpoint.checkpoint_sha256);assert.equal(result.retention_epoch,0)
+    const retainedIntent=targetPool.db.prepare('SELECT * FROM prime_memory_intents WHERE operation_id=?').get(saveOptions.operation.operation_id)
+    assert.deepEqual(retainedIntent,sourcePool.db.prepare('SELECT * FROM prime_memory_intents WHERE operation_id=?').get(saveOptions.operation.operation_id))
+    await assert.rejects(reader.readCurrent(retainedHost),{code:'memory:control-retention-update-pending'})
+    const restoredControl=await target.exportControlState(h)
+    role(actualUid)
+    checkpoint=await publisher.publish({host:retainedHost,control_state:restoredControl,expected_checkpoint_sha256:checkpoint.checkpoint_sha256})
+    role(readerUid)
+    targetPool.close();targetPool=new FixturePool(join(dir,'target.sqlite'))
+    target=createPostgresMemory({pool:targetPool,authority:toyAuthority,contracts:toyContracts,controlRetention:reader})
+    assert.equal((await target.status(h,saved.record.record_id)).record.canonical_bytes,saved.record.canonical_bytes)
+    assert.equal((await target.cite(h,saved.record.record_id)).verdict,'VERIFIED')
+    assert.equal((await reader.readCurrent(retainedHost)).checkpoint_sha256,checkpoint.checkpoint_sha256)
+  } finally {role(actualUid);sourcePool.close();targetPool.close();rmSync(dir,{recursive:true,force:true})}
 })
 
 test('independent purge control anchor blocks old data in an empty store and retains content-free replay fences',async()=>{

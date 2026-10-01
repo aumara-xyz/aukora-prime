@@ -14,6 +14,7 @@ import { requireRedactableChain } from './codecs.mjs'
 import { validateCaptureDraft, validateCaptureReview } from './capture-review.mjs'
 import { validatePilotCaptureMetadata } from './pilot-capture.mjs'
 import { makeMemoryControlState, inspectMemoryControlState, MEMORY_CONTROL_TABLES } from './control-state.mjs'
+import { createUnavailableControlRetention, isControlRetentionReader, MEMORY_RETENTION_SCHEMA } from './control-retention.mjs'
 
 const rows = async (db, sql, values = []) => (await db.query(sql, values)).rows
 const ownerOf = host => {
@@ -30,10 +31,17 @@ const chainBytes = entries => Buffer.concat(entries.map(e => bytesOf(e.bytes)))
 
 /** Caller supplies a Prime-owned PostgreSQL Pool. This module never discovers credentials or a sibling repository. */
 export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:v1', indexGeneration = '1',
-  verifyApprovedEvidence, authority, contracts, restoreAnchorProvider } = {}) {
+  verifyApprovedEvidence, authority, contracts, restoreAnchorProvider, controlRetention } = {}) {
   requireMemory(typeof pool?.connect === 'function' && typeof pool?.query === 'function', 'memory:postgres-pool-required')
   requireMemory(typeof indexTarget === 'string' && indexTarget && typeof indexGeneration === 'string'
     && indexGeneration, 'memory:index-target-required')
+  requireMemory(restoreAnchorProvider===undefined || typeof restoreAnchorProvider==='function','memory:restore-anchor-provider-invalid')
+  requireMemory(restoreAnchorProvider===undefined || controlRetention===undefined,'memory:restore-provider-ambiguous')
+  const retainedReader=controlRetention ?? createUnavailableControlRetention()
+  requireMemory(isControlRetentionReader(retainedReader),'memory:owned-control-retention-reader-required')
+  const legacyAnchorProvider=typeof restoreAnchorProvider==='function'
+  const loadRestoreAnchor=restoreAnchorProvider ?? (host=>retainedReader.restoreAnchorProvider({
+    owner_id:host.owner_id,owner_subject:host.owner_subject,authorization_epoch:host.authorization_epoch}))
 
   async function transaction(owner, work, { readOnly = false } = {}) {
     const client = await pool.connect()
@@ -733,16 +741,25 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   }
 
   async function trustedRestoreControl(host) {
-    requireMemory(typeof restoreAnchorProvider==='function','memory:trusted-restore-anchor-unavailable')
     let retained
-    try {retained=structuredClone(await restoreAnchorProvider(structuredClone(host)))}
+    try {retained=structuredClone(await loadRestoreAnchor(structuredClone(host)))}
     catch {requireMemory(false,'memory:trusted-restore-anchor-unavailable')}
+    let retentionBinding={}
+    if(!legacyAnchorProvider) {
+      requireMemory(retained?.schema===MEMORY_RETENTION_SCHEMA && retained.owner_id===host.owner_id
+        && retained.owner_subject===ownerOf(host) && retained.authorization_epoch===host.authorization_epoch,
+        'memory:retention-owner-epoch-mismatch')
+      retentionBinding={retention_checkpoint_sha256:retained.checkpoint_sha256,retention_epoch:retained.authorization_epoch}
+      retained=retained.control_state
+    }
     requireMemory(retained?.schema==='aukora-prime-memory-control-state/v1','memory:trusted-control-anchor-required')
     const checked=inspectMemoryControlState(retained,host,{contracts:await controlContracts()})
     requireMemory(Object.keys(checked.heads).length>0 && Object.values(checked.heads).some(h=>/^[0-9a-f]{64}$/.test(h)),
       'memory:trusted-restore-anchor-invalid')
-    return checked
+    return {...checked,...retentionBinding}
   }
+  const retentionParameters=retained=>retained.retention_checkpoint_sha256===undefined?{}:{
+    retention_checkpoint_sha256:retained.retention_checkpoint_sha256,retention_epoch:retained.retention_epoch}
   async function mergeRestoreControl(db,host,retained,{write=false}={}) {
     const owner=ownerOf(host),local=await controlTables(db,owner),merged={}
     for(const [name,definition] of Object.entries(MEMORY_CONTROL_TABLES)) {
@@ -793,7 +810,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       const heads=await currentHeads(db,owner)
       return {target_identity:memoryTarget(owner),state_version:memoryStateVersion(heads),canonical_parameters:{
         manifest_sha256:checked.digest,mode:'prime-restore',heads:frozen.heads,retained_heads:retained.heads,
-        control_anchor_sha256:retained.digest}}
+        control_anchor_sha256:retained.digest,...retentionParameters(retained)}}
     },{readOnly:true})
   }
   async function importPreflight(db,owner,checked,frozen,retainedTables) {
@@ -845,6 +862,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     // Caller-provided head files are cross-checks, never a restore trust root.
     if(mode==='prime-restore') {
       retained=await trustedRestoreControl(host)
+      requireMemory(retained.retention_epoch===undefined || options.operation?.authorization_epoch===retained.retention_epoch,
+        'memory:retention-epoch-binding-mismatch')
       requireMemory(expectedHeads===undefined || canonicalJSON(expectedHeads)===canonicalJSON(retained.heads),'memory:restore-anchor-mismatch')
       expectedHeads=retained.heads
     }
@@ -854,8 +873,12 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       'memory:restore-forgotten-payload-forbidden')
     return authorizedEffect(host,mode==='prime-restore'?'memory.restore':'memory.import',
       {manifest_sha256:checked.digest,mode,heads:frozen.heads,retained_heads:expectedHeads ?? null,
-        ...(retained?{control_anchor_sha256:retained.digest}:{})},options,async db=>{
-      if(retained) requireMemory((await trustedRestoreControl(host)).digest===retained.digest,'memory:restore-anchor-changed')
+        ...(retained?{control_anchor_sha256:retained.digest,...retentionParameters(retained)}:{})},options,async db=>{
+      if(retained) {
+        const current=await trustedRestoreControl(host)
+        requireMemory(current.digest===retained.digest && canonicalJSON(retentionParameters(current))===canonicalJSON(retentionParameters(retained)),
+          'memory:restore-anchor-changed')
+      }
       const controlRows=retained?await mergeRestoreControl(db,host,retained):undefined
       await importPreflight(db,owner,checked,frozen,controlRows)
       if(!retained) requireMemory(frozen.schema!=='aukora-prime-memory-snapshot/v2'
@@ -919,7 +942,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
           VALUES($1,$2,$3,$4)`,[owner,checked.digest,refused.path,refused.reason])
       }
       return { imported, already_imported: false, quarantined: checked.quarantine.length, snapshot_digest: checked.digest,
-        control_state_restored:Boolean(retained),...(retained?{control_anchor_sha256:retained.digest}:{}) }
+        control_state_restored:Boolean(retained),...(retained?{control_anchor_sha256:retained.digest,...retentionParameters(retained)}:{}) }
       }
     })
   }
@@ -978,7 +1001,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     requireMemory(options?.mode===undefined || options.mode==='prime-restore','memory:restore-mode-invalid')
     return importSnapshot(host,snapshot,{...options,mode:'prime-restore'})
   }
-  return Object.freeze({ migrate,captureAuthorizedRemembered,prepareCaptureBinding,authorityTargetObservation,withAuthorityTargetObservation,reconcileEffect,drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,purgeRecordPayload,eraseOwnerPayloads,exportSnapshot,exportControlState,exportBackup,prepareBackupBinding,prepareRestoreBinding,importSnapshot,restoreSnapshot })
+  return Object.freeze({ migrate,captureAuthorizedRemembered,prepareCaptureBinding,authorityTargetObservation,withAuthorityTargetObservation,reconcileEffect,drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,purgeRecordPayload,eraseOwnerPayloads,exportSnapshot,exportControlState,exportBackup,prepareBackupBinding,prepareRestoreBinding,importSnapshot,restoreSnapshot,
+    controlRetentionStatus:()=>legacyAnchorProvider?{configured:true,kind:'explicit-host-control-provider',file_backed:false}:retainedReader.status })
 }
 
 export { MemoryRefusal } from './codecs.mjs'
