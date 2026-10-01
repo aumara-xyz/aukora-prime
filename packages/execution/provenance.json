@@ -15,8 +15,12 @@
   "adaptations": {
     "src/policy.mjs": "Carried donor validation, guest policy and environment translation; no host mounts or ambient credentials.",
     "src/bash.mjs": "Carried foreground lifecycle seam; injected pinned ShellExecutor and trusted host callbacks.",
-    "src/owned-executor.mjs": "Replaces CLI ambiguity/in-process lock with typed raw SDK, durable fences/checkpoints and restart cleanup.",
-    "src/sdk-transport.ts": "New adapter using reviewed raw protobuf requestId/typed exec stream; structurally checked against real generated SDK."
+    "src/owned-executor.mjs": "Typed SDK lifecycle plus actual one-use C claim, ordered durable settlement outbox, conservative cancellation, exact gateway/profile/ledger recovery binding.",
+    "src/sdk-transport.ts": "New adapter using reviewed raw protobuf requestId/typed exec stream; structurally checked against real generated SDK.",
+    "src/ledger.mjs": "Separate OS SQLite lease and FULL-sync job checkpoints; explicit provisioning, identity/integrity validation and no silent ledger-loss reinitialization.",
+    "src/binding.mjs": "Agreed C/F request/receipt digest domains and exact private authority join; no naked consumed-envelope acceptance.",
+    "src/qualification.mjs": "Closed evidence/accepted host proof record bound to exact pins, policy, host profile, endpoint and ledger; no boolean qualification or default accepted proof.",
+    "checks/joined.mjs": "Actual ordinary disposable C owner-key login/review/reserve through kernel/store; SDK only mocked. C dependency checkpoint 1be5ccc2d93b4657a6fe7de63ec4d6757c73b114; frozen contracts f4fbe48e9cbb2c751d7eb2aaa2b931a9522978d0."
   },
   "upstream": {
     "project": "https://github.com/NVIDIA/OpenShell",

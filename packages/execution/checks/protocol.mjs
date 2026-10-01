@@ -25,7 +25,7 @@ if(process.argv[2]==='crash-child'){
 
 if(process.argv[2]==='exec-crash-child'){
   const ledger=new OwnedLedger(process.argv[3]),protocol=mock({exit:1,crashAfterExit:true})
-  const executor=new MockedProtocolExecutor({settings,transport:new SdkTransport(protocol.raw),ledger,broker:new MockedDurableBroker(process.argv[3])})
+  const executor=new MockedProtocolExecutor({settings,transport:new SdkTransport(protocol.raw,{gatewayIdentity:'https://synthetic.invalid:19443/'}),ledger,broker:new MockedDurableBroker(process.argv[3])})
   await executor.execute(request());throw new Error('crash child unexpectedly returned')
 }
 

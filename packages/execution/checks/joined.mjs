@@ -224,6 +224,48 @@ try {
     assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
   })
 
+  await check('confirmed cleanup promotes drained typed completion through actual C reconciliation without exec replay', async () => {
+    const f = await joined({ cleanupFailure: true }), r = f.authority.r
+    const initial = await f.executor.execute(r)
+    assert.equal(initial.status, 'outcome_unknown'); assert.equal(initial.cleanup, 'unknown')
+    assert.equal(initial.rpc_completion, 'complete'); assert.equal(initial.exit_code, 0)
+    assert.equal(initial.stdout, 'retained synthetic output')
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
+    const firstDigest = executionReceiptDigest(initial)
+    f.protocol.setCleanup(false)
+    const [receipt] = await f.executor.reconcileOwned()
+    assert.equal(receipt.status, 'completed'); assert.equal(receipt.cleanup, 'confirmed_absent')
+    assert.equal(receipt.reconciliation_required, false); assert.equal(receipt.receipt_id, initial.receipt_id)
+    assert.equal(receipt.started_at, initial.started_at); assert.equal(receipt.exit_code, initial.exit_code)
+    assert.equal(receipt.stdout, initial.stdout); assert.equal(receipt.stderr, initial.stderr)
+    assert.deepEqual(receipt.sandbox, initial.sandbox)
+    assert.notEqual(executionReceiptDigest(receipt), firstDigest)
+    assert.equal(f.authority.status().status, 'COMPLETED')
+    assert.deepEqual(f.calls.map(c => c.method), ['claimDispatch', 'settle', 'reconcileSettlement'])
+    const reconciliation = f.calls.at(-1)
+    assert.equal(reconciliation.input.receipt_digest, executionReceiptDigest(receipt))
+    assert.equal(reconciliation.value.idempotent, false); assert.equal(reconciliation.value.status, 'COMPLETED')
+    assert.equal(f.ledger.recovery().length, 0); assert.equal(count(f, 'create'), 1); assert.equal(count(f, 'exec'), 1)
+    assert.equal(f.authority.state().prepared.length, 1)
+  })
+
+  await check('cancellation after creation but before exec settles actual C CANCELLED only after observed owned absence', async () => {
+    const controller = new AbortController()
+    const f = await joined({ afterCreate: () => controller.abort() }), r = { ...f.authority.r, signal: controller.signal }
+    const receipt = await f.executor.execute(r)
+    assert.equal(count(f, 'create'), 1); assert.equal(count(f, 'exec'), 0)
+    assert.equal(count(f, 'delete'), 1); assert.equal(f.protocol.getSandbox(), null)
+    assert.equal(receipt.status, 'cancelled'); assert.equal(receipt.cleanup, 'confirmed_absent')
+    assert.equal(receipt.rpc_completion, 'not_started'); assert.equal(receipt.started_at, null); assert.equal(receipt.exit_code, null)
+    assert.equal(receipt.stdout, ''); assert.equal(receipt.stderr, ''); assert.equal(receipt.reconciliation_required, false)
+    assert.equal(f.executor.cancellationCause(r.request_id), 'caller')
+    const cancellation = f.calls.find(c => c.method === 'requestCancel')
+    assert.equal(cancellation.value.cancel_recorded, true); assert.equal(cancellation.value.status, 'CANCEL_REQUESTED')
+    assert.equal(f.calls.at(-1).method, 'settle'); assert.equal(f.calls.at(-1).value.status, 'CANCELLED')
+    assert.equal(f.authority.status().status, 'CANCELLED'); assert.equal(f.authority.state().prepared.length, 1)
+    assert.equal(f.ledger.recovery().length, 0)
+  })
+
   await check('recorded cancellation after launch retains consumed grant and unknown outcome; late cancellation preserves completion', async () => {
     const f = await joined({ waitAbort: true }), controller = new AbortController()
     const r = { ...f.authority.r, signal: controller.signal }, running = f.executor.execute(r)

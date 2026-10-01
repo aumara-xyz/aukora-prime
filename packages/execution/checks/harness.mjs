@@ -66,7 +66,7 @@ export class MockedProtocolExecutor extends OpenShellOwnedExecutor {
 }
 export async function fixture(options={},hooks={}) {
   const root=await realpath(await mkdtemp(join(tmpdir(),'prime-execution-protocol-')))
-  const ledger=new OwnedLedger(root,{initialize:true}),protocol=mock(options),transport=new SdkTransport(protocol.raw),base=hooks.broker??new MockedDurableBroker(root)
+  const ledger=new OwnedLedger(root,{initialize:true}),protocol=mock(options),transport=new SdkTransport(protocol.raw,{gatewayIdentity:'https://synthetic.invalid:19443/'}),base=hooks.broker??new MockedDurableBroker(root)
   const broker={...Object.fromEntries(['claimDispatch','requestCancel','settle','reconcileSettlement'].map(k=>[k,base[k].bind(base)])),prepare:base.prepare?.bind(base)}
   if(hooks.beforeClaim){const call=broker.claimDispatch;broker.claimDispatch=async input=>{if(await hooks.beforeClaim(input.operation,input.consumed_grant)===false)return {ok:false,error_code:'UNAUTHORIZED',reason:'synthetic negative callback'};return call(input)}}
   const executor=new MockedProtocolExecutor({settings,transport,ledger,broker,protocolAdmission:hooks.protocolAdmission})

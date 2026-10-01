@@ -18,6 +18,9 @@ export function inspectQualification(input,settings,policyDigest=null,bounds=nul
     if(!closed(input,['record','evidence','proof','verifyAcceptedProof'])||typeof input.verifyAcceptedProof!=='function'
       ||!closed(expected?.binding,['host_profile_digest','gateway_identity','ledger_id'])||!DIGEST.test(expected.binding.host_profile_digest)
       ||expected.binding.gateway_identity!==expected.gateway_identity||expected.binding.ledger_id!==expected.ledger_id)return null
+    const gateway=new URL(expected.binding.gateway_identity)
+    if(typeof expected.binding.gateway_identity!=='string'||gateway.protocol!=='https:'||gateway.username||gateway.password||gateway.search||gateway.hash||gateway.href!==expected.binding.gateway_identity
+      ||typeof expected.binding.ledger_id!=='string'||!expected.binding.ledger_id)return null
     // Detach host records before verification; neither mutations nor accessors
     // introduced during verification can alter the checked dispatch scope.
     const record=JSON.parse(canonicalJson(input.record)),evidence=JSON.parse(canonicalJson(input.evidence)),proof=JSON.parse(canonicalJson(input.proof))

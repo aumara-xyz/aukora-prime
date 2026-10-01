@@ -112,6 +112,7 @@ export class OpenShellOwnedExecutor {
         reservation_id:snap.r.consumed_grant.reservation_id,request:snap.r,request_digest:executorRequestDigest(snap.r),
         claim_state:'prepared',claim_reply:null,outbox:[],cancel_state:null,
         stage:'prepared',create_confirmed:false,policy_digest:snap.r.policy_digest,workspace:this.settings.workspace,image_digest:this.settings.image_digest,
+        gateway_identity:this.transport.gatewayIdentity,ledger_id:this.ledger.identity,runtime_binding:this.runtimeBinding,
         stdout_b64:'',stderr_b64:'',receipt:{version:1,receipt_id:randomUUID(),operation_id:snap.r.operation.operation_id,
           task_id:snap.r.operation.task_id,owner_id:snap.r.operation.owner_id,operation_digest:snap.digest,
           grant_id:snap.r.consumed_grant.grant_id,request_id:snap.r.request_id,status:'outcome_unknown',stdout:'',stderr:'',
@@ -249,7 +250,8 @@ export class OpenShellOwnedExecutor {
     throw refused('inventory exceeds bound','RECONCILIATION_REQUIRED')
   }
   async cleanup(job) {
-    if(job.workspace!==this.settings.workspace||job.image_digest!==this.settings.image_digest)throw refused('ledger deployment scope changed','TARGET_MISMATCH')
+    if(job.workspace!==this.settings.workspace||job.image_digest!==this.settings.image_digest||job.gateway_identity!==this.transport.gatewayIdentity
+      ||job.ledger_id!==this.ledger.identity||canonicalJson(job.runtime_binding)!==canonicalJson(this.runtimeBinding))throw refused('ledger deployment scope changed','TARGET_MISMATCH')
     if(['confirmed_absent','not_created'].includes(job.receipt.cleanup))return
     if(job.stage==='prepared'){job.receipt.cleanup='not_created';return}
     const deadline=Date.now()+this.settings.cleanup_timeout_ms,found=await this.find(job,deadline)

@@ -14,7 +14,7 @@ One local SQLite database holds an OS-released exclusive live-process lease whil
 
 Cancellation records C intent and requests abort, then performs owned cleanup independently of the canceled SDK RPC. Only a recorded cancellation with proven no execution (`rpc_completion=not_started`, `started_at=null`, `exit_code=null`) and `not_created`/`confirmed_absent` can claim cancelled. Started execution with lost RPC completion remains outcome_unknown even after cleanup: termination does not prove the command's prior effects. A drained typed result remains completed/failed after late abort. Typed exit 1 output is retained; stdout text never determines exit. DSH nonzero drained results resolve, while infrastructure/settlement uncertainty rejects with retained receipts.
 
-Cleanup scans the complete explicit workspace inventory, checks name/UUID/owner label, rechecks before deletion, and waits for observed absence. OpenShell has no atomic expected-ID delete. Trusted gateway/driver administration remains a prerequisite; a concurrent hostile name replacement is outside this contract. Ledger locks apply only to one local host and a trusted local filesystem, not cross-host ownership. The ledger and SDK manifest are host-owned state, not tamper-proof trust anchors.
+Each durable job binds its original SDK gateway, runtime profile and ledger identity; a different deployment cannot claim absence or clean it up. Cleanup scans the complete explicit workspace inventory, checks name/UUID/owner label, rechecks before deletion, and waits for observed absence. OpenShell has no atomic expected-ID delete. Trusted gateway/driver administration remains a prerequisite; a concurrent hostile name replacement is outside this contract. Ledger locks apply only to one local host and a trusted local filesystem, not cross-host ownership. The ledger and SDK manifest are host-owned state, not tamper-proof trust anchors.
 
 Guest policy retains hard Landlock, UID/GID 1000, closed environment, no providers, no network rules, no host files/credential mounts or uploads. Logical host workspace maps to disposable `/sandbox`. Actual driver isolation, metadata/control-plane denial, kernel enforcement and cleanup must be observed in G3; security-group rules alone cannot establish them. An approved immutable custom workload image is missing. Real gateway, guest execution, H/C runtime join and installed-app qualification are UNPERFORMED. Advanced browser work is outside this package.
 
@@ -23,6 +23,7 @@ Run the scoped disposable checks from the integrated Prime root:
     node packages/execution/checks/protocol.mjs
     node packages/execution/checks/controls.mjs
     node packages/execution/checks/joined.mjs
+    python3 packages/execution/checks/mutations.py
 
 The protocol/controls use a stateful mocked broker and SDK plus real local SQLite and disposable child processes. The joined check uses the actual C service/kernel/store through its ordinary in-process synthetic owner-key login/review/reserve flow, with only the SDK protocol mocked. The test-only admission subclass in checks/harness.mjs is not exported by the production package; its availability explicitly reports mocked/unavailable and runtimeEnforcementVerified=false. It does not qualify guest confinement. Node 24.11.1 ran the check successfully; node:sqlite emits its experimental-feature warning.
 
