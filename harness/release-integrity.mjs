@@ -29,6 +29,57 @@ function sameList(left,right){return JSON.stringify(left.map(item).sort((a,b)=>a
 const OWNER_ID='@aukora/prime-authority-ui'
 const OWNER_CONFIG=`import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(OWNER_ID)}, [], { hostPhase: true })\n`
 const BUILD_PATHS=['.dsh-build/pinned-harness-build.json','pnpm-lock.yaml','tsconfig.base.json','tsconfig.base.client.json','packages/client/tsdown.client.ts','packages/client/modules/src/client/manifest.ts','packages/client/web/src/platform.ts','scripts/client-build-environment.ts','scripts/bundle-input-isolation.ts'].sort((a,b)=>a.localeCompare(b,'en'))
+// Independent package identities, not receipt-authored resolution hints. Workspace
+// seats/versions come from DSH 0d1f50007f9bca3f52b06e1c3074fa14d5fb0720
+// (archive ae0968314dcd5e3c9d7e8f1f5748bbd289afc4ef5668187e0ef6524a7c64c87e).
+// Registry versions and pnpm peer-qualified seats come from that archive's exact
+// ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1 lock.
+// The layout seat is the unchanged Genesis 645d3213b8aede3b544269b4224ae09df06b0a42
+// plugins/aukora-face/layout/package.json copied into Prime faces/layout. Exact
+// declared ranges are the reviewed Prime owner package's seven declarations;
+// ranges never substitute for the independently fixed resolved versions below.
+const OWNER_DEPENDENCIES={
+ declared_dependencies:[
+  ['@aukora/face-layout','workspace:^','0.1.1-rc.2','prime-ui','faces/layout/package.json'],
+  ['@deepseek-ai/cordis','workspace:^','4.0.2','pinned-harness','vendor/cordis/package.json'],
+  ['@deepseek-ai/dsh-client-locale','workspace:^','0.1.6-alpha.1','pinned-harness','packages/client/locale/package.json'],
+  ['@deepseek-ai/dsh-client-ui-renderer','workspace:^','0.1.6-alpha.1','pinned-harness','packages/client/ui-renderer/package.json'],
+  ['@deepseek-ai/dsh-client-ui-slots','workspace:^','0.1.6-alpha.1','pinned-harness','packages/client/ui-slots/package.json'],
+  ['@types/react','~18.3.1','18.3.31','pinned-harness','node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/package.json'],
+  ['react','^18.2.0','18.3.1','pinned-harness','node_modules/.pnpm/react@18.3.1/node_modules/react/package.json'],
+ ],
+ build_dependencies:[
+  ['typescript',null,'6.0.3','pinned-harness','node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/package.json'],
+  ['tsdown',null,'0.22.2','pinned-harness','node_modules/.pnpm/tsdown@0.22.2_oxc-resolver@11.20.0_publint@0.3.21_tsx@4.22.4_typescript@6.0.3/node_modules/tsdown/package.json'],
+  ['lightningcss',null,'1.32.0','pinned-harness','node_modules/.pnpm/lightningcss@1.32.0/node_modules/lightningcss/package.json'],
+ ],
+}
+function ownerDependencies(buildInputs){
+ for(const [field,expected] of Object.entries(OWNER_DEPENDENCIES)){
+  const dependencies=buildInputs[field]
+  if(!Array.isArray(dependencies)||dependencies.length!==expected.length)fail('owner-dependency-set',field)
+  for(let i=0;i<expected.length;i++){
+   const dependency=dependencies[i]
+   keys(dependency,['name','declared','version','origin','path','bytes','sha256'])
+   pathName(dependency.path)
+   if(!Number.isSafeInteger(dependency.bytes)||dependency.bytes<1||!HEX.test(dependency.sha256))fail('owner-dependency-pin')
+   const identity=['name','declared','version','origin','path'].map(key=>dependency[key])
+   if(JSON.stringify(identity)!==JSON.stringify(expected[i]))fail('owner-dependency-identity',expected[i][0])
+  }
+ }
+}
+async function ownerDependencyMetadata(buildInputs,{ui,dsh,release}){
+ // Shape/identity validation also precedes every actual metadata read. A changed
+ // receipt digest can never redirect the consumer to another package or root.
+ ownerDependencies(buildInputs)
+ for(const dependencies of Object.values(OWNER_DEPENDENCIES))for(const [name,,version,origin,path] of dependencies){
+  const entry=[...buildInputs.declared_dependencies,...buildInputs.build_dependencies].find(item=>item.name===name)
+  const root=release??(origin==='prime-ui'?ui:dsh)
+  const actualPath=release&&origin==='prime-ui'?faceReleasePath(path):path
+  const metadata=json(await pinned(root,{...entry,path:actualPath}))
+  if(metadata.name!==name||metadata.version!==version)fail('owner-dependency-metadata',name)
+ }
+}
 function ownerReceipt(receipt){
  if(receipt.version!==2||receipt.owner_build?.version!==1)fail('owner-source-receipt-missing')
  if(receipt.upstream_commit!==DSH||receipt.source_commit!==DSH||receipt.source_commit_attribution!=='pinned-dsh-upstream; not Prime/UI source proof'||receipt.mode!=='client-only'||receipt.legacy_hosts_mounted!==false||receipt.source_lock_sha256!==LOCK||receipt.overlay_lock_sha256!==LOCK||!HEX.test(receipt.harness_receipt_sha256))fail('owner-build-pin')
@@ -44,12 +95,7 @@ function ownerReceipt(receipt){
  if(JSON.stringify(pins.map(x=>x.path))!==JSON.stringify(BUILD_PATHS))fail('owner-pinned-build-set')
  const generated=item(owner.build_inputs.generated)
  if(generated.path!=='packages/client/aukora-prime-authority/.prime-client.config.ts'||generated.bytes!==Buffer.byteLength(OWNER_CONFIG)||generated.sha256!==sha(Buffer.from(OWNER_CONFIG)))fail('owner-generated-config')
- for(const field of ['declared_dependencies','build_dependencies']){
-  const dependencies=owner.build_inputs[field]
-  if(!Array.isArray(dependencies)||!dependencies.length||dependencies.length>1000)fail('owner-dependency-set')
-  for(const dependency of dependencies){keys(dependency,['name','declared','version','origin','path','bytes','sha256']);pathName(dependency.path);if(typeof dependency.name!=='string'||typeof dependency.version!=='string'||!['prime-ui','pinned-harness'].includes(dependency.origin)||!Number.isSafeInteger(dependency.bytes)||dependency.bytes<1||!HEX.test(dependency.sha256)||!(dependency.declared===null||typeof dependency.declared==='string'))fail('owner-dependency-pin')}
- }
- if(JSON.stringify(owner.build_inputs.build_dependencies.map(x=>x.name))!==JSON.stringify(['typescript','tsdown','lightningcss']))fail('owner-build-tool-set')
+ ownerDependencies(owner.build_inputs)
  for(const output of owner.output_artifacts){if(!output.path.startsWith('prime-authority/lib/')||output.output_path!==output.path.replace('prime-authority/lib/','prime-authority/'))fail('owner-output-path')}
  for(const path of ['prime-authority/lib/client.js','prime-authority/lib/client.js.map','prime-authority/lib/index.js','prime-authority/lib/types/client/index.d.ts','prime-authority/lib/types/client/controller.d.mts','prime-authority/lib/types/client/controller.mjs'])if(!outputs.some(x=>x.path===path))fail('owner-output-missing',path)
  for(const extension of ['mjs','d.mts']){const source=sources.find(x=>x.path==='prime-authority/src/client/controller.'+extension),output=outputs.find(x=>x.path==='prime-authority/lib/types/client/controller.'+extension);if(!source||source.bytes!==output.bytes||source.sha256!==output.sha256)fail('owner-copied-controller-binding')}
@@ -73,6 +119,7 @@ export async function verifyUiSource({sourceRoot}){
  if(foundationReceipt.outputs?.['lib/client.js']!==foundationFiles.find(x=>x.path==='lib/client.js')?.sha256)fail('foundation-output-binding')
  const ownerBytes=await bytesAt(ui,'prime-authority/lib/build.json'),owner=json(ownerBytes)
  const binding=ownerReceipt(owner),ownerSources=binding.sources,ownerOutputs=binding.outputs
+ await ownerDependencyMetadata(binding.buildInputs,{ui,dsh:await subRoot(root,'vendor/dsh')})
  for(const entry of ownerSources)await pinned(ui,entry)
  for(const entry of ownerOutputs)await pinned(ui,entry)
  // Use B's actual verifier for the complete current source/dependency/output closure.
@@ -129,6 +176,7 @@ export async function verifyReleaseUi({releaseRoot,expectedSnapshotSha256}){
  for(const entry of items(foundation.copied_exact).filter(x=>!x.path.startsWith('src/'))){const copied=files.find(x=>x.path==='plugins/aukora-foundation/'+entry.path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('foundation-snapshot-omission',entry.path)}
  const owner=json(await bytesAt(root,'plugins/prime-authority/lib/build.json'))
  const binding=ownerReceipt(owner)
+ await ownerDependencyMetadata(binding.buildInputs,{release:root})
  if(!sameList(binding.sources,snapshot.owner_source_files))fail('owner-source-snapshot-mismatch')
  for(const entry of binding.outputs){const path='plugins/'+entry.path,copied=files.find(x=>x.path===path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('owner-snapshot-omission',path)}
  return {result:'PASS',snapshot_sha256:sha(bytes),served_files:files.length,external_trust_pin:expectedSnapshotSha256!==undefined}
