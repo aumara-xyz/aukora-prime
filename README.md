@@ -18,7 +18,7 @@ cd aukora-prime
 ./prime verify
 ```
 
-**RAN at the integration checkpoint after `9d4c5372`:** bare `./prime verify` completed six ordinary source checks in 1.436 seconds and returned exit 2 (`UNPERFORMED`) for the pending short authority-renewal and executor-binding entries. The aggregate command now reaches the keyless runner. No complete-suite PASS has been observed yet.
+**RAN at the integration checkpoint after `956f744f`:** bare `./prime verify` completed all eight configured ordinary source checks in 3.051 seconds and returned exit 0 (`PASS`). No credential, live service, database or guest was used.
 
 It reports per-check PASS/FAIL and an explicit UNPERFORMED list. Owner enrollment, live PostgreSQL, current UID separation, guest containment, paid inference and composed pixels are excluded from this source profile. The target is about three minutes. The preserved snapshot interface is `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`.
 
@@ -32,10 +32,11 @@ node harness/check-static-csp.mjs
 
 ## Status
 
-The original documentation checks used `9d6c2205`; the keyless runner and later source repairs are now integrated after `9d4c5372`. Their scoped results do not establish that the running preview uses or qualifies them. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
+The original documentation checks used `9d6c2205`; the keyless runner and later source repairs are now integrated after `9d4c5372`. Their scoped results do not establish that the running preview uses or qualifies them. The eight-check PASS is a source-suite result. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
 
 | Status | Claim | Command or evidence | Limit |
 | --- | --- | --- | --- |
+| Working — RAN | Keyless ordinary source suite: eight configured checks. | `./prime verify` — exit 0, 3.051 seconds. | Real owner, current PG/UID, guest, paid provider and browser qualification remain UNPERFORMED. |
 | Working — RAN | Frozen Node/browser contract representations and byte vectors. | `node packages/contracts/check.mjs` — 421 assertions. | Format checks, not complete effect mediation or deployment qualification. |
 | Working — RAN | Owner UI controller handles its synthetic review/authentication scenarios. | `node packages/ui/prime-authority/checks/controller.mjs packages/contracts/src/browser.mjs` — 11 cases. | No real enrollment, real authentication or executed effect. |
 | Working — RAN | Static HTML script CSP binds selected inline script bytes. | `node harness/check-static-csp.mjs` — 39 assertions, six routes. | Browser parity remains UNPERFORMED; this does not confine the agent. |
@@ -51,16 +52,17 @@ Real PostgreSQL and separate Linux users are not wholly unperformed: the bounded
 
 At this integration checkpoint:
 
-- The keyless runner has six passing configured checks and two pending C/F entries. Ordinary signed session-renewal source is integrated without changing the production five-minute TTL; the long 265-save loop is outside the keyless profile.
-- Durable server logout and session-bound approval source is integrated in C and the bridge. The final H/UI lifecycle join and actual protected owner path still need qualification.
+- The keyless runner passes eight configured ordinary checks. It excludes the long 265-save run and current deployment qualification; ordinary signed re-login preserves the production five-minute TTL.
+- Durable server logout and session-bound approval source is integrated in C, the bridge and H. H client/transport checks pass 49/52 with synthetic replies. The protected owner path remains unqualified; B’s generic submit handler still needs the separate forget-result join.
 - Authority terminal-history compaction source is integrated. Its focused package evidence remains separate from current deployed-state acceptance.
 - Approved forget, purge and restore source and the independent-control adapter are integrated. The two-store marker-before-reservation and request-bound restore join remain unavailable. Logical purge does not promise erasure of physical media, WAL or external copies.
 - The owner review must show every saved policy-relevant field or use fixed server defaults. NFC, format controls, line separators and invisible fillers need a declared review filter without rewriting historical bytes.
-- The lifecycle regressions for cancellation before handler start, disposed owner state and recovery after known outcomes must remain shipped and reproducible.
+- Shipped H lifecycle checks cover disposal, cancellation before send and recovery from known outcomes. Lost outcomes remain fenced; the new browser-served path remains unqualified.
 - Same-UID witness rollback remains a declared limit. Candidate-writable evidence is not an independent trust anchor.
 - The signer is synthetic. The owner's real passkey enrollment is the top P1 item and requires the owner's action. A real passkey with user verification establishes a real authenticator with user verification; it does not establish hardware custody, human identity or comprehension.
 - OpenShell remains unqualified and disabled. Live inference, a second-machine reproducible release digest, device revocation/key rotation and bounded login-challenge lockout remain unqualified or incomplete.
 - Threads needs an actually available read-only workspace host or an explicit unavailable state. UI appearance alone does not establish the host path.
+- Composition currently refuses the old owner receipt until a genuine v3 build is supplied. The read-only Models source includes documented DeepSeek metadata; current assembled row and secure credential entry remain unqualified.
 - Two owned package manifests still need their missing license declarations added with the existing `AGPL-3.0-or-later` variant and corresponding provenance checked.
 - A private security reporting contact has not yet been confirmed.
 

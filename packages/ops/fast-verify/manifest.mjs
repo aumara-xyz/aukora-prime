@@ -21,7 +21,7 @@ export const CASES = Object.freeze([
     protocol:'tap', expectedTitle:memoryTitle, minTests:1, timeoutMs:15000}),
   frozen({id:'inference-mock-accounting', property:'Mock-only body, data scope and durable accounting',
     entry:'packages/inference/check.mjs',
-    expectedSha256:'0b088d4fb142ba078f6f3e03290d5ddd69e4d67a14b6da73d3363cb0e5af6df1',
+    expectedSha256:'d20bb25f5152137431575ba96049f31d721669968ad20528e3fe5f66fc22d1b2',
     nodeArgs:['--test','--test-isolation=none','--test-reporter=tap'], protocol:'tap',
     expectedTitle:'Lane E disposable mock acceptance: exact body, scope, durable caps, uncertainty and DSH stream',
     minTests:1, timeoutMs:20000}),
@@ -39,9 +39,13 @@ export const CASES = Object.freeze([
     expectedSha256:'f7b8fe1f6b1e80301f3f8a9c52113ea91c04b1c9bb85ee7486adaf9c478e6b5d',
     requiresPython:true, protocol:'assert-script', timeoutMs:15000}),
   frozen({id:'authority-review-renewal', property:'Ordinary authenticated review TTL renewal',
-    unsupportedReason:'H_SAFE_SHORT_AUTHORITY_ENTRY_REQUIRED'}),
+    entry:'packages/authority/check-admission.mjs', args:['admission-probe','session-renewal'],
+    expectedSha256:'54b51ea7401e4c4e01674edec553c0738731a58500b10366dbe27e73ece8a35c',
+    protocol:'assert-script', timeoutMs:15000}),
   frozen({id:'execution-ordinary-binding', property:'Ordinary executor qualification/binding regression',
-    unsupportedReason:'H_APPROVED_EXECUTION_SELECTOR_REQUIRED'})
+    entry:'packages/execution/checks/mechanisms.mjs', args:['bash_parameters'],
+    expectedSha256:'dee9796d61f751ccde7eca94afebbabcb867878bfbed6206bd52ad13bed36f70',
+    protocol:'assert-script', timeoutMs:15000})
 ])
 
 // These are received historical owner/operator reports, not fresh observations or

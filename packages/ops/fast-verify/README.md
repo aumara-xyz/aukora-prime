@@ -35,12 +35,12 @@ this standalone implementation.
 | Static UI boundaries | `packages/ui/scripts/check-static.mjs` | Local copied native assets and pinned baseline manifest |
 | Owner presentation | `packages/ui/scripts/check-transport.mjs` | Injected local transport/authenticator fixtures; no real passkey |
 | Release metadata | `packages/ops/check-digest-controls.mjs` | Node and Python stdlib; owned disposable files |
-| Authority review TTL renewal | UNPERFORMED until H relays the safe short C entrypoint | Full C/admission/guard suites excluded |
-| Ordinary executor binding | UNPERFORMED until H relays the approved exact selector | No held OpenShell or guest fixture |
+| Authority review TTL renewal | `packages/authority/check-admission.mjs admission-probe session-renewal` | Two synthetic signed cycles with ordinary re-login; full admission/guard suites excluded |
+| Ordinary executor binding | `packages/execution/checks/mechanisms.mjs bash_parameters` | Mocked parameter mismatch refuses before executor/grant calls; no live guest |
 
 Literal check-source SHA256 pins were read from clean H checkpoint
 `795f32337dd27848eaf85952b70ab86a27c54b24`; the ops metadata check pin comes from G
-`4b2a1be915fc6e06ce01109216fdea22a85d003b`. Missing or changed check files report
+`4b2a1be915fc6e06ce01109216fdea22a85d003b`. H pins the two additional literal source entries from their integrated lane handoffs and the E readiness repair `81e165a4`. Missing or changed check files report
 UNPERFORMED and are never repinned from the candidate at launch. Golden contract
 and UI baseline inputs have independent literal pins too. Component implementations
 are tested by those fixed assertions; the profile never trusts candidate JSON PASS
@@ -55,8 +55,7 @@ pass. These reviewed source assertions establish no independent OS boundary.
 | 2 | No completed assertion failure, but a prerequisite/check/termination is UNPERFORMED |
 
 Separate scope exclusions and historical records never count as current PASS and do
-not by themselves change the ordinary suite's exit. The two missing configured C/F
-checks currently cause exit2 even if all six available checks pass.
+not by themselves change the ordinary suite's exit. All eight ordinary entries are now configured. H observed the integrated root command complete PASS in3.051 seconds. This observation does not qualify a deployment.
 
 The target is approximately three minutes on an ordinary laptop. Per-case execution
 is capped at15 seconds, with20 seconds for the one reviewed inference case; the suite
