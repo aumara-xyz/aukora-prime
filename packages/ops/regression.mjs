@@ -97,6 +97,8 @@ try {
   assert.equal(statusGate.running_blocker, 'PRIME_NOT_RUNNING')
   const statusEvidence = JSON.parse(readFileSync(statusGate.evidence_path, 'utf8'))
   assert.equal(statusEvidence.running_observation.observation.version, 'fixture')
+  assert.equal(statusEvidence.environment.node_executable, process.execPath)
+  assert.deepEqual(statusEvidence.status_command, [process.execPath, join(candidate, 'harness', 'cli.mjs'), 'status', '--json'])
   // Disposable local DSH-shaped exchange: verifies evaluator cookie handling, not DSH/owner authority.
   const state = join(candidate, '.prime-state'); mkdirSync(state, { mode: 0o700 })
   const access = join(state, 'launch-url.json')

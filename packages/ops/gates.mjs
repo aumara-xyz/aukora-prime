@@ -190,11 +190,12 @@ export async function runGate(gate, options) {
   const initial = evaluatorDigest()
   const evidence = { schema: 'prime-gate-evidence-v1', gate, created_at: new Date().toISOString(),
     evaluator_digest: initial, candidate_root: root, status: 'PENDING', cases: [],
-    environment: { platform: process.platform, arch: process.arch, node: process.version },
+    environment: { platform: process.platform, arch: process.arch, node: process.version, node_executable: process.execPath },
     paid_inference: 'NOT_PERFORMED', candidate_policy_changed: false,
     evaluator_os_isolation: 'NOT_ESTABLISHED_BY_THIS_RUNNER' }
   try {
   if (gate === 'G1') {
+    evidence.status_command = [process.execPath, join(root, 'harness', 'cli.mjs'), 'status', '--json']
     evidence.running_observation = await observeG1(root, options)
     if (evidence.running_observation.status === 'FAIL') evidence.status = 'FAIL'
   }

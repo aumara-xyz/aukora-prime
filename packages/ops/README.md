@@ -23,6 +23,7 @@ PASS exits 0, FAIL 1, PENDING 2. G1 reads status through the equivalent
 `process.execPath root/harness/cli.mjs status --json` call, so the scrubbed child PATH
 need not contain the approved user-local Node binary. It observes the PID, recomputes
 the reported release digest and fetches only the local HTML endpoint.
+Evidence records the evaluator Node executable/version and exact status argv.
 It reports the running observations separately from the complete acceptance gate.
 Source path/disk hashes are host observations, not loaded-memory attestation.
 No status flag or installation marker alone passes G1. Unsupported/unconnected gates
