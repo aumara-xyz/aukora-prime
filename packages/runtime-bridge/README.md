@@ -307,3 +307,41 @@ ownership and source/deployment evidence limits are in
 package exports and preserve public runtime unavailability. The signer stays
 inside the Mac owner's trust boundary, outside Linux workloads; fixed strict
 SSH reaches only the approved protected app actor.
+
+## Pinned owner hook and host source check
+
+`test/verify-owner-memory-source-join.mjs` builds a fresh private source snapshot
+from this repository's committed HEAD, B's verified complete bundle/evidence, and
+H's four committed owner-memory helper modules at `4a2cd94`. It checks B's exact
+artifact bytes and the controller's sibling browser adapter closure before
+running the real C/D workflow through B's `submitApproval` hook. It writes the
+input hashes, full check output and result beside the isolated snapshot. It
+does not edit B/H source, their indexes, or this repository's dependency packages.
+
+```sh
+node packages/runtime-bridge/test/verify-owner-memory-source-join.mjs \
+  --ui-bundle /absolute/ui-approval-hook.bundle \
+  --ui-evidence /absolute/ui-approval-hook-evidence.json \
+  --host-repository /absolute/isolated-h-repository \
+  --output /absolute/fresh-private-check-directory
+```
+
+Hook tests explicitly skip when `PRIME_OWNER_HOOK_CONTROLLER` is absent; the
+pinned runner supplies the exact copied B controller and treats any failed
+joined guard as a failed checkpoint. Host tests likewise require the exact
+copied H helpers via `PRIME_OWNER_MEMORY_HOST_ROOT`. C uses disposable synthetic
+P256 credentials and its real verification/kernel/stores. D uses its actual
+effect code with the test-only SQLite dialect fixture. Public IPC/HTTP checks
+must refuse absent qualification; they never fabricate accepted host evidence.
+No PostgreSQL, browser presence, enrollment or deployed UID acceptance is claimed
+by this source check.
+
+H must install the hook after `controller.connect`, which clears the previous
+hook. During teardown, fence the workflow before disposing the controller:
+`workflow.dispose(); controller.setApprovalAction(null); controller.dispose()`.
+No stale UI action may dispatch merely because a disposed controller retained
+an owner snapshot. Cancellation before the handler starts must release its
+flight; cancellation after dispatch must retain an unknown outcome, while a
+confirmed save remains a saved fact when only citation/index reads are pending.
+These states are checked through the real hook, in addition to the direct
+workflow lifecycle checks.
