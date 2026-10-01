@@ -52,7 +52,7 @@ function durableJSON(path, value, { exclusive = false } = {}) {
   try { fsyncSync(directory) } finally { closeSync(directory) }
 }
 
-async function primeLocalDriver() {
+export async function primeLocalDriver() {
   const require = createRequire(new URL('../package.json', import.meta.url))
   const primeRoot = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../..'))
   let driverManifest, driverEntry
@@ -68,11 +68,11 @@ async function primeLocalDriver() {
   return { Pool: driver.Pool, driverManifest }
 }
 // A function prevents pg from falling back to PGPASSWORD/pgpass if the socket is misconfigured.
-const poolOptions = (config, schema) => ({ ...config,
+export const poolOptions = (config, schema) => ({ ...config,
   password: () => { check(false, 'operator:password-authentication-refused') }, ssl: false,
   options: (schema ? '-c search_path=' + schema + ' ' : '') + '-c statement_timeout=15000' })
 
-async function observePostgres(pool) {
+export async function observePostgres(pool) {
   const { rows: [row] } = await pool.query(`SELECT current_database() AS database, current_user AS role,
     inet_server_addr() IS NULL AS unix_socket, current_setting('server_version') AS server_version,
     current_setting('server_version_num')::integer AS server_version_num,
@@ -90,7 +90,7 @@ async function observePostgres(pool) {
     'operator:memory-role-privilege-broadening-refused')
   return { ...row, postmaster_started_at: new Date(row.postmaster_started_at).toISOString() }
 }
-async function checkMarker(pool, schema, run_id, { absentAllowed = false } = {}) {
+export async function checkMarker(pool, schema, run_id, { absentAllowed = false } = {}) {
   const present = (await pool.query('SELECT 1 FROM pg_namespace WHERE nspname=$1', [schema])).rows.length > 0
   if (!present && absentAllowed) return false
   check(present, 'operator:fixture-schema-missing')

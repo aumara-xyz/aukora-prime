@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "kind": "prime-memory-reported-pg-storage-acceptance/v1",
+  "run_id": "bd1660b6ec324d698e13dc77",
+  "source_revision": "55bdfd3a454f861a02c69fc91fecaf4e8507a075",
+  "scope": "synthetic PostgreSQL storage only; private D toy authority",
+  "postgres_version": "16.15",
+  "driver_version": "8.16.3",
+  "prepare_checks_passed": 7,
+  "verify_checks_passed": 6,
+  "same_cluster_restart_verified": true,
+  "cluster_system_identifier": "7691728567598157933",
+  "schema_cleanup_remaining": 0,
+  "cluster_state": "STOPPED",
+  "tcp_listener": false,
+  "autostart": "disabled",
+  "production_C_tested": false,
+  "private_memory_imported": false,
+  "whole_product_G5_pass": false,
+  "source_evidence_sha256": {
+    "pg_g5_summary.json": "eb574c4c335c1c057a2a4a575bf9bd55719c19fa92b0567561c04a8c16b4eabe",
+    "pg_actual_g5_evidence.json": "4256bce77cb2aac4c22cde0b0a2bf24cf12e19c14a1f9bb5e01b33b2088e757b"
+  },
+  "evidence_origin": "Exclusive PG operator task-30 retained receipts, read by Lane D; D performed no PG lifecycle or VM actions."
+}
