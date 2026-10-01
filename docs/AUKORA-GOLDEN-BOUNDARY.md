@@ -578,7 +578,7 @@ The original research's corrections are therefore part of its value. A system th
 
 This section is dated **1 October 2026**. It is a release-preparation account of Prime, not a claim that the entire constitutional architecture is operating. AUKORA Genesis supplied the prototype lineage; Prime carries its selected source and third-party inheritance locally, with provenance and licenses retained in this repository. No sibling checkout is required to inspect or build Prime.
 
-The original preparation baseline is historical source `9d6c220`. Sanitized source checkpoint `e76a45f3` includes the keyless runner and later repair source; their arrival does not by itself establish that the running product uses or qualifies them. The README and verification output should identify the current release's remaining gaps. Source promotion, successful checks, service deployment and demonstrated confinement remain separate events.
+The original preparation baseline is historical source `9d6c220`. Sanitized source checkpoint `8a45d0fb` includes the keyless runner and later repair source; their arrival does not by itself establish that the running product uses or qualifies them. The README and verification output should identify the current release's remaining gaps. Source promotion, successful checks, service deployment and demonstrated confinement remain separate events.
 
 Use these evidence labels literally:
 
@@ -598,7 +598,7 @@ The intended entry point for a cold review is:
 ./prime verify
 ```
 
-The original preparation baseline refused this command through the memory snapshot CLI. **RAN at sanitized source checkpoint `e76a45f3`:** the keyless runner completed all eight configured ordinary source checks in 2.553 seconds and returned exit 0 (`PASS`). Its target is roughly three minutes on an ordinary laptop, with separate PASS, FAIL and UNPERFORMED reporting. Current owner, database, UID, guest, paid-provider and browser qualification remain explicitly excluded. This is a source-suite PASS, not a whole-product certificate.
+The original preparation baseline refused this command through the memory snapshot CLI. **RAN at sanitized source checkpoint `8a45d0fb`:** the keyless runner completed all eight configured ordinary source checks in 7.430 seconds and returned exit 0 (`PASS`). Its target is roughly three minutes on an ordinary laptop, with separate PASS, FAIL and UNPERFORMED reporting. Current owner, database, UID, guest, paid-provider and browser qualification remain explicitly excluded. This is a source-suite PASS, not a whole-product certificate.
 
 The earlier full authority suite could outlive the five-minute session during its 265-save admission fixture. Ordinary signed session-renewal source is integrated, preserving the production session lifetime; the long admission run remains outside this keyless profile. A repaired package check is not an excuse to omit the cold review entry point or silently suppress a failure.
 
@@ -608,7 +608,7 @@ Run package commands from the repository root with the pinned runtime prerequisi
 
 | Mechanism or direction | Status and evidence | Command or source to inspect | Limit |
 | --- | --- | --- | --- |
-| Keyless ordinary source profile | **Built · RAN** at sanitized source `e76a45f3`: eight checks, exit 0, 2.553 seconds | `./prime verify`; [scope](../packages/ops/fast-verify/README.md) | No real owner, live database, current separated UID, guest, paid provider or composed browser qualification. |
+| Keyless ordinary source profile | **Built · RAN** at sanitized source `8a45d0fb`: eight checks, exit 0, 7.430 seconds | `./prime verify`; [scope](../packages/ops/fast-verify/README.md) | No real owner, live database, current separated UID, guest, paid provider or composed browser qualification. |
 | Closed shared contracts, strict textual ingress and exact operation digest bytes in Node and browser code | **Built · RAN** at `9d6c220`: 421 assertions and three frozen vectors | `node packages/contracts/check.mjs`; [contracts](../packages/contracts/README.md) | Structural recognition and byte binding do not grant authority, establish data truth or qualify every runtime ingress. |
 | Owner review controller separates presentation from signed proof material | **Built · RAN** at `9d6c220`: 11 cases | `node packages/ui/prime-authority/checks/controller.mjs packages/contracts/src/browser.mjs`; [owner UI](../packages/ui/prime-authority/README.md) | Real enrollment, real authentication and effects were false in this fixture. It does not show the owner's passkey or a human's comprehension. |
 | Static embedded-app routes retain bounded script CSP | **Built · RAN** at `9d6c220`: 39 assertions, six routes and four inline-script hashes | `node harness/check-static-csp.mjs` | Browser parity was UNPERFORMED. This is a source routing/CSP check, not proof of active hostile-code containment. |

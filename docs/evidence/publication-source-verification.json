@@ -9,7 +9,7 @@
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
       "entry_sha256": "75f3b3119b8e55000986cf59da9e98e09c37a35d7b4f4f56d198727b162c00f2",
-      "duration_ms": 68,
+      "duration_ms": 281,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED"
     },
@@ -19,7 +19,7 @@
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
       "entry_sha256": "f11e4592b33f80112ceed7b091292d1f513c2577cd38c0102c9cc0c2ea456737",
-      "duration_ms": 68,
+      "duration_ms": 342,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED",
       "test_count": 1
@@ -30,7 +30,7 @@
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
       "entry_sha256": "d20bb25f5152137431575ba96049f31d721669968ad20528e3fe5f66fc22d1b2",
-      "duration_ms": 311,
+      "duration_ms": 1091,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED",
       "test_count": 1
@@ -40,8 +40,8 @@
       "property": "Local native assets and static route boundaries",
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
-      "entry_sha256": "d7eb762cb80e5db0880ec5cdb97ecf151467a6af3fac9b9f6e5b64d149174e46",
-      "duration_ms": 67,
+      "entry_sha256": "bd7797da793dfafc352250e445f06b8be4c9e17f6fc52005b6a721dc3c0858cf",
+      "duration_ms": 291,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED"
     },
@@ -51,7 +51,7 @@
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
       "entry_sha256": "00efe464cd365865b0f5cb56d66a0a3cbd18d92962a61f67870dae4e5d67bac0",
-      "duration_ms": 53,
+      "duration_ms": 206,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED"
     },
@@ -61,7 +61,7 @@
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
       "entry_sha256": "f7b8fe1f6b1e80301f3f8a9c52113ea91c04b1c9bb85ee7486adaf9c478e6b5d",
-      "duration_ms": 476,
+      "duration_ms": 2371,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED"
     },
@@ -71,7 +71,7 @@
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
       "entry_sha256": "54b51ea7401e4c4e01674edec553c0738731a58500b10366dbe27e73ece8a35c",
-      "duration_ms": 1220,
+      "duration_ms": 1949,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED"
     },
@@ -81,13 +81,13 @@
       "status": "PASS",
       "descendant_cleanup": "UNPERFORMED",
       "entry_sha256": "dee9796d61f751ccde7eca94afebbabcb867878bfbed6206bd52ad13bed36f70",
-      "duration_ms": 107,
+      "duration_ms": 278,
       "completion": "DIRECT_CHILD_CLOSED",
       "reason": "ASSERTIONS_COMPLETED"
     }
   ],
   "configured_case_count": 8,
-  "duration_ms": 2553,
+  "duration_ms": 7430,
   "counts": {
     "pass": 8,
     "fail": 0,
@@ -142,12 +142,12 @@
   "source_pin_scope": "COMPILED_ENTRYPOINTS_AND_LITERAL_SUPPORT_PINS",
   "evaluator": {
     "engine_sha256": "2ba15414eddc73b0046a5ce8418c3ab3470f2142f5712b4cb5846cf6d8647aea",
-    "manifest_sha256": "ee0094dc97a1b4e9810cfbfcc44a7dd7749e79108db48356d3d8a0d66ce9cb16",
+    "manifest_sha256": "dd95b95b269208a077fa6addbcb0730439bc6eeeabf61bde0a60b0a8fbaa8abc",
     "identity_scope": "OBSERVED_DISK_BYTES",
     "os_independence": "NOT_ESTABLISHED"
   },
-  "observed_source_commit": "e76a45f379ef35f8514c850d8c5b3b71c65ac089",
-  "observed_source_tree": "e7eec072c8b60de5bd8ccbc42c65d458a7a226df",
+  "observed_source_commit": "8a45d0fbae4969c38d41d3dcccbc010bed098c94",
+  "observed_source_tree": "aa2531f685ee26b530e784edff17af84bd296f5f",
   "command": "./prime verify",
   "environment": {
     "node_version": "v24.11.1",

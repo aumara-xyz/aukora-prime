@@ -18,7 +18,7 @@ cd aukora-prime
 ./prime verify
 ```
 
-**RAN at sanitized source checkpoint `e76a45f3`:** bare `./prime verify` completed all eight configured ordinary source checks in 2.553 seconds and returned exit 0 (`PASS`). No credential, live service, database or guest was used.
+**RAN at sanitized source checkpoint `8a45d0fb`:** bare `./prime verify` completed all eight configured ordinary source checks in 7.430 seconds and returned exit 0 (`PASS`). No credential, live service, database or guest was used.
 
 It reports per-check PASS/FAIL and an explicit UNPERFORMED list. Owner enrollment, live PostgreSQL, current UID separation, guest containment, paid inference and composed pixels are excluded from this source profile. Expect a few seconds for this profile on a recent laptop; its bounded target is under three minutes. The preserved snapshot interface is `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`.
 
@@ -32,11 +32,11 @@ node harness/check-static-csp.mjs
 
 ## Status
 
-The original documentation checks used historical source `9d6c2205`. The sanitized source was checked at `e76a45f3`; [the recorded output](docs/evidence/publication-source-verification.json) names its source tree and limits. Their scoped results do not establish that the running preview uses or qualifies them. The eight-check PASS is a source-suite result. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
+The original documentation checks used historical source `9d6c2205`. The sanitized source was checked at `8a45d0fb`; [the recorded output](docs/evidence/publication-source-verification.json) names its source tree and limits. Their scoped results do not establish that the running preview uses or qualifies them. The eight-check PASS is a source-suite result. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
 
 | Status | Claim | Command or evidence | Limit |
 | --- | --- | --- | --- |
-| Working — RAN | Keyless ordinary source suite: eight configured checks. | `./prime verify` — exit 0, 2.553 seconds; [recorded output](docs/evidence/publication-source-verification.json). | Real owner, current PG/UID, guest, paid provider and browser qualification remain UNPERFORMED. |
+| Working — RAN | Keyless ordinary source suite: eight configured checks. | `./prime verify` — exit 0, 7.430 seconds; [recorded output](docs/evidence/publication-source-verification.json). | Real owner, current PG/UID, guest, paid provider and browser qualification remain UNPERFORMED. |
 | Working — RAN | Frozen Node/browser contract representations and byte vectors. | `node packages/contracts/check.mjs` — 421 assertions. | Format checks, not complete effect mediation or deployment qualification. |
 | Working — RAN | Owner UI controller handles its synthetic review/authentication scenarios. | `node packages/ui/prime-authority/checks/controller.mjs packages/contracts/src/browser.mjs` — 11 cases. | No real enrollment, real authentication or executed effect. |
 | Working — RAN | Static HTML script CSP binds selected inline script bytes. | `node harness/check-static-csp.mjs` — 39 assertions, six routes. | Browser parity remains UNPERFORMED; this does not confine the agent. |
