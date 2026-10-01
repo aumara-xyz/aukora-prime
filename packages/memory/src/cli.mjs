@@ -11,6 +11,7 @@ export const MEMORY_CLI_USAGE = [
   'export OWNER OUTPUT',
   'restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]',
   'AUTHORIZATION_JSON contains {operation,approval_proof}. Restore requires an injected C service and trusted host identity.',
+  'Restore also requires a trusted independent complete control-state provider; head files and data snapshots are insufficient.',
   'Database commands require an explicitly configured PRIME_MEMORY_DATABASE_URL and the declared pg dependency.'
 ]
 

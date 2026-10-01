@@ -282,10 +282,11 @@ async function prepare(config, statePath, Pool, driverManifest) {
     assert.equal((await memory.recall(host, { query: 'banana' })).records[0].citation.verdict, 'VERIFIED')
     assert.equal((await memory.recall(syntheticHost(state, state.other_subject), { query: 'banana' })).records.length, 0)
     await assert.rejects(memory.cite(syntheticHost(state, state.other_subject), result.record.record_id), { code: 'memory:record-missing' })
-    // Retain observed live heads in a separate operator-owned file before generating the snapshot.
+    // Retain complete live control state separately before generating the data snapshot.
     const retainedHeads = await headsOf(pool, state.owner_subject)
+    const controlState=await memory.exportControlState(host)
     durableJSON(statePath + '.anchors.json', { version: 1, kind: ANCHOR_KIND, run_id, owner_subject: state.owner_subject,
-      config_sha256: state.config_sha256, heads: retainedHeads }, { exclusive: true })
+      config_sha256: state.config_sha256, heads: retainedHeads, control_state:controlState }, { exclusive: true })
     state.anchor_sha256 = sha256(readFileSync(statePath + '.anchors.json'))
     state.snapshot = await memory.exportSnapshot(host)
     assert.deepEqual(state.snapshot.heads, retainedHeads)
@@ -335,13 +336,16 @@ async function verify(config, statePath, Pool) {
       assert.equal(trustedHost.owner_subject, state.owner_subject)
       const independent = readJSON(anchorPath)
       check(sha256(readFileSync(anchorPath)) === state.anchor_sha256, 'operator:retained-anchor-changed')
-      return { owner_subject: independent.owner_subject, heads: structuredClone(independent.heads) }
+      check(independent.control_state && canonicalJSON(independent.control_state.heads)===canonicalJSON(independent.heads),
+        'operator:independent-control-anchor-required')
+      return structuredClone(independent.control_state)
     }
     const restoredMemory = createPostgresMemory({ pool: restored, authority: toy.authority, contracts: toy.contracts, restoreAnchorProvider })
     await restoredMemory.migrate()
     const restoreHeads = await headsOf(restored, state.owner_subject)
     const authorization = toy.authorization(host, 'memory.restore', { manifest_sha256: exported.manifest_sha256,
-      mode: 'prime-restore', heads: exported.heads, retained_heads: anchor.heads }, restoreHeads)
+      mode: 'prime-restore', heads: exported.heads, retained_heads: anchor.heads,
+      control_anchor_sha256:anchor.control_state?.control_sha256 }, restoreHeads)
     const result = await restoredMemory.restoreSnapshot(host, exported, { ...authorization, expectedHeads: anchor.heads })
     assert.ok(result.imported === 1 || result.already_imported === true)
     const restoredStatus = await restoredMemory.status(host, state.record.record_id)

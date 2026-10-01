@@ -1,0 +1,31 @@
+# External-finding source handoff
+
+This work responds to the supplied findings with source changes and bounded synthetic regressions. It does not resume the stopped authority/memory adversarial review. The baseline is D `dee8e47b322a70e0f3f6f83cf2521e39c5c00749`; all edits stay in this task's `packages/memory/**`. No private data, real PostgreSQL, runtime workers, schemas, processes or deployed UI were changed.
+
+## Restore and control retention
+
+`exportSnapshot` remains a record-data snapshot. It cannot serve as a control backup. `exportControlState(trustedHost)` separately encodes the exact durable purge, idempotency, intent/effect, tombstone, control, redaction and replay-fence rows. Its complete schema is documented in README and the exported `MEMORY_CONTROL_TABLES` mapping. Bytea values remain original bytes inside `{bytes_base64,sha256}` envelopes. The outer `control_sha256` is a domain-separated integrity digest, not independent authority.
+
+Configure `restoreAnchorProvider(trustedHost)` to return the latest complete control bundle retained independently of the recoverable database and incoming snapshot, for the exact distinct `owner_id` and `owner_subject`. The independently protected current pointer must not be reconstructed from the snapshot or a stale backup. Heads-only providers now refuse with `memory:trusted-control-anchor-required`.
+
+`prepareRestoreBinding(host,snapshot)` returns the exact target/state/parameters for a separately approved `memory.restore`. Its parameters are `{manifest_sha256,mode:'prime-restore',heads,retained_heads,control_anchor_sha256}`. Restore verifies the full independent bundle again under the owner lock, unions its rows with local control state, refuses conflicting owner/request/grant/revision bindings, and verifies inserted bytes. Purges are unioned rather than overwritten. Unresolved intents retain their exact request binding and never retry; committed effects can reconcile only their actual retained receipt. A pre-purge snapshot cannot restore against the current post-purge anchor in an empty database. Prime-origin/v2 data exports also refuse the legacy `kira-import` path. Legacy source import does not create control authority.
+
+Purge preserves capture idempotency rows and creates content-free `payload-purged` replay fences before removing plaintext intent/effect results. A fenced operation cannot execute or return a deleted receipt. Owner-wide payload purge now refuses unresolved intents and retains its own factual intent/receipt. The new replay-fence table requires the ordinary explicit D migration within the already approved exact schema; no new database/schema/role privilege is requested.
+
+The old operator 7+6 PostgreSQL storage receipt predates these semantics. The operator source is updated to retain a complete control bundle separately, but these changes have only SQLite and pure-source evidence in this lane. No PostgreSQL run/restart is authorized or performed by this handoff.
+
+## Bridge/C approved forget seam
+
+Use `prepareRecordMutationBinding(host,recordId,{action:'memory.forget',at})` with trusted owner/task/source context. Canonical parameters now bind literal `statement` and `attributed_to`, as well as record ID, revision, original SHA, time, heads and the logical-forget profile. The sibling `record_summary` comes from D's original record. Retain it independently and display escaped exact literals alongside the bound identity/SHA; refuse changed/missing literals before challenge/signing. Use D's scoped `withAuthorityTargetObservation` for review and the real C reserve/claim/settle join.
+
+`forgetRecord(host,recordId,{operation,approval_proof,include_receipt:true})` returns `{result,receipt,authority_settlement,reconciliation_required,...}` from the actual committed D effect and genuine configured C settlement. It does not fabricate an execution receipt. It performs no second save. Preserve unknown outcome semantics; never replay an uncertain grant automatically. The receipt uses the existing hyphenated memory-result/memory-receipt domains and C's existing memory receipt join.
+
+Bridge/private-worker guards must extend their current save-only allowlist to the specific approved forget action and authenticated owner/task scope, rather than accepting arbitrary `memory.*` actions. D exposes no unsigned tombstone mutator. A separately approved `memory.purge` uses the same receipt option and additionally binds explicit owner source-forest/full-backup collateral scope and counts; display that scope before any signing. C/bridge/UI edits and the product route are owned by those lanes and remain integration work.
+
+Logical forget removes visibility while retaining canonical payloads. Local payload purge leaves C's operation/approval history, independently retained record/control backups, previous copies, WAL and physical media outside its scope. Control backups can themselves retain statement text in saved operations/receipts; protect and account for their retention. No physical-erasure promise is made.
+
+## New capture and owner display
+
+`validatePilotCaptureMetadata` restricts new captures to documented fixed policy: fact, confidence 0.7, sensitivity none, empty links, owner scope, local privacy, source-derived exact dates, derived source evidence, default origin and no body override. Nondefault choices refuse before reserve. It preserves the exact accepted input and does not touch legacy imported bytes. Bridge's existing fixed synthetic profile remains compatible.
+
+The unchanged exact-pairing browser helper still has SHA256 `89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96c0`. B can import or copy the additional browser-safe `src/capture-presentation.mjs` with AGPL provenance: SHA256 `3679ba8564e93fc5ff82e0e03336b638ad3794aa4d45c5d0dafa59495ac5aa91`. Call `capturePresentationWarnings(independentlyRetainedDraft.statement)` after pairing validation; render its plain warning text and bounded index/code-point examples beside the escaped exact literal. Format controls, selected ASCII lookalikes and script-mixing hints do not alter the operation digest or bytes, block languages, prove the absence of all confusables, or claim NFC removes lookalike risks. UI should also show the fixed capture policy; no dynamic hidden policy field is accepted in this pilot.

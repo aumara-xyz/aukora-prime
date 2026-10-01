@@ -77,3 +77,9 @@ CREATE TABLE IF NOT EXISTS prime_memory_intents (
   request_digest text NOT NULL, request_bytes bytea NOT NULL,
   PRIMARY KEY(owner_subject,operation_id)
 );
+CREATE TABLE IF NOT EXISTS prime_memory_replay_fences (
+  owner_subject text NOT NULL, operation_id text NOT NULL, operation_digest text NOT NULL,
+  grant_id text NOT NULL UNIQUE, action text NOT NULL, request_id text NOT NULL UNIQUE,
+  request_digest text NOT NULL, status text NOT NULL CHECK (status='payload-purged'),
+  PRIMARY KEY(owner_subject,operation_id)
+);

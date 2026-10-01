@@ -104,12 +104,18 @@ function toyAuthorization(subject,action,parameters,stateHeads={}) {
 async function toyImport(pool,snapshot,{mode='kira-import',expectedHeads}={}) {
   // Exact manifest allowlist is registered here, only for byte snapshots constructed by this focused fixture.
   const stateHeads=Object.fromEntries((await pool.query('SELECT * FROM prime_memory_heads WHERE owner_subject=$1',[snapshot.owner_subject])).rows.map(r=>[r.chain_domain,r.hash]))
-  return {mode,expectedHeads,...toyAuthorization(snapshot.owner_subject,mode==='prime-restore'?'memory.restore':'memory.import',
+  const boundHost={owner_subject:snapshot.owner_subject,owner_id:mode==='prime-restore'
+    ? trustedFixtureAnchors.get(snapshot.owner_subject)?.owner_id ?? snapshot.owner_subject :snapshot.owner_subject,task_id:'synthetic-task'}
+  return {mode,expectedHeads,...toyBoundOperation(boundHost,mode==='prime-restore'?'memory.restore':'memory.import',
     {manifest_sha256:snapshot.manifest_sha256,mode,heads:snapshot.heads,
-      retained_heads:mode==='prime-restore' ? trustedFixtureAnchors.get(snapshot.owner_subject) : expectedHeads ?? null},stateHeads)}
+      retained_heads:mode==='prime-restore' ? trustedFixtureAnchors.get(snapshot.owner_subject)?.heads : expectedHeads ?? null,
+      ...(mode==='prime-restore'?{control_anchor_sha256:trustedFixtureAnchors.get(snapshot.owner_subject)?.control_sha256}:{})},stateHeads)}
 }
 const trustedFixtureAnchors=new Map()
-const fixtureAnchorProvider=async h=>({owner_subject:h.owner_subject,heads:trustedFixtureAnchors.get(h.owner_subject)})
+const fixtureAnchorProvider=async h=>trustedFixtureAnchors.get(h.owner_subject)
+async function retainFixtureAnchor(memory,h) {
+  trustedFixtureAnchors.set(h.owner_subject,await memory.exportControlState(h))
+}
 const service=(pool,options={})=>createPostgresMemory({pool,authority:toyAuthority,contracts:toyContracts,restoreAnchorProvider:fixtureAnchorProvider,...options})
 function toyBoundOperation(h,action,parameters,heads={}) {
   const options=toyAuthorization(h.owner_subject,action,parameters,heads)
@@ -175,7 +181,8 @@ test('synthetic durable capture, honest ACKs, owner filters, restart, import and
     const lost = await retarget.status(captureHost,saved.record_id)
     assert.equal(lost.indexed,true); assert.equal(lost.searchable,false)
     await retarget.repairIndex(captureHost); await retarget.drainOutbox(captureHost)
-    const snapshot = await memory.exportSnapshot(captureHost);trustedFixtureAnchors.set(owner,snapshot.heads)
+    await retainFixtureAnchor(memory,captureHost)
+    const snapshot = await memory.exportSnapshot(captureHost)
     assert.equal(snapshot.owner_subject,owner)
     assert.equal(inspectSnapshot(snapshot,owner).records.length,1)
     const packageRoot = fileURLToPath(new URL('../',import.meta.url)),copied = join(dir,'empty-prime-memory')
@@ -192,7 +199,7 @@ test('synthetic durable capture, honest ACKs, owner filters, restart, import and
       const noImportPermission = createPostgresMemory({pool:restoredPool})
       await assert.rejects(noImportPermission.importSnapshot(captureHost,snapshot,await toyImport(restoredPool,snapshot)),{code:'memory:authority-unavailable'})
       assert.equal((await restored.restoreSnapshot(captureHost,snapshot,await toyImport(restoredPool,snapshot,{mode:'prime-restore',expectedHeads:snapshot.heads}))).imported,1)
-      assert.equal((await restored.importSnapshot(captureHost,snapshot,await toyImport(restoredPool,snapshot))).already_imported,true)
+      assert.equal((await restored.restoreSnapshot(captureHost,snapshot,await toyImport(restoredPool,snapshot,{mode:'prime-restore'}))).already_imported,true)
       await assert.rejects(runMemoryCommand(['restore',join(dir,'snapshot.json'),owner,'--synthetic-fixture'],{pool:restoredPool}),{code:'memory:authority-unavailable'})
       const cliAuth=await toyImport(restoredPool,snapshot,{mode:'prime-restore',expectedHeads:snapshot.heads})
       const cliAuthFile=join(dir,'authorization.json')
@@ -281,7 +288,8 @@ test('PostgreSQL acceptance on an explicitly supplied disposable database',{
     const second=await fixtureCapture(memory,host(owner,'Synthetic source for second banana only.'),{...input,statement:'second banana'},'pg-turn-2')
     await memory.drainOutbox(host());await fixtureForget(memory,host(),second.record_id,at)
     assert.equal((await memory.recall(host(),{query:'banana'})).records.length,1)
-    const snapshot=await memory.exportSnapshot(host());trustedFixtureAnchors.set(owner,snapshot.heads)
+    await retainFixtureAnchor(memory,host())
+    const snapshot=await memory.exportSnapshot(host())
     assert.equal(inspectSnapshot(snapshot,owner).records.length,1);assert.equal(inspectSnapshot(snapshot,owner).redactions.length,1)
     const standalone=join(dataDir,'../empty-prime-memory')
     cpSync(fileURLToPath(new URL('../',import.meta.url)),standalone,{recursive:true})
@@ -410,7 +418,8 @@ test('authorized save settlement/restart, omission mutations, redacted restore a
     pool.close();pool=new FixturePool(join(dir,'storage.sqlite'));memory=service(pool)
     assert.equal((await memory.reconcileEffect(h,options.operation.operation_id)).authority_settlement,'completed')
     assert.equal((await memory.cite(h,approved.record.record_id)).verdict,'VERIFIED')
-    const before=await memory.exportSnapshot(h);trustedFixtureAnchors.set(owner,before.heads)
+    await retainFixtureAnchor(memory,h)
+    const before=await memory.exportSnapshot(h)
     const rec=before.files.find(f=>f.role==='record')
     const injected={...parseOriginal(Buffer.from(rec.bytes_base64,'base64')),instructions:'injected instruction'}
     assert.throws(()=>validateOriginal(Buffer.from(JSON.stringify(injected)),owner),{code:'memory:note-fields-invalid'})
@@ -433,9 +442,10 @@ test('authorized save settlement/restart, omission mutations, redacted restore a
     const restorePool=new FixturePool(join(dir,'restore.sqlite'))
     try {
       const restore=service(restorePool);await restore.migrate()
-      await restore.restoreSnapshot(host(),before,await toyImport(restorePool,before,{mode:'prime-restore'}))
-      await fixtureForget(restore,host(),approved.record.record_id,at)
-      const redacted=await restore.exportSnapshot(host());trustedFixtureAnchors.set(owner,redacted.heads)
+      await restore.restoreSnapshot(h,before,await toyImport(restorePool,before,{mode:'prime-restore'}))
+      await fixtureForget(restore,h,approved.record.record_id,at)
+      await retainFixtureAnchor(restore,h)
+      const redacted=await restore.exportSnapshot(h)
       assert.equal(inspectSnapshot(redacted,owner).redactions.length,1)
       assert.equal(redacted.files.some(f=>f.role==='record'||f.role==='event'||f.role==='original'),false)
       for(const file of redacted.files) assert.equal(Buffer.from(file.bytes_base64,'base64').toString().includes('banana'),false)
@@ -450,10 +460,10 @@ test('authorized save settlement/restart, omission mutations, redacted restore a
       const redactedPool=new FixturePool(join(dir,'redacted.sqlite'))
       try {
         const r=service(redactedPool);await r.migrate()
-        await r.restoreSnapshot(host(),redacted,await toyImport(redactedPool,redacted,{mode:'prime-restore',expectedHeads:redacted.heads}))
-        await r.drainOutbox(host());assert.equal((await r.recall(host(),{query:'banana'})).records.length,0)
-        await assert.rejects(r.cite(host(),approved.record.record_id),{code:'memory:record-tombstoned'})
-        assert.equal(inspectSnapshot(await r.exportSnapshot(host()),owner,{expectedHeads:redacted.heads}).redactions.length,1)
+        await r.restoreSnapshot(h,redacted,await toyImport(redactedPool,redacted,{mode:'prime-restore',expectedHeads:redacted.heads}))
+        await r.drainOutbox(h);assert.equal((await r.recall(h,{query:'banana'})).records.length,0)
+        await assert.rejects(r.cite(h,approved.record.record_id),{code:'memory:record-tombstoned'})
+        assert.equal(inspectSnapshot(await r.exportSnapshot(h),owner,{expectedHeads:redacted.heads}).redactions.length,1)
       } finally {redactedPool.close()}
     } finally {restorePool.close()}
 
@@ -467,8 +477,11 @@ test('authorized save settlement/restart, omission mutations, redacted restore a
       {profile:'prime-active-owner-payloads/v1',manifest_sha256:current.manifest_sha256,heads:current.heads,at},current.heads)}
     const purged=await memory.eraseOwnerPayloads(h,eraseOptions)
     assert.equal(purged.state,'active-table-payloads-purged');assert.equal(purged.physical_media_erasure,false)
-    for(const table of ['records','events','originals','snapshots','fts','requests','intents'])
+    for(const table of ['records','events','originals','snapshots','fts'])
       assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_'+table+' WHERE owner_subject=?').get(owner).n,0)
+    assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_requests WHERE owner_subject=?').get(owner).n,1)
+    assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents WHERE owner_subject=?').get(owner).n,1)
+    assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_replay_fences WHERE owner_subject=?').get(owner).n,2)
     assert.equal((await memory.status(host(other),otherRecord.record_id)).saved,true)
     const purgedExport=await memory.exportSnapshot(h)
     assert.equal(inspectSnapshot(purgedExport,owner).redactions.length,1)
@@ -616,13 +629,14 @@ test('restore uses independent current anchors and preflights local forks before
     const memory=service(pool);await memory.migrate();const h=host(),saved=await fixtureCapture(memory,h,input,'anchor-note')
     const before=await memory.exportSnapshot(h)
     const noAnchor=service(emptyPool,{restoreAnchorProvider:undefined});await noAnchor.migrate()
-    trustedFixtureAnchors.set(owner,before.heads)
+    await retainFixtureAnchor(memory,h)
     const selfAnchored=await toyImport(emptyPool,before,{mode:'prime-restore',expectedHeads:before.heads})
     await assert.rejects(noAnchor.restoreSnapshot(h,before,selfAnchored),{code:'memory:trusted-restore-anchor-unavailable'})
     await assert.rejects(noAnchor.restoreSnapshot(h,before,{...selfAnchored,mode:'kira-import'}),{code:'memory:restore-mode-invalid'})
     assert.equal(preparedOperations.has(selfAnchored.approval_proof.operation_digest),false)
     await fixtureForget(memory,h,saved.record_id,at)
-    const current=await memory.exportSnapshot(h);trustedFixtureAnchors.set(owner,current.heads)
+    await retainFixtureAnchor(memory,h)
+    const current=await memory.exportSnapshot(h)
     const stale=await toyImport(emptyPool,before,{mode:'prime-restore',expectedHeads:before.heads})
     await assert.rejects(service(emptyPool).restoreSnapshot(h,before,stale),{code:'memory:restore-anchor-mismatch'})
     assert.equal(preparedOperations.has(stale.approval_proof.operation_digest),false)
@@ -638,4 +652,139 @@ test('restore uses independent current anchors and preflights local forks before
     await assert.rejects(memory.importSnapshot(h,fork,forkOptions),{code:'memory:import-chain-fork'})
     assert.equal(preparedOperations.has(forkOptions.approval_proof.operation_digest),false)
   } finally {pool.close();emptyPool.close();rmSync(dir,{recursive:true,force:true})}
+})
+
+test('cold restore retains owner-bound idempotency, committed receipts and unresolved intents without dispatch retry',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'prime-memory-control-restore-'))
+  const sourcePool=new FixturePool(join(dir,'source.sqlite'))
+  let targetPool=new FixturePool(join(dir,'target.sqlite'))
+  try {
+    const memory=service(sourcePool);await memory.migrate()
+    const h={...host(),owner_id:'distinct-control-owner'}
+    const binding=await memory.prepareCaptureBinding(h,input,'retained-key')
+    const saveOptions=toyBoundOperation(h,'memory.save',binding.canonical_parameters,binding.canonical_parameters.heads)
+    const saved=await memory.captureAuthorizedRemembered(h,input,'retained-key',saveOptions)
+    const uncertainHost={...host(owner,'Synthetic unresolved event.'),owner_id:h.owner_id}
+    const uncertainBinding=await memory.prepareCaptureBinding(uncertainHost,input,'unresolved-key')
+    const uncertainOptions=toyBoundOperation(uncertainHost,'memory.save',uncertainBinding.canonical_parameters,uncertainBinding.canonical_parameters.heads)
+    sourcePool.failOutbox=true
+    await assert.rejects(memory.captureAuthorizedRemembered(uncertainHost,input,'unresolved-key',uncertainOptions),
+      {code:'memory:authority-effect-outcome-unknown'})
+    sourcePool.failOutbox=false
+    await retainFixtureAnchor(memory,h)
+    const independentlyRetained=trustedFixtureAnchors.get(owner),snapshot=await memory.exportSnapshot(h)
+    assert.equal(independentlyRetained.tables.requests.length,1)
+    assert.equal(independentlyRetained.tables.intents.length,2)
+    assert.equal(independentlyRetained.tables.effects.length,1)
+    let restored=service(targetPool);await restored.migrate()
+    const headsOnly=service(targetPool,{restoreAnchorProvider:async()=>({owner_subject:owner,heads:snapshot.heads})})
+    const restoration=await toyImport(targetPool,snapshot,{mode:'prime-restore'})
+    await assert.rejects(headsOnly.restoreSnapshot(h,snapshot,restoration),{code:'memory:trusted-control-anchor-required'})
+    const wrongOwner=service(targetPool,{restoreAnchorProvider:async()=>({...independentlyRetained,owner_id:'different-owner'})})
+    await assert.rejects(wrongOwner.restoreSnapshot(h,snapshot,restoration),{code:'memory:control-state-owner-schema'})
+    const proposed=await restored.prepareRestoreBinding(h,snapshot)
+    assert.equal(proposed.canonical_parameters.control_anchor_sha256,independentlyRetained.control_sha256)
+    const changed=toyBoundOperation(h,'memory.restore',{...proposed.canonical_parameters,control_anchor_sha256:'0'.repeat(64)})
+    await assert.rejects(restored.restoreSnapshot(h,snapshot,changed),{code:'memory:operation-binding-mismatch'})
+    assert.equal(preparedOperations.has(changed.approval_proof.operation_digest),false)
+    const result=await restored.restoreSnapshot(h,snapshot,restoration)
+    assert.equal(result.control_state_restored,true)
+    assert.equal(result.control_anchor_sha256,independentlyRetained.control_sha256)
+    assert.equal(targetPool.db.prepare('SELECT count(*) AS n FROM prime_memory_requests').get().n,1)
+    for(const table of ['intents','effects']) {
+      const original=sourcePool.db.prepare('SELECT * FROM prime_memory_'+table+' ORDER BY operation_id').all()
+      for(const row of original) {
+        const retained=targetPool.db.prepare('SELECT * FROM prime_memory_'+table+' WHERE operation_id=?').get(row.operation_id)
+        assert.deepEqual(retained,row)
+      }
+    }
+    targetPool.close();targetPool=new FixturePool(join(dir,'target.sqlite'));restored=service(targetPool)
+    const uncertain=await restored.reconcileEffect(uncertainHost,uncertainOptions.operation.operation_id)
+    assert.equal(uncertain.status,'unresolved');assert.equal(uncertain.automatic_retry,false)
+    assert.equal(uncertain.request_id,sourcePool.db.prepare('SELECT request_id FROM prime_memory_intents WHERE operation_id=?').get(uncertainOptions.operation.operation_id).request_id)
+    const before=preparedOperations.size
+    await assert.rejects(restored.captureAuthorizedRemembered(uncertainHost,input,'unresolved-key',uncertainOptions),
+      {code:'memory:effect-unresolved-reconciliation-required'})
+    assert.equal(preparedOperations.size,before)
+    await assert.rejects(restored.prepareCaptureBinding(uncertainHost,input,'unresolved-key'),
+      {code:'memory:unresolved-idempotency-reconciliation-required'})
+    const attemptedNewGrant=toyBoundOperation(uncertainHost,'memory.save',uncertainBinding.canonical_parameters,uncertainBinding.canonical_parameters.heads)
+    await assert.rejects(restored.captureAuthorizedRemembered(uncertainHost,input,'unresolved-key',attemptedNewGrant),
+      {code:'memory:unresolved-idempotency-reconciliation-required'})
+    assert.equal(preparedOperations.size,before)
+    assert.equal((await restored.captureAuthorizedRemembered(h,input,'retained-key',saveOptions)).record.canonical_bytes,saved.record.canonical_bytes)
+    assert.equal(preparedOperations.size,before)
+    assert.equal((await restored.prepareCaptureBinding(h,input,'retained-key')).canonical_parameters.capture_sha256,binding.canonical_parameters.capture_sha256)
+    await assert.rejects(restored.prepareCaptureBinding(h,{...input,statement:'changed'},'retained-key'),{code:'memory:idempotency-conflict'})
+  } finally {sourcePool.close();targetPool.close();rmSync(dir,{recursive:true,force:true})}
+})
+
+test('independent purge control anchor blocks old data in an empty store and retains content-free replay fences',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'prime-memory-purge-cold-restore-'))
+  const sourcePool=new FixturePool(join(dir,'source.sqlite')),targetPool=new FixturePool(join(dir,'target.sqlite'))
+  try {
+    const memory=service(sourcePool);await memory.migrate();const h=host()
+    const selectedBinding=await memory.prepareCaptureBinding(h,input,'selected-key')
+    const selectedOptions=toyBoundOperation(h,'memory.save',selectedBinding.canonical_parameters)
+    const selected=await memory.captureAuthorizedRemembered(h,input,'selected-key',selectedOptions)
+    const retainedHost=host(owner,'Independent retained synthetic quote.')
+    const retained=await fixtureCapture(memory,retainedHost,{...input,statement:'retained'},'retained-key')
+    const oldSnapshot=await memory.exportSnapshot(h)
+    const mutation=await memory.prepareRecordMutationBinding(h,selected.record.record_id,{action:'memory.purge',at})
+    await memory.purgeRecordPayload(h,selected.record.record_id,toyBoundOperation(h,'memory.purge',mutation.canonical_parameters,mutation.canonical_parameters.heads))
+    await retainFixtureAnchor(memory,h)
+    const anchor=trustedFixtureAnchors.get(owner),current=await memory.exportSnapshot(h)
+    assert.equal(anchor.tables.purges.length,1);assert.equal(anchor.tables.requests.length,2)
+    assert.equal(anchor.tables.replay_fences.length,1)
+    const fenced=anchor.tables.replay_fences[0]
+    assert.equal(fenced.operation_id,selectedOptions.operation.operation_id)
+    assert.equal(JSON.stringify(fenced).includes('banana'),false)
+    const restored=service(targetPool);await restored.migrate()
+    const stale=await toyImport(targetPool,oldSnapshot,{mode:'prime-restore',expectedHeads:oldSnapshot.heads})
+    await assert.rejects(restored.restoreSnapshot(h,oldSnapshot,stale),{code:'memory:restore-anchor-mismatch'})
+    assert.equal(preparedOperations.has(stale.approval_proof.operation_digest),false)
+    const dataOnly=await toyImport(targetPool,oldSnapshot)
+    await assert.rejects(restored.importSnapshot(h,oldSnapshot,dataOnly),{code:'memory:prime-data-import-requires-control-restore'})
+    assert.equal(preparedOperations.has(dataOnly.approval_proof.operation_digest),false)
+    assert.equal(targetPool.db.prepare('SELECT count(*) AS n FROM prime_memory_records').get().n,0)
+    const imported=await restored.restoreSnapshot(h,current,await toyImport(targetPool,current,{mode:'prime-restore'}))
+    assert.equal(imported.imported,1);assert.equal(imported.control_state_restored,true)
+    assert.equal(targetPool.db.prepare('SELECT count(*) AS n FROM prime_memory_purges').get().n,1)
+    assert.equal(targetPool.db.prepare('SELECT count(*) AS n FROM prime_memory_replay_fences').get().n,1)
+    assert.equal((await restored.cite(retainedHost,retained.record_id)).verdict,'VERIFIED')
+    await assert.rejects(restored.prepareCaptureBinding(h,{...input,statement:'new ID same erased source'},'fresh-key'),{code:'memory:purged-source-recapture'})
+    await assert.rejects(restored.reconcileEffect(h,selectedOptions.operation.operation_id),{code:'memory:effect-payload-purged-replay-forbidden'})
+    await assert.rejects(restored.captureAuthorizedRemembered(h,input,'selected-key',selectedOptions),{code:'memory:effect-payload-purged-replay-forbidden'})
+  } finally {sourcePool.close();targetPool.close();rmSync(dir,{recursive:true,force:true})}
+})
+
+test('new capture defaults refuse invisible policy changes before reserve and approved forget exposes its actual settlement',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'prime-memory-pilot-forget-')),pool=new FixturePool(join(dir,'storage.sqlite'))
+  try {
+    const memory=service(pool);await memory.migrate();const h=host()
+    const binding=await memory.prepareCaptureBinding(h,input,'fixed-profile')
+    const options=toyBoundOperation(h,'memory.save',binding.canonical_parameters)
+    for(const change of [{category:'decision'},{confidence:0.9},{sensitivity:'high'},{links:[{relation:'about',id:'hidden'}]},
+      {observedAt:'2026-10-01T11:04:00Z'},{validFrom:'2026-09-30'}]) {
+      await assert.rejects(memory.captureAuthorizedRemembered(h,{...input,...change},'fixed-profile',options),
+        {code:'memory:pilot-capture-profile-refused'})
+      assert.equal(preparedOperations.has(options.approval_proof.operation_digest),false)
+    }
+    for(const change of [{scope:'workspace'},{evidence:[]},{bodyAtCapture:'hidden'},{origin:{by:'different-profile'}}])
+      await assert.rejects(memory.prepareCaptureBinding({...h,...change},input,'fixed-profile'),{code:'memory:pilot-capture-profile-refused'})
+    const saved=await memory.captureAuthorizedRemembered(h,input,'fixed-profile',options)
+    const mutation=await memory.prepareRecordMutationBinding(h,saved.record.record_id,{action:'memory.forget',at})
+    const forged=toyBoundOperation(h,'memory.forget',{...mutation.canonical_parameters,statement:'different reviewed target'},mutation.canonical_parameters.heads)
+    await assert.rejects(memory.forgetRecord(h,saved.record.record_id,{include_receipt:true,...forged}),{code:'memory:record-operation-mismatch'})
+    assert.equal(preparedOperations.has(forged.approval_proof.operation_digest),false)
+    const forgotten=await memory.forgetRecord(h,saved.record.record_id,{include_receipt:true,
+      ...toyBoundOperation(h,'memory.forget',mutation.canonical_parameters,mutation.canonical_parameters.heads)})
+    assert.equal(forgotten.result.state,'tombstoned');assert.equal(forgotten.result.canonical_payload_retained,true)
+    assert.equal(forgotten.result.authority_approval_history_erased,false)
+    assert.equal(forgotten.authority_settlement,'completed');assert.equal(forgotten.reconciliation_required,false)
+    assert.equal(forgotten.receipt.action_type,'memory.forget')
+    assert.equal(forgotten.receipt_digest,memoryReceiptDigest(forgotten.receipt))
+    assert.equal((await memory.recall(h,{query:'banana'})).records.length,0)
+    assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_records').get().n,1)
+  } finally {pool.close();rmSync(dir,{recursive:true,force:true})}
 })
