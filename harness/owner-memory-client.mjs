@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Unmounted browser composition for the separate native owner controller.
-// These two own-package imports are rewritten to prime-packages by compose.py.
+// These own-package imports are rewritten to prime-packages by compose.py.
 import {createUiAdapters} from '../packages/runtime-bridge/src/ui-adapter.mjs';
 import {createOwnerMemoryWorkflow} from '../packages/runtime-bridge/src/owner-memory-workflow.mjs';
+import {createOwnerForgetWorkflow} from '../packages/runtime-bridge/src/owner-forget-workflow.mjs';
 import {createOwnerMemoryHttpCall} from './owner-memory-browser.mjs';
 
 /** The owner binding and signer are trusted composition inputs. This factory
@@ -20,10 +21,20 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
  // B's existing signer validates the profile and actual secure browser origin
  // before an assertion. Missing/unqualified capabilities keep login disabled.
  const adapters=createUiAdapters({call:createOwnerMemoryHttpCall({contracts,fetcher})});
- const binding=Object.freeze({...owner,authority:adapters.authority,contracts,loginKinds:Object.freeze(['passkey']),requiresCapabilities:true,
+ // Old B controllers notify local sign-out; newer controllers also call the
+ // authority logout method. Keep the same actual server result for both paths,
+ // including lost replies, until a fresh login attempt starts a new generation.
+ let logoutFlight=null;
+ const revoke=()=>logoutFlight??=adapters.logout();
+ const authority=Object.freeze({...adapters.authority,logout:revoke,
+  loginChallenge(input){logoutFlight=null;return adapters.authority.loginChallenge(input);},
+ });
+ const memory=Object.freeze({...adapters.memory,logout:revoke});
+ const binding=Object.freeze({...owner,authority,contracts,loginKinds:Object.freeze(['passkey']),requiresCapabilities:true,
   ...(passkeySigner?{passkeySigner}:{})});
- let disposed=false,workflow,off;
+ let disposed=false,workflow,forgetWorkflow,off;
  const attached=()=>{if(disposed||!workflow)throw new TypeError('UNAVAILABLE: owner client is not attached');return workflow;};
+ const attachedForget=()=>{attached();return forgetWorkflow;};
  return Object.freeze({
   binding,
   // Native composition first provides binding as Cordis primeAuthority, waits
@@ -31,22 +42,30 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
   // the default async HTTP binding from reconnecting and clearing this hook.
   attach(){if(disposed)throw new TypeError('UNAVAILABLE: owner client disposed');if(workflow)return workflow;
    if(controller.getSnapshot().owner_id!==binding.owner_id)throw new TypeError('UNAVAILABLE: native owner binding must connect before attach');
-   workflow=createOwnerMemoryWorkflow({controller,memory:adapters.memory,contracts});
+   workflow=createOwnerMemoryWorkflow({controller,memory,contracts});
+   forgetWorkflow=createOwnerForgetWorkflow({controller,memory,contracts});
    off=controller.subscribe(()=>{const state=controller.getSnapshot();
     // Also fences a logout before a pending login has established an owner.
-    if(!state.owner&&['logged_out','unavailable','expired'].includes(state.phase))adapters.logout();
+    if(!state.owner&&['logged_out','unavailable','expired'].includes(state.phase))revoke();
    });
    controller.setApprovalAction(()=>workflow.approveAndSave());return workflow;
   },
   get workflow(){return workflow;},
-  proposeSave:draft=>attached().proposeSave(draft),
+  get forgetWorkflow(){return forgetWorkflow;},
+  proposeSave(draft){const current=attached();controller.setApprovalAction(()=>current.approveAndSave());return current.proposeSave(draft);},
   refresh:()=>attached().refresh(),
+  // An explicit call after a fresh authenticated binding. Recovery reads C/D
+  // facts and may deliver an already committed receipt; never replays an effect.
+  recover:input=>attached().recover(input),
+  proposeForget(input){const current=attachedForget();controller.setApprovalAction(()=>current.approveAndForget());return current.proposeForget(input);},
+  approveAndForget:()=>attachedForget().approveAndForget(),
+  recoverForget:input=>attachedForget().recover(input),
   setCapabilities:value=>{attached();controller.setCapabilities(value);},
   capabilitiesUnavailable:()=>{attached();controller.capabilitiesUnavailable();},
-  logout(){attached();controller.logout();adapters.logout();},
+  logout:()=>attached().logout(),
   dispose(){if(disposed)return;disposed=true;
-   try{if(workflow){workflow.dispose();controller.setApprovalAction(null);controller.disconnect();}}
-   finally{off?.();adapters.logout();}
+   try{if(workflow){workflow.dispose();forgetWorkflow.dispose();off?.();revoke();controller.setApprovalAction(null);controller.disconnect();}}
+   finally{off?.();revoke();}
   },
  });
 }

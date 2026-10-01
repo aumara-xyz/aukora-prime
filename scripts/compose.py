@@ -34,7 +34,7 @@ shutil.copytree(root/'harness',release/'harness')
 # Browser composition stays inside this release. No source checkout discovery.
 client_binding=release/'harness/owner-memory-client.mjs'
 client_text=client_binding.read_text()
-for module in ['ui-adapter.mjs','owner-memory-workflow.mjs']:
+for module in ['ui-adapter.mjs','owner-memory-workflow.mjs','owner-forget-workflow.mjs']:
  old="'../packages/runtime-bridge/src/"+module+"'"
  if client_text.count(old)!=1:raise SystemExit('owner-memory-import-mismatch: '+module)
  client_text=client_text.replace(old,"'../prime-packages/runtime-bridge/src/"+module+"'")

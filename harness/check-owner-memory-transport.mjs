@@ -31,6 +31,12 @@ async function invoke({method='memory.save',payload='{}',headers={},verb='POST',
 async function refuse(input,status,code){const count=calls.length;const res=await invoke(input);assert.equal(res.status,status);assert.equal(JSON.parse(res.body).error_code,code);assert.equal(calls.length,count);checks++;}
 assert.deepEqual([...OWNER_MEMORY_METHODS].sort(),[...PUBLIC_METHODS].sort());checks++;
 assert(!routes.some(route=>route.path.includes('reserve')||route.path.includes('settle')||route.path.includes('claim')));checks++;
+for(const method of ['owner.logout','memory.proposeForget','memory.forget','memory.recover']){
+ const res=await invoke({method});assert.equal(res.status,200);assert.equal(calls.at(-1).method,method);
+ assert.equal(calls.at(-1).context.role,'owner_control');checks++;
+ const unavailable=await invoke({method,routes:createOwnerMemoryHttpRoutes()});
+ assert.equal(unavailable.status,503);assert.equal(JSON.parse(unavailable.body).error_code,'UNAVAILABLE');checks++;
+}
 let res=await invoke({payload:'{"role":"proposer","marker":"literal"}'});
 assert.equal(res.status,200);assert.equal(calls.at(-1).context.role,'owner_control');
 assert.equal(calls.at(-1).input.role,'proposer');assert.deepEqual(Object.keys(calls.at(-1).context.request).sort(),['host','origin','request_id','transport']);checks++;
@@ -73,6 +79,9 @@ for(const text of ['{"ok":true,"ok":false}','{"ok":true,"blob":"'+'x'.repeat(655
 let attempts=0;const lost=createOwnerMemoryHttpCall({contracts,fetcher:async()=>{attempts++;throw new Error('reply lost');}});
 assert.equal((await lost('memory.save',{})).error_code,'OUTCOME_UNKNOWN');assert.equal(attempts,1);checks++;
 assert.equal((await lost('memory.cite',{})).error_code,'UNAVAILABLE');assert.equal(attempts,2);checks++;
+for(const method of ['owner.logout','memory.forget','memory.recover']){
+ const before=attempts;assert.equal((await lost(method,{})).error_code,'OUTCOME_UNKNOWN');assert.equal(attempts,before+1);checks++;
+}
 // A timed-out/disconnected request is never retried; capacity remains charged
 // until the actual dispatcher settles. Exercise only the finite inflight guard.
 const finishes=[];const bounded=createOwnerMemoryHttpRoutes({...options,publicBoundary:{handlePublic(){return new Promise(resolve=>finishes.push(()=>resolve({ok:true})));}}});

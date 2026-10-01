@@ -5,6 +5,7 @@ export const OWNER_MEMORY_METHODS=Object.freeze([
  'capability.status','owner.status','memory.status','memory.cite','memory.recall',
  'memory.proposeSave','owner.loginChallenge','owner.loginComplete',
  'owner.approvalChallenge','owner.approvalComplete','owner.declineApproval','memory.save',
+ 'owner.logout','memory.proposeForget','memory.forget','memory.recover',
 ]);
 const reads=new Set(['capability.status','owner.status','memory.status','memory.cite','memory.recall']);
 const failure=(error_code,reason)=>Object.freeze({ok:false,error_code,reason});
