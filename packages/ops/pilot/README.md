@@ -1,0 +1,46 @@
+# Existing Ubuntu pilot source artifacts
+
+`parents.py` and `PARENTS-HANDOFF.md` are the independently reviewable parent/account handoff for H. The script has no dependency on any user-owned repository or installed Python package, and contains no PostgreSQL installation, initdb, worker setup, credential generation, service action or network request. See the handoff for the externally retained SHA-256 and trusted root staging requirements.
+
+`pilot.py` holds the separate source designs for exact local PG package closure, release/Node/entrypoint/config pins, four static service templates, root preview-deployment manifest, peer-only PG config and synthetic role SQL. `render`, `install-code` and `install-units` refuse `PG_MEMORY_CONFIG_READ_GROUP_CONFLICT`; no deployment units/configs are emitted. Task40 supplied the reviewed root0440 production-loader pin `ca382593545c9877e0fce4f19e406c90f7a84027`; an agreed PG/D secret-reading boundary and actual imported source remain prerequisites to releasing those phases. Pending C authority-store bootstrap API is never called or guessed. No setup helper is exposed through normal worker RPC.
+
+`verify.py` independently observes a narrowly scoped, externally pinned expectations document. Source mode is pure structural checking and always reports qualification PENDING. Host mode requires Linux root, checks canonical ancestry/owner/modes/file pins, hashes the entire physical release dependency closure with contained relative links, observes fixed unit-file pins/drop-ins/autostart state, and runs bounded DAC/socket-connect probes as exact service UID/groups. It reads no private payload and writes/truncates/creates no target during a probe. A missing socket/service, bounded observation limit, skipped namespace/process-group test or unknown runtime state remains PENDING. Source evaluator and candidate sharing a UID is never OS isolation evidence.
+
+The proposed D config root:prime-memory0440 under root:prime-memory0750 is readable to PostgreSQL if its process gains supplementary prime-memory, even without a global NSS grant. `SupplementaryGroups=` extends the NSS group set. PG unit/process group observations are mandatory; a read-only mount prevents writes but does not prevent reads. The verifier deliberately includes a PG denied-read probe on D's config so this design conflict cannot be reported as a successful DAC boundary. A unit namespace restriction alone would not qualify a manual pg_ctl launch. [systemd execution semantics](https://man7.org/linux/man-pages/man5/systemd.exec.5.html)
+
+The private PG socket design is `/run/aukora-prime/postgres`, postgres:prime-memory0750; socket0770, TCP disabled, port55432. The fresh synthetic target is `aukora_prime_synthetic`, role `prime_memory`, mapped from system prime-memory by peer authentication; superuser/createdb/createrole/replication/bypassrls privileges are excluded. Only the designated operator materializes PG children/config/role or starts its reviewed owned cluster. There is no DB password, ACL or global postgres membership change in these G artifacts.
+
+`pg-pool.mjs` injects H's explicit Prime-contained `pg@8.16.3` Pool constructor and the actual assigned memory UID into a fixed Unix-only synthetic target. It refuses inherited PG environment settings and any password challenge; it never discovers a host, password file, URI or fallback. Constructor-only checks use a synthetic Pool and open no connection. H reported an integrity-pinned pure JS 14-package driver closure at task31 `.runtime/pg-driver` and `prime-pg-driver-8.16.3.tar.gz`; G has not verified an installed protected import path. Real driver/PG behavior remains unperformed. [pg8.16.3 connection defaults](https://raw.githubusercontent.com/brianc/node-postgres/pg@8.16.3/packages/pg/lib/connection-parameters.js), [password callback behavior](https://raw.githubusercontent.com/brianc/node-postgres/pg@8.16.3/packages/pg/lib/client.js)
+
+H's source boot interface under review is absolute pinned Node plus release `harness/cli.mjs boot --deployment-manifest /etc/aukora-prime/preview-deployment.json --state-dir /var/lib/aukora-prime/app --port 18731`. The root-owned0644 manifest has closed fields `version:1`, `kind:'prime-preview-deployment/v1'`, `source_commit`40hex, `release_dir`, `release_digest`64hex, `ui_integrity_sha256`64hex, `qualification:'PENDING'`. It lies outside the candidate release under a root-protected0755 config parent. No expected digest is calculated from the candidate and then passed back as its own authority. Exact H helper source pin and real boot semantics are still pending; the template is a held design, not a running-service claim.
+
+The four unit designs have no Install section, no explicit cross-service Wants/Requires and no restart policy. They cap aggregate memory at 5.25GiB and CPU quotas at175% on two CPUs; systemd may still add normal mount/journal dependencies. These bounds require actual kernel/cgroup observations and do not prove the existing provider's $2/day budget. No GPU, paid inference, public port, IAM, credential, firewall, SSH or network-resource action occurred. Existing running preview ownership/resource overlap must be checked by H before any qualified manual service start; G never kills or stops unrelated processes.
+
+## Exact historical package closure
+
+The operator reported these eight new packages installed, zero upgrades, no default cluster/startup. G has not independently checked that host. Do not run duplicate installation on the pilot. The historical source installer refuses already-installed package changes and requires reviewed exact local `.deb` SHA/control-archive SHA plus an externally retained apt-config SHA before simulation/install. No apt update/download/metapackage or speculative dependency is admitted.
+
+| Package | Exact version |
+|---|---|
+| libjson-perl | 4.10000-1 |
+| postgresql-client-common | 257build1.1 |
+| postgresql-common | 257build1.1 |
+| ssl-cert | 1.1.2ubuntu1 |
+| libllvm17t64 | 1:17.0.6-9ubuntu1 |
+| libpq5 | 16.15-0ubuntu0.24.04.1 |
+| postgresql-client-16 | 16.15-0ubuntu0.24.04.1 |
+| postgresql-16 | 16.15-0ubuntu0.24.04.1 |
+
+An absent startup policy may be created exclusively as a PG-only action-deny guard before install; an existing policy is never overwritten/executed by this artifact. Main-cluster creation is separately suppressed by an exclusively created or narrowly validated `create_main_cluster = false` config. `UCF_FORCE_CONFFOLD` preserves ucf policy, needrestart is suspended/list-only, apt hooks require external review, and reviewed local package bytes are copied to root-controlled staging before apt reopens them. The temporary guard is removed only after matching its owned inode/mode/hash and successful postchecks; partial/uncertain effects retain it for reconciliation. No unexpected service is stopped to force a passing result. Exact generated pinned-deb scripts and pre/post service transitions remain operator evidence. [PG maintainer source](https://raw.githubusercontent.com/credativ/postgresql-common/257/debian/maintscripts-functions), [ucf](https://manpages.debian.org/bookworm/ucf/ucf.1.en.html), [needrestart](https://manpages.debian.org/bookworm/needrestart/needrestart.1.en.html)
+
+## Disposable local checks
+
+```
+python3 -B packages/ops/pilot/check.py
+python3 -B packages/ops/pilot/check_verify.py
+node packages/ops/pilot/check-pg-pool.mjs
+```
+
+These cover source pin/digest drift, contained/escaping dependency links, executable bits/hardlinks, closed manifests, private config/IPC contracts, unknown/out-of-scope evaluator fields, dropped or weakened checks, hidden unit drop-ins/autostart, read/write probe behavior, parent identity/path conflicts and pool fallback refusal. They are additional focused ops regressions; they do not replace the already frozen G1–G6 acceptance requirements or count same-UID SQLite fixtures as PostgreSQL/OS evidence. All approved disposable test state is temporary and owned by these checks. The earlier ops evaluator core digest remains unchanged.
+
+Unperformed: VM parent/account execution and actual UIDs, worker protected config import, C reviewed bootstrap, root-owned dependency closure installation, manifest boot, actual service UID/GID/mount/network/cgroup boundaries, real private PG driver connection, PG-backed restart/export/cold restore, private IPC negative/positive flows, provider-cost reconciliation and full G1–G6 qualification. D owns export/verify/restore; no arbitrary workspace backup, root-key migration, private-memory import, passkey enrollment, Docker/OpenShell activation or previously refused canary is introduced.
