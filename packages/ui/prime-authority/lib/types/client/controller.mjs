@@ -109,10 +109,9 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
   }
   const cancelApprovalAction = () => {
     approvalFlight?.abort.abort()
-    if (approvalFlight?.approved) approvalActionBlocked = true
   }
-  function workflowResult(value, flight) {
-    const result = immutable(JSON.parse(binding.contracts.canonicalJson(value)))
+  function workflowSnapshot(value, flight) {
+    const result = immutable(JSON.parse(flight.contracts.canonicalJson(value)))
     const fields = ['phase','operation','memory_capture','operation_digest','approval','save','saved','record','receipt',
       'receipt_digest','citation','citation_status','index','authority_settlement','reconciliation_required','error_code','read_error_code']
     if (!result || Array.isArray(result) || Object.keys(result).sort().join(',') !== fields.sort().join(',') ||
@@ -129,15 +128,38 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         (result.receipt_digest !== null && !/^sha256:[a-f0-9]{64}$/.test(result.receipt_digest))) {
       throw new PrimeTransportError('INVALID', 'ui:invalid-memory-workflow-result')
     }
+    return result
+  }
+  function cancelledWorkflowResult(value, flight) {
+    let result
+    try { result = workflowSnapshot(value, flight) }
+    catch { throw new PrimeTransportError('OUTCOME_UNKNOWN', 'ui:invalid-cancelled-memory-action-result') }
+    // Owner loss deliberately removes private content. These terminal facts
+    // only release the pending flight; they are never presented as a receipt.
+    const cleared = ['idle','unavailable'].includes(result.phase) &&
+      ['operation','memory_capture','operation_digest','record','receipt','receipt_digest','citation'].every(field => result[field] === null) &&
+      result.citation_status === 'not_requested' && result.read_error_code === null &&
+      result.index.status === 'unconfirmed' && result.index.indexed === null && result.index.searchable === null &&
+      [null,'UNAVAILABLE'].includes(result.error_code) && result.reconciliation_required === false
+    const unsent = result.save === 'not_attempted' && result.saved === false &&
+      result.approval === 'not_requested' && result.authority_settlement === null
+    const completed = result.save === 'saved' && result.saved === true &&
+      result.approval === 'approved' && result.authority_settlement === 'completed'
+    if (!cleared || (!unsent && !completed)) {
+      throw new PrimeTransportError('OUTCOME_UNKNOWN', 'ui:cancelled-memory-action-needs-reconciliation')
+    }
+  }
+  function workflowResult(value, flight) {
+    const result = workflowSnapshot(value, flight), contracts = flight.contracts
     if (result.operation) {
-      if (binding.contracts.canonicalJson(result.operation) !== flight.presentation.canonical_operation ||
+      if (contracts.canonicalJson(result.operation) !== flight.presentation.canonical_operation ||
           result.operation_digest !== flight.presentation.operation_digest) {
         throw new PrimeTransportError('TARGET_MISMATCH', 'ui:memory-workflow-operation-changed')
       }
       validateCaptureReview(result.operation.canonical_parameters, result.memory_capture)
     }
     if (result.saved === true || result.save === 'saved') {
-      binding.contracts.validateContract('MemoryRecord', result.record)
+      contracts.validateContract('MemoryRecord', result.record)
       const original = JSON.parse(result.record.canonical_bytes)
       const view = flight.presentation, receipt = result.receipt
       if (!flight.approved || result.saved !== true || result.save !== 'saved' || result.approval !== 'approved' ||
@@ -146,7 +168,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
           original.statement !== view.memory_review.statement || original.attributedTo !== view.memory_review.attributed_to ||
           receipt?.status !== 'applied' || receipt.operation_id !== view.operation.operation_id ||
           receipt.operation_digest !== view.operation_digest || receipt.grant_id !== 'grant:' + flight.proofNonce ||
-          binding.contracts.canonicalJson(receipt.result) !== binding.contracts.canonicalJson(result.record) ||
+          contracts.canonicalJson(receipt.result) !== contracts.canonicalJson(result.record) ||
           !['completed','pending'].includes(result.authority_settlement) ||
           (result.authority_settlement === 'completed' && result.reconciliation_required) ||
           (result.authority_settlement === 'pending' && !result.reconciliation_required)) {
@@ -255,16 +277,17 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       if (state.presentation.operation.action_type !== 'memory.save') return api.approve()
       if (!approvalAction) { fail(new PrimeTransportError('UNAVAILABLE', 'ui:memory-approval-action-unavailable')); return Promise.resolve(null) }
       const flight = { revision, presentation: state.presentation, owner: state.owner, handler: approvalAction,
-        approved: false, abort: new AbortController(), promise: null }
+        contracts: binding.contracts, started: false, approved: false, abort: new AbortController(), promise: null }
       approvalFlight = flight
       // Publish only after the shared promise exists; listener-triggered clicks coalesce too.
       flight.promise = Promise.resolve().then(async () => {
-        if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null
         try {
+          if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null
+          flight.started = true
           const value = await flight.handler(flight.presentation, { signal: flight.abort.signal })
           const stale = revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted
           if (stale) {
-            if (value?.reconciliation_required === true || value?.save === 'unknown' || flight.approved) approvalActionBlocked = true
+            cancelledWorkflowResult(value, flight)
             return null
           }
           const result = workflowResult(value, flight)
@@ -280,7 +303,8 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
               : 'The host workflow did not confirm a memory save. Approval alone does not confirm storage.' })
           return result
         } catch (error) {
-          if (flight.approved || ['OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(error?.code)) approvalActionBlocked = true
+          if (flight.approved || (flight.started && (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted)) ||
+              ['OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(error?.code)) approvalActionBlocked = true
           if (revision === flight.revision && state.owner === flight.owner) {
             fail(approvalActionBlocked ? new PrimeTransportError('OUTCOME_UNKNOWN', 'ui:memory-action-outcome-unknown') : error)
             notify({ approval_action_available: !!approvalAction && !approvalActionBlocked })
@@ -288,7 +312,8 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
           return null
         } finally {
           if (approvalFlight === flight) approvalFlight = null
-          if (revision === flight.revision) notify({ approval_action_pending:false })
+          notify({ approval_action_available: !!approvalAction && !approvalActionBlocked,
+            ...(revision === flight.revision ? { approval_action_pending:false } : {}) })
         }
       })
       notify({ approval_action_pending:true, approval_action_result:null })
@@ -316,7 +341,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       notify({ phase:'unavailable',owner:null,presentation:null,operation_available:false,expired:false,error_code:'UNAVAILABLE',reason:'Authority transport is unavailable.',authority_available:false,
         approval_action_available:false,approval_action_pending:false,approval_action_result:null })
     },
-    dispose() { cancelApprovalAction(); approvalAction = null; ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); stopTimer(); listeners.clear() },
+    dispose() { api.disconnect(); listeners.clear() },
   }
   return Object.freeze(api)
 }

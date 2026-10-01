@@ -748,10 +748,9 @@ window.__ModuleLoader__.load({
 			}
 			const cancelApprovalAction = () => {
 				approvalFlight?.abort.abort();
-				if (approvalFlight?.approved) approvalActionBlocked = true;
 			};
-			function workflowResult(value, flight) {
-				const result = immutable(JSON.parse(binding.contracts.canonicalJson(value)));
+			function workflowSnapshot(value, flight) {
+				const result = immutable(JSON.parse(flight.contracts.canonicalJson(value)));
 				if (!result || Array.isArray(result) || Object.keys(result).sort().join(",") !== [
 					"phase",
 					"operation",
@@ -822,15 +821,39 @@ window.__ModuleLoader__.load({
 					"completed",
 					"pending"
 				].includes(result.authority_settlement) || [result.error_code, result.read_error_code].some((code) => code !== null && (typeof code !== "string" || code.length > 128)) || result.receipt_digest !== null && !/^sha256:[a-f0-9]{64}$/.test(result.receipt_digest)) throw new PrimeTransportError("INVALID", "ui:invalid-memory-workflow-result");
+				return result;
+			}
+			function cancelledWorkflowResult(value, flight) {
+				let result;
+				try {
+					result = workflowSnapshot(value, flight);
+				} catch {
+					throw new PrimeTransportError("OUTCOME_UNKNOWN", "ui:invalid-cancelled-memory-action-result");
+				}
+				const cleared = ["idle", "unavailable"].includes(result.phase) && [
+					"operation",
+					"memory_capture",
+					"operation_digest",
+					"record",
+					"receipt",
+					"receipt_digest",
+					"citation"
+				].every((field) => result[field] === null) && result.citation_status === "not_requested" && result.read_error_code === null && result.index.status === "unconfirmed" && result.index.indexed === null && result.index.searchable === null && [null, "UNAVAILABLE"].includes(result.error_code) && result.reconciliation_required === false;
+				const unsent = result.save === "not_attempted" && result.saved === false && result.approval === "not_requested" && result.authority_settlement === null;
+				const completed = result.save === "saved" && result.saved === true && result.approval === "approved" && result.authority_settlement === "completed";
+				if (!cleared || !unsent && !completed) throw new PrimeTransportError("OUTCOME_UNKNOWN", "ui:cancelled-memory-action-needs-reconciliation");
+			}
+			function workflowResult(value, flight) {
+				const result = workflowSnapshot(value, flight), contracts = flight.contracts;
 				if (result.operation) {
-					if (binding.contracts.canonicalJson(result.operation) !== flight.presentation.canonical_operation || result.operation_digest !== flight.presentation.operation_digest) throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-workflow-operation-changed");
+					if (contracts.canonicalJson(result.operation) !== flight.presentation.canonical_operation || result.operation_digest !== flight.presentation.operation_digest) throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-workflow-operation-changed");
 					validateCaptureReview(result.operation.canonical_parameters, result.memory_capture);
 				}
 				if (result.saved === true || result.save === "saved") {
-					binding.contracts.validateContract("MemoryRecord", result.record);
+					contracts.validateContract("MemoryRecord", result.record);
 					const original = JSON.parse(result.record.canonical_bytes);
 					const view = flight.presentation, receipt = result.receipt;
-					if (!flight.approved || result.saved !== true || result.save !== "saved" || result.approval !== "approved" || !result.operation || result.record.storage_status !== "saved" || result.record.owner_subject !== view.operation.target_identity.owner_subject || result.record.task_id !== view.operation.task_id || original.statement !== view.memory_review.statement || original.attributedTo !== view.memory_review.attributed_to || receipt?.status !== "applied" || receipt.operation_id !== view.operation.operation_id || receipt.operation_digest !== view.operation_digest || receipt.grant_id !== "grant:" + flight.proofNonce || binding.contracts.canonicalJson(receipt.result) !== binding.contracts.canonicalJson(result.record) || !["completed", "pending"].includes(result.authority_settlement) || result.authority_settlement === "completed" && result.reconciliation_required || result.authority_settlement === "pending" && !result.reconciliation_required) throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-workflow-receipt-mismatch");
+					if (!flight.approved || result.saved !== true || result.save !== "saved" || result.approval !== "approved" || !result.operation || result.record.storage_status !== "saved" || result.record.owner_subject !== view.operation.target_identity.owner_subject || result.record.task_id !== view.operation.task_id || original.statement !== view.memory_review.statement || original.attributedTo !== view.memory_review.attributed_to || receipt?.status !== "applied" || receipt.operation_id !== view.operation.operation_id || receipt.operation_digest !== view.operation_digest || receipt.grant_id !== "grant:" + flight.proofNonce || contracts.canonicalJson(receipt.result) !== contracts.canonicalJson(result.record) || !["completed", "pending"].includes(result.authority_settlement) || result.authority_settlement === "completed" && result.reconciliation_required || result.authority_settlement === "pending" && !result.reconciliation_required) throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-workflow-receipt-mismatch");
 				}
 				return result;
 			}
@@ -1034,17 +1057,20 @@ window.__ModuleLoader__.load({
 						presentation: state.presentation,
 						owner: state.owner,
 						handler: approvalAction,
+						contracts: binding.contracts,
+						started: false,
 						approved: false,
 						abort: new AbortController(),
 						promise: null
 					};
 					approvalFlight = flight;
 					flight.promise = Promise.resolve().then(async () => {
-						if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null;
 						try {
+							if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null;
+							flight.started = true;
 							const value = await flight.handler(flight.presentation, { signal: flight.abort.signal });
 							if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) {
-								if (value?.reconciliation_required === true || value?.save === "unknown" || flight.approved) approvalActionBlocked = true;
+								cancelledWorkflowResult(value, flight);
 								return null;
 							}
 							const result = workflowResult(value, flight);
@@ -1059,7 +1085,7 @@ window.__ModuleLoader__.load({
 							});
 							return result;
 						} catch (error) {
-							if (flight.approved || ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(error?.code)) approvalActionBlocked = true;
+							if (flight.approved || flight.started && (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) || ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(error?.code)) approvalActionBlocked = true;
 							if (revision === flight.revision && state.owner === flight.owner) {
 								fail(approvalActionBlocked ? new PrimeTransportError("OUTCOME_UNKNOWN", "ui:memory-action-outcome-unknown") : error);
 								notify({ approval_action_available: !!approvalAction && !approvalActionBlocked });
@@ -1067,7 +1093,10 @@ window.__ModuleLoader__.load({
 							return null;
 						} finally {
 							if (approvalFlight === flight) approvalFlight = null;
-							if (revision === flight.revision) notify({ approval_action_pending: false });
+							notify({
+								approval_action_available: !!approvalAction && !approvalActionBlocked,
+								...revision === flight.revision ? { approval_action_pending: false } : {}
+							});
 						}
 					});
 					notify({
@@ -1138,13 +1167,7 @@ window.__ModuleLoader__.load({
 					});
 				},
 				dispose() {
-					cancelApprovalAction();
-					approvalAction = null;
-					++revision;
-					pending?.abort.abort();
-					pending = void 0;
-					transport?.logout();
-					stopTimer();
+					api.disconnect();
 					listeners.clear();
 				}
 			};
@@ -1152,7 +1175,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css = ".fNz25W_surface[hidden]{display:none!important}.fNz25W_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.fNz25W_header{flex-direction:column;align-items:flex-start;gap:4px}.fNz25W_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.fNz25W_header p{color:var(--aukora-text-secondary);margin:0}.fNz25W_card{min-width:0;padding:16px}.fNz25W_card h2{margin-top:0;font-size:16px;font-weight:600}.fNz25W_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.fNz25W_fields{flex-direction:column;gap:12px;display:flex}.fNz25W_fields dd{margin:0}.fNz25W_fields dt{color:var(--aukora-text-secondary);font-size:13px}.fNz25W_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.fNz25W_owner{flex-direction:column;gap:8px;display:flex}.fNz25W_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.fNz25W_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.fNz25W_error{color:var(--aukora-red-warning)}.fNz25W_menu{width:100%}.fNz25W_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.fNz25W_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.fNz25W_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.fNz25W_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.fNz25W_badgePanel h2{font-size:14px}";
+		const css = ".KgdR9q_surface[hidden]{display:none!important}.KgdR9q_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.KgdR9q_header{flex-direction:column;align-items:flex-start;gap:4px}.KgdR9q_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.KgdR9q_header p{color:var(--aukora-text-secondary);margin:0}.KgdR9q_card{min-width:0;padding:16px}.KgdR9q_card h2{margin-top:0;font-size:16px;font-weight:600}.KgdR9q_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.KgdR9q_fields{flex-direction:column;gap:12px;display:flex}.KgdR9q_fields dd{margin:0}.KgdR9q_fields dt{color:var(--aukora-text-secondary);font-size:13px}.KgdR9q_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.KgdR9q_owner{flex-direction:column;gap:8px;display:flex}.KgdR9q_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.KgdR9q_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.KgdR9q_error{color:var(--aukora-red-warning)}.KgdR9q_menu{width:100%}.KgdR9q_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.KgdR9q_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.KgdR9q_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.KgdR9q_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.KgdR9q_badgePanel h2{font-size:14px}";
 		const tagId = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -1162,17 +1185,17 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "fNz25W_actions",
-			"badge": "fNz25W_badge",
-			"badgePanel": "fNz25W_badgePanel",
-			"capabilities": "fNz25W_capabilities",
-			"card": "fNz25W_card",
-			"error": "fNz25W_error",
-			"fields": "fNz25W_fields",
-			"header": "fNz25W_header",
-			"menu": "fNz25W_menu",
-			"owner": "fNz25W_owner",
-			"surface": "fNz25W_surface"
+			"actions": "KgdR9q_actions",
+			"badge": "KgdR9q_badge",
+			"badgePanel": "KgdR9q_badgePanel",
+			"capabilities": "KgdR9q_capabilities",
+			"card": "KgdR9q_card",
+			"error": "KgdR9q_error",
+			"fields": "KgdR9q_fields",
+			"header": "KgdR9q_header",
+			"menu": "KgdR9q_menu",
+			"owner": "KgdR9q_owner",
+			"surface": "KgdR9q_surface"
 		};
 		//#endregion
 		//#region lib/types/client/OwnerSurface.js

@@ -282,5 +282,64 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
     assert.equal(f.signers(),signed);assert.equal(f.count('owner.approvalComplete'),0);assert.equal(f.count('memory.save'),0)
   } finally {f.dispose()} cases++
 }
+// A stale hook may have crossed its own dispatch boundary even when it never
+// called B's raw approval. Only an exact content-free terminal fact can clear it.
+async function staleHookFence(reply,label,{reject=false}={}) {
+  const held=gate(),f=make();try {
+    const cleared=copy(f.workflow.getSnapshot())
+    await f.login();await f.prepare()
+    const operation=f.workflow.getSnapshot().operation
+    let handlerCalls=0
+    f.controller.setApprovalAction(async()=>{
+      handlerCalls++
+      const value=await held.hold(reply(cleared))
+      if (reject) throw new Error('synthetic stale action rejection without code')
+      return value
+    })
+    const pending=f.controller.submitApproval();await held.entered
+    f.controller.logout();f.adapters.logout();await f.login()
+    const owner=f.controller.getSnapshot().owner
+    held.release();assert.equal(await pending,null,label)
+    assert.equal(f.controller.getSnapshot().owner,owner,label+' must preserve the new owner')
+    assert.equal(f.controller.getSnapshot().approval_action_result,null,label+' must hide the old result')
+    assert.equal(f.controller.getSnapshot().approval_action_available,false,label+' must leave the action unavailable')
+    const fresh={...operation,operation_id:operation.operation_id+'-fresh'}
+    assert.throws(()=>f.controller.setOperation(fresh,{memoryCapture:capture}),
+      error=>error.code==='RECONCILIATION_REQUIRED',label+' must fence a fresh operation')
+    assert.equal(await f.controller.prepare(),null)
+    assert.equal(f.controller.getSnapshot().error_code,'RECONCILIATION_REQUIRED')
+    assert.equal(await f.controller.submitApproval(),null)
+    assert.equal(handlerCalls,1);assert.equal(f.count('owner.approvalComplete'),0)
+    assert.equal(f.count('memory.save'),0);assert.equal(f.getStored(),null)
+    assert.equal(f.count('owner.approvalChallenge'),1,'a refused fresh review must not call the host')
+    assert.equal(f.signers(),2,'only the two synthetic logins may invoke the signer')
+  } finally {held.release();f.dispose()} cases++
+}
+await staleHookFence(()=>null,'null stale result')
+await staleHookFence(()=>({phase:'idle'}),'malformed closed stale result')
+await staleHookFence(empty=>({...empty,approval:'approved',save:'saved',saved:true,authority_settlement:'pending',
+  reconciliation_required:true,error_code:'RECONCILIATION_REQUIRED'}),'pending stale settlement')
+await staleHookFence(empty=>({...empty,approval:'approved',save:'saved',saved:true,authority_settlement:'pending'}),
+  'contradictory pending stale settlement')
+await staleHookFence(empty=>({...empty,saved:true}),'contradictory saved stale summary')
+await staleHookFence(()=>null,'rejected stale action',{reject:true})
+{
+  const held=gate(),f=make();try {
+    const cleared=copy(f.workflow.getSnapshot())
+    await f.login();await f.prepare()
+    f.controller.setApprovalAction(()=>held.hold(cleared))
+    const pending=f.controller.submitApproval();await held.entered
+    f.controller.logout();f.adapters.logout();await f.login()
+    held.release();assert.equal(await pending,null)
+    assert.equal(f.controller.getSnapshot().approval_action_result,null)
+    f.bind()
+    assert.equal((await f.workflow.proposeSave({...f.draft,idempotency_key:'fresh-after-exact-unsent'})).phase,'proposed')
+    assert.notEqual(await f.controller.prepare(),null)
+    await f.controller.submitApproval()
+    assert.equal(f.count('memory.save'),1,'an exact unsent stale fact must release the flight for one fresh save')
+    assert.equal(f.count('owner.approvalComplete'),1);assert.equal(f.workflow.getSnapshot().saved,true)
+    assert.equal(f.controller.getSnapshot().approval_action_result.saved,true)
+  } finally {held.release();f.dispose()} cases++
+}
 console.log(JSON.stringify({result:'PASS',cases,actual_ui_controller:true,actual_bridge_adapter:true,actual_bridge_workflow:true,
   synthetic_replies:true,real_C_crypto:false,actual_postgres:false,real_enrollment:false,real_authentication:false,effects:false}))
