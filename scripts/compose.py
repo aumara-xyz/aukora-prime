@@ -11,6 +11,9 @@ if not release.is_relative_to(root/'.runtime'):raise SystemExit('release-path-re
 def require_clean_source():
  if subprocess.check_output(['git','status','--porcelain','--untracked-files=normal'],cwd=root,text=True).strip():raise SystemExit('source-not-committed: compose requires a coherent clean source checkpoint')
 require_clean_source()
+ui_donor='645d3213b8aede3b544269b4224ae09df06b0a42'
+manifest=json.loads((root/'packages/ui/baseline-manifest.json').read_text())
+if manifest.get('commit')!=ui_donor:raise SystemExit('ui-donor-pin-mismatch: composition and frozen baseline must agree')
 subprocess.run([sys.executable,str(root/'scripts/build-dsh.py'),'--verify-built'],cwd=root,check=True)
 subprocess.run(['node',str(root/'packages/ui/scripts/verify-baseline.mjs')],cwd=root,check=True)
 subprocess.run(['node',str(root/'harness/release-integrity.mjs'),'source',str(root)],check=True)
@@ -42,7 +45,6 @@ ui=release/'prime-packages/ui';ui.mkdir(parents=True)
 shutil.copytree(root/'packages/ui/adapters',ui/'adapters')
 shutil.copy2(root/'packages/ui/baseline-manifest.json',ui/'baseline-manifest.json')
 # The nine face bundles are immutable donor baseline bytes, never rebuilt substitutions.
-manifest=json.loads((root/'packages/ui/baseline-manifest.json').read_text())
 served=[]
 for item in manifest['files']:
  parts=Path(item['path']).parts
@@ -67,7 +69,7 @@ subprocess.run(['node',str(root/'harness/release-integrity.mjs'),'snapshot',str(
 subprocess.run(['node',str(root/'scripts/compose-entries.mjs'),str(release)],check=True)
 commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
 require_clean_source()
-(release/'prime-release.json').write_text(json.dumps({'version':'0.1.0','source_commit':commit,'dsh_commit':'0d1f50007f9bca3f52b06e1c3074fa14d5fb0720','cordis':'4.0.2','ui_donor':'645d3213b8aede3b544269b4224ae09df06b0a42','unavailable_capabilities':['owner-passkey','approved-shell','sdk-child-launchers','model-inference','durable-memory','messaging','media-generation']},indent=2)+'\n')
+(release/'prime-release.json').write_text(json.dumps({'version':'0.1.0','source_commit':commit,'dsh_commit':'0d1f50007f9bca3f52b06e1c3074fa14d5fb0720','cordis':'4.0.2','ui_donor':ui_donor,'unavailable_capabilities':['owner-passkey','approved-shell','sdk-child-launchers','model-inference','durable-memory','messaging','media-generation']},indent=2)+'\n')
 # Upstream copies can retain their source checkout's group-writable modes.
 # Tighten only the fresh output; exact bytes and executable bits stay unchanged.
 for path in [release,*release.rglob('*')]:
