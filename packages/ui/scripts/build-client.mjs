@@ -65,7 +65,7 @@ function run(command, argv, cwd, label) {
 }
 console.log(`UI build overlay ${work}`)
 if (globalThis.process.platform === 'darwin') await run('/bin/cp', ['-Rc', dsh, overlay], work, 'ui-build:clone')
-else await cp(dsh, overlay, { recursive: true, preserveTimestamps: true })
+else await cp(dsh, overlay, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
 for (const face of faces) {
   const target = join(overlay, 'packages/client', `aukora-face-${face.face}`)
   await cp(fileURLToPath(face.directory), target, { recursive: true })
