@@ -1,0 +1,3342 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/aumara-xyz/aukora-genesis.git",
+  "commit": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "base": "independent empty history",
+  "faces": [
+    "layout",
+    "sidebar",
+    "threads",
+    "apps",
+    "messages",
+    "memory",
+    "aumlok",
+    "documents",
+    "settings"
+  ],
+  "source_asset_policy": "unchanged byte copies; adapters live outside faces/",
+  "public_main_observed": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "pending_items": [
+    {
+      "item": "later donor source",
+      "disposition": "exclude",
+      "reason": "public main equals frozen donor; no newer source included"
+    },
+    {
+      "item": "OpenShell source and packaging candidates",
+      "disposition": "defer to execution/integrator owners",
+      "reason": "no UI delta authorized or supplied"
+    },
+    {
+      "item": "cloud login/approval joins",
+      "disposition": "separate adapter pending frozen contracts",
+      "reason": "never mutate donor styling, chat or sliders"
+    },
+    {
+      "item": "Media generation/credential onboarding",
+      "disposition": "defer",
+      "reason": "donor Generate and credential controls are disabled; no qualified backend supplied"
+    }
+  ],
+  "enabled_app_surfaces": [
+    "auma-language",
+    "auma-live",
+    "zeta-harp",
+    "human-graph",
+    "media"
+  ],
+  "enabled_yours_surface": [
+    "dakini-code"
+  ],
+  "withheld_source_surface": [
+    "auma-canvas"
+  ],
+  "donor_host_entries": "copied for provenance/build parity, not authorized for automatic mounting: old enrollment, credential writes, private directories, messaging/voice effects require Prime adapters",
+  "files": [
+    {
+      "source": "plugins/aukora-face/layout/lib/.build-inputs.json",
+      "path": "faces/layout/lib/.build-inputs.json",
+      "bytes": 1708,
+      "sha256": "91dc5c6a74eaa84a265d13265bb0da0de845775bc38149cebe67d68f0c9480a1",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/layout/lib/client.js",
+      "path": "faces/layout/lib/client.js",
+      "bytes": 104485,
+      "sha256": "a4c9dfcb0bf3e5db90afd4dc5fb19173fc31d5e523a37e0e42a4cb94bea500a1",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/layout/lib/index.js",
+      "path": "faces/layout/lib/index.js",
+      "bytes": 34687,
+      "sha256": "1e54c6b08f9acc8d1e49cfd94eda1caa562088c2f5e47a3652aead65c3e8bfac",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/layout/lib/invariant.js",
+      "path": "faces/layout/lib/invariant.js",
+      "bytes": 924,
+      "sha256": "6289afba60b826cd0d2cda7b5911eb62d1a305c08b9d6a3067efc406c560f7b8",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/layout/package.json",
+      "path": "faces/layout/package.json",
+      "bytes": 2752,
+      "sha256": "dc8b4776e5bc692e686298c5108b8197dbb72f5ae7b64f4c078d95823e00190c",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/approvals-log.ts",
+      "path": "faces/layout/src/approvals-log.ts",
+      "bytes": 6469,
+      "sha256": "f6ea401ae7297d6111dcdb6fac6fed46cbd879c4fc8a7ddeaaf40472bbfccf0b",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/AppFrame.module.css",
+      "path": "faces/layout/src/client/AppFrame.module.css",
+      "bytes": 17480,
+      "sha256": "3a51e0301ac5c7ef04a13eb9054f07fecf3bfd6cbe06ea69c3b985eaff366e0d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/AppFrame.tsx",
+      "path": "faces/layout/src/client/AppFrame.tsx",
+      "bytes": 25389,
+      "sha256": "2dfd0c147f77971fdabd8a159a57dbb776dc7b8b0ffe3a722329b1a42d8d3bab",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/Approvals.module.css",
+      "path": "faces/layout/src/client/Approvals.module.css",
+      "bytes": 1702,
+      "sha256": "9500033bc7c02739dfedd4edd2064b27f19af88a60f875809acedce8c7dbd95a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/ApprovalsMenu.tsx",
+      "path": "faces/layout/src/client/ApprovalsMenu.tsx",
+      "bytes": 1154,
+      "sha256": "0b3b2ed078fa671cd3b24961997738cbcf829fd68847bb93d6a43042fb755bbe",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/ApprovalsSurface.tsx",
+      "path": "faces/layout/src/client/ApprovalsSurface.tsx",
+      "bytes": 14105,
+      "sha256": "8ebe76946a7d5dc77c592653a27b54d5c6d6f73a7f44d275ce9aa2a2a89687b3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/ComposerControls.module.css",
+      "path": "faces/layout/src/client/ComposerControls.module.css",
+      "bytes": 2543,
+      "sha256": "dc4d2c650726f26c156e87219b184f29dafb7949eb4f833e83911a71f0ebe5bd",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/ComposerControls.tsx",
+      "path": "faces/layout/src/client/ComposerControls.tsx",
+      "bytes": 5118,
+      "sha256": "b402b1283f8adbee6d25a0f70a047ad704c3e4a70384f8005fb3bb4daad587ab",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/FirstRun.module.css",
+      "path": "faces/layout/src/client/FirstRun.module.css",
+      "bytes": 1192,
+      "sha256": "96fc3ee77bfc439b2e47f92e69e93ff4bfd5679cfb8bae63974386dc24196cbc",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/FirstRunSurface.tsx",
+      "path": "faces/layout/src/client/FirstRunSurface.tsx",
+      "bytes": 12160,
+      "sha256": "3d73f2ecea56af76a34b9afaa149db7143cc8fbd152562c09a7e697ab9c4fe38",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/Health.module.css",
+      "path": "faces/layout/src/client/Health.module.css",
+      "bytes": 1211,
+      "sha256": "d7729e59f3295cd6ff2cb6a0343c1c3ba3426b7a4e03a9055b95ec20637437fc",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/HealthMenu.tsx",
+      "path": "faces/layout/src/client/HealthMenu.tsx",
+      "bytes": 979,
+      "sha256": "f3463fa38a0a703143ff2ab2f875d571cf9e686cde4e6e337fea537f0f2819ea",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/HealthSurface.tsx",
+      "path": "faces/layout/src/client/HealthSurface.tsx",
+      "bytes": 8310,
+      "sha256": "a483955a1d1ab3d0781a69c904f5fdfe06da9de39650b64384ec13131bb8d066",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/Primitives.module.css",
+      "path": "faces/layout/src/client/Primitives.module.css",
+      "bytes": 2858,
+      "sha256": "bb0cf253903356a1da1dc36ac5c2e5f2a092170e2580ec86ab3b8385a6941e8b",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/Why.module.css",
+      "path": "faces/layout/src/client/Why.module.css",
+      "bytes": 1520,
+      "sha256": "c523bca1f275f08e58cb40310df834642c099faf73fe7e137ac52c8cc5ac15b2",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/WhyMenu.tsx",
+      "path": "faces/layout/src/client/WhyMenu.tsx",
+      "bytes": 930,
+      "sha256": "7094509f172929b4639922c0a92a723254d42e984facbd99f8f25ce7d139933a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/WhySurface.tsx",
+      "path": "faces/layout/src/client/WhySurface.tsx",
+      "bytes": 6196,
+      "sha256": "de0c77a8e88dac2f37787faa133497247c2826355f5c800da81e2f783c77ed0c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/approvals-api.ts",
+      "path": "faces/layout/src/client/approvals-api.ts",
+      "bytes": 9780,
+      "sha256": "7d5ce40eb7a176075aef51e57732caafba961667085b2c4e91df3def6a820932",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/approvals-model.ts",
+      "path": "faces/layout/src/client/approvals-model.ts",
+      "bytes": 6765,
+      "sha256": "7a7e8e815bfa6c21ac80e38add8a707be6fb14d7435648c56877e1db9177d80d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/auma-status.ts",
+      "path": "faces/layout/src/client/auma-status.ts",
+      "bytes": 12806,
+      "sha256": "62c94f3f19f3440eb077f8c735915655f8b3c9b48771468d8a17f82bdb4c8ab8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/auma-thread.ts",
+      "path": "faces/layout/src/client/auma-thread.ts",
+      "bytes": 4134,
+      "sha256": "5d54d6dd5ec89649ed4ba51fa0285fc3f2120df4375ec0c5f632ed541a5216f1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/conversation-opener.ts",
+      "path": "faces/layout/src/client/conversation-opener.ts",
+      "bytes": 5052,
+      "sha256": "4d2b8c29db4cc693a8bd4947753277832577c3dde71ab60f52a3ba4ce4fd83c4",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/first-run-api.ts",
+      "path": "faces/layout/src/client/first-run-api.ts",
+      "bytes": 9175,
+      "sha256": "a8471a86fb85ec843b88efb2d4ebb91efaf580e84f62c69a36444f666e11a3a2",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/first-run.ts",
+      "path": "faces/layout/src/client/first-run.ts",
+      "bytes": 6313,
+      "sha256": "88a0f99d46e90f088ca36fcba4f359abc421c8793f88dd7f44653c43f694f504",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/health-api.ts",
+      "path": "faces/layout/src/client/health-api.ts",
+      "bytes": 3734,
+      "sha256": "e82a990ba8fa4588741327ae56d502c32ba983ca4863e406e1ea7a900a2481d1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/health-model.ts",
+      "path": "faces/layout/src/client/health-model.ts",
+      "bytes": 13188,
+      "sha256": "b585d7445971d33742b2f7df0273a93696f3470f137a58a5a9c1ece46fcce4cc",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/index.ts",
+      "path": "faces/layout/src/client/index.ts",
+      "bytes": 11344,
+      "sha256": "ac2c6dc7c87df5aff4a80565cae18ad8695e0206860f2e83cfae4de58d58dfcc",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/locales.ts",
+      "path": "faces/layout/src/client/locales.ts",
+      "bytes": 15666,
+      "sha256": "240a8ca29017f2b598de7eac8340d5dccd3287c308a688a4d89180684a23985f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/primitives.tsx",
+      "path": "faces/layout/src/client/primitives.tsx",
+      "bytes": 4573,
+      "sha256": "e78fcd8ab93631b4fe0a8e23271ccdc86f664762d68f10e8b67250a1990899b1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/service.ts",
+      "path": "faces/layout/src/client/service.ts",
+      "bytes": 8989,
+      "sha256": "721eea2b06f39aa6b7d16394a90e05c43d30e7e8e1080bc1e2f61f90c614b207",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/spatial-tokens.css",
+      "path": "faces/layout/src/client/spatial-tokens.css",
+      "bytes": 6753,
+      "sha256": "db2d34ff4cb509eb9d7ab7c6922d63b3623844ebd53bfa58bce24f1bafa666bd",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/stores.ts",
+      "path": "faces/layout/src/client/stores.ts",
+      "bytes": 7085,
+      "sha256": "b91f1d1a573216e8968e323ec3ed46ae4f07a83bed87a712f73485b6be5395a8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/theme-presenter.ts",
+      "path": "faces/layout/src/client/theme-presenter.ts",
+      "bytes": 2860,
+      "sha256": "745bb35376d7c53e615bbd3ef298d20fe3ad00de57bff47bb243b72219ae0fbc",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/types.ts",
+      "path": "faces/layout/src/client/types.ts",
+      "bytes": 2244,
+      "sha256": "1b47cec27eb7ffaebeb7641d872858f75192cec70456c40163230b7a55ed3a8c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/waiting.ts",
+      "path": "faces/layout/src/client/waiting.ts",
+      "bytes": 8909,
+      "sha256": "0be7787f1a6ddb4f6c4697fcdea478f466e8e02ff0e6cb85995cd26ed766bc2a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/why-api.ts",
+      "path": "faces/layout/src/client/why-api.ts",
+      "bytes": 3296,
+      "sha256": "38ec8b5d4ae049d81bd90a5dcb829a2963eeea5bc0f5435702de9a7fe25ba846",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/client/why-model.ts",
+      "path": "faces/layout/src/client/why-model.ts",
+      "bytes": 7994,
+      "sha256": "df0a957241daa960355af6a8cdb39a4244f0a7cecdc9979486d585fb86c37a90",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/composer-mode-types.ts",
+      "path": "faces/layout/src/composer-mode-types.ts",
+      "bytes": 492,
+      "sha256": "330653057c853ff1d11c7847dd0d0ff14cf9b8cf2388b46065abf345fb779a50",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/composer-mode.ts",
+      "path": "faces/layout/src/composer-mode.ts",
+      "bytes": 2632,
+      "sha256": "628b96d01a9164f10aa4297b704f921ce17f7a6a716dd2155aeed5e9c87ffa0f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/css-modules.d.ts",
+      "path": "faces/layout/src/css-modules.d.ts",
+      "bytes": 123,
+      "sha256": "e28410d74a0d763364c04fa690c2ca2202ad3019c74f8f5205e8dc6cba69c02f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/first-run-host.ts",
+      "path": "faces/layout/src/first-run-host.ts",
+      "bytes": 6477,
+      "sha256": "4f25f3b5d430baa915711b7b72a97b9519e1bf7550784f44aec09aa30ef3c9d6",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/health-sample.ts",
+      "path": "faces/layout/src/health-sample.ts",
+      "bytes": 10092,
+      "sha256": "06568338dded9759651b9b4b8b754d0003b816fcbb3f613d5dd8b13d93979537",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/index.ts",
+      "path": "faces/layout/src/index.ts",
+      "bytes": 15600,
+      "sha256": "acaf6c12678bc11df341495415d39fd33ba8478d92a738cd748821bb1ecf4487",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/invariant.ts",
+      "path": "faces/layout/src/invariant.ts",
+      "bytes": 1099,
+      "sha256": "dbc299728b86ae17a44a2687de0f0d055e95dab2ff1e97f977eafaf09ec35602",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/watchdog-limit.ts",
+      "path": "faces/layout/src/watchdog-limit.ts",
+      "bytes": 4466,
+      "sha256": "14a360bb877375e95f97cfb6d1ab54718f4cc6b9ff5b36f26378be2a4c9f1a10",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/src/why-store.ts",
+      "path": "faces/layout/src/why-store.ts",
+      "bytes": 6941,
+      "sha256": "0867e9017304f58b93e8295754ce63c9c3cc02027090c8584a3ac9081ced645c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/layout/tsconfig.host.json",
+      "path": "faces/layout/tsconfig.host.json",
+      "bytes": 1176,
+      "sha256": "70949939530f172a65744a3686d59ae733dfbea126128c4e1dc23686f3251f88",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/layout/tsconfig.json",
+      "path": "faces/layout/tsconfig.json",
+      "bytes": 1788,
+      "sha256": "b9618feaac3c137573f1970bb855def1ce3eeb5a49b4b0eae68589bb6e04cda3",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/layout/tsdown.config.ts",
+      "path": "faces/layout/tsdown.config.ts",
+      "bytes": 153,
+      "sha256": "cb9a2da98f46511c3a753af5ffbfb374e9162bf399f0ee9f4d73142fdbb33494",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/lib/.build-inputs.json",
+      "path": "faces/sidebar/lib/.build-inputs.json",
+      "bytes": 415,
+      "sha256": "493ada588f69849c47e28e41db41193a75af1e65dace4587d53b171d74265133",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/lib/client.js",
+      "path": "faces/sidebar/lib/client.js",
+      "bytes": 11034,
+      "sha256": "bf71b5e47349d0af09f2203a1e10e2cc68e8099a21affb387f3d53a903a29135",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/lib/index.js",
+      "path": "faces/sidebar/lib/index.js",
+      "bytes": 181,
+      "sha256": "be323c589cda4dbb7714df563ebb66f581a3d37ed2ab6859fed85fcebf970aea",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/lib/invariant.js",
+      "path": "faces/sidebar/lib/invariant.js",
+      "bytes": 1022,
+      "sha256": "5b199fbaa33b11662177d4728c55de26d8c3f3687c922239469ecda96500ee81",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/package.json",
+      "path": "faces/sidebar/package.json",
+      "bytes": 2009,
+      "sha256": "2beda426ddbe93f1daa986086b4e1083bc9a0fcb21234690fd6a7d40624208c2",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/src/client/SidebarRoot.module.css",
+      "path": "faces/sidebar/src/client/SidebarRoot.module.css",
+      "bytes": 4725,
+      "sha256": "83bdcddcc3a578714f3a942c64efbea4bd9c59b2ca9c0ecf53d07cd8d6d31427",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/src/client/SidebarRoot.tsx",
+      "path": "faces/sidebar/src/client/SidebarRoot.tsx",
+      "bytes": 5930,
+      "sha256": "fc92195ccfec9194700d06bec554a8f962a1ca2f2687f39a64c7d1ef88208325",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/src/client/contract/slots.ts",
+      "path": "faces/sidebar/src/client/contract/slots.ts",
+      "bytes": 4338,
+      "sha256": "3105130c7ce0c162da549f96067118b9a8f27e0c8b11b7174c60f970f8417211",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/src/client/index.ts",
+      "path": "faces/sidebar/src/client/index.ts",
+      "bytes": 1698,
+      "sha256": "2eeaa31ef17e43c6967260e97705dae217f7c940ea7a15c8f63396ea538fec8d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/src/css-modules.d.ts",
+      "path": "faces/sidebar/src/css-modules.d.ts",
+      "bytes": 123,
+      "sha256": "e28410d74a0d763364c04fa690c2ca2202ad3019c74f8f5205e8dc6cba69c02f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/src/index.ts",
+      "path": "faces/sidebar/src/index.ts",
+      "bytes": 135,
+      "sha256": "5a683e2d5b799d6f7387bb2e1e527d95e5860e077b2030c232f1209092bdd95c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/src/invariant.ts",
+      "path": "faces/sidebar/src/invariant.ts",
+      "bytes": 1198,
+      "sha256": "042220ac072a7b237592335c2cab043c13d684793a8a10eeb5d0414afcc12ca3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/tsconfig.json",
+      "path": "faces/sidebar/tsconfig.json",
+      "bytes": 459,
+      "sha256": "e9de932e7f99f84d721169b7940fab9be511f235118fcb0f875b40e6d9c0a1bd",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/sidebar/tsdown.config.ts",
+      "path": "faces/sidebar/tsdown.config.ts",
+      "bytes": 154,
+      "sha256": "2d25a8f29bc6dbf43e824366ee435d54bcdb7c41b2288c245feb4c786c0ef8c5",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/threads/lib/.build-inputs.json",
+      "path": "faces/threads/lib/.build-inputs.json",
+      "bytes": 990,
+      "sha256": "97e93dbeff64d80a4858d2377a82caa725798f20b57e5e4fa74964fb6dd1a777",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/threads/lib/client.js",
+      "path": "faces/threads/lib/client.js",
+      "bytes": 158102,
+      "sha256": "9dce3f8c646ed928b9053b72271bf52a2666916bf3ba2c69b3a4ea2494cb2f53",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/threads/lib/index.js",
+      "path": "faces/threads/lib/index.js",
+      "bytes": 453,
+      "sha256": "e6cdc4b725585354102a5c4598c9d8c79d6abac62d7979c09919821716370438",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/threads/lib/invariant.js",
+      "path": "faces/threads/lib/invariant.js",
+      "bytes": 1023,
+      "sha256": "fac1dcd5cd871a9daa6c024904587025347c2dfd134858e7364b824d1536d7dc",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/threads/package.json",
+      "path": "faces/threads/package.json",
+      "bytes": 3212,
+      "sha256": "23bbb9668a926837be33658c9a643b3e7de9008b01fc0bc82d54b45207748b61",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/ThreadHeaderActions.module.css",
+      "path": "faces/threads/src/client/ThreadHeaderActions.module.css",
+      "bytes": 1751,
+      "sha256": "3ab5792f23caddf2d4abd1e2918a9786d2f59cb324ec30ec53b4862a665eedb4",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/ThreadHeaderActions.tsx",
+      "path": "faces/threads/src/client/ThreadHeaderActions.tsx",
+      "bytes": 6405,
+      "sha256": "24d06ee14de70b282270cea1876b240458f35eb1508de3c3284a4bf40c4f0740",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/ThreadIcons.tsx",
+      "path": "faces/threads/src/client/ThreadIcons.tsx",
+      "bytes": 1600,
+      "sha256": "975af651b2787219a53483a30817aad6894d257dd75ceb0e6a05474832e37bfb",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/ThreadListHeaderActions.module.css",
+      "path": "faces/threads/src/client/ThreadListHeaderActions.module.css",
+      "bytes": 913,
+      "sha256": "a660f45502924d877588dc551955d9ab65e0584606dd933396983342f32f7191",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/ThreadListHeaderActions.tsx",
+      "path": "faces/threads/src/client/ThreadListHeaderActions.tsx",
+      "bytes": 2611,
+      "sha256": "fc217b7da640245e845d8bd2631956b007492c53017e6dba9116f8c527e4123f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/WorkspaceBrowser.module.css",
+      "path": "faces/threads/src/client/WorkspaceBrowser.module.css",
+      "bytes": 11233,
+      "sha256": "6e22f51fe26dfb4678f52c6cc8d9c5d6cbeaf8e229bca1a9ff9bf3aea83c1197",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/WorkspaceBrowser.tsx",
+      "path": "faces/threads/src/client/WorkspaceBrowser.tsx",
+      "bytes": 59488,
+      "sha256": "fd2f16e68b3e9dde5239bba772bf6ca34934a6aa25f631426e7bc6970ca01934",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/WorkspacePicker.module.css",
+      "path": "faces/threads/src/client/WorkspacePicker.module.css",
+      "bytes": 408,
+      "sha256": "8b9252a27e4163be3c9b32b2ec30a750477e83d09b5d2a05af3346b628503db4",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/WorkspacePicker.tsx",
+      "path": "faces/threads/src/client/WorkspacePicker.tsx",
+      "bytes": 10219,
+      "sha256": "e9cc9d0ba407c22745923acf28dc4287e021a19433b5da8c96c58afa9fafd17f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/contract/slots.ts",
+      "path": "faces/threads/src/client/contract/slots.ts",
+      "bytes": 11198,
+      "sha256": "5c6793c9604ba204274d74a066040e6692635f3c2f080ac7557cd607fcb4e8cf",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/index.ts",
+      "path": "faces/threads/src/client/index.ts",
+      "bytes": 10340,
+      "sha256": "dc5f2838518adc1dcef20b2422a22738d67e91e53cb7ac22a300c344c0f74297",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/locales.ts",
+      "path": "faces/threads/src/client/locales.ts",
+      "bytes": 8069,
+      "sha256": "28472cef92c4225ff718ac092f6915c8e6d92512235e348cf6be6c0305834679",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/navigation.ts",
+      "path": "faces/threads/src/client/navigation.ts",
+      "bytes": 12687,
+      "sha256": "3667ba0e6f9b8b4c172025cd752a1a478c9ff90965499fd99ab757c8bd0ec521",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/rows/Rows.module.css",
+      "path": "faces/threads/src/client/rows/Rows.module.css",
+      "bytes": 9960,
+      "sha256": "5e1d624c33725a3e6241875773eb3c13953cc5504ec385cf9bf55a0c5330f6e0",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/rows/Rows.tsx",
+      "path": "faces/threads/src/client/rows/Rows.tsx",
+      "bytes": 22321,
+      "sha256": "84c232c703577da98e056ed02c9b15922e41b4777eecfe1e3c794c405d11c619",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/stores.ts",
+      "path": "faces/threads/src/client/stores.ts",
+      "bytes": 3877,
+      "sha256": "7e2d6fe6aa83687ca978cc8f5adcbffc61e01ca803b61ac08f18c12285bd64ae",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/subagent-lineage.ts",
+      "path": "faces/threads/src/client/subagent-lineage.ts",
+      "bytes": 1989,
+      "sha256": "573554868dde995a5c48e7274f6986f6eab4f35cf2054fa450be72cd0706cd5f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/thread-store.ts",
+      "path": "faces/threads/src/client/thread-store.ts",
+      "bytes": 2927,
+      "sha256": "7281ad08d1bed1ce599627ecf3c031dede17393b628906512a3b763febc0094d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/client/tree.ts",
+      "path": "faces/threads/src/client/tree.ts",
+      "bytes": 19344,
+      "sha256": "365cab0c664c915275c466472fe229557db936cdc14affa3c9b44fa491b81d97",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/css-modules.d.ts",
+      "path": "faces/threads/src/css-modules.d.ts",
+      "bytes": 123,
+      "sha256": "e28410d74a0d763364c04fa690c2ca2202ad3019c74f8f5205e8dc6cba69c02f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/index.ts",
+      "path": "faces/threads/src/index.ts",
+      "bytes": 412,
+      "sha256": "7a4f9356cd158169c0e87d92eee6871ca6b1527851fb905a9c5ab8d9e87cd864",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/src/invariant.ts",
+      "path": "faces/threads/src/invariant.ts",
+      "bytes": 1199,
+      "sha256": "395115e8ffd1b2df2b48814a4f998461496524f515d24f7cc637086a755a7f9d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/threads/tsconfig.json",
+      "path": "faces/threads/tsconfig.json",
+      "bytes": 973,
+      "sha256": "34f8ff93319360e14d0def702d4ba00c5425eab115e777037079917597976c87",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/threads/tsdown.config.ts",
+      "path": "faces/threads/tsdown.config.ts",
+      "bytes": 154,
+      "sha256": "8992fc94781d613ba6a75a0f1a5397764284b584597f980dd1d45f4d3057bd21",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/apps/assets/human-graph/bootstrap.js",
+      "path": "faces/apps/assets/human-graph/bootstrap.js",
+      "bytes": 2366,
+      "sha256": "c6ed51959211a03b6bb0490d94de5c8ce344a09e18ea9b000a5aed82d7eefc77",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/assets/human-graph/graph-data.js",
+      "path": "faces/apps/assets/human-graph/graph-data.js",
+      "bytes": 6227,
+      "sha256": "9944afe3c9e76fd5a356c168a9ff352e9d581efc0adbe17e1233ad391c67d4d4",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/assets/human-graph/graph.css",
+      "path": "faces/apps/assets/human-graph/graph.css",
+      "bytes": 2844,
+      "sha256": "cd3a7fa892a63be417452b7c970e019522034dd170cf411e85598d143529345f",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/assets/human-graph/graph.js",
+      "path": "faces/apps/assets/human-graph/graph.js",
+      "bytes": 24137,
+      "sha256": "130de87daa0b830a27125e14137e7c3a9abaeaede7edc459b8f75dc2761a6f67",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/assets/human-graph/index.html",
+      "path": "faces/apps/assets/human-graph/index.html",
+      "bytes": 2074,
+      "sha256": "3af4706684b7897f8669d3139a4462c53668d28cea78057550c392e087c0c035",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/lib/.build-inputs.json",
+      "path": "faces/apps/lib/.build-inputs.json",
+      "bytes": 12572,
+      "sha256": "a0e5ad961e27dd8b1763dbf9645225ee3d3337584f2c9a4be646cb54cb354894",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/apps/lib/client.js",
+      "path": "faces/apps/lib/client.js",
+      "bytes": 55390,
+      "sha256": "f714dba6a346e0d1c1425c312533de5961e5da70e7ed7be14539806b9de0f700",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/apps/lib/index.js",
+      "path": "faces/apps/lib/index.js",
+      "bytes": 341146,
+      "sha256": "8f580a6746ca095b2bed53120aec4bf8f3fe65b398d2b75de3adda81687b1aec",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/apps/lib/invariant.js",
+      "path": "faces/apps/lib/invariant.js",
+      "bytes": 2689,
+      "sha256": "3b8afb228be987e733eb733646c241242d9ad6f2ba47f58f0f10c1aaa2c1b190",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/apps/package.json",
+      "path": "faces/apps/package.json",
+      "bytes": 4308,
+      "sha256": "29ff994d71b1480dca4e41e9fda0b687957cd409e42e88aad11c72e38c80ed1a",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-canvas/projection.ts",
+      "path": "faces/apps/src/auma-canvas/projection.ts",
+      "bytes": 1278,
+      "sha256": "7b51a0c8781e6ea85f9e2e9169bd41a175755535c0f6554275e8d938762075f1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-canvas/types.ts",
+      "path": "faces/apps/src/auma-canvas/types.ts",
+      "bytes": 1587,
+      "sha256": "e39e079fee046aff15a07354812a49a910d21f5ef1f38cb4c9a689e9a86d90e6",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-canvas-tool.ts",
+      "path": "faces/apps/src/auma-canvas-tool.ts",
+      "bytes": 6457,
+      "sha256": "d6628a81e78a97eaac281342f126b499e46eeb78b0418c38fdefc72476fef68a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/aura-citation.ts",
+      "path": "faces/apps/src/auma-live/aura-citation.ts",
+      "bytes": 6332,
+      "sha256": "b57ea72cb8932576a14353a43b62d15ab44f0bcd63d7161f3d3758b8c9e5aa48",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/carry-over.ts",
+      "path": "faces/apps/src/auma-live/carry-over.ts",
+      "bytes": 8299,
+      "sha256": "daa2583da4b59cd7881170e195327ca76325f7edaccc319424d0378f86bf7ca2",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/claims-packet.ts",
+      "path": "faces/apps/src/auma-live/claims-packet.ts",
+      "bytes": 25058,
+      "sha256": "86995cf938b9716a70dbbe21e44f4767c0014902c0849c6c4d56d01b78fb1e86",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/core-lens.ts",
+      "path": "faces/apps/src/auma-live/core-lens.ts",
+      "bytes": 19691,
+      "sha256": "6915514c37ce5fc08b7376ad709195004ac26914666f6a14c240884a5af1d366",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/cross-lane.ts",
+      "path": "faces/apps/src/auma-live/cross-lane.ts",
+      "bytes": 10918,
+      "sha256": "70794a6189c77884b43b4012da10767b4e9912b530a45a2a8d4e972d6574d489",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/directives.ts",
+      "path": "faces/apps/src/auma-live/directives.ts",
+      "bytes": 3266,
+      "sha256": "78e69c132a5e1e47f15b05fdaaff6c5a4c7285ab39c785f0cc3b2504df83de25",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/disclosure.ts",
+      "path": "faces/apps/src/auma-live/disclosure.ts",
+      "bytes": 11259,
+      "sha256": "314a2d997927dada505d3e669cb9ae86f23e82a1d566fb6244c7e9d79184a99b",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/home-session.ts",
+      "path": "faces/apps/src/auma-live/home-session.ts",
+      "bytes": 7436,
+      "sha256": "60b398485816b1e2da95f00d6f7c10b818da978d35f416f8bb98ed773f1bdbfd",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/honesty.ts",
+      "path": "faces/apps/src/auma-live/honesty.ts",
+      "bytes": 4597,
+      "sha256": "191420e257e0b9b56df16a4ef02b6aa119a4aca19f934a6218c7e2b400a41752",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/http.ts",
+      "path": "faces/apps/src/auma-live/http.ts",
+      "bytes": 54640,
+      "sha256": "77fc4a1c9e956ae8360c9f87ed0d62073b15e39eed0558caad9a10c802bbb3c8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/identity.ts",
+      "path": "faces/apps/src/auma-live/identity.ts",
+      "bytes": 2966,
+      "sha256": "0b51340d9b5f14516b25affe74832670477b68f60b505e1ac500868d1d1dec40",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/kira-lens.ts",
+      "path": "faces/apps/src/auma-live/kira-lens.ts",
+      "bytes": 27134,
+      "sha256": "e36b29df054bc8e384bde08e8ec96f6fb7d9efe9d5f7fc44b86b18956b853e47",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/lane-notes.ts",
+      "path": "faces/apps/src/auma-live/lane-notes.ts",
+      "bytes": 7929,
+      "sha256": "99cdd472c2c0019d974bc8bb9e05690680db59d1ec96bb19e9eb7712ecbdade8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/lane-wake.ts",
+      "path": "faces/apps/src/auma-live/lane-wake.ts",
+      "bytes": 6433,
+      "sha256": "2e109cf07f18f67ebbb054c17fd4d167faf645add04e7ecf819dd6fa76dc84b0",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/lens-cache.ts",
+      "path": "faces/apps/src/auma-live/lens-cache.ts",
+      "bytes": 4019,
+      "sha256": "baf3de1395bdb10b32da57452e3458dc4d7038d20481c8678f31c1d37f317ea5",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/lens-exec.ts",
+      "path": "faces/apps/src/auma-live/lens-exec.ts",
+      "bytes": 7405,
+      "sha256": "5989625bb3d361506f89618e34c9470b3e8ae231fc242c9daf9e375067a8b4e8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/machine-frame.ts",
+      "path": "faces/apps/src/auma-live/machine-frame.ts",
+      "bytes": 5227,
+      "sha256": "37db238e58ecdec08f020fc363c5634d0bb9617de220ea608fc361f55c1b62b0",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/memory-control.ts",
+      "path": "faces/apps/src/auma-live/memory-control.ts",
+      "bytes": 5088,
+      "sha256": "ffa1e3aeb3d29577fe30561d17357488aaeddd758dfa2996bebc62025c78ccdb",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/memory-speech.ts",
+      "path": "faces/apps/src/auma-live/memory-speech.ts",
+      "bytes": 4686,
+      "sha256": "a749cf2c6046389295cf87984a5466546032d6a00b25978487631cbffcf55220",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/memory-tiers.ts",
+      "path": "faces/apps/src/auma-live/memory-tiers.ts",
+      "bytes": 12667,
+      "sha256": "3f76351870beb87785119d94b765f0738c990f889a61807e4dd46a751d4c6ebb",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/model-request-store.ts",
+      "path": "faces/apps/src/auma-live/model-request-store.ts",
+      "bytes": 21431,
+      "sha256": "7b79fa59a4d2ee24a5d5daba85b4eeea7a06edaf69458a9490091a28548bc081",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/organism-disclosure.ts",
+      "path": "faces/apps/src/auma-live/organism-disclosure.ts",
+      "bytes": 1620,
+      "sha256": "4cdf7d87f831f695c035a4ddb5bed54f7dda98de9ab1bef64a05bcdfadf84c7f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/organism-lens.ts",
+      "path": "faces/apps/src/auma-live/organism-lens.ts",
+      "bytes": 12893,
+      "sha256": "7f72d471ee6999a3c85faab331419c7f46664313cf34500a7a8428f5961a4c4e",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/organism-state-lens.ts",
+      "path": "faces/apps/src/auma-live/organism-state-lens.ts",
+      "bytes": 19520,
+      "sha256": "3255c27625b9f59708935453b8011b3291cccae1a7ed99073695ab352ee63967",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/presence-deps.ts",
+      "path": "faces/apps/src/auma-live/presence-deps.ts",
+      "bytes": 5441,
+      "sha256": "832f6a3cd0c6fb3958d05a63fe3a1a1327b5417b9b1689054b196438f33bfddd",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/presence.ts",
+      "path": "faces/apps/src/auma-live/presence.ts",
+      "bytes": 106393,
+      "sha256": "a0633df2f39e648fcd7b4b74bfa6e963d38df37eea6558a42fce16c2cb638e60",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/recall-lens.ts",
+      "path": "faces/apps/src/auma-live/recall-lens.ts",
+      "bytes": 10109,
+      "sha256": "f7f0dcaae7ba514f3df32cd745182af8a7650fa02e4ef96e66b209002ee7b22a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/reflex.ts",
+      "path": "faces/apps/src/auma-live/reflex.ts",
+      "bytes": 17877,
+      "sha256": "41de3ad63c3247ea1802c3294f0783e17d0c1436bdd38cbd79ee21faf0e607d7",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/reply-manifest.ts",
+      "path": "faces/apps/src/auma-live/reply-manifest.ts",
+      "bytes": 5947,
+      "sha256": "a067fbfa3991d9dff6430608a426ea34da257ef33d2166d54b66719ed3ae3caf",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/repo-lens.ts",
+      "path": "faces/apps/src/auma-live/repo-lens.ts",
+      "bytes": 18653,
+      "sha256": "3044b1fbc78966f9636b0b6270f3a4198bea0635103b983268c4d583412a3011",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/segment-loop.ts",
+      "path": "faces/apps/src/auma-live/segment-loop.ts",
+      "bytes": 2924,
+      "sha256": "d268bac7ab3889a9f4ead0c948e90dd0f2b7ba1e07be015e1b5ad3ac3342a53f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/spend-gate.ts",
+      "path": "faces/apps/src/auma-live/spend-gate.ts",
+      "bytes": 20186,
+      "sha256": "40cc44ed37d31f79b2bd903f0a18761bb09cc949ee5d4c086130e92375461071",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/turn-trust.ts",
+      "path": "faces/apps/src/auma-live/turn-trust.ts",
+      "bytes": 4130,
+      "sha256": "8107d438ac616e65fb2a30f06b37155290607b4eb1bdef96e91c116772814956",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/types.ts",
+      "path": "faces/apps/src/auma-live/types.ts",
+      "bytes": 2667,
+      "sha256": "46ca0d7c7b374bba105c4f9d5b097524f0e71c014ff194c33f2ccf686581915e",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/voice-sidecar.ts",
+      "path": "faces/apps/src/auma-live/voice-sidecar.ts",
+      "bytes": 7998,
+      "sha256": "f1d96a982ef63748e33c51c6f21ebded4b4bb22734a05ad3ce09e75447b17a17",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/voice.ts",
+      "path": "faces/apps/src/auma-live/voice.ts",
+      "bytes": 7739,
+      "sha256": "3abd528b4365681104a663da8b463c68c6609256e04b9f52a7735a35c45ebd3e",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/web-lens.ts",
+      "path": "faces/apps/src/auma-live/web-lens.ts",
+      "bytes": 5577,
+      "sha256": "8ca0b07c4584f1dba947f1bf1b8401e18895f64bf67ad4226c7f0bc67f4cf2f7",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/weights-control.ts",
+      "path": "faces/apps/src/auma-live/weights-control.ts",
+      "bytes": 8180,
+      "sha256": "cf18e8148d445b0e722b6dbcee7b719ac6b51cbe7a82d63e3362f0409c99c6a8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/AumaLanguageSurface.tsx",
+      "path": "faces/apps/src/client/AumaLanguageSurface.tsx",
+      "bytes": 459,
+      "sha256": "3f4f7d5bfbcf7d099dcb46de3beea2d66eaa1c681809863b706916a5ada27553",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/AumaLiveSurface.tsx",
+      "path": "faces/apps/src/client/AumaLiveSurface.tsx",
+      "bytes": 4320,
+      "sha256": "518cb8d87a1a063a62065ed7de936cc0127688b19399ffd099be95317cc68159",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/DakiniCode.tsx",
+      "path": "faces/apps/src/client/DakiniCode.tsx",
+      "bytes": 1269,
+      "sha256": "28d955eb437b1240480ded78f43ec102513a626448ed80176add4cae12044f19",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/EmbeddedAppSurface.tsx",
+      "path": "faces/apps/src/client/EmbeddedAppSurface.tsx",
+      "bytes": 4721,
+      "sha256": "aadf4991b168d2e3f84e5193f7ffba174c45b66ebbed60711261f72665a7b5ca",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/HumanGraphSurface.tsx",
+      "path": "faces/apps/src/client/HumanGraphSurface.tsx",
+      "bytes": 1422,
+      "sha256": "f65982270617a3d0bbb16c53780f28d829b9bbf4d4a2493525a4a0c5a321560f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/MediaSurface.module.css",
+      "path": "faces/apps/src/client/MediaSurface.module.css",
+      "bytes": 7332,
+      "sha256": "180fd5b6547fa2d534347c55ab295bb5c730a26ab49b8f1048088a8f8c6af79c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/MediaSurface.tsx",
+      "path": "faces/apps/src/client/MediaSurface.tsx",
+      "bytes": 11619,
+      "sha256": "2e342c050d0d10e3dd3a545d2d7bb068ea3d84285edd73c5089a362511fda57d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/RoomSurface.module.css",
+      "path": "faces/apps/src/client/RoomSurface.module.css",
+      "bytes": 2109,
+      "sha256": "193fb32ecf8a607a6a1ad274cc04d1a7e3acd1fbcf24814c3e46484aefdd0346",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/RoomSurface.tsx",
+      "path": "faces/apps/src/client/RoomSurface.tsx",
+      "bytes": 7199,
+      "sha256": "8e22dac3c1e8bf410cf78f6fb3a43c2af5fe35bd5e24ccb2f347fec1b72144e8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/StockAppMenu.tsx",
+      "path": "faces/apps/src/client/StockAppMenu.tsx",
+      "bytes": 2813,
+      "sha256": "98da8643aefa3425d9c33f63743a7f79677bdac563510736969624bcd8cfc5d4",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/StockApps.module.css",
+      "path": "faces/apps/src/client/StockApps.module.css",
+      "bytes": 1213,
+      "sha256": "88c45d1ec014e083b5b47024a9b21aed0dff366e190b8f649b19468fb4a3512a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/ZetaHarpSurface.tsx",
+      "path": "faces/apps/src/client/ZetaHarpSurface.tsx",
+      "bytes": 431,
+      "sha256": "6cab231c74b92826ffc85fefc546ac84789037bf34f4a7e49a01d1bac723f9d0",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/auma-live-session.ts",
+      "path": "faces/apps/src/client/auma-live-session.ts",
+      "bytes": 4106,
+      "sha256": "2d2713186de3f684c6b6f308ae1583517ef008458a13069faf57f21c37edc622",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/contract.ts",
+      "path": "faces/apps/src/client/contract.ts",
+      "bytes": 670,
+      "sha256": "3733e988c6f0a69567e0e17b7f5323752ecc2cebfccdd871160ddf8a64d003f0",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/index.ts",
+      "path": "faces/apps/src/client/index.ts",
+      "bytes": 3393,
+      "sha256": "619cc06d88696766d34f75233c3b2eb4c5f57c8a06add5f69a86909398424b68",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/client/locales.ts",
+      "path": "faces/apps/src/client/locales.ts",
+      "bytes": 6821,
+      "sha256": "ed5ec373c6a72dfe296cffa104b31cea293065278627d81bff3da689aeda8a11",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/css-modules.d.ts",
+      "path": "faces/apps/src/css-modules.d.ts",
+      "bytes": 123,
+      "sha256": "e28410d74a0d763364c04fa690c2ca2202ad3019c74f8f5205e8dc6cba69c02f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/embedded-assets.ts",
+      "path": "faces/apps/src/embedded-assets.ts",
+      "bytes": 10068,
+      "sha256": "06deab5263984d35e778af5fdd9dd4cbbb71c9031e5f42696f6703fb952e6b32",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/index.ts",
+      "path": "faces/apps/src/index.ts",
+      "bytes": 70777,
+      "sha256": "6ffe22e9bdeb8b919b2615b9ba51c61cf33ce9514b4fb06cf3cd5ba3b0e71364",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/invariant.ts",
+      "path": "faces/apps/src/invariant.ts",
+      "bytes": 3266,
+      "sha256": "17ee94ecb27cdea3f9c321a146009ac1235c61fde1a3ecf02ad1ed5189352f0d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/room-types.ts",
+      "path": "faces/apps/src/room-types.ts",
+      "bytes": 408,
+      "sha256": "b3ed131c7cde2b0e9f561a4786beb053dc6221c8a54b713c617135b7f8c37072",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/room.ts",
+      "path": "faces/apps/src/room.ts",
+      "bytes": 8688,
+      "sha256": "e16341a9bdca3ff70ed28107be9d29e0f8261682f1e238a9511fef3447e579bd",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/status-facts.ts",
+      "path": "faces/apps/src/status-facts.ts",
+      "bytes": 23175,
+      "sha256": "39dc5e17c526c990c0b48f11c3366595cf004cd09ea3a24e7a8e8135e0855935",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/vendor/organism.ts",
+      "path": "faces/apps/src/vendor/organism.ts",
+      "bytes": 33076,
+      "sha256": "a2c2de1e4599f68b01712cb2aaec0bf7d51bddd216326611030997fbaad61a6c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/src/vendor-paths.ts",
+      "path": "faces/apps/src/vendor-paths.ts",
+      "bytes": 376,
+      "sha256": "3bc333000270ac7073cb588146b83b866ec6cfcf725c9ea9acf55f3448099731",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/apps/tsconfig.client.json",
+      "path": "faces/apps/tsconfig.client.json",
+      "bytes": 1229,
+      "sha256": "3590e607927661adfaf09a11f4a814abc97b549922d4e327d8195a6c7513af20",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/apps/tsconfig.host.json",
+      "path": "faces/apps/tsconfig.host.json",
+      "bytes": 2385,
+      "sha256": "32d06b6555d37558d7897b05fb9c5fccc0af5b0b63c7af3c4ec35d755a6afe2d",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/apps/tsconfig.json",
+      "path": "faces/apps/tsconfig.json",
+      "bytes": 122,
+      "sha256": "9ae2773ce422b78211f4ed8c2d4f6adb6737a9d0f33c4c392b1ea01a41bec759",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/apps/tsdown.config.ts",
+      "path": "faces/apps/tsdown.config.ts",
+      "bytes": 193,
+      "sha256": "27fc3af7d3b6d9f6d600da13d2c4a4eb745eae7c38fc81646ea90432fdd0a61b",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/README.md",
+      "path": "faces/apps/vendor/README.md",
+      "bytes": 6584,
+      "sha256": "7a160907d2ed1d1bea1135e313ccf1e527fd0b439afd1169203510b9d13c9692",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/app/auma/auma.css",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/app/auma/auma.css",
+      "bytes": 21749,
+      "sha256": "644a48545522b1be4f8a38c0f198ea9ca9aec1ea6190dc1b4a9f05e50291c90c",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/app/auma/auma.js",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/app/auma/auma.js",
+      "bytes": 38287,
+      "sha256": "81f8ae277451a1360c58f69801c0ff12f48b9bf855781c5a50702365e2f68d36",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/app/auma/canon-v16.json",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/app/auma/canon-v16.json",
+      "bytes": 893781,
+      "sha256": "2d9ffed46912a7860b16c282d071bfed4c5555ee78c0bf8623e77d793531eb7e",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/app/auma/readers-v1.json",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/app/auma/readers-v1.json",
+      "bytes": 9344,
+      "sha256": "e4c1b35fa4087cb2f692e1c3f4a831d3ef39b22ddef21849c56634b9bda1224c",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/app/aura-core.js",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/app/aura-core.js",
+      "bytes": 13957,
+      "sha256": "571d5909687299537056e111389b6fb5e2c979e36b49a12cf50c67caceec03ab",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/app/style.css",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/app/style.css",
+      "bytes": 32009,
+      "sha256": "ff4b815f47c3e3bd3e2718402427bb068b17e8a81afb4cd632d48d32c1dced4c",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/assets/aumara-icon-96.png",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/assets/aumara-icon-96.png",
+      "bytes": 7925,
+      "sha256": "fec7d0bd7f007928fcb1b6866051b2c8344ec76d3211962650e3acd5f8b7e551",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/runtime/auma-lingwa.html",
+      "path": "faces/apps/vendor/auma-lingwa/runtime/auma-lingwa.html",
+      "bytes": 1044,
+      "sha256": "8d939f671d121fde40e58851c089d2b200df33c71fbf3d9a00e5aa978da7e4eb",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/aumalive-audio.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/aumalive-audio.js",
+      "bytes": 8987,
+      "sha256": "55bf9d54d7761efbb9150a4db99c24b0ab593388a1cbb0ed73f37fb433fe9505",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/aumalive-duplex.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/aumalive-duplex.js",
+      "bytes": 10974,
+      "sha256": "007a2b53cc20ff07908b841fad631249f3cf8c793587786c9feea6a6eecf9ca5",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/aumalive-mind-choice.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/aumalive-mind-choice.js",
+      "bytes": 4463,
+      "sha256": "7020369c50a06bdbc151ca36a334219ecbd1643ca0a30f01b65e8c2b7bbcf6a0",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/aumalive.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/aumalive.js",
+      "bytes": 140269,
+      "sha256": "082d708bc096315e9cf5ccf15ac4c7d6b809ad434c70b962d8e23aca236d56e3",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/aura-trace.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/aura-trace.js",
+      "bytes": 10213,
+      "sha256": "d47627071f1db29d89cd820cd33e8d3ceb9fd6fb9df95b45512a136bef3b9714",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/chat-log-key.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/chat-log-key.js",
+      "bytes": 3091,
+      "sha256": "dcd8247b33d955d162e0546ae180de8cf01edecb1c4e0a8a15667b599339ec95",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/field-directives.d.ts",
+      "path": "faces/apps/vendor/auma-live/runtime/app/field-directives.d.ts",
+      "bytes": 299,
+      "sha256": "08ba8050d0e8c4cc163daa6cd5bc038b0bc6b470ac618491638a7f930d812489",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/field-directives.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/field-directives.js",
+      "bytes": 3233,
+      "sha256": "41e1ea5801243c3ad22842511c9e1fb155c846553b216019cca3febf91017a38",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/field-quality.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/field-quality.js",
+      "bytes": 9245,
+      "sha256": "3dc79a22777b56d9b4d8413f19f9cf482981f4a313a231dcbe6f672ee472ba4f",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/home-session.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/home-session.js",
+      "bytes": 10604,
+      "sha256": "bb6dee33d046dedd72c4c6ef3b4b0e71c7740fb1444cd7396a6efc70a49d4790",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/lane-bridge.js",
+      "path": "faces/apps/vendor/auma-live/runtime/app/lane-bridge.js",
+      "bytes": 5647,
+      "sha256": "86301a7f917ec48eebf1ff95396e83aa60d6d85a18f7152d4adc769780ebebac",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/auma-live.html",
+      "path": "faces/apps/vendor/auma-live/runtime/auma-live.html",
+      "bytes": 1339,
+      "sha256": "e478cee287dc037f03ab0ba08a4a2fa25b1fea00528ae1257ee977574792d637",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/dakini-code/assets/index-C2MMIvhO.css",
+      "path": "faces/apps/vendor/dakini-code/assets/index-C2MMIvhO.css",
+      "bytes": 149512,
+      "sha256": "894bc70bd3165115b62cc0ef1b0d4c77a75bee34b301cb7673d55d23c74243b1",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/dakini-code/assets/index-t74FFCZZ.js",
+      "path": "faces/apps/vendor/dakini-code/assets/index-t74FFCZZ.js",
+      "bytes": 315451,
+      "sha256": "86a20f0b66960990c79758b07506c9148e2bb66adac3951bc1ed5dd2fb16a2dc",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/dakini-code/assets/space-Bu4O81zr.js",
+      "path": "faces/apps/vendor/dakini-code/assets/space-Bu4O81zr.js",
+      "bytes": 590245,
+      "sha256": "e31cc0bffed35a44b03c9aba5a1b7d9c1673cab72578b9c605d2918e06894e4a",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/dakini-code/favicon.svg",
+      "path": "faces/apps/vendor/dakini-code/favicon.svg",
+      "bytes": 354,
+      "sha256": "23f5768dc9a51c98a67c41120f6e690a15b14c9236cc96f3690db80855ce9226",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/dakini-code/index.html",
+      "path": "faces/apps/vendor/dakini-code/index.html",
+      "bytes": 512,
+      "sha256": "87fda9f9027637a5d3b448194ae63c8ac03480964e8aa3a853f7ca82326bdf3b",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/three/LICENSE",
+      "path": "faces/apps/vendor/three/LICENSE",
+      "bytes": 1081,
+      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/three/package.json",
+      "path": "faces/apps/vendor/three/package.json",
+      "bytes": 4635,
+      "sha256": "aa42494664dba4cf76d89c6975ee38321a402f09a048672e190bad6f13beec93",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/three/three.core.min.js",
+      "path": "faces/apps/vendor/three/three.core.min.js",
+      "bytes": 381124,
+      "sha256": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/three/three.module.min.js",
+      "path": "faces/apps/vendor/three/three.module.min.js",
+      "bytes": 338908,
+      "sha256": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/three/upstream-three.json",
+      "path": "faces/apps/vendor/three/upstream-three.json",
+      "bytes": 1129,
+      "sha256": "db09ad40e2d66ab8a6a0664d2791aff202816ac281ad777e3739cc349c64a40f",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/README.md",
+      "path": "faces/apps/vendor/zeta-harp/README.md",
+      "bytes": 3311,
+      "sha256": "20de49b6ec332c6904888e72ca589e96f4c8b88e7d8679db8357f4dc38755e3d",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/UNLOCK.md",
+      "path": "faces/apps/vendor/zeta-harp/UNLOCK.md",
+      "bytes": 12687,
+      "sha256": "4ad2166d7c50bc9515b30799b162c1b23b95db9c5966bef371e44432a558498c",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/fold.html",
+      "path": "faces/apps/vendor/zeta-harp/fold.html",
+      "bytes": 38325,
+      "sha256": "f1d7a131d7829473f27f387b367111afbcefa79a2f96a57ee5f156f0be918e4d",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/index.html",
+      "path": "faces/apps/vendor/zeta-harp/index.html",
+      "bytes": 26807,
+      "sha256": "f49e098ca7624a761e472e3a2a78db06000fa98f4a8aea3841ef2e0b466fa49f",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-app-1-state.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-app-1-state.js",
+      "bytes": 8089,
+      "sha256": "27ce8337e06f2856afcb9fc35757116e713d2d60cb86d97c1f89a946326abbbd",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-app-2-gl.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-app-2-gl.js",
+      "bytes": 17760,
+      "sha256": "7f03b39c09d3d5a963d8be3c516674e28721ace02570a926ad12b6812724a7c0",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-app-3-panels.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-app-3-panels.js",
+      "bytes": 20376,
+      "sha256": "35831635de0fbab9179d81cf20d83de79a50b45d7e9fe01c21a6adc48dff3bf1",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-app-4-audio.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-app-4-audio.js",
+      "bytes": 16097,
+      "sha256": "991dab5e1d12ff782c2ff0548b3eb209fec51ca92d243d2eb8010fe4f89ec8ec",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-app-5-orchestration.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-app-5-orchestration.js",
+      "bytes": 17140,
+      "sha256": "51a672fb24be0ece5eedd3ef3a6212d1291267678b829a5a8c2cd5a2930ce181",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-app-6-main.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-app-6-main.js",
+      "bytes": 15366,
+      "sha256": "216edb7b20e98964105d1c785074215714e1cbadf71b4aef301d55976739a34a",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-fixtures-1.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-fixtures-1.js",
+      "bytes": 18799,
+      "sha256": "e5d3e5c3a71515419af8315cfe3d94c52b1aaba581f24167bf57ced582a02adc",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-fixtures-2.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-fixtures-2.js",
+      "bytes": 14445,
+      "sha256": "8292c8eb17f4dcf0caf1ac69f87853c4bf0e5aed1c638b168404c9fa525b44b4",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/zeta-harp/js/zh-math.js",
+      "path": "faces/apps/vendor/zeta-harp/js/zh-math.js",
+      "bytes": 4496,
+      "sha256": "ce59fc0c3876ef21df265a058f599a5c8c05f63dac6232d602adab89581b02e2",
+      "role": "asset"
+    },
+    {
+      "source": "plugins/aukora-face/messages/lib/.build-inputs.json",
+      "path": "faces/messages/lib/.build-inputs.json",
+      "bytes": 882,
+      "sha256": "cb66acf18d771e046976bc3d2ba075c87a0e9df1954d1d555903f67f7a2bb4fa",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/messages/lib/client.js",
+      "path": "faces/messages/lib/client.js",
+      "bytes": 445807,
+      "sha256": "69f53fd986f2f4679565222321bb34b19405f40cd3ba1f25d58e61d306f4faf8",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/messages/lib/index.js",
+      "path": "faces/messages/lib/index.js",
+      "bytes": 149120,
+      "sha256": "dab01a91407911d92b6f4ebc18366275751275ec245ffaa3e0e4a4e2997bca63",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/messages/lib/invariant.js",
+      "path": "faces/messages/lib/invariant.js",
+      "bytes": 997,
+      "sha256": "629922c90a2a3ec394f9d28d733497bf061b78764a9de5036e21a39705416c71",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/messages/package.json",
+      "path": "faces/messages/package.json",
+      "bytes": 2306,
+      "sha256": "3ae2db2693c0cc08a6c0da258647b9215bfd7ac168b6fbfc748aa467906cea04",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/add-contact-route.ts",
+      "path": "faces/messages/src/add-contact-route.ts",
+      "bytes": 7461,
+      "sha256": "6d08cedb512441e4ea6de98efd3b395b6a678912ee1e0aa38d3b7e4d11184d88",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/Messages.module.css",
+      "path": "faces/messages/src/client/Messages.module.css",
+      "bytes": 26372,
+      "sha256": "1bad3eed69e18d02037cd48a70e10056c1fde9d3fff300568caa42ade26149c3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/MessagesIcons.tsx",
+      "path": "faces/messages/src/client/MessagesIcons.tsx",
+      "bytes": 13326,
+      "sha256": "b81fe3eb8d803d82d62ae05a7982f894a084ee2a7c686cfe6033593f26875142",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/MessagesMenu.tsx",
+      "path": "faces/messages/src/client/MessagesMenu.tsx",
+      "bytes": 1058,
+      "sha256": "9e382d517ea8287c79d1c13de3021565d2fc4f84699f606c563ad3e3385b0494",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/MessagesSurface.tsx",
+      "path": "faces/messages/src/client/MessagesSurface.tsx",
+      "bytes": 79399,
+      "sha256": "7b0504777a9805ffd60c210c4e29d6b0d4cf8b906443f3cba6f0549953e5e324",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/add-contact.ts",
+      "path": "faces/messages/src/client/add-contact.ts",
+      "bytes": 9095,
+      "sha256": "9ced324fce00d8451b5e18295021a4321fc257e72e3975b8021a91a8d9a6f3ec",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/contacts-client.ts",
+      "path": "faces/messages/src/client/contacts-client.ts",
+      "bytes": 20322,
+      "sha256": "3bf0f00f04c43e4a7a17f01b0ddfbc939a49b546a32738b2ad3abac28cc15778",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/index.ts",
+      "path": "faces/messages/src/client/index.ts",
+      "bytes": 1871,
+      "sha256": "d67776efc6bd5fddd4c14b189d53189ce285e55e76c83257af704b639bd7e577",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/locales.ts",
+      "path": "faces/messages/src/client/locales.ts",
+      "bytes": 20779,
+      "sha256": "055785deef1b09c223595338c80dec141840979c7f2c33777d3e7bd607ecf5d7",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/client/qr-scanner.ts",
+      "path": "faces/messages/src/client/qr-scanner.ts",
+      "bytes": 4324,
+      "sha256": "52ff9a6700e3a0391968d891e22c2fabb18a9a2c9cdd8a8292d86dcf57e4a785",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/confirm-contact-route.ts",
+      "path": "faces/messages/src/confirm-contact-route.ts",
+      "bytes": 20105,
+      "sha256": "bc52f285a244bc9311a921fb170abf6ffd01161a6bb154fdf7c91466c7751a0e",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/contacts-store.ts",
+      "path": "faces/messages/src/contacts-store.ts",
+      "bytes": 60644,
+      "sha256": "2970b7a1d99797c8b34e73374416a2d2e2cc105d310254e6afde2f8cea5162be",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/css-modules.d.ts",
+      "path": "faces/messages/src/css-modules.d.ts",
+      "bytes": 109,
+      "sha256": "1b119eae282e4981c7ee24bbcf0ceafe34d57f6d5e6b148b2b7cc7c09cd89513",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/index.ts",
+      "path": "faces/messages/src/index.ts",
+      "bytes": 77023,
+      "sha256": "26d841b20b676e7e294fa5b9076297e087c5736c637b3e612ce56819914173a1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/invariant.ts",
+      "path": "faces/messages/src/invariant.ts",
+      "bytes": 1173,
+      "sha256": "f84bb7a34b4c0d6881831faf2f66d8dd158534861c3b0e09877215ccd51fb62a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/messages-route.ts",
+      "path": "faces/messages/src/messages-route.ts",
+      "bytes": 64788,
+      "sha256": "747a0348188271638793301449d917f6d37fc2933f8f2bbf44752ae462163ba7",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/vendor/jsqr/LICENSE",
+      "path": "faces/messages/src/vendor/jsqr/LICENSE",
+      "bytes": 11358,
+      "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/vendor/jsqr/jsQR.d.ts",
+      "path": "faces/messages/src/vendor/jsqr/jsQR.d.ts",
+      "bytes": 170,
+      "sha256": "fd729e2989089de70069e6bb3fc215482fedad8aa836a0352b9c155885e7843f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/vendor/jsqr/jsQR.js",
+      "path": "faces/messages/src/vendor/jsqr/jsQR.js",
+      "bytes": 256885,
+      "sha256": "bc40c8a15196236b2314db0856f72ca0b49980cd5413b8c852a7349f5fee0859",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/vendor/jsqr/package.json",
+      "path": "faces/messages/src/vendor/jsqr/package.json",
+      "bytes": 20,
+      "sha256": "dbf8353f77358bc12169b7bb7301e1978d5b503e002ee927229a8993672818fc",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/src/vendor/jsqr/upstream-jsqr.json",
+      "path": "faces/messages/src/vendor/jsqr/upstream-jsqr.json",
+      "bytes": 1340,
+      "sha256": "c04778390f32c1016cd5bdefd5c7468ef4d34feeb244e2b3f8f1802fb091fc09",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/messages/tsconfig.client.json",
+      "path": "faces/messages/tsconfig.client.json",
+      "bytes": 939,
+      "sha256": "03ed6b458b0b9f2837d71689d275d986897164f808ae1fea98cd17dedb8fbbde",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/messages/tsconfig.host.json",
+      "path": "faces/messages/tsconfig.host.json",
+      "bytes": 559,
+      "sha256": "97dfad24db0e170e545b7f79cd7d6b221961f63710d419ab727a809368f37e20",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/messages/tsconfig.json",
+      "path": "faces/messages/tsconfig.json",
+      "bytes": 122,
+      "sha256": "9ae2773ce422b78211f4ed8c2d4f6adb6737a9d0f33c4c392b1ea01a41bec759",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/messages/tsdown.config.ts",
+      "path": "faces/messages/tsdown.config.ts",
+      "bytes": 155,
+      "sha256": "e1e79768dc0e95b7a0900695f8082682083d6fd8d486fbd5416a19f59102d3c3",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/memory/lib/.build-inputs.json",
+      "path": "faces/memory/lib/.build-inputs.json",
+      "bytes": 479,
+      "sha256": "36671d03fd838a9e42b4c5bc8516ad3e1782e91ebb8f7440d0402bc7c4ef2c90",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/memory/lib/client.js",
+      "path": "faces/memory/lib/client.js",
+      "bytes": 52951,
+      "sha256": "a5e45eacabea1acb41096769f0102f4aea5e51f8aafb5baee064f40da44261ae",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/memory/lib/index.js",
+      "path": "faces/memory/lib/index.js",
+      "bytes": 15513,
+      "sha256": "b9abe6bebac28e788495cf003df588d8fab9442ffe3c34d69a6412bfd0f532fb",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/memory/package.json",
+      "path": "faces/memory/package.json",
+      "bytes": 2529,
+      "sha256": "7ac53a46c6f454809c9f2d6fa76c848eaebdcab3b667d0580723c2cf87a93f54",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/client/Memory.module.css",
+      "path": "faces/memory/src/client/Memory.module.css",
+      "bytes": 2974,
+      "sha256": "01491b5d51bc85cb8c174c21242c9f319e437e4e97002b1e2f9fb2bc96df9cd9",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/client/MemoryMenu.tsx",
+      "path": "faces/memory/src/client/MemoryMenu.tsx",
+      "bytes": 1123,
+      "sha256": "7b04117497f99d4f36dacec07687930638689d8fa8a5db2a194a9022ae25b4b3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/client/MemorySurface.tsx",
+      "path": "faces/memory/src/client/MemorySurface.tsx",
+      "bytes": 13539,
+      "sha256": "2b39cab5297355247d058a304c9155ded8c096daf2b4545fdeb48e255ffe4588",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/client/index.ts",
+      "path": "faces/memory/src/client/index.ts",
+      "bytes": 3473,
+      "sha256": "ac5d4bb482010e89e3825aad08e25d3d8602559093201710ec71ec75ec20364c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/client/locales.ts",
+      "path": "faces/memory/src/client/locales.ts",
+      "bytes": 12233,
+      "sha256": "00622d9036b03519334c7bc7007112578f4714823f56001389afc2b00953014d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/client/memory-api.ts",
+      "path": "faces/memory/src/client/memory-api.ts",
+      "bytes": 7627,
+      "sha256": "f7988188bdd3c42a63047396a40bf0b53eca160174811fea868d9e262fc3076c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/client/memory-model.ts",
+      "path": "faces/memory/src/client/memory-model.ts",
+      "bytes": 28091,
+      "sha256": "844437d5a64e48e86d80677363f5e6b66100371573ac4589cbddb335c6d646ba",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/css-modules.d.ts",
+      "path": "faces/memory/src/css-modules.d.ts",
+      "bytes": 109,
+      "sha256": "1b119eae282e4981c7ee24bbcf0ceafe34d57f6d5e6b148b2b7cc7c09cd89513",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/src/index.ts",
+      "path": "faces/memory/src/index.ts",
+      "bytes": 16015,
+      "sha256": "a7ffb798fa509ab95421ccd43969e2be458893af12c1bb9d34efd485f3114571",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/memory/tsconfig.client.json",
+      "path": "faces/memory/tsconfig.client.json",
+      "bytes": 821,
+      "sha256": "042bb3e224084ed88697986fa6e547fd1b7a0f3389146bc6e8e415e363b32388",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/memory/tsconfig.host.json",
+      "path": "faces/memory/tsconfig.host.json",
+      "bytes": 340,
+      "sha256": "b3299d8359a121f97a08758d3a26d480b6626b337c64719cc4cf4c838fc8de81",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/memory/tsconfig.json",
+      "path": "faces/memory/tsconfig.json",
+      "bytes": 142,
+      "sha256": "ad1b25d36ea100440140e543e2a2af188178934da74eadce1b27ef14e91b335e",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/memory/tsdown.config.ts",
+      "path": "faces/memory/tsdown.config.ts",
+      "bytes": 445,
+      "sha256": "5a35df411770c8972d544f2fa9a0894bf3c2a3ca4873260a2a43329222b1d6c6",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/lib/.build-inputs.json",
+      "path": "faces/aumlok/lib/.build-inputs.json",
+      "bytes": 1417,
+      "sha256": "afff377771b3e0a889789c80cbd41d8132610e3a07bdb302bec1233a511dcf95",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/lib/client.js",
+      "path": "faces/aumlok/lib/client.js",
+      "bytes": 469543,
+      "sha256": "0eae939f7cd27ff58608c50062f80baf808a7777e8c176676b63622584b658d6",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/lib/index.js",
+      "path": "faces/aumlok/lib/index.js",
+      "bytes": 79917,
+      "sha256": "b9367abf7bd3d379f638fdb06afc0b7d63ac984f893ad7f444e4626dccc81184",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/lib/invariant.js",
+      "path": "faces/aumlok/lib/invariant.js",
+      "bytes": 1000,
+      "sha256": "098e464c7e8186c21be68d972d433ddd1d95d382355c127887ffe964c294f301",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/package.json",
+      "path": "faces/aumlok/package.json",
+      "bytes": 2671,
+      "sha256": "eba9be32455a3acb4c161954ba0ba1c1c7099fff04d0f70279fb518bbda64dbc",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/Aumlok.module.css",
+      "path": "faces/aumlok/src/client/Aumlok.module.css",
+      "bytes": 42815,
+      "sha256": "a6f07c38f27a9d49388335de9f645dde72e321999a7f20fd76fb6a7696625f39",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/AumlokMenu.tsx",
+      "path": "faces/aumlok/src/client/AumlokMenu.tsx",
+      "bytes": 1042,
+      "sha256": "7a25bbcad43acac05562337a40a04a128f13b76c5775eb74197ddaade672ac9d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/AumlokSurface.tsx",
+      "path": "faces/aumlok/src/client/AumlokSurface.tsx",
+      "bytes": 29418,
+      "sha256": "b820f0a67b3bc1dbaf1b57a751e972b81feeaae533230505a8bde018c624652d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/IdentityCard.tsx",
+      "path": "faces/aumlok/src/client/IdentityCard.tsx",
+      "bytes": 16921,
+      "sha256": "2fdc669b49b36f0390ecf2f82d8cc78e5ff21d48d1dc842f0d4545ccf58b4246",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/IdentityScanner.tsx",
+      "path": "faces/aumlok/src/client/IdentityScanner.tsx",
+      "bytes": 10527,
+      "sha256": "b3d60a00daad6b1eb881265607d270c94028457494e9ef7a12dad973fffd3b86",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/IdentitySurface.tsx",
+      "path": "faces/aumlok/src/client/IdentitySurface.tsx",
+      "bytes": 2037,
+      "sha256": "d847a08cbe13875e1039b5222129087c6e9c0862c8c419ac7abe6875542d2a6c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/IdentityVisuals.tsx",
+      "path": "faces/aumlok/src/client/IdentityVisuals.tsx",
+      "bytes": 2491,
+      "sha256": "511ec0ac1d7ff23764e8232ba3386e4c8120314690258c2d919cf9873ca56003",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/badge.ts",
+      "path": "faces/aumlok/src/client/badge.ts",
+      "bytes": 1945,
+      "sha256": "648ba13df54dbd0ab6b6c1d7d7347b7c1392682b7fad3c11585ef0cb4cef7a4e",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/binding-bridge.ts",
+      "path": "faces/aumlok/src/client/binding-bridge.ts",
+      "bytes": 10991,
+      "sha256": "e16d51c32d00db7fa01db2c3e70400e18147aa1683c9a6dbedfcc78dd0a148e3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/control-projection.ts",
+      "path": "faces/aumlok/src/client/control-projection.ts",
+      "bytes": 7795,
+      "sha256": "fe69307fed1f0ea3bbf5a5f42b53bb65cb2624cc8c9923bac522a13f28505ae6",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/control-status-loader.ts",
+      "path": "faces/aumlok/src/client/control-status-loader.ts",
+      "bytes": 3413,
+      "sha256": "fd67d180cff17a07b883ec44b43f209884a9db0f02884e4eeb81edefd0321eff",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/identity-local.ts",
+      "path": "faces/aumlok/src/client/identity-local.ts",
+      "bytes": 3626,
+      "sha256": "39f2191d131aa8fbb0b99e139365f293339c217420366649d22787f6ab212972",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/index.ts",
+      "path": "faces/aumlok/src/client/index.ts",
+      "bytes": 5309,
+      "sha256": "b57dfccf4df5a804612950b0ad60bc2ef9aec6bd852f70bc3f6efab35d87b44a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/locales.ts",
+      "path": "faces/aumlok/src/client/locales.ts",
+      "bytes": 22264,
+      "sha256": "feabab7d14d1b6f25853ac72668b69c7c5bd30f7ff2dad6619be286560773eea",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/record-projection.ts",
+      "path": "faces/aumlok/src/client/record-projection.ts",
+      "bytes": 28369,
+      "sha256": "0c00314af9a5e83e3bcff9b4a7c9cb65eeec1d2b9cbc7d4486ece49acd633ea4",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/client/surface-state.ts",
+      "path": "faces/aumlok/src/client/surface-state.ts",
+      "bytes": 20580,
+      "sha256": "82e7039c13cd1f7d9ccb9dada1bc2b02498a15ecf0125a2ca759559c3b35e2c3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/contact-qr.ts",
+      "path": "faces/aumlok/src/contact-qr.ts",
+      "bytes": 1819,
+      "sha256": "5bd55a7df37004562d2f6483a53d050631697496b29251e0ac0f495a9133f4f1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/contact-verification.ts",
+      "path": "faces/aumlok/src/contact-verification.ts",
+      "bytes": 7206,
+      "sha256": "1a3890155590aef8a9565f73263b1676b8bc377baa2a48238151aaaca3fef5f7",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/control-projection.ts",
+      "path": "faces/aumlok/src/control-projection.ts",
+      "bytes": 13487,
+      "sha256": "0bc93d23886a8da025cc92dbb4d2b177d07ad99129ae4214c843d2e845db2201",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/css-modules.d.ts",
+      "path": "faces/aumlok/src/css-modules.d.ts",
+      "bytes": 109,
+      "sha256": "1b119eae282e4981c7ee24bbcf0ceafe34d57f6d5e6b148b2b7cc7c09cd89513",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/identity-host.ts",
+      "path": "faces/aumlok/src/identity-host.ts",
+      "bytes": 5635,
+      "sha256": "d9dcbce3830b10ab8d6357833932841fcc56df08c2c312c6ceed244fcebab94d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/identity.ts",
+      "path": "faces/aumlok/src/identity.ts",
+      "bytes": 1384,
+      "sha256": "d91c80c58ea732e08b7c11f13d4843df11411a4bfb856d49a091198efa5995a2",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/index.ts",
+      "path": "faces/aumlok/src/index.ts",
+      "bytes": 27443,
+      "sha256": "6a521cbb62440146db170d661889e2205fc0bcbf2cf3d3a6c6eee1cd4d7815dd",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/invariant.ts",
+      "path": "faces/aumlok/src/invariant.ts",
+      "bytes": 1176,
+      "sha256": "65ee41c7d6a4ef266e59b6f0b3471bff9ae7f8c17a01e4afd8606393544f27d4",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/vendor/qrcodegen/LICENSE",
+      "path": "faces/aumlok/src/vendor/qrcodegen/LICENSE",
+      "bytes": 1177,
+      "sha256": "013bb580e895ea9ac7c2e56665b3fda772d45cadc36ede41daa369b13b0aa533",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/src/vendor/qrcodegen/qrcodegen.ts",
+      "path": "faces/aumlok/src/vendor/qrcodegen/qrcodegen.ts",
+      "bytes": 41512,
+      "sha256": "afdc8a0384d50c05d64aab3b134094c9a29b723f29e932aefe78f657de837f1b",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/tsconfig.json",
+      "path": "faces/aumlok/tsconfig.json",
+      "bytes": 732,
+      "sha256": "65ecf930f41dbe0aa1a87031b57ff9109a04116ee59d64982e86b0a8175a50f1",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/aumlok/tsdown.config.ts",
+      "path": "faces/aumlok/tsdown.config.ts",
+      "bytes": 153,
+      "sha256": "bba212a3e9bcd3c6bbe5973ee31a517d41cd902047f832f8cd4baa262f6f00e5",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/documents/lib/.build-inputs.json",
+      "path": "faces/documents/lib/.build-inputs.json",
+      "bytes": 650,
+      "sha256": "3ed1ec8f784c4d796a41e4159c3766bb24bb6be68c5d8b4d635141986c7511c7",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/documents/lib/client.js",
+      "path": "faces/documents/lib/client.js",
+      "bytes": 60504,
+      "sha256": "d31033043e56d8e7b168d53e855293bd4ff39b03ea2f8afd38de5151edfac7b9",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/documents/lib/index.js",
+      "path": "faces/documents/lib/index.js",
+      "bytes": 26896,
+      "sha256": "91d8dcc10a783f02a1733c5c822ead53c2bcb2773e4ef9fbd29b3fa5d7d644b5",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/documents/lib/invariant.js",
+      "path": "faces/documents/lib/invariant.js",
+      "bytes": 1334,
+      "sha256": "bc637fc1f53645dbdc508294d4df4012986262ea45f3a38664d47b20d784a454",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/documents/package.json",
+      "path": "faces/documents/package.json",
+      "bytes": 2478,
+      "sha256": "79fae3f5a16a5b7ac7238f4dc931338eec95d62620a916dd9a118bf95f86c4ba",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/Documents.module.css",
+      "path": "faces/documents/src/client/Documents.module.css",
+      "bytes": 14171,
+      "sha256": "119778fba0e572fa9f10993b453dd1f05b4c74231883a3ea916539cfa961ac4d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/DocumentsIcons.tsx",
+      "path": "faces/documents/src/client/DocumentsIcons.tsx",
+      "bytes": 1956,
+      "sha256": "10fe6e0b69259afdceaa480b33991bc52832fdf3d202d5c518abf6de625e35a8",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/DocumentsMenu.tsx",
+      "path": "faces/documents/src/client/DocumentsMenu.tsx",
+      "bytes": 1225,
+      "sha256": "48f3fba6c9a0a7b904d1981efd5a5c164f377dd846e4917887af10977b7de6f1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/DocumentsSurface.tsx",
+      "path": "faces/documents/src/client/DocumentsSurface.tsx",
+      "bytes": 17239,
+      "sha256": "feb43858e55cab2c9638614c79c2a6762425ec97b18634e2eddb0ab3f90e7510",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/MarkdownView.tsx",
+      "path": "faces/documents/src/client/MarkdownView.tsx",
+      "bytes": 4711,
+      "sha256": "af73e488090f9e664d6c20dd833c06083afbfab90e815ebd4c5c34d640f01822",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/documents-loader.ts",
+      "path": "faces/documents/src/client/documents-loader.ts",
+      "bytes": 6026,
+      "sha256": "38c431f2409f76f1bf1d5d6b5ebb36124c7bba7945800394b73e002e113aa81d",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/index.ts",
+      "path": "faces/documents/src/client/index.ts",
+      "bytes": 1716,
+      "sha256": "717b2e62fda77168b89a72a07a6d3dd0b9cc312d025399a63642e5c010b7623a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/locales.ts",
+      "path": "faces/documents/src/client/locales.ts",
+      "bytes": 2577,
+      "sha256": "f29f47bd83e68d087c85f3766a892a2fe2684af77d61aac5f33e95bd0d25c4d1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/client/markdown.ts",
+      "path": "faces/documents/src/client/markdown.ts",
+      "bytes": 9753,
+      "sha256": "8d906262e56579f6081936e572fea619abf4a03ff1e2862dfc2306a813862da9",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/css-modules.d.ts",
+      "path": "faces/documents/src/css-modules.d.ts",
+      "bytes": 109,
+      "sha256": "1b119eae282e4981c7ee24bbcf0ceafe34d57f6d5e6b148b2b7cc7c09cd89513",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/documents-reader.ts",
+      "path": "faces/documents/src/documents-reader.ts",
+      "bytes": 16365,
+      "sha256": "ca313224e3d32bf4e69baa1e9141f0a94e090a08afc803c58dfd932c68b772ac",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/documents-route.ts",
+      "path": "faces/documents/src/documents-route.ts",
+      "bytes": 10082,
+      "sha256": "af86165bcd95d996cd4dc2814b9e51d100b3eb039d6cb3dee7862af536a2e93a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/index.ts",
+      "path": "faces/documents/src/index.ts",
+      "bytes": 12596,
+      "sha256": "cdbb0dfbfa5df03a54d726da3549a70419ea33aace0ef6670b80e790a3b6faa0",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/src/invariant.ts",
+      "path": "faces/documents/src/invariant.ts",
+      "bytes": 1513,
+      "sha256": "2e8ffbfb763846ee5a10e7b4faf973477385883d15fbab624f683aaebcd20fba",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/documents/tsconfig.client.json",
+      "path": "faces/documents/tsconfig.client.json",
+      "bytes": 944,
+      "sha256": "d11f8d69ef3d47422178d04977698198571739e72927b227ab5a43a9620e0c48",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/documents/tsconfig.host.json",
+      "path": "faces/documents/tsconfig.host.json",
+      "bytes": 461,
+      "sha256": "d0d8c40621bb38f7434ac00ab813167252b4665157ba787df2537d85002d44b6",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/documents/tsconfig.json",
+      "path": "faces/documents/tsconfig.json",
+      "bytes": 122,
+      "sha256": "9ae2773ce422b78211f4ed8c2d4f6adb6737a9d0f33c4c392b1ea01a41bec759",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/documents/tsdown.config.ts",
+      "path": "faces/documents/tsdown.config.ts",
+      "bytes": 156,
+      "sha256": "bc6ae39cc2875038cdb7db65f660d551b8d39d8f311945d6966973ab15e32005",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/settings/lib/.build-inputs.json",
+      "path": "faces/settings/lib/.build-inputs.json",
+      "bytes": 1208,
+      "sha256": "bdfa616f5e3a411955beba09b3dcf19e7b849df5fafc05afe6a621596966302d",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/settings/lib/client.js",
+      "path": "faces/settings/lib/client.js",
+      "bytes": 128389,
+      "sha256": "d0002922ddc05ae3e737095ddcf82ef1307b9c4f3ab55a5c5aa85d54ae97d19a",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/settings/lib/index.js",
+      "path": "faces/settings/lib/index.js",
+      "bytes": 17148,
+      "sha256": "88ffc9928357ac7bc9d8379ce5f9769b221a6447037abf67e3722c05552b07b6",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/settings/lib/invariant.js",
+      "path": "faces/settings/lib/invariant.js",
+      "bytes": 1080,
+      "sha256": "ac97a8f17a8b9ea4cc74bb74faaebfb613ec92a958882b19673a6597ca88c225",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/settings/package.json",
+      "path": "faces/settings/package.json",
+      "bytes": 3327,
+      "sha256": "38c6f4a6b1346ed1b92caec5d23d72518c0261f157a375c957ce6f80641b6ba4",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/activity.ts",
+      "path": "faces/settings/src/aura/activity.ts",
+      "bytes": 3890,
+      "sha256": "44bd2c6794ee17431cc3d985f929db2856e0892b40ee86dee45c90bcf5c71618",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/aggregate.ts",
+      "path": "faces/settings/src/aura/aggregate.ts",
+      "bytes": 7571,
+      "sha256": "61570311df1ab0d66b32f132eae90d676228a212deb1acb25628283451168d74",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/deformation.ts",
+      "path": "faces/settings/src/aura/deformation.ts",
+      "bytes": 1713,
+      "sha256": "712bc3f7a196fee5f7dd8dc9580ee7c57425a276840371fe4fc883cf1ac41dc1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/figure.ts",
+      "path": "faces/settings/src/aura/figure.ts",
+      "bytes": 7130,
+      "sha256": "404fe2eae0817d18b6a8a4d3d7733f12566305e39e6fb1903cf49a098d73f518",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/motion.ts",
+      "path": "faces/settings/src/aura/motion.ts",
+      "bytes": 7231,
+      "sha256": "9f073b829e9120d8542ec6bc9f9c91c689f4b5d1b93e82221c079bcbbcf4baf3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/projection.ts",
+      "path": "faces/settings/src/aura/projection.ts",
+      "bytes": 9604,
+      "sha256": "f18ec0eeadbc8a95cfa237b11ba0b4075b33e103d414c7cf7015ec379acab37a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/rotor.ts",
+      "path": "faces/settings/src/aura/rotor.ts",
+      "bytes": 8006,
+      "sha256": "03313d3ed19e70269134f71f88518b1ba8779747144ee50b44d65a1283a4bc1e",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/ternary.ts",
+      "path": "faces/settings/src/aura/ternary.ts",
+      "bytes": 2798,
+      "sha256": "22205f4866391bee46332ada8637997283681af8b1bf66917ec1f9d16840ca74",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/types.ts",
+      "path": "faces/settings/src/aura/types.ts",
+      "bytes": 4586,
+      "sha256": "886a9ede6ff0729f0e03b28c534549b2c0bd2b1f3cc78d3d67db3b06f97052fa",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/walsh.ts",
+      "path": "faces/settings/src/aura/walsh.ts",
+      "bytes": 3932,
+      "sha256": "f1a52c354a0f8ac418bb7cb53d73edb3fbede40d9ed73c053500de184f407a89",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/AuraCoherenceMenu.tsx",
+      "path": "faces/settings/src/client/AuraCoherenceMenu.tsx",
+      "bytes": 1193,
+      "sha256": "132857d2e3075c1e8a998aca2cb1534972db44f62bcd790e910349b213d999ca",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.module.css",
+      "path": "faces/settings/src/client/AuraCoherenceSurface.module.css",
+      "bytes": 18090,
+      "sha256": "c3aead8116818fc437f3675713640d705102c489b3fbe1a1c92580762b0e97c1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx",
+      "path": "faces/settings/src/client/AuraCoherenceSurface.tsx",
+      "bytes": 35909,
+      "sha256": "067076d31636f83e095d359557c13ed5cf276be3f6c65184b12fae0fd783add0",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/GeneralSection.module.css",
+      "path": "faces/settings/src/client/GeneralSection.module.css",
+      "bytes": 305,
+      "sha256": "3d39210b1ea0f422827b3ba5b58fc906e21e8465b3ebbe6f3ed9c8a434dc1156",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/GeneralSection.tsx",
+      "path": "faces/settings/src/client/GeneralSection.tsx",
+      "bytes": 753,
+      "sha256": "043d6022dead282f19b163b4694dd0cb0c29ace8ee208062c99d5e8c84c9b829",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/SettingsDocumentAction.module.css",
+      "path": "faces/settings/src/client/SettingsDocumentAction.module.css",
+      "bytes": 599,
+      "sha256": "01629179d51c48c0511b525deb46e4a2168d2aadf6a90417c5f03b237922dee3",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/SettingsDocumentAction.tsx",
+      "path": "faces/settings/src/client/SettingsDocumentAction.tsx",
+      "bytes": 2131,
+      "sha256": "6de54eb8503fd9d56ae5e0975817305111e3a486d1e3ddf48aadf405f1b46afb",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/SettingsMenu.tsx",
+      "path": "faces/settings/src/client/SettingsMenu.tsx",
+      "bytes": 1250,
+      "sha256": "713484ccdaf0ca1e9e4d7b7157dfcf05925ecc711fd422aae28265520726466b",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/SettingsOnboarding.tsx",
+      "path": "faces/settings/src/client/SettingsOnboarding.tsx",
+      "bytes": 2930,
+      "sha256": "0d510996cc2ed48c0b9a440cf9123d455edf9d7109aabe335f7e35f0b49f4efb",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/SettingsRoot.module.css",
+      "path": "faces/settings/src/client/SettingsRoot.module.css",
+      "bytes": 3123,
+      "sha256": "7ff23b7b412b7678103535e4b5a7eadbde9bb8c4093b23a4c06aa77dcda0446e",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/SettingsRoot.tsx",
+      "path": "faces/settings/src/client/SettingsRoot.tsx",
+      "bytes": 3161,
+      "sha256": "89e8dfac5f3c7690ba1b8c91e1abf831eede7b756760eacdb220d412f1925164",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/chrome.tsx",
+      "path": "faces/settings/src/client/chrome.tsx",
+      "bytes": 890,
+      "sha256": "f3089d4438200dd87ad373cb65891ba18edb244c5fb61a642a71c881497cfc96",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/escape.ts",
+      "path": "faces/settings/src/client/escape.ts",
+      "bytes": 766,
+      "sha256": "897855dcc2e6d54e6eb8699dc8ff51e383fb0ed32981f641915c5729b1d3d898",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/index.ts",
+      "path": "faces/settings/src/client/index.ts",
+      "bytes": 9072,
+      "sha256": "23e6b8448052717f5755aab74e766eedeb2d296396fb15a72545ce16824de07a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/locales.ts",
+      "path": "faces/settings/src/client/locales.ts",
+      "bytes": 13314,
+      "sha256": "5638689b45c6f1ca33b37c9f5c8d9a3586b88e648403d1980af0f943b5eeb61a",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/settings-document-store.ts",
+      "path": "faces/settings/src/client/settings-document-store.ts",
+      "bytes": 3567,
+      "sha256": "be4a91db83f14c2771940da9fc9ff07a775c732440f8337a167271e7d3506f10",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/client/shell-contract.ts",
+      "path": "faces/settings/src/client/shell-contract.ts",
+      "bytes": 2590,
+      "sha256": "65ef9319027eaad47902fc60a61b4ba8fa858a02cc39c2394d59dbe590db8af7",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/css-modules.d.ts",
+      "path": "faces/settings/src/css-modules.d.ts",
+      "bytes": 123,
+      "sha256": "e28410d74a0d763364c04fa690c2ca2202ad3019c74f8f5205e8dc6cba69c02f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/index.ts",
+      "path": "faces/settings/src/index.ts",
+      "bytes": 10903,
+      "sha256": "39a1562f64781d7a292f3b68f2a5132d8445d84f3998df1a9df2ebd00a64841c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/invariant.ts",
+      "path": "faces/settings/src/invariant.ts",
+      "bytes": 1257,
+      "sha256": "ba2e0372ba5bba7a519879dd7d5d4e003a01f660f070e635a32324b8f45e7db1",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/tsconfig.client.json",
+      "path": "faces/settings/tsconfig.client.json",
+      "bytes": 1413,
+      "sha256": "9073824bd326db8f46ff468e1e378cfc4deeb2ad166ef959278c72a35e3265b9",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/settings/tsconfig.host.json",
+      "path": "faces/settings/tsconfig.host.json",
+      "bytes": 821,
+      "sha256": "6f9c14ac6fe4028ccac343d43174d8e5e0bca81edca8dc3bd3f571b0a7d22568",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/settings/tsconfig.json",
+      "path": "faces/settings/tsconfig.json",
+      "bytes": 122,
+      "sha256": "9ae2773ce422b78211f4ed8c2d4f6adb6737a9d0f33c4c392b1ea01a41bec759",
+      "role": "build-metadata"
+    },
+    {
+      "source": "plugins/aukora-face/settings/tsdown.config.ts",
+      "path": "faces/settings/tsdown.config.ts",
+      "bytes": 155,
+      "sha256": "efae234d0c84fdf49debc305a65056ddce9059b746796df1839182e6a06b8dab",
+      "role": "build-metadata"
+    },
+    {
+      "source": "LICENSE",
+      "path": "licenses/genesis/LICENSE",
+      "bytes": 34523,
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "role": "license-provenance"
+    },
+    {
+      "source": "NOTICE",
+      "path": "licenses/genesis/NOTICE",
+      "bytes": 3912,
+      "sha256": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f",
+      "role": "license-provenance"
+    },
+    {
+      "source": "PROVENANCE.md",
+      "path": "licenses/genesis/PROVENANCE.md",
+      "bytes": 1064,
+      "sha256": "1e82057472fa9c2eb0c8ea5421d025f42e95afe8b60f7454201c211c9e4ec085",
+      "role": "license-provenance"
+    }
+  ],
+  "excluded": [
+    {
+      "source": "plugins/aukora-face/apps/README.md",
+      "sha256": "4f9957cc7ecdef5679043412c13cbb473359eacc287549663facfa8415f8e1c7",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/deferred/AumaCanvasSurface.tsx",
+      "sha256": "e610a329dec90241ea16b11668cfa6861e081e86e5b73febc66e0cde809db673",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/disclosure-policy.json",
+      "sha256": "f2956f4743d80c8588890ff591ef1bbc9a8da3cf5acde0c6c7f1168d1c934cca",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/scripts/vendor-manifest.mjs",
+      "sha256": "c6e0813abe44109e0f57a17c0fcd5ba1b6f5a35d1541dfb38e6998f6c5709914",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/canonical/AUMA_V15_DECISIONS.md",
+      "sha256": "036384e23e01c8fb7bd095ffcd398c74838285c7ba5ba79719e41413f861057d",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/canonical/README.md",
+      "sha256": "62a6408ead5455cc8c6beb27e64f100dd78baf071a5218b17594722ed6ca8514",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/canonical/auma-canon-v14.1.json",
+      "sha256": "215de53e28287b43bebb771600375f4d4ebea4ca343bc6b56415be6b1c6d61f3",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/canonical/auma-canon-v15.json",
+      "sha256": "173a12b5730abb730fc4f6456e88d0ecb558910e0fd95a334d19b52bc639fee4",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/canonical/auma-canon-v16.json",
+      "sha256": "2d9ffed46912a7860b16c282d071bfed4c5555ee78c0bf8623e77d793531eb7e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/tooling/core/tests/auraCore.test.ts",
+      "sha256": "2b10cfb9c1f82fbd7dfbb9c0b17d9c69fb9424b9b6a30bdc70a19affccca4d73",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/tooling/core/tests/auraDetokenized.test.ts",
+      "sha256": "1b4bbc9c536dd5fdb92c7773e441fb05045fd2301a05f9c6cac1a2e4277838b9",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/tooling/core/tests/lingwaLane.test.ts",
+      "sha256": "471bb4c8f00ae8bbbba8ccf2ea052f154d1e1221765acf1ba4e411565f86a1af",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/tooling/scripts/aumaCanonLint.ts",
+      "sha256": "8a6814737b677cd6bdae753b9d8b574ff8dd4c2c5951d4f86313966144d575d1",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-lingwa/tooling/spatial/lingwaLane.ts",
+      "sha256": "46c61e55365b6ff98d4bdd2b8bae55e12b0ff078efdee15fee8f2cdde11dcd74",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/authority/symbiotePaths.ts",
+      "sha256": "892f30b0348d3b19ef53e021a6a84be16ecf93af1ea33c571cb5235917d47b91",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/_generated/api.js",
+      "sha256": "f513058549831e85376f8d19cafaf2a4a770b6eb1b859fb371141f2c9dec0d70",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/_generated/server.js",
+      "sha256": "aea87b3ee367e0e870f3da81ffce8babd8ea1aea695a1e38689841aebc09a1e8",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraActionRegistry.ts",
+      "sha256": "62bfd489bde8de33aeff3e2e3975bb8a674d32a26ca217ce738e86bb4ca2f094",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraConstants.ts",
+      "sha256": "63d7667dbe6c0c47ee07ebdbff5a8d216d63d43e8d73e576b9e68cb1ac23854f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraCore.ts",
+      "sha256": "7ca52d3da4bccf55a7a8577039d646934fbb8c3f5d0fbfb281cae5272ca3a433",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraMerkleLog.ts",
+      "sha256": "c8455977353b0ace3b10ab87353dd6e8314f24939b59dfa01d274ca08069e245",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraPqcSigner.ts",
+      "sha256": "800421dad2ff8b51991cae66de1746f7489cd26d6997abe47638b1ae258de2b0",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraRateLimit.ts",
+      "sha256": "aec870aafbdeae26a60d9c3c2ea3edc567aaa5a089238cfa10e656e99f69e86e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraReceipts.ts",
+      "sha256": "a9a0ac61d35314a557517edee1e927cc8275da14412225dece078b870ec26fd1",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraRuntime.ts",
+      "sha256": "5b09cc5fc2974d5b252467bf2849d364b434a9965887f773da3a5fcfa64e04f4",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraSignedHead.ts",
+      "sha256": "5dc93b7e7e4e78f8766f867885476344adbccbd7d81c17e1293210be4dda4079",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aukoraToken.ts",
+      "sha256": "e2fe444fbb0c15884343c469ea846a19d779b61b763fa969ca82a2bb18dfe43c",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aumlokManifests.ts",
+      "sha256": "77dbd5290541e821aebaf91251a6d003db887491261429684d3b7eace5256d7a",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aumlokMemory.ts",
+      "sha256": "f247b7168ddc732367fc40c5947d3ffc5c07fb1418f548d5561633b5f81f2d30",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/aumlokRootRegistry.ts",
+      "sha256": "5b2f2ea98a39e357955c752be440b94bf340117e2bdd093d1e03b7bb4725b9f8",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/popResolver.ts",
+      "sha256": "b19a417ab2db2c81b55a76dba4db5fcd7b6ab361805ed628ad0513b58c0a84ce",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/convex/sessionResolver.ts",
+      "sha256": "253640b8928f56a292d6584e6b552e244fb90574080b146d15247e0a5b2e542e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/aumaWombPrompt.ts",
+      "sha256": "c23315c0d6c4096097741e31c952fb117441c716ee622940dc3ab957e9b2d85f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/aumlokApprovalRoot.ts",
+      "sha256": "359c1dfcdd84a5d55e6f6c8eade617c11ebc851a0f7991147edb339aafa82430",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/aumlokBondCeremony.ts",
+      "sha256": "5fedc8639a77681b7f4ff82dc42ae87cd0a9a21bfa40b6d5a24f239bacf1a396",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/burnDataset.ts",
+      "sha256": "ae115992b7401c83f47448732f7407b9a3cbdb27250f3e49656667739cd48ccc",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/changeRiskClassifier.ts",
+      "sha256": "a4f58539bb51f6dc8b45501ae351cf7ad1ad34f44ddb4d7848884f24195e9784",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/conversationDistiller.ts",
+      "sha256": "a7a739216e65ea2537e703ff16dd2babddff5b6670f89a1edd847731c06dd998",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/conversationShadowCapture.ts",
+      "sha256": "6a32716af69864ff83375b7e2bac6d1752bfe1135dc76c8800ba9e04a8a7d050",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/convexBrainReadonly.ts",
+      "sha256": "d30adfc38a676ff22d9a93dbb64a3e78c6e56f25fcd1266ea3b8411048e7ff5b",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/convexBrainSnapshot.ts",
+      "sha256": "3bbaf209959f62e60fbf71eb2b7848bc3f926d005b2ae55cf807e2ad003241a4",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/convexCanonicalPin.ts",
+      "sha256": "05de3b60cd1c46fd96c59f6f0dcf389239fa5bade9d6829ca3beacd77a81441c",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/coreMemoryEnvelope.ts",
+      "sha256": "eeb31ca630c0f7509e6ef6f699c5641eb088ade1039cd6f805bfa75ae920cd2d",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/externalReview.ts",
+      "sha256": "08436d4c3c9f714143229007836d60355064518a70a7eb5b4860c8ed7b9e3197",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/focusRegister.ts",
+      "sha256": "4daa9cf406da525f7fa22e985bfad5468c2e4ab576e5763ec064336a73e90745",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/forbiddenContent.ts",
+      "sha256": "31a942574b0033991cb2db7d66cc72f888d41abd39c8c88354c1ecdc915ec815",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/fractalFusion.ts",
+      "sha256": "b252ec776a71c5c2051d8f8dd0b860db874899c3a802b0098933c400d30eee61",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/fusionConfig.ts",
+      "sha256": "a6ef5a2215b473d37adb903516aa076aa8004e0fb47abda247b1bd48d77c30ac",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/fusionSelfOpt.ts",
+      "sha256": "a26e659247e660c3af6132516c8cd813f8b44962faea8465c7cd89e6214a6b2e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/fusionSwarm.ts",
+      "sha256": "1338e6ea43441b824ac55b89f2917fdc7e4d73f6e2d42a74fa5f72911160ac48",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/importGraphVerifier.ts",
+      "sha256": "285fa476a617e764ea2ec75cb066524740c24f694e22453c89fd88f2ba87ac9e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/kernelActionClassifier.ts",
+      "sha256": "04627bda747af3a6202a66445db9eb03ea0689dd224c88d15c8e806a71bbfae6",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/kiraBrain.ts",
+      "sha256": "681f6d6f1018d62e39220a3ea7c248dc9a379691cc944076d055323aa90fde06",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/memoryAppend.ts",
+      "sha256": "2b3f966f5bce3b17a20d1b3970ae2068b1b6cbf36d395731e79ecd3bfd92ee09",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/memoryKernelTransport.ts",
+      "sha256": "79c2b12d8070684ec3e048e99b413c58e6479647900176db73e56a0786ef71f9",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/memoryRecall.ts",
+      "sha256": "af2d9f230ccb2a08ee59c3f7fe46854523046eb18cda79d9d49a1c53a52b01b2",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/mldsaSandboxSigner.ts",
+      "sha256": "65015c888ec97b7cb4e2d384aa891bf47363731756013b390d79d51db6b8e488",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/opencodeWombArtifact.ts",
+      "sha256": "2b7f7218cc0662c2db99e1c9dd667d780afc1fc969cc7d3d278c2c730c79353f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/organismConnectivity.ts",
+      "sha256": "6665a299f836bd126572e8556ff7c37963570edf498e63cb8cfa0cd9bde8f063",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/organismGraph.ts",
+      "sha256": "4c0eb6ab0a44a94e561eee04f1ff85f7525b2d4a1b9b24aeda817b5015b91496",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/patchApproval.ts",
+      "sha256": "fb1934a3590b6f681d0e2153e2427505cb14207531e4bc4263d963ecedcbc1f7",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/patchProposal.ts",
+      "sha256": "4d743720bf41eaada4fab34e577fa056f6ce5909538bf0d3b19f659d45c8a382",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/repoReadPathResolver.ts",
+      "sha256": "2c36ce69e1b11ed3557062de569b5ab601efc2631f15ecb2e10eaded7131670f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/restingGlyph.ts",
+      "sha256": "d4ab709ae0e3db4ac373160aac974c9b3fce7f133737331dcbd17e5661f8b9ac",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/sandboxApply.ts",
+      "sha256": "39528f65bb1d9f1dcdc1b6c204e5ced6b01e3bd25a3262fd0924bca5ddb9ac91",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/sandboxApplyPermit.ts",
+      "sha256": "1517bc2cda723b1bb010238bad8a93ed3a81421c6d3ba92d92f73e4fd4e9aa36",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/senseBus.ts",
+      "sha256": "ecb25cbb1648f8248223f7213b0092fca8908e9b7f2db597387fca69c0f69122",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/windowsKeyCustody.ts",
+      "sha256": "88c52805605e546c5cde114c7f2e0825a327c05a58ac910a4be3a4aaf0d2856f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/wombForbiddenPatterns.ts",
+      "sha256": "3da646ae615cfe79cf9f7919edaa8e02dcc9a1404cabfbefc30f32fa3a2fda57",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/wombPatchDraft.ts",
+      "sha256": "61a74f2ed083f829ac00981da1d4daf9518cf5350b5efaba2a80afda110c6784",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/src/wombTargetDiscovery.ts",
+      "sha256": "430b0ff69967bec3568a618b2cabf6011999b89bb8bf9f266ef1a0559482d0e6",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/canonReference.test.ts",
+      "sha256": "037d96966000d572469f33875eacbc4861baa8ae954a1162594fa026605bbf0a",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/capabilityPreamble.test.ts",
+      "sha256": "c0f545a3c2db4d3c52afdb7ada709499c329408e97fcf779557919e0be3e0dd3",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/captureOrigin.test.ts",
+      "sha256": "006da107c3def2139ab707be42bdd1080e542f95e43e4d3a6de24e5ab79581d3",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/crossLane.test.ts",
+      "sha256": "b335c5b6e06bc7fd75d4033779c60272c00836826e18fe04103c89d0b348b64c",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/crossThreadRecall.test.ts",
+      "sha256": "99837b396d7ef3b32aeb01e0e333228e21c530d47d631406cafe96cc09d492c5",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/fieldDirectives.test.ts",
+      "sha256": "61167e5341ed54db5b43fec4c304c6f5ac11eb7779b0596a95ace9f402aaf0b7",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/frameGuard.test.ts",
+      "sha256": "06dcdaffdaeebe8665d3f0cc0e1484eb99adc15328d1536eb9d5fd913118b361",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/identityAnchor.test.ts",
+      "sha256": "412a82bf9bd5401fbdaea7f72e9dbf5facf830cf5c2e7560af354c0a8a70afb4",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/localPostGuard.test.ts",
+      "sha256": "0d4ef593fde70c656a9e4f6066cbe435a909211440479f96921afb2db662a978",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/presenceCapture.test.ts",
+      "sha256": "826750871094c0196b91f88e777c149487f200d6635b37a2a6b081572d2dd096",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/presenceLane.test.ts",
+      "sha256": "39651e5783e263a4a269ca6e65ae7eb5fe164daef0e213bcb4867889f5b7c0ba",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/recallSourceRouting.test.ts",
+      "sha256": "d38688cd57fb71bb8ba599144bcc5dc101f72bc1af0d91b0710f015d26648151",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/recallStarvationGuard.test.ts",
+      "sha256": "5f1f4a52d076659f0991d3f5f850d5552191b7a1da9b2c9909e674b4c413cc21",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/recallWhyTraces.test.ts",
+      "sha256": "0940cb696690af70e3e48c3de6e371c1d9f6fe96147eabe9c8e6880f1f1e058f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/recencyTier.test.ts",
+      "sha256": "6a00c58398f727b5df4b128e5cd2043bff0a9058fe9c0ee87b045ea78c56850e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/shadowCaptureDoor.test.ts",
+      "sha256": "adb02e9de6468fbb684babb73a42fe8695b0957753b6f9fd50d4964dfe4ff7d3",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/core/tests/workingFocusFrame.test.ts",
+      "sha256": "538360e37f5b65c048e815897c21a713fc07c6878c4938c8a34553446b894177",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/scripts/memoryRecallAdapter.ts",
+      "sha256": "1b3a707d8a75e91fa6e9dc4f3aac44dd0a5762424cd52c47b186624e6a221757",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/app/field-directives.js",
+      "sha256": "41e1ea5801243c3ad22842511c9e1fb155c846553b216019cca3febf91017a38",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/canonReference.ts",
+      "sha256": "2f33b1692191c6a6a058def3c0e65349488f4c54ca0b20062bcf79f7aa1fe6c8",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/capabilityMode.ts",
+      "sha256": "4fd0b50582925c7c7e0d58cc9f6708064ef7b4377e894c13f3e4e84751cf44b0",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/capabilityPreamble.ts",
+      "sha256": "5624e496d0791fcca62177e19fcdc7bffb49e2bc0b8d8cf6c4948bf9af238477",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/coreSession.ts",
+      "sha256": "940bc09aefc4a1357b2af3a0f321049d658e511904fa14d4e844a8c1d4a1593e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/crossLane.ts",
+      "sha256": "13642ebbfd74283d78ee4796e4c8360adc3a1438e67a1b9586cad02308eb33ec",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/frameGuard.ts",
+      "sha256": "2fbf16332a9cd74c6b3c382476f4ea1dee95a33ee05a5037ae9ffaabfa81f1ac",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/identityAnchor.ts",
+      "sha256": "ac6057966142dc4f8dbaa10469960918d906fa2a2521903ae09d3fe100cc7bde",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/presenceLane.ts",
+      "sha256": "847c8275012474033b899430f89c8daf9efdaa69f6fc1207a89935e019e46c5f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/recallSource.ts",
+      "sha256": "55feba5f7f6bd6307c505b6f6cf5f873b3a739a7d708c2fea27d938f5d505b02",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/original-closure/spatial/workingFocus.ts",
+      "sha256": "23a4bbbbc3bc21e78403d9bc9d90eb2f417d03697133d287967559bc13df2255",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/app/aumalive-audio.js",
+      "sha256": "484642694c8ead403dd5253d3d999fa1f7b8f60de44027f83596c6db9d4face2",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/app/aumalive.js",
+      "sha256": "de1b8605681cfaaca6bd1067192c27877efa67f4ca564106614b9d99a34577c7",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/app/field-directives.d.ts",
+      "sha256": "08ba8050d0e8c4cc163daa6cd5bc038b0bc6b470ac618491638a7f930d812489",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/app/field-directives.js",
+      "sha256": "41e1ea5801243c3ad22842511c9e1fb155c846553b216019cca3febf91017a38",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/app/lane-bridge.js",
+      "sha256": "a87f5487b00ca69c53aea9a0e4bfb76f7813c91c8a7ee8ff5fe7179bac6b28e2",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/server/crossLane.ts",
+      "sha256": "13642ebbfd74283d78ee4796e4c8360adc3a1438e67a1b9586cad02308eb33ec",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/server/presenceLane.ts",
+      "sha256": "847c8275012474033b899430f89c8daf9efdaa69f6fc1207a89935e019e46c5f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/.gitignore",
+      "sha256": "4d276e8683705963fb80e74f3980be0a8500271558279c6a4fa89d5d358f232f",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/README.md",
+      "sha256": "53f7c75ec53e51c98562630af20ec57ed4d354864d42210af1865094be867c43",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/requirements.txt",
+      "sha256": "2529e63300ded489a67ce5d54b780eaa1bcb685bcdb1824da79bd35017ffbd4b",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/run.sh",
+      "sha256": "63100f4e4e2a1fbe7675b4a9eec66f483b209aed7ddd088c15a7ce9498a64f36",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/setup.sh",
+      "sha256": "b19caf789a5da739dc7b8535d0646188bf6309317b22de480987eee84bb8d72b",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/sidecar.py",
+      "sha256": "8b28926393423e0413bf7beec60e6574396419e2fc7a75c948c5046d6c077e2b",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/test_e2e.py",
+      "sha256": "90fd9b4f6c4d83058d7dfbfc233de2bcbbcd9cdc5dddf04369d51c71d378e3ec",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/test_fixes.py",
+      "sha256": "5dc52f73d869d0c6321da3b3083862f873966da03bd1fca65dd53928eb0c0a3a",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/test_lazy_engines.py",
+      "sha256": "1a7c56c3003c83c20d975158290b32612f82797e77e09dbfe070a2a3c1033912",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/test_loop.py",
+      "sha256": "5ef792b49442429fd06c1e36618047bf69de443ad78adefcf3c1c620da7ce511",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/.gitignore",
+      "sha256": "2a5d7c373b58ac714eaaec86ce9bbbd7c3adb6943c8b01f9904151047fee1482",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/MODELS.md",
+      "sha256": "c13f3013d5a5655da0846163c7dca942c602d557cf3a452537bbcaf3f3ab452b",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/README.md",
+      "sha256": "069d79e8157bf356773a342c1a764572564f7c6bd34c87338381d063f8431851",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/aurora_prompt.py",
+      "sha256": "07b1c50bc2d2b458431307806edc9c1e544115750c4a0988d3880c902fab53bb",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/requirements.txt",
+      "sha256": "e9a0789ea82029f05e73865de391ae2c7fb68e500c7c9fdfc2fb8f470ef56de2",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/run.sh",
+      "sha256": "34bedd9de7a593def877701c9623742103864968ebb94d18b13f27197475e5db",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/setup.sh",
+      "sha256": "5689f752285d77841d9324dcdf164f564fd950e8607820e10b8a400ed171bd87",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/sidecar.py",
+      "sha256": "54e6375481b1672dd6bc9ac6a5cacfb9efaee19604c34c1b2157c814db41d8b7",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/test_aurora_prompt.py",
+      "sha256": "145548e633b0a3867fcb01904ceb734b157d74ec996927c783ba9f496e318927",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/test_e2e.py",
+      "sha256": "0da2ef073fa81a91281de44553add8d33d30bb5871f73dc34adccf56fe045638",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/test_fixes.py",
+      "sha256": "acf8c50fb6333dfd1939b0045f0f3322a1cb0304bed37f937aee2de8f6594c60",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/test_lazy_engines.py",
+      "sha256": "1a7c56c3003c83c20d975158290b32612f82797e77e09dbfe070a2a3c1033912",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/auma-live/voice/test_loop.py",
+      "sha256": "cbccae928272a750048d48081dddc59d9d60f7a67cdf1b75b4d43772b66b1d58",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/apps/vendor/manifest.json",
+      "sha256": "b45601cc25e2f278ca5a5760d75e9bf285c234b5c608a91573ba6cc2ef989b25",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/settings/README.md",
+      "sha256": "0da562d848d88a4d9da84167650a122b6c46c8f065e847b6ad1af593ca111789",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/settings/evidence/aura-evidence.py",
+      "sha256": "0d0335ab6e1e3159dab225c8ff90157d77e9cf84ab8c11749fafc4165011079e",
+      "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    }
+  ],
+  "donor_bundle_source_freshness": {
+    "apps": {
+      "result": "MATCH",
+      "srcDigest": "4be10a33aac25d9bb7bdb44631ebd87f619a9a4bb7f99ff94c8d63c440aeb5f8",
+      "builtAt": "2026-10-01T07:19:28Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "aumlok": {
+      "result": "MATCH",
+      "srcDigest": "32dd843b08f406090d65dd5a56333c994356263ef4dd1d019bb3d8ddf4536d1b",
+      "builtAt": "2026-09-30T08:20:04Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "documents": {
+      "result": "MATCH",
+      "srcDigest": "79622a9d01aabd2851e4757da929c45360897f69c2182501b1404454c2988cdb",
+      "builtAt": "2026-09-30T12:17:47Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "layout": {
+      "result": "MATCH",
+      "srcDigest": "11593a21cae80dc405ea7ed6cfa495f86be1391e7340d7a860fa49c55eafedf0",
+      "builtAt": "2026-10-01T05:24:50Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "memory": {
+      "result": "MATCH",
+      "srcDigest": "c8b58311f8e1fdab4e50ff7b733b5232a054e0131a1f275980bfbe711387f635",
+      "builtAt": "2026-09-30T12:17:56Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "messages": {
+      "result": "MATCH",
+      "srcDigest": "d88251d4baa0bf28449406a7ef2dba5c6207048f1ddc5f8e987c9aa0e46e3cd7",
+      "builtAt": "2026-10-01T04:05:13Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "settings": {
+      "result": "MATCH",
+      "srcDigest": "5c4cb66a052997c439ab9ac0670214f65af3c10da7f66e05703760a7a0f1761d",
+      "builtAt": "2026-09-30T07:50:53Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "sidebar": {
+      "result": "MATCH",
+      "srcDigest": "4787c8a07d4442adc5e1253ace8935917f4b367bbd8263f48e7ef0fe0662c9a6",
+      "builtAt": "2026-09-30T07:50:40Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    },
+    "threads": {
+      "result": "MATCH",
+      "srcDigest": "23c6dee5224cb8ba00c5c974c1129b7f0d10b4825efb7d47c0f185e6cad3d187",
+      "builtAt": "2026-09-30T07:50:42Z",
+      "scope": "complete original donor input set, before selected historical vendor pruning; not a rebuilt Prime bundle claim"
+    }
+  }
+}

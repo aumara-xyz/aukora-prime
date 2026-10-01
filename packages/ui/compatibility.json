@@ -1,0 +1,619 @@
+{
+  "schema_version": 1,
+  "dsh": {
+    "repository": "https://github.com/deepseek-ai/deepseek-harness",
+    "commit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+    "archiveUrl": "https://api.github.com/repos/deepseek-ai/deepseek-harness/tarball/0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+    "archiveSha256": "ae0968314dcd5e3c9d7e8f1f5748bbd289afc4ef5668187e0ef6524a7c64c87e",
+    "lockfileSha256": "ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1",
+    "packageManager": "pnpm@11.7.0",
+    "cordisVersion": "4.0.2",
+    "license": "MIT",
+    "status": "pinned base of every AUKORA release; untagged commit 5 after dsh-v0.1.6-alpha.1; not current with upstream (re-pin pending)",
+    "localPatches": [
+      {
+        "file": "patches/client-hmr-events-auth.patch.json",
+        "sha256": "ec6959e6e4e944202c20151a70a9e731362b61ce65fa2c98e044c3852754f5a1",
+        "reason": "/plugins/events answered 200 to an unauthenticated request while every other app-added route consults ctx.connection; the SSE channel gets the same browser authentication as the rest of the app, and connection becomes a declared dependency so the plugin fails closed (no channel) rather than open when the service is absent."
+      },
+      {
+        "file": "patches/host-build-heap-fits-the-rehearsal-container.patch.json",
+        "sha256": "901b5b02ac89d68ce166efa6f618c9393ff5a0fbfbd12be7e6200e5f57f88c6e",
+        "reason": "MEASURED (beta-118, beta-119): the upstream host-build heap ceiling is larger than any container this rehearsal may start, so V8 does not collect hard enough and the build is OOM-killed with 137 -- a CODE red no source change could fix. At --memory 3700m with heap 3072 the build COMPLETES, peak 3515 MiB of 3700 (a 95% fit, named in rehearsal-meeting section 16). INERT ON GITHUB'S 7 GB RUNNER: it changes how the compiler runs, never what it emits."
+      },
+      {
+        "file": "patches/subprocess-output-tail-copy.patch.json",
+        "sha256": "b116a442e173e37ae9054b6a0a8fc171c70ee408c7b99109d78f941bb4de4edf",
+        "reason": "H5, MEASURED 2026-09-27 by tests/aukora-subprocess-output-retention.test.mjs: OutputCollector.push trims its head chunk with `head.subarray(excess)`, and Buffer.subarray returns a VIEW sharing the parent's backing store. A retained window of 1024 B therefore PINS A 1048576 B ALLOCATION (x1024 amplification) while the collector's own byte counter reports 1024 B \u2014 which is why the leak is invisible in its own accounting. In the alpha-17 snapshot pair this was the ONLY one of the reviewed roots that grew: across 120 driven turns Session (H1) and projection (H2) were unchanged, `chunks` grew, and Buffer 12.66 MB / ArrayBuffer 12.30 MB were the largest retained structures in a 50 MB heap. The fix copies the trimmed tail so it stops pinning the whole parent allocation; MEASURED on a copy of the module, the same window then pins a pooled 8192 B slab \u2014 x128 less."
+      },
+      {
+        "file": "patches/mandatory-agent-confinement.patch.json",
+        "sha256": "d7091a14e87ab13116b5cdd5f772fef8d499a0a83396df391a0a79de5fc69c9f",
+        "reason": "Agent process launch requires the AUKORA native confinement service before child execution; full-access session mode cannot bypass it, and unwired native SDK providers refuse startup."
+      }
+    ]
+  },
+  "faces": {
+    "layout": {
+      "name": "@aukora/face-layout",
+      "version": "0.1.1-rc.2",
+      "dsh": {
+        "client": {
+          "inject": [
+            "@deepseek-ai/dsh-client-locale",
+            "@deepseek-ai/dsh-client-ui-theme",
+            "@deepseek-ai/dsh-client-store",
+            "@deepseek-ai/dsh-client-ui-renderer",
+            "@deepseek-ai/dsh-client-ui-session"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "zod": "^4.4.3"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/dsh-commands": "workspace:^",
+        "@deepseek-ai/dsh-session-projection": "workspace:^",
+        "@deepseek-ai/dsh-sandbox": "workspace:^",
+        "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@deepseek-ai/dsh-api-remotes": "workspace:^"
+      },
+      "devDependencies": {
+        "@deepseek-ai/dsh-agent": "workspace:^",
+        "@deepseek-ai/dsh-commands": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
+        "@deepseek-ai/dsh-session-projection": "workspace:^",
+        "@deepseek-ai/dsh-sandbox": "workspace:^",
+        "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@deepseek-ai/dsh-brand": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@types/react": "~18.3.1",
+        "react": "^18.2.0",
+        "@deepseek-ai/dsh-api-remotes": "workspace:^"
+      },
+      "bundle_requires": [
+        "@deepseek-ai/dsh-client-store",
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "theme",
+        "locale",
+        "sessions"
+      ]
+    },
+    "sidebar": {
+      "name": "@aukora/face-sidebar",
+      "version": "0.1.0",
+      "dsh": {
+        "client": {
+          "inject": [
+            "@deepseek-ai/dsh-client-store",
+            "@aukora/face-layout",
+            "@deepseek-ai/dsh-client-ui-renderer",
+            "@deepseek-ai/dsh-client-ui-session"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "clsx": "^2.0.0"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@aukora/face-layout": "workspace:^"
+      },
+      "devDependencies": {
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@types/react": "~18.3.1",
+        "@deepseek-ai/cordis": "workspace:^",
+        "react": "^18.2.0",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^"
+      },
+      "bundle_requires": [
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "layout"
+      ]
+    },
+    "threads": {
+      "name": "@aukora/face-threads",
+      "version": "0.1.0",
+      "dsh": {
+        "client": {
+          "inject": [
+            "@deepseek-ai/dsh-client-connection",
+            "@deepseek-ai/dsh-client-locale",
+            "@deepseek-ai/dsh-client-store",
+            "@deepseek-ai/dsh-client-ui-conversation",
+            "@aukora/face-layout",
+            "@aukora/face-sidebar",
+            "@deepseek-ai/dsh-api-session-controller",
+            "@deepseek-ai/dsh-api-workspace-controller",
+            "@deepseek-ai/dsh-client-ui-renderer",
+            "@deepseek-ai/dsh-client-ui-session",
+            "@deepseek-ai/dsh-client-ui-workspace"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "clsx": "^2.0.0"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@aukora/face-sidebar": "workspace:^"
+      },
+      "devDependencies": {
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+        "@aukora/face-sidebar": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@types/react": "~18.3.1",
+        "@deepseek-ai/cordis": "workspace:^",
+        "react": "^18.2.0",
+        "@deepseek-ai/dsh-api-session-controller": "workspace:^",
+        "@deepseek-ai/dsh-api-workspace-controller": "workspace:^",
+        "@deepseek-ai/dsh-util-workspace-path": "workspace:^",
+        "@deepseek-ai/dsh-api-remotes": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^",
+        "@deepseek-ai/dsh-session": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",
+        "@deepseek-ai/dsh-schedule": "workspace:^"
+      },
+      "bundle_requires": [
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-store",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "sessions",
+        "workspaces",
+        "locale",
+        "connection",
+        "layout",
+        "remote",
+        "remote.directoryPicker"
+      ]
+    },
+    "apps": {
+      "name": "@aukora/face-apps",
+      "version": "0.1.1-rc.2",
+      "dsh": {
+        "client": {
+          "external": [
+            "@aukora/face-layout/client"
+          ],
+          "inject": [
+            "@deepseek-ai/dsh-client-locale",
+            "@aukora/face-layout",
+            "@deepseek-ai/dsh-client-store"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "@deepseek-ai/schemastery": "workspace:^",
+        "zod": "^4.4.3",
+        "ws": "^8.21.0"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/cordis": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-credentials": "workspace:^",
+        "@deepseek-ai/dsh-host-frontend-static": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/dsh-session": "workspace:^",
+        "@deepseek-ai/dsh-session-persistence": "workspace:^",
+        "@deepseek-ai/dsh-session-projection": "workspace:^",
+        "@deepseek-ai/dsh-session-query": "workspace:^",
+        "@deepseek-ai/dsh-subprocess": "workspace:^",
+        "@deepseek-ai/dsh-tools": "workspace:^",
+        "@deepseek-ai/dsh-web": "workspace:^"
+      },
+      "devDependencies": {
+        "@deepseek-ai/cordis": "workspace:^",
+        "@deepseek-ai/dsh-agent": "workspace:^",
+        "@deepseek-ai/dsh-agent-loop": "workspace:^",
+        "@deepseek-ai/dsh-agent-loop-testkit": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-credentials": "workspace:^",
+        "@deepseek-ai/dsh-host-frontend-static": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/dsh-llm": "workspace:^",
+        "@deepseek-ai/dsh-session": "workspace:^",
+        "@deepseek-ai/dsh-session-persistence": "workspace:^",
+        "@deepseek-ai/dsh-session-projection": "workspace:^",
+        "@deepseek-ai/dsh-session-query": "workspace:^",
+        "@deepseek-ai/dsh-subprocess": "workspace:^",
+        "@deepseek-ai/dsh-system-prompt": "workspace:^",
+        "@deepseek-ai/dsh-tools": "workspace:^",
+        "@deepseek-ai/dsh-web": "workspace:^",
+        "@testing-library/react": "^16.1.0",
+        "@types/react": "~18.3.1",
+        "@types/ws": "^8.18.1",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
+        "@deepseek-ai/dsh-api-session-controller": "workspace:^",
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^"
+      },
+      "bundle_requires": [
+        "@aukora/face-layout/client",
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "locale"
+      ]
+    },
+    "messages": {
+      "name": "@aukora/face-messages",
+      "version": "0.1.1-rc.2",
+      "dsh": {
+        "client": {
+          "external": [
+            "@aukora/face-layout/client"
+          ],
+          "inject": [
+            "@deepseek-ai/dsh-client-locale",
+            "@aukora/face-layout",
+            "@deepseek-ai/dsh-client-store",
+            "@deepseek-ai/dsh-client-ui-renderer",
+            "@deepseek-ai/dsh-client-ui-session"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "clsx": "^2.0.0"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^"
+      },
+      "devDependencies": {
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@testing-library/react": "^16.1.0",
+        "@types/react": "~18.3.1",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^"
+      },
+      "imports": {
+        "#jsqr": "./src/vendor/jsqr/jsQR.js"
+      },
+      "bundle_requires": [
+        "@aukora/face-layout/client",
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "locale"
+      ]
+    },
+    "memory": {
+      "name": "@aukora/face-memory",
+      "version": "0.1.1-rc.2",
+      "dsh": {
+        "client": {
+          "external": [
+            "@aukora/face-layout/client"
+          ],
+          "inject": [
+            "@deepseek-ai/dsh-client-connection",
+            "@deepseek-ai/dsh-client-locale",
+            "@aukora/face-layout",
+            "@deepseek-ai/dsh-api-remotes",
+            "@deepseek-ai/dsh-client-store",
+            "@deepseek-ai/dsh-client-ui-renderer",
+            "@deepseek-ai/dsh-client-ui-session"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "clsx": "^2.0.0",
+        "@aukora/face-layout": "workspace:*"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/dsh-api-remotes": "workspace:^",
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^"
+      },
+      "devDependencies": {
+        "@deepseek-ai/dsh-api-remotes": "workspace:^",
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@testing-library/react": "^16.1.0",
+        "@types/react": "~18.3.1",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^"
+      },
+      "bundle_requires": [
+        "@aukora/face-layout/client",
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "locale",
+        "sessions"
+      ]
+    },
+    "aumlok": {
+      "name": "@aukora/face-aumlok",
+      "version": "0.1.1-rc.2",
+      "dsh": {
+        "client": {
+          "inject": [
+            "@deepseek-ai/dsh-client-connection",
+            "@deepseek-ai/dsh-client-locale",
+            "@aukora/face-layout",
+            "@deepseek-ai/dsh-api-remotes",
+            "@deepseek-ai/dsh-client-store",
+            "@deepseek-ai/dsh-client-ui-renderer",
+            "@deepseek-ai/dsh-client-ui-session"
+          ],
+          "platform": "web",
+          "external": [
+            "@aukora/face-layout/client"
+          ]
+        }
+      },
+      "dependencies": {
+        "clsx": "^2.0.0"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/dsh-api-remotes": "workspace:^",
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^"
+      },
+      "devDependencies": {
+        "@deepseek-ai/dsh-api-remotes": "workspace:^",
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@testing-library/react": "^16.1.0",
+        "@types/react": "~18.3.1",
+        "@types/react-dom": "~18.3.0",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^",
+        "@aukora/face-messages": "workspace:^"
+      },
+      "bundle_requires": [
+        "@aukora/face-layout/client",
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-store",
+        "react",
+        "react-dom",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "locale",
+        "connection"
+      ]
+    },
+    "documents": {
+      "name": "@aukora/face-documents",
+      "version": "0.1.1-rc.2",
+      "dsh": {
+        "client": {
+          "inject": [
+            "@deepseek-ai/dsh-client-locale",
+            "@aukora/face-layout",
+            "@deepseek-ai/dsh-client-store",
+            "@deepseek-ai/dsh-client-ui-renderer",
+            "@deepseek-ai/dsh-client-ui-session"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "clsx": "^2.0.0"
+      },
+      "peerDependencies": {
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^"
+      },
+      "devDependencies": {
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-renderer": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-session": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@testing-library/react": "^16.1.0",
+        "@types/react": "~18.3.1",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0"
+      },
+      "bundle_requires": [
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "locale"
+      ]
+    },
+    "settings": {
+      "name": "@aukora/face-settings",
+      "version": "0.1.0",
+      "dsh": {
+        "client": {
+          "inject": [
+            "@deepseek-ai/dsh-client-store",
+            "@deepseek-ai/dsh-client-ui-settings",
+            "@deepseek-ai/dsh-client-locale",
+            "@deepseek-ai/dsh-client-connection",
+            "@deepseek-ai/dsh-api-remotes",
+            "@aukora/face-layout"
+          ],
+          "platform": "web"
+        }
+      },
+      "dependencies": {
+        "@deepseek-ai/schemastery": "workspace:^",
+        "clsx": "^2.0.0",
+        "zod": "^4.4.3"
+      },
+      "peerDependencies": {
+        "@deepseek-ai/dsh-api-remotes": "workspace:^",
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/dsh-permission-presets": "workspace:^",
+        "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
+        "@deepseek-ai/dsh-session": "workspace:^",
+        "@deepseek-ai/dsh-session-projection": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@deepseek-ai/dsh-settings": "workspace:^",
+        "@deepseek-ai/dsh-user-approval": "workspace:^"
+      },
+      "devDependencies": {
+        "@aukora/face-layout": "workspace:^",
+        "@deepseek-ai/cordis": "workspace:^",
+        "@deepseek-ai/dsh-api-remotes": "workspace:^",
+        "@deepseek-ai/dsh-client-connection": "workspace:^",
+        "@deepseek-ai/dsh-client-locale": "workspace:^",
+        "@deepseek-ai/dsh-client-store": "workspace:^",
+        "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-settings": "workspace:^",
+        "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+        "@deepseek-ai/dsh-host-webserver": "workspace:^",
+        "@deepseek-ai/dsh-invariants": "workspace:^",
+        "@deepseek-ai/dsh-permission-presets": "workspace:^",
+        "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
+        "@deepseek-ai/dsh-session": "workspace:^",
+        "@deepseek-ai/dsh-session-projection": "workspace:^",
+        "@deepseek-ai/dsh-settings": "workspace:^",
+        "@deepseek-ai/dsh-user-approval": "workspace:^",
+        "@types/react": "~18.3.1",
+        "react": "^18.2.0"
+      },
+      "bundle_requires": [
+        "@deepseek-ai/dsh-client-store",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "react",
+        "react/jsx-runtime"
+      ],
+      "bundle_format": "window.__ModuleLoader__.load({id,factory})",
+      "cordis_services": [
+        "slots",
+        "locale",
+        "connection",
+        "remote",
+        "remote.settings",
+        "settingsScope",
+        "layout"
+      ]
+    }
+  },
+  "build_mode": "Integrator-owned overlay of exact pinned DSH. Place copied faces at packages/client/aukora-face-NAME so original tsconfig and ../tsdown.client.ts resolve against DSH. Direct face build from packages/ui/faces is unsupported. No other owned repository is consulted.",
+  "host_mount": "Use Prime adapter host routes. Do not activate donor host entries wholesale.",
+  "client_mount": "Preserve individual face dsh.client inject/external metadata and native Cordis apply(ctx); layout precedes dependent shell faces."
+}
