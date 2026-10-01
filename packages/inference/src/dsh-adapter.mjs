@@ -4,6 +4,11 @@ import { refuse } from './policy.mjs';
 export function createDshAdapter(LlmAdapter, { gateway, bindRequest, attributionHeaders }) {
   if (typeof LlmAdapter !== 'function' || typeof bindRequest !== 'function' || typeof attributionHeaders !== 'function') refuse('DSH_HOST_BINDING_REQUIRED');
   return new class extends LlmAdapter {
+    providerInfo(provider) { return { id: provider, name: 'DeepSeek' }; }
+    async listModels(provider) {
+      if (provider !== 'externalDeepSeek') refuse('ROUTE_UNAVAILABLE');
+      return [{ provider, id: gateway.route.model, name: gateway.route.model }];
+    }
     providerRetryPolicy() {
       return Object.freeze({ mode: 'normal', maxRetries: 0, retryableCodes: Object.freeze(['TRANSPORT']),
         initialDelayMs: 500, maxDelayMs: 10000, jitterRatio: 0 });

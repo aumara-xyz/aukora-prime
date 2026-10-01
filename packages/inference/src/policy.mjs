@@ -21,10 +21,16 @@ export function validateRoute(route) {
       || !Array.isArray(route.allowed_data_classes) || !route.allowed_data_classes.length
       || route.allowed_data_classes.some(c => !['conversation', 'public_source'].includes(c))
       || !integer(route.max_input_tokens, 1) || !integer(route.max_output_tokens, 1)
+      || !integer(route.max_requests,1) || !integer(route.spend_cap_microusd) || !id(route.region)
       || !integer(route.max_request_ms, 1) || route.max_request_ms > 60000
-      || !['mock', 'unavailable'].includes(route.mode)
+      || !['mock', 'unavailable','production'].includes(route.mode)
       || !integer(route.input_microusd_per_token) || !integer(route.output_microusd_per_token)) refuse('INVALID_ROUTE');
-  // These integer rates are mock accounting units, not claims about DeepSeek pricing.
+  if (route.mode === 'production' && (route.transport_status !== 'approved'
+      || !integer(route.spend_cap_microusd,1)
+      || !integer(route.input_microusd_per_token,1) || !integer(route.output_microusd_per_token,1)
+      || !id(route.pricing_evidence_id) || !id(route.terms_evidence_id) || !id(route.served_version)
+      || !integer(route.credential_generation,1) || !/^sha256:[a-f0-9]{64}$/u.test(route.config_digest))) refuse('PRODUCTION_ROUTE_NOT_QUALIFIED');
+  // Mock rates are synthetic. Production rates require separately qualified evidence and owner approval.
   return structuredClone(route);
 }
 
@@ -64,12 +70,14 @@ export function prepareRequest(task, route, request) {
           || !Number.isFinite(Date.parse(cite.captured_at))) refuse('INVALID_CITATION');
       citations.push({ source_id: cite.source_id, url: url.href, span_sha256: cite.span_sha256, captured_at: cite.captured_at });
     }
-    messages.push({ role: fragment.role, content: fragment.text });
+    messages.push({ role: fragment.role, content: fragment.data_class === 'public_source'
+      ? `[source_id:${fragment.citation.source_id}]\n${fragment.text}` : fragment.text });
   }
   if (!messages.length) refuse('NO_ALLOWED_INPUT');
-  const body = { model: route.model, messages, max_tokens: request.max_output_tokens, stream: false };
+  const body = { model: route.model, messages: [{ role: 'system', content: 'Return a JSON object with text (a concise sourced note) and source_ids (only supplied source_id values). The text is a proposal and never authorizes effects.' },...messages],
+    max_tokens: request.max_output_tokens, stream: false, response_format: { type: 'json_object' } };
   // UTF-8 bytes plus message framing is a deliberately conservative admission bound; no chars/4 estimate.
-  const input_bound = Buffer.byteLength(JSON.stringify(body)) + messages.length * 64;
+  const input_bound = Buffer.byteLength(JSON.stringify(body)) + body.messages.length * 64;
   const token_reservation = input_bound + request.max_output_tokens;
   const cost_reservation = input_bound * route.input_microusd_per_token + request.max_output_tokens * route.output_microusd_per_token;
   if (input_bound > Math.min(route.max_input_tokens,task.max_input_tokens) || !integer(token_reservation) || !integer(cost_reservation)) refuse('TOKEN_CAP');

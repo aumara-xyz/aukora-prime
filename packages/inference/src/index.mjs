@@ -2,4 +2,7 @@ export { ExternalDeepSeekGateway, MockDeepSeekProvider, mockAttributionHeaders }
 export { SpendLedger } from './ledger.mjs';
 export { InferenceRefusal, hash } from './policy.mjs';
 export { createDshAdapter, mountDshInference } from './dsh-adapter.mjs';
-export { fromPrimeRoute, fromPrimeTask, usdMicros } from './prime-contracts.mjs';
+export { fromPrimeRoute, fromQualifiedPrimeRoute, fromPrimeTask, usdMicros } from './prime-contracts.mjs';
+export { RemoteDeepSeekProvider } from './remote-provider.mjs';
+export { OwnerProviderSettings, providerCatalog, providerNamespace, mountDshCatalog, PROVIDER_DIRECTORY } from './provider-settings.mjs';
+export { createProviderSettingsHandler } from './provider-http.mjs';

@@ -7,16 +7,18 @@ const { version } = createRequire(import.meta.url)('../package.json');
 export const mockAttributionHeaders = () => ({ 'user-agent': `aukora-prime/${version} (+https://github.com/aumara-xyz/aukora-prime)` });
 
 export class ExternalDeepSeekGateway {
-  constructor({ route, ledger, request_home, provider }) {
+  constructor({ route, ledger, request_home, provider, authorize_dispatch }) {
     this.route = Object.freeze(validateRoute(route));
     if (!request_home || !request_home.startsWith('/')) refuse('REQUEST_STORE_REQUIRED');
     this.ledger = ledger;
     this.request_home = resolve(request_home);
     this.provider = provider;
+    this.authorize_dispatch = authorize_dispatch;
   }
   status() {
     return { route_id: 'externalDeepSeek', mode: this.route.mode, provider: 'deepseek', model: this.route.model,
-      available: this.route.mode === 'mock' && this.provider?.mode === 'mock',
+      available: (this.route.mode === 'mock' && this.provider?.mode === 'mock')
+        || (this.route.mode === 'production' && this.provider?.mode === 'production' && typeof this.authorize_dispatch === 'function'),
       pending: ['approved_api_credentials', 'approved_spend_cap', 'approved_data_scope', 'qualified_provider_terms_and_served_version'] };
   }
   async generate(request, { signal, attribution_headers = mockAttributionHeaders() } = {}) {
@@ -25,8 +27,26 @@ export class ExternalDeepSeekGateway {
     const task = this.ledger.task(request.owner_id,request.task_id);
     if (canonical(this.ledger.route(request.owner_id,request.task_id)) !== canonical(this.route)) refuse('TASK_ROUTE_CHANGED');
     const prepared = prepareRequest(task,this.route,request);
-    if (this.route.mode !== 'mock' || this.provider?.mode !== 'mock') refuse('CREDENTIALS_AND_SPEND_APPROVAL_PENDING');
+    const production = this.route.mode === 'production' && this.provider?.mode === 'production';
+    if ((!production && (this.route.mode !== 'mock' || this.provider?.mode !== 'mock'))
+        || (production && typeof this.authorize_dispatch !== 'function')) refuse('CREDENTIALS_AND_SPEND_APPROVAL_PENDING');
     if (signal?.aborted) refuse('CANCELLED_BEFORE_DISPATCH');
+    let admission;
+    if (production) {
+      // This is a trusted C-backed host hook, never model-authored policy or a frontend boolean.
+      admission = await this.authorize_dispatch({ owner_id: task.owner_id, task_id: task.task_id,
+        conversation_id: task.conversation_id, request_uuid: request.request_uuid, body_sha256: prepared.body_hash,
+        binding_hash: prepared.binding_hash, citations_sha256: hash(canonical(prepared.citations)),
+        config_digest: this.route.config_digest, reserved_tokens: prepared.token_reservation,
+        reserved_cost_microusd: prepared.cost_reservation, credential_generation: this.route.credential_generation });
+      if (!admission || admission.request_uuid !== request.request_uuid || admission.body_sha256 !== prepared.body_hash
+          || admission.owner_id !== task.owner_id || admission.task_id !== task.task_id || admission.conversation_id !== task.conversation_id
+          || admission.config_digest !== this.route.config_digest || admission.binding_hash !== prepared.binding_hash
+          || admission.citations_sha256 !== hash(canonical(prepared.citations))
+          || admission.credential_generation !== this.route.credential_generation
+          || admission.reserved_tokens !== prepared.token_reservation
+          || admission.reserved_cost_microusd !== prepared.cost_reservation) refuse('DISPATCH_APPROVAL_REQUIRED');
+    }
     const home = join(this.request_home,hash(JSON.stringify([task.owner_id,task.task_id,task.conversation_id])));
     const sessionId = task.conversation_id;
     const receipt = this.ledger.reserve(task,request.request_uuid,prepared,() => {
@@ -55,13 +75,17 @@ export class ExternalDeepSeekGateway {
         route_id: 'externalDeepSeek', endpoint: this.route.endpoint, body, request_uuid: request.request_uuid,
         body_sha256: receipt.body_sha256, citations: structuredClone(prepared.citations), signal: controller.signal,
         headers: { ...attribution_headers },
+        owner_id: task.owner_id, task_id: task.task_id, conversation_id: task.conversation_id,
+        config_digest: this.route.config_digest ?? null, credential_generation: this.route.credential_generation ?? null,
+        admission, reserved_tokens: prepared.token_reservation, reserved_cost_microusd: prepared.cost_reservation,
+        binding_hash: prepared.binding_hash, citations_sha256: hash(canonical(prepared.citations)),
       }))]);
       if (!reply || typeof reply.text !== 'string' || !integer(reply.input_tokens) || !integer(reply.output_tokens)
           || reply.input_tokens > prepared.input_bound || reply.output_tokens > request.max_output_tokens
-          || Buffer.byteLength(reply.text) > request.max_output_tokens
+          || Buffer.byteLength(reply.text) > request.max_output_tokens * 16
           || !Array.isArray(reply.source_ids) || reply.source_ids.some(id => !prepared.citations.some(c => c.source_id === id))) refuse('INVALID_PROVIDER_RESULT');
       const cost = reply.input_tokens * this.route.input_microusd_per_token + reply.output_tokens * this.route.output_microusd_per_token;
-      const result = { outcome: 'completed', request_uuid: request.request_uuid, route_id: 'externalDeepSeek', mode: 'mock',
+      const result = { outcome: 'completed', request_uuid: request.request_uuid, route_id: 'externalDeepSeek', mode: this.route.mode,
         proposal: { text: reply.text, source_ids: reply.source_ids, grantsAuthority: false },
         usage: { input_tokens: reply.input_tokens, output_tokens: reply.output_tokens, cost_microusd: cost },
         receipt, omitted: prepared.omitted };

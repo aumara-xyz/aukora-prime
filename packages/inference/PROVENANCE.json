@@ -18,7 +18,7 @@
     {
       "item": "donor spend-gate.ts",
       "disposition": "exclude from runtime",
-      "reason": "swallows persistence failures; broad price/provider table/default cap not approved for Prime; invariants adapted to transactional mock ledger"
+      "reason": "swallows persistence failures; broad price/provider table/default cap not approved for Prime; invariants adapted to transactional owned ledger and separate worker reservation"
     },
     {
       "item": "additional donor pending work",
@@ -32,12 +32,15 @@
     },
     {
       "item": "real DeepSeek route",
-      "disposition": "pending",
-      "reason": "explicit API credentials, spending/data scope, price/terms and served-version qualification pending"
+      "disposition": "owned production source implemented, activation pending",
+      "reason": "native fixed-endpoint HTTP, private proxy, encrypted credential handoff and owner settings implemented; real key, numeric cap, C joins, Linux UID/custody/private transport, price/terms and served-version qualification remain pending"
     }
   ],
   "runtime_dependencies": [
     "Node.js >=24.11.1 built-ins"
   ],
-  "paid_calls": 0
+  "paid_calls": 0,
+  "continuation_base": "40e08bb467d594731629b5c005b2d07320269689",
+  "production_wire_reference": "pinned DSH llm-deepseek source interface and endpoint; no claim of current provider pricing, terms or served-version qualification",
+  "credential_fixtures": "synthetic only; no real credential read or used"
 }

@@ -23,6 +23,15 @@ export function fromPrimeRoute(route, mock) {
     region: route.region, transport_status: route.status });
 }
 
+/** Trusted owner/credential host only: callers must independently verify approval and qualification. */
+export function fromQualifiedPrimeRoute(route, qualification) {
+  if (route?.status !== 'approved') refuse('PRODUCTION_ROUTE_NOT_QUALIFIED');
+  const base = fromPrimeRoute(route,{ ...qualification, mode: 'unavailable' });
+  return validateRoute({ ...base, mode: 'production', pricing_evidence_id: qualification.pricing_evidence_id,
+    terms_evidence_id: qualification.terms_evidence_id, served_version: qualification.served_version,
+    credential_generation: qualification.credential_generation, config_digest: qualification.config_digest });
+}
+
 export function fromPrimeTask(task, route, { max_total_tokens } = {}) {
   if (task?.version !== 1 || !['pending','running'].includes(task.status)
       || !Array.isArray(task.allowed_data_classes) || !integer(task.max_input_tokens,1)

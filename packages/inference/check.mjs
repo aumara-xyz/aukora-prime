@@ -1,13 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createRequire } from 'node:module';
-import { ExternalDeepSeekGateway, MockDeepSeekProvider, SpendLedger, createDshAdapter, fromPrimeRoute, fromPrimeTask, hash, usdMicros, mockAttributionHeaders } from './src/index.mjs';
+import { Readable } from 'node:stream';
+import { ExternalDeepSeekGateway, MockDeepSeekProvider, SpendLedger, createDshAdapter, fromPrimeRoute, fromQualifiedPrimeRoute, fromPrimeTask, hash, usdMicros, mockAttributionHeaders,
+  OwnerProviderSettings, providerCatalog, mountDshCatalog, RemoteDeepSeekProvider, createProviderSettingsHandler } from './src/index.mjs';
+import { CredentialVault, assertSeparatedCredentialProcess } from './src/credential-service.mjs';
+import { DeepSeekHttpProvider } from './src/credential-http.mjs';
+import { createCredentialEntryHandler } from './src/provider-http.mjs';
 
 test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncertainty and DSH stream', async () => {
   const dir = mkdtempSync(join(tmpdir(),'prime-inference-'));
@@ -116,6 +121,9 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
       const requireDsh = createRequire(process.env.PRIME_DSH_LLM_ENTRY);
       const { Context } = await import(requireDsh.resolve('@deepseek-ai/cordis'));
       context = new Context(); await context.plugin(realDsh.default);
+      const disposeCatalog = mountDshCatalog(context);
+      assert.equal(context.llm.listConfigurableProviders()[0].provider,'externalDeepSeek');
+      disposeCatalog();
       context.llm.registerAdapter(['externalDeepSeek'],adapter);
       stream = options => context.llm.stream(options);
     }
@@ -151,6 +159,100 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
     const results = await Promise.all([runWorker(),runWorker()]);
     assert.equal(results.filter(r => r === 'completed').length,1);
     assert.equal(results.filter(r => r === 'REQUEST_CAP').length,1);
-    console.log('PASS mock receipt/scope/filter/caps/restart/outage/cancel/reconcile/concurrent admission/DSH stream; paid calls=0');
+
+    // Synthetic key only: test the server-only wire path and encrypted storage without any network call.
+    const fixtureSecret = 'SYNTHETIC-KEY-FIXTURE-ONLY';
+    const vaultPath = join(dir,'vault.sqlite'), fixtureKey = Buffer.alloc(32,42);
+    let vault = new CredentialVault({ path: vaultPath, withEncryptionKey: callback => callback(fixtureKey) });
+    const ticket = vault.createTicket(task.owner_id,0,Date.now()+60000);
+    assert.deepEqual(await vault.submit({ owner_id: task.owner_id, ticket, secret: fixtureSecret }),{configured:true,generation:1});
+    await assert.rejects(vault.submit({ owner_id: task.owner_id, ticket, secret: fixtureSecret }),{code:'CREDENTIAL_TICKET_INVALID'});
+    const otherTicket = vault.createTicket(task.owner_id,1,Date.now()+60000);
+    await assert.rejects(vault.submit({ owner_id:'other-owner', ticket:otherTicket, secret:fixtureSecret }),{code:'CREDENTIAL_TICKET_INVALID'});
+    for (const path of [vaultPath,vaultPath+'-wal']) if (existsSync(path)) assert.equal(readFileSync(path).includes(Buffer.from(fixtureSecret)),false);
+    vault.close(); vault = new CredentialVault({ path:vaultPath, withEncryptionKey:callback=>callback(fixtureKey) });
+    assert.deepEqual(vault.status(task.owner_id),{configured:true,generation:1});
+    assert.throws(() => assertSeparatedCredentialProcess(process.getuid?.() ?? 1000),{code:'SEPARATE_CREDENTIAL_UID_REQUIRED'});
+    const prodRoute = fromQualifiedPrimeRoute({ ...routeEnvelope, status:'approved' },{ ...route, pricing_evidence_id:'synthetic-pricing-proof',
+      terms_evidence_id:'synthetic-terms-proof', served_version:'synthetic-served-version', credential_generation:1,
+      config_digest:'sha256:'+hash('synthetic-approved-route') });
+    assert.throws(()=>fromQualifiedPrimeRoute(routeEnvelope,{}),{code:'PRODUCTION_ROUTE_NOT_QUALIFIED'});
+    const prodTask = { ...task, task_id:'production-fixture' }; ledger.register(prodTask,prodRoute);
+    const prodRequest = () => { const r=request(); r.task_id=prodTask.task_id; r.fragments=r.fragments.map(f=>({...f,task_id:prodTask.task_id}));return r; };
+    let wireCalls=0, failWire=false, echoSecret=false;
+    const http = new DeepSeekHttpProvider({ useCredential:(owner,generation,callback)=>vault.use(owner,generation,callback),
+      transport:async (url,options) => {
+        wireCalls++;
+        assert.equal(url,'https://api.deepseek.com/chat/completions'); assert.equal(options.redirect,'error');
+        assert.equal(options.credentials,'omit'); assert.equal(options.headers.authorization,'Bearer '+fixtureSecret);
+        const body=JSON.parse(options.body); assert.equal(body.stream,false); assert.equal(body.response_format.type,'json_object');
+        assert.equal(JSON.stringify(body).includes('OMIT_'),false);
+        if(failWire) return new Response('sensitive provider error '+fixtureSecret,{status:401});
+        return new Response(JSON.stringify({model:prodRoute.served_version,usage:{prompt_tokens:8,completion_tokens:25},
+          choices:[{finish_reason:'stop',message:{content:JSON.stringify({text:echoSecret?fixtureSecret:'Fixture sourced note.',source_ids:['synthetic-source']})}}]}),{status:200});
+      } });
+    const proxy = new RemoteDeepSeekProvider({dispatch:(envelope,{signal}) => {
+      assert.equal(JSON.stringify(envelope).includes(fixtureSecret),false);
+      return http.generate({...envelope,served_version:prodRoute.served_version,signal});
+    }});
+    const paidGateway = new ExternalDeepSeekGateway({route:prodRoute,ledger,request_home:join(dir,'requests'),provider:proxy,
+      authorize_dispatch:async admission => ({...admission,operation_id:'synthetic-consumed-admission'})});
+    const wired = await paidGateway.generate(prodRequest());
+    assert.equal(wired.outcome,'completed'); assert.equal(wired.mode,'production'); assert.equal(wireCalls,1);
+    assert.equal(JSON.stringify(wired).includes(fixtureSecret),false);
+    failWire=true; const failedWireRequest=prodRequest(); const failedWire=await paidGateway.generate(failedWireRequest);
+    assert.equal(failedWire.outcome,'outcome_unknown'); assert.equal(failedWire.reservation_retained,true);
+    assert.equal(JSON.stringify(failedWire).includes(fixtureSecret),false);
+    await assert.rejects(paidGateway.generate(failedWireRequest),{code:'REQUEST_ALREADY_RESERVED'});
+    assert.equal(wireCalls,2);
+    const noGrant = new ExternalDeepSeekGateway({route:prodRoute,ledger,request_home:join(dir,'requests'),provider:proxy});
+    await assert.rejects(noGrant.generate(prodRequest()),{code:'CREDENTIALS_AND_SPEND_APPROVAL_PENDING'});
+    failWire=false;echoSecret=true;
+    const echoed=await paidGateway.generate(prodRequest());
+    assert.equal(echoed.outcome,'outcome_unknown');assert.equal(JSON.stringify(echoed).includes(fixtureSecret),false);
+    assert.equal(wireCalls,3);
+
+    let approvedCalls=0;
+    const structuralValidator = process.env.PRIME_CONTRACTS_ENTRY
+      ? (await import(process.env.PRIME_CONTRACTS_ENTRY)).validateContract
+      : (kind,value) => {assert.equal(kind,'ModelRoute'); assert.equal(value.version,1);};
+    const settings = new OwnerProviderSettings({path:join(dir,'provider-settings.sqlite'),validateContract:structuralValidator,
+      authenticateOwner:async context => context?.fixtureOwner === task.owner_id ? {owner_id:task.owner_id} : undefined,
+      approveConfiguration:async input => {approvedCalls++;return{owner_id:input.owner_id,config_digest:input.config_digest,operation_id:'synthetic-config-grant'};},
+      credentials:{status:async owner=>vault.status(owner),createHandoff:async input=>({provider:'externalDeepSeek',method:'POST',path:'/api/prime/inference/credential-entry',
+        ticket:vault.createTicket(input.owner_id,input.expected_generation,Date.now()+60000),expires_at:new Date(Date.now()+60000).toISOString()})}});
+    const contextOwner={fixtureOwner:task.owner_id};
+    const config={route:routeEnvelope,pricing:{input_microusd_per_token:1,output_microusd_per_token:2,max_request_ms:100,
+      pricing_evidence_id:'synthetic-pricing-proof',terms_evidence_id:'synthetic-terms-proof',served_version:'synthetic-served-version'}};
+    assert.equal(providerCatalog().providers[0].provider,'externalDeepSeek');
+    await assert.rejects(settings.configure({},config,{}),{code:'OWNER_AUTH_REQUIRED'});
+    const savedConfig=await settings.configure(contextOwner,config,{synthetic:true});
+    assert.equal(savedConfig.paid_requests_enabled,false); assert.equal(approvedCalls,1);
+    const configuredStatus=await settings.status(contextOwner);
+    assert.equal(configuredStatus.paid_requests_enabled,false);
+    assert.equal(configuredStatus.namespace.section.providers.externalDeepSeek.model,route.model);
+    assert.equal(configuredStatus.namespace.section.providers.externalDeepSeek.credentialConfigured,true);
+    assert.equal(configuredStatus.namespace.section.providers.externalDeepSeek.enabled,false);
+    assert.throws(()=>settings.setCredential(fixtureSecret),{code:'SECRET_REQUIRES_SEPARATED_OWNER_ENTRY'});
+    const handoff=await settings.credentialHandoff(contextOwner,{expected_generation:1,approval_proof:{synthetic:true}});
+    assert.equal(JSON.stringify(handoff).includes(fixtureSecret),false);
+    const httpCall=async(handler,{method,url,body,origin='https://owner.example',context=contextOwner})=>{
+      const req=Readable.from(body===undefined?[]:[Buffer.from(JSON.stringify(body))]);
+      Object.assign(req,{method,url,fixtureContext:context,headers:{'content-type':'application/json',origin,'sec-fetch-site':'same-origin'}});
+      const response={status:null,body:null,writeHead(status){this.status=status;},end(text){this.body=JSON.parse(text);}};
+      const handled=await handler(req,response); assert.equal(handled,true); return response;
+    };
+    const appHandler=createProviderSettingsHandler({settings,owner_origin:'https://owner.example',ownerContext:async req=>req.fixtureContext});
+    const catalogResponse=await httpCall(appHandler,{method:'GET',url:'/api/prime/inference/catalog'});assert.equal(catalogResponse.status,200);
+    const wrongOrigin=await httpCall(appHandler,{method:'POST',url:'/api/prime/inference/credential-handoff',body:{expected_generation:1,approval_proof:{synthetic:true}},origin:'https://other.example'});assert.equal(wrongOrigin.status,401);
+    const secretToApp=await httpCall(appHandler,{method:'POST',url:'/api/prime/inference/credential-entry',body:{ticket:handoff.ticket,secret:fixtureSecret}});
+    assert.equal(secretToApp.status,503);assert.equal(JSON.stringify(secretToApp.body).includes(fixtureSecret),false);
+    const entryHandler=createCredentialEntryHandler({owner_origin:'https://owner.example',ownerContext:async req=>req.fixtureContext,
+      service:{submitEntry:async(ctx,input)=>{assert.equal(ctx.fixtureOwner,task.owner_id);return{...await vault.submit({owner_id:task.owner_id,...input}),accidental_extra:fixtureSecret};}}});
+    const entered=await httpCall(entryHandler,{method:'POST',url:handoff.path,body:{ticket:handoff.ticket,secret:fixtureSecret}});
+    assert.equal(entered.status,200);assert.deepEqual(entered.body,{configured:true,generation:2});
+    assert.equal(JSON.stringify(entered.body).includes(fixtureSecret),false);
+    settings.close();vault.close();fixtureKey.fill(0);
+    console.log('PASS mock scope/caps/restart/DSH; fixture-only production HTTPS/proxy/vault/owner settings/entry; external API calls=0');
   } finally { ledger.close(); rmSync(dir,{ recursive: true, force: true }); }
 });

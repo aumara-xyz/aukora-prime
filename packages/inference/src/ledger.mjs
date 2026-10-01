@@ -1,22 +1,10 @@
-import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, lstatSync, openSync, closeSync, fsyncSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { canonical, refuse, validateTask, validateRoute, integer } from './policy.mjs';
+import { openPrivateDatabase } from './private-db.mjs';
 
 /** Host-owned durable ledger. The model never receives this object or database credentials. */
 export class SpendLedger {
   constructor(path) {
-    if (typeof path !== 'string' || !path.startsWith('/') || path === ':memory:') refuse('DURABLE_STORE_REQUIRED');
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    const directory = lstatSync(dirname(path));
-    if (!directory.isDirectory() || (directory.mode & 0o077)) refuse('DURABLE_STORE_NOT_PRIVATE');
-    try { const fd = openSync(path,'wx',0o600); fsyncSync(fd); closeSync(fd); }
-    catch (error) { if (error.code !== 'EEXIST') throw error; }
-    const file = lstatSync(path);
-    if (!file.isFile() || (file.mode & 0o077)) refuse('DURABLE_STORE_NOT_PRIVATE');
-    const directoryFd = openSync(dirname(path),'r');
-    try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
-    this.db = new DatabaseSync(path);
+    this.db = openPrivateDatabase(path);
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS tasks (owner_id TEXT, task_id TEXT, spec TEXT NOT NULL, route TEXT NOT NULL, PRIMARY KEY(owner_id,task_id));
       CREATE TABLE IF NOT EXISTS requests (
