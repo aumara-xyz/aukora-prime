@@ -1,0 +1,56 @@
+{
+  "schema": "prime-ops-provenance-v1",
+  "donor": {
+    "repository": "https://github.com/aumara-xyz/aukora-genesis.git",
+    "commit": "645d3213b8aede3b544269b4224ae09df06b0a42"
+  },
+  "copied_files": [
+    {
+      "source": "scripts/aukora/release-digest.mjs",
+      "destination": "vendor/release-digest.mjs",
+      "sha256": "40f4c6c6b21e9b875d77f96a8c7e10d0cf8c5d8288239651336f056f33fd7108",
+      "modifications": "none"
+    },
+    {
+      "source": "LICENSE",
+      "destination": "LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "modifications": "none"
+    }
+  ],
+  "license": "AGPL-3.0-or-later",
+  "new_implementation": [
+    "archive.py",
+    "cli.mjs",
+    "deployment.mjs",
+    "gates.mjs",
+    "owned-process.mjs",
+    "regression.mjs",
+    "README.md",
+    "package.json"
+  ],
+  "contract_base": "f502d539a01e5efae4fc688ad4759162205aa0f4",
+  "pending_dispositions": [
+    {
+      "item": "OpenShell packaging b44321b4e14c0ed3046c9bce49c2e171f86a3284",
+      "disposition": "defer-to-F-source-acceptance",
+      "reason": "No binary/image/runtime acceptance copied by G"
+    },
+    {
+      "item": "Additional unmerged donor fixes",
+      "disposition": "not-incorporated",
+      "reason": "Exact parent inventory not supplied; no broad rescan or blind merge"
+    },
+    {
+      "item": "release-retention.py",
+      "disposition": "exclude",
+      "reason": "Genesis old release pools/shared state paths; no automatic deletion in Prime ops"
+    }
+  ],
+  "master": {
+    "library_file_id": "private-source-reference-redacted",
+    "version": 2
+  },
+  "legacy_digest_scope": "Original retained for algorithm compatibility; new full-release digest covers marker too; no installation/loaded-code claim",
+  "owned_repo_build_runtime_dependencies": []
+}

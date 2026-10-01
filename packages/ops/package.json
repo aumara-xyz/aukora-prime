@@ -1,0 +1,10 @@
+{
+  "name": "@aukora-prime/ops",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "exports": {".": "./gates.mjs", "./process": "./owned-process.mjs"},
+  "bin": {"prime-ops": "./cli.mjs"},
+  "scripts": {"check": "node regression.mjs"}
+}
