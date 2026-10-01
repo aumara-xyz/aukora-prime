@@ -1,0 +1,8 @@
+vendor/dsh/
+vendor/dsh-source.tar.gz
+.runtime/
+.prime-state/
+node_modules/
+*.log
+.DS_Store
+

@@ -1,0 +1,16 @@
+{
+  "name": "@aukora-prime/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=24.11.1"
+  },
+  "scripts": {
+    "build": "python3 scripts/build-dsh.py",
+    "boot": "./prime boot",
+    "status": "./prime status"
+  }
+}
+
