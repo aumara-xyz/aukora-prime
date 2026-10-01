@@ -22,7 +22,8 @@ export async function runMemoryCommand(argv,{pool}={}) {
     const expectedHeads=third ? parseOriginal(readBytesStrict(resolve(third)).bytes) : undefined
     const checked=inspectSnapshot(snapshot,second,{expectedHeads})
     return {snapshot_integrity:'VERIFIED',records:checked.records.length,heads:snapshot.heads,
-      citations:checked.records.map(r=>({record_id:r.meta.id,revision:String(r.file.revision),...r.citation})),
+      citations:checked.records.map(r=>({record_id:r.meta.id,revision:String(r.file.revision),
+        tombstoned:checked.tombstones.some(t=>t.id===r.meta.id),...r.citation})),
       independent_trust_anchor_supplied:Boolean(third),grants_authority:false}
   }
   if(command==='restore') requireMemory(third==='--synthetic-fixture','memory:real-data-import-not-authorized')

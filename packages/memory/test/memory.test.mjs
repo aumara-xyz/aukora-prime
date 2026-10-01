@@ -2,11 +2,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, writeFileSync, cpSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdtempSync, rmSync, writeFileSync, cpSync, readFileSync, realpathSync } from 'node:fs'
+import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawnSync, execFileSync } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { createPostgresMemory } from '../src/index.mjs'
 import { makeSnapshot, inspectSnapshot } from '../src/snapshot.mjs'
@@ -16,6 +16,7 @@ import { stageKiraMemoryRecord } from '../genesis/plugins/aukora-kira/lib/record
 import { canonicalJSON, kiraRecordContentSha256 } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { verifyDiamondEvidence } from '../src/diamond.mjs'
 import { snapshotReadOnlyKiraFiles } from '../src/read-only-snapshot.mjs'
+import { runMemoryCommand } from '../src/cli.mjs'
 
 // A disposable SQLite-backed SQL fixture, not PostgreSQL acceptance. Translation is limited to the
 // dialect differences below; all records, transactions, bytea and restart storage are real file bytes.
@@ -109,6 +110,9 @@ test('synthetic durable capture, honest ACKs, owner filters, restart, import and
     const cold = spawnSync(process.execPath,[join(copied,'bin/cold-verify.mjs'),join(dir,'snapshot.json'),owner,join(dir,'heads.json')],{cwd:dir,encoding:'utf8'})
     assert.equal(cold.status,0,cold.stderr); assert.equal(JSON.parse(cold.stdout).citations[0].verdict,'VERIFIED')
     assert.equal(JSON.parse(cold.stdout).independent_trust_anchor_supplied,true)
+    assert.equal((await runMemoryCommand(['verify',join(dir,'snapshot.json'),owner,join(dir,'heads.json')])).snapshot_integrity,'VERIFIED')
+    const cliExport = join(dir,'cli-export.json')
+    assert.equal((await runMemoryCommand(['export',owner,cliExport],{pool})).snapshot_integrity,'VERIFIED')
     const restoredPool = new FixturePool(join(dir,'restore.sqlite'))
     try {
       const restored = service(restoredPool); await restored.migrate()
@@ -116,6 +120,7 @@ test('synthetic durable capture, honest ACKs, owner filters, restart, import and
       await assert.rejects(noImportPermission.importSnapshot(captureHost,snapshot,{mode:'synthetic-fixture'}),{code:'memory:real-data-import-not-authorized'})
       assert.equal((await restored.restoreSnapshot(captureHost,snapshot,{mode:'synthetic-fixture',expectedHeads:snapshot.heads})).imported,1)
       assert.equal((await restored.importSnapshot(captureHost,snapshot,{mode:'synthetic-fixture'})).already_imported,true)
+      assert.equal((await runMemoryCommand(['restore',join(dir,'snapshot.json'),owner,'--synthetic-fixture'],{pool:restoredPool})).already_imported,true)
       assert.equal((await restored.status(captureHost,saved.record_id)).record.canonical_bytes,saved.canonical_bytes)
       assert.equal((await restored.status(captureHost,saved.record_id)).indexed,false)
       await restored.drainOutbox(captureHost)
@@ -170,30 +175,63 @@ test('Diamond separate-process consumer checks synthetic signed evidence and ret
   assert.equal((await verifyDiamondEvidence({...args,recordBytes:Buffer.from(JSON.stringify(v1))})).verdict,'UNVERIFIED')
 })
 
-// Run only against a caller-designated disposable loopback database. No DB is discovered or started.
+// The G5 runner supplies its own task-owned socket/cluster. Never connect to a discovered/system DB.
 test('PostgreSQL acceptance on an explicitly supplied disposable database',{
-  skip:!process.env.PRIME_MEMORY_DISPOSABLE_DATABASE_URL ? 'UNPERFORMED: no disposable PostgreSQL runtime supplied' : false
+  skip:!process.env.PRIME_MEMORY_DISPOSABLE_SOCKET_DIR ? 'UNPERFORMED: no disposable PostgreSQL runtime supplied' : false
 },async () => {
-  const url = new URL(process.env.PRIME_MEMORY_DISPOSABLE_DATABASE_URL)
-  assert.ok(['localhost','127.0.0.1','[::1]'].includes(url.hostname),'Only disposable loopback PostgreSQL acceptance is permitted')
+  const dataDir=realpathSync(process.env.PRIME_MEMORY_DISPOSABLE_DATA_DIR)
+  assert.match(dataDir,/^\/(?:private\/)?tmp\/prime-memory-pg\.[^/]+\/data$/)
+  assert.equal(readFileSync(join(dataDir,'../.prime-memory-owned-synthetic'),'utf8'),'prime-memory-synthetic-v1\n')
+  const config={host:process.env.PRIME_MEMORY_DISPOSABLE_SOCKET_DIR,port:55434,database:'postgres',user:userInfo().username}
   const {Pool} = await import('pg')
-  const bootstrap=new Pool({connectionString:url.href}),schema='prime_memory_synthetic_'+Date.now().toString(36)
-  let pg
+  const schema='prime_memory_synthetic_'+Date.now().toString(36),restoreSchema=schema+'_restore'
+  let bootstrap=new Pool(config),pg,restoredPool
   try {
     await bootstrap.query('CREATE SCHEMA '+schema)
-    pg=new Pool({connectionString:url.href,options:'-c search_path='+schema})
+    pg=new Pool({...config,options:'-c search_path='+schema})
     let memory=service(pg); await memory.migrate()
     const saved=await memory.captureRemembered(host(),input,'pg-turn-1')
     assert.equal((await memory.status(host(),saved.record_id)).indexed,false)
     await memory.drainOutbox(host())
     assert.equal((await memory.recall(host(),{query:'banana'})).records[0].record.canonical_bytes,saved.canonical_bytes)
-    await pg.end(); pg=new Pool({connectionString:url.href,options:'-c search_path='+schema}); memory=service(pg)
+    await pg.end(); pg=null;await bootstrap.end();bootstrap=null
+    execFileSync(join(process.env.PRIME_MEMORY_POSTGRES_BINDIR,'pg_ctl'),['-D',dataDir,'-m','fast','-w','-t','30','restart'],{stdio:'pipe'})
+    bootstrap=new Pool(config);pg=new Pool({...config,options:'-c search_path='+schema}); memory=service(pg)
     assert.equal((await memory.cite(host(),saved.record_id)).verdict,'VERIFIED')
     assert.equal((await memory.captureRemembered(host(),input,'pg-turn-1')).record_id,saved.record_id)
-    assert.equal(inspectSnapshot(await memory.exportSnapshot(host()),owner).records.length,1)
+    const second=await memory.captureRemembered(host(),{...input,statement:'second banana'},'pg-turn-2')
+    await memory.drainOutbox(host());await memory.tombstoneRecord(host(),second.record_id,at)
+    assert.equal((await memory.recall(host(),{query:'banana'})).records.length,1)
+    const snapshot=await memory.exportSnapshot(host())
+    assert.equal(inspectSnapshot(snapshot,owner).records.length,2)
+    const standalone=join(dataDir,'../empty-prime-memory')
+    cpSync(fileURLToPath(new URL('../',import.meta.url)),standalone,{recursive:true})
+    const backupFile=join(dataDir,'../backup.json'),headsFile=join(dataDir,'../heads.json')
+    writeFileSync(backupFile,JSON.stringify(snapshot));writeFileSync(headsFile,JSON.stringify(snapshot.heads))
+    const cold=spawnSync(process.execPath,[join(standalone,'bin/cold-verify.mjs'),backupFile,owner,headsFile],{cwd:standalone,encoding:'utf8'})
+    assert.equal(cold.status,0,cold.stderr)
+    assert.equal(JSON.parse(cold.stdout).citations.filter(c=>c.tombstoned).length,1)
+    await bootstrap.query('CREATE SCHEMA '+restoreSchema)
+    restoredPool=new Pool({...config,options:'-c search_path='+restoreSchema})
+    const restored=service(restoredPool);await restored.migrate()
+    assert.equal((await restored.restoreSnapshot(host(),snapshot,{mode:'synthetic-fixture',expectedHeads:snapshot.heads})).imported,2)
+    assert.equal((await restored.status(host(),saved.record_id)).record.canonical_bytes,saved.canonical_bytes)
+    assert.equal((await restored.status(host(),saved.record_id)).indexed,false)
+    await restored.drainOutbox(host())
+    assert.equal((await restored.recall(host(),{query:'banana'})).records.length,1)
+    assert.equal((await restored.cite(host(),saved.record_id)).verdict,'VERIFIED')
+    await assert.rejects(restored.cite(host(),second.record_id),{code:'memory:record-tombstoned'})
+    const retarget=service(restoredPool,{indexGeneration:'postgres-restart-2'})
+    assert.equal((await retarget.status(host(),saved.record_id)).indexed,false)
+    await retarget.repairIndex(host());await retarget.drainOutbox(host())
+    assert.equal((await retarget.status(host(),saved.record_id)).searchable,true)
   } finally {
     if(pg) await pg.end()
-    await bootstrap.query('DROP SCHEMA IF EXISTS '+schema+' CASCADE'); await bootstrap.end()
+    if(restoredPool) await restoredPool.end()
+    if(bootstrap) {
+      await bootstrap.query('DROP SCHEMA IF EXISTS '+restoreSchema+' CASCADE')
+      await bootstrap.query('DROP SCHEMA IF EXISTS '+schema+' CASCADE');await bootstrap.end()
+    }
   }
 })
 

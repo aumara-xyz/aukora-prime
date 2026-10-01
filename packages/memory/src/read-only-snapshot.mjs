@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { lstatSync, realpathSync } from 'node:fs'
-import { resolve, relative, isAbsolute, join } from 'node:path'
+import { relative, isAbsolute, join } from 'node:path'
 import { readBytesStrict } from '../genesis/plugins/aukora-kira/lib/strict-read.mjs'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { parseOriginal, requireMemory, verifyChain, validateOriginal, MAX_BYTES } from './codecs.mjs'

@@ -130,14 +130,14 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     const owner = ownerOf(host)
     requireMemory(typeof host.task_id === 'string' && host.task_id, 'memory:host-task-required')
     requireMemory(typeof idempotencyKey === 'string' && idempotencyKey.length > 0 && idempotencyKey.length <= 1024, 'memory:idempotency-key-required')
-    const allowed = ['category','statement','validFrom','observedAt','confidence','sensitivity','links','origin']
+    const allowed = ['category','statement','validFrom','observedAt','confidence','sensitivity','links']
     requireMemory(input && Object.keys(input).every(k => allowed.includes(k)), 'memory:extraction-fields-invalid')
     requireMemory(host.offTheRecord !== true && host.paused !== true && host.privacy === 'local'
       && !Object.entries(CONTROLS).some(([key,value]) => value.stopsCapture && host.controls?.[key]), 'memory:capture-policy-blocked')
     requireMemory(['owner','owner-voice','owner-edit','backfill','lane-requester','dream','agent'].includes(host.attributedTo), 'memory:host-attribution-required')
     const events = eventEntries(host), requestDigest = sha256(Buffer.from(canonicalJSON({ input,
       subject: owner, task: host.task_id, source: host.source, attribution: host.attributedTo,
-      scope: host.scope ?? 'owner', events: events.map(e => e.sha256) })))
+      scope: host.scope ?? 'owner', origin: host.origin ?? {by:'prime.capture/v1'}, events: events.map(e => e.sha256) })))
     return transaction(owner, async db => {
       const [controls] = await rows(db, 'SELECT bytes FROM prime_memory_controls WHERE owner_subject=$1 AND scope=$2', [owner,host.scope ?? 'owner'])
       const policy = controls ? parseOriginal(controls.bytes) : {}
@@ -156,6 +156,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       requireMemory(host.attributedTo === 'agent' || ownerControlIn(event.text) === null, 'memory:capture-owner-control')
       const note = buildRememberedNote({ ...input, attributedTo: host.attributedTo, subject: owner,
         scope: host.scope ?? 'owner', privacy: host.privacy, source: host.source,
+        origin: host.origin ?? {by:'prime.capture/v1'},
         evidence: host.evidence ?? [{ log: host.source.sessionId, turn: host.source.seq,
           turnDigest: host.source.sha256, quote: event.text }] })
       const digest = sha256(Buffer.from(note.statement)), marker = sha256(Buffer.from(`${note.id}\0${digest}`))
@@ -167,7 +168,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       const bytes = Buffer.from(JSON.stringify(stored) + '\n'), meta = validateOriginal(bytes, owner)
       const sourceVerdict = verifySources(meta, new Map(events.map(e => [e.sha256,e.bytes])))
       requireMemory(sourceVerdict.verdict === 'VERIFIED', 'memory:capture-evidence-missing')
-      await storeEvents(db, owner, events)
+      const requiredEvents = new Set([note.source.sha256,...note.evidence.map(e => e.turnDigest)])
+      await storeEvents(db, owner, events.filter(e => requiredEvents.has(e.sha256)))
       await persistRecord(db, owner, meta, bytes, { taskId: host.task_id, revision: 1, chainDomain: 'remembered', chainSequence: entry.sequence })
       await db.query(`INSERT INTO prime_memory_requests(owner_subject,idempotency_key,request_digest,record_id,revision)
         VALUES($1,$2,$3,$4,1)`, [owner,idempotencyKey,requestDigest,note.id])
