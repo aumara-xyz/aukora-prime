@@ -148,6 +148,25 @@ Bootstrap CLI: `--config ABSOLUTE_ROOT_JSON --role authority|memory --phase
 provision|initialize|serve|verify`. `verify` additionally requires exactly
 `--expected ABSOLUTE_ROOT_JSON`, read with the D config guards.
 
+Fixture IPC IDs use `fixture-memory-RUN`, `fixture-primary-RUN` and
+`fixture-secondary-RUN`, satisfying the unchanged transport grammar. The first
+fixture source generated colon IDs, which transport refused before binding.
+For an already provisioned run, H must update exactly six ID fields together:
+C `ipc.credentials[0].id`; D `ipc.credentials[0].id`, `ipc.credentials[1].id`
+and `authority_channel.credential.id`; actor `primary.credential.id` and
+`secondary.credential.id`. `makeFixtureDescriptors` derives these from the same
+public profile and three existing secrets. Preserve profile/WebAuthn credentials,
+signer binding/counters, secret bytes, roles, paths, socket ACLs, C state/witness
+and PostgreSQL state. This metadata correction requires no provisioning reset
+or migration. H must recheck protected source/config equality before serving.
+
+Bootstrap refusals emit the existing symbolic prefix plus a closed JSON
+diagnostic `{version:1,kind:'prime-private-cd-pg-startup-diagnostic/v1',name,
+code,reason}`. Only finite allowlisted tokens appear; real IPC `error_code` is
+supported. The credential constructor refusal maps to `TypeError`, `INVALID`,
+`IPC_CREDENTIAL_IDENTITY_OR_ROLE_INVALID`. Unknown details are suppressed;
+messages, paths, config, stack, cause and credentials are never emitted.
+
 - `authority/provision` calls local `provisionNewAuthorityStore` once. Existing
   state or retained witness refuses. This helper is never an IPC/public method.
 - `memory/initialize` calls D's exact assigned-UID pool/migration helper only
@@ -219,8 +238,10 @@ and two marked schemas. C/D consumed or unknown evidence is never reset/replayed
 
 ## Source evidence versus deployed evidence
 
-The three new source test files exercise the actual C/D/B objects, P256 proof
+The source test files exercise the actual C/D/B objects, P256 proof
 verification, durable SQLite test storage, closed pipe parsing, negative binding,
-counter persistence/phase fencing and cold store reopens. They do not prove
+counter persistence/phase fencing and cold store reopens. The startup regression
+also tests both actual IPC constructors and authenticated channels in disposable
+same-UID Unix sockets, with explicit synthetic handlers. These checks do not prove
 PostgreSQL, separate UID ACLs, SSH deployment integrity, real passkeys or a live
 product. H/operator's actual private C/D/PG result is a separate acceptance record.

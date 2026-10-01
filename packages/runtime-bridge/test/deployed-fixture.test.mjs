@@ -23,7 +23,7 @@ import {createFixtureSigner} from './deployed-controller.mjs'
 import {createFixturePipe} from './deployed-pipes.mjs'
 import {PG_CONFIG,PHASES,IDS,sha,createProfile,validateProfile,validateSigner,authorityConfig,
   fixturePaths,registryEntries,scenario,credentialId,memoryCredentialId,access,
-  readPrivateJson,writePrivateJson} from './deployed-profile.mjs'
+  makeFixtureDescriptors,validateActorConfig,readPrivateJson,writePrivateJson} from './deployed-profile.mjs'
 
 const clone=value=>structuredClone(value)
 const ok=result=>{assert.equal(result?.ok,true,JSON.stringify(result));return result}
@@ -192,6 +192,28 @@ test('fixture actor/controller completes actual C/D save and all retained phases
 
 test('bootstrap builders bind only the fixed synthetic profile and closed owner channel associations',async t=>{
   const f=await fixture(t),worker=f.memoryWorker,primary=f.profile.fixture.owners.primary
+  const secrets={memory:'a'.repeat(64),primary:'b'.repeat(64),secondary:'c'.repeat(64)}
+  const descriptors=makeFixtureDescriptors({profile:f.profile,credentials:secrets})
+  assert.deepEqual(descriptors.authority,f.inputs.authority)
+  assert.deepEqual(descriptors.memory,f.inputs.memory)
+  assert.deepEqual(validateActorConfig(descriptors.actor).profile,f.profile)
+  assert.deepEqual(descriptors.authority.profile,f.profile)
+  assert.deepEqual(descriptors.memory.profile,f.profile)
+  assert.equal(descriptors.authority.ipc.credentials[0].secret,secrets.memory)
+  assert.equal(descriptors.memory.authority_channel.credential.secret,secrets.memory)
+  for(const [i,owner] of ['primary','secondary'].entries()){
+    assert.equal(descriptors.memory.ipc.credentials[i].secret,secrets[owner])
+    assert.equal(descriptors.actor[owner].credential.secret,secrets[owner])
+    assert.equal(descriptors.actor[owner].credential.id,descriptors.memory.ipc.credentials[i].id)
+    const stale=clone(descriptors.memory);stale.ipc.credentials[i].id='fixture-'+owner+':'+f.profile.fixture.run_id
+    await refuse(buildMemoryWorker(stale),'EXACT_FIXTURE_IPC_CREDENTIAL_REQUIRED')
+    const staleActor=clone(descriptors.actor);staleActor[owner].credential.id=stale.ipc.credentials[i].id
+    assert.throws(()=>validateActorConfig(staleActor),/EXACT_FIXTURE_IPC_CREDENTIAL_REQUIRED/)
+  }
+  const staleAuthority=clone(descriptors.authority);staleAuthority.ipc.credentials[0].id='fixture-memory:'+f.profile.fixture.run_id
+  await refuse(buildAuthorityWorker(staleAuthority),'EXACT_FIXTURE_IPC_CREDENTIAL_REQUIRED')
+  const staleMemory=clone(descriptors.memory);staleMemory.authority_channel.credential.id=staleAuthority.ipc.credentials[0].id
+  await refuse(buildMemoryWorker(staleMemory),'EXACT_FIXTURE_IPC_CREDENTIAL_REQUIRED')
   assert.equal(worker.initializeSchema,false);assert.equal(worker.indexTarget,'postgres:fts:simple:v1');assert.equal(worker.indexGeneration,'1')
   assert.deepEqual(worker.registryEntries,registryEntries(f.profile))
   const request={transport:'ipc',credential_id:credentialId(f.profile,'primary')}

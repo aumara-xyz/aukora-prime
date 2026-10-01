@@ -9,6 +9,34 @@ import {startWorker} from '../src/worker.mjs'
 import {closed,copy} from '../src/registry.mjs'
 import {IDS,dFixture,validateProfile,readRootJson,fixturePaths,authorityConfig,registryEntries,scenario,credentialId,memoryCredentialId,validateCredential,access,must} from './deployed-profile.mjs'
 
+const DIAGNOSTIC_NAMES=new Set(['Error','TypeError','SyntaxError','RangeError','MemoryRefusal','RollbackRefusedError'])
+const DIAGNOSTIC_CODES=new Set(['INVALID','UNAVAILABLE','UNAUTHORIZED','REPLAYED','RECONCILIATION_REQUIRED','SYNTHETIC_FIXTURE_REFUSED','EACCES','EPERM','ENOENT','ENOTDIR','EEXIST','EADDRINUSE','ENAMETOOLONG'])
+const DIAGNOSTIC_REASONS=new Set(['IPC_PRIVATE_HOST_SOCKET_DIRECTORY_REQUIRED','IPC_PROVISIONED_SOCKET_ACCESS_REQUIRED','IPC_SOCKET_PATH_ALREADY_EXISTS','EXACT_FIXTURE_PROCESS_ID_REQUIRED','ROOT_PROTECTED_FIXTURE_FILE_REQUIRED','ROOT_PROTECTED_FIXTURE_PARENT_REQUIRED','EXACT_FIXTURE_IPC_CREDENTIAL_REQUIRED','EXACT_FIXTURE_SERVER_REQUIRED','EXACT_FIXTURE_SERVER_CREDENTIALS_REQUIRED','EXACT_FIXTURE_ROLE_REQUIRED','EXACT_PRIVATE_AUTHORITY_CHANNEL_REQUIRED'])
+const DIAGNOSTIC_MESSAGES=new Map([
+  ['INVALID: IPC credential identity/role','IPC_CREDENTIAL_IDENTITY_OR_ROLE_INVALID'],
+  ['INVALID: IPC credential identity','IPC_CREDENTIAL_IDENTITY_INVALID'],
+  ['INVALID: host IPC credentials/handler','IPC_CREDENTIALS_OR_HANDLER_INVALID'],
+  ['INVALID: host IPC secret','IPC_SECRET_FORMAT_INVALID'],
+  ['INVALID: absolute bounded Unix socket path','IPC_SOCKET_PATH_INVALID'],
+  ['INVALID: closed trusted worker config','WORKER_CONFIG_SHAPE_INVALID'],
+  ['INVALID: closed bridge fields','BRIDGE_FIELDS_INVALID'],
+])
+function errorData(error,key){
+  if(!error||typeof error!=='object')return undefined
+  try{for(let level=0,value=error;value&&level<3;value=Object.getPrototypeOf(value),level++){
+    const descriptor=Object.getOwnPropertyDescriptor(value,key)
+    if(descriptor)return Object.hasOwn(descriptor,'value')?descriptor.value:undefined
+  }}catch{return undefined}
+}
+/** Closed symbolic startup diagnostics only: never raw messages, stack/cause,
+ * config, paths, signatures or credentials, including for unknown errors. */
+export function fixtureStartupDiagnostic(error){
+  const candidateName=errorData(error,'name'),name=DIAGNOSTIC_NAMES.has(candidateName)?candidateName:'Error'
+  const candidateCode=errorData(error,'code')??errorData(error,'error_code'),code=DIAGNOSTIC_CODES.has(candidateCode)?candidateCode:['TypeError','SyntaxError','RangeError'].includes(name)?'INVALID':'UNAVAILABLE'
+  const message=errorData(error,'message'),reason=DIAGNOSTIC_MESSAGES.get(message)??(DIAGNOSTIC_REASONS.has(message)?message:'STARTUP_DETAIL_SUPPRESSED')
+  return Object.freeze({version:1,kind:'prime-private-cd-pg-startup-diagnostic/v1',name,code,reason})
+}
+
 function server(config,path,credentials,expectedAccess){
   closed(config,['socketPath','credentials','socketAccess'])
   must(config.socketPath===path&&canonicalJson(config.socketAccess)===canonicalJson(expectedAccess),'EXACT_FIXTURE_SERVER_REQUIRED')
@@ -70,4 +98,4 @@ async function main(){
   }
   process.stdout.write(JSON.stringify({synthetic_fixture:true,phase,report})+'\n')
 }
-if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(error=>{process.stderr.write('SYNTHETIC_FIXTURE_BOOTSTRAP_REFUSED:'+String(error.code??'UNAVAILABLE')+'\n');process.exitCode=1})
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(error=>{const diagnostic=fixtureStartupDiagnostic(error);process.stderr.write('SYNTHETIC_FIXTURE_BOOTSTRAP_REFUSED:'+diagnostic.code+'\n'+JSON.stringify(diagnostic)+'\n');process.exitCode=1})
