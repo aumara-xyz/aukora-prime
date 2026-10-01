@@ -44,9 +44,13 @@ export { approvalSigningBytes }
 // All options are provisioner inputs, never guest/wire fields. No private keys, signer,
 // executor or enrollment endpoint exists here. identities must come from owner-approved
 // enrollment. Empty/unprovisioned deployments fail closed. Tests use disposable public keys.
-export function createAuthorityService(options) {
+export function createAuthorityService(options) { return authorityService(options,false) }
+// Setup-only local entry point. Never mount this function on a worker/guest route.
+// Ordinary API calls cannot create missing state, even with a sticky provision flag.
+export function provisionNewAuthorityStore(options) { return authorityService(options,true) }
+function authorityService(options, provisionNew) {
   const c = { ...options }
-  const defaults={logins_per_owner:32,sessions_per_owner:16,operations_per_owner:128,operations_total:256,operation_bytes:65536,state_bytes:16*1024*1024}
+  const defaults={logins_per_owner:32,sessions_per_owner:16,operations_per_owner:128,operations_total:256,pending_ttl_ms:300000,denied_per_owner:32,denied_total:64,operation_bytes:65536,state_bytes:16*1024*1024}
   assertData(c.limits??{})
   if(Object.keys(c.limits??{}).some(k=>!Object.hasOwn(defaults,k))) throw new TypeError('INVALID: authority quota config')
   c.limits=deepFreeze({...defaults,...c.limits})
@@ -75,17 +79,55 @@ export function createAuthorityService(options) {
   }
   const now = () => Date.now() // wire callers can never select an audit clock
   class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes})}}
+  if(provisionNew) return attempt(()=>{
+    if(c.provisionTrustedState!==true) refuse('UNAVAILABLE','EXPLICIT_NEW_STORE_PROVISIONING_REQUIRED')
+    if(!identities.length) refuse('UNAVAILABLE','OWNER_PUBLIC_CONFIGURATION_REQUIRED')
+    const store=new PrimeApprovalStateStore({statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:true,maxStateBytes:c.limits.state_bytes})
+    try {
+      store.open()
+      if(store.protectedRead(store.stateFile)!==null) refuse('REPLAYED','STORE_ALREADY_PROVISIONED')
+      store.load(structuredClone(EMPTY_KERNEL_STATE))
+      for(const id of identities) store.broker.owners[keyOf(id.owner_id)]={...id,revoked:false,passkey_counters:Object.fromEntries((c.webauthn?.credentials.filter(x=>x.owner_id===id.owner_id)??[]).map(x=>[keyOf(x.credential_id),x.sign_count]))}
+      store.commitBroker()
+      return {ok:true,status:'PROVISIONED',store_id:store.store_id}
+    } finally {store.close()}
+  })
+  function discardablePending(store,row) {
+    if(!['PROPOSED','APPROVED','DENIED'].includes(row.status)||row.grant||row.dispatch) return false
+    const nonce=row.approval?.proof?.nonce
+    if(nonce&&store.currentRecord.state.consumedIds.includes('approval:'+nonce)) return false
+    // A crash can retain kernel PREPARED without matching broker grant metadata.
+    // Keep that obligation even if its old approval was subsequently declined.
+    return !store.currentRecord.prepared.some(p=>p.contentHash===row.operation_digest?.slice(7))
+  }
+  function prunePending(store) {
+    const stamp=now()
+    for(const [key,row] of Object.entries(store.broker.operations)) {
+      if(!discardablePending(store,row)) continue
+      row.pending_until??=iso(Math.min(Date.parse(row.operation.expiry),stamp+c.limits.pending_ttl_ms))
+      if(Date.parse(row.operation.expiry)<=stamp||Date.parse(row.pending_until)<=stamp) delete store.broker.operations[key]
+    }
+    const denied=Object.entries(store.broker.operations).filter(([,row])=>row.status==='DENIED'&&discardablePending(store,row))
+      .sort(([ka,a],[kb,b])=>Date.parse(b.pending_until)-Date.parse(a.pending_until)||ka.localeCompare(kb))
+    const keptByOwner=new Map();let total=0
+    for(const [key,row] of denied) {
+      const ownerCount=keptByOwner.get(row.operation.owner_id)??0
+      if(total>=c.limits.denied_total||ownerCount>=c.limits.denied_per_owner) delete store.broker.operations[key]
+      else {total++;keptByOwner.set(row.operation.owner_id,ownerCount+1)}
+    }
+  }
+  function newPending(op) {
+    return {operation:op,operation_digest:operationDigest(op),status:'PROPOSED',review:null,approval:null,grant:null,pending_until:iso(Math.min(Date.parse(op.expiry),now()+c.limits.pending_ttl_ms))}
+  }
   function tx(fn) {
-    const store = new PrimeApprovalStateStore({ statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:c.provisionTrustedState===true,maxStateBytes:c.limits.state_bytes })
+    const store = new PrimeApprovalStateStore({ statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:false,maxStateBytes:c.limits.state_bytes })
     try {
       store.open();store.load(structuredClone(EMPTY_KERNEL_STATE))
-      if(Object.keys(store.broker.owners).length===0 && c.provisionTrustedState===true) {
-        for(const id of identities) store.broker.owners[keyOf(id.owner_id)]={...id,revoked:false,passkey_counters:Object.fromEntries((c.webauthn?.credentials.filter(x=>x.owner_id===id.owner_id)??[]).map(x=>[keyOf(x.credential_id),x.sign_count]))}
-      }
       // Ephemeral challenges/sessions may expire; authority consumption and operation
       // tombstones are never evicted to admit a replay. Quota failures write nothing.
       for(const [k,v] of Object.entries(store.broker.logins)) if(Date.parse(v.challenge.expiry)<=now()) delete store.broker.logins[k]
       for(const [k,v] of Object.entries(store.broker.sessions)) if(Date.parse(v.expiry)<=now()) delete store.broker.sessions[k]
+      prunePending(store)
       return fn(store)
     } finally { store.close() }
   }
@@ -143,18 +185,20 @@ export function createAuthorityService(options) {
     return op
   }
   function admitOperation(store,ownerId) {
-    const rows=Object.values(store.broker.operations)
-    if(rows.length>=c.limits.operations_total||rows.filter(r=>r.operation.owner_id===ownerId).length>=c.limits.operations_per_owner) refuse('UNAVAILABLE','OPERATION_QUOTA_REACHED')
+    const rows=Object.values(store.broker.operations).filter(r=>['PROPOSED','APPROVED'].includes(r.status)&&discardablePending(store,r))
+    if(rows.length>=c.limits.operations_total||rows.filter(r=>r.operation.owner_id===ownerId).length>=c.limits.operations_per_owner) refuse('UNAVAILABLE','PENDING_OPERATION_QUOTA_REACHED')
   }
   function propose(input) { return attempt(()=>{
-    const op=boundedOperation(input)
+    const v=closed(input,['session_token','operation']),op=boundedOperation(v.operation)
     return tx(store=>{
+      const id=session(store,v.session_token)
+      if(id.owner_id!==op.owner_id) refuse('UNAUTHORIZED','CROSS_OWNER_PROPOSAL')
       policy(store,op)
       const k=operationKey(op.owner_id,op.operation_id)
       if(store.broker.operations[k]) refuse('REPLAYED','OPERATION_ID_ALREADY_EXISTS')
       admitOperation(store,op.owner_id)
-      const digest=operationDigest(op)
-      store.broker.operations[k]={operation:op,operation_digest:digest,status:'PROPOSED',review:null,approval:null,grant:null}
+      const row=newPending(op),digest=row.operation_digest
+      store.broker.operations[k]=row
       store.commitBroker()
       return {ok:true,operation:deepFreeze(op),operation_digest:digest,status:'PROPOSED'}
     })
@@ -206,7 +250,7 @@ export function createAuthorityService(options) {
       if(id.owner_id!==op.owner_id) refuse('UNAUTHORIZED','CROSS_OWNER_APPROVAL')
       policy(store,op);liveTarget(op)
       let row=store.broker.operations[operationKey(op.owner_id,op.operation_id)]
-      if(!row) { admitOperation(store,op.owner_id);row={operation:op,operation_digest:operationDigest(op),status:'PROPOSED',review:null,approval:null,grant:null};store.broker.operations[operationKey(op.owner_id,op.operation_id)]=row }
+      if(!row) { admitOperation(store,op.owner_id);row=newPending(op);store.broker.operations[operationKey(op.owner_id,op.operation_id)]=row }
       operationRow(store,op)
       if(row.status!=='PROPOSED') refuse(row.status==='DENIED'?'CANCELLED':'REPLAYED','OPERATION_NOT_REVIEWABLE')
       const issuedAt=Math.floor(now()/1000),expiresAt=Math.min(issuedAt+120,Math.floor(Date.parse(op.expiry)/1000))
@@ -215,6 +259,7 @@ export function createAuthorityService(options) {
       const template={version:1,operation_id:op.operation_id,operation_digest:row.operation_digest,owner_id:id.owner_id,audience:op.audience,authorization_epoch:id.authorization_epoch,expiry:iso(expiresAt*1000),nonce:request.challenge}
       const kind=store.broker.sessions[keyOf(v.session_token)].kind
       const public_key=kind==='passkey'?webauthnOptions(c.webauthn,id.owner_id,webauthnChallenge(approvalSigningBytes(request))):undefined
+      row.pending_until=iso(expiresAt*1000)
       row.review={request,template,kind,session_hash:keyOf(v.session_token)}
       store.commitBroker()
       return {ok:true,operation:deepFreeze(structuredClone(op)),operation_digest:row.operation_digest,approval_request:request,proof_template:deepFreeze({...template,material:kind==='passkey'?{kind:'passkey'}:{kind:'owner_key',request,signature:''}}),...(public_key?{public_key}: {})}
@@ -252,7 +297,7 @@ export function createAuthorityService(options) {
       const id=session(store,v.session_token),row=store.broker.operations[operationKey(id.owner_id,v.operation_id)]
       if(!row||row.operation.owner_id!==id.owner_id) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
       if(!['PROPOSED','APPROVED'].includes(row.status)) refuse('RECONCILIATION_REQUIRED','PREPARED_EFFECT_CANNOT_BE_UNCONSUMED')
-      row.status='DENIED';row.review=null;row.approval=null;store.commitBroker()
+      row.status='DENIED';row.review=null;row.approval=null;prunePending(store);store.commitBroker()
       return {ok:true,status:'DENIED'}
     })
   }) }

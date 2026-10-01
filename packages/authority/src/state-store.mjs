@@ -59,6 +59,11 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
     const text=super.protectedRead(fileName)
     if(fileName!==this.stateFile)return text
     if(text===null) {
+      // A retained namespace identifies a previously provisioned history even
+      // when its heads are zero. Never mint a new identity to evade those keys.
+      if(Object.keys(this.witnessRecord?.heads??{}).length || this.witness.protectedRead('kernel-high-water.json')!==null) {
+        throw new RollbackRefusedError('Prime state missing with retained witness namespace; restore the same history identity')
+      }
       if(!this.createConsumedIds) throw new TrustedStoreCorruptError('Prime state missing; explicit new-store provisioning required')
       this.bindIdentity(this.store_id??randomBytes(32).toString('hex'))
       return null

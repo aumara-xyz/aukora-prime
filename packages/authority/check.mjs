@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join,dirname } from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { createAuthorityService,loginSigningBytes,approvalSigningBytes,operationDigest,executorRequestDigest,executionReceiptDigest,memoryResultDigest } from './src/index.mjs'
+import { createAuthorityService,provisionNewAuthorityStore,loginSigningBytes,approvalSigningBytes,operationDigest,executorRequestDigest,executionReceiptDigest,memoryResultDigest } from './src/index.mjs'
+import { runKernelGuardChecks } from './check-kernel-guards.mjs'
 import { didKeyFromEd25519PublicKey } from './upstream/plugins/aukora-aumlok/lib/did-key.mjs'
 import { p256 } from './upstream/vendor/authority/deps/@noble/curves@2.2.0/nist.js'
 import { verifyWebauthnAssertion,prepareWebauthnConfig } from './src/webauthn.mjs'
@@ -30,14 +31,22 @@ let targetVersion='r1'
 function setup(name,extra={}) {
  const path=join(root,name);mkdirSync(path,{mode:0o700});mkdirSync(join(path,'state'),{mode:0o700})
  const config={statePath:join(path,'state','authority.json'),stateRoot:join(path,'state'),witnessDir:join(path,'witness'),audience:'prime:test',identities:[id],loginKinds:['owner_key','passkey'],policy:{version:'p1',actions:['memory.save'],agents:['fixture-agent'],data_scope:['public'],maximum_cost:{currency:'USD',amount:'0'}},provisionTrustedState:true,authorizeTask:()=>trustedTask(),observeTarget:op=>({target_identity:op.target_identity,state_version:targetVersion}),...extra}
+ ok(provisionNewAuthorityStore(config))
  return {config,service:createAuthorityService(config)}
 }
 const op=(name)=>({version:1,operation_id:name,task_id:'fixture-task',owner_id:id.owner_id,agent_id:'fixture-agent',audience:'prime:test',action_type:'memory.save',target_identity:{store:'fixture-memory',record:'note1'},canonical_parameters:{content:'public synthetic note'},data_scope:['public'],expected_state_version:'r1',provider_and_region:{provider:'none',region:'local'},maximum_cost:{currency:'USD',amount:'0'},expiry:new Date(Date.now()+60000).toISOString(),nonce:randomBytes(32).toString('hex'),policy_version:'p1',authorization_epoch:0})
-function login(service) {
- const challenge=ok(service.loginChallenge({owner_id:id.owner_id,kind:'owner_key'})).challenge
+const sessions=new WeakMap()
+function login(service,ownerId=id.owner_id) {
+ const challenge=ok(service.loginChallenge({owner_id:ownerId,kind:'owner_key'})).challenge
  const input={challenge,material:{kind:'owner_key',signature:sign(null,loginSigningBytes(challenge),ed.privateKey).toString('hex')}}
  const accepted=ok(service.loginComplete(input));no(service.loginComplete(input),'REPLAYED')
+ const byOwner=sessions.get(service)??new Map();byOwner.set(ownerId,accepted.session_token);sessions.set(service,byOwner)
  return accepted.session_token
+}
+function propose(service,operation) {
+ const ownerId=Object.getOwnPropertyDescriptor(operation,'owner_id')?.value??id.owner_id
+ const session_token=sessions.get(service)?.get(ownerId)??login(service,ownerId)
+ return service.propose({session_token,operation})
 }
 function approve(service,token,operation) {
  const challenge=ok(service.approvalChallenge({session_token:token,operation}))
@@ -51,7 +60,7 @@ try {
  const defaultLogin=setup('default-login',{loginKinds:undefined})
  no(defaultLogin.service.loginChallenge({owner_id:id.owner_id,kind:'owner_key'}),'UNAVAILABLE')
  no(s.loginChallenge({owner_id:id.owner_id,kind:'passkey'}),'UNAVAILABLE')
- const operation=op('one');ok(s.propose(operation))
+ const operation=op('one');ok(propose(s,operation))
  const fake={version:1,operation_id:operation.operation_id,operation_digest:operationDigest(operation),owner_id:id.owner_id,audience:operation.audience,authorization_epoch:0,expiry:operation.expiry,nonce:randomBytes(32).toString('hex'),material:{kind:'owner_key',request:{},signature:'0'.repeat(128)}}
  no(s.reserve({operation,approval_proof:fake}),'INVALID') // malformed proof never reaches authority
  const token=login(s),proof=approve(s,token,operation)
@@ -79,10 +88,10 @@ try {
  try {epochStore.open();epochStore.load();Object.values(epochStore.broker.owners)[0].authorization_epoch++;epochStore.commitBroker()}finally{epochStore.close()}
  no(e.service.reserve({operation:eop,approval_proof:ep}),'REVOKED')
  writeFileSync(e.config.statePath,oldEpoch,{mode:0o600});no(e.service.reserve({operation:eop,approval_proof:ep}),'RECONCILIATION_REQUIRED') // receipt count unchanged; broker revision catches rewind
- no(d.service.propose({...op('expired'),expiry:new Date(Date.now()-1000).toISOString()}),'EXPIRED')
- const sparse=op('sparse');sparse.data_scope=Array(1);no(d.service.propose(sparse))
- const decoratedSparse=op('decorated-sparse');decoratedSparse.canonical_parameters={a:Object.assign(Array(1),{extra:'collision'})};no(d.service.propose(decoratedSparse),'INVALID')
- const accessor=op('accessor');Object.defineProperty(accessor,'canonical_parameters',{get(){throw new Error('getter must never run')},enumerable:true});no(d.service.propose(accessor))
+ no(propose(d.service,{...op('expired'),expiry:new Date(Date.now()-1000).toISOString()}),'EXPIRED')
+ const sparse=op('sparse');sparse.data_scope=Array(1);no(propose(d.service,sparse))
+ const decoratedSparse=op('decorated-sparse');decoratedSparse.canonical_parameters={a:Object.assign(Array(1),{extra:'collision'})};no(propose(d.service,decoratedSparse),'INVALID')
+ const accessor=op('accessor');Object.defineProperty(accessor,'canonical_parameters',{get(){throw new Error('getter must never run')},enumerable:true});no(propose(d.service,accessor))
  const ec=generateKeyPairSync('ec',{namedCurve:'prime256v1'}) // disposable authenticator fixture
  const jwk=ec.publicKey.export({format:'jwk'}),publicHex='04'+Buffer.from(jwk.x,'base64url').toString('hex')+Buffer.from(jwk.y,'base64url').toString('hex')
  const cred={owner_id:id.owner_id,credential_id:randomBytes(32).toString('base64url'),public_key_hex:publicHex,user_handle:Buffer.from('fixture-owner').toString('base64url'),sign_count:0,backup_eligible:false}
@@ -145,14 +154,14 @@ try {
  no(createAuthorityService({...moved.config,statePath:join(link,'state','authority.json'),stateRoot:join(link,'state')}).reserve({operation:mo,approval_proof:mp}),'UNAVAILABLE')
  rmSync(join(moved.config.witnessDir,'kernel-high-water.json'))
  no(moved.service.reserve({operation:mo,approval_proof:mp}),'RECONCILIATION_REQUIRED');assert(!existsSync(join(moved.config.witnessDir,'kernel-high-water.json')));checks++
- const missingBroker=setup('missing-broker-witness');ok(missingBroker.service.propose(op('broker-only-history')))
+ const missingBroker=setup('missing-broker-witness');ok(propose(missingBroker.service,op('broker-only-history')))
  rmSync(join(missingBroker.config.witnessDir,'kernel-high-water.json'))
- no(missingBroker.service.propose(op('no-rebaseline')),'RECONCILIATION_REQUIRED')
- const unowned=setup('unowned',{authorizeTask:()=>true});no(unowned.service.propose(op('bare-true-task')),'UNAUTHORIZED')
- const wrongOwnerTask=setup('wrong-owner-task',{authorizeTask:()=>trustedTask('other-owner')});no(wrongOwnerTask.service.propose(op('wrong-owned-task')),'UNAUTHORIZED')
+ no(propose(missingBroker.service,op('no-rebaseline')),'RECONCILIATION_REQUIRED')
+ const unowned=setup('unowned',{authorizeTask:()=>true});no(propose(unowned.service,op('bare-true-task')),'UNAUTHORIZED')
+ const wrongOwnerTask=setup('wrong-owner-task',{authorizeTask:()=>trustedTask('other-owner')});no(propose(wrongOwnerTask.service,op('wrong-owned-task')),'UNAUTHORIZED')
  const id2={...id,owner_id:'fixture-owner-2',subject:'aukora:1:'+'3'.repeat(64)}
  const scoped=setup('owner-scoped',{identities:[id,id2],authorizeTask:x=>trustedTask(x.owner_id)})
- ok(scoped.service.propose(op('shared-operation-id')));ok(scoped.service.propose({...op('shared-operation-id'),owner_id:id2.owner_id}));assert.equal(Object.keys(JSON.parse(readFileSync(scoped.config.statePath)).broker.operations).length,2);checks++
+ ok(propose(scoped.service,op('shared-operation-id')));ok(propose(scoped.service,{...op('shared-operation-id'),owner_id:id2.owner_id}));assert.equal(Object.keys(JSON.parse(readFileSync(scoped.config.statePath)).broker.operations).length,2);checks++
  const quota=setup('quota')
  for(let i=0;i<32;i++)ok(quota.service.loginChallenge({owner_id:id.owner_id,kind:'owner_key'}))
  const quotaBefore=readFileSync(quota.config.statePath)
@@ -164,9 +173,9 @@ try {
  try {pruneStore.open();pruneStore.load();for(const x of Object.values(pruneStore.broker.logins))x.challenge.expiry='2000-01-01T00:00:00.000Z';pruneStore.commitBroker()}finally{pruneStore.close()}
  ok(quota.service.loginChallenge({owner_id:id.owner_id,kind:'owner_key'}));assert.equal(Object.keys(JSON.parse(readFileSync(quota.config.statePath)).broker.logins).length,1);checks++
  const small=setup('operation-quota',{limits:{operations_per_owner:2,operations_total:2,operation_bytes:1024}})
- ok(small.service.propose(op('quota-a')));ok(small.service.propose(op('quota-b')));const smallBefore=readFileSync(small.config.statePath)
- no(small.service.propose(op('quota-c')),'UNAVAILABLE');assert.deepEqual(readFileSync(small.config.statePath),smallBefore);checks++
- no(small.service.propose({...op('oversize'),canonical_parameters:{content:'x'.repeat(2048)}}),'INVALID')
+ ok(propose(small.service,op('quota-a')));ok(propose(small.service,op('quota-b')));const smallBefore=readFileSync(small.config.statePath)
+ no(propose(small.service,op('quota-c')),'UNAVAILABLE');assert.deepEqual(readFileSync(small.config.statePath),smallBefore);checks++
+ no(propose(small.service,{...op('oversize'),canonical_parameters:{content:'x'.repeat(2048)}}),'INVALID')
  function preparedCase(name,operation=op(name)) {
   const fixture=setup(name),sessionToken=login(fixture.service),approval=approve(fixture.service,sessionToken,operation),preparedGrant=ok(fixture.service.reserve({operation,approval_proof:approval})).consumed_grant
   const request={operation,consumed_grant:preparedGrant,request_id:randomUUID(),image_digest:'sha256:'+'a'.repeat(64),policy_digest:'sha256:'+'b'.repeat(64),wall_time_ms:1000,max_output_bytes:1024}
@@ -216,6 +225,11 @@ try {
   const adapter=readFileSync(adapterFile,'utf8');assert(adapter.includes('proof?.operation_digest!==`sha256:${operationDigest}`'));writeFileSync(adapterFile,adapter.replace('proof?.operation_digest!==`sha256:${operationDigest}` || ',''))
   const disabled=await runMutant();assert.notEqual(disabled.code,0);assert(disabled.output.includes('changed synthetic command')||disabled.output.includes('AssertionError'));checks++
   console.log('MUTATION PASS: earlier row guard removed still refuses; removing all digest boundaries is caught')
+  console.log(JSON.stringify({kernel_guards:await runKernelGuardChecks()}))
+  if(process.argv[2]!=='core-only') {
+   const {runAdmissionChecks}=await import('./check-admission.mjs')
+   console.log(JSON.stringify({admission:await runAdmissionChecks()}))
+  }
  }
  console.log(JSON.stringify({status:'PASS',checks,scope:'synthetic owner-key + ES256 passkey assertions; copied durable stores/kernel; replay/denial/epoch/restore; no external effects',limits:['no real enrollment','same UID can rewrite state and witness','no deployed broker IPC/UID separation','assertion does not prove comprehension','no OpenShell execution or signing keys in guest']}))
 } finally {rmSync(root,{recursive:true,force:true})}
