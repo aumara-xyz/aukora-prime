@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# TEMPLATE ONLY. Replace explicit approval-selected placeholders; do not start.
+# Derived fields from OpenShell 6648bd0 DockerComputeConfig.
+[openshell]
+version = 2
+
+[openshell.gateway]
+bind_address = "127.0.0.1:__APPROVED_GATEWAY_PORT__"
+health_bind_address = "127.0.0.1:__APPROVED_HEALTH_PORT__"
+compute_driver = "docker"
+disable_tls = false
+log_level = "info"
+
+[openshell.drivers.docker]
+socket_path = "__APPROVED_EXISTING_DOCKER_SOCKET__"
+default_image = "sha256:__ACTUAL_LOCAL_WORKLOAD_CONFIG_DIGEST_AFTER_APPROVED_BUILD__"
+sandbox_runtime_image = "ghcr.io/nvidia/openshell/sandbox@sha256:b0f0f6217b11b22954b10a033a9fd798cf0a4e35cf4af63c1ba0d9c03e74338a"
+supervisor_image = "ghcr.io/nvidia/openshell/supervisor@sha256:90a6f1a7257a8d3c76f89cc7cc1a1050567cf065a59ce76888f23dfd4f4c757d"
+image_pull_policy = "never"
+sandbox_label = "prime-disposable-qualified"
+grpc_endpoint = "https://127.0.0.1:__APPROVED_GATEWAY_PORT__"
+sandbox_pids_limit = 64
+allow_driver_config = false
+enable_bind_mounts = false
+# Use verified existing runtime-default AppArmor support; never select Unconfined.
+# Explicit AppArmor value and host-private mTLS/JWT paths require H's reviewed
+# runtime setup. No TLS certificates, provider sockets or keys are supplied here.

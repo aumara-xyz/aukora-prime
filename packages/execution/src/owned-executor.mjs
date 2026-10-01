@@ -74,7 +74,7 @@ export class OpenShellOwnedExecutor {
   constructor({settings,transport,ledger,assertConsumed,qualification}) {
     closed(settings,['workspace','logical_workspace_root','image_digest','control_timeout_ms','cleanup_timeout_ms','poll_ms'])
     if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(settings.workspace)
-      ||typeof settings.image_digest!=='string'||!/^[-a-zA-Z0-9._:/]+@sha256:[0-9a-f]{64}$/.test(settings.image_digest)
+      ||typeof settings.image_digest!=='string'||!/^(?:[-a-zA-Z0-9._:/]+@)?sha256:[0-9a-f]{64}$/.test(settings.image_digest)
       ||transport.sourceCommit!==SDK_SOURCE_COMMIT||transport.packageVersion!==SDK_PACKAGE_VERSION
       ||typeof assertConsumed!=='function'||typeof qualification!=='function') throw refused('pinned SDK/image and trusted broker/qualification required','UNAVAILABLE')
     for(const key of ['control_timeout_ms','cleanup_timeout_ms','poll_ms']) if(!Number.isSafeInteger(settings[key])||settings[key]<1||settings[key]>120_000)throw refused('invalid lifecycle bound','INVALID')

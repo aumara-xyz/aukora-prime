@@ -1,0 +1,47 @@
+{
+  "checked_at": "2026-10-01T11:51:44.193404+00:00",
+  "platform": "linux/amd64",
+  "source_commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+  "images": [
+    {
+      "repository": "ghcr.io/nvidia/openshell/sandbox",
+      "requested_ref": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+      "index_digest": "sha256:bf4797b6c511f2d8ba02955dbba4bf76c1f0dd6d83531420c5408d5f1fb9d72f",
+      "manifest_digest": "sha256:b0f0f6217b11b22954b10a033a9fd798cf0a4e35cf4af63c1ba0d9c03e74338a",
+      "config_digest": "sha256:e7a78d2e2c9c7d6ffc801e429a3304b51ffd65a84692530f2bbceea11e6e1558",
+      "image_user": "65532:65532",
+      "workdir": "/",
+      "entrypoint": [
+        "/openshell-sandbox"
+      ],
+      "volumes": null,
+      "layer_bytes": 4493479
+    },
+    {
+      "repository": "ghcr.io/nvidia/openshell/supervisor",
+      "requested_ref": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+      "index_digest": "sha256:d7b5264bb6bc56f4796e6fa3617b8e4a8d785be0b7293542efd8cc250b0fb67a",
+      "manifest_digest": "sha256:90a6f1a7257a8d3c76f89cc7cc1a1050567cf065a59ce76888f23dfd4f4c757d",
+      "config_digest": "sha256:494b86855b51987cd68e205aa1b08d67592d4ea7b989f94c66e7179e17a97388",
+      "image_user": "0",
+      "workdir": "/",
+      "entrypoint": [
+        "/openshell-supervisor"
+      ],
+      "volumes": null,
+      "layer_bytes": 19254372
+    },
+    {
+      "repository": "docker.io/library/debian",
+      "requested_ref": "bookworm-slim",
+      "index_digest": "sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+      "manifest_digest": "sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+      "config_digest": "sha256:db9f02c6bde9fa90cc8074c92754b2b046947392f1a857726e77f041febb7b82",
+      "image_user": null,
+      "workdir": null,
+      "entrypoint": [],
+      "volumes": null,
+      "layer_bytes": 28238443
+    }
+  ]
+}

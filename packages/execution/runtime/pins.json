@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "platform": "linux/amd64",
+  "openshell_source_commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+  "workload_base": "docker.io/library/debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+  "sandbox_runtime": "ghcr.io/nvidia/openshell/sandbox@sha256:b0f0f6217b11b22954b10a033a9fd798cf0a4e35cf4af63c1ba0d9c03e74338a",
+  "supervisor": "ghcr.io/nvidia/openshell/supervisor@sha256:90a6f1a7257a8d3c76f89cc7cc1a1050567cf065a59ce76888f23dfd4f4c757d",
+  "source_date_epoch": 1790564896,
+  "workload_image_config_digest": null,
+  "workload_oci_manifest_digest": null,
+  "build_status": "UNPERFORMED: source/config and registry metadata only",
+  "runtime_status": "UNQUALIFIED",
+  "new_key_material": false,
+  "host_workspace_mounts": false,
+  "publish_required": false
+}

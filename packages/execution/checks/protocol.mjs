@@ -65,6 +65,13 @@ try {
     assert.equal(f.protocol.calls.find(([name])=>name==='create')[1].spec.providers.length,0)
     await assert.rejects(f.executor.execute(r),e=>e.code==='REPLAYED');assert.equal(f.protocol.calls.filter(([name])=>name==='exec').length,1);f.ledger.close()
   })
+  await check('local immutable Docker image ID works and mutable image tags refuse',async()=>{
+    const f=await fixture(),localSettings={...settings,image_digest:'sha256:'+'c'.repeat(64)}
+    const executor=new OpenShellOwnedExecutor({settings:localSettings,transport:f.transport,ledger:f.ledger,assertConsumed:async()=>true,qualification:()=>true})
+    const r=request();r.image_digest=localSettings.image_digest;r.operation.target_identity.image_digest=localSettings.image_digest;r.consumed_grant.operation_digest=operationDigest(r.operation)
+    assert.equal((await executor.execute(r)).status,'completed');assert.equal(f.protocol.calls.find(([name])=>name==='create')[1].spec.template.image,localSettings.image_digest)
+    assert.throws(()=>new OpenShellOwnedExecutor({settings:{...settings,image_digest:'example.invalid/workload:latest'},transport:f.transport,ledger:f.ledger,assertConsumed:async()=>true,qualification:()=>true}),e=>e.code==='UNAVAILABLE');f.ledger.close()
+  })
   await check('typed exit survives trailing SdkError with completion uncertainty',async()=>{
     const f=await fixture({exit:1,trailerFailure:true});const receipt=await f.executor.execute(request())
     assert.equal(receipt.exit_code,1);assert.equal(receipt.stdout,'retained synthetic output');assert.equal(receipt.status,'outcome_unknown');assert.equal(receipt.rpc_completion,'transport_failed');assert.equal(receipt.cleanup,'confirmed_absent');f.ledger.close()

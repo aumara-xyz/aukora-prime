@@ -46,5 +46,20 @@
     "licenses/Genesis-NOTICE.txt"
   ],
   "runtime_owned_repo_dependencies": [],
-  "qualification": "NOT VERIFIED: approved immutable custom workload image, real Linux runtime/metadata enforcement, gateway and H/C join pending"
+  "qualification": "NOT VERIFIED: approved immutable custom workload image, real Linux runtime/metadata enforcement, gateway and H/C join pending",
+  "runtime_preparation": {
+    "source_commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+    "source_sha256": {
+      "crates/openshell-driver-docker/src/lib.rs": "0cf3139ba2d67d2b50faf5a19011e7c48ea41f9c211eb0b97c88866a09a51500",
+      "crates/openshell-driver-docker/src/isolation.rs": "9cee72d96a08223e22d3aae8d0b517ad222db3e4c3d1a2cfc52ac532804bbd1f",
+      "crates/openshell-driver-docker/README.md": "3a9af9eff27185713e84d7f9006ee652fedc099f776570dc4c40daf160617bfa",
+      "deploy/docker/Dockerfile.sandbox": "c0de2a9b6b840da7fbae5a58e9d85b9c85031f6a2e8e1bce10b4d4e274f4e428",
+      "deploy/docker/Dockerfile.supervisor": "7bbc27297ca8a7138f66670e3e9ee912ab6836485e6dfe7b1e938a5ab8f32779",
+      "deploy/docker/gateway.toml": "ca685ccf35ca1636a8a72cd049208a8854caed63d07b30e602d0df1f92db20f3"
+    },
+    "registry_metadata": "runtime/registry-metadata.json",
+    "custom_image_build": "UNPERFORMED",
+    "immutable_local_config_id_supported": true,
+    "workspace_transfer": "bounded approved stdin today; multi-file staging/write-back not implemented"
+  }
 }
