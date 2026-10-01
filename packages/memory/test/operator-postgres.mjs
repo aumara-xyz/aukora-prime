@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { closeSync, constants, existsSync, fsyncSync, lstatSync, openSync, readFileSync,
-  realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+  realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createPostgresMemory } from '../src/index.mjs'
@@ -13,10 +13,11 @@ import { sha256 } from '../src/codecs.mjs'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { MEMORY_AUDIENCE, memoryReceiptDigest, memoryStateVersion, memoryTarget } from '../src/authorization.mjs'
 
-export const OPERATOR_USAGE = 'operator-postgres.mjs prepare|verify|cleanup CONFIG_JSON STATE_JSON'
+export const OPERATOR_USAGE = 'operator-postgres.mjs plan|prepare|verify|cleanup-plan CONFIG_JSON STATE_JSON'
 const CONFIG_KEYS = 'connectionTimeoutMillis,database,host,max,port,user'
 const KIND = 'prime-memory-operator-pg-synthetic/v1'
 const ANCHOR_KIND = 'prime-memory-operator-pg-retained-heads/v1'
+const PLAN_KIND = 'prime-memory-operator-schema-plan/v1'
 const SCHEMA = /^prime_memory_operator_[0-9a-f]{24}_(source|restore)$/
 const at = '2026-10-01T11:03:00Z'
 const check = (condition, code) => { if (!condition) throw Object.assign(new Error(code), { code }) }
@@ -76,28 +77,41 @@ async function observePostgres(pool) {
     inet_server_addr() IS NULL AS unix_socket, current_setting('server_version') AS server_version,
     current_setting('server_version_num')::integer AS server_version_num,
     current_setting('fsync') AS fsync, current_setting('full_page_writes') AS full_page_writes,
-    pg_postmaster_start_time() AS postmaster_started_at`)
+    pg_postmaster_start_time() AS postmaster_started_at,
+    has_database_privilege(current_user,current_database(),'CREATE') AS database_create,
+    has_database_privilege(current_user,current_database(),'TEMPORARY') AS database_temp,
+    (SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls
+      FROM pg_roles WHERE rolname=current_user) AS privileged_role`)
   check(row.database === 'aukora_prime_synthetic' && row.role === 'prime_memory' && row.unix_socket === true,
     'operator:connected-target-mismatch')
   check(row.server_version_num >= 160000 && row.server_version_num < 170000
     && row.fsync === 'on' && row.full_page_writes === 'on', 'operator:postgres-durability-profile-refused')
+  check(row.database_create === false && row.database_temp === false && row.privileged_role === false,
+    'operator:memory-role-privilege-broadening-refused')
   return { ...row, postmaster_started_at: new Date(row.postmaster_started_at).toISOString() }
-}
-async function createMarkedSchema(pool, schema, run_id) {
-  await pool.query('CREATE SCHEMA ' + quotedSchema(schema))
-  await pool.query(`CREATE TABLE ${quotedSchema(schema)}.prime_operator_fixture_marker
-    (run_id text PRIMARY KEY, fixture_kind text NOT NULL)`)
-  await pool.query(`INSERT INTO ${quotedSchema(schema)}.prime_operator_fixture_marker VALUES($1,$2)`, [run_id, KIND])
 }
 async function checkMarker(pool, schema, run_id, { absentAllowed = false } = {}) {
   const present = (await pool.query('SELECT 1 FROM pg_namespace WHERE nspname=$1', [schema])).rows.length > 0
   if (!present && absentAllowed) return false
   check(present, 'operator:fixture-schema-missing')
+  const {rows:[scope]}=await pool.query(`SELECT r.rolname AS schema_owner,
+    has_schema_privilege(current_user,n.oid,'USAGE') AS schema_usage,
+    has_schema_privilege(current_user,n.oid,'CREATE') AS schema_create
+    FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname=$1`,[schema])
+  check(scope && scope.schema_owner!=='prime_memory' && scope.schema_usage===true && scope.schema_create===true,
+    'operator:operator-owned-scoped-schema-required')
   let markers
   try { markers = (await pool.query(`SELECT * FROM ${quotedSchema(schema)}.prime_operator_fixture_marker`)).rows }
   catch { check(false, 'operator:unmarked-schema-refused') }
   check(markers.length === 1 && markers[0].run_id === run_id && markers[0].fixture_kind === KIND,
     'operator:fixture-marker-mismatch')
+  const {rows:[markerScope]}=await pool.query(`SELECT r.rolname AS marker_owner,
+    has_table_privilege(current_user,c.oid,'SELECT') AS marker_select,
+    has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS marker_write
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner
+    WHERE n.nspname=$1 AND c.relname='prime_operator_fixture_marker'`,[schema])
+  check(markerScope && markerScope.marker_owner!=='prime_memory' && markerScope.marker_select===true && markerScope.marker_write===false,
+    'operator:operator-owned-read-only-marker-required')
   return true
 }
 
@@ -177,6 +191,12 @@ const headsOf = async (pool, owner) => Object.fromEntries((await pool.query(
   'SELECT chain_domain,hash FROM prime_memory_heads WHERE owner_subject=$1 ORDER BY chain_domain', [owner])).rows.map(r => [r.chain_domain, r.hash]))
 
 function validateState(state, config) {
+  const fields=['version','kind','synthetic_fixture','phase','run_id','config_sha256','source_schema','restore_schema',
+    'owner_subject','other_subject','authority_fixture','driver_version','driver_manifest','schema_plan_sha256',
+    'postgres_before','anchor_sha256','snapshot','record','operation','receipt','prepare_checks','failure_code',
+    'postgres_after','verify_checks','cleanup_plan_sha256']
+  check(state && Object.getPrototypeOf(state)===Object.prototype && Object.keys(state).every(key=>fields.includes(key)),
+    'operator:closed-state-required')
   check(state?.version === 1 && state.kind === KIND && state.synthetic_fixture === true
     && typeof state.run_id === 'string' && /^[0-9a-f]{24}$/.test(state.run_id)
     && state.config_sha256 === digest(config), 'operator:invalid-state')
@@ -187,20 +207,53 @@ function validateState(state, config) {
   return state
 }
 
-async function prepare(config, statePath, Pool, driverManifest) {
+export function schemaLifecyclePlan(state, config, action) {
+  validateOperatorConfig(config);validateState(state,config)
+  check(['create','drop'].includes(action),'operator:plan-action-invalid')
+  return {version:1,kind:PLAN_KIND,action,run_id:state.run_id,database:config.database,memory_role:config.user,
+    schema_names:[state.source_schema,state.restore_schema],exclusive_operator_required:true,
+    memory_role_database_create:false,memory_role_database_temp:false,memory_role_schema_owner:false,
+    schemas:[state.source_schema,state.restore_schema].map(name=>({name,
+      marker:{table:'prime_operator_fixture_marker',run_id:state.run_id,fixture_kind:KIND,operator_owned:true},
+      memory_role_schema_privileges:['USAGE','CREATE'],memory_role_marker_privileges:['SELECT'],
+      ...(action==='drop'?{require_exact_marker_before_drop:true}: {})}))}
+}
+
+function plan(config,statePath) {
   const run_id = randomUUID().replaceAll('-', '').slice(0, 24)
-  const state = { version: 1, kind: KIND, synthetic_fixture: true, phase: 'preparing', run_id,
+  const state = { version: 1, kind: KIND, synthetic_fixture: true, phase: 'planned', run_id,
     config_sha256: digest(config), source_schema: 'prime_memory_operator_' + run_id + '_source',
     restore_schema: 'prime_memory_operator_' + run_id + '_restore',
     owner_subject: 'aukora:1:' + sha256(Buffer.from('synthetic-owner:' + run_id)),
     other_subject: 'aukora:1:' + sha256(Buffer.from('synthetic-other-owner:' + run_id)),
-    authority_fixture: 'private-toy-not-production-C', driver_version: '8.16.3', driver_manifest: driverManifest }
-  check(!existsSync(statePath + '.anchors.json'), 'operator:anchor-already-exists')
+    authority_fixture: 'private-toy-not-production-C', driver_version: '8.16.3' }
+  check(!existsSync(statePath) && !existsSync(statePath+'.schema-create-plan.json') && !existsSync(statePath + '.anchors.json'),
+    'operator:state-already-exists')
+  const lifecycle=schemaLifecyclePlan(state,config,'create')
+  state.schema_plan_sha256=digest(lifecycle)
   durableJSON(statePath, state, { exclusive: true })
+  durableJSON(statePath+'.schema-create-plan.json',lifecycle,{exclusive:true})
+  return {phase:'planned',state:statePath,schema_plan:statePath+'.schema-create-plan.json',plan:lifecycle,
+    PostgreSQL_connected:false,next:'Exclusive PG operator creates only these two marked schemas and grants only their scoped privileges; then run prepare.'}
+}
+
+function checkCreatePlan(state,config,statePath) {
+  check(existsSync(statePath+'.schema-create-plan.json'),'operator:schema-plan-changed')
+  check(digest(schemaLifecyclePlan(state,config,'create'))===state.schema_plan_sha256
+    && digest(readJSON(statePath+'.schema-create-plan.json'))===state.schema_plan_sha256,'operator:schema-plan-changed')
+}
+
+async function prepare(config, statePath, Pool, driverManifest) {
+  const state=validateState(readJSON(statePath),config)
+  check(state.phase==='planned','operator:planned-state-required')
+  checkCreatePlan(state,config,statePath)
+  const run_id=state.run_id
+  check(!existsSync(statePath+'.anchors.json'),'operator:anchor-already-exists')
   const bootstrap = new Pool(poolOptions(config)); let pool
   try {
     state.postgres_before = await observePostgres(bootstrap)
-    for (const schema of [state.source_schema, state.restore_schema]) await createMarkedSchema(bootstrap, schema, run_id)
+    for (const schema of [state.source_schema, state.restore_schema]) await checkMarker(bootstrap, schema, run_id)
+    state.driver_manifest=driverManifest
     pool = new Pool(poolOptions(config, state.source_schema))
     const fault = failureProjection(pool), toy = toyFixture()
     const memory = createPostgresMemory({ pool: fault, authority: toy.authority, contracts: toy.contracts })
@@ -305,21 +358,20 @@ async function verify(config, statePath, Pool) {
   } finally { if (source) await source.end(); if (restored) await restored.end(); await bootstrap.end() }
 }
 
-async function cleanup(config, statePath, Pool) {
+async function cleanupPlan(config, statePath, Pool) {
   const state = validateState(readJSON(statePath), config), bootstrap = new Pool(poolOptions(config))
+  check(state.phase==='verified','operator:verified-state-required')
   try {
     await observePostgres(bootstrap)
-    const dropped = []
     for (const schema of [state.source_schema, state.restore_schema]) {
-      if (await checkMarker(bootstrap, schema, state.run_id, { absentAllowed: true })) {
-        await bootstrap.query('DROP SCHEMA ' + quotedSchema(schema) + ' CASCADE'); dropped.push(schema)
-      }
+      await checkMarker(bootstrap,schema,state.run_id)
     }
-    state.phase = 'cleaned'; state.cleanup_schemas = dropped
-    delete state.snapshot; delete state.record; delete state.receipt; delete state.operation
+    const lifecycle=schemaLifecyclePlan(state,config,'drop')
+    durableJSON(statePath+'.schema-cleanup-plan.json',lifecycle)
+    state.cleanup_plan_sha256=digest(lifecycle)
     durableJSON(statePath, state)
-    if (existsSync(statePath + '.anchors.json')) unlinkSync(statePath + '.anchors.json')
-    return { phase: 'cleaned', schemas_dropped: dropped, state: statePath, postgres_process_unchanged: true,
+    return { phase: 'cleanup-planned',schemas_dropped:[],state:statePath,schema_plan:statePath+'.schema-cleanup-plan.json',
+      plan:lifecycle,exclusive_operator_required:true,postgres_process_unchanged: true,
       physical_media_erasure: false, backup_or_WAL_erasure: false }
   } finally { await bootstrap.end() }
 }
@@ -327,13 +379,19 @@ async function cleanup(config, statePath, Pool) {
 export async function runOperatorPostgres(argv) {
   if (argv.length === 1 && ['--help', 'help'].includes(argv[0])) return { usage: OPERATOR_USAGE,
     scope: 'Explicit operator-managed disposable PostgreSQL storage acceptance; synthetic data and private toy authority only.' }
-  check(argv.length === 3 && ['prepare', 'verify', 'cleanup'].includes(argv[0]), 'operator:arguments-invalid')
+  check(argv.length === 3 && ['plan','prepare', 'verify', 'cleanup-plan'].includes(argv[0]), 'operator:arguments-invalid')
   const [phase, configPath, statePath] = argv
   check(isAbsolute(configPath) && isAbsolute(statePath) && configPath !== statePath, 'operator:absolute-task-owned-paths-required')
   const config = validateOperatorConfig(readJSON(configPath))
+  if(phase==='plan') return plan(config,statePath)
+  check(existsSync(statePath),'operator:planned-state-required')
+  const state=validateState(readJSON(statePath),config)
+  check(phase==='prepare'?state.phase==='planned':phase==='verify'?['prepared','verified'].includes(state.phase):state.phase==='verified',
+    phase==='cleanup-plan'?'operator:verified-state-required':'operator:planned-state-required')
+  if(phase==='prepare') checkCreatePlan(state,config,statePath)
   const { Pool, driverManifest } = await primeLocalDriver()
   return phase === 'prepare' ? prepare(config, statePath, Pool, driverManifest)
-    : phase === 'verify' ? verify(config, statePath, Pool) : cleanup(config, statePath, Pool)
+    : phase === 'verify' ? verify(config, statePath, Pool) : cleanupPlan(config, statePath, Pool)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
