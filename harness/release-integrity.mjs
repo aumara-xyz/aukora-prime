@@ -28,7 +28,40 @@ async function walk(root,prefix){await subRoot(root,prefix);const result=[];for(
 function sameList(left,right){return JSON.stringify(left.map(item).sort((a,b)=>a.path.localeCompare(b.path)))===JSON.stringify(right.map(item).sort((a,b)=>a.path.localeCompare(b.path)))}
 const OWNER_ID='@aukora/prime-authority-ui'
 const OWNER_CONFIG=`import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(OWNER_ID)}, [], { hostPhase: true })\n`
-const BUILD_PATHS=['.dsh-build/pinned-harness-build.json','pnpm-lock.yaml','tsconfig.base.json','tsconfig.base.client.json','packages/client/tsdown.client.ts','packages/client/modules/src/client/manifest.ts','packages/client/web/src/platform.ts','scripts/client-build-environment.ts','scripts/bundle-input-isolation.ts'].sort((a,b)=>a.localeCompare(b,'en'))
+const HARNESS_IDENTITY_PATH='.dsh-build/pinned-harness-identity.json'
+const HARNESS_IDENTITY_ALGORITHM='aukora-prime:pinned-harness-identity:v1'
+const HARNESS_IDENTITY_DOMAIN='aukora-prime.pinned-harness-identity.v1\0'
+const BUILD_PATHS=['pnpm-lock.yaml','tsconfig.base.json','tsconfig.base.client.json','packages/client/tsdown.client.ts','packages/client/modules/src/client/manifest.ts','packages/client/web/src/platform.ts','scripts/client-build-environment.ts','scripts/bundle-input-isolation.ts'].sort((a,b)=>a.localeCompare(b,'en'))
+function identityJson(value){
+ if(value===null||typeof value==='string'||typeof value==='boolean')return JSON.stringify(value)
+ if(typeof value==='number'&&Number.isSafeInteger(value))return JSON.stringify(value)
+ if(Array.isArray(value))return '['+value.map(identityJson).join(',')+']'
+ if(value&&Object.getPrototypeOf(value)===Object.prototype)return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+identityJson(value[key])).join(',')+'}'
+ fail('owner-harness-identity-data')
+}
+function harnessBinding(binding){
+ keys(binding,['path','algorithm','sha256'])
+ if(binding.path!==HARNESS_IDENTITY_PATH||binding.algorithm!==HARNESS_IDENTITY_ALGORITHM||!HEX.test(binding.sha256))fail('owner-harness-identity-binding')
+ return binding
+}
+function harnessDocument(bytes,binding){
+ const document=json(bytes);keys(document,['formatVersion','kind','algorithm','identity','sha256'])
+ if(document.formatVersion!==1||document.kind!=='pinned-harness-identity'||document.algorithm!==HARNESS_IDENTITY_ALGORITHM||!HEX.test(document.sha256))fail('owner-harness-identity-document')
+ const identity=document.identity;keys(identity,['upstream','localPatches','compilerInputs','coverage','host','client'])
+ keys(identity.upstream,['commit','archiveSha256','lockfileSha256','packageManager','cordisVersion'])
+ if(identity.upstream.commit!==DSH||identity.upstream.archiveSha256!=='ae0968314dcd5e3c9d7e8f1f5748bbd289afc4ef5668187e0ef6524a7c64c87e'||identity.upstream.lockfileSha256!==LOCK||identity.upstream.packageManager!=='pnpm@11.7.0'||identity.upstream.cordisVersion!=='4.0.2')fail('owner-harness-upstream-pin')
+ if(!Array.isArray(identity.localPatches)||identity.localPatches.length!==4)fail('owner-harness-patch-set')
+ const patchNames=new Set()
+ for(const patch of identity.localPatches){keys(patch,['file','sha256']);pathName(patch.file);if(!HEX.test(patch.sha256)||patchNames.has(patch.file))fail('owner-harness-patch-set');patchNames.add(patch.file)}
+ items(identity.compilerInputs)
+ keys(identity.coverage,['hostPatterns','clientPatterns','requiredEntries','excluded','sourceLockfile'])
+ for(const key of ['hostPatterns','clientPatterns','requiredEntries','excluded'])if(!Array.isArray(identity.coverage[key])||identity.coverage[key].some(value=>typeof value!=='string'||!value))fail('owner-harness-coverage')
+ if(identity.coverage.sourceLockfile!=='pnpm-lock.yaml')fail('owner-harness-coverage')
+ for(const field of ['host','client']){keys(identity[field],['entries','sha256']);items(identity[field].entries);if(!HEX.test(identity[field].sha256))fail('owner-harness-output-digest')}
+ if(!bytes.equals(Buffer.from(identityJson(document)+'\n'))||sha(Buffer.from(HARNESS_IDENTITY_DOMAIN+identityJson(identity)))!==document.sha256)fail('owner-harness-identity-digest')
+ if(document.sha256!==harnessBinding(binding).sha256)fail('owner-harness-identity-mismatch')
+ return document
+}
 // Independent package identities, not receipt-authored resolution hints. Workspace
 // seats/versions come from DSH 0d1f50007f9bca3f52b06e1c3074fa14d5fb0720
 // (archive ae0968314dcd5e3c9d7e8f1f5748bbd289afc4ef5668187e0ef6524a7c64c87e).
@@ -81,8 +114,17 @@ async function ownerDependencyMetadata(buildInputs,{ui,dsh,release}){
  }
 }
 function ownerReceipt(receipt){
- if(receipt.version!==2||receipt.owner_build?.version!==1)fail('owner-source-receipt-missing')
- if(receipt.upstream_commit!==DSH||receipt.source_commit!==DSH||receipt.source_commit_attribution!=='pinned-dsh-upstream; not Prime/UI source proof'||receipt.mode!=='client-only'||receipt.legacy_hosts_mounted!==false||receipt.source_lock_sha256!==LOCK||receipt.overlay_lock_sha256!==LOCK||!HEX.test(receipt.harness_receipt_sha256))fail('owner-build-pin')
+ if(receipt.version!==3||receipt.owner_build?.version!==2)fail('owner-source-receipt-missing')
+ keys(receipt,['version','source_commit','source_commit_attribution','upstream_commit','provenance','source_lock_sha256','overlay_lock_sha256','dependency_versions','mode','legacy_hosts_mounted','artifacts','owner_build'])
+ if(receipt.upstream_commit!==DSH||receipt.source_commit!==DSH||receipt.source_commit_attribution!=='pinned-dsh-upstream; not Prime/UI source proof'||receipt.mode!=='client-only'||receipt.legacy_hosts_mounted!==false||receipt.source_lock_sha256!==LOCK||receipt.overlay_lock_sha256!==LOCK)fail('owner-build-pin')
+ keys(receipt.provenance,['harness_build_receipt'])
+ keys(receipt.provenance.harness_build_receipt,['path','bytes','sha256'])
+ const historical=item(receipt.provenance.harness_build_receipt)
+ if(historical.path!=='.dsh-build/pinned-harness-build.json')fail('owner-provenance-path')
+ // The producer's raw receipt is retained attribution, not a compiler input or
+ // stable identity. Never compare it with a later producer's volatile bytes.
+ if(!receipt.dependency_versions||typeof receipt.dependency_versions!=='object'||Array.isArray(receipt.dependency_versions)||Object.values(receipt.dependency_versions).some(value=>typeof value!=='string'||!value))fail('owner-dependency-versions')
+ items(receipt.artifacts)
  const owner=receipt.owner_build
  keys(owner,['version','package_id','source_inputs','source_inputs_before_sha256','source_inputs_after_sha256','build_inputs','build_inputs_before_sha256','build_inputs_after_sha256','output_artifacts'])
  if(owner.package_id!==OWNER_ID)fail('owner-package-pin')
@@ -90,7 +132,8 @@ function ownerReceipt(receipt){
  const sourceDigest=sha(Buffer.from(JSON.stringify(owner.source_inputs))),buildDigest=sha(Buffer.from(JSON.stringify(owner.build_inputs)))
  if(owner.source_inputs_before_sha256!==sourceDigest||owner.source_inputs_after_sha256!==sourceDigest)fail('owner-source-digest-binding')
  if(owner.build_inputs_before_sha256!==buildDigest||owner.build_inputs_after_sha256!==buildDigest)fail('owner-build-digest-binding')
- keys(owner.build_inputs,['pinned','generated','declared_dependencies','build_dependencies'])
+ keys(owner.build_inputs,['harness_identity','pinned','generated','declared_dependencies','build_dependencies'])
+ const identity=harnessBinding(owner.build_inputs.harness_identity)
  const pins=items(owner.build_inputs.pinned)
  if(JSON.stringify(pins.map(x=>x.path))!==JSON.stringify(BUILD_PATHS))fail('owner-pinned-build-set')
  const generated=item(owner.build_inputs.generated)
@@ -100,7 +143,7 @@ function ownerReceipt(receipt){
  for(const path of ['prime-authority/lib/client.js','prime-authority/lib/client.js.map','prime-authority/lib/index.js','prime-authority/lib/types/client/index.d.ts','prime-authority/lib/types/client/controller.d.mts','prime-authority/lib/types/client/controller.mjs'])if(!outputs.some(x=>x.path===path))fail('owner-output-missing',path)
  for(const extension of ['mjs','d.mts']){const source=sources.find(x=>x.path==='prime-authority/src/client/controller.'+extension),output=outputs.find(x=>x.path==='prime-authority/lib/types/client/controller.'+extension);if(!source||source.bytes!==output.bytes||source.sha256!==output.sha256)fail('owner-copied-controller-binding')}
  for(const output of owner.output_artifacts.filter(x=>/\/client\.js(?:\.map)?$/.test(x.path))){const compiled=receipt.artifacts?.find(x=>x.id===OWNER_ID&&x.path===output.output_path);if(!compiled||compiled.bytes!==output.bytes||compiled.sha256!==output.sha256)fail('owner-output-artifact-binding',output.path)}
- return {sources,outputs,buildInputs:owner.build_inputs}
+ return {sources,outputs,buildInputs:owner.build_inputs,harnessIdentity:identity}
 }
 
 /** Verify owned source before copying. Owner builds must carry genuine input pins. */
@@ -127,10 +170,13 @@ export async function verifyUiSource({sourceRoot}){
  await bytesAt(ui,'scripts/verify-owner-build.mjs')
  const {verifyOwnerBuild}=await import(pathToFileURL(join(ui,'scripts/verify-owner-build.mjs')).href)
  if(typeof verifyOwnerBuild!=='function')fail('owner-verifier-export')
- const verified=await verifyOwnerBuild({uiRoot:ui,receiptPath:join(ui,'prime-authority/lib/build.json'),dsh:await subRoot(root,'vendor/dsh')})
+ const dsh=await subRoot(root,'vendor/dsh')
+ const verified=await verifyOwnerBuild({uiRoot:ui,receiptPath:join(ui,'prime-authority/lib/build.json'),dsh,primeRoot:root})
  if(verified?.result!=='PASS'||verified.source_output_binding!=='MATCH'||verified.pinned_build_inputs!=='MATCH')fail('owner-verifier-refused')
+ const identityBytes=await bytesAt(dsh,HARNESS_IDENTITY_PATH)
+ harnessDocument(identityBytes,binding.harnessIdentity)
  const sourceRecords=[await pin(ui,'baseline-manifest.json'),await pin(ui,'foundation/prime-import-manifest.json'),await pin(ui,'prime-authority/lib/build.json')]
- return {version:1,donor:DONOR,baseline,served:faces.served,foundation,foundationFiles,owner,ownerSources,ownerOutputs,sourceRecords}
+ return {version:1,donor:DONOR,baseline,served:faces.served,foundation,foundationFiles,owner,ownerSources,ownerOutputs,sourceRecords,harnessIdentity:binding.harnessIdentity,harnessIdentityFile:{path:HARNESS_IDENTITY_PATH,bytes:identityBytes.length,sha256:sha(identityBytes)}}
 }
 
 /** Compose seam: call after copying and before final release digest calculation. */
@@ -146,11 +192,12 @@ export async function writeUiIntegritySnapshot({sourceRoot,releaseRoot}){
  add({...source.sourceRecords[1],path:'plugins/aukora-foundation/prime-import-manifest.json'})
  add({...source.sourceRecords[2],path:'plugins/prime-authority/lib/build.json'})
  for(const entry of source.ownerOutputs)add({...entry,path:'plugins/'+entry.path})
+ add(source.harnessIdentityFile)
  // Additional owned host/package/type bytes are pinned to the reviewed source.
  const ui=await subRoot(await rootPath(sourceRoot),'packages/ui')
  for(const [sourcePath,target] of [['foundation/lib/index.js','plugins/aukora-foundation/lib/index.js'],['prime-authority/package.json','plugins/prime-authority/package.json'],['prime-authority/lib/index.js','plugins/prime-authority/lib/index.js'],...((await walk(ui,'prime-authority/lib/types')).map(path=>[path,'plugins/'+path]))])add({...await pin(ui,sourcePath),path:target})
  for(const entry of files)await pinned(root,entry)
- const snapshot={version:1,kind:'aukora-prime-ui-integrity/v1',donor:DONOR,source_records:source.sourceRecords,owner_source_files:source.ownerSources,files:files.sort((a,b)=>a.path.localeCompare(b.path))}
+ const snapshot={version:2,kind:'aukora-prime-ui-integrity/v2',donor:DONOR,source_records:source.sourceRecords,owner_source_files:source.ownerSources,owner_harness_identity:source.harnessIdentity,files:files.sort((a,b)=>a.path.localeCompare(b.path))}
  const bytes=Buffer.from(JSON.stringify(snapshot,null,2)+'\n'),path='prime-ui-integrity.json'
  try{await writeFile(join(root,path),bytes,{flag:'wx',mode:0o644})}catch(error){if(error.code==='EEXIST')fail('snapshot-already-exists');throw error}
  return {result:'PASS',snapshot:path,snapshot_sha256:sha(bytes),served_files:files.length,owner_source_build_binding:'VERIFIED_RECEIPT_INPUTS'}
@@ -160,8 +207,9 @@ export async function writeUiIntegritySnapshot({sourceRoot,releaseRoot}){
 export async function verifyReleaseUi({releaseRoot,expectedSnapshotSha256}){
  const root=await rootPath(releaseRoot),bytes=await bytesAt(root,'prime-ui-integrity.json')
  if(expectedSnapshotSha256!==undefined&&(!HEX.test(expectedSnapshotSha256)||sha(bytes)!==expectedSnapshotSha256))fail('snapshot-trusted-pin-mismatch')
- const snapshot=json(bytes);keys(snapshot,['version','kind','donor','source_records','owner_source_files','files'])
- if(snapshot.version!==1||snapshot.kind!=='aukora-prime-ui-integrity/v1'||snapshot.donor!==DONOR)fail('snapshot-pin')
+ const snapshot=json(bytes);keys(snapshot,['version','kind','donor','source_records','owner_source_files','owner_harness_identity','files'])
+ if(snapshot.version!==2||snapshot.kind!=='aukora-prime-ui-integrity/v2'||snapshot.donor!==DONOR)fail('snapshot-pin')
+ const identity=harnessBinding(snapshot.owner_harness_identity)
  const files=items(snapshot.files);items(snapshot.owner_source_files);const sourceRecords=items(snapshot.source_records)
  const records=[['baseline-manifest.json','prime-packages/ui/baseline-manifest.json'],['foundation/prime-import-manifest.json','plugins/aukora-foundation/prime-import-manifest.json'],['prime-authority/lib/build.json','plugins/prime-authority/lib/build.json']]
  if(sourceRecords.length!==records.length)fail('source-record-set')
@@ -176,6 +224,13 @@ export async function verifyReleaseUi({releaseRoot,expectedSnapshotSha256}){
  for(const entry of items(foundation.copied_exact).filter(x=>!x.path.startsWith('src/'))){const copied=files.find(x=>x.path==='plugins/aukora-foundation/'+entry.path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('foundation-snapshot-omission',entry.path)}
  const owner=json(await bytesAt(root,'plugins/prime-authority/lib/build.json'))
  const binding=ownerReceipt(owner)
+ if(identityJson(binding.harnessIdentity)!==identityJson(identity))fail('owner-harness-snapshot-mismatch')
+ if(!files.some(entry=>entry.path===HARNESS_IDENTITY_PATH))fail('owner-harness-snapshot-omission')
+ // Composition adds Prime modules and host shims. The original pure harness
+ // was independently rederived by verifyUiSource; boot verifies its preserved
+ // document under the protected UI snapshot and full deployment release pin.
+ harnessDocument(await bytesAt(root,HARNESS_IDENTITY_PATH),identity)
+ for(const entry of binding.buildInputs.pinned)await pinned(root,entry)
  await ownerDependencyMetadata(binding.buildInputs,{release:root})
  if(!sameList(binding.sources,snapshot.owner_source_files))fail('owner-source-snapshot-mismatch')
  for(const entry of binding.outputs){const path='plugins/'+entry.path,copied=files.find(x=>x.path===path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('owner-snapshot-omission',path)}

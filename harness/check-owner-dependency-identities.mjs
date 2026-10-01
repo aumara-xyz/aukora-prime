@@ -16,6 +16,8 @@ const donor='645d3213b8aede3b544269b4224ae09df06b0a42'
 const faces=['layout','sidebar','threads','apps','messages','memory','aumlok','documents','settings']
 const temporary=await mkdtemp(join(tmpdir(),'prime-owner-dependency-')),release=join(temporary,'release')
 const current=JSON.parse(await readFile(join(repo,'packages/ui/prime-authority/lib/build.json'),'utf8'))
+const harnessPath='.dsh-build/pinned-harness-identity.json',harnessAlgorithm='aukora-prime:pinned-harness-identity:v1'
+const canonical=value=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?'['+value.map(canonical).join(',')+']':'{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonical(value[key])).join(',')+'}'
 const expected={
  declared_dependencies:[
   ['@aukora/face-layout','workspace:^','0.1.1-rc.2','prime-ui','faces/layout/package.json'],
@@ -89,8 +91,24 @@ try{
  }
  receipt={...copy(current),artifacts:outputArtifacts.filter(record=>/^prime-authority\/client\.js(?:\.map)?$/.test(record.output_path)).map(record=>({id:'@aukora/prime-authority-ui',path:record.output_path,bytes:record.bytes,sha256:record.sha256})),
   owner_build:{...copy(current.owner_build),source_inputs:sourceInputs,source_inputs_before_sha256:sha(Buffer.from(JSON.stringify(sourceInputs))),source_inputs_after_sha256:sha(Buffer.from(JSON.stringify(sourceInputs))),output_artifacts:outputArtifacts}}
- snapshot={version:1,kind:'aukora-prime-ui-integrity/v1',donor,source_records:[{...baselineEntry,path:'baseline-manifest.json'},{...foundationEntry,path:'foundation/prime-import-manifest.json'},null],owner_source_files:sourceInputs,files:[]}
+ // Historical bytes supply metadata only. These explicitly synthetic protocol
+ // receipts are never written to source outputs or represented as a build.
+ receipt.version=3;receipt.owner_build.version=2;delete receipt.harness_receipt_sha256
+ receipt.provenance={harness_build_receipt:{path:'.dsh-build/pinned-harness-build.json',bytes:10,sha256:'a'.repeat(64)}}
+ receipt.owner_build.build_inputs.pinned=receipt.owner_build.build_inputs.pinned.filter(entry=>entry.path!=='.dsh-build/pinned-harness-build.json')
+ for(const entry of receipt.owner_build.build_inputs.pinned)await put(entry.path,await readFile(join(repo,'vendor/dsh',entry.path)))
+ const pin=JSON.parse(await readFile(join(repo,'upstream-dsh.json')))
+ const identity={upstream:Object.fromEntries(['commit','archiveSha256','lockfileSha256','packageManager','cordisVersion'].map(key=>[key,pin[key]])),localPatches:pin.localPatches.map(({file,sha256})=>({file,sha256})),compilerInputs:copy(receipt.owner_build.build_inputs.pinned),coverage:{hostPatterns:['synthetic-host.js'],clientPatterns:['synthetic-client.js'],requiredEntries:['synthetic-host.js'],excluded:[],sourceLockfile:'pnpm-lock.yaml'},host:{entries:[{path:'synthetic-host.js',bytes:2,sha256:sha(Buffer.from('//'))}],sha256:'b'.repeat(64)},client:{entries:[{path:'synthetic-client.js',bytes:2,sha256:sha(Buffer.from('//'))}],sha256:'c'.repeat(64)}}
+ const document={formatVersion:1,kind:'pinned-harness-identity',algorithm:harnessAlgorithm,identity,sha256:sha(Buffer.from('aukora-prime.pinned-harness-identity.v1\0'+canonical(identity)))}
+ const harnessBinding={path:harnessPath,algorithm:harnessAlgorithm,sha256:document.sha256}
+ remember(await put(harnessPath,canonical(document)+'\n'));receipt.owner_build.build_inputs.harness_identity=harnessBinding
+ snapshot={version:2,kind:'aukora-prime-ui-integrity/v2',donor,source_records:[{...baselineEntry,path:'baseline-manifest.json'},{...foundationEntry,path:'foundation/prime-import-manifest.json'},null],owner_source_files:sourceInputs,owner_harness_identity:harnessBinding,files:[]}
  assert.equal((await check(copy(receipt))).result,'PASS');assertions++
+ const old=copy(receipt);old.version=2;old.owner_build.version=1;await refused(old,'owner-source-receipt-missing')
+ const unknown=copy(receipt);unknown.harness_receipt_sha256='d'.repeat(64);await refused(unknown,'manifest-shape')
+ const changedStable=copy(receipt);changedStable.owner_build.build_inputs.harness_identity.sha256='d'.repeat(64);await refused(changedStable,'owner-harness-snapshot-mismatch')
+ const changedVersion=copy(receipt);changedVersion.owner_build.build_inputs.harness_identity.algorithm='aukora-prime:pinned-harness-identity:v2';await refused(changedVersion,'owner-harness-identity-binding')
+ const provenance=copy(receipt);provenance.provenance.harness_build_receipt.sha256='e'.repeat(64);assert.equal((await check(provenance)).result,'PASS');assertions++
 
  // The report's exploit rehashes all dependency routes to the harmless layout.
  const redirected=copy(receipt)
