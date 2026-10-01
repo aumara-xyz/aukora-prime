@@ -155,3 +155,9 @@ cannot be an OS entry name or link target; its coverage uses raw path and serial
 metadata inputs. Qualification remains PENDING; source checks establish no independent
 host boundary, protected deployment or loaded-code attestation. A changed evaluator
 closure requires a newly retained external `evaluator-digest` before a future run.
+
+The new ordinary keyless runner is `node packages/ops/verify-fast.mjs --root
+/physical/source --evidence-dir /physical/private/parent/new-run [--json true]`.
+H owns its root `./prime verify` hook. See [the closed short profile](fast-verify/README.md)
+for exact cases, pins, exit codes, missing C/F entrypoints and historical-only records.
+It leaves archive verification and G1 qualification unchanged.

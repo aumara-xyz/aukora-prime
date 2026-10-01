@@ -29,7 +29,12 @@
     "regression.mjs",
     "README.md",
     "package.json",
-    "check-digest-controls.mjs"
+    "check-digest-controls.mjs",
+    "verify-fast.mjs",
+    "fast-verify/manifest.mjs",
+    "fast-verify/runner.mjs",
+    "fast-verify/engine-check.mjs",
+    "fast-verify/README.md"
   ],
   "contract_base": "f502d539a01e5efae4fc688ad4759162205aa0f4",
   "pending_dispositions": [
@@ -54,5 +59,15 @@
     "version": 2
   },
   "legacy_digest_scope": "Retained v1 bytes for ordinary metadata, with C0/DEL guard; legacy exclusions and opaque link text do not establish physical containment or installation/loaded-code identity. Full-release digest separately covers marker and contained target bytes/modes.",
-  "owned_repo_build_runtime_dependencies": []
+  "owned_repo_build_runtime_dependencies": [],
+  "ordinary_verify_profile": {
+    "source_review_commit": "795f32337dd27848eaf85952b70ab86a27c54b24",
+    "scope": "closed keyless ordinary source checks; no product acceptance",
+    "missing_short_checks": [
+      "authority-review-renewal",
+      "execution-ordinary-binding"
+    ],
+    "historical_receipts": "owner relay only; exact independent files/hashes not supplied",
+    "root_hook_owner": "A/H; existing archive verify unchanged"
+  }
 }
