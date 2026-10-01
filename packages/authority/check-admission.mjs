@@ -59,9 +59,28 @@ function harness(root) {
   function operation(name, owner = owners[0], extra = {}) {
     return { version: 1, operation_id: name, task_id: 'synthetic-task', owner_id: owner.identity.owner_id, agent_id: 'synthetic-agent', audience: 'prime:admission-test', action_type: 'memory.save', target_identity: { kind: 'prime-memory', owner_subject: owner.identity.subject }, canonical_parameters: { content: 'Public synthetic admission fixture' }, data_scope: ['public'], expected_state_version: 'synthetic-r1', provider_and_region: { provider: 'none', region: 'local' }, maximum_cost: { currency: 'USD', amount: '0' }, expiry: new Date(Date.now() + 30 * 60 * 1000).toISOString(), nonce: randomBytes(32).toString('hex'), policy_version: 'synthetic-policy-1', authorization_epoch: 0, ...extra }
   }
-  function login(service, owner = owners[0]) {
+  function loginSession(service, owner = owners[0]) {
     const challenge = ok(service.loginChallenge({ owner_id: owner.identity.owner_id, kind: 'owner_key' })).challenge
-    return ok(service.loginComplete({ challenge, material: { kind: 'owner_key', signature: sign(null, loginSigningBytes(challenge), owner.key.privateKey).toString('hex') } })).session_token
+    return ok(service.loginComplete({ challenge, material: { kind: 'owner_key', signature: sign(null, loginSigningBytes(challenge), owner.key.privateKey).toString('hex') } }))
+  }
+  function login(service, owner = owners[0]) {
+    return loginSession(service, owner).session_token
+  }
+  function renewableLogin(service, owner = owners[0]) {
+    let current, logins = 0
+    return {
+      token() {
+        // Refresh before a cycle when the session has a minute left under load.
+        // Use signed login calls; production TTL and quotas still apply.
+        if (!current || Date.parse(current.expiry) - Date.now() <= 60000) {
+          current = loginSession(service, owner)
+          logins++
+        }
+        return current.session_token
+      },
+      get expiry() { return current?.expiry },
+      get logins() { return logins },
+    }
   }
   function approve(service, token, op, owner = owners[0]) {
     const review = ok(service.approvalChallenge({ session_token: token, operation: op }))
@@ -98,7 +117,7 @@ function harness(root) {
     const store = new PrimeApprovalStateStore({ statePath: f.config.statePath, stateRoot: f.config.stateRoot, witnessDir: f.config.witnessDir })
     try { store.open(); store.load(); body(store); store.commitBroker() } finally { store.close() }
   }
-  return { check, ok, no, owners, trustedTask, fixture, operation, login, approve, prepared, binding, receipt, read, rows, witnessPath, unchanged, editBroker, get checks() { return checks } }
+  return { check, ok, no, owners, trustedTask, fixture, operation, login, renewableLogin, approve, prepared, binding, receipt, read, rows, witnessPath, unchanged, editBroker, get checks() { return checks } }
 }
 
 async function probe(scenario) {
@@ -116,6 +135,31 @@ async function probe(scenario) {
       h.no(provisionNewAuthorityStore(f.config), 'RECONCILIATION_REQUIRED', 'PROVISION_ZERO_WITNESS_REFUSED')
       h.check(!existsSync(f.config.statePath), 'PROVISION_ZERO_WITNESS_STORE_ABSENT')
       h.check(readFileSync(h.witnessPath(f)).equals(bytes), 'PROVISION_ZERO_WITNESS_BYTES_UNCHANGED')
+    } else if (scenario === 'session-renewal') {
+      const realNow = Date.now
+      let stamp = realNow()
+      Date.now = () => stamp
+      try {
+        const f = h.fixture('session-renewal'), session = h.renewableLogin(f.service)
+        const first = session.token(), expiry = Date.parse(session.expiry)
+        h.check(expiry === stamp + 300000, 'RENEWAL_DEFAULT_SESSION_TTL_FIVE_MINUTES')
+        h.check(session.token() === first && session.logins === 1, 'RENEWAL_VALID_SESSION_REUSED')
+        const completeCycle = name => {
+          const p = h.prepared(f, session.token(), h.operation(name)), b = h.binding(p)
+          h.ok(f.service.claimDispatch(b))
+          h.check(h.ok(f.service.settleMemory({ ...b, receipt: h.receipt(b, { storage_status: 'saved', revision: name }) })).status === 'COMPLETED', 'RENEWAL_SIGNED_SAVE_CYCLE_COMPLETED')
+        }
+        completeCycle('before-renewal')
+        stamp = expiry - 60000
+        const renewed = session.token()
+        h.check(renewed !== first && session.logins === 2, 'RENEWAL_BEFORE_SESSION_BOUNDARY_SIGNED_IN')
+        stamp = Date.parse(session.expiry) + 1
+        h.unchanged(f, () => h.no(f.service.authenticateSession({ session_token: renewed }), 'UNAUTHORIZED', 'RENEWAL_EXPIRED_SESSION_REFUSED'), 'RENEWAL_EXPIRED_SESSION')
+        completeCycle('after-session-expiry')
+        h.check(session.token() !== renewed && session.logins === 3, 'RENEWAL_EXPIRED_SESSION_SIGNED_IN')
+        const state = h.read(f)
+        h.check(h.rows(f).length === 2 && h.rows(f).every(row => row.status === 'COMPLETED') && state.state.consumedIds.length === 2 && state.prepared.length === 2 && state.state.receiptHead.count === 2, 'RENEWAL_RETAINS_BOTH_REAL_CONSUMED_CYCLES')
+      } finally { Date.now = realNow }
     } else throw new Error('Unknown admission probe: ' + scenario)
     return { status: 'PASS', scenario, checks: h.checks }
   } finally { rmSync(root, { recursive: true, force: true }) }
@@ -225,9 +269,9 @@ export async function runAdmissionChecks() {
     h.check(h.rows(denied).length === 1, 'EXPIRED_UNCONSUMED_DENIED_PRUNED')
     groups.push('denied rows bounded at 32 per owner/64 total and expired denied rows prune')
 
-    const lifecycle = h.fixture('completed-save-lifecycles'), lt = h.login(lifecycle.service)
+    const lifecycle = h.fixture('completed-save-lifecycles'), lt = h.renewableLogin(lifecycle.service)
     for (let n = 0; n < 265; n++) {
-      const p = h.prepared(lifecycle, lt, h.operation('completed-save-' + n)), b = h.binding(p)
+      const p = h.prepared(lifecycle, lt.token(), h.operation('completed-save-' + n)), b = h.binding(p)
       h.ok(lifecycle.service.claimDispatch(b))
       const result = { storage_status: 'saved', revision: 'synthetic-r' + (n + 2), public_fixture: true }
       const mr = h.receipt(b, result), settled = h.ok(lifecycle.service.settleMemory({ ...b, receipt: mr }))

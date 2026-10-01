@@ -71,6 +71,7 @@ Methods return synchronous `{ok: true, ...}` results or `{ok: false, error_code,
 | `claimDispatch` | `{operation, consumed_grant, request_id, request_digest}` | durable `status: 'DISPATCHED'`, exact request binding |
 | `advanceAuthorizationEpoch` | `{session_token}` | `UNAVAILABLE`: epoch-change authentication design awaits review |
 | `authenticateSession` | `{session_token}` | read-only durable owner ID, subject, epoch and expiry |
+| `logoutSession` | `{session_token}` | durable `status: 'LOGGED_OUT'` for the authenticated current token |
 | `status` | `{session_token, operation_id}` | owner-scoped lifecycle, digest, reconciliation flag |
 | `requestCancel` | `{operation, consumed_grant, request_id, reason}` | durable intent only; late terminal result preserved |
 | `settle` / `reconcileSettlement` | `{operation, consumed_grant, request_id, request_digest, receipt, receipt_digest}` | bound idempotent executor evidence; explicit unknown reconciliation |
@@ -78,6 +79,10 @@ Methods return synchronous `{ok: true, ...}` results or `{ok: false, error_code,
 | `settleMemory` | exact dispatch binding plus genuine D `receipt` | durable idempotent applied-memory evidence |
 
 Login challenge is the exact closed record `{version:1, owner_id, audience, challenge, issued_at, expiry, authorization_epoch}`. The login bytes are UTF-8 `aukora-prime.owner-login.v1\0` plus frozen sorted compact canonical JSON of that record. Login owner-key material is exactly `{kind:'owner_key', signature:<128 lowercase hex>}`.
+
+`logoutSession` removes only the authenticated current token under the durable writer lock and advances the retained broker witness before success. Invalid, expired, or already-logged-out tokens refuse `UNAUTHORIZED`; it is not an all-device logout or epoch change. B/bridge must call this server method before reporting confirmed logout, discard their local token even if the reply is lost, and report unconfirmed server revocation when transport fails. Clearing browser state alone is insufficient. Proposals/review/status reject the old token after restart. Reservation and first dispatch require the exact review session still present and unexpired, including a second check inside the kernel preparation lock; a fresh login cannot revive an old approved proof. PREPARED grants remain consumed if logout blocks dispatch. Already-dispatched cancellation, factual settlement, and receipt reconciliation do not require a live owner session and cannot reauthorize/relaunch an effect.
+
+`node packages/authority/check-session.mjs` checks logout, token/owner isolation, post-logout approval-use refusal, retained PREPARED duties, dispatched receipt settlement, rollback fencing, and the unchanged 300000 ms session TTL. `node packages/authority/check-admission.mjs admission-probe session-renewal` checks legitimate signed fixture renewal across expiry. The 265-save fixture obtains a fresh signed session when its returned expiry is within one minute; production expiry is unchanged.
 
 Approval request is the copied donor's exact `{domain:'aukora:owner-approval-request:v1', subject, activeControlDigest, operationDigest, challenge, issuedAt, expiresAt}`. `operationDigest` is the raw SHA-256 hex of the frozen full operation. Approval signing bytes are UTF-8 `aukora:owner-approval-signature:v1\0` plus donor canonical JSON of that request. Donor and frozen shared canonical JSON agree for these closed string/safe-integer fields. Approval owner-key material is exactly `{kind:'owner_key', request:<that exact request>, signature:<128 lowercase hex>}`.
 

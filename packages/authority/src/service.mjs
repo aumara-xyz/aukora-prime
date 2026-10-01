@@ -178,6 +178,13 @@ function authorityService(options, provisionNew) {
     if(row.approval && !row.grant && store.currentRecord.state.consumedIds.includes('approval:'+row.approval.proof.nonce)) refuse('RECONCILIATION_REQUIRED','CONSUMED_AUTHORITY_WITHOUT_MATCHING_RESERVATION')
     return row
   }
+  function approvalSession(store,row) {
+    const s=store.broker.sessions[row.review?.session_hash]
+    if(!s||s.owner_id!==row.operation.owner_id||s.audience!==c.audience||
+       s.authorization_epoch!==row.operation.authorization_epoch||Date.parse(s.expiry)<=now()) {
+      refuse('UNAUTHORIZED','APPROVAL_SESSION_REVOKED_OR_EXPIRED')
+    }
+  }
   function attempt(fn) { try {return fn()} catch(error) {return resultError(error)} }
   function boundedOperation(input) {
     const op=detachContract('OperationProposal',input)
@@ -307,6 +314,7 @@ function authorityService(options, provisionNew) {
       policy(store,op);const row=operationRow(store,op)
       if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
       if(row.status!=='APPROVED'||!row.approval) refuse(row.grant?'REPLAYED':'UNAUTHORIZED',row.grant?'GRANT_ALREADY_CONSUMED':'AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
+      approvalSession(store,row)
       if(!equal(proof,row.approval.proof)) refuse('INVALID','APPROVAL_PROOF_CHANGED')
       return structuredClone(row.approval)
     })
@@ -318,6 +326,7 @@ function authorityService(options, provisionNew) {
           if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op)) refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')
           if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
           if(row.status!=='APPROVED'||!row.approval||!equal(row.approval.proof,proof)) refuse(row.grant?'REPLAYED':'UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
+          approvalSession(store,row)
           if(Date.parse(proof.expiry)<=now()) refuse('EXPIRED','APPROVAL_EXPIRED')
           if(proof.material.kind==='passkey') {
             const checked=verifyWebauthnAssertion({material:proof.material,config:c.webauthn,ownerId:op.owner_id,challenge:webauthnChallenge(approvalSigningBytes(row.review.request)),checkCounter:false})
@@ -355,6 +364,7 @@ function authorityService(options, provisionNew) {
     return tx(store=>{
       policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant)
       if(row.status!=='PREPARED'||!equal(row.grant,grant)) refuse('REPLAYED','RESERVATION_NOT_DISPATCHABLE')
+      approvalSession(store,row)
       if(Date.parse(row.approval.proof.expiry)<=now()) refuse('EXPIRED','APPROVAL_EXPIRED')
       row.status='DISPATCHED';row.dispatch={request_id:v.request_id,request_digest:v.request_digest,cancel_requested:false,cancel_reason:null,receipt:null,receipt_digest:null,settlement_digests:[]};store.commitBroker()
       return {ok:true,status:'DISPATCHED',consumed_grant:deepFreeze(grant),request_id:v.request_id,request_digest:v.request_digest}
@@ -437,6 +447,15 @@ function authorityService(options, provisionNew) {
       return {ok:true,owner_id:id.owner_id,subject:id.subject,authorization_epoch:id.authorization_epoch,expiry:s.expiry}
     })
   })}
+  function logoutSession(input) {return attempt(()=>{
+    const v=closed(input,['session_token'])
+    return tx(store=>{
+      session(store,v.session_token)
+      delete store.broker.sessions[keyOf(v.session_token)]
+      store.commitBroker()
+      return {ok:true,status:'LOGGED_OUT'}
+    })
+  })}
   function advanceAuthorizationEpoch(input) { return attempt(()=>{
     closed(input,['session_token'])
     refuse('UNAVAILABLE','EPOCH_CHANGE_AUTHENTICATION_DESIGN_UNAPPROVED')
@@ -449,5 +468,5 @@ function authorityService(options, provisionNew) {
       return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN'].includes(row.status)}
     })
   }) }
-  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,approvalChallenge,approvalComplete,declineApproval,reserve,claimDispatch,requestCancel,settle,reconcileSettlement,markOutcomeUnknown,settleMemory,advanceAuthorizationEpoch,status})
+  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,logoutSession,approvalChallenge,approvalComplete,declineApproval,reserve,claimDispatch,requestCancel,settle,reconcileSettlement,markOutcomeUnknown,settleMemory,advanceAuthorizationEpoch,status})
 }
