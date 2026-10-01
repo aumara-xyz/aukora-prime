@@ -1,0 +1,22 @@
+Lane E implements one explicit `externalDeepSeek` route in mock mode. Real inference remains unavailable pending separate approval of API credentials, spend cap, data scope, retention/residency terms and served model qualification. ChatGPT/Codex credits are not API credits. No fetch, secret setup, paid call or second agent loop is implemented.
+
+Run the disposable check from Prime root:
+
+```sh
+node --test packages/inference/check.mjs
+PRIME_DSH_LLM_ENTRY="file://$PWD/vendor/dsh/packages/llm/llm/lib/index.js" node --test packages/inference/check.mjs
+```
+
+The second command uses the built, pinned DSH/Cordis runtime and its actual `ctx.llm.stream` registry. Node 24.11.1 or newer is required; `node:sqlite` currently emits an experimental warning. The package has no external runtime dependency and carries its owned donor source and license locally.
+
+The authenticated host validates the frozen v1 `Task` and `ModelRoute` with `packages/contracts/src/runtime.mjs`. Call `fromPrimeRoute(route, {mode:'mock', max_request_ms:1000, input_microusd_per_token:1, output_microusd_per_token:2})` and `fromPrimeTask(task, localRoute)`; these mock rates are synthetic accounting units. USD ceiling strings convert exactly, rounding fractions smaller than a microusd down. Task and route token/request/data-class/spend ceilings intersect. Optional host `max_total_tokens` may tighten the aggregate token budget.
+
+Create `SpendLedger` in a new private host-owned directory, then `ledger.register(localTask, localRoute)` before constructing `ExternalDeepSeekGateway({route:localRoute, ledger, request_home, provider:new MockDeepSeekProvider()})`. Registration persists immutable scope and policy; changed configuration refuses. `generate(request,{signal})` takes one v4 UUID, owner/task/conversation IDs, output cap and selected text fragments. Each fragment carries those same IDs, a host-assigned `data_class` and user/assistant role. Public-source fragments also carry `{source_id,url,captured_at,span_sha256}` over the exact selected text. Source fetching and its network qualification belong to the execution lane.
+
+The host selects and classifies fragments. Unlisted classes are omitted; scope violations refuse the whole request. Only conversation and selected public-source text are supported in this milestone. Memory, screen, repo and secrets have no default path. A small credential-pattern check is defense in depth, not a general secret classifier. Model output is an inert note proposal with `grantsAuthority:false`; it cannot authorize memory writes or tools.
+
+Mount the existing DSH provider with `mountDshInference(ctx, LlmAdapter, {gateway, bindRequest, attributionHeaders})`, using the pinned DSH exports. `bindRequest` is a trusted host callback selecting task-bound spans and a stable request UUID. It must never mint a fresh UUID to retry an uncertain call. The adapter binds provider/model, session and output ceiling; it supplies upstream attribution headers and disables automatic retries. Tool schemas refuse until qualified. Successful finish metadata preserves UUID/body receipt/source citations for the host; no model request goes into a planner session log.
+
+SQLite `BEGIN IMMEDIATE` and FULL-synchronous WAL commit a worst-case token/cost reservation and request slot before dispatch. The copied donor writer fsyncs the exact body receipt, preserving the local request UUID, physical line and citation digest. A second host process observes the same cap. Known results settle reservations down to usage; provider failure, invalid usage, cancellation or timeout retains them as `outcome_unknown`. A process killed after reservation leaves `reserved` or `dispatched`, which still holds the cap and refuses replay after restart. `ledger.get(owner,task,uuid)` and `ledger.usage(owner,task)` expose durable state. A trusted operator may call `reconcile(...,{tokens,cost_microusd,evidence_id})`; reconciliation never restores consumed request slots. Request text is held only in the private receipt store; provider exception text is replaced by fixed codes.
+
+This package has been exercised as a disposable local mock adapter. Broker UID isolation, tamper-resistant host policy, backup/restore spend witnesses, installed app activation, Linux runtime qualification and real provider credentials/pricing/terms remain unperformed. Same-UID file permissions are not an independent security boundary. Integrator owns root configuration and host lifecycle.

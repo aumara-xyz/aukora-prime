@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "lane": "E",
+  "base": "independent empty history",
+  "genesis_commit": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "contracts_commit": "f502d539a01e5efae4fc688ad4759162205aa0f4",
+  "dsh_commit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+  "imports": [
+    {
+      "source": "plugins/aukora-face/apps/src/auma-live/model-request-store.ts",
+      "destination": "packages/inference/src/owned/model-request-store.ts",
+      "sha256": "7b79fa59a4d2ee24a5d5daba85b4eeea7a06edaf69458a9490091a28548bc081",
+      "modified": false,
+      "license": "AGPL-3.0-or-later"
+    }
+  ],
+  "pending_dispositions": [
+    {
+      "item": "donor spend-gate.ts",
+      "disposition": "exclude from runtime",
+      "reason": "swallows persistence failures; broad price/provider table/default cap not approved for Prime; invariants adapted to transactional mock ledger"
+    },
+    {
+      "item": "additional donor pending work",
+      "disposition": "defer",
+      "reason": "no unpinned source included"
+    },
+    {
+      "item": "voice expansion",
+      "disposition": "defer",
+      "reason": "no first-milestone voice work authorized"
+    },
+    {
+      "item": "real DeepSeek route",
+      "disposition": "pending",
+      "reason": "explicit API credentials, spending/data scope, price/terms and served-version qualification pending"
+    }
+  ],
+  "runtime_dependencies": [
+    "Node.js >=24.11.1 built-ins"
+  ],
+  "paid_calls": 0
+}
