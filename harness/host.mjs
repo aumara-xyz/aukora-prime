@@ -16,7 +16,7 @@ export function apply(ctx){
   web.effect(()=>web.webServer.register({kind:'prefix',path:'/api/aukora',handler:guarded((req,res)=>send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Prime backend capability not configured'}))}),'prime retained route refusal');
   web.effect(()=>web.webServer.register({kind:'prefix',path:'/aukora',handler:guarded((req,res)=>{
    let path;try{path=decodeURIComponent(new URL(req.url,'http://localhost').pathname)}catch{res.writeHead(400);res.end();return;}
-   const match=/^\\/aukora\\/([^/]+)\\/(.*)$/.exec(path);
+   const match=/^\/aukora\/([^/]+)\/(.*)$/.exec(path);
    if(!match||!faces.includes(match[1])){res.writeHead(404);res.end();return;}
    const base=resolve(root,'plugins','aukora-face-'+match[1],'assets');
    const file=resolve(base,match[2]);
