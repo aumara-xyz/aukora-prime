@@ -64,7 +64,7 @@
   "legacy_digest_scope": "Retained v1 bytes for ordinary metadata, with C0/DEL guard; legacy exclusions and opaque link text do not establish physical containment or installation/loaded-code identity. Full-release digest separately covers marker and contained target bytes/modes.",
   "owned_repo_build_runtime_dependencies": [],
   "ordinary_verify_profile": {
-    "source_review_commit": "bceed00be4148507a7353725aff70da39823706b",
+    "source_review_commit": "0712af79bea08e339497ece3ef45b389a0b0ecf1",
     "scope": "closed keyless ordinary source checks; no product acceptance",
     "missing_short_checks": [
       "authority-review-renewal",
@@ -72,7 +72,8 @@
     ],
     "historical_receipts": "owner relay only; exact independent files/hashes not supplied",
     "root_hook_owner": "A/H; existing archive verify unchanged",
-    "source_review_original_private_commit": "795f32337dd27848eaf85952b70ab86a27c54b24"
+    "source_review_original_private_commit": "795f32337dd27848eaf85952b70ab86a27c54b24",
+    "publication_review_scope": "Explicit static checker/baseline pins reviewed after comment-only privacy adaptation; four metadata refusal regressions passed. No product qualification."
   },
   "contract_base_original_private": "f502d539a01e5efae4fc688ad4759162205aa0f4",
   "privacy_rewrite_scope": "Corresponding sanitized historical source IDs; original observations and receipts remain historical. No new build or installed identity is claimed."

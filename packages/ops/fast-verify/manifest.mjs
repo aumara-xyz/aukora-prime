@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Closed ordinary source profile. Expected check-source pins were reviewed from
-// H's clean bceed00be4148507a7353725aff70da39823706b checkout; never derive-and-pass.
-// Publication correspondence only: original review preceded privacy redactions.
+// H's clean 0712af79bea08e339497ece3ef45b389a0b0ecf1 checkout; never derive-and-pass.
+// The publication reviewer checked the explicit UI comment-adaptation source
+// and four metadata-refusal checks; current pins match that sealed source.
+// Original H review preceded privacy redactions.
 // Check-source pins remain the independently reviewed bytes; this is no new runtime receipt.
 // No authority audit, wildcard, shell, package manager, live service or guest call.
 export const NODE_VERSION = 'v24.11.1'
-export const SOURCE_REVIEW_COMMIT = 'bceed00be4148507a7353725aff70da39823706b'
+export const SOURCE_REVIEW_COMMIT = '0712af79bea08e339497ece3ef45b389a0b0ecf1'
 const frozen = row => Object.freeze({...row, args: Object.freeze(row.args ?? []),
   nodeArgs: Object.freeze(row.unsupportedReason ? [] : ['--max-old-space-size=512', ...(row.nodeArgs ?? [])]),
   pins: Object.freeze((row.pins ?? []).map(Object.freeze))})
@@ -29,8 +31,8 @@ export const CASES = Object.freeze([
     minTests:1, timeoutMs:20000}),
   frozen({id:'ui-static-boundary', property:'Local native assets and static route boundaries',
     entry:'packages/ui/scripts/check-static.mjs',
-    expectedSha256:'d7eb762cb80e5db0880ec5cdb97ecf151467a6af3fac9b9f6e5b64d149174e46',
-    pins:[{path:'packages/ui/baseline-manifest.json', sha256:'133647720061fe83d92bfb09af43e31650f8e2dc83cc282a236aa5403f31586c'}],
+    expectedSha256:'bd7797da793dfafc352250e445f06b8be4c9e17f6fc52005b6a721dc3c0858cf',
+    pins:[{path:'packages/ui/baseline-manifest.json', sha256:'a3e519151fce2e2280a1ed921f94f2bf358a96db3f3e6e4d87016eee5b0677c9'}],
     protocol:'assert-script', timeoutMs:15000}),
   frozen({id:'ui-owner-presentation', property:'Injected owner review and signing presentation boundaries',
     entry:'packages/ui/scripts/check-transport.mjs',

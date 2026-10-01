@@ -62,7 +62,7 @@ At this integration checkpoint:
 - The signer is synthetic. The owner's real passkey enrollment is the top P1 item and requires the owner's action. A real passkey with user verification establishes a real authenticator with user verification; it does not establish hardware custody, human identity or comprehension.
 - OpenShell remains unqualified and disabled. Live inference, a second-machine reproducible release digest, device revocation/key rotation and bounded login-challenge lockout remain unqualified or incomplete.
 - Threads needs an actually available read-only workspace host or an explicit unavailable state. UI appearance alone does not establish the host path.
-- Composition currently refuses the old owner receipt until a genuine v3 build is supplied. The read-only Models source includes documented DeepSeek metadata; current assembled row and secure credential entry remain unqualified.
+- Composition currently refuses the old owner receipt until a genuine v3 build is supplied. The Apps source has one comment-only privacy adaptation; the donor build input record remains historical and a new source build is unperformed. The read-only Models source includes documented DeepSeek metadata; current assembled row and secure credential entry remain unqualified.
 - Protected pilot and SSH acceptance configuration is required and has not been provisioned or qualified for this sanitized source.
 - A private security reporting contact has not yet been confirmed.
 
