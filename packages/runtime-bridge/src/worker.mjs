@@ -70,8 +70,19 @@ export async function startAuthorityWorker(config) {
 }
 
 export async function startMemoryWorker(config) {
-  configRecord(config,['kind','ipc','authorityChannel','registryEntries','resolveHostContext','createPgPool'],['initializeSchema','indexTarget','indexGeneration'])
-  if(config.kind!=='memory'||typeof config.resolveHostContext!=='function'||typeof config.createPgPool!=='function'||(config.initializeSchema!==undefined&&typeof config.initializeSchema!=='boolean'))throw new TypeError('INVALID: memory worker config')
+  return startConfiguredMemoryWorker(config,false)
+}
+
+/** Explicit public composition. Every call uses the existing handlePublic gate;
+ * an internal/synthetic worker cannot opt into this dispatch marker by input. */
+export async function startPublicMemoryWorker(config) {
+  return startConfiguredMemoryWorker(config,true)
+}
+
+async function startConfiguredMemoryWorker(config,publicDispatch) {
+  configRecord(config,['kind','ipc','authorityChannel','registryEntries','resolveHostContext','createPgPool',...(publicDispatch?['verifyHostQualification']:[])],['initializeSchema','indexTarget','indexGeneration'])
+  if(config.kind!==(publicDispatch?'public-memory':'memory')||typeof config.resolveHostContext!=='function'||typeof config.createPgPool!=='function'
+    ||publicDispatch&&typeof config.verifyHostQualification!=='function'||(config.initializeSchema!==undefined&&typeof config.initializeSchema!=='boolean'))throw new TypeError('INVALID: memory worker config')
   const registry=createTrustedTaskRegistry(config.registryEntries)
   const reviews=new Map()
   let memory,pool,server
@@ -106,17 +117,24 @@ export async function startMemoryWorker(config) {
         try {return await fn()} finally {reviews.delete(key)}
       })
     }})
-    const bridge=createRuntimeBridge({authority:proxy,memory:localMemory,taskRegistry:registry,resolveHostContext:config.resolveHostContext})
-    // Trusted internal service IPC, not a qualified HTTP/public app mount. Every
-    // call still passes C sessions/proofs and the fixed channel role allowlist.
-    server=await createIpcServer({...config.ipc,handlePublic:bridge.handleTrusted})
-    return Object.freeze({async close(){await server.close();await pool.end?.()},status:()=>({kind:'memory',qualification:'unqualified',socket:server.address}),bridge})
+    const bridge=createRuntimeBridge({authority:proxy,memory:localMemory,taskRegistry:registry,resolveHostContext:config.resolveHostContext,
+      ...(publicDispatch?{verifyHostQualification:config.verifyHostQualification}:{})})
+    // Internal IPC uses the trusted service seam. Public composition rechecks
+    // qualification on every call; capability preflight grants no authority.
+    const handler=publicDispatch?async(method,input,context)=>{
+      const result=await bridge.handlePublic(method,input,context)
+      return method==='capability.status'&&result?.ok===true?{...result,public_dispatch:'qualified-owner-memory/v1'}:result
+    }:bridge.handleTrusted
+    server=await createIpcServer({...config.ipc,handlePublic:handler})
+    return Object.freeze({async close(){await server.close();await pool.end?.()},status:()=>({kind:config.kind,qualification:publicDispatch?'per-request':'unqualified',socket:server.address,
+      ...(publicDispatch?{public_dispatch:'qualified-owner-memory/v1'}:{})}),bridge})
   } catch(error){await server?.close();await pool?.end?.();throw error}
 }
 
 export async function startWorker(config) {
   if(config?.kind==='authority')return startAuthorityWorker(config)
   if(config?.kind==='memory')return startMemoryWorker(config)
+  if(config?.kind==='public-memory')return startPublicMemoryWorker(config)
   throw new TypeError('INVALID: worker kind')
 }
 

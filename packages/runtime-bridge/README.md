@@ -74,7 +74,8 @@ owner-control channel can mutate approval or save. Channel credentials never
 prove owner identity. `extraction_json` is a bounded original UTF-8 JSON string so
 historical confidence decimals survive inside the frozen integer-only envelope.
 D's duplicate/depth/finite-number parser reads it; the OperationProposal contains
-only hashes and exact live heads. The frozen v1 digest profile is unchanged.
+capture/key hashes, exact live heads and literal statement/attribution. The frozen
+v1 digest profile is unchanged.
 
 `memory.proposeSave` obtains D's exact capture binding and builds the operation
 from C's verified owner plus host-owned task/route/policy. C proposal admission
@@ -98,6 +99,61 @@ Unknown outcomes remain consumed. D's host-only `reconcileEffect` resends only a
 committed local receipt; an unresolved intent forbids automatic retry. The bridge
 has no public reconciliation receipt intake. Neither transport reconnect nor
 client timeout resubmits a mutation.
+
+## Owner memory action
+
+`@aukora-prime/runtime-bridge/owner-memory-workflow` exports the browser-safe
+`createOwnerMemoryWorkflow({controller,memory,contracts})`. B owns its existing
+controller and review surface. H supplies `memory` from the same
+`createUiAdapters({call})` instance whose `authority` is bound to that controller;
+`call` remains H's authenticated transport and qualified app mount. This helper
+does not create a route, session, source context, signer or qualification.
+
+```js
+const adapters = createUiAdapters({call: authenticatedWorkerCall})
+controller.connect({...ownerBinding, authority: adapters.authority, contracts})
+const workflow = createOwnerMemoryWorkflow({
+  controller, memory: adapters.memory, contracts,
+})
+controller.setApprovalAction(() => workflow.approveAndSave())
+// B's button calls submitApproval(); the helper calls approve() directly.
+await workflow.proposeSave({extraction_json, idempotency_key})
+// B's existing prepare() obtains the fresh exact review for owner display.
+```
+
+The proposal retains the detached exact extraction string and key, then passes
+the response's independent `memory_capture` directly to `controller.setOperation`.
+The owner/source/Task context remains derived by the worker, never supplied in
+the browser draft. After explicit owner approval, `approveAndSave()` checks the
+returned proof against the retained full operation and current owner session,
+then invokes `memory.save` once with those exact fields. Concurrent and
+notification-triggered clicks share the pending action. An attempted capture
+cannot be submitted again through this helper; uncertainty blocks new captures
+until host reconciliation. Ending a session before dispatch sends no save.
+
+`getSnapshot()` and `subscribe()` expose approval, save, receipt, citation, index
+and C settlement independently. Methods resolve a frozen snapshot. A validated
+save result can remain `saved:true` with C settlement `pending`; this requires
+reconciliation. A lost or invalid save response is `save:'unknown'`, `saved:null`
+and cannot be retried. The helper checks receipt operation/owner/grant/result
+bindings; commitment hashes are authenticated D/C claims. D and C retain the
+authoritative preimage/digest, proof, effect and settlement verification. No
+additional memory canonicalizer or authority verifier is introduced here.
+
+After a confirmed save, the helper reads the exact record's status and citation.
+Failure of either read preserves the genuine save receipt and sets
+`read_error_code`. `refresh()` performs only those reads, using the retained
+citation head; it never saves, settles or drains the index. Index booleans remain
+`null` until D confirms them. A `VERIFIED` citation grants no authority. Ending
+the session clears prior owner content while preserving content-free confirmed
+save/settlement facts. `dispose()` affects this helper alone and does not cancel
+or replay a mutation. H removes the action hook/subscription during teardown.
+
+The scoped source checks use actual B/C/D objects and synthetic P-256 assertions
+with a SQLite dialect fixture, including browser WebCrypto operation digests.
+They establish source behavior, not a real owner ceremony, PostgreSQL/runtime
+qualification or an activated public route. H/B composition and qualified owner
+activation remain separate.
 
 ## Existing UI injection
 
@@ -171,6 +227,20 @@ The immutable host module's default export is one of these closed records:
 - Authority: `{kind:'authority',ipc,registryEntries,authorityConfig}`.
 - Memory: `{kind:'memory',ipc,registryEntries,authorityChannel,createPgPool,
   resolveHostContext,initializeSchema?,indexTarget?,indexGeneration?}`.
+- Public memory: the same memory fields with `kind:'public-memory'` and mandatory
+  `verifyHostQualification` from protected host configuration.
+
+`@aukora-prime/runtime-bridge/worker` exports `startPublicMemoryWorker` for H's
+explicit public-worker composition. Every RPC, including a call after capability
+preflight, delegates to existing `bridge.handlePublic`. Its capability response
+adds `public_dispatch:'qualified-owner-memory/v1'`; this marker identifies the
+dispatch gate, not host acceptance. The structured host record still must pass
+on each request. A missing verifier refuses configuration; null, boolean or
+synthetic qualification results keep all effects unavailable. Startup status
+reports `qualification:'per-request'`. The internal `startMemoryWorker` retains
+its exact closed config, uses `handleTrusted` and omits this marker. H's public
+IPC proxy must refuse that internal listener. No factory supplies acceptance,
+owner credentials, source bindings or a deployed listener by default.
 
 Production worker CLI config modules must be canonical root-owned regular files
 with exact mode 0440 and the running worker's primary group. The direct parent
@@ -188,8 +258,9 @@ accept only the fixed `memory_effect` role/private authority method list.
 `authorityChannel` is `{socketPath,credential,limits?,socketAccess?}`. Memory
 credentials accept the public role matrix. `createPgPool()` supplies the explicit
 host pg 8.16.3 closure and config; it is not discovered. `initializeSchema:true`
-is only for H's freshly authorized disposable schema. Both workers report
-unqualified, and do not enable the app's HTTP routes.
+is only for H's freshly authorized disposable schema. Internal workers report
+unqualified. The explicit public worker rechecks host qualification per RPC;
+its configuration or startup marker alone does not enable app HTTP routes.
 Before starting a fresh synthetic authority worker, H's setup-only local path
 must explicitly call C's `provisionNewAuthorityStore(trustedOptions)` once with
 approved public configuration and a pristine dedicated witness namespace. Normal

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+export interface MemoryCapture {readonly statement:string;readonly attributed_to:string}
+export interface MemoryDraft {readonly extraction_json:string;readonly idempotency_key:string}
+export interface MemoryWorkflowSnapshot {
+  readonly phase:'idle'|'proposal_pending'|'proposed'|'approval_pending'|'save_pending'|'saved'|'refused'|'outcome_unknown'|'unavailable'
+  readonly operation:Readonly<Record<string,unknown>>|null
+  readonly memory_capture:MemoryCapture|null
+  readonly operation_digest:string|null
+  readonly approval:'not_requested'|'pending'|'approved'|'refused'|'unknown'
+  readonly save:'not_attempted'|'pending'|'saved'|'refused'|'unknown'
+  readonly saved:boolean|null
+  readonly record:Readonly<Record<string,unknown>>|null
+  readonly receipt:Readonly<Record<string,unknown>>|null
+  readonly receipt_digest:string|null
+  readonly citation:Readonly<Record<string,unknown>>|null
+  readonly citation_status:'not_requested'|'pending'|'verified'|'unverified'|'missing'|'unavailable'
+  readonly index:Readonly<{status:string;indexed:boolean|null;searchable:boolean|null}>
+  readonly authority_settlement:'completed'|'pending'|null
+  readonly reconciliation_required:boolean
+  readonly error_code:string|null
+  readonly read_error_code:string|null
+}
+export interface OwnerMemoryController {
+  getSnapshot():{readonly owner:{readonly owner_id:string;readonly expiry:string}|null;readonly authority_available:boolean;readonly expired:boolean;readonly phase:string;readonly error_code:string|null;readonly presentation:unknown}
+  subscribe(listener:()=>void):()=>void
+  setOperation(operation:unknown,options:{memoryCapture:MemoryCapture}):void
+  approve():Promise<unknown>
+}
+export interface OwnerMemoryWorkflow {
+  getSnapshot():MemoryWorkflowSnapshot
+  subscribe(listener:()=>void):()=>void
+  proposeSave(draft:MemoryDraft):Promise<MemoryWorkflowSnapshot>
+  approveAndSave():Promise<MemoryWorkflowSnapshot>
+  /** Read only: refreshes known record status and retained-head citation. */
+  refresh():Promise<MemoryWorkflowSnapshot>
+  /** Disposes this helper only, without cancelling or replaying any mutation. */
+  dispose():void
+}
+export function createOwnerMemoryWorkflow(options:{controller:OwnerMemoryController;memory:{proposeSave(input:unknown):Promise<unknown>;save(input:unknown):Promise<unknown>;status(input:unknown):Promise<unknown>;cite(input:unknown):Promise<unknown>};contracts:{operationDigest(operation:unknown):string|Promise<string>}}):OwnerMemoryWorkflow
