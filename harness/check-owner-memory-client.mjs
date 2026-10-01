@@ -22,7 +22,7 @@ const caps={version:1,source_commit:'a'.repeat(40),runtime_pid:1,release_digest:
 const guardRequest=createLocalhostPilotGuard(ownerBinding.passkeyProfile);
 const connection={requestRejection:()=>undefined};
 
-function fixture({lostSave=false,lostLogin=false}={}){
+function fixture({lostSave=false,lostLogin=false,onClearHook}={}){
  const base=createOwnerUiFixture(contracts),calls=[];
  let saved,holdLogin,releaseLogin;
  const entered=new Promise(resolve=>{holdLogin=resolve;});
@@ -67,7 +67,8 @@ function fixture({lostSave=false,lostLogin=false}={}){
   return new Response(body,{status,headers});
  };
  const controller=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}});
- const client=createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner});
+ const joinedController=onClearHook?{...controller,setApprovalAction(handler){if(handler===null)onClearHook();return controller.setApprovalAction(handler);}}:controller;
+ const client=createOwnerMemoryClient({controller:joinedController,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner});
  // Source simulation of native primeAuthority injection. No Cordis mount or
  // default-browser effect is claimed by this check.
  assert.throws(()=>client.proposeSave({}),/not attached/);checks++;
@@ -112,6 +113,17 @@ function fixture({lostSave=false,lostLogin=false}={}){
  const host=createOwnerMemoryHost({connection,guardRequest,contracts});
  assert.equal((await host.publicBoundary.handlePublic('memory.save',{})).error_code,'UNAVAILABLE');checks++;
  assert(Object.isFrozen(host.routes));assert.equal(host.routes.length,12);checks++;
+}
+{
+ let f,teardownOrdered=false;
+ f=fixture({onClearHook(){assert.equal(f.client.workflow.getSnapshot().phase,'unavailable');assert.equal(f.client.workflow.getSnapshot().operation,null);teardownOrdered=true;}});try{
+  await f.prepare();let disposed=false;
+  const off=f.client.workflow.subscribe(()=>{if(!disposed&&f.client.workflow.getSnapshot().phase==='save_pending'){disposed=true;f.client.dispose();}});
+  await f.controller.submitApproval();off();
+  assert.equal(disposed,true);assert.equal(teardownOrdered,true);assert.equal(f.count('owner.approvalComplete'),1);assert.equal(f.count('memory.save'),0);checks++;
+  assert.equal(f.controller.getSnapshot().owner,null);assert.equal(f.client.workflow.getSnapshot().saved,false);
+  assert.equal(f.client.workflow.getSnapshot().reconciliation_required,false);checks++;
+ }finally{f.dispose();}
 }
 // Import the exact release module closure from a disposable layout containing
 // no source checkout or node_modules. Never run the full composer/boot here.

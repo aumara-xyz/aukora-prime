@@ -44,6 +44,9 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
   setCapabilities:value=>{attached();controller.setCapabilities(value);},
   capabilitiesUnavailable:()=>{attached();controller.capabilitiesUnavailable();},
   logout(){attached();controller.logout();adapters.logout();},
-  dispose(){if(disposed)return;disposed=true;if(workflow){controller.setApprovalAction(null);controller.disconnect();workflow.dispose();off?.();}adapters.logout();},
+  dispose(){if(disposed)return;disposed=true;
+   try{if(workflow){workflow.dispose();controller.setApprovalAction(null);controller.disconnect();}}
+   finally{off?.();adapters.logout();}
+  },
  });
 }
