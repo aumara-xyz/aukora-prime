@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Prime-only composition of verified pinned harness + immutable donor client artifacts."""
-import json,shutil,subprocess,sys,hashlib
+import json,shutil,subprocess,sys,hashlib,os,stat
 from pathlib import Path
+# Composition output must be safe to capture into a protected release.
+os.umask(0o022)
 root=Path(__file__).resolve().parents[1]
 source=root/'vendor/dsh'
 release=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else root/'.runtime/release'
@@ -58,4 +60,9 @@ subprocess.run(['node',str(root/'scripts/compose-entries.mjs'),str(release)],che
 commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
 require_clean_source()
 (release/'prime-release.json').write_text(json.dumps({'version':'0.1.0','source_commit':commit,'dsh_commit':'0d1f50007f9bca3f52b06e1c3074fa14d5fb0720','cordis':'4.0.2','ui_donor':'645d3213b8aede3b544269b4224ae09df06b0a42','unavailable_capabilities':['owner-passkey','approved-shell','sdk-child-launchers','model-inference','durable-memory','messaging','media-generation']},indent=2)+'\n')
+# Upstream copies can retain their source checkout's group-writable modes.
+# Tighten only the fresh output; exact bytes and executable bits stay unchanged.
+for path in [release,*release.rglob('*')]:
+ mode=path.lstat().st_mode
+ if stat.S_ISDIR(mode) or stat.S_ISREG(mode):path.chmod(stat.S_IMODE(mode)&~0o7022)
 print('COMPOSED',release)
