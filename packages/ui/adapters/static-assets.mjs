@@ -9,7 +9,6 @@ const liveFiles = new Set(['aura-trace.js', 'aumalive.js', 'aumalive-audio.js', 
   'home-session.js', 'lane-bridge.js'])
 const graphFiles = new Set(['index.html', 'graph.css', 'bootstrap.js', 'graph.js', 'graph-data.js'])
 const threeFiles = new Set(['three.module.min.js', 'three.core.min.js'])
-const lessonGate = 'const isUnlocked = (day, s) => day === 1 || !!s.done[day - 1] || !!s.done[day];'
 const graphCsp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png',
@@ -63,13 +62,8 @@ export async function createStaticAppRoutes({ appRoot, manifest } = {}) {
       if ((await lstat(resolve(root, ...segments.slice(0, i)))).isSymbolicLink()) throw new Error('Prime static Apps symlink refused: ' + path)
     }
     if (!(await lstat(file)).isFile() || !(await realpath(file)).startsWith(root + sep)) throw new Error('Prime static Apps file refused: ' + path)
-    let body = await readFile(file)
+    const body = await readFile(file)
     if (body.length !== item.bytes || createHash('sha256').update(body).digest('hex') !== item.sha256) throw new Error('Prime static Apps baseline changed: ' + path)
-    if (url === '/app/auma/auma.js') {
-      const source = body.toString('utf8')
-      if (!source.includes(lessonGate)) throw new Error('Prime static Apps Lingwa gate absent')
-      body = Buffer.from(source.replace(lessonGate, 'const isUnlocked = () => true;'))
-    }
     if (bodies.has(url)) throw new Error('Prime static Apps duplicate route: ' + url)
     bodies.set(url, { body, type: mime[extname(path)] ?? 'application/octet-stream' })
   }
