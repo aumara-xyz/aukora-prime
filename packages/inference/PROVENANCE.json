@@ -51,5 +51,12 @@
     "release_date": "2026-09-10",
     "source": "https://api-docs.deepseek.com/updates/",
     "qualification": "documentation_only; not an authenticated model-list or inference request"
+  },
+  "catalog_composition_correction": {
+    "canonical_assessment_commit": "f581b1070e8d26970ed6ca26c87e242ef7a1c3c7",
+    "stock_remote_composition": "LlmRuntime is TypertRemoteService; settings-controller mounts CredentialsController child; no separate controller rows required",
+    "mac_assembled_release_commit": "4e61cde081860495da25fb9a4a9bbab52690522e",
+    "mac_assembled_provider_mount_markers": false,
+    "running_linux_preview": "not observed by E"
   }
 }
