@@ -4,7 +4,8 @@ import { spawn } from 'node:child_process'
 import { dirname, resolve, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { faces } from '../adapters/mount-plan.mjs'
-import { snapshotOwnerSources, snapshotOwnerBuildInputs, inputDigest, createOwnerReceipt } from './verify-owner-build.mjs'
+import { snapshotOwnerSources, snapshotOwnerBuildInputs, inputDigest, createOwnerReceipt,
+  verifyStableHarness, discoverPinnedWorkspace, compilerCommand, validateBuildDirectories, HARNESS_IDENTITY_PATH } from './verify-owner-build.mjs'
 
 // Prime's already materialized pinned third-party harness is the sole build input.
 // The source tree and frozen face bytes are never written; all compilation happens in a fresh overlay.
@@ -17,7 +18,7 @@ const repo = resolve(ui, '../..')
 const args = process.argv.slice(2)
 const flags = {}
 for (let i = 0; i < args.length; i += 2) {
-  if (!['--dsh', '--output', '--work', '--only'].includes(args[i]) || !args[i + 1]) throw new Error('usage: build-client.mjs --dsh <pinned-Prime-harness> [--output <empty-dir>] [--work <owned-dir>] [--only prime-authority]')
+  if (!['--dsh', '--prime-root', '--output', '--work', '--only'].includes(args[i]) || !args[i + 1]) throw new Error('usage: build-client.mjs --dsh <original-pinned-Prime-harness> --prime-root <same-Prime-root> [--output <empty-dir>] [--work <owned-dir>] [--only prime-authority]')
   flags[args[i]] = args[i + 1]
 }
 if (!flags['--dsh']) throw new Error('ui-build:pinned-harness-required')
@@ -26,16 +27,22 @@ const selected = flags['--only'] ? entries.filter(entry => entry.face === flags[
 const dshInput = resolve(flags['--dsh'])
 if ((await lstat(dshInput)).isSymbolicLink()) throw new Error('ui-build:symlinked-harness-refused')
 const dsh = await realpath(dshInput)
-const workRoot = resolve(flags['--work'] ?? join(repo, '.runtime'))
-const output = resolve(flags['--output'] ?? join(repo, '.runtime/client-dist'))
-for (const path of [workRoot, output]) {
-  if (path === dsh || path.startsWith(dsh + sep) || dsh.startsWith(path + sep) ||
-      path === ui || ui.startsWith(path + sep) || path.startsWith(join(ui, 'faces') + sep)) {
-    throw new Error('ui-build:overlapping-input-output-refused')
-  }
-}
+const primeRoot = resolve(flags['--prime-root'] ?? repo)
+const { work:workRoot, output } = await validateBuildDirectories({ uiRoot:ui, dsh,
+  work:flags['--work'] ?? join(repo,'.runtime'), output:flags['--output'] ?? join(repo,'.runtime/client-dist') })
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 const compatibility = JSON.parse(await readFile(join(ui, 'compatibility.json'), 'utf8'))
+// Verify the successful, original pure harness before creating or populating an
+// overlay. The UI overlay is never passed off as a pristine harness.
+const verifiedHarness = await verifyStableHarness({ dsh, primeRoot, compatibility })
+await run('python3', [join(primeRoot,'scripts/build-dsh.py'),'--verify-built','--root',primeRoot,'--source',dsh], primeRoot, 'ui-build:original-harness')
+const originalWorkspace = await discoverPinnedWorkspace(dsh)
+for (const directory of originalWorkspace.values()) {
+  const path = relative(dsh, join(directory,'package.json')).split(sep).join('/')
+  const bytes = await readFile(join(directory,'package.json'))
+  const pin = verifiedHarness.document.identity.compilerInputs.find(entry => entry.path === path)
+  if (pin?.bytes !== bytes.length || pin.sha256 !== digest(bytes)) throw new Error(`ui-build:workspace-not-in-verified-harness:${path}`)
+}
 const receiptPath = join(dsh, '.dsh-build/pinned-harness-build.json')
 const receiptBytes = await readFile(receiptPath)
 const receipt = JSON.parse(receiptBytes)
@@ -44,6 +51,7 @@ for (const [key, expected] of Object.entries({
   commit: compatibility.dsh.commit, archiveSha256: compatibility.dsh.archiveSha256,
   lockfileSha256: compatibility.dsh.lockfileSha256, packageManager: compatibility.dsh.packageManager,
 })) if (upstream?.[key] !== expected) throw new Error(`ui-build:harness-pin-mismatch:${key}`)
+if (verifiedHarness.document.identity.upstream.cordisVersion !== compatibility.dsh.cordisVersion) throw new Error('ui-build:harness-pin-mismatch:cordisVersion')
 const patchPins = compatibility.dsh.localPatches.map(p => p.file + ':' + p.sha256).sort()
 if (JSON.stringify((receipt.inputs.localPatches ?? []).map(p => p.file + ':' + p.sha256).sort()) !== JSON.stringify(patchPins)) {
   throw new Error('ui-build:harness-patch-mismatch')
@@ -80,15 +88,15 @@ for (const face of entries) {
   await writeFile(join(target, '.prime-client.config.ts'),
     `import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(face.id)}, [], { hostPhase: true })\n`)
 }
-const pnpmVersion = (await run('pnpm', ['--version'], overlay, 'ui-build:pnpm-version')).trim()
-if ('pnpm@' + pnpmVersion !== compatibility.dsh.packageManager) throw new Error('ui-build:package-manager-mismatch')
 console.log('UI build linking existing pinned workspace dependencies, without install')
-const workspace = new Map()
-for await (const metadataPath of glob(['packages/*/*/package.json', 'vendor/*/package.json'], { cwd: overlay })) {
-  const path = join(overlay, metadataPath)
-  const metadata = JSON.parse(await readFile(path, 'utf8'))
-  workspace.set(metadata.name, dirname(path))
+const workspace = new Map([...originalWorkspace].map(([name,directory]) => [name,join(overlay,relative(dsh,directory))]))
+for (const face of entries) {
+  const directory = join(overlay,'packages/client',face.folder)
+  const metadata = JSON.parse(await readFile(join(directory,'package.json'),'utf8'))
+  if (metadata.name !== face.id || workspace.has(metadata.name)) throw new Error(`ui-build:owned-package-identity-collision:${face.face}`)
+  workspace.set(metadata.name, await realpath(directory))
 }
+if (!(await readFile(join(overlay,HARNESS_IDENTITY_PATH))).equals(await readFile(join(dsh,HARNESS_IDENTITY_PATH)))) throw new Error('ui-build:copied-harness-identity-mismatch')
 const dependencies = {}
 for (const face of entries) {
   const directory = join(overlay, 'packages/client', face.folder)
@@ -103,8 +111,10 @@ for (const face of entries) {
     }
     // Test-only donor declarations do not participate in a client-only compilation.
     if (!target && name.startsWith('@testing-library/')) continue
+    if (target) target = await realpath(target)
     if (!target || !target.startsWith(overlay + sep)) throw new Error(`ui-build:dependency-not-in-pinned-closure:${name}`)
     const dependency = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'))
+    if (dependency.name !== name) throw new Error(`ui-build:dependency-name-mismatch:${name}`)
     const expected = compatibility.resolved_build_dependencies?.[name]
     if (expected && dependency.version !== expected) throw new Error(`ui-build:dependency-version-mismatch:${name}`)
     dependencies[name] = dependency.version
@@ -131,14 +141,14 @@ const ownerSourceRoots = { uiRoot: ui, ownerRoot: authorityDirectory,
 const sourceBefore = await snapshotOwnerSources(ownerSourceRoots)
 if (inputDigest(sourceBefore) !== inputDigest(await snapshotOwnerSources({ uiRoot: ui }))) throw new Error('ui-build:overlay-source-mismatch')
 if (inputDigest(sourceBefore) !== inputDigest(await snapshotOwnerSources({ ...ownerSourceRoots, adapterRoot: adapterSeats[1] }))) throw new Error('ui-build:typecheck-adapter-seat-mismatch')
-const buildBefore = await snapshotOwnerBuildInputs({ ownerRoot: authorityDirectory, dsh: overlay })
+const buildBefore = await snapshotOwnerBuildInputs({ ownerRoot: authorityDirectory, dsh: overlay, harnessIdentity:verifiedHarness.binding })
 for (const face of selected) {
   const directory = join(overlay, 'packages/client', face.folder)
   const config = (await readdir(directory)).includes('tsconfig.client.json') ? 'tsconfig.client.json' : 'tsconfig.json'
   targets.push(join(directory, config))
 }
 console.log('UI build type-checking exact face sources')
-await run('node', ['--max-old-space-size=3072', join(overlay, 'node_modules/typescript/bin/tsc'), '-b', ...targets], overlay, 'ui-build:client-typecheck')
+await run(globalThis.process.execPath, ['--max-old-space-size=3072', await compilerCommand(overlay,'typescript'), '-b', ...targets], overlay, 'ui-build:client-typecheck')
 await cp(join(authorityDirectory, 'src/client/controller.mjs'), join(authorityDirectory, 'lib/types/client/controller.mjs'))
 await cp(join(authorityDirectory, 'src/client/controller.d.mts'), join(authorityDirectory, 'lib/types/client/controller.d.mts'))
 const artifacts = []
@@ -146,7 +156,7 @@ const ownerOutputs = []
 for (const face of selected) {
   console.log(`UI build bundling ${face.face}`)
   const directory = join(overlay, 'packages/client', face.folder)
-  await run(join(overlay, 'node_modules/.bin/tsdown'), ['--config', '.prime-client.config.ts', '--env.DSH_BUILD_FACE', 'client'], directory, `ui-build:bundle:${face.face}`)
+  await run(globalThis.process.execPath, [await compilerCommand(overlay,'tsdown'), '--config', '.prime-client.config.ts', '--env.DSH_BUILD_FACE', 'client'], directory, `ui-build:bundle:${face.face}`)
   const original = await readFile(join(directory, 'lib/client.js'), 'utf8')
   // Same inert home-path normalization as the donor build, applied only to generated bytes.
   const code = original.replace(/\/Users\/[^\s\n]*?\/\.runtime\/[^\s\n]*?\/packages\//g, 'packages/')
@@ -184,18 +194,20 @@ for (const face of selected) {
     }
   }
 }
-if (digest(await readFile(receiptPath)) !== digest(receiptBytes) || digest(await readFile(join(dsh, 'pnpm-lock.yaml'))) !== lockBefore) {
+const originalAfter = await verifyStableHarness({ dsh, primeRoot, compatibility })
+if (inputDigest(originalAfter.binding) !== inputDigest(verifiedHarness.binding) || digest(await readFile(join(dsh, 'pnpm-lock.yaml'))) !== lockBefore ||
+    !(await readFile(join(overlay,HARNESS_IDENTITY_PATH))).equals(await readFile(join(dsh,HARNESS_IDENTITY_PATH)))) {
   throw new Error('ui-build:input-harness-changed')
 }
 const sourceAfter = await snapshotOwnerSources(ownerSourceRoots)
 if (inputDigest(sourceAfter) !== inputDigest(await snapshotOwnerSources({ uiRoot: ui }))) throw new Error('ui-build:source-changed-during-compilation')
 if (inputDigest(sourceAfter) !== inputDigest(await snapshotOwnerSources({ ...ownerSourceRoots, adapterRoot: adapterSeats[1] }))) throw new Error('ui-build:typecheck-adapter-seat-changed')
-const buildAfter = await snapshotOwnerBuildInputs({ ownerRoot: authorityDirectory, dsh: overlay })
+const buildAfter = await snapshotOwnerBuildInputs({ ownerRoot: authorityDirectory, dsh: overlay, harnessIdentity:originalAfter.binding })
 const ownerBuild = createOwnerReceipt({ sourceBefore, sourceAfter, buildBefore, buildAfter,
   outputs: ownerOutputs.sort((a, b) => a.path.localeCompare(b.path, 'en')) })
-await writeFile(join(output, 'build.json'), JSON.stringify({ version: 2, source_commit: compatibility.dsh.commit,
+await writeFile(join(output, 'build.json'), JSON.stringify({ version: 3, source_commit: compatibility.dsh.commit,
   source_commit_attribution: 'pinned-dsh-upstream; not Prime/UI source proof', upstream_commit: compatibility.dsh.commit,
-  harness_receipt_sha256: digest(receiptBytes), source_lock_sha256: lockBefore,
+  provenance:{harness_build_receipt:{path:'.dsh-build/pinned-harness-build.json',bytes:receiptBytes.length,sha256:digest(receiptBytes)}}, source_lock_sha256: lockBefore,
   overlay_lock_sha256: digest(await readFile(join(overlay, 'pnpm-lock.yaml'))), dependency_versions: dependencies,
   mode: 'client-only', legacy_hosts_mounted: false, artifacts, owner_build: ownerBuild }, null, 2) + '\n')
 console.log(JSON.stringify({ result: 'PASS', output, faces: selected.filter(entry => entry.face !== 'prime-authority').length,

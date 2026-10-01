@@ -14,13 +14,17 @@ H explicitly joins the browser-safe owner memory workflow after connecting the c
 
 The hook creates no authenticated transport, trusted source context, enrolled credential or public qualification. H's guarded source factories and protected worker context must remain unmounted/unavailable until independently qualified. Every public worker call must pass `handlePublic`; an internal `handleTrusted` listener cannot be qualified by a capability label. See H's `harness/OWNER-MEMORY-HANDOFF.md` in the canonical source for the separate transport/context composition. B performs no runtime/browser action.
 
-Clean client-only build (Prime-owned pinned DSH required):
+Clean client-only build (freshly built Prime-owned v2 harness and stable identity required):
 
 ```sh
-node packages/ui/scripts/build-client.mjs --dsh vendor/dsh --only prime-authority --output .runtime/owner-client
+node packages/ui/scripts/build-client.mjs --dsh vendor/dsh --prime-root . --only prime-authority --output .runtime/owner-client
 ```
 
 Without `--only`, the recipe also builds the nine frozen faces in a fresh overlay. First G1 may mount exact donor client bundles without recompiling them. Donor host bundles remain unmounted. The Linux overlay preserves relative PNPM symlinks with `verbatimSymlinks:true`.
+
+The owner receipt is v3 with `owner_build` v2. Its stable build inputs bind the verified `pinned-harness-identity.json` document, fixed compiler files, generated config and independently fixed dependency identities. Raw harness receipt bytes remain historical provenance and never key a downstream build. The recipe verifies the original harness before copying any UI packages, rejects extra hooks and duplicate/escaping workspace seats, and invokes TypeScript and tsdown from their canonical pinned package seats. Historical v1 harnesses and legacy owner receipts refuse; B does not migrate or relabel old outputs.
+
+`verify-owner-build.mjs --ui packages/ui --dsh vendor/dsh --prime-root .` re-derives the stable identity through the same Prime root verifier and checks actual package names, origins, versions, canonical seats, source and outputs. Without `--dsh`, it checks owned source/output and recorded dependency identities only; pinned build inputs remain unverified. `check-owner-build.mjs --dependencies-only --dsh vendor/dsh` runs identity mutations on disposable copies of genuine dependency metadata without compiling or minting a receipt.
 
 Disposable checks:
 
