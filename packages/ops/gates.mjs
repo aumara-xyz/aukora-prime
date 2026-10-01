@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstatSync, readdirSync, readFileSync, readlinkSync, mkdirSync, writeFileSync, realpathSync, openSync, fstatSync, closeSync, constants } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync, readSync, readlinkSync, mkdirSync, writeFileSync, realpathSync, openSync, fstatSync, closeSync, constants } from 'node:fs'
 import { dirname, basename, join, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { treeDigest } from './vendor/release-digest.mjs'
@@ -78,30 +78,74 @@ function statusObservation(status) {
     unavailable_capabilities: status.unavailable_capabilities }
 }
 
-function readNamedLaunch(root, status, expectedFile) {
-  const named = resolve(expectedFile ?? join(root, '.prime-state', 'launch-url.json'))
+function namedDirectory(value, label) {
+  if (typeof value !== 'string' || value.length > 4096 || !isAbsolute(value)
+    || /[\x00-\x1f\x7f]/.test(value) || resolve(value) !== value) throw new Error(`${label}_DIRECTORY_MUST_BE_CANONICAL_ABSOLUTE`)
+  let entry
+  try {
+    if (realpathSync(value) !== value) throw new Error(`${label}_DIRECTORY_SYMLINK_OR_ALIAS`)
+    entry = lstatSync(value)
+  } catch (error) {
+    if (error.message === `${label}_DIRECTORY_SYMLINK_OR_ALIAS`) throw error
+    throw new Error(`${label}_DIRECTORY_UNAVAILABLE`)
+  }
+  if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error(`${label}_DIRECTORY_NOT_REGULAR`)
+  return entry
+}
+
+function namedPrivateState(value) {
+  const state = namedDirectory(value, 'STATE')
+  const uid = process.getuid?.()
+  if ((state.mode & 0o077)
+    || uid === undefined || state.uid !== uid) throw new Error('STATE_DIRECTORY_NOT_PRIVATE_OR_OWNED')
+  return value
+}
+
+function statusArgs(root, options) {
+  const args = [join(root, 'harness', 'cli.mjs'), 'status']
+  if (options.stateDir !== undefined) args.push('--state-dir', namedPrivateState(options.stateDir))
+  if (options.releaseDir !== undefined) {
+    namedDirectory(options.releaseDir, 'RELEASE')
+    args.push('--release-dir', options.releaseDir)
+  }
+  return [...args, '--json']
+}
+
+const sameEntry = (a, b) => ['dev', 'ino', 'mode', 'uid', 'gid', 'nlink', 'size', 'mtimeMs', 'ctimeMs'].every(key => a[key] === b[key])
+
+function readNamedLaunch(root, status, options) {
+  const state = options.stateDir === undefined ? undefined : namedPrivateState(options.stateDir)
+  const stateFile = state === undefined ? undefined : join(state, 'launch-url.json')
+  const named = resolve(options.uiAccessFile ?? stateFile ?? join(root, '.prime-state', 'launch-url.json'))
   if (basename(named) !== 'launch-url.json' || typeof status.ui_access_file !== 'string'
-    || resolve(status.ui_access_file) !== named) throw new Error('UI_ACCESS_FILE_NOT_NAMED')
+    || resolve(status.ui_access_file) !== named || (stateFile !== undefined &&
+      (named !== stateFile || status.ui_access_file !== stateFile
+        || (options.uiAccessFile !== undefined && options.uiAccessFile !== stateFile)))) throw new Error('UI_ACCESS_FILE_NOT_NAMED')
   const parent = lstatSync(dirname(named))
   const uid = process.getuid?.()
   if (!parent.isDirectory() || parent.isSymbolicLink() || (parent.mode & 0o077)
     || uid === undefined || parent.uid !== uid) throw new Error('UI_ACCESS_DIRECTORY_NOT_PRIVATE')
-  let fd
+  let fd, bytes
   try {
-    fd = openSync(named, constants.O_RDONLY | constants.O_NOFOLLOW)
+    const before = lstatSync(named)
+    fd = openSync(named, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const stat = fstatSync(fd)
-    if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) || stat.uid !== uid
+    if (!sameEntry(before, stat) || !stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) || stat.uid !== uid
       || stat.size < 1 || stat.size > 16384) throw new Error('UI_ACCESS_FILE_NOT_PRIVATE')
-    const bytes = readFileSync(fd)
-    try {
-      if (bytes.length > 16384) throw new Error('UI_ACCESS_FILE_BUDGET')
-      const launch = JSON.parse(bytes.toString('utf8'))
-      if (!launch || typeof launch !== 'object' || Array.isArray(launch)
-        || Object.keys(launch).sort().join(',') !== 'pid,url'
-        || launch.pid !== status.pid || typeof launch.url !== 'string') throw new Error('UI_ACCESS_PID_OR_FORMAT_MISMATCH')
-      return launch.url
-    } finally { bytes.fill(0) }
-  } finally { if (fd !== undefined) closeSync(fd) }
+    bytes = Buffer.alloc(16385)
+    let size = 0, received
+    while (size < bytes.length && (received = readSync(fd, bytes, size, bytes.length - size, null)) > 0) size += received
+    if (size > 16384) throw new Error('UI_ACCESS_FILE_BUDGET')
+    if (size !== stat.size || !sameEntry(stat, fstatSync(fd)) || !sameEntry(stat, lstatSync(named))
+      || !sameEntry(parent, lstatSync(dirname(named)))) throw new Error('UI_ACCESS_FILE_CHANGED')
+    if (state !== undefined) namedPrivateState(state)
+    const launch = JSON.parse(bytes.subarray(0, size).toString('utf8'))
+    if (!launch || typeof launch !== 'object' || Array.isArray(launch)
+      || Object.keys(launch).sort().join(',') !== 'pid,url'
+      || !Number.isSafeInteger(status.pid) || status.pid < 1
+      || launch.pid !== status.pid || typeof launch.url !== 'string') throw new Error('UI_ACCESS_PID_OR_FORMAT_MISMATCH')
+    return launch.url
+  } finally { bytes?.fill(0); if (fd !== undefined) closeSync(fd) }
 }
 
 /** Disposable DSH launch access only. Cookie and launch URL never enter returned evidence. */
@@ -112,7 +156,7 @@ export async function observeLocalUi(root, status, options = {}) {
   try {
     if (options.uiLaunchAccess === true || options.uiLaunchAccess === 'true') {
       let launch
-      try { launch = new URL(readNamedLaunch(root, status, options.uiAccessFile)) }
+      try { launch = new URL(readNamedLaunch(root, status, options)) }
       catch (error) { return { status: 'FAIL', blocker: /^[A-Z0-9_]+$/.test(error.message) ? error.message : 'UI_ACCESS_FILE_UNAVAILABLE_OR_INVALID' } }
       if (launch.origin !== base.origin || launch.username || launch.password || launch.pathname !== '/' || launch.hash
         || [...launch.searchParams.keys()].join(',') !== 'token' || !launch.searchParams.get('token')) {
@@ -144,13 +188,13 @@ export async function observeLocalUi(root, status, options = {}) {
   finally { cookie = undefined }
 }
 
-async function observeG1(root, options) {
+async function observeG1(root, options, args) {
   const command = join(root, 'harness', 'cli.mjs')
   let entry
   try { entry = lstatSync(command) } catch { return { status: 'PENDING', blocker: 'ROOT_STATUS_ENTRY_UNAVAILABLE' } }
   if (!entry.isFile()) return { status: 'PENDING', blocker: 'ROOT_STATUS_ENTRY_NOT_REGULAR' }
   // Keep the scrubbed child environment; status uses this evaluator's explicit Node.
-  const result = await runOwned(process.execPath, [command, 'status', '--json'], { cwd: root, timeoutMs: 10_000, home: options.disposableHome, tmpdir: options.disposableHome })
+  const result = await runOwned(process.execPath, args, { cwd: root, timeoutMs: 10_000, home: options.disposableHome, tmpdir: options.disposableHome })
   const execution = { exit_code: result.exit_code, completion: result.completion, timed_out: result.timed_out,
     output_overflow: result.output_overflow, token_leak: result.token_leak, error: result.error, status_output: 'NOT_RETAINED' }
   if (result.error || result.timed_out) return { status: 'PENDING', blocker: 'ROOT_STATUS_UNAVAILABLE', execution }
@@ -161,6 +205,7 @@ async function observeG1(root, options) {
   if (status.status !== 'running') return { status: 'PENDING', blocker: 'PRIME_NOT_RUNNING', observation }
   const required = ['pid', 'version', 'ui_url', 'release_dir', 'release_digest', 'unavailable_capabilities']
   if (required.some(k => !(k in status))) return { status: 'FAIL', blocker: 'STATUS_CONTRACT_MISMATCH' }
+  if (options.releaseDir !== undefined && status.release_dir !== options.releaseDir) return { status: 'FAIL', blocker: 'STATUS_RELEASE_DIRECTORY_MISMATCH' }
   if (!Number.isSafeInteger(status.pid) || status.pid < 1) return { status: 'FAIL', blocker: 'INVALID_RUNNING_PID' }
   try { process.kill(status.pid, 0) } catch { return { status: 'PENDING', blocker: 'RUNNING_PROCESS_NOT_OBSERVABLE' } }
   let current
@@ -195,8 +240,9 @@ export async function runGate(gate, options) {
     evaluator_os_isolation: 'NOT_ESTABLISHED_BY_THIS_RUNNER' }
   try {
   if (gate === 'G1') {
-    evidence.status_command = [process.execPath, join(root, 'harness', 'cli.mjs'), 'status', '--json']
-    evidence.running_observation = await observeG1(root, options)
+    const args = statusArgs(root, options)
+    evidence.status_command = [process.execPath, ...args]
+    evidence.running_observation = await observeG1(root, options, args)
     if (evidence.running_observation.status === 'FAIL') evidence.status = 'FAIL'
   }
   if (options.expectedEvaluatorDigest !== initial) evidence.blocker = 'INDEPENDENT_EVALUATOR_PIN_REQUIRED'

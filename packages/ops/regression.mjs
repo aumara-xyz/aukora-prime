@@ -1,6 +1,6 @@
 /** One focused disposable check of ops capability; no Prime security gate claim. */
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readlinkSync, symlinkSync, chmodSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readlinkSync, symlinkSync, chmodSync, rmSync, realpathSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +11,7 @@ import { fullTreeDigest, runGate, evaluatorDigest, observeLocalUi } from './gate
 import { runOwned } from './owned-process.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const temp = mkdtempSync(join(tmpdir(), 'prime-ops-regression-'))
+const temp = realpathSync(mkdtempSync(join(tmpdir(), 'prime-ops-regression-')))
 const sha = b => createHash('sha256').update(b).digest('hex')
 const python = process.env.PRIME_OPS_PYTHON ?? 'python3'
 function archive(...argv) {

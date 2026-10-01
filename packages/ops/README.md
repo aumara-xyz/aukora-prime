@@ -10,17 +10,32 @@ Root A/H forwards `./prime check G1` to:
 node packages/ops/cli.mjs check G1 --root . --evidence-dir /tmp/prime-evidence
 ```
 
+For a protected release with external private runtime state, add the explicit physical
+absolute `--state-dir /named/private/state` and `--release-dir /named/frozen/release`.
+Both named directories must be canonical, with no symlink aliases; state must be
+private and owned by the evaluator's current UID. The runner forwards only these
+named arguments through its explicit evaluator Node/status call and records the
+identical argv in evidence. Returned running `release_dir` must exactly match the
+explicit release input. Omitting both options preserves the default status call.
+No environment/PATH override, state symlink or directory discovery is used.
+
 Optional disposable DSH launch handshake: add `--ui-launch-access true`. The runner
-opens only the status-named private `.prime-state/launch-url.json`, checks owner/mode,
+opens only the status-named private `launch-url.json` under the explicit state directory
+(or `.prime-state` when state is omitted), checks owner/mode,
 PID and the sanitized localhost origin, requests the token URL with manual redirects,
 keeps its host-only HttpOnly/SameSite=Strict cookie in memory, and then requests the
 clean base URL. It never prints/persists the raw launch URL, token or cookie. An
 explicit alternate private file can be selected with `--ui-access-file /named/private/launch-url.json`
-and must match status. No directory scan or credential-store import occurs. This is
+and must match status; when state is explicit it must exactly equal
+`<state-dir>/launch-url.json`. File reads are capped at16KiB with descriptor/file/parent
+identity checks before and after; oversized or changing files refuse. The launch PID
+must be a positive safe integer matching the observed status PID. No directory scan
+or credential-store import occurs. This is
 DSH disposable launch access, not owner-key/passkey authentication; G2 stays PENDING.
 
 PASS exits 0, FAIL 1, PENDING 2. G1 reads status through the equivalent
-`process.execPath root/harness/cli.mjs status --json` call, so the scrubbed child PATH
+`process.execPath root/harness/cli.mjs status [--state-dir NAMED] [--release-dir NAMED] --json`
+call, so the scrubbed child PATH
 need not contain the approved user-local Node binary. It observes the PID, recomputes
 the reported release digest and fetches only the local HTML endpoint.
 Evidence records the evaluator Node executable/version and exact status argv.
@@ -46,6 +61,16 @@ separate ownership/read-only mounts still need approved host setup. Gate prerequ
 and real UI/source baseline, confinement, approval ceremony and memory recovery must
 be supplied/observed through the actual lane adapters. G6 needs separately approved
 inference inputs/spend; this package never makes a paid model call.
+
+The external-state option does not relax private-file ownership: a root evaluator
+must not read an App997-owned launch file through an owner-check exception. H's
+already-authorized App997 context can read its matching private state with a separately
+root-owned/read-only evaluator closure and a newly independently retained evaluator
+digest. Same-UID evaluation still establishes no OS enforcement boundary. Canonical
+path and pre/post identity checks narrow pathname races; they do not establish atomic
+isolation against a process with the same UID. All three G1 probes and final gate
+`PENDING` behavior remain in force. This source followup performs no remote observation
+or VM lifecycle action.
 
 Deterministic archive of an already materialized, pinned release:
 
@@ -93,3 +118,9 @@ One disposable ops regression: `node packages/ops/regression.mjs`.
 It covers reproducible package, tampered bytes/digest, empty recovery target, sensitive
 paths, changed installation marker, output redaction, owned cancellation and rejection
 of candidate PASS. It is not an authority/OpenShell/inference acceptance result.
+
+Focused external-state regression: `node packages/ops/check-external-state.mjs`.
+It uses only disposable files, its own PID and an ephemeral localhost protocol fixture
+to check exact status argv, state/release/file/PID binding, default behavior, private
+file bounds, path refusals, token redaction and all three missing G1 probes. It performs
+no actual Prime/DSH qualification or live app observation.
