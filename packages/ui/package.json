@@ -7,9 +7,13 @@
   "exports": {
     ".": "./adapters/mount-plan.mjs",
     "./transport": "./adapters/transport.mjs",
+    "./passkey": "./adapters/passkey.mjs",
     "./baseline-manifest": "./baseline-manifest.json",
     "./compatibility": "./compatibility.json"
   },
-  "scripts": { "check": "node scripts/verify-baseline.mjs" },
+  "scripts": {
+    "check": "node scripts/verify-baseline.mjs",
+    "check:transport": "node scripts/check-transport.mjs"
+  },
   "files": ["faces", "adapters", "licenses", "baseline-manifest.json", "compatibility.json"]
 }

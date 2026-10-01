@@ -2614,6 +2614,13 @@
       "bytes": 1064,
       "sha256": "1e82057472fa9c2eb0c8ea5421d025f42e95afe8b60f7454201c211c9e4ec085",
       "role": "license-provenance"
+    },
+    {
+      "source": "plugins/aukora-face/tsdown.client.ts",
+      "path": "faces/tsdown.client.ts",
+      "bytes": 1762,
+      "sha256": "9160cc502e3546763620e94f17352e7009e7e2ccf3dac87eeefe4f63df4016c7",
+      "role": "build-metadata"
     }
   ],
   "excluded": [

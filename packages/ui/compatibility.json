@@ -613,7 +613,19 @@
       ]
     }
   },
-  "build_mode": "Integrator-owned overlay of exact pinned DSH. Place copied faces at packages/client/aukora-face-NAME so original tsconfig and ../tsdown.client.ts resolve against DSH. Direct face build from packages/ui/faces is unsupported. No other owned repository is consulted.",
+  "build_mode": "node packages/ui/scripts/build-client.mjs --dsh <Prime-owned pinned built harness> --output <empty-dir>. Fresh local overlay; exact face source/config copied; client-only tsc and upstream tsdown preset; existing pinned dependency closure linked locally, no installs/downloads or other owned repository inputs. Donor common faces/tsdown.client.ts is retained unchanged as provenance; overlay resolves each face ../tsdown.client.ts to the exact upstream helper.",
   "host_mount": "Use Prime adapter host routes. Do not activate donor host entries wholesale.",
-  "client_mount": "Preserve individual face dsh.client inject/external metadata and native Cordis apply(ctx); layout precedes dependent shell faces."
+  "client_mount": "Preserve individual face dsh.client inject/external metadata and native Cordis apply(ctx); layout precedes dependent shell faces.",
+  "resolved_build_dependencies": {
+    "typescript": "6.0.3",
+    "tsdown": "0.22.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "zod": "4.4.3",
+    "clsx": "2.1.1",
+    "ws": "8.21.0",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@types/ws": "8.18.1"
+  }
 }
