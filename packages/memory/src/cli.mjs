@@ -14,7 +14,7 @@ export const MEMORY_CLI_USAGE = [
   'Database commands require an explicitly configured PRIME_MEMORY_DATABASE_URL and the declared pg dependency.'
 ]
 
-export async function runMemoryCommand(argv,{pool,authority,contracts,host}={}) {
+export async function runMemoryCommand(argv,{pool,authority,contracts,host,restoreAnchorProvider}={}) {
   const [command,first,second,third] = argv
   if(command==='--help' || command==='help') return {usage:MEMORY_CLI_USAGE}
   requireMemory(['verify','export','restore'].includes(command) && first && second, 'memory:cli-arguments-invalid')
@@ -38,7 +38,7 @@ export async function runMemoryCommand(argv,{pool,authority,contracts,host}={}) 
     pool=new Pool({connectionString:configured});ownedPool=true
   }
   try {
-    const memory=createPostgresMemory({pool,authority,contracts})
+    const memory=createPostgresMemory({pool,authority,contracts,restoreAnchorProvider})
     if(command==='export') {
       const snapshot=await memory.exportSnapshot({owner_subject:first})
       const output=resolve(second)
