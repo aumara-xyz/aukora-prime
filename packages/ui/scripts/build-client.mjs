@@ -122,6 +122,7 @@ console.log('UI build type-checking exact face sources')
 await run('node', ['--max-old-space-size=3072', join(overlay, 'node_modules/typescript/bin/tsc'), '-b', ...targets], overlay, 'ui-build:client-typecheck')
 const authorityDirectory = join(overlay, 'packages/client/aukora-prime-authority')
 await cp(join(authorityDirectory, 'src/client/controller.mjs'), join(authorityDirectory, 'lib/types/client/controller.mjs'))
+await cp(join(authorityDirectory, 'src/client/controller.d.mts'), join(authorityDirectory, 'lib/types/client/controller.d.mts'))
 await mkdir(join(authorityDirectory, 'adapters'))
 for (const adapter of ['transport.mjs', 'passkey.mjs']) await cp(join(ui, 'adapters', adapter), join(authorityDirectory, 'adapters', adapter))
 const artifacts = []
