@@ -6,9 +6,14 @@ export const PROVIDER_DIRECTORY = Object.freeze({ provider: 'externalDeepSeek', 
   settingsNs: 'prime-inference', settingsPath: Object.freeze(['providers','externalDeepSeek']), declared: false });
 export function mountDshCatalog(ctx) { return ctx.llm.registerConfigurableProviders([PROVIDER_DIRECTORY]); }
 
+/** Official documentation metadata, not a paid-route qualification or an API availability test. */
+export const DEEPSEEK_FLASH_MODEL = Object.freeze({ id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash',
+  status: 'unavailable', qualification: 'documentation_only',
+  source: 'https://api-docs.deepseek.com/updates/', documented_release: '2026-09-10' });
+
 export function providerCatalog() {
   return { version: 1, providers: [{ ...PROVIDER_DIRECTORY, active: false, endpoint: 'https://api.deepseek.com',
-    credential_entry: 'separated_owner_handoff', paid_requests_enabled: false, models: [],
+    credential_entry: 'separated_owner_handoff', paid_requests_enabled: false, models: [{ ...DEEPSEEK_FLASH_MODEL }],
     credential_status: 'unknown', pending: ['owner_auth_join','secure_credential_service','approved_numeric_spend_cap','qualified_route'] }],
     namespace: providerNamespace() };
 }
@@ -66,9 +71,9 @@ export class OwnerProviderSettings {
     let credential = { configured: false, generation: null };
     if (this.credentials?.status) credential = await this.credentials.status(owner,context);
     let ready = false;
-    if (row && credential.configured && typeof this.qualifiedDispatchStatus === 'function') {
-      const observed = await this.qualifiedDispatchStatus(owner,row.digest);
-      ready = observed?.config_digest === row.digest && observed.ready === true;
+    if (row && credential.configured === true && integer(credential.generation,1) && typeof this.qualifiedDispatchStatus === 'function') {
+      const observed = await this.qualifiedDispatchStatus(owner,row.digest,credential.generation);
+      ready = observed?.config_digest === row.digest && observed.credential_generation === credential.generation && observed.ready === true;
     }
     const status = { version: 1, provider: 'externalDeepSeek', configured: !!row,
       config_digest: row?.digest ?? null, profile: row ? JSON.parse(row.payload) : null,

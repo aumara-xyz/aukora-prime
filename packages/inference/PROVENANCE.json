@@ -41,6 +41,15 @@
   ],
   "paid_calls": 0,
   "continuation_base": "40e08bb467d594731629b5c005b2d07320269689",
-  "production_wire_reference": "pinned DSH llm-deepseek source interface and endpoint; no claim of current provider pricing, terms or served-version qualification",
-  "credential_fixtures": "synthetic only; no real credential read or used"
+  "production_wire_reference": "official current DeepSeek model/JSON/thinking docs plus pinned DSH interface; explicit bounded non-thinking note body; runtime terms/served-version/custody and owner numerical approval pending",
+  "credential_fixtures": "synthetic only; no real credential read or used",
+  "readiness_base": "82f525042659b3094157bd8caf3da8746f111c82",
+  "integration_assessment_commit": "e736ae5b82ff23cd0768346cbbfbf47b7dd3ff3c",
+  "provider_documentation": {
+    "model": "deepseek-flash",
+    "display_name": "DeepSeek V4.1 Flash",
+    "release_date": "2026-09-10",
+    "source": "https://api-docs.deepseek.com/updates/",
+    "qualification": "documentation_only; not an authenticated model-list or inference request"
+  }
 }

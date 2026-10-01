@@ -9,7 +9,7 @@ import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import { Readable } from 'node:stream';
 import { ExternalDeepSeekGateway, MockDeepSeekProvider, SpendLedger, createDshAdapter, fromPrimeRoute, fromQualifiedPrimeRoute, fromPrimeTask, hash, usdMicros, mockAttributionHeaders,
-  OwnerProviderSettings, providerCatalog, mountDshCatalog, RemoteDeepSeekProvider, createProviderSettingsHandler } from './src/index.mjs';
+  OwnerProviderSettings, providerCatalog, mountDshCatalog, RemoteDeepSeekProvider, createProviderSettingsHandler, createAuthorityOwnerAuthenticator } from './src/index.mjs';
 import { CredentialVault, assertSeparatedCredentialProcess } from './src/credential-service.mjs';
 import { DeepSeekHttpProvider } from './src/credential-http.mjs';
 import { createCredentialEntryHandler } from './src/provider-http.mjs';
@@ -131,6 +131,11 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
       sessionId: dshTask.conversation_id, maxTokens: 200 })) chunks.push(chunk);
     assert.deepEqual(chunks.map(c => c.type),['block-start','text-delta','block-end','usage','finish']);
     assert.equal(chunks.at(-1).replayState.response.aukora_prime.request_uuid,dshRequest.request_uuid);
+    assert.equal(chunks.at(-1).replayState.response.aukora_prime.mode,'mock');
+    assert.equal(chunks.at(-1).replayState.response.aukora_prime.conversation_id,dshTask.conversation_id);
+    assert.equal(chunks.at(-1).replayState.response.aukora_prime.task_id,dshTask.task_id);
+    assert.equal(chunks.at(-1).replayState.response.aukora_prime.grants_authority,false);
+    assert.ok(chunks.at(-1).replayState.response.aukora_prime.usage.cost_microusd>0);
     assert.equal(JSON.stringify(chunks.at(-1).replayState).includes(text),false);
     if (context) await context.fiber.dispose();
     const unavailable = new ExternalDeepSeekGateway({ route, ledger, request_home: join(dir,'requests'), provider: { mode: 'network', generate() { assert.fail('never dispatch network'); } } });
@@ -186,6 +191,7 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
         assert.equal(url,'https://api.deepseek.com/chat/completions'); assert.equal(options.redirect,'error');
         assert.equal(options.credentials,'omit'); assert.equal(options.headers.authorization,'Bearer '+fixtureSecret);
         const body=JSON.parse(options.body); assert.equal(body.stream,false); assert.equal(body.response_format.type,'json_object');
+        assert.deepEqual(body.thinking,{type:'disabled'});
         assert.equal(JSON.stringify(body).includes('OMIT_'),false);
         if(failWire) return new Response('sensitive provider error '+fixtureSecret,{status:401});
         return new Response(JSON.stringify({model:prodRoute.served_version,usage:{prompt_tokens:8,completion_tokens:25},
@@ -212,19 +218,22 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
     assert.equal(echoed.outcome,'outcome_unknown');assert.equal(JSON.stringify(echoed).includes(fixtureSecret),false);
     assert.equal(wireCalls,3);
 
-    let approvedCalls=0;
+    let approvedCalls=0,qualifiedGeneration;
     const structuralValidator = process.env.PRIME_CONTRACTS_ENTRY
       ? (await import(process.env.PRIME_CONTRACTS_ENTRY)).validateContract
       : (kind,value) => {assert.equal(kind,'ModelRoute'); assert.equal(value.version,1);};
     const settings = new OwnerProviderSettings({path:join(dir,'provider-settings.sqlite'),validateContract:structuralValidator,
       authenticateOwner:async context => context?.fixtureOwner === task.owner_id ? {owner_id:task.owner_id} : undefined,
       approveConfiguration:async input => {approvedCalls++;return{owner_id:input.owner_id,config_digest:input.config_digest,operation_id:'synthetic-config-grant'};},
+      qualifiedDispatchStatus:async(owner,digest,generation)=>{assert.equal(owner,task.owner_id);assert.ok(generation>0);return{config_digest:digest,credential_generation:qualifiedGeneration,ready:true};},
       credentials:{status:async owner=>vault.status(owner),createHandoff:async input=>({provider:'externalDeepSeek',method:'POST',path:'/api/prime/inference/credential-entry',
         ticket:vault.createTicket(input.owner_id,input.expected_generation,Date.now()+60000),expires_at:new Date(Date.now()+60000).toISOString()})}});
     const contextOwner={fixtureOwner:task.owner_id};
     const config={route:routeEnvelope,pricing:{input_microusd_per_token:1,output_microusd_per_token:2,max_request_ms:100,
       pricing_evidence_id:'synthetic-pricing-proof',terms_evidence_id:'synthetic-terms-proof',served_version:'synthetic-served-version'}};
     assert.equal(providerCatalog().providers[0].provider,'externalDeepSeek');
+    assert.equal(providerCatalog().providers[0].models[0].id,'deepseek-flash');
+    assert.equal(providerCatalog().providers[0].models[0].status,'unavailable');
     await assert.rejects(settings.configure({},config,{}),{code:'OWNER_AUTH_REQUIRED'});
     const savedConfig=await settings.configure(contextOwner,config,{synthetic:true});
     assert.equal(savedConfig.paid_requests_enabled,false); assert.equal(approvedCalls,1);
@@ -233,6 +242,9 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
     assert.equal(configuredStatus.namespace.section.providers.externalDeepSeek.model,route.model);
     assert.equal(configuredStatus.namespace.section.providers.externalDeepSeek.credentialConfigured,true);
     assert.equal(configuredStatus.namespace.section.providers.externalDeepSeek.enabled,false);
+    qualifiedGeneration=0;assert.equal((await settings.status(contextOwner)).paid_requests_enabled,false);
+    qualifiedGeneration=1;assert.equal((await settings.status(contextOwner)).paid_requests_enabled,true);
+    qualifiedGeneration=undefined;assert.equal((await settings.status(contextOwner)).paid_requests_enabled,false);
     assert.throws(()=>settings.setCredential(fixtureSecret),{code:'SECRET_REQUIRES_SEPARATED_OWNER_ENTRY'});
     const handoff=await settings.credentialHandoff(contextOwner,{expected_generation:1,approval_proof:{synthetic:true}});
     assert.equal(JSON.stringify(handoff).includes(fixtureSecret),false);
@@ -252,6 +264,20 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
     const entered=await httpCall(entryHandler,{method:'POST',url:handoff.path,body:{ticket:handoff.ticket,secret:fixtureSecret}});
     assert.equal(entered.status,200);assert.deepEqual(entered.body,{configured:true,generation:2});
     assert.equal(JSON.stringify(entered.body).includes(fixtureSecret),false);
+    qualifiedGeneration=1;assert.equal((await settings.status(contextOwner)).paid_requests_enabled,false);
+    qualifiedGeneration=2;assert.equal((await settings.status(contextOwner)).paid_requests_enabled,true);
+
+    // Match current C's read interface. This is a fake facade contract check, not genuine owner authentication.
+    const sessionFixture='a'.repeat(64);let acceptedCalls=0;
+    const actor={ok:true,owner_id:task.owner_id,subject:'aukora:1:'+'b'.repeat(64),authorization_epoch:0,expiry:new Date(Date.now()+60000).toISOString()};
+    const ownerAuth=createAuthorityOwnerAuthenticator({authority:{authenticateSession:async input=>{assert.deepEqual(input,{session_token:sessionFixture});acceptedCalls++;return actor;}},
+      sessionToken:context=>context?.ownerSession});
+    await assert.rejects(ownerAuth({dshCookie:sessionFixture}),{code:'OWNER_AUTH_REQUIRED'});assert.equal(acceptedCalls,0);
+    const authenticated=await ownerAuth({ownerSession:sessionFixture});assert.equal(authenticated.owner_id,task.owner_id);
+    assert.equal(JSON.stringify(authenticated).includes(sessionFixture),false);
+    actor.expiry='2000-01-01T00:00:00Z';await assert.rejects(ownerAuth({ownerSession:sessionFixture}),{code:'OWNER_AUTH_REQUIRED'});
+    const failedAuth=createAuthorityOwnerAuthenticator({authority:{authenticateSession:async()=>{throw new Error(sessionFixture);}},sessionToken:()=>sessionFixture});
+    try{await failedAuth({});assert.fail('must refuse');}catch(error){assert.equal(error.code,'OWNER_AUTH_REQUIRED');assert.equal(error.message.includes(sessionFixture),false);}
     settings.close();vault.close();fixtureKey.fill(0);
     console.log('PASS mock scope/caps/restart/DSH; fixture-only production HTTPS/proxy/vault/owner settings/entry; external API calls=0');
   } finally { ledger.close(); rmSync(dir,{ recursive: true, force: true }); }

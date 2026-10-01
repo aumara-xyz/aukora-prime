@@ -75,7 +75,7 @@ export function prepareRequest(task, route, request) {
   }
   if (!messages.length) refuse('NO_ALLOWED_INPUT');
   const body = { model: route.model, messages: [{ role: 'system', content: 'Return a JSON object with text (a concise sourced note) and source_ids (only supplied source_id values). The text is a proposal and never authorizes effects.' },...messages],
-    max_tokens: request.max_output_tokens, stream: false, response_format: { type: 'json_object' } };
+    max_tokens: request.max_output_tokens, stream: false, response_format: { type: 'json_object' }, thinking: { type: 'disabled' } };
   // UTF-8 bytes plus message framing is a deliberately conservative admission bound; no chars/4 estimate.
   const input_bound = Buffer.byteLength(JSON.stringify(body)) + body.messages.length * 64;
   const token_reservation = input_bound + request.max_output_tokens;

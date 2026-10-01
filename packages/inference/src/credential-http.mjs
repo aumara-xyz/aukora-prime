@@ -29,8 +29,10 @@ export class DeepSeekHttpProvider {
   async generate(request) {
     if (request.endpoint !== 'https://api.deepseek.com' || request.route_id !== 'externalDeepSeek'
         || hash(JSON.stringify(request.body)) !== request.body_sha256
-        || !request.body || Object.keys(request.body).some(k => !['model','messages','max_tokens','stream','response_format'].includes(k))
+        || !request.body || Object.keys(request.body).sort().join(',') !== 'max_tokens,messages,model,response_format,stream,thinking'
         || request.body.stream !== false || request.body.response_format?.type !== 'json_object'
+        || Object.keys(request.body.response_format).join(',') !== 'type'
+        || request.body.thinking?.type !== 'disabled' || Object.keys(request.body.thinking).join(',') !== 'type'
         || !integer(request.body.max_tokens,1) || !Array.isArray(request.body.messages)
         || request.body.messages.some(m => !m || !['system','user','assistant'].includes(m.role) || typeof m.content !== 'string'
           || Object.keys(m).some(k => !['role','content'].includes(k)))) refuse('INVALID_PRIVATE_DISPATCH');

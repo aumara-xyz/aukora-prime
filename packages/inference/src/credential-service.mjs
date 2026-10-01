@@ -1,7 +1,8 @@
 // Server-only. This module belongs in a separate non-root UID with private immutable policy and IPC.
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import { openPrivateDatabase, transaction } from './private-db.mjs';
-import { canonical, hash, id, integer, refuse, validateRoute, validateTask } from './policy.mjs';
+import { hash, id, integer, refuse } from './policy.mjs';
+import { verifyPrivateDispatch } from './dispatch-policy.mjs';
 import { SpendLedger } from './ledger.mjs';
 import { DeepSeekHttpProvider } from './credential-http.mjs';
 
@@ -101,26 +102,9 @@ export class SeparatedCredentialService {
   }
   async dispatch(request, { signal } = {}) {
     if (signal?.aborted) refuse('CANCELLED_BEFORE_DISPATCH');
-    const route = validateRoute(await this.#options.getQualifiedRoute(request.owner_id));
-    const task = validateTask(await this.#options.getAuthorizedTask(request.owner_id,request.task_id));
-    if (route.mode !== 'production' || route.config_digest !== request.config_digest
-        || request.endpoint !== route.endpoint || request.body?.model !== route.model
-        || request.credential_generation !== route.credential_generation
-        || hash(JSON.stringify(request.body)) !== request.body_sha256
-        || hash(canonical(request.citations)) !== request.citations_sha256
-        || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(request.request_uuid)
-        || request.route_id !== route.route_id || !integer(request.body?.max_tokens,1) || !Array.isArray(request.body?.messages)
-        || task.max_requests > route.max_requests || task.spend_cap_microusd > route.spend_cap_microusd
-        || task.allowed_data_classes.some(c => !route.allowed_data_classes.includes(c))
-        || task.owner_id !== request.owner_id || task.task_id !== request.task_id || task.conversation_id !== request.conversation_id) refuse('PRIVATE_DISPATCH_SCOPE_MISMATCH');
-    const binding = hash(canonical({ owner_id: task.owner_id, task_id: task.task_id, conversation_id: task.conversation_id,
-      request_uuid: request.request_uuid, route, body_hash: request.body_sha256, citations: request.citations }));
-    if (binding !== request.binding_hash) refuse('PRIVATE_DISPATCH_SCOPE_MISMATCH');
-    const input = Buffer.byteLength(JSON.stringify(request.body)) + request.body.messages.length * 64;
-    const tokens = input + request.body.max_tokens, cost = input * route.input_microusd_per_token + request.body.max_tokens * route.output_microusd_per_token;
-    if (input > Math.min(route.max_input_tokens,task.max_input_tokens)
-        || request.body.max_tokens > Math.min(route.max_output_tokens,task.max_output_tokens)
-        || tokens !== request.reserved_tokens || cost !== request.reserved_cost_microusd) refuse('PRIVATE_DISPATCH_BUDGET_MISMATCH');
+    const { route, task, input_bound: input, token_reservation: tokens, cost_reservation: cost } = verifyPrivateDispatch(request,
+      await this.#options.getQualifiedRoute(request.owner_id),
+      await this.#options.getAuthorizedTask(request.owner_id,request.task_id));
     // The C-backed callback must verify and durably claim this exact admission outside the app UID.
     const verified = await this.#options.verifyDispatchAdmission(structuredClone(request));
     if (verified !== true) refuse('DISPATCH_APPROVAL_REQUIRED');

@@ -49,7 +49,7 @@ export interface DispatchBinding {
 export type DispatchAdmission = DispatchBinding & Record<string,unknown>;
 export interface ProviderRequest extends Omit<DispatchBinding,'config_digest'|'credential_generation'> {
  route_id:'externalDeepSeek'; endpoint:'https://api.deepseek.com';
- body:{model:string; messages:{role:'system'|'user'|'assistant';content:string}[]; max_tokens:number; stream:false; response_format:{type:'json_object'}};
+ body:{model:string; messages:{role:'system'|'user'|'assistant';content:string}[]; max_tokens:number; stream:false; response_format:{type:'json_object'};thinking:{type:'disabled'}};
  citations:SourceCitation[]; headers:Record<string,string>; config_digest:string|null; credential_generation:number|null;
  admission?:DispatchAdmission; signal:AbortSignal;
 }
@@ -94,7 +94,8 @@ export interface OwnerProviderStatus {
 export const PROVIDER_DIRECTORY:{readonly provider:'externalDeepSeek';readonly displayName:'DeepSeek';readonly settingsNs:'prime-inference';readonly settingsPath:readonly ['providers','externalDeepSeek'];readonly declared:false};
 export function mountDshCatalog(ctx:{llm:{registerConfigurableProviders(entries:readonly typeof PROVIDER_DIRECTORY[]):()=>void}}):()=>void;
 export function providerNamespace(status?:{profile?:ProviderConfiguration|null;credential?:{configured:boolean};paid_requests_enabled?:boolean}):ProviderNamespace;
-export function providerCatalog():{version:1;providers:(typeof PROVIDER_DIRECTORY & {active:false;endpoint:string;credential_entry:string;paid_requests_enabled:false;models:never[];credential_status:string;pending:string[]})[];namespace:ProviderNamespace};
+export const DEEPSEEK_FLASH_MODEL:{readonly id:'deepseek-flash';readonly name:'DeepSeek V4.1 Flash';readonly status:'unavailable';readonly qualification:'documentation_only';readonly source:'https://api-docs.deepseek.com/updates/';readonly documented_release:'2026-09-10'};
+export function providerCatalog():{version:1;providers:(typeof PROVIDER_DIRECTORY & {active:false;endpoint:string;credential_entry:string;paid_requests_enabled:false;models:(typeof DEEPSEEK_FLASH_MODEL)[];credential_status:string;pending:string[]})[];namespace:ProviderNamespace};
 export interface OwnerSettingsOptions {
  path:string;validateContract:(kind:'ModelRoute',value:unknown)=>unknown;
  authenticateOwner?:(context:unknown)=>Promise<{owner_id:string}|undefined>;
@@ -103,7 +104,7 @@ export interface OwnerSettingsOptions {
  status:(owner_id:string,context:unknown)=>Promise<CredentialStatus>;
  createHandoff:(input:{owner_id:string;expected_generation:number;approval_proof:unknown;context:unknown})=>Promise<CredentialHandoff>;
  };
- qualifiedDispatchStatus?:(owner_id:string,config_digest:string)=>Promise<{config_digest:string;ready:boolean}>;
+ qualifiedDispatchStatus?:(owner_id:string,config_digest:string,credential_generation:number)=>Promise<{config_digest:string;credential_generation:number;ready:boolean}>;
 }
 export class OwnerProviderSettings {
  constructor(options:OwnerSettingsOptions);close():void;catalog:typeof providerCatalog;
@@ -116,4 +117,6 @@ export interface HttpRequest extends AsyncIterable<Uint8Array> {url?:string;meth
 export interface HttpResponse {writeHead(status:number,headers:Record<string,string>):unknown;end(body:string):unknown}
 export type HttpHandler=(req:HttpRequest,res:HttpResponse)=>Promise<boolean>;
 export function createProviderSettingsHandler(options:{settings:OwnerProviderSettings;owner_origin:string;ownerContext?:(req:HttpRequest)=>Promise<unknown>}):HttpHandler;
+export interface AuthenticatedInferenceOwner {owner_id:string;subject:string;authorization_epoch:number;expiry:string}
+export function createAuthorityOwnerAuthenticator(options:{authority:{authenticateSession(input:{session_token:string}):unknown|Promise<unknown>};sessionToken:(context:unknown)=>unknown|Promise<unknown>}):(context:unknown)=>Promise<AuthenticatedInferenceOwner>;
 export {createDshAdapter, mountDshInference} from './dsh-adapter.mjs';
