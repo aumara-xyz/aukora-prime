@@ -226,6 +226,10 @@ try {
   const disabled=await runMutant();assert.notEqual(disabled.code,0);assert(disabled.output.includes('changed synthetic command')||disabled.output.includes('AssertionError'));checks++
   console.log('MUTATION PASS: earlier row guard removed still refuses; removing all digest boundaries is caught')
   console.log(JSON.stringify({kernel_guards:await runKernelGuardChecks()}))
+  const {runSessionChecks}=await import('./check-session.mjs')
+  const {runRetentionChecks}=await import('./check-retention.mjs')
+  console.log(JSON.stringify({sessions:runSessionChecks()}))
+  console.log(JSON.stringify({retention:runRetentionChecks()}))
   if(process.argv[2]!=='core-only') {
    const {runAdmissionChecks}=await import('./check-admission.mjs')
    console.log(JSON.stringify({admission:await runAdmissionChecks()}))

@@ -14,6 +14,7 @@ import { detachContract, operationDigest, dollars, deepFreeze, assertData } from
 import { prepareWebauthnConfig, webauthnChallenge, webauthnOptions, verifyWebauthnAssertion } from './webauthn.mjs'
 import { DIGEST, UUID, executionReceiptDigest, validatedReceipt, settlementStatus } from './execution.mjs'
 import { memoryEffectReceipt, memoryEffectReceiptDigest } from './memory-effect.mjs'
+import {isTerminalRecord,ownerKey,consumedGrantDigest,kernelPreparationMatches} from './retention.mjs'
 
 const hex = /^[a-f0-9]{64}$/
 const sha = value => createHash('sha256').update(value).digest('hex')
@@ -174,6 +175,10 @@ function authorityService(options, provisionNew) {
   function operationRow(store,op) {
     const row=store.broker.operations[operationKey(op.owner_id,op.operation_id)]
     if(!row) refuse('UNAVAILABLE','OPERATION_NOT_PROPOSED')
+    if(isTerminalRecord(row)) {
+      if(row.owner_key!==ownerKey(op.owner_id)||row.operation_digest!==operationDigest(op))refuse('INVALID','EXACT_OPERATION_CHANGED')
+      return row
+    }
     if(row.operation_digest!==operationDigest(op)||!equal(row.operation,op)) refuse('INVALID','EXACT_OPERATION_CHANGED')
     if(row.approval && !row.grant && store.currentRecord.state.consumedIds.includes('approval:'+row.approval.proof.nonce)) refuse('RECONCILIATION_REQUIRED','CONSUMED_AUTHORITY_WITHOUT_MATCHING_RESERVATION')
     return row
@@ -277,6 +282,10 @@ function authorityService(options, provisionNew) {
     const m=proof.material
     return tx(store=>{
       const id=session(store,v.session_token),row=store.broker.operations[operationKey(proof.owner_id,proof.operation_id)]
+      if(isTerminalRecord(row)) {
+        if(id.owner_id!==proof.owner_id)refuse('UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
+        refuse('REPLAYED','OPERATION_NOT_REVIEWABLE')
+      }
       if(!row||!row.review) refuse('UNAUTHORIZED','EXACT_REVIEW_REQUIRED')
       if(row.status!=='PROPOSED') refuse(row.status==='DENIED'?'CANCELLED':'REPLAYED','OPERATION_NOT_REVIEWABLE')
       if(id.owner_id!==row.operation.owner_id||row.review.session_hash!==keyOf(v.session_token)) refuse('UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
@@ -302,7 +311,7 @@ function authorityService(options, provisionNew) {
     const v=closed(input,['session_token','operation_id'])
     return tx(store=>{
       const id=session(store,v.session_token),row=store.broker.operations[operationKey(id.owner_id,v.operation_id)]
-      if(!row||row.operation.owner_id!==id.owner_id) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
+      if(!row||(isTerminalRecord(row)?row.owner_key!==ownerKey(id.owner_id):row.operation.owner_id!==id.owner_id)) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
       if(!['PROPOSED','APPROVED'].includes(row.status)) refuse('RECONCILIATION_REQUIRED','PREPARED_EFFECT_CANNOT_BE_UNCONSUMED')
       row.status='DENIED';row.review=null;row.approval=null;prunePending(store);store.commitBroker()
       return {ok:true,status:'DENIED'}
@@ -313,7 +322,7 @@ function authorityService(options, provisionNew) {
     const approved=tx(store=>{
       policy(store,op);const row=operationRow(store,op)
       if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
-      if(row.status!=='APPROVED'||!row.approval) refuse(row.grant?'REPLAYED':'UNAUTHORIZED',row.grant?'GRANT_ALREADY_CONSUMED':'AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
+      if(row.status!=='APPROVED'||!row.approval) refuse(row.grant||row.grant_digest?'REPLAYED':'UNAUTHORIZED',row.grant||row.grant_digest?'GRANT_ALREADY_CONSUMED':'AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
       approvalSession(store,row)
       if(!equal(proof,row.approval.proof)) refuse('INVALID','APPROVAL_PROOF_CHANGED')
       return structuredClone(row.approval)
@@ -325,7 +334,7 @@ function authorityService(options, provisionNew) {
           policy(store,op);liveTarget(op);const row=operationRow(store,op)
           if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op)) refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')
           if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
-          if(row.status!=='APPROVED'||!row.approval||!equal(row.approval.proof,proof)) refuse(row.grant?'REPLAYED':'UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
+          if(row.status!=='APPROVED'||!row.approval||!equal(row.approval.proof,proof)) refuse(row.grant||row.grant_digest?'REPLAYED':'UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
           approvalSession(store,row)
           if(Date.parse(proof.expiry)<=now()) refuse('EXPIRED','APPROVAL_EXPIRED')
           if(proof.material.kind==='passkey') {
@@ -352,7 +361,14 @@ function authorityService(options, provisionNew) {
     return {ok:true,status:'PREPARED',consumed_grant:deepFreeze(grant),kernel_receipt:verdict.receiptDraft,profile:proof.material.kind+'/local-write/authorization:null'}
   }) }
   function reservedRow(store,op,grant) {
-    const row=operationRow(store,op),nonce=row.approval?.proof?.nonce
+    const compact=operationRow(store,op)
+    if(isTerminalRecord(compact)) {
+      if(compact.grant_digest!==consumedGrantDigest(grant)||grant.operation_digest!==compact.operation_digest)refuse('UNAUTHORIZED','EXACT_CONSUMED_GRANT_REQUIRED')
+      const nonce=grant.grant_id.startsWith('grant:')?grant.grant_id.slice(6):null
+      if(!kernelPreparationMatches(store.currentRecord,op,grant,nonce))refuse('RECONCILIATION_REQUIRED','DURABLE_KERNEL_PREPARATION_REQUIRED')
+      return compact
+    }
+    const row=compact,nonce=row.approval?.proof?.nonce
     if(!equal(row.grant,grant)||grant.operation_digest!==row.operation_digest||grant.operation_digest!==operationDigest(op)||row.approval?.proof?.operation_digest!==grant.operation_digest) refuse('UNAUTHORIZED','EXACT_CONSUMED_GRANT_REQUIRED')
     const effectId=grant.reservation_id.startsWith('prepared:')?grant.reservation_id.slice(9):null
     if(!nonce||!store.currentRecord.state.consumedIds.includes('approval:'+nonce)||!store.currentRecord.prepared.some(p=>p.consumptionId==='approval:'+nonce&&p.effectId===effectId&&p.contentHash===grant.operation_digest.slice(7)&&p.receiptCountAfter<=store.currentRecord.state.receiptHead.count)) refuse('RECONCILIATION_REQUIRED','DURABLE_KERNEL_PREPARATION_REQUIRED')
@@ -360,7 +376,7 @@ function authorityService(options, provisionNew) {
   }
   function claimDispatch(input) { return attempt(()=>{
     const v=closed(input,['operation','consumed_grant','request_id','request_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
-    if(!UUID.test(v.request_id)||!DIGEST.test(v.request_digest)) refuse('INVALID','EXACT_EXECUTOR_REQUEST_BINDING_REQUIRED')
+    if(typeof v.request_id!=='string'||!UUID.test(v.request_id)||typeof v.request_digest!=='string'||!DIGEST.test(v.request_digest)) refuse('INVALID','EXACT_EXECUTOR_REQUEST_BINDING_REQUIRED')
     return tx(store=>{
       policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant)
       if(row.status!=='PREPARED'||!equal(row.grant,grant)) refuse('REPLAYED','RESERVATION_NOT_DISPATCHABLE')
@@ -402,6 +418,7 @@ function authorityService(options, provisionNew) {
       }
       const result=idempotent=>({ok:true,status:row.status,request_id:v.request_id,request_digest:d.request_digest,receipt_digest:d.receipt_digest,idempotent,reconciliation_required:row.status==='OUTCOME_UNKNOWN'})
       if(d.settlement_digests.includes(receiptDigest))return result(true)
+      if(isTerminalRecord(row))refuse('STALE','EXPLICIT_UNKNOWN_RECONCILIATION_REQUIRED')
       if(d.receipt) {
         if(!reconcile||!['OUTCOME_UNKNOWN','CANCEL_REQUESTED'].includes(row.status))refuse('STALE','EXPLICIT_UNKNOWN_RECONCILIATION_REQUIRED')
         const old=d.receipt
@@ -435,7 +452,7 @@ function authorityService(options, provisionNew) {
       if(op.target_identity?.kind!=='prime-memory'||!op.action_type.startsWith('memory.')||receipt.owner_subject!==store.broker.owners[keyOf(op.owner_id)]?.subject)refuse('INVALID','MEMORY_OWNER_TARGET_REQUIRED')
       const result=idempotent=>({ok:true,status:row.status,request_id:v.request_id,request_digest:d.request_digest,receipt_digest:d.receipt_digest,idempotent,reconciliation_required:false})
       if(d.settlement_digests.includes(receiptDigest))return result(true)
-      if(d.receipt)refuse('STALE','COMMITTED_MEMORY_RECEIPT_CONFLICT')
+      if(isTerminalRecord(row)||d.receipt)refuse('STALE','COMMITTED_MEMORY_RECEIPT_CONFLICT')
       row.status='COMPLETED';d.receipt=receipt;d.receipt_digest=receiptDigest;d.settlement_digests.push(receiptDigest);store.commitBroker()
       return result(false)
     })
@@ -464,7 +481,7 @@ function authorityService(options, provisionNew) {
     const v=closed(input,['session_token','operation_id'])
     return tx(store=>{
       const id=session(store,v.session_token),row=store.broker.operations[operationKey(id.owner_id,v.operation_id)]
-      if(!row||row.operation.owner_id!==id.owner_id) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
+      if(!row||(isTerminalRecord(row)?row.owner_key!==ownerKey(id.owner_id):row.operation.owner_id!==id.owner_id)) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
       return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN'].includes(row.status)}
     })
   }) }

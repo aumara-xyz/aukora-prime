@@ -5,6 +5,7 @@ import { ApprovalStateStore } from '../upstream/scripts/aukora/approval-state-st
 import { RollbackRefusedError, TrustedStoreCorruptError, TrustedStoreUnsafePathError } from '../upstream/scripts/aukora/trusted-state-store.mjs'
 import { parseStrictText } from '../upstream/plugins/aukora-kira/lib/strict-read.mjs'
 import { canonicalBytes } from '../upstream/vendor/authority/lib/index.js'
+import {compactRetainedRows,validateRetainedRows} from './retention.mjs'
 
 export const EMPTY_KERNEL_STATE = Object.freeze({
   schema: 'aukora-trusted-state-v1', salama: { active: false, reason: null },
@@ -87,6 +88,7 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
     }
     const retained=this.witnessRecord.heads[this.brokerWitnessKey]??0
     if(broker.revision<retained) throw new RollbackRefusedError(`Prime broker revision ${broker.revision} below retained ${retained}`)
+    try {validateRetainedRows(broker.operations)} catch {throw new TrustedStoreCorruptError('Prime terminal retention metadata malformed')}
     this.broker=structuredClone(broker)
     this.currentRecord={...record,broker:this.broker}
     if(record.broker===undefined) this.commitBroker() // Persist NEW identity before any successful API result.
@@ -100,7 +102,9 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
   }
   commit(record) {
     if(!this.broker||!this.brokerWitnessKey) throw new TrustedStoreCorruptError('Prime store must load before commit')
-    const broker=structuredClone(this.broker);broker.revision+=1
+    let broker
+    try {broker=compactRetainedRows(structuredClone(this.broker),record)} catch {throw new TrustedStoreCorruptError('Prime terminal retention evidence invalid; history preserved')}
+    broker.revision+=1
     canonicalBytes(broker)
     const next={...record,broker}
     if(Buffer.byteLength(JSON.stringify(next))>this.maxStateBytes) throw new TrustedStoreCorruptError('Prime durable state quota reached; preserve history and refuse admission')

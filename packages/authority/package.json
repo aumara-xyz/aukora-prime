@@ -6,5 +6,5 @@
   "license": "AGPL-3.0-or-later",
   "engines": {"node": ">=24.0.0"},
   "exports": {".": "./src/index.mjs"},
-  "scripts": {"check": "node check.mjs", "check:admission": "node check-admission.mjs", "check:kernel-guards": "node check-kernel-guards.mjs", "check:kernel": "node upstream/vendor/authority/conformance.mjs"}
+  "scripts": {"check": "node check.mjs", "check:session": "node check-session.mjs", "check:retention": "node check-retention.mjs", "check:admission": "node check-admission.mjs", "check:kernel-guards": "node check-kernel-guards.mjs", "check:kernel": "node upstream/vendor/authority/conformance.mjs"}
 }
