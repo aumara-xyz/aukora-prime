@@ -959,8 +959,8 @@ window.__ModuleLoader__.load({
 			return Object.freeze(api);
 		}
 		//#endregion
-		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css = ".XMZmGq_surface[hidden]{display:none!important}.XMZmGq_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.XMZmGq_header{flex-direction:column;align-items:flex-start;gap:4px}.XMZmGq_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.XMZmGq_header p{color:var(--aukora-text-secondary);margin:0}.XMZmGq_card{min-width:0;padding:16px}.XMZmGq_card h2{margin-top:0;font-size:16px;font-weight:600}.XMZmGq_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.XMZmGq_fields{flex-direction:column;gap:12px;display:flex}.XMZmGq_fields dd{margin:0}.XMZmGq_fields dt{color:var(--aukora-text-secondary);font-size:13px}.XMZmGq_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.XMZmGq_owner{flex-direction:column;gap:8px;display:flex}.XMZmGq_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.XMZmGq_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.XMZmGq_error{color:var(--aukora-red-warning)}.XMZmGq_menu{width:100%}.XMZmGq_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.XMZmGq_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.XMZmGq_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.XMZmGq_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.XMZmGq_badgePanel h2{font-size:14px}";
+		//#region \0dsh-css:logical-source:packages/contracts/src/browser.mjs
+		const css = ".GiOGDW_surface[hidden]{display:none!important}.GiOGDW_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.GiOGDW_header{flex-direction:column;align-items:flex-start;gap:4px}.GiOGDW_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.GiOGDW_header p{color:var(--aukora-text-secondary);margin:0}.GiOGDW_card{min-width:0;padding:16px}.GiOGDW_card h2{margin-top:0;font-size:16px;font-weight:600}.GiOGDW_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.GiOGDW_fields{flex-direction:column;gap:12px;display:flex}.GiOGDW_fields dd{margin:0}.GiOGDW_fields dt{color:var(--aukora-text-secondary);font-size:13px}.GiOGDW_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.GiOGDW_owner{flex-direction:column;gap:8px;display:flex}.GiOGDW_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.GiOGDW_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.GiOGDW_error{color:var(--aukora-red-warning)}.GiOGDW_menu{width:100%}.GiOGDW_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.GiOGDW_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.GiOGDW_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.GiOGDW_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.GiOGDW_badgePanel h2{font-size:14px}";
 		const tagId = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -970,17 +970,17 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "XMZmGq_actions",
-			"badge": "XMZmGq_badge",
-			"badgePanel": "XMZmGq_badgePanel",
-			"capabilities": "XMZmGq_capabilities",
-			"card": "XMZmGq_card",
-			"error": "XMZmGq_error",
-			"fields": "XMZmGq_fields",
-			"header": "XMZmGq_header",
-			"menu": "XMZmGq_menu",
-			"owner": "XMZmGq_owner",
-			"surface": "XMZmGq_surface"
+			"actions": "GiOGDW_actions",
+			"badge": "GiOGDW_badge",
+			"badgePanel": "GiOGDW_badgePanel",
+			"capabilities": "GiOGDW_capabilities",
+			"card": "GiOGDW_card",
+			"error": "GiOGDW_error",
+			"fields": "GiOGDW_fields",
+			"header": "GiOGDW_header",
+			"menu": "GiOGDW_menu",
+			"owner": "GiOGDW_owner",
+			"surface": "GiOGDW_surface"
 		};
 		//#endregion
 		//#region lib/types/client/OwnerSurface.js

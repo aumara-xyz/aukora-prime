@@ -3,7 +3,7 @@
   "source_commit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
   "source_commit_attribution": "pinned-dsh-upstream; not Prime/UI source proof",
   "upstream_commit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
-  "harness_receipt_sha256": "39b68ef45ed42ff127f12ff5fcc1f08fdf538b7f4dbfcf86fcab075961444350",
+  "harness_receipt_sha256": "30583abd0686453b0c8cc5a2262aa741a65ffa768ddc36fca8e5cefd0b1abbcd",
   "source_lock_sha256": "ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1",
   "overlay_lock_sha256": "ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1",
   "dependency_versions": {
@@ -69,8 +69,8 @@
       "face": "prime-authority",
       "id": "@aukora/prime-authority-ui",
       "path": "prime-authority/client.js",
-      "bytes": 56928,
-      "sha256": "3b3bb79531d93ecb57832ff33c799402dd0a7b12d736c74369e53efedb744ac3"
+      "bytes": 57004,
+      "sha256": "afd93a80d253c4239c7a2e599118f33b0b8648b32c49dbca905a17e9b968f01e"
     },
     {
       "face": "prime-authority",
@@ -437,7 +437,7 @@
         {
           "path": ".dsh-build/pinned-harness-build.json",
           "bytes": 1214,
-          "sha256": "39b68ef45ed42ff127f12ff5fcc1f08fdf538b7f4dbfcf86fcab075961444350"
+          "sha256": "30583abd0686453b0c8cc5a2262aa741a65ffa768ddc36fca8e5cefd0b1abbcd"
         },
         {
           "path": "packages/client/modules/src/client/manifest.ts",
@@ -580,14 +580,14 @@
         }
       ]
     },
-    "build_inputs_before_sha256": "9970ab92f3fd7298f2fde645eba2b65f02c70419bb41086b08abaccb0595d88d",
-    "build_inputs_after_sha256": "9970ab92f3fd7298f2fde645eba2b65f02c70419bb41086b08abaccb0595d88d",
+    "build_inputs_before_sha256": "e5d16db4b52b39a32ed7b1405440c83adf07378ef2362e949e4f78bb85dfa786",
+    "build_inputs_after_sha256": "e5d16db4b52b39a32ed7b1405440c83adf07378ef2362e949e4f78bb85dfa786",
     "output_artifacts": [
       {
         "path": "prime-authority/lib/client.js",
         "output_path": "prime-authority/client.js",
-        "bytes": 56928,
-        "sha256": "3b3bb79531d93ecb57832ff33c799402dd0a7b12d736c74369e53efedb744ac3"
+        "bytes": 57004,
+        "sha256": "afd93a80d253c4239c7a2e599118f33b0b8648b32c49dbca905a17e9b968f01e"
       },
       {
         "path": "prime-authority/lib/client.js.map",
