@@ -29,7 +29,7 @@ else if(cmd==='boot'){
  privateDirectory(state,{create:true});for(const name of ['workspace','home','agents'])privateDirectory(resolve(state,name),{create:true});
  const env={PATH:process.env.PATH,HOME:resolve(state,'home'),DSH_HOME:resolve(state,'home'),DSH_AGENTS_HOME:resolve(state,'agents'),DSH_TELEMETRY_MODE:'DISABLED',DSH_TELEMETRY_DISABLED:'1',NODE_NO_WARNINGS:'1'};
  env.PRIME_RELEASE_DIGEST=releaseDigest;
- const p=spawn(process.execPath,[resolve(release,'harness/run.mjs'),state,value('--port','18731'),deploymentPath,anchor.manifest_sha256,resolve(packagesRoot,'ops/gates.mjs')],{cwd:resolve(state,'workspace'),env,stdio:['ignore','pipe','pipe','ipc']});
+ const p=spawn(process.execPath,['--max-old-space-size=1536',resolve(release,'harness/run.mjs'),state,value('--port','18731'),deploymentPath,anchor.manifest_sha256,resolve(packagesRoot,'ops/gates.mjs')],{cwd:resolve(state,'workspace'),env,stdio:['ignore','pipe','pipe','ipc']});
  const r={status:'starting',pid:p.pid,version:manifest.version,source_commit:manifest.source_commit,ui_url:null,release_dir:release,release_digest:releaseDigest,unavailable_capabilities:manifest.unavailable_capabilities,started_at:new Date().toISOString()};
  const save=()=>writePrivateJson(recordPath,r);save();
  p.on('message',message=>{if(message?.type!=='prime-ready'||message.pid!==p.pid)return;const u=new URL(message.url);if(u.pathname!=='/'||u.searchParams.size!==1||!u.searchParams.has('token'))throw new Error('PRIVATE_READY_REFUSED');r.ui_url=cleanOrigin(message.url);writePrivateJson(resolve(state,'launch-url.json'),{url:message.url,pid:p.pid});r.status='running';save();console.log('Prime UI '+r.ui_url);console.log('Running '+r.source_commit+'; unavailable: '+r.unavailable_capabilities.join(', '));});
