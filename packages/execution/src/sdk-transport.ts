@@ -50,11 +50,13 @@ export class SdkTransport {
   readonly sourceCommit = SDK_SOURCE_COMMIT
   readonly packageVersion = SDK_PACKAGE_VERSION
   readonly raw: RawSdkClient
-  constructor(raw: RawSdkClient) {
+  readonly gatewayIdentity: string | null
+  constructor(raw: RawSdkClient, options: {gatewayIdentity?: string} = {}) {
     if (!raw || (['createSandbox','getSandbox','listSandboxes','deleteSandbox','execSandbox'] as const).some(k => typeof raw[k] !== 'function')) {
       throw refused('built OpenShell SDK raw lifecycle surface required', 'UNAVAILABLE')
     }
     this.raw = raw
+    this.gatewayIdentity=options.gatewayIdentity??null
   }
   scope(workspace: string): Scope { return { selection: { case: 'workspace', value: workspace } } }
   async create(job: Job, settings: Settings, policy: Policy, environment: Record<string, string>, options: Options) {

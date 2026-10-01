@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { canonicalJson, operationDigest, validateContract } from '../../contracts/src/runtime.mjs'
 import { guestEnvironment, guestPolicy, refused, validateSpec } from './policy.mjs'
 import { SDK_SOURCE_COMMIT, SDK_PACKAGE_VERSION } from './sdk-transport.ts'
+import { executorRequestDigest,executionReceiptDigest,requireBroker,brokerRefusal } from './binding.mjs'
+import { inspectQualification } from './qualification.mjs'
 
 const LABEL='aukora.openshell/owner'
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -71,63 +73,138 @@ function tail(text,chunk,max) {
 }
 
 export class OpenShellOwnedExecutor {
-  constructor({settings,transport,ledger,assertConsumed,qualification}) {
+  constructor({settings,transport,ledger,broker,qualification=null,runtimeBinding=null}) {
     closed(settings,['workspace','logical_workspace_root','image_digest','control_timeout_ms','cleanup_timeout_ms','poll_ms'])
     if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(settings.workspace)
       ||typeof settings.image_digest!=='string'||!/^(?:[-a-zA-Z0-9._:/]+@)?sha256:[0-9a-f]{64}$/.test(settings.image_digest)
-      ||transport.sourceCommit!==SDK_SOURCE_COMMIT||transport.packageVersion!==SDK_PACKAGE_VERSION
-      ||typeof assertConsumed!=='function'||typeof qualification!=='function') throw refused('pinned SDK/image and trusted broker/qualification required','UNAVAILABLE')
+      ||transport.sourceCommit!==SDK_SOURCE_COMMIT||transport.packageVersion!==SDK_PACKAGE_VERSION) throw refused('pinned SDK/image required','UNAVAILABLE')
     for(const key of ['control_timeout_ms','cleanup_timeout_ms','poll_ms']) if(!Number.isSafeInteger(settings[key])||settings[key]<1||settings[key]>120_000)throw refused('invalid lifecycle bound','INVALID')
     this.settings=Object.freeze(clone(settings));this.transport=transport;this.ledger=ledger
-    this.assertConsumed=assertConsumed;this.qualification=qualification;this.disposed=false;this.active=null
+    this.broker=requireBroker(broker);this.qualification=qualification;this.runtimeBinding=runtimeBinding?Object.freeze(clone(runtimeBinding)):null;this.disposed=false;this.active=null
   }
-  get capability() { return this.disposed||this.qualification(this.settings)!==true?'unavailable':'qualified' }
-  availability() { return {backend:'openshell-linux',state:this.capability,cleanup:this.ledger.pending().length?'pending':'unprobed',runtimeEnforcementVerified:this.capability==='qualified'} }
+  acceptedQualification(policy=null,bounds=null) {return this.disposed?null:inspectQualification(this.qualification,this.settings,policy,bounds,{binding:this.runtimeBinding,ledger_id:this.ledger.identity,gateway_identity:this.transport.gatewayIdentity})}
+  get capability() {return this.acceptedQualification()?'qualified':'unavailable'}
+  admission(request) {return !!this.acceptedQualification(request.policy_digest,request)}
+  availability() {
+    const record=this.acceptedQualification()
+    return {backend:'openshell-linux',state:record?'qualified':'unavailable',cleanup:this.ledger.pending().length?'pending':'unprobed',
+      source:'pinned_source',protocol:'unperformed',runtime:record?'accepted':'unavailable',runtimeEnforcementVerified:!!record,
+      qualification_id:record?.qualification_id??null,host_profile:record?.host_profile??null,settlement:this.ledger.recovery().length?'pending':'settled'}
+  }
+  async brokerCall(method,input) {
+    let timer
+    try {return await Promise.race([Promise.resolve().then(()=>this.broker[method](clone(input))),new Promise((_,reject)=>{timer=setTimeout(()=>reject(refused('authority reply uncertain','RECONCILIATION_REQUIRED')),this.settings.control_timeout_ms)})])}
+    finally {clearTimeout(timer)}
+  }
   async execute(request) {
     const snap=snapshot(request,this.settings)
-    if(this.capability!=='qualified')throw refused('runtime/image qualification unavailable','UNAVAILABLE')
+    if(!this.admission(snap.r))throw refused('accepted runtime evidence unavailable','UNAVAILABLE')
     const controller=new AbortController()
     return this.ledger.withLease(async()=>{
-      // No dispatch can precede recovery, even if the previous process died.
+      // Recovery includes the durable C settlement outbox, even after guest absence.
       await this.reconcileLocked()
-      if(this.ledger.pending().length) throw refused('unfinished owned jobs block admission','RECONCILIATION_REQUIRED')
-      if(this.capability!=='qualified')throw refused('runtime qualification revoked','UNAVAILABLE')
+      if(this.ledger.recovery().length)throw refused('unfinished owned jobs block admission','RECONCILIATION_REQUIRED')
+      if(!this.admission(snap.r))throw refused('runtime evidence revoked','UNAVAILABLE')
       snap.signal?.throwIfAborted()
-      const brokerResult=await this.assertConsumed(clone(snap.r.operation),clone(snap.r.consumed_grant))
-      if(brokerResult!==true)throw refused('trusted broker did not confirm durable consumed reservation','UNAUTHORIZED')
-      // Broker awaited only snapshotted bytes. No mutable caller objects reach transport.
-      snap.signal?.throwIfAborted()
-      if(this.capability!=='qualified')throw refused('runtime qualification revoked','UNAVAILABLE')
       if(Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired before dispatch','EXPIRED')
-      const token=randomUUID(), job={token,name:`prime-bash-${token}`,id:null,
+      const token=randomUUID(),job={token,name:`prime-bash-${token}`,id:null,
         create_request_id:randomUUID(),delete_request_id:randomUUID(),request_id:snap.r.request_id,
-        reservation_id:snap.r.consumed_grant.reservation_id,stage:'prepared',create_confirmed:false,
-        policy_digest:snap.r.policy_digest,workspace:this.settings.workspace,image_digest:this.settings.image_digest,
+        reservation_id:snap.r.consumed_grant.reservation_id,request:snap.r,request_digest:executorRequestDigest(snap.r),
+        claim_state:'prepared',claim_reply:null,outbox:[],cancel_state:null,
+        stage:'prepared',create_confirmed:false,policy_digest:snap.r.policy_digest,workspace:this.settings.workspace,image_digest:this.settings.image_digest,
         stdout_b64:'',stderr_b64:'',receipt:{version:1,receipt_id:randomUUID(),operation_id:snap.r.operation.operation_id,
           task_id:snap.r.operation.task_id,owner_id:snap.r.operation.owner_id,operation_digest:snap.digest,
           grant_id:snap.r.consumed_grant.grant_id,request_id:snap.r.request_id,status:'outcome_unknown',stdout:'',stderr:'',
           exit_code:null,rpc_completion:'not_started',output_truncated:false,sandbox:null,cleanup:'pending',
           started_at:null,finished_at:iso(),error_code:'OUTCOME_UNKNOWN',reconciliation_required:true}}
+      // F's non-launch fence exists before the actual one-use durable C claim.
       this.ledger.reserve(job)
       this.active={controller,job}
-      try { this.active.promise=this.run(job,snap,controller);return await this.active.promise }
-      finally { this.active=null }
+      try {this.active.promise=this.run(job,snap,controller);return await this.active.promise}
+      finally {this.active=null}
     })
   }
+  binding(job) {return {operation:job.request.operation,consumed_grant:job.request.consumed_grant,request_id:job.request_id,request_digest:job.request_digest}}
+  async claim(job) {
+    job.claim_state='attempted';this.ledger.save(job)
+    let reply
+    try {reply=await this.brokerCall('claimDispatch',this.binding(job))}
+    catch(error) {job.claim_state='unknown';this.ledger.save(job);throw error}
+    if(reply?.ok===false) {job.claim_state='refused';job.claim_reply=clone(reply);this.ledger.save(job);throw brokerRefusal(reply)}
+    try {
+      closed(reply,['ok','status','consumed_grant','request_id','request_digest'])
+      if(reply.ok!==true||reply.status!=='DISPATCHED'||reply.request_id!==job.request_id||reply.request_digest!==job.request_digest
+        ||canonicalJson(reply.consumed_grant)!==canonicalJson(job.request.consumed_grant))throw refused('authority dispatch binding differs','RECONCILIATION_REQUIRED')
+    } catch(error) {job.claim_state='unknown';this.ledger.save(job);throw error}
+    job.claim_state='accepted';job.claim_reply=clone(reply);this.ledger.save(job)
+  }
+  async requestCancellation(job) {
+    if(!job.cancel_cause||job.cancel_state==='recorded'||job.cancel_state==='late'||job.claim_state==='refused')return
+    job.cancel_state='attempted';this.ledger.save(job)
+    try {
+      const {request_digest,...binding}=this.binding(job)
+      const reply=await this.brokerCall('requestCancel',{...binding,reason:job.cancel_cause})
+      if(reply?.ok===false)throw brokerRefusal(reply)
+      closed(reply,['ok','status','request_id','cancel_recorded'])
+      if(reply.ok!==true||reply.request_id!==job.request_id||typeof reply.cancel_recorded!=='boolean'
+        ||!['CANCEL_REQUESTED','COMPLETED','FAILED','CANCELLED','UNAVAILABLE','OUTCOME_UNKNOWN'].includes(reply.status))throw refused('authority cancellation binding differs','RECONCILIATION_REQUIRED')
+      if(reply.cancel_recorded&&reply.status!=='CANCEL_REQUESTED')throw refused('invalid cancellation intent reply','RECONCILIATION_REQUIRED')
+      job.cancel_state=reply.cancel_recorded?'recorded':'late';job.cancel_reply=clone(reply)
+    } catch {job.cancel_state='unknown'}
+    this.ledger.save(job)
+  }
+  normalize(job) {
+    const r=job.receipt
+    r.reconciliation_required=!['not_created','confirmed_absent'].includes(r.cleanup)
+    if(r.reconciliation_required) {r.status='outcome_unknown';r.error_code='RECONCILIATION_REQUIRED'}
+    else if(r.rpc_completion==='complete'&&r.exit_code!==null) {r.status=r.exit_code===0?'completed':'failed';r.error_code=null}
+    else if(job.cancel_state==='recorded'&&r.rpc_completion==='not_started'&&r.started_at===null&&r.exit_code===null) {r.status='cancelled';r.error_code='CANCELLED'}
+    else if(job.claim_state==='refused') {r.status='unavailable';r.error_code=job.claim_reply?.error_code??'UNAVAILABLE'}
+    else {r.status='outcome_unknown';r.error_code='OUTCOME_UNKNOWN';r.reconciliation_required=true}
+    r.stdout=Buffer.from(job.stdout_b64,'base64').toString('utf8');r.stderr=Buffer.from(job.stderr_b64,'base64').toString('utf8')
+  }
+  queueSettlement(job) {
+    if(job.claim_state==='refused')return
+    const receipt=validateContract('ExecutionReceipt',clone(job.receipt)),receipt_digest=executionReceiptDigest(receipt)
+    if(job.outbox.at(-1)?.receipt_digest===receipt_digest)return
+    job.outbox.push({method:job.outbox.length?'reconcileSettlement':'settle',receipt,receipt_digest,state:'pending',reply:null})
+    this.ledger.save(job)
+  }
+  async publish(job) {
+    for(const item of job.outbox) {
+      if(item.state==='acked')continue
+      const reply=await this.brokerCall(item.method,{...this.binding(job),receipt:item.receipt,receipt_digest:item.receipt_digest})
+      if(reply?.ok===false)throw brokerRefusal(reply)
+      closed(reply,['ok','status','request_id','request_digest','receipt_digest','idempotent','reconciliation_required'])
+      if(reply.ok!==true||reply.request_id!==job.request_id||reply.request_digest!==job.request_digest||reply.receipt_digest!==item.receipt_digest
+        ||typeof reply.idempotent!=='boolean'||typeof reply.reconciliation_required!=='boolean'
+        ||!['COMPLETED','FAILED','CANCELLED','UNAVAILABLE','OUTCOME_UNKNOWN'].includes(reply.status))throw refused('authority settlement binding differs','RECONCILIATION_REQUIRED')
+      const expected=item.receipt.status.toUpperCase()
+      if(reply.status!==expected||reply.reconciliation_required!==item.receipt.reconciliation_required)throw refused('authority settlement outcome differs','RECONCILIATION_REQUIRED')
+      item.state='acked';item.reply=clone(reply);this.ledger.save(job)
+    }
+  }
   async run(job,snap,controller) {
-    let timer,complete=false
-    const cutShort=cause=>{if(!job.cancel_cause){job.cancel_cause=cause;controller.abort()}}
-    const abort=()=>cutShort('caller')
-    const ownerAbort=()=>{job.cancel_cause??='dispose'}
-    controller.signal.addEventListener('abort',ownerAbort,{once:true})
-    snap.signal?.addEventListener('abort',abort,{once:true})
+    let timer,cancelPromise=null,dispatchError=null
+    const cutShort=cause=>{
+      // Drained typed command evidence outranks late cancellation intent.
+      if(job.receipt.rpc_completion==='complete'||job.cancel_cause)return
+      job.cancel_cause=cause;job.cancel_state='pending';this.ledger.save(job)
+      if(job.claim_state==='accepted')cancelPromise=this.requestCancellation(job)
+      controller.abort()
+    }
+    const abort=()=>cutShort('caller'),ownerAbort=()=>cutShort('dispose')
+    controller.signal.addEventListener('abort',ownerAbort,{once:true});snap.signal?.addEventListener('abort',abort,{once:true})
     if(snap.signal?.aborted)abort()
     timer=setTimeout(()=>cutShort('timeout'),snap.spec.timeoutMs)
     try {
+      await this.claim(job)
+      if(job.cancel_cause&&!cancelPromise)cancelPromise=this.requestCancellation(job)
+      if(this.disposed&&!controller.signal.aborted)cutShort('dispose')
       if(!controller.signal.aborted) {
+        if(!this.admission(snap.r)||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('runtime evidence revoked or operation expired before create','UNAVAILABLE')
         job.stage='create_attempted';this.ledger.save(job)
-        const created=await this.transport.create(job,this.settings,snap.policy,snap.env,
-          {timeoutMs:this.settings.control_timeout_ms,signal:controller.signal})
+        const created=await this.transport.create(job,this.settings,clone(snap.policy),clone(snap.env),{timeoutMs:this.settings.control_timeout_ms,signal:controller.signal})
         own(created,job,this.settings);job.create_confirmed=true;job.stage='created';this.ledger.save(job)
         const readyUntil=Date.now()+this.settings.control_timeout_ms
         while(!controller.signal.aborted) {
@@ -138,42 +215,25 @@ export class OpenShellOwnedExecutor {
           await new Promise(r=>setTimeout(r,this.settings.poll_ms))
         }
         if(!controller.signal.aborted) {
-          if(this.capability!=='qualified'||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired or qualification revoked before exec','UNAVAILABLE')
+          if(!this.admission(snap.r)||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired or runtime evidence revoked before exec','UNAVAILABLE')
           job.stage='exec_attempted';job.receipt.started_at=iso();job.receipt.rpc_completion='transport_failed';this.ledger.save(job)
-          // Persist every bounded output/exit checkpoint, and drain past typed exit.
           for await(const event of this.transport.execStream(job,this.settings,snap.spec,snap.env,controller.signal)) {
             if(event.type==='exit')job.receipt.exit_code=event.exitCode
-            else {
-              const field=event.stream==='stdout'?'stdout_b64':'stderr_b64'
-              const retained=tail(job[field],event.data,snap.spec.stdoutMaxBytes)
-              job[field]=retained.data;job.receipt.output_truncated ||= retained.truncated
-            }
+            else {const field=event.stream==='stdout'?'stdout_b64':'stderr_b64',retained=tail(job[field],event.data,snap.spec.stdoutMaxBytes);job[field]=retained.data;job.receipt.output_truncated ||= retained.truncated}
             this.ledger.save(job)
           }
           if(job.receipt.exit_code===null)throw refused('typed exit missing','OUTCOME_UNKNOWN')
-          job.receipt.rpc_completion='complete';complete=true;job.stage='exec_drained';this.ledger.save(job)
+          job.receipt.rpc_completion='complete';job.stage='exec_drained';this.ledger.save(job)
         }
       }
-    } catch(error) {
-      job.receipt.error_code=error.code==='UNAVAILABLE'?'UNAVAILABLE':'OUTCOME_UNKNOWN'
-      // An SdkError (including typed canceled/rpc) remains infrastructure failure,
-      // never a synthesized command exit 1, and never authorizes a retry.
-    } finally {
-      clearTimeout(timer);snap.signal?.removeEventListener('abort',abort)
-      controller.signal.removeEventListener('abort',ownerAbort)
-    }
-    if(job.cancel_cause||controller.signal.aborted) {
-      job.receipt.status='cancelled';job.receipt.error_code='CANCELLED'
-    } else if(complete) {
-      job.receipt.status=job.receipt.exit_code===0?'completed':'failed';job.receipt.error_code=null
-    }
-    job.receipt.stdout=Buffer.from(job.stdout_b64,'base64').toString('utf8')
-    job.receipt.stderr=Buffer.from(job.stderr_b64,'base64').toString('utf8')
-    this.ledger.save(job)
-    try { await this.cleanup(job) }
-    catch { job.receipt.cleanup='unknown';job.receipt.reconciliation_required=true;job.receipt.status='outcome_unknown';job.receipt.error_code='RECONCILIATION_REQUIRED' }
-    if(job.receipt.cleanup==='confirmed_absent'||job.receipt.cleanup==='not_created')job.receipt.reconciliation_required=false
-    job.receipt.finished_at=iso();this.ledger.save(job)
+    } catch(error) {dispatchError=error}
+    finally {clearTimeout(timer);snap.signal?.removeEventListener('abort',abort);controller.signal.removeEventListener('abort',ownerAbort)}
+    if(cancelPromise)await cancelPromise
+    try {await this.cleanup(job)}catch {job.receipt.cleanup='unknown'}
+    this.normalize(job);job.receipt.finished_at=iso();this.ledger.save(job)
+    this.queueSettlement(job)
+    try {await this.publish(job)}catch(error) {throw Object.assign(refused('durable authority settlement pending','RECONCILIATION_REQUIRED'),{cause:error,executionReceipt:clone(job.receipt)})}
+    if(job.claim_state==='refused')throw Object.assign(dispatchError??refused('dispatch refused','UNAVAILABLE'),{executionReceipt:clone(job.receipt)})
     return validateContract('ExecutionReceipt',clone(job.receipt))
   }
   async find(job,deadline) {
@@ -182,21 +242,18 @@ export class OpenShellOwnedExecutor {
       if(Date.now()>=deadline)throw refused('cleanup deadline','RECONCILIATION_REQUIRED')
       const result=await this.transport.inventory(this.settings,token,{timeoutMs:Math.min(this.settings.control_timeout_ms,deadline-Date.now())})
       if(!Array.isArray(result.sandboxes)||typeof result.nextPageToken!=='string')throw refused('incomplete inventory','RECONCILIATION_REQUIRED')
-      for(const s of result.sandboxes)if(s?.metadata?.name===job.name) {if(found)throw refused('duplicate inventory identity','TARGET_MISMATCH');own(s,job,this.settings);found=s}
-      token=result.nextPageToken
-      if(!token)return found
-      if(seen.has(token))throw refused('inventory cycle','RECONCILIATION_REQUIRED')
-      seen.add(token)
+      for(const s of result.sandboxes)if(s?.metadata?.name===job.name){if(found)throw refused('duplicate inventory identity','TARGET_MISMATCH');own(s,job,this.settings);found=s}
+      token=result.nextPageToken;if(!token)return found
+      if(seen.has(token))throw refused('inventory cycle','RECONCILIATION_REQUIRED');seen.add(token)
     }
     throw refused('inventory exceeds bound','RECONCILIATION_REQUIRED')
   }
   async cleanup(job) {
     if(job.workspace!==this.settings.workspace||job.image_digest!==this.settings.image_digest)throw refused('ledger deployment scope changed','TARGET_MISMATCH')
-    if(job.stage==='prepared') {job.receipt.cleanup='not_created';return}
-    const deadline=Date.now()+this.settings.cleanup_timeout_ms
-    const found=await this.find(job,deadline)
+    if(['confirmed_absent','not_created'].includes(job.receipt.cleanup))return
+    if(job.stage==='prepared'){job.receipt.cleanup='not_created';return}
+    const deadline=Date.now()+this.settings.cleanup_timeout_ms,found=await this.find(job,deadline)
     if(found) {
-      // A found resource closes the ambiguous-create case; never relaunch create.
       job.create_confirmed=true;this.ledger.save(job)
       own(await this.transport.get(job,this.settings,{timeoutMs:Math.max(1,deadline-Date.now())}),job,this.settings)
       job.stage='delete_attempted';this.ledger.save(job)
@@ -204,32 +261,36 @@ export class OpenShellOwnedExecutor {
       if(![1,2,3].includes(result.outcome)||(result.sandboxId&&result.sandboxId!==job.id))throw refused('deletion identity/outcome uncertain','RECONCILIATION_REQUIRED')
       while(await this.find(job,deadline))await new Promise(r=>setTimeout(r,this.settings.poll_ms))
     }
-    // An empty inventory cannot exclude an in-flight late create after a lost
-    // response. Keep the fence and ledger until trusted reconciliation finds it.
     if(!job.create_confirmed)throw refused('late creation cannot be excluded','RECONCILIATION_REQUIRED')
     job.receipt.cleanup='confirmed_absent';job.stage='cleaned'
   }
   async reconcileLocked() {
     const receipts=[]
-    for(const job of this.ledger.pending()) {
-      job.receipt.stdout=Buffer.from(job.stdout_b64,'base64').toString('utf8')
-      job.receipt.stderr=Buffer.from(job.stderr_b64,'base64').toString('utf8')
-      try {await this.cleanup(job);job.receipt.reconciliation_required=false}
-      catch {job.receipt.cleanup='unknown';job.receipt.reconciliation_required=true;job.receipt.error_code='RECONCILIATION_REQUIRED'}
-      // Restart cannot reconstruct lost output or successful RPC trailers.
-      if(job.receipt.rpc_completion==='complete'&&job.receipt.exit_code!==null&&!job.receipt.reconciliation_required&&job.receipt.status!=='cancelled') {
-        job.receipt.status=job.receipt.exit_code===0?'completed':'failed';job.receipt.error_code=null
-      } else if(job.receipt.status!=='cancelled')job.receipt.status='outcome_unknown'
-      job.receipt.finished_at=iso();this.ledger.save(job);receipts.push(clone(job.receipt))
+    for(const job of this.ledger.recovery()) {
+      if(!job.request||!job.request_digest||!Array.isArray(job.outbox))throw refused('legacy/incomplete ledger requires trusted reconciliation; never reconstruct authority','RECONCILIATION_REQUIRED')
+      if(executorRequestDigest(job.request)!==job.request_digest||job.request.request_id!==job.request_id)throw refused('durable request binding differs','RECONCILIATION_REQUIRED')
+      const before=canonicalJson(job.receipt)
+      if(job.claim_state==='prepared') {
+        // The attempt checkpoint is durable before invoking C. This state is
+        // proof no claim call occurred, not permission to retry or unconsume.
+        job.claim_state='refused';job.claim_reply={ok:false,error_code:'UNAVAILABLE',reason:'dispatch never attempted; reservation retained'}
+      }
+      if(job.cancel_cause&&!['recorded','late'].includes(job.cancel_state))await this.requestCancellation(job)
+      try {await this.cleanup(job)}catch {job.receipt.cleanup='unknown'}
+      this.normalize(job)
+      if(canonicalJson(job.receipt)!==before)job.receipt.finished_at=iso()
+      this.ledger.save(job);this.queueSettlement(job)
+      try {await this.publish(job)}catch(error) {throw Object.assign(refused('reconciliation settlement pending','RECONCILIATION_REQUIRED'),{cause:error,executionReceipts:[...receipts,clone(job.receipt)]})}
+      receipts.push(validateContract('ExecutionReceipt',clone(job.receipt)))
     }
     return receipts
   }
-  async reconcileOwned() { return this.ledger.withLease(()=>this.reconcileLocked()) }
-  cancellationCause(requestId) {return this.ledger.lookup(requestId)?.cancel_cause??null}
+  async reconcileOwned(){return this.ledger.withLease(()=>this.reconcileLocked())}
+  cancellationCause(requestId){return this.ledger.lookup(requestId)?.cancel_cause??null}
   async dispose() {
     this.disposed=true
     const active=this.active
-    if(active) {active.controller.abort();await active.promise}
-    if(this.ledger.pending().length)throw refused('dispose left owned cleanup unreconciled','RECONCILIATION_REQUIRED')
+    if(active){active.controller.abort();await active.promise}
+    if(this.ledger.recovery().length)throw refused('dispose left owned reconciliation pending','RECONCILIATION_REQUIRED')
   }
 }

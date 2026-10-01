@@ -5,3 +5,5 @@ export { SdkTransport, SDK_SOURCE_COMMIT, SDK_PACKAGE_VERSION } from './sdk-tran
 export { loadPinnedSdk } from './load-sdk.mjs'
 export { installOwnedBash, createDshOpenShellExecutor } from './bash.mjs'
 export { validateSpec, guestEnvironment, guestPolicy, refused } from './policy.mjs'
+export { executorRequestDigest,executionReceiptDigest } from './binding.mjs'
+export { qualificationRecordDigest,qualificationEvidenceDigest,hostProfileDigest } from './qualification.mjs'

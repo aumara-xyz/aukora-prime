@@ -27,5 +27,5 @@ export async function loadPinnedSdk(sdkRoot, connectOptions) {
   }
   const {OpenShellClient}=await import(pathToFileURL(join(sdkRoot,'dist/index.js')).href)
   const client=await OpenShellClient.connect(connectOptions)
-  return {client,transport:new SdkTransport(client.raw)}
+  return {client,transport:new SdkTransport(client.raw,{gatewayIdentity:new URL(connectOptions.gateway).href})}
 }
