@@ -19,5 +19,5 @@
     "check:transport": "node scripts/check-transport.mjs",
     "check:static": "node scripts/check-static.mjs"
   },
-  "files": ["faces", "adapters", "prime-authority", "foundation", "licenses", "baseline-manifest.json", "compatibility.json"]
+  "files": ["faces", "adapters", "prime-authority", "foundation", "docs", "licenses", "baseline-manifest.json", "compatibility.json"]
 }

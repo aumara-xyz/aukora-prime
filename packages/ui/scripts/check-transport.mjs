@@ -47,7 +47,7 @@ function fixture(overrides = {}) {
   }
   const ownerSigner = overrides.ownerSigner ?? (async ({ request, purpose }) => {
     counts.sign++
-    return { kind: 'owner_key', ...(purpose === 'approval' ? { request } : {}), signature: 'fixture-only-not-a-real-signature' }
+    return { kind: 'owner_key', ...(purpose === 'approval' ? { request } : {}), signature: '0'.repeat(128) }
   })
   const transport = createPrimeTransport({ authority, contracts, ownerSigner, now: () => clock })
   return { transport, counts, authority }
@@ -113,7 +113,7 @@ let cases = 0
   const gate = new Promise(resolve => { release = resolve })
   const f = fixture({ ownerSigner: async ({ request, purpose }) => {
     if (purpose === 'approval') await gate
-    return { kind: 'owner_key', ...(purpose === 'approval' ? { request } : {}), signature: 'fixture-only' }
+    return { kind: 'owner_key', ...(purpose === 'approval' ? { request } : {}), signature: '0'.repeat(128) }
   } })
   await login(f)
   const view = await f.transport.prepareApproval(operation)
@@ -144,6 +144,55 @@ let cases = 0
   await rejects(signer({ purpose: 'login', request, public_key: { ...public_key, challenge: 'AQID' } }), 'TARGET_MISMATCH')
   await rejects(signer({ purpose: 'login', request, public_key: null }), 'UNAVAILABLE')
   assert.equal(credentialCalls, 1)
+  cases++
+}
+{
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const f = fixture({ authority: { async declineApproval() { f.counts.decline++; await gate; return { ok:true, status:'DENIED' } } } })
+  await login(f)
+  const view = await f.transport.prepareApproval(operation)
+  const one = f.transport.decline(view), two = f.transport.decline(view)
+  await rejects(f.transport.approve(view, {kind:'owner_key'}), 'RECONCILIATION_REQUIRED')
+  assert.equal(f.counts.decline, 1)
+  release()
+  const answers = await Promise.all([one,two])
+  assert(answers.every(answer => answer.status === 'DENIED'))
+  await rejects(f.transport.decline(view), 'REPLAYED')
+  assert.equal(f.counts.approve, 0)
+  cases++
+}
+{
+  const f = fixture({authority:{async declineApproval() {f.counts.decline++;throw new Error('Lost denial reply')}}})
+  await login(f)
+  const view = await f.transport.prepareApproval(operation)
+  await rejects(f.transport.decline(view), 'OUTCOME_UNKNOWN')
+  await rejects(f.transport.decline(view), 'OUTCOME_UNKNOWN')
+  await rejects(f.transport.approve(view,{kind:'owner_key'}), 'OUTCOME_UNKNOWN')
+  assert.equal(f.counts.decline, 1)
+  cases++
+}
+{
+  const f=fixture({authority:{async approvalComplete(){f.counts.approve++;return {ok:true,status:'APPROVED'}}}})
+  await login(f);const view=await f.transport.prepareApproval(operation)
+  await rejects(f.transport.approve(view,{kind:'owner_key'}),'OUTCOME_UNKNOWN')
+  await rejects(f.transport.approve(view,{kind:'owner_key'}),'OUTCOME_UNKNOWN')
+  assert.equal(f.counts.approve,1);cases++
+}
+{
+  for (const field of ['approval_request','proof_template']) {
+    const f = fixture({authority:{async approvalChallenge(input) {const answer=await fixture().authority.approvalChallenge(input);delete answer[field];return answer}}})
+    await login(f)
+    await assert.rejects(f.transport.prepareApproval(operation), error=>error.name==='PrimeTransportError'&&error.code==='INVALID')
+    assert.equal(f.counts.approve,0)
+  }
+  for (const material of [undefined,{kind:'owner_key',signature:'0'.repeat(128)}]) {
+    const f = fixture({ownerSigner:async({request,purpose})=>purpose==='approval'?material:{kind:'owner_key',signature:'0'.repeat(128)}})
+    await login(f)
+    const view = await f.transport.prepareApproval(operation)
+    await assert.rejects(f.transport.approve(view,{kind:'owner_key'}), error=>error.name==='PrimeTransportError'&&error.code==='INVALID')
+    assert.equal(f.counts.approve,0)
+  }
   cases++
 }
 console.log(JSON.stringify({ result: 'PASS', cases, scope: 'disposable injected transport regression',

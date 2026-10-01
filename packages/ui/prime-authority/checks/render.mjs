@@ -20,6 +20,7 @@ const get=name=>{if(name in modules)return modules[name];return modules[name]=fa
 get('@aukora/face-layout/client')
 const ui=get('@aukora/prime-authority-ui/client')
 const render=controller=>server.renderToStaticMarkup(React.createElement(ui.OwnerSurface,{activeSurface:'prime-owner',controller}))
+const badge=controller=>server.renderToStaticMarkup(React.createElement(ui.CapabilityBadge,{controller}))
 let count=0,clock=Date.parse('2030-01-01T00:00:00Z')
 const make=options=>{const binding=createOwnerUiFixture(contracts,{now:()=>clock,...options});const controller=createPrimeOwnerController({now:()=>clock});controller.connect(binding);return {binding,controller}}
 {
@@ -54,5 +55,17 @@ const make=options=>{const binding=createOwnerUiFixture(contracts,{now:()=>clock
   controller.connect(binding);await controller.login();await controller.prepare();clock+=121000;expire()
   const html=render(controller);assert(html.includes('data-phase="expired"'));assert(/disabled=""[^>]*>Approve exact operation/.test(html))
   controller.dispose();count++
+}
+{
+  const f=make();f.controller.connect({...f.binding,fixture:false,requiresCapabilities:true})
+  const caps={version:1,source_commit:'a'.repeat(40),runtime_pid:123,release_digest:'sha256:'+'b'.repeat(64),phase:'disposable-preview',qualification:'PENDING',
+    unavailable_capabilities:['owner-passkey','approved-shell','sdk-child-launchers','model-inference','durable-memory','messaging','media-generation']}
+  f.controller.setCapabilities(caps)
+  const html=render(f.controller),summary=badge(f.controller)
+  assert(html.includes('qualification pending'));assert(html.includes('does not prove that memory is loaded'))
+  for(const id of caps.unavailable_capabilities)assert(html.includes(`data-capability="${id}"`))
+  assert(html.includes(caps.source_commit));assert(html.includes(caps.release_digest));assert(/disabled=""[^>]*>Sign in with passkey/.test(html))
+  assert(summary.includes('<details'));assert(summary.includes('data-reserves-hot-corners'));assert(summary.includes('data-prime-capability-badge'))
+  f.controller.dispose();count++
 }
 console.log(JSON.stringify({result:'PASS',native_component_render_groups:count,browser_observation:'PENDING',real_authentication:false,effects:false}))

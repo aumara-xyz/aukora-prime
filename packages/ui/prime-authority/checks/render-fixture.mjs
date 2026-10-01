@@ -18,7 +18,7 @@ const jsx=await readFile(join(react,'cjs/react-jsx-runtime.production.min.js'),'
 await writeFile(join(output,'deps/jsx.js'),`{const m={exports:{}};((module,exports,require)=>{${jsx}\n})(m,m.exports,name=>window.__fixtureModules[name]);window.__fixtureModules['react/jsx-runtime']=m.exports;}`)
 await cp(flags['--layout-bundle'] ? resolve(flags['--layout-bundle']) : fileURLToPath(new URL('../../faces/layout/lib/client.js',import.meta.url)),join(output,'layout.js'))
 await cp(join(resolve(flags['--client-dist']),'prime-authority/client.js'),join(output,'owner.js'))
-for(const name of ['browser.mjs','shared.mjs'])await cp(join(resolve(flags['--contracts']),name),join(output,'contracts',name))
+for(const name of ['browser.mjs','shared.mjs','json.mjs'])await cp(join(resolve(flags['--contracts']),name),join(output,'contracts',name))
 await cp(fileURLToPath(new URL('./fixture.mjs',import.meta.url)),join(output,'fixture.mjs'))
 await writeFile(join(output,'index.html'),`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Prime owner UI disposable fixture</title>
 <style>body{margin:0;font-family:system-ui;background:var(--aukora-background);color:var(--aukora-text)}#view{height:100vh}#fixture-controls{position:fixed;z-index:100;right:10px;top:10px;background:var(--aukora-surface);padding:8px;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius)}#fixture-controls button{margin:3px}</style>

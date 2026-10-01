@@ -53,11 +53,30 @@ window.__ModuleLoader__.load({
 		function createPrimeTransport({ authority, contracts, ownerSigner, passkeySigner, now = Date.now }) {
 			for (const name of [
 				"validateContract",
+				"validateApprovalTemplate",
 				"canonicalJson",
 				"operationDigest"
 			]) if (typeof contracts?.[name] !== "function") fail("UNAVAILABLE", `ui:contract-helper-unavailable:${name}`);
-			const { validateContract, canonicalJson, operationDigest } = contracts;
-			const copy = (value) => freeze(JSON.parse(canonicalJson(value)));
+			const { canonicalJson, operationDigest } = contracts;
+			const validateContract = (kind, value) => {
+				try {
+					return contracts.validateContract(kind, value);
+				} catch {
+					fail("INVALID", `ui:invalid-${kind}`);
+				}
+			};
+			const exact = (value, label = "transport-json") => {
+				try {
+					return canonicalJson(value);
+				} catch {
+					fail("INVALID", `ui:invalid-${label}`);
+				}
+			};
+			const copy = (value, label) => freeze(JSON.parse(exact(value, label)));
+			const object = (value, label) => {
+				if (!value || typeof value !== "object" || Array.isArray(value)) fail("INVALID", `ui:invalid-${label}`);
+				return value;
+			};
 			let session = null;
 			let loginPending = null;
 			let loginOwner = null;
@@ -114,9 +133,14 @@ window.__ModuleLoader__.load({
 					fail("UNAVAILABLE", `ui:${kind}-signer-unavailable`);
 				}
 				checkSignal(signal);
-				if (material?.kind !== kind) fail("INVALID", "ui:signature-kind-mismatch");
+				object(material, "signature-material");
+				if (material.kind !== kind) fail("INVALID", "ui:signature-kind-mismatch");
+				if (typeof material.signature !== "string" || !material.signature) fail("INVALID", "ui:invalid-signature-material");
 				if (kind === "owner_key" && purpose === "login" && Object.keys(material).sort().join(",") !== "kind,signature") fail("INVALID", "ui:login-material-fields");
-				if (kind === "owner_key" && purpose === "approval" && canonicalJson(material.request) !== canonicalJson(request)) fail("TARGET_MISMATCH", "ui:signed-review-request-changed");
+				if (kind === "owner_key" && purpose === "approval") {
+					object(material.request, "signed-review-request");
+					if (exact(material.request, "signed-review-request") !== exact(request, "review-request")) fail("TARGET_MISMATCH", "ui:signed-review-request-changed");
+				}
 				return copy(material);
 			}
 			function proofMatches(proof, operation, digest, request) {
@@ -135,6 +159,7 @@ window.__ModuleLoader__.load({
 				if (Date.parse(proof.expiry) > Date.parse(operation.expiry)) fail("EXPIRED", "ui:approval-outlives-operation");
 			}
 			function reviewMatches(request, digest) {
+				object(request, "review-request");
 				if (Object.keys(request).sort().join(",") !== [
 					"domain",
 					"subject",
@@ -159,7 +184,7 @@ window.__ModuleLoader__.load({
 						owner_id,
 						kind
 					}, signal);
-					const challenge = copy(answer.challenge);
+					const challenge = copy(object(answer.challenge, "login-challenge"), "login-challenge");
 					if (challenge.owner_id !== owner_id) fail("UNAUTHORIZED", "ui:login-owner-mismatch");
 					if (challenge.version !== 1 || typeof challenge.challenge !== "string" || !challenge.challenge || typeof challenge.audience !== "string" || !challenge.audience || !Number.isSafeInteger(challenge.authorization_epoch) || challenge.authorization_epoch < 0) fail("INVALID", "ui:invalid-login-challenge");
 					checkExpiry(challenge.expiry);
@@ -205,10 +230,14 @@ window.__ModuleLoader__.load({
 				sameSession(current);
 				validateContract("OperationProposal", answer.operation);
 				if (canonicalJson(answer.operation) !== canonicalJson(operation) || answer.operation_digest !== digest) fail("TARGET_MISMATCH", "ui:approval-operation-changed");
-				const proofTemplate = copy(answer.proof_template);
-				const request = copy(answer.approval_request);
+				const proofTemplate = copy(object(answer.proof_template, "approval-template"), "approval-template");
+				const request = copy(object(answer.approval_request, "review-request"), "review-request");
 				reviewMatches(request, digest);
-				validateContract("ApprovalProof", proofTemplate);
+				try {
+					contracts.validateApprovalTemplate(proofTemplate);
+				} catch {
+					fail("INVALID", "ui:invalid-approval-template");
+				}
 				proofMatches(proofTemplate, operation, digest, request);
 				checkSignal(signal);
 				checkExpiry(operation.expiry);
@@ -244,7 +273,10 @@ window.__ModuleLoader__.load({
 				const current = ownerSession();
 				if (record.owner_id !== current.owner_id || record.session_token !== current.session_token) fail("UNAUTHORIZED", "ui:approval-session-changed");
 				const prior = submissions.get(record.digest);
-				if (prior?.pending) return prior.pending;
+				if (prior?.pending) {
+					if (prior.decision !== "approve") fail("RECONCILIATION_REQUIRED", "ui:another-decision-pending");
+					return prior.pending;
+				}
 				if (prior) fail(prior.code, prior.reason);
 				checkExpiry(record.operation.expiry);
 				checkExpiry(record.proofTemplate.expiry);
@@ -277,9 +309,17 @@ window.__ModuleLoader__.load({
 						throw error;
 					}
 					if (answer.status !== "APPROVED") fail("OUTCOME_UNKNOWN", "ui:approval-result-unknown");
-					validateContract("ApprovalProof", answer.approval_proof);
-					proofMatches(answer.approval_proof, record.operation, record.digest, record.request);
-					if (canonicalJson(answer.approval_proof) !== canonicalJson(proof)) fail("TARGET_MISMATCH", "ui:approval-proof-changed");
+					try {
+						validateContract("ApprovalProof", answer.approval_proof);
+						proofMatches(answer.approval_proof, record.operation, record.digest, record.request);
+						if (exact(answer.approval_proof) !== exact(proof)) fail("TARGET_MISMATCH", "ui:approval-proof-changed");
+					} catch {
+						submissions.set(record.digest, {
+							code: "OUTCOME_UNKNOWN",
+							reason: "ui:approval-result-invalid-needs-reconciliation"
+						});
+						fail("OUTCOME_UNKNOWN", "ui:approval-result-invalid-needs-reconciliation");
+					}
 					submissions.set(record.digest, {
 						code: "REPLAYED",
 						reason: "ui:approval-already-submitted"
@@ -289,7 +329,10 @@ window.__ModuleLoader__.load({
 						approval_proof: copy(answer.approval_proof)
 					});
 				})();
-				submissions.set(record.digest, { pending });
+				submissions.set(record.digest, {
+					pending,
+					decision: "approve"
+				});
 				try {
 					return await pending;
 				} catch (error) {
@@ -302,16 +345,39 @@ window.__ModuleLoader__.load({
 				if (!record) fail("INVALID", "ui:foreign-approval-presentation");
 				const current = ownerSession();
 				if (record.session_token !== current.session_token) fail("UNAUTHORIZED", "ui:approval-session-changed");
-				if (submissions.has(record.digest)) fail("RECONCILIATION_REQUIRED", "ui:approval-already-in-progress-or-submitted");
-				submissions.set(record.digest, {
-					code: "REPLAYED",
-					reason: "ui:approval-denied"
+				const prior = submissions.get(record.digest);
+				if (prior?.pending) {
+					if (prior.decision !== "decline") fail("RECONCILIATION_REQUIRED", "ui:another-decision-pending");
+					return prior.pending;
+				}
+				if (prior) fail(prior.code, prior.reason);
+				checkSignal(signal);
+				checkExpiry(record.operation.expiry);
+				checkExpiry(record.proofTemplate.expiry);
+				const pending = Promise.resolve().then(async () => {
+					try {
+						if ((await call("declineApproval", {
+							session_token: current.session_token,
+							operation_id: record.operation.operation_id
+						}, signal, true)).status !== "DENIED") fail("OUTCOME_UNKNOWN", "ui:denial-result-unknown");
+						submissions.set(record.digest, {
+							code: "REPLAYED",
+							reason: "ui:approval-denied"
+						});
+						return freeze({ status: "DENIED" });
+					} catch (error) {
+						submissions.set(record.digest, {
+							code: error.code ?? "OUTCOME_UNKNOWN",
+							reason: error.message
+						});
+						throw error;
+					}
 				});
-				if ((await call("declineApproval", {
-					session_token: current.session_token,
-					operation_id: record.operation.operation_id
-				}, signal, true)).status !== "DENIED") fail("OUTCOME_UNKNOWN", "ui:denial-result-unknown");
-				return freeze({ status: "DENIED" });
+				submissions.set(record.digest, {
+					pending,
+					decision: "decline"
+				});
+				return pending;
 			}
 			return Object.freeze({
 				login,
@@ -393,7 +459,18 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region lib/types/client/controller.mjs
-		function createHttpAuthority(fetcher = globalThis.fetch) {
+		async function readJson(response, contracts) {
+			if (typeof contracts?.parseStrictJson !== "function") throw new PrimeTransportError("UNAVAILABLE", "ui:strict-json-helper-unavailable");
+			try {
+				return contracts.parseStrictJson(await response.text(), {
+					maxBytes: 8388608,
+					maxDepth: 64
+				});
+			} catch {
+				throw new PrimeTransportError("INVALID", "ui:invalid-response-json");
+			}
+		}
+		function createHttpAuthority(fetcher = globalThis.fetch, contracts) {
 			return Object.freeze(Object.fromEntries([
 				"loginChallenge",
 				"loginComplete",
@@ -401,19 +478,76 @@ window.__ModuleLoader__.load({
 				"approvalComplete",
 				"declineApproval"
 			].map((method) => [method, async (input, { signal } = {}) => {
+				if (typeof contracts?.parseStrictJson !== "function" || typeof contracts?.canonicalJson !== "function") throw new PrimeTransportError("UNAVAILABLE", "ui:strict-json-helper-unavailable");
+				let body;
+				try {
+					body = contracts.canonicalJson(input);
+				} catch {
+					throw new PrimeTransportError("INVALID", "ui:invalid-request-json");
+				}
 				const response = await fetcher("/api/prime/authority/" + method, {
 					method: "POST",
 					credentials: "same-origin",
 					redirect: "error",
 					cache: "no-store",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify(input),
+					body,
 					signal
 				});
-				const answer = await response.json();
+				let answer;
+				try {
+					answer = await readJson(response, contracts);
+				} catch (error) {
+					if (method === "approvalComplete" || method === "declineApproval") throw new PrimeTransportError("OUTCOME_UNKNOWN", "ui:decision-response-invalid-needs-reconciliation");
+					throw error;
+				}
 				if (!response.ok && answer?.ok !== false) throw new Error("Authority response unavailable");
 				return answer;
 			}])));
+		}
+		const capabilityIds = Object.freeze([
+			"owner-passkey",
+			"approved-shell",
+			"sdk-child-launchers",
+			"model-inference",
+			"durable-memory",
+			"messaging",
+			"media-generation"
+		]);
+		const CAPABILITY_LABELS = Object.freeze({
+			"owner-passkey": "Owner passkey",
+			"approved-shell": "Approved shell",
+			"sdk-child-launchers": "SDK child launchers",
+			"model-inference": "Model inference",
+			"durable-memory": "Durable memory",
+			messaging: "Messaging",
+			"media-generation": "Media generation"
+		});
+		function validateCapabilities(value) {
+			if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join(",") !== [
+				"version",
+				"source_commit",
+				"runtime_pid",
+				"release_digest",
+				"unavailable_capabilities",
+				"phase",
+				"qualification"
+			].sort().join(",") || value.version !== 1 || !/^[a-f0-9]{40}$/.test(value.source_commit) || !Number.isSafeInteger(value.runtime_pid) || value.runtime_pid <= 0 || !/^sha256:[a-f0-9]{64}$/.test(value.release_digest) || value.phase !== "disposable-preview" || value.qualification !== "PENDING" || !Array.isArray(value.unavailable_capabilities) || value.unavailable_capabilities.some((id) => !capabilityIds.includes(id)) || new Set(value.unavailable_capabilities).size !== value.unavailable_capabilities.length) throw new PrimeTransportError("INVALID", "ui:invalid-capability-status");
+			return immutable({
+				...value,
+				unavailable_capabilities: [...value.unavailable_capabilities]
+			});
+		}
+		async function readHttpCapabilities(fetcher = globalThis.fetch, contracts, signal) {
+			const response = await fetcher("/api/prime/capabilities", {
+				method: "GET",
+				credentials: "same-origin",
+				redirect: "error",
+				cache: "no-store",
+				signal
+			});
+			if (!response.ok) throw new PrimeTransportError("UNAVAILABLE", "ui:capability-status-unavailable");
+			return validateCapabilities(await readJson(response, contracts));
 		}
 		const immutable = (value) => {
 			if (value && typeof value === "object") {
@@ -436,7 +570,10 @@ window.__ModuleLoader__.load({
 				fixture: false,
 				expired: false,
 				reason: "Authority transport is unavailable.",
-				error_code: "UNAVAILABLE"
+				error_code: "UNAVAILABLE",
+				capabilities: null,
+				capability_status: "pending",
+				authority_available: false
 			});
 			const notify = (patch) => {
 				state = Object.freeze({
@@ -472,7 +609,7 @@ window.__ModuleLoader__.load({
 			};
 			const fail = (error) => {
 				const code = typeof error?.code === "string" ? error.code : "UNAVAILABLE";
-				const uncertain = ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(code) || ["approval_pending", "decline_pending"].includes(state.phase) && ["TARGET_MISMATCH", "INVALID"].includes(code);
+				const uncertain = ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(code);
 				notify({
 					phase: uncertain ? "outcome_unknown" : code === "EXPIRED" ? "expired" : code === "UNAVAILABLE" ? "unavailable" : "refused",
 					error_code: code,
@@ -534,23 +671,48 @@ window.__ModuleLoader__.load({
 							passkeySigner: next.passkeySigner ?? createBrowserPasskeySigner({ contracts: next.contracts }),
 							now
 						});
+						const available = next.requiresCapabilities !== true;
 						notify({
-							phase: "logged_out",
+							phase: available ? "logged_out" : "unavailable",
 							owner: null,
 							owner_id: next.owner_id ?? "",
 							presentation: null,
 							operation_available: false,
 							login_kinds: Object.freeze((next.loginKinds ?? ["passkey"]).filter((kind) => kind === "passkey" || kind === "owner_key")),
 							fixture: next.fixture === true,
+							capabilities: null,
+							capability_status: next.fixture === true ? "fixture" : "pending",
+							authority_available: available,
 							expired: false,
-							error_code: null,
-							reason: "Sign in with an existing credential. The host must confirm your identity."
+							error_code: available ? null : "UNAVAILABLE",
+							reason: available ? "Sign in with an existing credential. The host must confirm your identity." : "Owner access is unavailable until the host supplies its capability status."
 						});
 						if (next.operation) api.setOperation(next.operation);
 					} catch (error) {
 						transport = void 0;
 						fail(error);
 					}
+				},
+				setCapabilities(value) {
+					const capabilities = validateCapabilities(value);
+					const available = binding?.requiresCapabilities !== true || !capabilities.unavailable_capabilities.includes("owner-passkey");
+					notify({
+						capabilities,
+						capability_status: "loaded",
+						authority_available: available,
+						...!pending && !state.owner && transport ? {
+							phase: available ? "logged_out" : "unavailable",
+							error_code: available ? null : "UNAVAILABLE",
+							reason: available ? "Sign in with an existing credential. The host must confirm your identity." : "Owner passkey access is unavailable in this disposable preview."
+						} : {}
+					});
+				},
+				capabilitiesUnavailable() {
+					notify({
+						capabilities: null,
+						capability_status: "unavailable",
+						...binding?.requiresCapabilities === true ? { authority_available: false } : {}
+					});
 				},
 				setOwnerId(owner_id) {
 					if (!pending && !state.owner) notify({ owner_id });
@@ -569,7 +731,7 @@ window.__ModuleLoader__.load({
 					checkExpiry();
 				},
 				login(kind = "passkey") {
-					if (!transport || !state.login_kinds.includes(kind)) {
+					if (!transport || !state.authority_available || !state.login_kinds.includes(kind)) {
 						fail(new PrimeTransportError("UNAVAILABLE", "This credential method is unavailable."));
 						return Promise.resolve(null);
 					}
@@ -590,8 +752,8 @@ window.__ModuleLoader__.load({
 					});
 				},
 				prepare() {
-					if (!transport || !operation) {
-						fail(new PrimeTransportError("UNAVAILABLE", "No operation has been supplied by the host."));
+					if (!transport || !state.authority_available || !operation) {
+						fail(new PrimeTransportError("UNAVAILABLE", "An available authority and a host operation are required."));
 						return Promise.resolve(null);
 					}
 					return action("review_pending", (signal) => transport.prepareApproval(operation, { signal }), (presentation) => {
@@ -605,7 +767,7 @@ window.__ModuleLoader__.load({
 					});
 				},
 				approve() {
-					if (state.phase !== "review_ready" || state.expired) return Promise.resolve(null);
+					if (state.phase !== "review_ready" || state.expired || !state.authority_available) return Promise.resolve(null);
 					const presentation = state.presentation;
 					return action("approval_pending", (signal) => transport.approve(presentation, {
 						kind: ownerKind ?? "passkey",
@@ -619,7 +781,7 @@ window.__ModuleLoader__.load({
 					});
 				},
 				decline() {
-					if (state.phase !== "review_ready" || state.expired) return Promise.resolve(null);
+					if (state.phase !== "review_ready" || state.expired || !state.authority_available) return Promise.resolve(null);
 					const presentation = state.presentation;
 					return action("decline_pending", (signal) => transport.decline(presentation, { signal }), () => {
 						notify({
@@ -637,7 +799,7 @@ window.__ModuleLoader__.load({
 					stopTimer();
 					ownerKind = void 0;
 					notify({
-						phase: transport ? "logged_out" : "unavailable",
+						phase: transport && state.authority_available ? "logged_out" : "unavailable",
 						owner: null,
 						presentation: null,
 						expired: false,
@@ -661,7 +823,8 @@ window.__ModuleLoader__.load({
 						operation_available: false,
 						expired: false,
 						error_code: "UNAVAILABLE",
-						reason: "Authority transport is unavailable."
+						reason: "Authority transport is unavailable.",
+						authority_available: false
 					});
 				},
 				dispose() {
@@ -677,7 +840,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css = ".cMAjSq_surface[hidden]{display:none!important}.cMAjSq_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.cMAjSq_header{flex-direction:column;align-items:flex-start;gap:4px}.cMAjSq_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.cMAjSq_header p{color:var(--aukora-text-secondary);margin:0}.cMAjSq_card{min-width:0;padding:16px}.cMAjSq_card h2{margin-top:0;font-size:16px;font-weight:600}.cMAjSq_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.cMAjSq_fields{flex-direction:column;gap:12px;display:flex}.cMAjSq_fields dd{margin:0}.cMAjSq_fields dt{color:var(--aukora-text-secondary);font-size:13px}.cMAjSq_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.cMAjSq_owner{flex-direction:column;gap:8px;display:flex}.cMAjSq_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.cMAjSq_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.cMAjSq_error{color:var(--aukora-red-warning)}.cMAjSq_menu{width:100%}";
+		const css = ".rHd7va_surface[hidden]{display:none!important}.rHd7va_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.rHd7va_header{flex-direction:column;align-items:flex-start;gap:4px}.rHd7va_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.rHd7va_header p{color:var(--aukora-text-secondary);margin:0}.rHd7va_card{min-width:0;padding:16px}.rHd7va_card h2{margin-top:0;font-size:16px;font-weight:600}.rHd7va_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.rHd7va_fields{flex-direction:column;gap:12px;display:flex}.rHd7va_fields dd{margin:0}.rHd7va_fields dt{color:var(--aukora-text-secondary);font-size:13px}.rHd7va_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.rHd7va_owner{flex-direction:column;gap:8px;display:flex}.rHd7va_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.rHd7va_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.rHd7va_error{color:var(--aukora-red-warning)}.rHd7va_menu{width:100%}.rHd7va_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.rHd7va_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.rHd7va_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.rHd7va_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.rHd7va_badgePanel h2{font-size:14px}";
 		const tagId = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -687,14 +850,17 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "cMAjSq_actions",
-			"card": "cMAjSq_card",
-			"error": "cMAjSq_error",
-			"fields": "cMAjSq_fields",
-			"header": "cMAjSq_header",
-			"menu": "cMAjSq_menu",
-			"owner": "cMAjSq_owner",
-			"surface": "cMAjSq_surface"
+			"actions": "rHd7va_actions",
+			"badge": "rHd7va_badge",
+			"badgePanel": "rHd7va_badgePanel",
+			"capabilities": "rHd7va_capabilities",
+			"card": "rHd7va_card",
+			"error": "rHd7va_error",
+			"fields": "rHd7va_fields",
+			"header": "rHd7va_header",
+			"menu": "rHd7va_menu",
+			"owner": "rHd7va_owner",
+			"surface": "rHd7va_surface"
 		};
 		//#endregion
 		//#region lib/types/client/OwnerSurface.js
@@ -718,6 +884,10 @@ window.__ModuleLoader__.load({
 						"data-disposable-fixture": true,
 						children: "Disposable UI fixture. Authentication and approvals below are synthetic; no effect is executed."
 					}),
+					(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.Panel, {
+						className: OwnerSurface_module_css_default.card,
+						children: (0, react_jsx_runtime.jsx)(CapabilityDetails, { controller })
+					}),
 					(0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
 						className: OwnerSurface_module_css_default.card,
 						children: [
@@ -738,7 +908,7 @@ window.__ModuleLoader__.load({
 							(0, react_jsx_runtime.jsxs)("div", {
 								className: OwnerSurface_module_css_default.actions,
 								children: [!state.owner && state.login_kinds.map((kind) => (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
-									disabled: busy || !state.owner_id || state.phase === "unavailable",
+									disabled: busy || !state.owner_id || !state.authority_available || state.phase === "unavailable",
 									onClick: () => {
 										controller.login(kind);
 									},
@@ -757,7 +927,7 @@ window.__ModuleLoader__.load({
 							(0, react_jsx_runtime.jsx)("h2", { children: "Exact operation" }),
 							!state.operation_available && (0, react_jsx_runtime.jsx)("p", { children: "No operation has been supplied by the host." }),
 							state.operation_available && (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
-								disabled: !state.owner || locked || state.phase === "approved" || state.phase === "denied",
+								disabled: !state.owner || locked || !state.authority_available || state.phase === "approved" || state.phase === "denied",
 								onClick: () => {
 									controller.prepare();
 								},
@@ -803,14 +973,14 @@ window.__ModuleLoader__.load({
 									className: OwnerSurface_module_css_default.actions,
 									children: [(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
 										variant: "gold",
-										disabled: state.phase !== "review_ready" || state.expired,
+										disabled: state.phase !== "review_ready" || state.expired || !state.authority_available,
 										onClick: () => {
 											controller.approve();
 										},
 										children: "Approve exact operation"
 									}), (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
 										variant: "red-warning",
-										disabled: state.phase !== "review_ready" || state.expired,
+										disabled: state.phase !== "review_ready" || state.expired || !state.authority_available,
 										onClick: () => {
 											controller.decline();
 										},
@@ -837,6 +1007,57 @@ window.__ModuleLoader__.load({
 						children: "This session or review has expired."
 					})
 				]
+			});
+		}
+		function CapabilityDetails({ controller }) {
+			const state = (0, react.useSyncExternalStore)(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+			const value = state.capabilities;
+			return (0, react_jsx_runtime.jsxs)("div", {
+				"data-prime-capability-status": state.capability_status,
+				children: [
+					(0, react_jsx_runtime.jsx)("h2", { children: "Disposable preview · qualification pending" }),
+					(0, react_jsx_runtime.jsx)("p", { children: "Source metadata does not prove that memory is loaded or a capability is working." }),
+					!value && (0, react_jsx_runtime.jsx)("p", { children: state.fixture ? "Synthetic fixture only. Runtime capability status is unavailable." : state.capability_status === "pending" ? "Waiting for runtime capability status." : "Runtime capability status is unavailable." }),
+					value && (0, react_jsx_runtime.jsxs)("dl", {
+						className: OwnerSurface_module_css_default.fields,
+						children: [
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Source commit" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("code", {
+								"data-source-commit": true,
+								children: value.source_commit
+							}) })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Runtime PID" }), (0, react_jsx_runtime.jsx)("dd", {
+								"data-runtime-pid": true,
+								children: value.runtime_pid
+							})] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Release digest" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("code", {
+								"data-release-digest": true,
+								children: value.release_digest
+							}) })] })
+						]
+					}),
+					(0, react_jsx_runtime.jsx)("ul", {
+						className: OwnerSurface_module_css_default.capabilities,
+						children: Object.entries(CAPABILITY_LABELS).map(([id, label]) => (0, react_jsx_runtime.jsxs)("li", {
+							"data-capability": id,
+							children: [
+								label,
+								": ",
+								(0, react_jsx_runtime.jsx)("strong", { children: value?.unavailable_capabilities.includes(id) ? "Unavailable" : "Not qualified" })
+							]
+						}, id))
+					})
+				]
+			});
+		}
+		function CapabilityBadge({ controller }) {
+			return (0, react_jsx_runtime.jsxs)("details", {
+				className: OwnerSurface_module_css_default.badge,
+				"data-prime-capability-badge": true,
+				"data-reserves-hot-corners": true,
+				children: [(0, react_jsx_runtime.jsx)("summary", { children: "Disposable preview · pending" }), (0, react_jsx_runtime.jsx)("div", {
+					className: OwnerSurface_module_css_default.badgePanel,
+					children: (0, react_jsx_runtime.jsx)(CapabilityDetails, { controller })
+				})]
 			});
 		}
 		function OwnerMenu({ activeSurface, openSurface }) {
@@ -886,10 +1107,18 @@ window.__ModuleLoader__.load({
 					url
 				));
 				load("/prime/contracts/browser.mjs").then((contracts) => {
-					if (!disposed && !supplied) controller.connect({
-						authority: createHttpAuthority(),
-						contracts
-					});
+					if (!disposed && !supplied) {
+						controller.connect({
+							authority: createHttpAuthority(void 0, contracts),
+							contracts,
+							requiresCapabilities: true
+						});
+						readHttpCapabilities(void 0, contracts).then((capabilities) => {
+							if (!disposed && !supplied) controller.setCapabilities(capabilities);
+						}).catch(() => {
+							if (!disposed && !supplied) controller.capabilitiesUnavailable();
+						});
+					}
 				}).catch(() => {});
 				return () => {
 					disposed = true;
@@ -906,8 +1135,15 @@ window.__ModuleLoader__.load({
 				id: "prime-owner",
 				order: 70
 			}, OwnerMenu));
+			ctx.slots.inject("shell.overlay", () => ctx.slots.register({
+				name: "shell.overlay",
+				id: "prime-capabilities",
+				order: 70,
+				inject: () => ({ controller })
+			}, CapabilityBadge));
 		}
 		//#endregion
+		exports.CapabilityBadge = CapabilityBadge;
 		exports.OwnerSurface = OwnerSurface;
 		exports.apply = apply;
 		exports.createHttpAuthority = createHttpAuthority;

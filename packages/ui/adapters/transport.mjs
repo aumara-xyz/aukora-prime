@@ -31,11 +31,23 @@ function freeze(value) {
 }
 
 export function createPrimeTransport({ authority, contracts, ownerSigner, passkeySigner, now = Date.now }) {
-  for (const name of ['validateContract', 'canonicalJson', 'operationDigest']) {
+  for (const name of ['validateContract', 'validateApprovalTemplate', 'canonicalJson', 'operationDigest']) {
     if (typeof contracts?.[name] !== 'function') fail('UNAVAILABLE', `ui:contract-helper-unavailable:${name}`)
   }
-  const { validateContract, canonicalJson, operationDigest } = contracts
-  const copy = value => freeze(JSON.parse(canonicalJson(value)))
+  const { canonicalJson, operationDigest } = contracts
+  const validateContract = (kind, value) => {
+    try { return contracts.validateContract(kind, value) }
+    catch { fail('INVALID', `ui:invalid-${kind}`) }
+  }
+  const exact = (value, label = 'transport-json') => {
+    try { return canonicalJson(value) }
+    catch { fail('INVALID', `ui:invalid-${label}`) }
+  }
+  const copy = (value, label) => freeze(JSON.parse(exact(value, label)))
+  const object = (value, label) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID', `ui:invalid-${label}`)
+    return value
+  }
   let session = null
   let loginPending = null
   let loginOwner = null
@@ -90,13 +102,18 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       fail('UNAVAILABLE', `ui:${kind}-signer-unavailable`)
     }
     checkSignal(signal)
-    if (material?.kind !== kind) fail('INVALID', 'ui:signature-kind-mismatch')
+    object(material, 'signature-material')
+    if (material.kind !== kind) fail('INVALID', 'ui:signature-kind-mismatch')
+    if (typeof material.signature !== 'string' || !material.signature) fail('INVALID', 'ui:invalid-signature-material')
     if (kind === 'owner_key' && purpose === 'login' &&
         Object.keys(material).sort().join(',') !== 'kind,signature') {
       fail('INVALID', 'ui:login-material-fields')
     }
-    if (kind === 'owner_key' && purpose === 'approval' && canonicalJson(material.request) !== canonicalJson(request)) {
-      fail('TARGET_MISMATCH', 'ui:signed-review-request-changed')
+    if (kind === 'owner_key' && purpose === 'approval') {
+      object(material.request, 'signed-review-request')
+      if (exact(material.request, 'signed-review-request') !== exact(request, 'review-request')) {
+        fail('TARGET_MISMATCH', 'ui:signed-review-request-changed')
+      }
     }
     return copy(material)
   }
@@ -114,6 +131,7 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     if (Date.parse(proof.expiry) > Date.parse(operation.expiry)) fail('EXPIRED', 'ui:approval-outlives-operation')
   }
   function reviewMatches(request, digest) {
+    object(request, 'review-request')
     const keys = ['domain', 'subject', 'activeControlDigest', 'operationDigest', 'challenge', 'issuedAt', 'expiresAt']
     if (Object.keys(request).sort().join(',') !== keys.sort().join(',') ||
         request.domain !== 'aukora:owner-approval-request:v1' ||
@@ -138,7 +156,7 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     loginOwner = `${kind}:${owner_id}`
     loginPending = (async () => {
       const answer = await call('loginChallenge', { owner_id, kind }, signal)
-      const challenge = copy(answer.challenge)
+      const challenge = copy(object(answer.challenge, 'login-challenge'), 'login-challenge')
       if (challenge.owner_id !== owner_id) fail('UNAUTHORIZED', 'ui:login-owner-mismatch')
       if (challenge.version !== 1 || typeof challenge.challenge !== 'string' || !challenge.challenge ||
           typeof challenge.audience !== 'string' || !challenge.audience ||
@@ -176,10 +194,11 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     if (canonicalJson(answer.operation) !== canonicalJson(operation) || answer.operation_digest !== digest) {
       fail('TARGET_MISMATCH', 'ui:approval-operation-changed')
     }
-    const proofTemplate = copy(answer.proof_template)
-    const request = copy(answer.approval_request)
+    const proofTemplate = copy(object(answer.proof_template, 'approval-template'), 'approval-template')
+    const request = copy(object(answer.approval_request, 'review-request'), 'review-request')
     reviewMatches(request, digest)
-    validateContract('ApprovalProof', proofTemplate)
+    try { contracts.validateApprovalTemplate(proofTemplate) }
+    catch { fail('INVALID', 'ui:invalid-approval-template') }
     proofMatches(proofTemplate, operation, digest, request)
     checkSignal(signal)
     checkExpiry(operation.expiry)
@@ -207,7 +226,10 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       fail('UNAUTHORIZED', 'ui:approval-session-changed')
     }
     const prior = submissions.get(record.digest)
-    if (prior?.pending) return prior.pending
+    if (prior?.pending) {
+      if (prior.decision !== 'approve') fail('RECONCILIATION_REQUIRED', 'ui:another-decision-pending')
+      return prior.pending
+    }
     if (prior) fail(prior.code, prior.reason)
     checkExpiry(record.operation.expiry)
     checkExpiry(record.proofTemplate.expiry)
@@ -228,13 +250,18 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
         throw error
       }
       if (answer.status !== 'APPROVED') fail('OUTCOME_UNKNOWN', 'ui:approval-result-unknown')
-      validateContract('ApprovalProof', answer.approval_proof)
-      proofMatches(answer.approval_proof, record.operation, record.digest, record.request)
-      if (canonicalJson(answer.approval_proof) !== canonicalJson(proof)) fail('TARGET_MISMATCH', 'ui:approval-proof-changed')
+      try {
+        validateContract('ApprovalProof', answer.approval_proof)
+        proofMatches(answer.approval_proof, record.operation, record.digest, record.request)
+        if (exact(answer.approval_proof) !== exact(proof)) fail('TARGET_MISMATCH', 'ui:approval-proof-changed')
+      } catch {
+        submissions.set(record.digest, { code:'OUTCOME_UNKNOWN', reason:'ui:approval-result-invalid-needs-reconciliation' })
+        fail('OUTCOME_UNKNOWN', 'ui:approval-result-invalid-needs-reconciliation')
+      }
       submissions.set(record.digest, { code: 'REPLAYED', reason: 'ui:approval-already-submitted' })
       return freeze({ status: 'APPROVED', approval_proof: copy(answer.approval_proof) })
     })()
-    submissions.set(record.digest, { pending })
+    submissions.set(record.digest, { pending, decision: 'approve' })
     try { return await pending }
     catch (error) {
       // Credential refusal occurs before submission and can be re-presented with a fresh challenge.
@@ -248,11 +275,29 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     if (!record) fail('INVALID', 'ui:foreign-approval-presentation')
     const current = ownerSession()
     if (record.session_token !== current.session_token) fail('UNAUTHORIZED', 'ui:approval-session-changed')
-    if (submissions.has(record.digest)) fail('RECONCILIATION_REQUIRED', 'ui:approval-already-in-progress-or-submitted')
-    submissions.set(record.digest, { code: 'REPLAYED', reason: 'ui:approval-denied' })
-    const answer = await call('declineApproval', { session_token: current.session_token, operation_id: record.operation.operation_id }, signal, true)
-    if (answer.status !== 'DENIED') fail('OUTCOME_UNKNOWN', 'ui:denial-result-unknown')
-    return freeze({ status: 'DENIED' })
+    const prior = submissions.get(record.digest)
+    if (prior?.pending) {
+      if (prior.decision !== 'decline') fail('RECONCILIATION_REQUIRED', 'ui:another-decision-pending')
+      return prior.pending
+    }
+    if (prior) fail(prior.code, prior.reason)
+    checkSignal(signal)
+    checkExpiry(record.operation.expiry)
+    checkExpiry(record.proofTemplate.expiry)
+    // Store the in-flight decision before dispatch. DENIED is recorded only after host confirmation.
+    const pending = Promise.resolve().then(async () => {
+      try {
+        const answer = await call('declineApproval', { session_token: current.session_token, operation_id: record.operation.operation_id }, signal, true)
+        if (answer.status !== 'DENIED') fail('OUTCOME_UNKNOWN', 'ui:denial-result-unknown')
+        submissions.set(record.digest, { code: 'REPLAYED', reason: 'ui:approval-denied' })
+        return freeze({ status: 'DENIED' })
+      } catch (error) {
+        submissions.set(record.digest, { code: error.code ?? 'OUTCOME_UNKNOWN', reason: error.message })
+        throw error
+      }
+    })
+    submissions.set(record.digest, { pending, decision: 'decline' })
+    return pending
   }
 
   return Object.freeze({ login, prepareApproval, approve, decline,

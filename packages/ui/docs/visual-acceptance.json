@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "status": "PENDING_COMPOSED_BROWSER_CHECK",
+  "viewports": [
+    {"width": 360, "height": 780, "scope": "narrow one-column presets"},
+    {"width": 480, "height": 800, "scope": "narrow expansion and status panel"},
+    {"width": 1440, "height": 900, "scope": "wide three panes and contained two-thirds expansion"},
+    {"width": 1920, "height": 1080, "scope": "wide app expansion and shared backgrounds"}
+  ],
+  "checks": [
+    "Computed dark bg-base/layer-1/layer-2/layer-3 match the frozen foundation palette.",
+    "Media and Settings center backgrounds match the supplied desired donor appearance.",
+    "Default app expansion retains contained two-thirds measure; full-bleed needs an explicit exception.",
+    "No interactive Prime badge/control rectangle intersects any visible shell [data-corner] rectangle.",
+    "Capability badge summary and expanded content work with keyboard and do not hide focused controls.",
+    "Owner access remains visibly unavailable until a qualified authority reports availability.",
+    "Unavailable, pending, denied, expired and uncertain states have text as well as color."
+  ],
+  "evidence": {
+    "supplied_pixels": "Materialized and inspected Media plus current/desired Models screenshots on October 1, 2026.",
+    "current_host_computed_aliases": ["#151517", "#232324", "#2c2c2e", "#353638"],
+    "desired_foundation_aliases": ["#111520", "#1B1F2A", "#1F232E", "#252834"],
+    "post_foundation_runtime": "PENDING H mount and browser observation"
+  }
+}

@@ -18,3 +18,9 @@
 .owner input:focus-visible { outline: 2px solid var(--aukora-blue); outline-offset: 2px; }
 .error { color: var(--aukora-red-warning); }
 .menu { width: 100%; }
+.capabilities { margin: 12px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
+.badge { position: absolute; left: 50%; transform: translateX(-50%); bottom: 20px; max-width: min(26rem, calc(100% - 96px)); color: var(--aukora-text);
+  border: 1px solid var(--aukora-border); border-radius: var(--aukora-radius); background: var(--aukora-surface); font-size: 11px; }
+.badge summary { cursor: pointer; padding: 7px 10px; color: var(--aukora-text-secondary); }
+.badgePanel { padding: 0 12px 12px; max-height: clamp(0px, calc(100dvh - 120px), 30rem); overflow: auto; overflow-wrap: anywhere; }
+.badgePanel h2 { font-size: 14px; }

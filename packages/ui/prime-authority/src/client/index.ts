@@ -2,12 +2,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@aukora/face-layout/client'
-import { createPrimeOwnerController, createHttpAuthority } from './controller.mjs'
+import { createPrimeOwnerController, createHttpAuthority, readHttpCapabilities } from './controller.mjs'
 import type { Binding, Controller } from './controller.mjs'
-import { OwnerSurface, OwnerMenu } from './OwnerSurface.tsx'
+import { OwnerSurface, OwnerMenu, CapabilityBadge } from './OwnerSurface.tsx'
 
 export { createPrimeOwnerController, createHttpAuthority } from './controller.mjs'
-export { OwnerSurface } from './OwnerSurface.tsx'
+export { OwnerSurface, CapabilityBadge } from './OwnerSurface.tsx'
 export type { Binding, Controller } from './controller.mjs'
 declare module '@deepseek-ai/cordis' { interface Context { primeOwnerUi:Controller; primeAuthority:Binding } }
 export const inject = ['slots','layout','locale']
@@ -26,11 +26,18 @@ export function apply(ctx:Context):void {
     // H serves these exact browser-safe contract modules under the guarded module route.
     const load = (url:string):Promise<Binding['contracts']> => import(/* @vite-ignore */ url)
     void load('/prime/contracts/browser.mjs').then(contracts => {
-      if (!disposed && !supplied) controller.connect({ authority:createHttpAuthority(), contracts })
+      if (!disposed && !supplied) {
+        controller.connect({ authority:createHttpAuthority(undefined, contracts), contracts, requiresCapabilities:true })
+        void readHttpCapabilities(undefined, contracts).then(capabilities => {
+          if (!disposed && !supplied) controller.setCapabilities(capabilities)
+        }).catch(() => { if (!disposed && !supplied) controller.capabilitiesUnavailable() })
+      }
     }).catch(() => { /* The initial unavailable state remains honest. */ })
     return () => { disposed = true }
   }, 'prime browser contract helper')
   ctx.slots.inject('shell.surface', () => ctx.slots.register({ name:'shell.surface', id:'prime-owner', order:70,
     inject: () => ({controller}) }, OwnerSurface))
   ctx.slots.inject('shell.menu.system', () => ctx.slots.register({ name:'shell.menu.system', id:'prime-owner', order:70 }, OwnerMenu))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name:'shell.overlay', id:'prime-capabilities', order:70,
+    inject: () => ({controller}) }, CapabilityBadge))
 }
