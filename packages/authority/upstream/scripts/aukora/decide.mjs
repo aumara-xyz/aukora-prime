@@ -274,8 +274,8 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
  * to a forged Ed25519 receipt. The same copied store/kernel transaction is used. This
  * trusted adapter entry is not a wire route; beforePrepare must reverify the persisted
  * authenticated owner's exact assertion under the held store lock. No hybrid claim. */
-export function decideVerifiedPasskey({ proof, subject, controlDigest, consumedIdsPath, stateRoot, witnessDirectory, Store, beforePrepare }) {
-  if (!Store || typeof beforePrepare !== 'function' || !HEX64.test(proof?.operation_digest?.slice(7) ?? '') || !HEX64.test(proof?.nonce ?? '') || !HEX64.test(controlDigest ?? '')) return deny('INVALID','verified passkey service adapter inputs required')
+export function decideVerifiedPasskey({ proof, operationDigest, subject, controlDigest, consumedIdsPath, stateRoot, witnessDirectory, Store, beforePrepare }) {
+  if (!Store || typeof beforePrepare !== 'function' || !HEX64.test(operationDigest??'') || proof?.operation_digest!==`sha256:${operationDigest}` || !HEX64.test(proof?.nonce ?? '') || !HEX64.test(controlDigest ?? '')) return deny('INVALID','verified passkey exact-operation adapter inputs required')
   const digest = sha256Hex(kernel.canonicalBytes(proof)),approvalId=`approval:${proof.nonce}`
   let store,result
   try {

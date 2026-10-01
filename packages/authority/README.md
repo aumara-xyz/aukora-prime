@@ -30,7 +30,7 @@ The Ed25519 v1 adapter uses `ring: 'local-write'`, `humanClearance: false`, and 
   // Default is ['passkey']. No automatic owner-key fallback.
   loginKinds: ['passkey'],
   provisionTrustedState: false,
-  authorizeTask(operation) { /* authenticated task/agent/route/provider/region binding */ },
+  authorizeTask(operation) { /* return {authenticated:true, task: trustedFrozenTask} */ },
   observeTarget(operation) { /* current exact target_identity + state_version */ },
   webauthn: {
     rp_id: 'prime.example.test',
@@ -45,7 +45,7 @@ The Ed25519 v1 adapter uses `ring: 'local-write'`, `humanClearance: false`, and 
 
 All identity fields are public. `subject` is `aukora:1:<64 lowercase hex>`, the Ed25519 public DID and control digest are pinned, and the initial epoch is a nonnegative safe integer. Identity provenance must be independently authenticated during owner-approved enrollment. Public identity loading is not enrollment or proof of owner presence.
 
-`authorizeTask` must synchronously return **exactly `true`** for the authenticated task, agent, audience, and permitted route/provider/region. It is a trusted integration callback, not a guest assertion. `observeTarget` must synchronously return `{target_identity, state_version}` from the current trusted target; missing observation or a mismatch refuses. The immutable policy separately bounds action, agent, data classes, cost, version, epoch, and operation expiry. The reviewed digest binds every frozen OperationProposal field.
+`authorizeTask` must synchronously return the closed `{authenticated:true, task:<frozen Task>}` from the authenticated host context/registry. C checks exact task/owner/agent, active task status, data classes and task spend ceiling; bare `true` refuses. Host context must also bind audience and permitted route/provider/region. It is a trusted integration callback, not a guest assertion. `observeTarget` must synchronously return `{target_identity, state_version}` from the current trusted target; missing observation or a mismatch refuses. The immutable policy separately bounds action, agent, data classes, cost, version, epoch, and operation expiry. The reviewed digest binds every frozen OperationProposal field.
 
 `provisionTrustedState: true` initializes public identities only in an empty state. The included fixtures use it in disposable directories. Production mounting/provisioning, persistent state ownership, owner enrollment, and credential changes require the separately authorized deployment work. The factory opens no file or listener until an API method is called.
 
@@ -66,9 +66,14 @@ Methods return synchronous `{ok: true, ...}` results or `{ok: false, error_code,
 | `approvalComplete` | `{session_token, proof}` | `approval_proof`, `status: 'APPROVED'` |
 | `declineApproval` | `{session_token, operation_id}` | durable `status: 'DENIED'` |
 | `reserve` | `{operation, approval_proof}` | durable `status: 'PREPARED'`, frozen `consumed_grant`, kernel receipt draft, explicit adapter profile |
-| `claimDispatch` | `{operation, consumed_grant}` | durable `status: 'DISPATCHED'` |
-| `advanceAuthorizationEpoch` | `{session_token}` | incremented durable `authorization_epoch`; old sessions/proofs refuse |
+| `claimDispatch` | `{operation, consumed_grant, request_id, request_digest}` | durable `status: 'DISPATCHED'`, exact request binding |
+| `advanceAuthorizationEpoch` | `{session_token}` | `UNAVAILABLE`: epoch-change authentication design awaits review |
+| `authenticateSession` | `{session_token}` | read-only durable owner ID, subject, epoch and expiry |
 | `status` | `{session_token, operation_id}` | owner-scoped lifecycle, digest, reconciliation flag |
+| `requestCancel` | `{operation, consumed_grant, request_id, reason}` | durable intent only; late terminal result preserved |
+| `settle` / `reconcileSettlement` | `{operation, consumed_grant, request_id, request_digest, receipt, receipt_digest}` | bound idempotent executor evidence; explicit unknown reconciliation |
+| `markOutcomeUnknown` | exact dispatch binding | retains consumption and marks uncertainty without fabricated evidence |
+| `settleMemory` | exact dispatch binding plus genuine D `receipt` | durable idempotent applied-memory evidence |
 
 Login challenge is the exact closed record `{version:1, owner_id, audience, challenge, issued_at, expiry, authorization_epoch}`. The login bytes are UTF-8 `aukora-prime.owner-login.v1\0` plus frozen sorted compact canonical JSON of that record. Login owner-key material is exactly `{kind:'owner_key', signature:<128 lowercase hex>}`.
 
@@ -93,7 +98,7 @@ Guest-valid schema is insufficient: an exact persisted review and authenticated 
 
 The copied store atomically journals broker metadata and kernel consumption/prepared effects. A second retained high-water counter covers denial, session changes, and epoch increments even when the kernel receipt count is unchanged. Restored older state with a retained newer witness refuses. An interrupted write can be retained for reconciliation; it does not grant permission to reset state, witness, consumption IDs, or retry an uncertain effect. Missing matching broker reservation for consumed authority returns `RECONCILIATION_REQUIRED`.
 
-F must verify its exact OperationProposal and ConsumedGrant and successfully call `claimDispatch` before the one owned executor call. Dispatch is consumed durably before that call. A second claim refuses. Prepared/dispatched uncertainty needs `reconcileOwned`; it must not fall back, create fresh authority, retry execution, or unconsume the grant. Completion/settlement and executor reconciliation are integration work; this package executes no operation itself. Target observation still needs the executor's own compare-and-apply semantics to close changes after observation.
+F must verify its exact OperationProposal and ConsumedGrant and successfully call `claimDispatch` before the one owned executor call. Dispatch is consumed durably before that call. A second claim refuses. Prepared/dispatched uncertainty needs `reconcileOwned`; it must not fall back, create fresh authority, retry execution, or unconsume the grant. This package durably settles genuine executor and memory evidence through private worker joins; it executes no operation itself. Runtime qualification and transport are separate integration work. Target observation still needs the executor's own compare-and-apply semantics to close changes after observation.
 
 The source witness lies outside the selected state restore boundary, but the same UID can rewrite both. A separate UID alone would also leave a signing oracle if authenticated owner proof were omitted. This core checks owner proof and holds no signing keys; unavoidable IPC/process/UID isolation and deployed witness ownership remain unverified deployment requirements. Mount only with immutable verifier/owner configuration, authenticated harness transport, and explicit C owner sessions. A harness bearer token is not owner approval.
 
@@ -109,3 +114,26 @@ node packages/authority/upstream/vendor/authority/conformance.mjs
 The first command uses only in-process synthetic Ed25519/P-256 keys and disposable local paths; it cleans them in `finally`. It checks authenticated review, exact-operation mutations, input ambiguity, passkey assertions and refusals, counters, replay across restart, concurrent reservation, durable denial/epoch/restore fences, dispatch one-use, injected fsync interruption, and real elapsed expiry. It runs no inference, external service, OpenShell fixture, owner enrollment, old app, or activation sequence. Injected fsync interruption is not a physical power-loss proof.
 
 The unchanged kernel conformance checks its retained 354 file pins and 37 cases. `provenance/donor-files.json` records exact donor source and copied hashes, local symlinks, and changed files. `provenance/CHANGES.md` accounts for every donor modification. Running-app delivery is not verified by these source checks.
+
+
+## Review repairs and private effect joins
+
+The digest is independently checked at the service bind and verified-passkey adapter boundary: `proof.operation_digest === row.operation_digest === operationDigest(op)`. Grants take their digest from the verified proof. The focused mutant removes the earlier exact-row check and still refuses changed synthetic parameters; disabling all downstream digest boundaries is caught by the regression.
+
+NEW stores persist random `broker.store_id` before successful admission. Retained kernel and broker witness keys derive from that identity, never the state path. Existing state without an identity has no implicit migration. A missing witness entry with any kernel receipt or broker revision refuses before rebaseline. All state/root/witness symlink ancestors refuse, and their device/inode identities are rechecked after open; Node's lack of atomic openat still leaves the documented same-UID syscall race. Same-UID forging of all metadata/witness remains outside this source claim. Real provisioning or migration requires separate owner approval.
+
+Default trusted quotas are 32 live login challenges and 16 sessions per owner, 128 lifetime operation IDs per owner/256 total, 64 KiB per proposal and 16 MiB state. Expired challenges/sessions are pruned before admission. Operation keys include owner ID. Consumed history/operation tombstones are never evicted to admit replay; reaching their quota refuses until a separately reviewed archival design. Quota denials do not append state. The 2,000-call disposable case stays at <=32 live challenges and <32 KiB state, including expiry turnover.
+
+`claimDispatch` requires original kernel consumption and a prepared effect matching the reservation/content digest, then atomically records the UUID request ID and request digest before success. Request digest is SHA256 of `aukora-prime.executor-request.v1` + NUL + canonical full OwnedExecutorRequest excluding AbortSignal. Receipt digest uses `aukora-prime.execution-receipt.v1` + NUL + exact frozen ExecutionReceipt JSON. F must call this actual private method once before create/execute, never a static true callback. Lost replies stay fenced; no reclaim/relaunch. C settlement validates the immutable operation/grant/request and receipt, is durable/idempotent, and can accept factual results after approval/epoch expiry. It does not reauthorize the effect.
+
+Unknown cleanup, lost RPC, or uncertain outcome stays `OUTCOME_UNKNOWN`, even after guest absence. Cancellation is intent only. `CANCELLED` requires recorded cancellation, confirmed absence/not-created, `rpc_completion:'not_started'`, `started_at:null`, and no typed exit. A drained typed result wins over a late abort. Unknown -> later evidence uses explicit `reconcileSettlement` with stable IDs/sandbox/prior typed result/output; conflicting evidence refuses. No cancellation unconsumes authority.
+
+D's actual committed memory receipt is separately closed: `{version:1,kind:'prime-memory-effect/v1',operation_id,operation_digest,grant_id,request_id,request_digest,owner_subject,action_type,status:'applied',result_digest,result}`. Result digest domain is `aukora-prime.memory-result.v1`; full receipt domain is `aukora-prime.memory-receipt.v1`, each NUL + frozen canonical JSON. `settleMemory` uses the same existing broker dispatch lifecycle and checks actual target owner/action/result bytes. D commits its SQL effect and receipt first and resends identical evidence on reconciliation. No sandbox/RPC receipt is fabricated for DB effects. These methods belong only to authenticated private worker IPC, never HTTP guest receipt input.
+
+Owner epoch changes are disabled until their exact authentication design is reviewed. Disposable regressions change only synthetic store counters through the real store to verify revocation/restore fences. A login token alone grants no new admin power.
+
+## Explicit localhost pilot (source-only)
+
+Default WebAuthn profile is `https`. Only an explicit trusted `profile:'localhost-pilot-v1'`, `rp_id:'localhost'`, `origins:['http://localhost:18731']` permits HTTP. IP aliases, subdomains, trailing dots and other ports refuse. The browser binding separately pins `{profile,origin,rp_id}`, exact location origin, secure-context status and WebAuthn API availability. WebAuthn officially permits the localhost HTTP origin with a domain RP ID; IP hosts are excluded. See [WebAuthn RP rules](https://www.w3.org/TR/webauthn-3/#rp-id) and [Secure Contexts localhost](https://www.w3.org/TR/secure-contexts/#localhost).
+
+H's actual in-app-browser navigation to the pilot returned `net::ERR_BLOCKED_BY_CLIENT`. It was not retried or bypassed. Actual browser support is NOT VERIFIED. This source profile creates no listener, DNS/TLS resource, credential, enrollment, or persistent configuration. Owner enrollment/action, exact origin verification, process/UID/witness separation and runtime qualification remain separately approved work.

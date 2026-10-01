@@ -12,10 +12,13 @@ import { PrimeApprovalStateStore, EMPTY_KERNEL_STATE } from './state-store.mjs'
 import { RollbackRefusedError } from '../upstream/scripts/aukora/trusted-state-store.mjs'
 import { detachContract, operationDigest, dollars, deepFreeze, assertData } from './operation.mjs'
 import { prepareWebauthnConfig, webauthnChallenge, webauthnOptions, verifyWebauthnAssertion } from './webauthn.mjs'
+import { DIGEST, UUID, executionReceiptDigest, validatedReceipt, settlementStatus } from './execution.mjs'
+import { memoryEffectReceipt, memoryEffectReceiptDigest } from './memory-effect.mjs'
 
 const hex = /^[a-f0-9]{64}$/
 const sha = value => createHash('sha256').update(value).digest('hex')
 const keyOf = value => sha(value)
+const operationKey = (ownerId,operationId) => sha(canonicalJson([ownerId,operationId]))
 const iso = ms => new Date(ms).toISOString()
 const equal = (a,b) => canonicalJson(a) === canonicalJson(b)
 class Refusal extends Error {
@@ -43,6 +46,11 @@ export { approvalSigningBytes }
 // enrollment. Empty/unprovisioned deployments fail closed. Tests use disposable public keys.
 export function createAuthorityService(options) {
   const c = { ...options }
+  const defaults={logins_per_owner:32,sessions_per_owner:16,operations_per_owner:128,operations_total:256,operation_bytes:65536,state_bytes:16*1024*1024}
+  assertData(c.limits??{})
+  if(Object.keys(c.limits??{}).some(k=>!Object.hasOwn(defaults,k))) throw new TypeError('INVALID: authority quota config')
+  c.limits=deepFreeze({...defaults,...c.limits})
+  if(Object.values(c.limits).some(n=>!Number.isSafeInteger(n)||n<1)) throw new TypeError('INVALID: positive authority quotas')
   assertData(c.policy);assertData(c.identities ?? [])
   assertData(c.loginKinds ?? ['passkey'])
   c.loginKinds=deepFreeze([...(c.loginKinds ?? ['passkey'])])
@@ -66,13 +74,18 @@ export function createAuthorityService(options) {
     pinned.set(id.owner_id,id)
   }
   const now = () => Date.now() // wire callers can never select an audit clock
+  class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes})}}
   function tx(fn) {
-    const store = new PrimeApprovalStateStore({ statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:c.provisionTrustedState===true })
+    const store = new PrimeApprovalStateStore({ statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:c.provisionTrustedState===true,maxStateBytes:c.limits.state_bytes })
     try {
       store.open();store.load(structuredClone(EMPTY_KERNEL_STATE))
       if(Object.keys(store.broker.owners).length===0 && c.provisionTrustedState===true) {
         for(const id of identities) store.broker.owners[keyOf(id.owner_id)]={...id,revoked:false,passkey_counters:Object.fromEntries((c.webauthn?.credentials.filter(x=>x.owner_id===id.owner_id)??[]).map(x=>[keyOf(x.credential_id),x.sign_count]))}
       }
+      // Ephemeral challenges/sessions may expire; authority consumption and operation
+      // tombstones are never evicted to admit a replay. Quota failures write nothing.
+      for(const [k,v] of Object.entries(store.broker.logins)) if(Date.parse(v.challenge.expiry)<=now()) delete store.broker.logins[k]
+      for(const [k,v] of Object.entries(store.broker.sessions)) if(Date.parse(v.expiry)<=now()) delete store.broker.sessions[k]
       return fn(store)
     } finally { store.close() }
   }
@@ -101,7 +114,13 @@ export function createAuthorityService(options) {
     if(op.policy_version!==c.policy.version) refuse('STALE','POLICY_VERSION_CHANGED')
     if(Date.parse(op.expiry)<=now()) refuse('EXPIRED','OPERATION_EXPIRED')
     if(!c.policy.actions.includes(op.action_type)||!c.policy.agents.includes(op.agent_id)||op.data_scope.some(x=>!c.policy.data_scope.includes(x))||dollars(op.maximum_cost)>dollars(c.policy.maximum_cost)) refuse('SCOPE_MISMATCH','POLICY_SCOPE_REFUSED')
-    if(typeof c.authorizeTask!=='function'||c.authorizeTask(deepFreeze(structuredClone(op)))!==true) refuse('UNAUTHORIZED','TASK_SCOPE_NOT_AUTHENTICATED')
+    if(typeof c.authorizeTask!=='function') refuse('UNAUTHORIZED','TASK_SCOPE_NOT_AUTHENTICATED')
+    const authorized=c.authorizeTask(deepFreeze(structuredClone(op)))
+    if(!authorized||authorized.authenticated!==true) refuse('UNAUTHORIZED','TASK_SCOPE_NOT_AUTHENTICATED')
+    closed(authorized,['authenticated','task'])
+    const task=detachContract('Task',authorized.task)
+    if(task.task_id!==op.task_id||task.owner_id!==op.owner_id||task.agent_id!==op.agent_id||
+       !['pending','running'].includes(task.status)||op.data_scope.some(x=>!task.allowed_data_classes.includes(x))||dollars(op.maximum_cost)>dollars(task.task_spend_ceiling)) refuse('UNAUTHORIZED','OWNED_TASK_BINDING_MISMATCH')
     return id
   }
   function liveTarget(op) {
@@ -111,19 +130,29 @@ export function createAuthorityService(options) {
     if(!equal(observed.target_identity,op.target_identity)||observed.state_version!==op.expected_state_version) refuse('TARGET_MISMATCH','TARGET_STATE_CHANGED')
   }
   function operationRow(store,op) {
-    const row=store.broker.operations[keyOf(op.operation_id)]
+    const row=store.broker.operations[operationKey(op.owner_id,op.operation_id)]
     if(!row) refuse('UNAVAILABLE','OPERATION_NOT_PROPOSED')
     if(row.operation_digest!==operationDigest(op)||!equal(row.operation,op)) refuse('INVALID','EXACT_OPERATION_CHANGED')
     if(row.approval && !row.grant && store.currentRecord.state.consumedIds.includes('approval:'+row.approval.proof.nonce)) refuse('RECONCILIATION_REQUIRED','CONSUMED_AUTHORITY_WITHOUT_MATCHING_RESERVATION')
     return row
   }
   function attempt(fn) { try {return fn()} catch(error) {return resultError(error)} }
-  function propose(input) { return attempt(()=>{
+  function boundedOperation(input) {
     const op=detachContract('OperationProposal',input)
+    if(Buffer.byteLength(canonicalJson(op))>c.limits.operation_bytes) refuse('INVALID','OPERATION_BYTE_QUOTA')
+    return op
+  }
+  function admitOperation(store,ownerId) {
+    const rows=Object.values(store.broker.operations)
+    if(rows.length>=c.limits.operations_total||rows.filter(r=>r.operation.owner_id===ownerId).length>=c.limits.operations_per_owner) refuse('UNAVAILABLE','OPERATION_QUOTA_REACHED')
+  }
+  function propose(input) { return attempt(()=>{
+    const op=boundedOperation(input)
     return tx(store=>{
       policy(store,op)
-      const k=keyOf(op.operation_id)
+      const k=operationKey(op.owner_id,op.operation_id)
       if(store.broker.operations[k]) refuse('REPLAYED','OPERATION_ID_ALREADY_EXISTS')
+      admitOperation(store,op.owner_id)
       const digest=operationDigest(op)
       store.broker.operations[k]={operation:op,operation_digest:digest,status:'PROPOSED',review:null,approval:null,grant:null}
       store.commitBroker()
@@ -136,6 +165,7 @@ export function createAuthorityService(options) {
     if(!c.loginKinds.includes(v.kind)) refuse('UNAVAILABLE','LOGIN_METHOD_NOT_CONFIGURED')
     return tx(store=>{
       const id=owner(store,v.owner_id),stamp=now()
+      if(Object.values(store.broker.logins).filter(x=>x.challenge.owner_id===id.owner_id).length>=c.limits.logins_per_owner) refuse('UNAVAILABLE','LOGIN_CHALLENGE_QUOTA_REACHED')
       const challenge={version:1,owner_id:id.owner_id,audience:c.audience,challenge:randomBytes(32).toString('hex'),issued_at:iso(stamp),expiry:iso(stamp+60000),authorization_epoch:id.authorization_epoch}
       const public_key=v.kind==='passkey'?webauthnOptions(c.webauthn,id.owner_id,webauthnChallenge(loginSigningBytes(challenge))):undefined
       store.broker.logins[challenge.challenge]={challenge,kind:v.kind,used:false}
@@ -151,6 +181,7 @@ export function createAuthorityService(options) {
       if(!entry||!equal(entry.challenge,v.challenge)) refuse('UNAUTHORIZED','LOGIN_CHALLENGE_MISMATCH')
       if(entry.used) refuse('REPLAYED','LOGIN_CHALLENGE_USED')
       const id=owner(store,entry.challenge.owner_id)
+      if(Object.values(store.broker.sessions).filter(x=>x.owner_id===id.owner_id).length>=c.limits.sessions_per_owner) refuse('UNAVAILABLE','OWNER_SESSION_QUOTA_REACHED')
       if(m.kind!==entry.kind) refuse('UNAUTHORIZED','LOGIN_MATERIAL_KIND_CHANGED')
       if(entry.challenge.authorization_epoch!==id.authorization_epoch) refuse('REVOKED','LOGIN_EPOCH_CHANGED')
       if(Date.parse(entry.challenge.expiry)<=now()) refuse('EXPIRED','LOGIN_CHALLENGE_EXPIRED')
@@ -169,13 +200,13 @@ export function createAuthorityService(options) {
     })
   }) }
   function approvalChallenge(input) { return attempt(()=>{
-    const v=closed(input,['session_token','operation']),op=detachContract('OperationProposal',v.operation)
+    const v=closed(input,['session_token','operation']),op=boundedOperation(v.operation)
     return tx(store=>{
       const id=session(store,v.session_token)
       if(id.owner_id!==op.owner_id) refuse('UNAUTHORIZED','CROSS_OWNER_APPROVAL')
       policy(store,op);liveTarget(op)
-      let row=store.broker.operations[keyOf(op.operation_id)]
-      if(!row) { row={operation:op,operation_digest:operationDigest(op),status:'PROPOSED',review:null,approval:null,grant:null};store.broker.operations[keyOf(op.operation_id)]=row }
+      let row=store.broker.operations[operationKey(op.owner_id,op.operation_id)]
+      if(!row) { admitOperation(store,op.owner_id);row={operation:op,operation_digest:operationDigest(op),status:'PROPOSED',review:null,approval:null,grant:null};store.broker.operations[operationKey(op.owner_id,op.operation_id)]=row }
       operationRow(store,op)
       if(row.status!=='PROPOSED') refuse(row.status==='DENIED'?'CANCELLED':'REPLAYED','OPERATION_NOT_REVIEWABLE')
       const issuedAt=Math.floor(now()/1000),expiresAt=Math.min(issuedAt+120,Math.floor(Date.parse(op.expiry)/1000))
@@ -193,7 +224,7 @@ export function createAuthorityService(options) {
     const v=closed(input,['session_token','proof']),proof=detachContract('ApprovalProof',v.proof)
     const m=proof.material
     return tx(store=>{
-      const id=session(store,v.session_token),row=store.broker.operations[keyOf(proof.operation_id)]
+      const id=session(store,v.session_token),row=store.broker.operations[operationKey(proof.owner_id,proof.operation_id)]
       if(!row||!row.review) refuse('UNAUTHORIZED','EXACT_REVIEW_REQUIRED')
       if(row.status!=='PROPOSED') refuse(row.status==='DENIED'?'CANCELLED':'REPLAYED','OPERATION_NOT_REVIEWABLE')
       if(id.owner_id!==row.operation.owner_id||row.review.session_hash!==keyOf(v.session_token)) refuse('UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
@@ -218,7 +249,7 @@ export function createAuthorityService(options) {
   function declineApproval(input) { return attempt(()=>{
     const v=closed(input,['session_token','operation_id'])
     return tx(store=>{
-      const id=session(store,v.session_token),row=store.broker.operations[keyOf(v.operation_id)]
+      const id=session(store,v.session_token),row=store.broker.operations[operationKey(id.owner_id,v.operation_id)]
       if(!row||row.operation.owner_id!==id.owner_id) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
       if(!['PROPOSED','APPROVED'].includes(row.status)) refuse('RECONCILIATION_REQUIRED','PREPARED_EFFECT_CANNOT_BE_UNCONSUMED')
       row.status='DENIED';row.review=null;row.approval=null;store.commitBroker()
@@ -226,7 +257,7 @@ export function createAuthorityService(options) {
     })
   }) }
   function reserve(input) { return attempt(()=>{
-    const v=closed(input,['operation','approval_proof']),op=detachContract('OperationProposal',v.operation),proof=detachContract('ApprovalProof',v.approval_proof)
+    const v=closed(input,['operation','approval_proof']),op=boundedOperation(v.operation),proof=detachContract('ApprovalProof',v.approval_proof)
     const approved=tx(store=>{
       policy(store,op);const row=operationRow(store,op)
       if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
@@ -239,6 +270,7 @@ export function createAuthorityService(options) {
     const bindAtUse=({store})=>{
         try {
           policy(store,op);liveTarget(op);const row=operationRow(store,op)
+          if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op)) refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')
           if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
           if(row.status!=='APPROVED'||!row.approval||!equal(row.approval.proof,proof)) refuse(row.grant?'REPLAYED':'UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
           if(Date.parse(proof.expiry)<=now()) refuse('EXPIRED','APPROVAL_EXPIRED')
@@ -246,13 +278,13 @@ export function createAuthorityService(options) {
             const checked=verifyWebauthnAssertion({material:proof.material,config:c.webauthn,ownerId:op.owner_id,challenge:webauthnChallenge(approvalSigningBytes(row.review.request)),checkCounter:false})
             if(checked.signed_bytes_digest!==row.approval.assertion.signed_bytes_digest) refuse('INVALID','ASSERTION_PREIMAGE_CHANGED')
           }
-          grant={version:1,grant_id:'grant:'+proof.nonce,operation_id:op.operation_id,operation_digest:operationDigest(op),owner_id:op.owner_id,audience:op.audience,authorization_epoch:op.authorization_epoch,prepared_at:iso(now()),reservation_id:'prepared:'+(receipt?.signedBytesDigest ?? sha(canonicalJson(proof)))}
+          grant={version:1,grant_id:'grant:'+proof.nonce,operation_id:op.operation_id,operation_digest:proof.operation_digest,owner_id:op.owner_id,audience:op.audience,authorization_epoch:op.authorization_epoch,prepared_at:iso(now()),reservation_id:'prepared:'+(receipt?.signedBytesDigest ?? sha(canonicalJson(proof)))}
           validateContract('ConsumedGrant',grant)
           row.status='PREPARED';row.grant=grant
         } catch(error) { return {decision:'DENY',reason:error.error_code??'UNAVAILABLE',detail:error.message} }
     }
     const id=pinned.get(op.owner_id)
-    const args={subject:id.subject,controlDigest:id.control_digest,consumedIdsPath:c.statePath,stateRoot:c.stateRoot,witnessDirectory:c.witnessDir,Store:PrimeApprovalStateStore,beforePrepare:bindAtUse}
+    const args={subject:id.subject,controlDigest:id.control_digest,consumedIdsPath:c.statePath,stateRoot:c.stateRoot,witnessDirectory:c.witnessDir,Store:ConfiguredStore,beforePrepare:bindAtUse,operationDigest:operationDigest(op).slice(7)}
     let verdict
     if(proof.material.kind==='passkey') verdict=decideVerifiedPasskey({...args,proof})
     else {
@@ -265,32 +297,112 @@ export function createAuthorityService(options) {
       if(verdict.decision!=='ALLOW') return {ok:false,error_code:['REPLAYED','EXPIRED','REVOKED','CANCELLED','TARGET_MISMATCH','INVALID','UNAUTHORIZED','UNAVAILABLE','RECONCILIATION_REQUIRED'].includes(verdict.reason)?verdict.reason:verdict.reason.includes('rollback')?'RECONCILIATION_REQUIRED':verdict.reason.includes('replay')?'REPLAYED':verdict.reason.includes('expired')?'EXPIRED':'UNAVAILABLE',reason:verdict.reason,detail:verdict.detail}
     return {ok:true,status:'PREPARED',consumed_grant:deepFreeze(grant),kernel_receipt:verdict.receiptDraft,profile:proof.material.kind+'/local-write/authorization:null'}
   }) }
+  function reservedRow(store,op,grant) {
+    const row=operationRow(store,op),nonce=row.approval?.proof?.nonce
+    if(!equal(row.grant,grant)||grant.operation_digest!==row.operation_digest||grant.operation_digest!==operationDigest(op)||row.approval?.proof?.operation_digest!==grant.operation_digest) refuse('UNAUTHORIZED','EXACT_CONSUMED_GRANT_REQUIRED')
+    const effectId=grant.reservation_id.startsWith('prepared:')?grant.reservation_id.slice(9):null
+    if(!nonce||!store.currentRecord.state.consumedIds.includes('approval:'+nonce)||!store.currentRecord.prepared.some(p=>p.consumptionId==='approval:'+nonce&&p.effectId===effectId&&p.contentHash===grant.operation_digest.slice(7)&&p.receiptCountAfter<=store.currentRecord.state.receiptHead.count)) refuse('RECONCILIATION_REQUIRED','DURABLE_KERNEL_PREPARATION_REQUIRED')
+    return row
+  }
   function claimDispatch(input) { return attempt(()=>{
-    const v=closed(input,['operation','consumed_grant']),op=detachContract('OperationProposal',v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
+    const v=closed(input,['operation','consumed_grant','request_id','request_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
+    if(!UUID.test(v.request_id)||!DIGEST.test(v.request_digest)) refuse('INVALID','EXACT_EXECUTOR_REQUEST_BINDING_REQUIRED')
     return tx(store=>{
-      policy(store,op);liveTarget(op);const row=operationRow(store,op)
+      policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant)
       if(row.status!=='PREPARED'||!equal(row.grant,grant)) refuse('REPLAYED','RESERVATION_NOT_DISPATCHABLE')
       if(Date.parse(row.approval.proof.expiry)<=now()) refuse('EXPIRED','APPROVAL_EXPIRED')
-      row.status='DISPATCHED';store.commitBroker()
-      return {ok:true,status:'DISPATCHED',consumed_grant:deepFreeze(grant)}
+      row.status='DISPATCHED';row.dispatch={request_id:v.request_id,request_digest:v.request_digest,cancel_requested:false,cancel_reason:null,receipt:null,receipt_digest:null,settlement_digests:[]};store.commitBroker()
+      return {ok:true,status:'DISPATCHED',consumed_grant:deepFreeze(grant),request_id:v.request_id,request_digest:v.request_digest}
     })
   }) }
-  function advanceAuthorizationEpoch(input) { return attempt(()=>{
+  const terminal=['COMPLETED','FAILED','CANCELLED','UNAVAILABLE']
+  function dispatchedRow(store,op,grant,requestId,requestDigest) {
+    const row=reservedRow(store,op,grant)
+    if(!row.dispatch||row.dispatch.request_id!==requestId||(requestDigest!==undefined&&row.dispatch.request_digest!==requestDigest)) refuse('UNAUTHORIZED','DISPATCH_REQUEST_BINDING_MISMATCH')
+    return row
+  }
+  function requestCancel(input) {return attempt(()=>{
+    const v=closed(input,['operation','consumed_grant','request_id','reason']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
+    if(!['caller','timeout','dispose'].includes(v.reason))refuse('INVALID','CANCELLATION_REASON')
+    return tx(store=>{
+      const row=dispatchedRow(store,op,grant,v.request_id)
+      if(terminal.includes(row.status))return {ok:true,status:row.status,request_id:v.request_id,cancel_recorded:false}
+      if(!row.dispatch.cancel_requested) {
+        row.dispatch.cancel_requested=true;row.dispatch.cancel_reason=v.reason;row.status='CANCEL_REQUESTED';store.commitBroker()
+      }
+      return {ok:true,status:row.status,request_id:v.request_id,cancel_recorded:true}
+    })
+  })}
+  function settleExecution(input,reconcile=false) {return attempt(()=>{
+    const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt','receipt_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant),receipt=validatedReceipt(v.receipt)
+    const receiptDigest=executionReceiptDigest(receipt)
+    if(receiptDigest!==v.receipt_digest)refuse('INVALID','EXECUTOR_RECEIPT_DIGEST_MISMATCH')
+    return tx(store=>{
+      // Factual evidence after dispatch is recorded even after owner/session/epoch
+      // expiry. It cannot reauthorize, relaunch, or undo an already attempted effect.
+      const row=dispatchedRow(store,op,grant,v.request_id,v.request_digest),d=row.dispatch
+      for(const [field,expected] of Object.entries({operation_id:op.operation_id,task_id:op.task_id,owner_id:op.owner_id,operation_digest:grant.operation_digest,grant_id:grant.grant_id,request_id:v.request_id})) if(receipt[field]!==expected)refuse('INVALID','EXECUTOR_RECEIPT_BINDING_MISMATCH')
+      if(receipt.sandbox&&op.target_identity&&typeof op.target_identity==='object') {
+        for(const field of ['image_digest','policy_digest'])if(Object.hasOwn(op.target_identity,field)&&receipt.sandbox[field]!==op.target_identity[field])refuse('INVALID','EXECUTOR_SANDBOX_DIGEST_MISMATCH')
+      }
+      const result=idempotent=>({ok:true,status:row.status,request_id:v.request_id,request_digest:d.request_digest,receipt_digest:d.receipt_digest,idempotent,reconciliation_required:row.status==='OUTCOME_UNKNOWN'})
+      if(d.settlement_digests.includes(receiptDigest))return result(true)
+      if(d.receipt) {
+        if(!reconcile||!['OUTCOME_UNKNOWN','CANCEL_REQUESTED'].includes(row.status))refuse('STALE','EXPLICIT_UNKNOWN_RECONCILIATION_REQUIRED')
+        const old=d.receipt
+        if(receipt.receipt_id!==old.receipt_id||(old.sandbox!==null&&!equal(old.sandbox,receipt.sandbox))||
+           (old.exit_code!==null&&receipt.exit_code!==old.exit_code)||(old.started_at!==null&&receipt.started_at!==old.started_at)||
+           (old.rpc_completion==='complete'&&receipt.rpc_completion!=='complete')||
+           (['confirmed_absent','not_created'].includes(old.cleanup)&&receipt.cleanup!==old.cleanup)||
+           (old.stdout!==''&&receipt.stdout!==old.stdout)||(old.stderr!==''&&receipt.stderr!==old.stderr))refuse('INVALID','CONFLICTING_RECONCILIATION_EVIDENCE')
+      }
+      if(d.settlement_digests.length>=32)refuse('UNAVAILABLE','SETTLEMENT_EVIDENCE_QUOTA_REACHED')
+      row.status=settlementStatus(receipt,d.cancel_requested)
+      d.receipt=receipt;d.receipt_digest=receiptDigest;d.settlement_digests.push(receiptDigest);store.commitBroker()
+      return result(false)
+    })
+  })}
+  const settle=input=>settleExecution(input,false)
+  const reconcileSettlement=input=>settleExecution(input,true)
+  function markOutcomeUnknown(input) {return attempt(()=>{
+    const v=closed(input,['operation','consumed_grant','request_id','request_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
+    return tx(store=>{
+      const row=dispatchedRow(store,op,grant,v.request_id,v.request_digest)
+      if(!terminal.includes(row.status)&&row.status!=='OUTCOME_UNKNOWN'){row.status='OUTCOME_UNKNOWN';store.commitBroker()}
+      return {ok:true,status:row.status,request_id:v.request_id,reconciliation_required:row.status==='OUTCOME_UNKNOWN'}
+    })
+  })}
+  function settleMemory(input) {return attempt(()=>{
+    const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant),receipt=memoryEffectReceipt(v.receipt),receiptDigest=memoryEffectReceiptDigest(receipt)
+    return tx(store=>{
+      const row=dispatchedRow(store,op,grant,v.request_id,v.request_digest),d=row.dispatch
+      for(const [field,expected]of Object.entries({operation_id:op.operation_id,operation_digest:grant.operation_digest,grant_id:grant.grant_id,request_id:v.request_id,request_digest:v.request_digest,owner_subject:op.target_identity?.owner_subject,action_type:op.action_type}))if(receipt[field]!==expected)refuse('INVALID','MEMORY_RECEIPT_BINDING_MISMATCH')
+      if(op.target_identity?.kind!=='prime-memory'||!op.action_type.startsWith('memory.')||receipt.owner_subject!==store.broker.owners[keyOf(op.owner_id)]?.subject)refuse('INVALID','MEMORY_OWNER_TARGET_REQUIRED')
+      const result=idempotent=>({ok:true,status:row.status,request_id:v.request_id,request_digest:d.request_digest,receipt_digest:d.receipt_digest,idempotent,reconciliation_required:false})
+      if(d.settlement_digests.includes(receiptDigest))return result(true)
+      if(d.receipt)refuse('STALE','COMMITTED_MEMORY_RECEIPT_CONFLICT')
+      row.status='COMPLETED';d.receipt=receipt;d.receipt_digest=receiptDigest;d.settlement_digests.push(receiptDigest);store.commitBroker()
+      return result(false)
+    })
+  })}
+  function authenticateSession(input) {return attempt(()=>{
     const v=closed(input,['session_token'])
     return tx(store=>{
-      const id=session(store,v.session_token)
-      if(id.authorization_epoch===Number.MAX_SAFE_INTEGER) refuse('INVALID','EPOCH_EXHAUSTED')
-      id.authorization_epoch++;store.commitBroker()
-      return {ok:true,authorization_epoch:id.authorization_epoch}
+      const id=session(store,v.session_token),s=store.broker.sessions[keyOf(v.session_token)]
+      return {ok:true,owner_id:id.owner_id,subject:id.subject,authorization_epoch:id.authorization_epoch,expiry:s.expiry}
     })
+  })}
+  function advanceAuthorizationEpoch(input) { return attempt(()=>{
+    closed(input,['session_token'])
+    refuse('UNAVAILABLE','EPOCH_CHANGE_AUTHENTICATION_DESIGN_UNAPPROVED')
   }) }
   function status(input) { return attempt(()=>{
     const v=closed(input,['session_token','operation_id'])
     return tx(store=>{
-      const id=session(store,v.session_token),row=store.broker.operations[keyOf(v.operation_id)]
+      const id=session(store,v.session_token),row=store.broker.operations[operationKey(id.owner_id,v.operation_id)]
       if(!row||row.operation.owner_id!==id.owner_id) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
-      return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED'].includes(row.status)}
+      return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN'].includes(row.status)}
     })
   }) }
-  return Object.freeze({propose,loginChallenge,loginComplete,approvalChallenge,approvalComplete,declineApproval,reserve,claimDispatch,advanceAuthorizationEpoch,status})
+  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,approvalChallenge,approvalComplete,declineApproval,reserve,claimDispatch,requestCancel,settle,reconcileSettlement,markOutcomeUnknown,settleMemory,advanceAuthorizationEpoch,status})
 }

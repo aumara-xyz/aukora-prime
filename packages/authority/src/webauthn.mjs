@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { isIP } from 'node:net'
 import { p256 } from '../upstream/vendor/authority/deps/@noble/curves@2.2.0/nist.js'
 import { parseStrictText } from '../upstream/plugins/aukora-kira/lib/strict-read.mjs'
 import { readClosedDataRecord } from '../upstream/plugins/aukora-aumlok/lib/validation.mjs'
@@ -15,11 +16,13 @@ export function webauthnChallenge(bytes) { return hash(bytes).toString('base64ur
 export function prepareWebauthnConfig(input) {
   if(input===undefined) return null
   assertData(input)
-  const c=readClosedDataRecord(input,['rp_id','origins','credentials'],'WebAuthn trusted configuration')
-  if(typeof c.rp_id!=='string'||!/^[a-z0-9]+([.-][a-z0-9]+)*$/.test(c.rp_id)||!Array.isArray(c.origins)||!c.origins.length||!Array.isArray(c.credentials)) throw new TypeError('INVALID: WebAuthn RP/origin config')
+  const c=readClosedDataRecord(input,Object.hasOwn(input,'profile')?['rp_id','origins','credentials','profile']:['rp_id','origins','credentials'],'WebAuthn trusted configuration')
+  const profile=c.profile??'https'
+  if(!['https','localhost-pilot-v1'].includes(profile)||typeof c.rp_id!=='string'||!/^[a-z0-9]+([.-][a-z0-9]+)*$/.test(c.rp_id)||isIP(c.rp_id)!==0||!Array.isArray(c.origins)||!c.origins.length||!Array.isArray(c.credentials)) throw new TypeError('INVALID: WebAuthn RP/origin config')
+  if(profile==='localhost-pilot-v1'&&(c.rp_id!=='localhost'||c.origins.length!==1||c.origins[0]!=='http://localhost:18731'))throw new TypeError('INVALID: exact localhost pilot profile required')
   for(const origin of c.origins) {
     const url=new URL(origin)
-    if(url.protocol!=='https:'||url.origin!==origin||!(url.hostname===c.rp_id||url.hostname.endsWith('.'+c.rp_id))) throw new TypeError('INVALID: exact HTTPS WebAuthn origin')
+    if((profile==='https'&&url.protocol!=='https:')||url.origin!==origin||!(url.hostname===c.rp_id||url.hostname.endsWith('.'+c.rp_id))) throw new TypeError('INVALID: exact configured WebAuthn origin')
   }
   const ids=new Set()
   for(const cred of c.credentials) {
