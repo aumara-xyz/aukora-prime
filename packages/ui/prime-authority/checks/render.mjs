@@ -31,6 +31,9 @@ const make=options=>{const binding=createOwnerUiFixture(contracts,{now:()=>clock
   const operation={...f.binding.operation,action_type:'memory.save',canonical_parameters:{capture_sha256:'a'.repeat(64),
     idempotency_key_sha256:'b'.repeat(64),heads:{},...memoryCapture}}
   f.controller.setOperation(operation,{memoryCapture});await f.controller.prepare()
+  const unavailable=render(f.controller)
+  assert(unavailable.includes('data-memory-action-unavailable'));assert(/disabled=""[^>]*>Approve exact operation/.test(unavailable))
+  f.controller.setApprovalAction(async()=>{throw new Error('Render fixture never invokes a workflow')})
   const html=render(f.controller)
   assert(html.includes('data-memory-statement'));assert(html.includes('data-memory-attribution'));assert(html.includes('data-memory-capture-hash'))
   assert(html.includes('owner-voice'));assert(!html.includes('<img src=x'));assert(!html.includes('<script>exact memory'))
@@ -43,6 +46,27 @@ const make=options=>{const binding=createOwnerUiFixture(contracts,{now:()=>clock
     const guarded=render({...f.controller,getSnapshot:()=>snapshot})
     assert(guarded.includes('data-memory-review-refused'));assert(/disabled=""[^>]*>Approve exact operation/.test(guarded))
   }
+  f.controller.dispose();count++
+}
+{
+  const f=make();await f.controller.login();await f.controller.prepare()
+  const result={phase:'saved',operation:f.binding.operation,memory_capture:null,operation_digest:null,
+    approval:'approved',save:'saved',saved:true,record:null,receipt:{literal:'<script>receipt remains text</script>'},
+    receipt_digest:'sha256:'+'a'.repeat(64),citation:{verdict:'UNVERIFIED',literal:'<b>citation remains text</b>'},
+    citation_status:'unverified',index:{status:'pending',indexed:false,searchable:false},authority_settlement:'pending',
+    reconciliation_required:true,error_code:'RECONCILIATION_REQUIRED',read_error_code:null}
+  // Presentation-only report fixture. Actual receipt/proof validation is checked
+  // by approval-action.mjs using the real bridge workflow and controller.
+  const snapshot={...f.controller.getSnapshot(),approval_action_result:result}
+  const html=render({...f.controller,getSnapshot:()=>snapshot})
+  for(const [field,value] of [['approval','approved'],['save','saved'],['index','pending'],['citation','unverified'],['settlement','pending']]) {
+    assert(new RegExp(`data-memory-${field}-status="[^"]*">${value}`).test(html))
+  }
+  assert(html.includes('Reconciliation is required'));assert(html.includes('data-memory-effect-receipt'));assert(html.includes('data-memory-citation'))
+  assert(!html.includes('<script>receipt'));assert(html.includes('&lt;script&gt;receipt remains text&lt;/script&gt;'))
+  assert(!html.includes('<b>citation'));assert(html.includes('&lt;b&gt;citation remains text&lt;/b&gt;'))
+  const pending=render({...f.controller,getSnapshot:()=>({...snapshot,approval_action_pending:true})})
+  assert(/disabled=""[^>]*>Approve exact operation/.test(pending));assert(/disabled=""[^>]*>Sign out/.test(pending))
   f.controller.dispose();count++
 }
 {

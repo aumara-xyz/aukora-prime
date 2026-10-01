@@ -64,9 +64,11 @@ const immutable = value => {
 export function createPrimeOwnerController({ now = Date.now, schedule = setTimeout, unschedule = clearTimeout } = {}) {
   const listeners = new Set()
   let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture
+  let approvalAction = null, approvalFlight = null, approvalActionBlocked = false
   let state = Object.freeze({ phase: 'unavailable', owner: null, owner_id: '', presentation: null,
     operation_available: false, login_kinds: ['passkey'], fixture: false, expired: false, reason: 'Authority transport is unavailable.', error_code: 'UNAVAILABLE',
-    capabilities:null, capability_status:'pending', authority_available:false })
+    capabilities:null, capability_status:'pending', authority_available:false,
+    approval_action_available:false, approval_action_pending:false, approval_action_result:null })
   const notify = patch => { state = Object.freeze({ ...state, ...patch }); for (const listen of listeners) listen() }
   const stopTimer = () => { if (timer) unschedule(timer); timer = undefined }
   const checkExpiry = () => {
@@ -105,10 +107,59 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
     pending.promise = promise
     return promise
   }
+  const cancelApprovalAction = () => {
+    approvalFlight?.abort.abort()
+    if (approvalFlight?.approved) approvalActionBlocked = true
+  }
+  function workflowResult(value, flight) {
+    const result = immutable(JSON.parse(binding.contracts.canonicalJson(value)))
+    const fields = ['phase','operation','memory_capture','operation_digest','approval','save','saved','record','receipt',
+      'receipt_digest','citation','citation_status','index','authority_settlement','reconciliation_required','error_code','read_error_code']
+    if (!result || Array.isArray(result) || Object.keys(result).sort().join(',') !== fields.sort().join(',') ||
+        !['idle','proposal_pending','proposed','approval_pending','save_pending','saved','refused','outcome_unknown','unavailable'].includes(result.phase) ||
+        !['not_requested','pending','approved','refused','unknown'].includes(result.approval) ||
+        !['not_attempted','pending','saved','refused','unknown'].includes(result.save) ||
+        ![true,false,null].includes(result.saved) || typeof result.reconciliation_required !== 'boolean' ||
+        !result.index || Object.keys(result.index).sort().join(',') !== 'indexed,searchable,status' ||
+        !['unconfirmed','pending','failed','indexed','searchable'].includes(result.index.status) ||
+        ![true,false,null].includes(result.index.indexed) || ![true,false,null].includes(result.index.searchable) ||
+        !['not_requested','pending','verified','unverified','missing','unavailable'].includes(result.citation_status) ||
+        ![null,'completed','pending'].includes(result.authority_settlement) ||
+        [result.error_code,result.read_error_code].some(code => code !== null && (typeof code !== 'string' || code.length > 128)) ||
+        (result.receipt_digest !== null && !/^sha256:[a-f0-9]{64}$/.test(result.receipt_digest))) {
+      throw new PrimeTransportError('INVALID', 'ui:invalid-memory-workflow-result')
+    }
+    if (result.operation) {
+      if (binding.contracts.canonicalJson(result.operation) !== flight.presentation.canonical_operation ||
+          result.operation_digest !== flight.presentation.operation_digest) {
+        throw new PrimeTransportError('TARGET_MISMATCH', 'ui:memory-workflow-operation-changed')
+      }
+      validateCaptureReview(result.operation.canonical_parameters, result.memory_capture)
+    }
+    if (result.saved === true || result.save === 'saved') {
+      binding.contracts.validateContract('MemoryRecord', result.record)
+      const original = JSON.parse(result.record.canonical_bytes)
+      const view = flight.presentation, receipt = result.receipt
+      if (!flight.approved || result.saved !== true || result.save !== 'saved' || result.approval !== 'approved' ||
+          !result.operation || result.record.storage_status !== 'saved' ||
+          result.record.owner_subject !== view.operation.target_identity.owner_subject || result.record.task_id !== view.operation.task_id ||
+          original.statement !== view.memory_review.statement || original.attributedTo !== view.memory_review.attributed_to ||
+          receipt?.status !== 'applied' || receipt.operation_id !== view.operation.operation_id ||
+          receipt.operation_digest !== view.operation_digest || receipt.grant_id !== 'grant:' + flight.proofNonce ||
+          binding.contracts.canonicalJson(receipt.result) !== binding.contracts.canonicalJson(result.record) ||
+          !['completed','pending'].includes(result.authority_settlement) ||
+          (result.authority_settlement === 'completed' && result.reconciliation_required) ||
+          (result.authority_settlement === 'pending' && !result.reconciliation_required)) {
+        throw new PrimeTransportError('TARGET_MISMATCH', 'ui:memory-workflow-receipt-mismatch')
+      }
+    }
+    return result
+  }
   const api = {
     getSnapshot: () => state,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
     connect(next) {
+      cancelApprovalAction(); approvalAction = null
       ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); stopTimer(); operation = undefined; ownerKind = undefined; memoryCapture = undefined
       binding = next
       try {
@@ -118,6 +169,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         notify({ phase: available ? 'logged_out' : 'unavailable', owner: null, owner_id: next.owner_id ?? '', presentation: null, operation_available: false,
           login_kinds: Object.freeze((next.loginKinds ?? ['passkey']).filter(kind => kind === 'passkey' || kind === 'owner_key')),
           fixture: next.fixture === true, capabilities:null, capability_status:next.fixture === true ? 'fixture' : 'pending', authority_available:available,
+          approval_action_available:false, approval_action_pending:false, approval_action_result:null,
           expired: false, error_code: available ? null : 'UNAVAILABLE', reason: available
             ? 'Sign in with an existing credential. The host must confirm your identity.' : 'Owner access is unavailable until the host supplies its capability status.' })
         if (next.operation) api.setOperation(next.operation, { memoryCapture: next.memoryCapture })
@@ -135,7 +187,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
     },
     setOwnerId(owner_id) { if (!pending && !state.owner) notify({ owner_id }) },
     setOperation(proposal, options = {}) {
-      if (pending || state.phase === 'outcome_unknown') throw new PrimeTransportError('RECONCILIATION_REQUIRED', 'An authority request is pending or needs reconciliation.')
+      if (pending || approvalFlight || approvalActionBlocked || state.phase === 'outcome_unknown') throw new PrimeTransportError('RECONCILIATION_REQUIRED', 'An authority request is pending or needs reconciliation.')
       try {
         binding.contracts.validateContract('OperationProposal', proposal)
         const proposed = immutable(JSON.parse(binding.contracts.canonicalJson(proposal)))
@@ -152,7 +204,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         fail(error)
         throw error
       }
-      notify({ operation_available: true, presentation: null, expired: false,
+      notify({ operation_available: true, presentation: null, expired: false, approval_action_result:null,
         phase: state.owner ? 'authenticated' : state.phase, reason: 'The host supplied an operation. Request a fresh review before deciding.' })
       checkExpiry()
     },
@@ -165,6 +217,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       })
     },
     prepare() {
+      if (approvalFlight || approvalActionBlocked) { fail(new PrimeTransportError('RECONCILIATION_REQUIRED', 'A memory action is pending or needs reconciliation.')); return Promise.resolve(null) }
       if (!transport || !state.authority_available || !operation) { fail(new PrimeTransportError('UNAVAILABLE', 'An available authority and a host operation are required.')); return Promise.resolve(null) }
       return action('review_pending', signal => transport.prepareApproval(operation, { signal, memoryCapture }), presentation => {
         notify({ phase: 'review_ready', presentation, expired: false, error_code: null,
@@ -175,11 +228,74 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       if (state.phase !== 'review_ready' || state.expired || !state.authority_available) return Promise.resolve(null)
       const presentation = state.presentation
       return action('approval_pending', signal => transport.approve(presentation, { kind: ownerKind ?? 'passkey', signal }), result => {
+        if (approvalFlight?.revision === revision && approvalFlight.presentation === presentation) {
+          approvalFlight.approved = true; approvalFlight.proofNonce = result.approval_proof.nonce
+        }
         notify({ phase: 'approved', error_code: null, reason: result.status === 'APPROVED'
           ? 'The host confirmed approval of this exact operation. Execution has not been confirmed.' : 'The result is unknown.' })
       })
     },
+    setApprovalAction(handler) {
+      if (handler !== null && typeof handler !== 'function') throw new PrimeTransportError('INVALID', 'ui:invalid-approval-action')
+      if (approvalFlight && handler !== null) throw new PrimeTransportError('RECONCILIATION_REQUIRED', 'A memory action is still pending.')
+      // A detached workflow must not receive a late approved proof and save.
+      // Dropping the local owner fences the same adapter/workflow generation.
+      if (handler === null && approvalFlight) api.logout()
+      else if (handler === null) cancelApprovalAction()
+      approvalAction = handler
+      notify({ approval_action_available: handler !== null && !approvalActionBlocked })
+    },
+    submitApproval() {
+      if (approvalActionBlocked) { fail(new PrimeTransportError('RECONCILIATION_REQUIRED', 'The memory action needs reconciliation; do not retry.')); return Promise.resolve(null) }
+      if (approvalFlight) {
+        if (approvalFlight.revision === revision && approvalFlight.presentation === state.presentation) return approvalFlight.promise
+        fail(new PrimeTransportError('RECONCILIATION_REQUIRED', 'A previous memory action is unresolved.')); return Promise.resolve(null)
+      }
+      if (state.phase !== 'review_ready' || state.expired || !state.authority_available) return Promise.resolve(null)
+      if (state.presentation.operation.action_type !== 'memory.save') return api.approve()
+      if (!approvalAction) { fail(new PrimeTransportError('UNAVAILABLE', 'ui:memory-approval-action-unavailable')); return Promise.resolve(null) }
+      const flight = { revision, presentation: state.presentation, owner: state.owner, handler: approvalAction,
+        approved: false, abort: new AbortController(), promise: null }
+      approvalFlight = flight
+      // Publish only after the shared promise exists; listener-triggered clicks coalesce too.
+      flight.promise = Promise.resolve().then(async () => {
+        if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null
+        try {
+          const value = await flight.handler(flight.presentation, { signal: flight.abort.signal })
+          const stale = revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted
+          if (stale) {
+            if (value?.reconciliation_required === true || value?.save === 'unknown' || flight.approved) approvalActionBlocked = true
+            return null
+          }
+          const result = workflowResult(value, flight)
+          const unresolved = result.reconciliation_required || result.save === 'unknown' || result.phase === 'outcome_unknown'
+          if (unresolved) approvalActionBlocked = true
+          notify({ approval_action_result: result, approval_action_available: !!approvalAction && !approvalActionBlocked,
+            phase: unresolved ? 'outcome_unknown' : result.save === 'saved' ? 'approved' : result.phase === 'refused' ? 'refused' : state.phase,
+            error_code: unresolved ? 'RECONCILIATION_REQUIRED' : result.error_code,
+            reason: result.save === 'saved' ? (unresolved
+              ? 'The host workflow confirmed the save; authority settlement needs reconciliation.'
+              : 'The host workflow confirmed the save with its receipt. Index and citation status are shown separately.')
+              : unresolved ? 'The host has not confirmed the memory save outcome. Reconciliation is required; do not retry.'
+              : 'The host workflow did not confirm a memory save. Approval alone does not confirm storage.' })
+          return result
+        } catch (error) {
+          if (flight.approved || ['OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(error?.code)) approvalActionBlocked = true
+          if (revision === flight.revision && state.owner === flight.owner) {
+            fail(approvalActionBlocked ? new PrimeTransportError('OUTCOME_UNKNOWN', 'ui:memory-action-outcome-unknown') : error)
+            notify({ approval_action_available: !!approvalAction && !approvalActionBlocked })
+          }
+          return null
+        } finally {
+          if (approvalFlight === flight) approvalFlight = null
+          if (revision === flight.revision) notify({ approval_action_pending:false })
+        }
+      })
+      notify({ approval_action_pending:true, approval_action_result:null })
+      return flight.promise
+    },
     decline() {
+      if (approvalFlight || approvalActionBlocked) { fail(new PrimeTransportError('RECONCILIATION_REQUIRED', 'A memory action is pending or needs reconciliation.')); return Promise.resolve(null) }
       if (state.phase !== 'review_ready' || state.expired || !state.authority_available) return Promise.resolve(null)
       const presentation = state.presentation
       return action('decline_pending', signal => transport.decline(presentation, { signal }), () => {
@@ -187,16 +303,20 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       })
     },
     logout() {
+      cancelApprovalAction()
       ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); stopTimer()
       ownerKind = undefined
       notify({ phase: transport && state.authority_available ? 'logged_out' : 'unavailable', owner: null, presentation: null, expired: false,
+        approval_action_pending:false, approval_action_result:null, approval_action_available:!!approvalAction && !approvalActionBlocked,
         reason: 'Signed out. A new host-confirmed session is required.', error_code: null })
     },
     disconnect() {
+      cancelApprovalAction(); approvalAction = null
       ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); transport = undefined; ownerKind = undefined; operation = undefined; memoryCapture = undefined; stopTimer()
-      notify({ phase:'unavailable',owner:null,presentation:null,operation_available:false,expired:false,error_code:'UNAVAILABLE',reason:'Authority transport is unavailable.',authority_available:false })
+      notify({ phase:'unavailable',owner:null,presentation:null,operation_available:false,expired:false,error_code:'UNAVAILABLE',reason:'Authority transport is unavailable.',authority_available:false,
+        approval_action_available:false,approval_action_pending:false,approval_action_result:null })
     },
-    dispose() { ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); stopTimer(); listeners.clear() },
+    dispose() { cancelApprovalAction(); approvalAction = null; ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); stopTimer(); listeners.clear() },
   }
   return Object.freeze(api)
 }

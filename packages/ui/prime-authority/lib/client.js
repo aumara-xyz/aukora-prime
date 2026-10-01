@@ -654,6 +654,7 @@ window.__ModuleLoader__.load({
 		function createPrimeOwnerController({ now = Date.now, schedule = setTimeout, unschedule = clearTimeout } = {}) {
 			const listeners = /* @__PURE__ */ new Set();
 			let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture;
+			let approvalAction = null, approvalFlight = null, approvalActionBlocked = false;
 			let state = Object.freeze({
 				phase: "unavailable",
 				owner: null,
@@ -667,7 +668,10 @@ window.__ModuleLoader__.load({
 				error_code: "UNAVAILABLE",
 				capabilities: null,
 				capability_status: "pending",
-				authority_available: false
+				authority_available: false,
+				approval_action_available: false,
+				approval_action_pending: false,
+				approval_action_result: null
 			});
 			const notify = (patch) => {
 				state = Object.freeze({
@@ -742,6 +746,94 @@ window.__ModuleLoader__.load({
 				pending.promise = promise;
 				return promise;
 			}
+			const cancelApprovalAction = () => {
+				approvalFlight?.abort.abort();
+				if (approvalFlight?.approved) approvalActionBlocked = true;
+			};
+			function workflowResult(value, flight) {
+				const result = immutable(JSON.parse(binding.contracts.canonicalJson(value)));
+				if (!result || Array.isArray(result) || Object.keys(result).sort().join(",") !== [
+					"phase",
+					"operation",
+					"memory_capture",
+					"operation_digest",
+					"approval",
+					"save",
+					"saved",
+					"record",
+					"receipt",
+					"receipt_digest",
+					"citation",
+					"citation_status",
+					"index",
+					"authority_settlement",
+					"reconciliation_required",
+					"error_code",
+					"read_error_code"
+				].sort().join(",") || ![
+					"idle",
+					"proposal_pending",
+					"proposed",
+					"approval_pending",
+					"save_pending",
+					"saved",
+					"refused",
+					"outcome_unknown",
+					"unavailable"
+				].includes(result.phase) || ![
+					"not_requested",
+					"pending",
+					"approved",
+					"refused",
+					"unknown"
+				].includes(result.approval) || ![
+					"not_attempted",
+					"pending",
+					"saved",
+					"refused",
+					"unknown"
+				].includes(result.save) || ![
+					true,
+					false,
+					null
+				].includes(result.saved) || typeof result.reconciliation_required !== "boolean" || !result.index || Object.keys(result.index).sort().join(",") !== "indexed,searchable,status" || ![
+					"unconfirmed",
+					"pending",
+					"failed",
+					"indexed",
+					"searchable"
+				].includes(result.index.status) || ![
+					true,
+					false,
+					null
+				].includes(result.index.indexed) || ![
+					true,
+					false,
+					null
+				].includes(result.index.searchable) || ![
+					"not_requested",
+					"pending",
+					"verified",
+					"unverified",
+					"missing",
+					"unavailable"
+				].includes(result.citation_status) || ![
+					null,
+					"completed",
+					"pending"
+				].includes(result.authority_settlement) || [result.error_code, result.read_error_code].some((code) => code !== null && (typeof code !== "string" || code.length > 128)) || result.receipt_digest !== null && !/^sha256:[a-f0-9]{64}$/.test(result.receipt_digest)) throw new PrimeTransportError("INVALID", "ui:invalid-memory-workflow-result");
+				if (result.operation) {
+					if (binding.contracts.canonicalJson(result.operation) !== flight.presentation.canonical_operation || result.operation_digest !== flight.presentation.operation_digest) throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-workflow-operation-changed");
+					validateCaptureReview(result.operation.canonical_parameters, result.memory_capture);
+				}
+				if (result.saved === true || result.save === "saved") {
+					binding.contracts.validateContract("MemoryRecord", result.record);
+					const original = JSON.parse(result.record.canonical_bytes);
+					const view = flight.presentation, receipt = result.receipt;
+					if (!flight.approved || result.saved !== true || result.save !== "saved" || result.approval !== "approved" || !result.operation || result.record.storage_status !== "saved" || result.record.owner_subject !== view.operation.target_identity.owner_subject || result.record.task_id !== view.operation.task_id || original.statement !== view.memory_review.statement || original.attributedTo !== view.memory_review.attributed_to || receipt?.status !== "applied" || receipt.operation_id !== view.operation.operation_id || receipt.operation_digest !== view.operation_digest || receipt.grant_id !== "grant:" + flight.proofNonce || binding.contracts.canonicalJson(receipt.result) !== binding.contracts.canonicalJson(result.record) || !["completed", "pending"].includes(result.authority_settlement) || result.authority_settlement === "completed" && result.reconciliation_required || result.authority_settlement === "pending" && !result.reconciliation_required) throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-workflow-receipt-mismatch");
+				}
+				return result;
+			}
 			const api = {
 				getSnapshot: () => state,
 				subscribe(listener) {
@@ -749,6 +841,8 @@ window.__ModuleLoader__.load({
 					return () => listeners.delete(listener);
 				},
 				connect(next) {
+					cancelApprovalAction();
+					approvalAction = null;
 					++revision;
 					pending?.abort.abort();
 					pending = void 0;
@@ -781,6 +875,9 @@ window.__ModuleLoader__.load({
 							capabilities: null,
 							capability_status: next.fixture === true ? "fixture" : "pending",
 							authority_available: available,
+							approval_action_available: false,
+							approval_action_pending: false,
+							approval_action_result: null,
 							expired: false,
 							error_code: available ? null : "UNAVAILABLE",
 							reason: available ? "Sign in with an existing credential. The host must confirm your identity." : "Owner access is unavailable until the host supplies its capability status."
@@ -816,7 +913,7 @@ window.__ModuleLoader__.load({
 					if (!pending && !state.owner) notify({ owner_id });
 				},
 				setOperation(proposal, options = {}) {
-					if (pending || state.phase === "outcome_unknown") throw new PrimeTransportError("RECONCILIATION_REQUIRED", "An authority request is pending or needs reconciliation.");
+					if (pending || approvalFlight || approvalActionBlocked || state.phase === "outcome_unknown") throw new PrimeTransportError("RECONCILIATION_REQUIRED", "An authority request is pending or needs reconciliation.");
 					try {
 						binding.contracts.validateContract("OperationProposal", proposal);
 						const proposed = immutable(JSON.parse(binding.contracts.canonicalJson(proposal)));
@@ -841,6 +938,7 @@ window.__ModuleLoader__.load({
 						operation_available: true,
 						presentation: null,
 						expired: false,
+						approval_action_result: null,
 						phase: state.owner ? "authenticated" : state.phase,
 						reason: "The host supplied an operation. Request a fresh review before deciding."
 					});
@@ -868,6 +966,10 @@ window.__ModuleLoader__.load({
 					});
 				},
 				prepare() {
+					if (approvalFlight || approvalActionBlocked) {
+						fail(new PrimeTransportError("RECONCILIATION_REQUIRED", "A memory action is pending or needs reconciliation."));
+						return Promise.resolve(null);
+					}
 					if (!transport || !state.authority_available || !operation) {
 						fail(new PrimeTransportError("UNAVAILABLE", "An available authority and a host operation are required."));
 						return Promise.resolve(null);
@@ -892,6 +994,10 @@ window.__ModuleLoader__.load({
 						kind: ownerKind ?? "passkey",
 						signal
 					}), (result) => {
+						if (approvalFlight?.revision === revision && approvalFlight.presentation === presentation) {
+							approvalFlight.approved = true;
+							approvalFlight.proofNonce = result.approval_proof.nonce;
+						}
 						notify({
 							phase: "approved",
 							error_code: null,
@@ -899,7 +1005,82 @@ window.__ModuleLoader__.load({
 						});
 					});
 				},
+				setApprovalAction(handler) {
+					if (handler !== null && typeof handler !== "function") throw new PrimeTransportError("INVALID", "ui:invalid-approval-action");
+					if (approvalFlight && handler !== null) throw new PrimeTransportError("RECONCILIATION_REQUIRED", "A memory action is still pending.");
+					if (handler === null && approvalFlight) api.logout();
+					else if (handler === null) cancelApprovalAction();
+					approvalAction = handler;
+					notify({ approval_action_available: handler !== null && !approvalActionBlocked });
+				},
+				submitApproval() {
+					if (approvalActionBlocked) {
+						fail(new PrimeTransportError("RECONCILIATION_REQUIRED", "The memory action needs reconciliation; do not retry."));
+						return Promise.resolve(null);
+					}
+					if (approvalFlight) {
+						if (approvalFlight.revision === revision && approvalFlight.presentation === state.presentation) return approvalFlight.promise;
+						fail(new PrimeTransportError("RECONCILIATION_REQUIRED", "A previous memory action is unresolved."));
+						return Promise.resolve(null);
+					}
+					if (state.phase !== "review_ready" || state.expired || !state.authority_available) return Promise.resolve(null);
+					if (state.presentation.operation.action_type !== "memory.save") return api.approve();
+					if (!approvalAction) {
+						fail(new PrimeTransportError("UNAVAILABLE", "ui:memory-approval-action-unavailable"));
+						return Promise.resolve(null);
+					}
+					const flight = {
+						revision,
+						presentation: state.presentation,
+						owner: state.owner,
+						handler: approvalAction,
+						approved: false,
+						abort: new AbortController(),
+						promise: null
+					};
+					approvalFlight = flight;
+					flight.promise = Promise.resolve().then(async () => {
+						if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null;
+						try {
+							const value = await flight.handler(flight.presentation, { signal: flight.abort.signal });
+							if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) {
+								if (value?.reconciliation_required === true || value?.save === "unknown" || flight.approved) approvalActionBlocked = true;
+								return null;
+							}
+							const result = workflowResult(value, flight);
+							const unresolved = result.reconciliation_required || result.save === "unknown" || result.phase === "outcome_unknown";
+							if (unresolved) approvalActionBlocked = true;
+							notify({
+								approval_action_result: result,
+								approval_action_available: !!approvalAction && !approvalActionBlocked,
+								phase: unresolved ? "outcome_unknown" : result.save === "saved" ? "approved" : result.phase === "refused" ? "refused" : state.phase,
+								error_code: unresolved ? "RECONCILIATION_REQUIRED" : result.error_code,
+								reason: result.save === "saved" ? unresolved ? "The host workflow confirmed the save; authority settlement needs reconciliation." : "The host workflow confirmed the save with its receipt. Index and citation status are shown separately." : unresolved ? "The host has not confirmed the memory save outcome. Reconciliation is required; do not retry." : "The host workflow did not confirm a memory save. Approval alone does not confirm storage."
+							});
+							return result;
+						} catch (error) {
+							if (flight.approved || ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(error?.code)) approvalActionBlocked = true;
+							if (revision === flight.revision && state.owner === flight.owner) {
+								fail(approvalActionBlocked ? new PrimeTransportError("OUTCOME_UNKNOWN", "ui:memory-action-outcome-unknown") : error);
+								notify({ approval_action_available: !!approvalAction && !approvalActionBlocked });
+							}
+							return null;
+						} finally {
+							if (approvalFlight === flight) approvalFlight = null;
+							if (revision === flight.revision) notify({ approval_action_pending: false });
+						}
+					});
+					notify({
+						approval_action_pending: true,
+						approval_action_result: null
+					});
+					return flight.promise;
+				},
 				decline() {
+					if (approvalFlight || approvalActionBlocked) {
+						fail(new PrimeTransportError("RECONCILIATION_REQUIRED", "A memory action is pending or needs reconciliation."));
+						return Promise.resolve(null);
+					}
 					if (state.phase !== "review_ready" || state.expired || !state.authority_available) return Promise.resolve(null);
 					const presentation = state.presentation;
 					return action("decline_pending", (signal) => transport.decline(presentation, { signal }), () => {
@@ -911,6 +1092,7 @@ window.__ModuleLoader__.load({
 					});
 				},
 				logout() {
+					cancelApprovalAction();
 					++revision;
 					pending?.abort.abort();
 					pending = void 0;
@@ -922,11 +1104,16 @@ window.__ModuleLoader__.load({
 						owner: null,
 						presentation: null,
 						expired: false,
+						approval_action_pending: false,
+						approval_action_result: null,
+						approval_action_available: !!approvalAction && !approvalActionBlocked,
 						reason: "Signed out. A new host-confirmed session is required.",
 						error_code: null
 					});
 				},
 				disconnect() {
+					cancelApprovalAction();
+					approvalAction = null;
 					++revision;
 					pending?.abort.abort();
 					pending = void 0;
@@ -944,10 +1131,15 @@ window.__ModuleLoader__.load({
 						expired: false,
 						error_code: "UNAVAILABLE",
 						reason: "Authority transport is unavailable.",
-						authority_available: false
+						authority_available: false,
+						approval_action_available: false,
+						approval_action_pending: false,
+						approval_action_result: null
 					});
 				},
 				dispose() {
+					cancelApprovalAction();
+					approvalAction = null;
 					++revision;
 					pending?.abort.abort();
 					pending = void 0;
@@ -959,8 +1151,8 @@ window.__ModuleLoader__.load({
 			return Object.freeze(api);
 		}
 		//#endregion
-		//#region \0dsh-css:logical-source:packages/contracts/src/browser.mjs
-		const css = ".GiOGDW_surface[hidden]{display:none!important}.GiOGDW_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.GiOGDW_header{flex-direction:column;align-items:flex-start;gap:4px}.GiOGDW_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.GiOGDW_header p{color:var(--aukora-text-secondary);margin:0}.GiOGDW_card{min-width:0;padding:16px}.GiOGDW_card h2{margin-top:0;font-size:16px;font-weight:600}.GiOGDW_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.GiOGDW_fields{flex-direction:column;gap:12px;display:flex}.GiOGDW_fields dd{margin:0}.GiOGDW_fields dt{color:var(--aukora-text-secondary);font-size:13px}.GiOGDW_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.GiOGDW_owner{flex-direction:column;gap:8px;display:flex}.GiOGDW_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.GiOGDW_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.GiOGDW_error{color:var(--aukora-red-warning)}.GiOGDW_menu{width:100%}.GiOGDW_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.GiOGDW_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.GiOGDW_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.GiOGDW_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.GiOGDW_badgePanel h2{font-size:14px}";
+		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
+		const css = ".fNz25W_surface[hidden]{display:none!important}.fNz25W_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.fNz25W_header{flex-direction:column;align-items:flex-start;gap:4px}.fNz25W_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.fNz25W_header p{color:var(--aukora-text-secondary);margin:0}.fNz25W_card{min-width:0;padding:16px}.fNz25W_card h2{margin-top:0;font-size:16px;font-weight:600}.fNz25W_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.fNz25W_fields{flex-direction:column;gap:12px;display:flex}.fNz25W_fields dd{margin:0}.fNz25W_fields dt{color:var(--aukora-text-secondary);font-size:13px}.fNz25W_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.fNz25W_owner{flex-direction:column;gap:8px;display:flex}.fNz25W_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.fNz25W_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.fNz25W_error{color:var(--aukora-red-warning)}.fNz25W_menu{width:100%}.fNz25W_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.fNz25W_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.fNz25W_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.fNz25W_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.fNz25W_badgePanel h2{font-size:14px}";
 		const tagId = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -970,23 +1162,23 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "GiOGDW_actions",
-			"badge": "GiOGDW_badge",
-			"badgePanel": "GiOGDW_badgePanel",
-			"capabilities": "GiOGDW_capabilities",
-			"card": "GiOGDW_card",
-			"error": "GiOGDW_error",
-			"fields": "GiOGDW_fields",
-			"header": "GiOGDW_header",
-			"menu": "GiOGDW_menu",
-			"owner": "GiOGDW_owner",
-			"surface": "GiOGDW_surface"
+			"actions": "fNz25W_actions",
+			"badge": "fNz25W_badge",
+			"badgePanel": "fNz25W_badgePanel",
+			"capabilities": "fNz25W_capabilities",
+			"card": "fNz25W_card",
+			"error": "fNz25W_error",
+			"fields": "fNz25W_fields",
+			"header": "fNz25W_header",
+			"menu": "fNz25W_menu",
+			"owner": "fNz25W_owner",
+			"surface": "fNz25W_surface"
 		};
 		//#endregion
 		//#region lib/types/client/OwnerSurface.js
 		function OwnerSurface({ activeSurface, controller }) {
 			const state = (0, react.useSyncExternalStore)(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
-			const busy = state.phase.endsWith("_pending");
+			const busy = state.phase.endsWith("_pending") || state.approval_action_pending;
 			const locked = busy || state.phase === "outcome_unknown";
 			const view = state.presentation;
 			let memoryReady = view?.operation.action_type !== "memory.save";
@@ -1125,9 +1317,9 @@ window.__ModuleLoader__.load({
 									className: OwnerSurface_module_css_default.actions,
 									children: [(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
 										variant: "gold",
-										disabled: state.phase !== "review_ready" || state.expired || !state.authority_available || !memoryReady,
+										disabled: state.phase !== "review_ready" || state.expired || !state.authority_available || !memoryReady || busy || view.operation.action_type === "memory.save" && !state.approval_action_available,
 										onClick: () => {
-											controller.approve();
+											controller.submitApproval();
 										},
 										children: "Approve exact operation"
 									}), (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
@@ -1138,8 +1330,65 @@ window.__ModuleLoader__.load({
 										},
 										children: "Decline"
 									})]
+								}),
+								view.operation.action_type === "memory.save" && !state.approval_action_available && !state.approval_action_result && (0, react_jsx_runtime.jsx)("p", {
+									role: "status",
+									"data-memory-action-unavailable": true,
+									children: "The memory approval workflow is unavailable."
 								})
 							] })
+						]
+					}),
+					state.approval_action_result && (0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
+						className: OwnerSurface_module_css_default.card,
+						"data-memory-workflow-result": true,
+						children: [
+							(0, react_jsx_runtime.jsx)("h2", { children: "Host memory workflow result" }),
+							(0, react_jsx_runtime.jsxs)("dl", {
+								className: OwnerSurface_module_css_default.fields,
+								children: [
+									(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Approval" }), (0, react_jsx_runtime.jsx)("dd", {
+										"data-memory-approval-status": true,
+										children: state.approval_action_result.approval
+									})] }),
+									(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Save" }), (0, react_jsx_runtime.jsx)("dd", {
+										"data-memory-save-status": true,
+										children: state.approval_action_result.save
+									})] }),
+									(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Index" }), (0, react_jsx_runtime.jsx)("dd", {
+										"data-memory-index-status": true,
+										children: state.approval_action_result.index.status
+									})] }),
+									(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Citation" }), (0, react_jsx_runtime.jsx)("dd", {
+										"data-memory-citation-status": true,
+										children: state.approval_action_result.citation_status
+									})] }),
+									(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Authority settlement" }), (0, react_jsx_runtime.jsx)("dd", {
+										"data-memory-settlement-status": true,
+										children: state.approval_action_result.authority_settlement ?? "unconfirmed"
+									})] }),
+									(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Receipt digest" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("pre", {
+										"data-memory-receipt-digest": true,
+										children: state.approval_action_result.receipt_digest ?? "unconfirmed"
+									}) })] })
+								]
+							}),
+							state.approval_action_result.reconciliation_required && (0, react_jsx_runtime.jsx)("p", {
+								role: "alert",
+								children: "Reconciliation is required. Do not retry this save."
+							}),
+							state.approval_action_result.read_error_code && (0, react_jsx_runtime.jsxs)("p", {
+								role: "status",
+								children: ["Index or citation read unavailable: ", state.approval_action_result.read_error_code]
+							}),
+							state.approval_action_result.receipt && (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact host receipt" }), (0, react_jsx_runtime.jsx)("pre", {
+								"data-memory-effect-receipt": true,
+								children: JSON.stringify(state.approval_action_result.receipt, null, 2)
+							})] }),
+							state.approval_action_result.citation && (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact citation" }), (0, react_jsx_runtime.jsx)("pre", {
+								"data-memory-citation": true,
+								children: JSON.stringify(state.approval_action_result.citation, null, 2)
+							})] })
 						]
 					}),
 					(0, react_jsx_runtime.jsx)("p", {

@@ -8,7 +8,7 @@ import css from './OwnerSurface.module.css'
 
 export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.surface'> & {controller:Controller}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
-  const busy = state.phase.endsWith('_pending')
+  const busy = state.phase.endsWith('_pending') || state.approval_action_pending
   const locked = busy || state.phase === 'outcome_unknown'
   const view = state.presentation
   let memoryReady = view?.operation.action_type !== 'memory.save'
@@ -58,13 +58,33 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
         <p>Fresh review challenge</p><pre data-review-challenge>{JSON.stringify(view.review_challenge, null, 2)}</pre>
         <p>Exact canonical operation</p><pre data-canonical-operation>{view.canonical_operation}</pre>
         <div className={css.actions}>
-          <ActionButton variant="gold" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available || !memoryReady}
-            onClick={() => { void controller.approve() }}>Approve exact operation</ActionButton>
+          <ActionButton variant="gold" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available || !memoryReady || busy ||
+              (view.operation.action_type === 'memory.save' && !state.approval_action_available)}
+            onClick={() => { void controller.submitApproval() }}>Approve exact operation</ActionButton>
           <ActionButton variant="red-warning" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available}
             onClick={() => { void controller.decline() }}>Decline</ActionButton>
         </div>
+        {view.operation.action_type === 'memory.save' && !state.approval_action_available && !state.approval_action_result &&
+          <p role="status" data-memory-action-unavailable>The memory approval workflow is unavailable.</p>}
       </>}
     </Panel>
+    {state.approval_action_result && <Panel className={css.card} data-memory-workflow-result>
+      <h2>Host memory workflow result</h2>
+      <dl className={css.fields}>
+        <div><dt>Approval</dt><dd data-memory-approval-status>{state.approval_action_result.approval}</dd></div>
+        <div><dt>Save</dt><dd data-memory-save-status>{state.approval_action_result.save}</dd></div>
+        <div><dt>Index</dt><dd data-memory-index-status>{state.approval_action_result.index.status}</dd></div>
+        <div><dt>Citation</dt><dd data-memory-citation-status>{state.approval_action_result.citation_status}</dd></div>
+        <div><dt>Authority settlement</dt><dd data-memory-settlement-status>{state.approval_action_result.authority_settlement ?? 'unconfirmed'}</dd></div>
+        <div><dt>Receipt digest</dt><dd><pre data-memory-receipt-digest>{state.approval_action_result.receipt_digest ?? 'unconfirmed'}</pre></dd></div>
+      </dl>
+      {state.approval_action_result.reconciliation_required && <p role="alert">Reconciliation is required. Do not retry this save.</p>}
+      {state.approval_action_result.read_error_code && <p role="status">Index or citation read unavailable: {state.approval_action_result.read_error_code}</p>}
+      {state.approval_action_result.receipt && <details><summary>Exact host receipt</summary>
+        <pre data-memory-effect-receipt>{JSON.stringify(state.approval_action_result.receipt, null, 2)}</pre></details>}
+      {state.approval_action_result.citation && <details><summary>Exact citation</summary>
+        <pre data-memory-citation>{JSON.stringify(state.approval_action_result.citation, null, 2)}</pre></details>}
+    </Panel>}
     <p role="status" aria-live="polite" data-prime-authority-status>{state.reason}</p>
     {state.error_code && <p role="alert" className={css.error} data-authority-error={state.error_code}>{state.error_code}</p>}
     {state.expired && <p role="alert">This session or review has expired.</p>}
