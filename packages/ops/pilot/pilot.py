@@ -326,12 +326,16 @@ def render(spec, out):
         (out / UNITS[kind]).write_text(text)
     for name, text in postgres_files().items():
         (out / name).write_text(text)
-    (out / 'peer-role.sql').write_text(peer_role_sql())
+    # Exclusive operator's least-privilege role/schema plan must be retained
+    # exactly. No guessed ownership, CREATE/TEMP, or schema grants are emitted.
+    (out / 'pg-role-plan.status.json').write_bytes(json_bytes(dict(
+        status='PENDING_EXCLUSIVE_OPERATOR_EXACT_PLAN', sql_emitted=False)))
     data = json_bytes(expectations(spec, texts))
     (out / 'expected-privileges.json').write_bytes(data)
     (out / 'deployment.json').write_bytes(json_bytes(spec))
     return dict(status='RENDERED_SOURCE', out=str(out), expected_privileges_sha256=sha(data),
-                runtime_qualification='PENDING', services_started=False, autostart=False)
+                runtime_qualification='PENDING', services_started=False, autostart=False,
+                postgres_role_plan='PENDING_EXCLUSIVE_OPERATOR_EXACT_PLAN')
 
 def command(argv, *, data=None, timeout=120):
     result = subprocess.run(argv, input=data, capture_output=True, env=ENV, timeout=timeout)
@@ -555,13 +559,8 @@ def install_units(spec):
                          'C reviewed setup API', 'H boot/manifest join', 'synthetic qualification'])
 
 def peer_role_sql():
-    """PG operator review text only. No connection, role creation or blind retry."""
-    return ("CREATE ROLE prime_memory LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
-            "NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 6 PASSWORD NULL;\n"
-            "CREATE DATABASE aukora_prime_synthetic OWNER prime_memory;\n"
-            "REVOKE ALL ON DATABASE aukora_prime_synthetic FROM PUBLIC;\n"
-            "\\connect aukora_prime_synthetic\nREVOKE ALL ON SCHEMA public FROM PUBLIC;\n"
-            "ALTER SCHEMA public OWNER TO prime_memory;\n")
+    """Only the exclusive operator defines database/schema/table privileges."""
+    raise Refusal('PG_OPERATOR_EXACT_ROLE_SCHEMA_PLAN_REQUIRED')
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)

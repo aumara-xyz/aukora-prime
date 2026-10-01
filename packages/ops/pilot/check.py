@@ -60,6 +60,8 @@ class PilotChecks(unittest.TestCase):
             result = pilot.render(self.spec, self.base / 'rendered')
         self.assertEqual(result['runtime_qualification'], 'PENDING')
         self.assertFalse(result['services_started'])
+        self.assertFalse((self.base / 'rendered/peer-role.sql').exists())
+        self.assertEqual(result['postgres_role_plan'], 'PENDING_EXCLUSIVE_OPERATOR_EXACT_PLAN')
         value = json.loads((self.base / 'rendered/expected-privileges.json').read_bytes())
         verify.validate_spec(value)
         observation = verify.verify(value, 'source', pilot.sha(pilot.json_bytes(value)))
@@ -175,8 +177,8 @@ class PilotChecks(unittest.TestCase):
         self.assertIn("unix_socket_group = 'prime-pg-socket'\nunix_socket_permissions = 0770", configs['postgresql.conf'])
         self.assertIn('local aukora_prime_synthetic prime_memory peer map=prime_memory_role', configs['pg_hba.conf'])
         self.assertEqual(configs['pg_ident.conf'], 'prime_memory_role prime-memory prime_memory\n')
-        self.assertIn('PASSWORD NULL', pilot.peer_role_sql())
-        self.assertIn('NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', pilot.peer_role_sql())
+        with self.assertRaisesRegex(pilot.Refusal, 'PG_OPERATOR_EXACT_ROLE_SCHEMA_PLAN_REQUIRED'):
+            pilot.peer_role_sql()
 
     def test_cluster_suppression_parser_rejects_ambiguous_policy(self):
         self.assertTrue(pilot.compatible_create_policy(b'# reviewed\ncreate_main_cluster = false # keep\n'))
