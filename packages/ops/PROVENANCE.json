@@ -64,7 +64,7 @@
   "legacy_digest_scope": "Retained v1 bytes for ordinary metadata, with C0/DEL guard; legacy exclusions and opaque link text do not establish physical containment or installation/loaded-code identity. Full-release digest separately covers marker and contained target bytes/modes.",
   "owned_repo_build_runtime_dependencies": [],
   "ordinary_verify_profile": {
-    "source_review_commit": "0712af79bea08e339497ece3ef45b389a0b0ecf1",
+    "source_review_commit": "284a16250474214d14d5012594fed69341fe4a46",
     "scope": "closed keyless ordinary source checks; no product acceptance",
     "missing_short_checks": [
       "authority-review-renewal",
