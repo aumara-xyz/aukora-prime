@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url'
 import {canonicalJson} from '../../contracts/src/runtime.mjs'
 import {provisionNewAuthorityStore} from '../../authority/src/index.mjs'
 import {startWorker} from '../src/worker.mjs'
+import {createPostgresWorkflowStore} from '../src/workflow-store.mjs'
 import {closed,copy} from '../src/registry.mjs'
 import {IDS,dFixture,validateProfile,readRootJson,fixturePaths,authorityConfig,registryEntries,scenario,credentialId,memoryCredentialId,validateCredential,access,must} from './deployed-profile.mjs'
 
@@ -84,6 +85,8 @@ async function main(){
   }else if(phase==='initialize'){
     must(role==='memory'&&args.length===6,'MEMORY_LOCAL_SETUP_ONLY')
     report=await (await dFixture()).initializeWorkerPostgresSchema({config:config.profile.postgres,fixture:config.profile.fixture,schema:'source',memoryUid:IDS.memory})
+    const pool=await workerConfig.createPgPool()
+    try{report={...report,workflow_reference_schema:await createPostgresWorkflowStore({pool}).migrate()}}finally{await pool.end()}
   }else if(phase==='verify'){
     must(role==='memory'&&args.length===8,'MEMORY_LOCAL_VERIFICATION_ONLY')
     const expected=await readRootJson(args[7],IDS.memory,IDS.memoryGroup),helper=await dFixture(),pool=await workerConfig.createPgPool()

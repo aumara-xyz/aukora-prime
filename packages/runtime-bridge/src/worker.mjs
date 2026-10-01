@@ -8,9 +8,10 @@ import {createAuthorityService} from '../../authority/src/index.mjs'
 import {createPostgresMemory} from '../../memory/src/index.mjs'
 import {createRuntimeBridge,createTrustedTaskRegistry} from './index.mjs'
 import {closed,copy} from './registry.mjs'
+import {createPostgresWorkflowStore} from './workflow-store.mjs'
 import {createIpcServer,createAuthorityIpcServer,createAuthorityIpcClient,PRIVATE_AUTHORITY_METHODS} from './ipc.mjs'
 
-const METHODS=Object.freeze({propose:'authority.propose',loginChallenge:'authority.loginChallenge',loginComplete:'authority.loginComplete',authenticateSession:'authority.authenticateSession',approvalChallenge:'authority.approvalChallenge',approvalComplete:'authority.approvalComplete',declineApproval:'authority.declineApproval',status:'authority.status',reserve:'authority.reserve',claimDispatch:'authority.claimDispatch',settleMemory:'authority.settleMemory',markOutcomeUnknown:'authority.markOutcomeUnknown'})
+const METHODS=Object.freeze({propose:'authority.propose',loginChallenge:'authority.loginChallenge',loginComplete:'authority.loginComplete',authenticateSession:'authority.authenticateSession',logoutSession:'authority.logoutSession',approvalChallenge:'authority.approvalChallenge',approvalComplete:'authority.approvalComplete',declineApproval:'authority.declineApproval',status:'authority.status',reserve:'authority.reserve',claimDispatch:'authority.claimDispatch',settleMemory:'authority.settleMemory',markOutcomeUnknown:'authority.markOutcomeUnknown'})
 const live=new Set(['approvalChallenge','approvalComplete','reserve','claimDispatch'])
 const factual=new Set(['settleMemory','markOutcomeUnknown'])
 const refuse=(reason)=>Object.assign(new Error(reason),{error_code:'UNAUTHORIZED'})
@@ -21,7 +22,7 @@ function requireMemoryOperation(operation,registry,identities,{factualOnly=false
   contracts.validateContract('OperationProposal',operation)
   closed(operation.target_identity,['kind','owner_subject'])
   const identity=identities.get(operation.owner_id)
-  if(operation.audience!=='aukora-prime.memory'||operation.action_type!=='memory.save'||operation.target_identity.kind!=='prime-memory'||operation.target_identity.owner_subject!==identity?.subject||(!factualOnly&&registry.authorizeTask(operation)?.authenticated!==true))throw refuse('WORKER_EXACT_MEMORY_TASK_REQUIRED')
+  if(operation.audience!=='aukora-prime.memory'||!['memory.save','memory.forget'].includes(operation.action_type)||operation.target_identity.kind!=='prime-memory'||operation.target_identity.owner_subject!==identity?.subject||(!factualOnly&&registry.authorizeTask(operation)?.authenticated!==true))throw refuse('WORKER_EXACT_MEMORY_TASK_REQUIRED')
   return operation
 }
 
@@ -42,12 +43,17 @@ export async function startAuthorityWorker(config) {
     const wrapper=copy(closed(input,['input','operation','operation_digest','observation']))
     const name=Object.keys(METHODS).find(key=>METHODS[key]===method)
     const operation=wrapper.operation
+    if(name==='logoutSession') {
+      closed(wrapper.input,['session_token'])
+      if(operation!==null||wrapper.operation_digest!==null||wrapper.observation!==null)throw refuse('WORKER_LOGOUT_SCOPE_UNEXPECTED')
+    }
     if(operation!==null) {
       requireMemoryOperation(operation,registry,identities,{factualOnly:factual.has(name)})
       if(wrapper.operation_digest!==contracts.operationDigest(operation))throw refuse('WORKER_OPERATION_DIGEST_REQUIRED')
       if(name==='propose')closed(wrapper.input,['session_token','operation'])
       if(wrapper.input.operation&&contracts.canonicalJson(wrapper.input.operation)!==contracts.canonicalJson(operation))throw refuse('WORKER_OPERATION_BINDING_REQUIRED')
     } else if(wrapper.operation_digest!==null)throw refuse('WORKER_OPERATION_DIGEST_UNEXPECTED')
+    if(typeof authority[name]!=='function')return {ok:false,error_code:'UNAVAILABLE',reason:'WORKER_AUTHORITY_SERVICE_UNMOUNTED:'+name}
     if(live.has(name)) {
       if(!operation)throw refuse('WORKER_REVIEWED_OPERATION_REQUIRED')
       const observed=copy(closed(wrapper.observation,['target_identity','state_version']))
@@ -88,6 +94,7 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
   let memory,pool,server
   const proxy=Object.freeze(Object.fromEntries(Object.entries(METHODS).map(([name,method])=>[name,async input=>{
     const detached=copy(input)
+    if(name==='logoutSession')closed(detached,['session_token'])
     let operation=detached.operation??null
     if(name==='approvalComplete') {
       const proof=detached.proof
@@ -107,8 +114,10 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
   try {
     pool=await config.createPgPool()
     memory=createPostgresMemory({pool,authority:proxy,contracts,indexTarget:config.indexTarget,indexGeneration:config.indexGeneration})
-    if(config.initializeSchema===true)await memory.migrate()
+    const workflowStore=createPostgresWorkflowStore({pool})
+    if(config.initializeSchema===true){await memory.migrate();await workflowStore.migrate()}
     const localMemory=Object.freeze({prepareCaptureBinding:memory.prepareCaptureBinding,captureAuthorizedRemembered:memory.captureAuthorizedRemembered,
+      prepareRecordMutationBinding:memory.prepareRecordMutationBinding,forgetRecord:memory.forgetRecord,reconcileEffect:memory.reconcileEffect,
       status:memory.status,cite:memory.cite,recall:memory.recall,async withAuthorityTargetObservation(host,operation,fn){
       const op=copy(operation),key=op.owner_id+'\0'+op.operation_id+'\0'+contracts.operationDigest(op)
       return memory.withAuthorityTargetObservation(host,op,async()=>{
@@ -117,7 +126,7 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
         try {return await fn()} finally {reviews.delete(key)}
       })
     }})
-    const bridge=createRuntimeBridge({authority:proxy,memory:localMemory,taskRegistry:registry,resolveHostContext:config.resolveHostContext,
+    const bridge=createRuntimeBridge({authority:proxy,memory:localMemory,workflowStore,taskRegistry:registry,resolveHostContext:config.resolveHostContext,
       ...(publicDispatch?{verifyHostQualification:config.verifyHostQualification}:{})})
     // Internal IPC uses the trusted service seam. Public composition rechecks
     // qualification on every call; capability preflight grants no authority.

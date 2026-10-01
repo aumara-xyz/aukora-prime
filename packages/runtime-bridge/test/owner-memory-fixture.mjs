@@ -13,6 +13,7 @@ import {createPrimeOwnerController} from '../../ui/prime-authority/src/client/co
 import {createRuntimeBridge,createTrustedTaskRegistry} from '../src/index.mjs'
 import {createOwnerMemoryWorkflow} from '../src/owner-memory-workflow.mjs'
 import {createUiAdapters} from '../src/ui-adapter.mjs'
+import {createPostgresWorkflowStore} from '../src/workflow-store.mjs'
 import {authorityFixture} from './authority-fixture.mjs'
 import {FixturePool} from './sql-fixture.mjs'
 
@@ -52,35 +53,50 @@ function deliveryGate() {
   }
 }
 
-async function fixture(t,{uiContracts=contracts,controllerFactory=createPrimeOwnerController,wrapCall}={}) {
+async function fixture(t,{uiContracts=contracts,controllerFactory=createPrimeOwnerController,wrapCall,actions=['memory.save']}={}) {
   const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-owner-memory-'))
-  const pool=new FixturePool(join(root,'memory.sqlite')),calls=[],replies=[],gates=new Map(),allGates=[],delivery=new Map()
+  const pool=new FixturePool(join(root,'memory.sqlite')),calls=[],replies=[],settlementInputs=[],gates=new Map(),allGates=[],delivery=new Map()
   const task={version:1,task_id:'synthetic-task',owner_id:ownerId,agent_id:'synthetic-agent',
     conversation_id:'synthetic-conversation',status:'running',created_at:at,route_id:null,allowed_data_classes:['synthetic'],
     max_input_tokens:100,max_output_tokens:100,max_requests:5,task_spend_ceiling:{currency:'USD',amount:'0'}}
   const taskRegistry=createTrustedTaskRegistry([{task,provider_and_region:{provider:'local',region:'local'},
     audience:'aukora-prime.memory',policy_version:'synthetic-policy',data_scope:['synthetic']}])
-  let queue=Promise.resolve(),memory,sessionToken,signerCalls=0,settlementCalls=0,failSettlement=false
-  const auth=authorityFixture({root,audience:'aukora-prime.memory',authorizeTask:taskRegistry.authorizeTask,
+  let queue=Promise.resolve(),memory,workflowStore,bridge,adapters,controller,workflow,sessionToken,signerCalls=0,settlementCalls=0,failSettlement=false
+  const provisionedAuth=authorityFixture({root,audience:'aukora-prime.memory',authorizeTask:taskRegistry.authorizeTask,actions,
     observeTarget:operation=>memory.authorityTargetObservation(operation)})
+  let service=provisionedAuth.service
+  const auth={...provisionedAuth,get service(){return service}}
   // This is a delivery failure around actual C. It never manufactures a
   // grant, approval, receipt, target observation or effect result.
-  const authority=new Proxy({...auth.service},{get(target,name) {
-    const value=Reflect.get(target,name)
+  const authority=new Proxy({},{get(_target,name) {
     if(name==='settleMemory')return async input=>{
       settlementCalls++
+      settlementInputs.push(structuredClone(input))
       if(failSettlement)throw new Error('synthetic C settlement delivery unavailable')
-      return value.call(target,input)
+      return service.settleMemory(input)
     }
-    return typeof value==='function'?value.bind(target):value
+    const value=Reflect.get(service,name)
+    return typeof value==='function'?value.bind(service):value
   }})
   const event=Buffer.from(JSON.stringify({type:'turn',text:'Synthetic owner likes banana.',seq:0,at})+'\n')
   const host={privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(event)},events:[event]}
-  memory=createPostgresMemory({pool,authority,contracts});await memory.migrate()
-  const bridge=createRuntimeBridge({authority,memory,taskRegistry,resolveHostContext:({request,session})=>{
+  const resolveHostContext=({request,session})=>{
     if(request?.route!=='owner-memory-fixture')throw new Error('synthetic trusted request association missing')
     return session?{task_id:task.task_id,memory_host:host}:{login_owner_id:ownerId}
-  }})
+  }
+  const buildServer=()=>{
+    memory=createPostgresMemory({pool,authority,contracts})
+    workflowStore=createPostgresWorkflowStore({pool})
+    bridge=createRuntimeBridge({authority,memory,workflowStore,taskRegistry,resolveHostContext})
+  }
+  buildServer();await memory.migrate();await workflowStore.migrate()
+  const restartServer=async()=>{
+    await queue
+    // New service objects reopen the existing C files and persisted SQL facts.
+    // This creates no store, credentials, migrations or PostgreSQL process.
+    service=provisionedAuth.restart();buildServer()
+    return {authority:service,memory,workflowStore,bridge}
+  }
   const bridgeCall=async(method,input)=>{
     calls.push({method,input:structuredClone(input)})
     const gate=gates.get(method),deliver=delivery.get(method)
@@ -94,16 +110,41 @@ async function fixture(t,{uiContracts=contracts,controllerFactory=createPrimeOwn
     const answer=gate?await gate.hold(result,input):result
     return deliver?deliver(answer,input):answer
   }
-  const adapters=createUiAdapters({call:typeof wrapCall==='function'?wrapCall(bridgeCall):bridgeCall})
-  const controller=controllerFactory({schedule:()=>null,unschedule:()=>{}})
-  const reconnect=()=>controller.connect({authority:adapters.authority,contracts:uiContracts,owner_id:ownerId,fixture:true,
-    passkeySigner:({public_key})=>{signerCalls++;return auth.assertion(public_key.challenge)}})
-  reconnect()
-  const workflow=createOwnerMemoryWorkflow({controller,memory:adapters.memory,contracts:uiContracts})
+  function mount(){
+    const freshAdapters=createUiAdapters({call:typeof wrapCall==='function'?wrapCall(bridgeCall):bridgeCall})
+    const freshController=controllerFactory({schedule:()=>null,unschedule:()=>{}})
+    const reconnect=()=>freshController.connect({authority:freshAdapters.authority,contracts:uiContracts,owner_id:ownerId,fixture:true,
+      passkeySigner:({public_key})=>{signerCalls++;return auth.assertion(public_key.challenge)}})
+    reconnect()
+    const freshWorkflow=createOwnerMemoryWorkflow({controller:freshController,memory:freshAdapters.memory,contracts:uiContracts})
+    adapters=freshAdapters;controller=freshController;workflow=freshWorkflow
+    const login=async()=>{
+      assert.notEqual(await freshController.login(),null)
+      assert.equal(freshController.getSnapshot().phase,'authenticated')
+    }
+    const prepare=async input=>{
+      await freshWorkflow.proposeSave(input)
+      const proposed=freshWorkflow.getSnapshot()
+      assert.equal(proposed.operation.action_type,'memory.save')
+      assert.notEqual(await freshController.prepare(),null)
+      assert.equal(freshController.getSnapshot().phase,'review_ready')
+      return proposed.operation
+    }
+    return {adapters:freshAdapters,controller:freshController,workflow:freshWorkflow,login,prepare,reconnect,memory,bridge,workflowStore,bridgeCall,restartServer}
+  }
+  const initialMount=mount()
+  const remount=async()=>{
+    const oldSession=sessionToken
+    assert.equal(ok(await adapters.logout()).status,'LOGGED_OUT','remount requires actual C session revocation')
+    assert.equal(auth.service.authenticateSession({session_token:oldSession}).ok,false,'the old session must no longer authenticate')
+    workflow.dispose();controller.dispose();sessionToken=undefined
+    await restartServer()
+    const next=mount();await next.login();return next
+  }
   t.after(async()=>{
-    workflow.dispose();controller.dispose();adapters.logout()
+    workflow.dispose();controller.dispose();const loggedOut=adapters.logout()
     for(const gate of allGates)gate.release()
-    await queue;pool.close();rmSync(root,{recursive:true,force:true})
+    await loggedOut;await queue;pool.close();rmSync(root,{recursive:true,force:true})
   })
   const gate=method=>{const value=deliveryGate();gates.set(method,value);allGates.push(value);return value}
   const count=method=>calls.filter(call=>call.method===method).length
@@ -111,19 +152,8 @@ async function fixture(t,{uiContracts=contracts,controllerFactory=createPrimeOwn
   const state=()=>JSON.parse(readFileSync(auth.config.statePath,'utf8'))
   const operationState=id=>ok(auth.service.status({session_token:sessionToken,operation_id:id}))
   const boundHost=()=>({...host,owner_id:ownerId,owner_subject:auth.identity.subject,task_id:task.task_id})
-  const login=async()=>{
-    assert.notEqual(await controller.login(),null)
-    assert.equal(controller.getSnapshot().phase,'authenticated')
-  }
-  const prepare=async input=>{
-    await workflow.proposeSave(input)
-    const proposed=workflow.getSnapshot()
-    assert.equal(proposed.operation.action_type,'memory.save')
-    assert.notEqual(await controller.prepare(),null)
-    assert.equal(controller.getSnapshot().phase,'review_ready')
-    return proposed.operation
-  }
-  return {pool,auth,host,memory,adapters,controller,workflow,calls,replies,delivery,gate,count,tableCount,state,operationState,boundHost,login,prepare,reconnect,
+  return {pool,auth,host,...initialMount,get memory(){return memory},get bridge(){return bridge},get workflowStore(){return workflowStore},
+    remount,restartServer,bridgeCall,calls,replies,settlementInputs,delivery,gate,count,tableCount,state,operationState,boundHost,
     signerCalls:()=>signerCalls,settlementCalls:()=>settlementCalls,setSettlementFailure:value=>{failSettlement=value}}
 }
 

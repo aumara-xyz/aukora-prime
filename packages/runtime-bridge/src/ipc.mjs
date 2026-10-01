@@ -13,15 +13,16 @@ const HEX = /^[a-f0-9]{64}$/
 const ID = /^[A-Za-z0-9_.-]{1,128}$/
 const ROLES = Object.freeze(['proposer', 'read_only', 'owner_control'])
 const reads = ['capability.status', 'owner.status', 'memory.status', 'memory.cite', 'memory.recall']
-const owner = ['owner.loginChallenge', 'owner.loginComplete', 'owner.approvalChallenge', 'owner.approvalComplete', 'owner.declineApproval', 'memory.save']
+const owner = ['owner.loginChallenge', 'owner.loginComplete', 'owner.logout', 'owner.approvalChallenge', 'owner.approvalComplete', 'owner.declineApproval', 'memory.save', 'memory.forget', 'memory.recover']
 export const IPC_METHOD_ROLES = Object.freeze(Object.fromEntries([
   ...reads.map(method => [method, ROLES]),
   ['memory.proposeSave', Object.freeze(['proposer', 'owner_control'])],
+  ['memory.proposeForget', Object.freeze(['proposer', 'owner_control'])],
   ...owner.map(method => [method, Object.freeze(['owner_control'])]),
 ]))
 export const PUBLIC_METHODS = Object.freeze(Object.keys(IPC_METHOD_ROLES))
 export const PRIVATE_AUTHORITY_METHODS = Object.freeze(['authority.propose','authority.loginChallenge','authority.loginComplete',
-  'authority.authenticateSession','authority.approvalChallenge','authority.approvalComplete','authority.declineApproval',
+  'authority.authenticateSession','authority.logoutSession','authority.approvalChallenge','authority.approvalComplete','authority.declineApproval',
   'authority.status','authority.reserve','authority.claimDispatch','authority.settleMemory','authority.markOutcomeUnknown'])
 const PRIVATE_ROLES = Object.freeze(['memory_effect'])
 const PRIVATE_METHOD_ROLES = Object.freeze(Object.fromEntries(PRIVATE_AUTHORITY_METHODS.map(method=>[method,PRIVATE_ROLES])))

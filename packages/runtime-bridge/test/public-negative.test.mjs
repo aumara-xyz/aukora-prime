@@ -13,6 +13,7 @@ import {sha256} from '../../memory/src/codecs.mjs'
 import {createRuntimeBridge,createTrustedTaskRegistry} from '../src/index.mjs'
 import {authorityFixture} from './authority-fixture.mjs'
 import {FixturePool} from './sql-fixture.mjs'
+import {createPostgresWorkflowStore} from '../src/workflow-store.mjs'
 
 const ownerId='synthetic-owner',at='2026-10-01T11:03:00Z'
 const extraction={category:'fact',statement:'banana',validFrom:'2026-10-01',observedAt:at,confidence:0.7,sensitivity:'none'}
@@ -34,11 +35,12 @@ async function fixture(t) {
   const event=Buffer.from(JSON.stringify({type:'turn',text:'Synthetic owner likes banana.',seq:0,at})+'\n')
   const host={privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(event)},events:[event]}
   memory=createPostgresMemory({pool,authority:auth.service,contracts});await memory.migrate()
+  const workflowStore=createPostgresWorkflowStore({pool});await workflowStore.migrate()
   const resolveHostContext=({request,session})=>{
     if(request?.route!=='negative-fixture')throw new Error('test-only trusted request association missing')
     return session?{task_id:task.task_id,memory_host:host}:{login_owner_id:ownerId}
   }
-  const base={authority:auth.service,memory,taskRegistry:registry,resolveHostContext}
+  const base={authority:auth.service,memory,workflowStore,taskRegistry:registry,resolveHostContext}
   const bridge=createRuntimeBridge({...base,verifyHostQualification:()=>({
     profile:'prime-separated-runtime-host/v1',environment:'production',accepted:true,app_uid:101,broker_uid:102,
     transport:'authenticated-ipc',owner_enrollment:'qualified',postgres_runtime:'qualified',

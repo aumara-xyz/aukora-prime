@@ -16,6 +16,7 @@ import {parseOriginal} from '../../memory/src/codecs.mjs'
 import {memoryEffectDigest,memoryReceiptDigest,memoryResultDigest} from '../../memory/src/authorization.mjs'
 import {planWorkerPostgresFixture,validateWorkerPostgresSaveExpectation} from '../../memory/test/worker-postgres-fixture.mjs'
 import {createRuntimeBridge,createTrustedTaskRegistry} from '../src/index.mjs'
+import {createPostgresWorkflowStore} from '../src/workflow-store.mjs'
 import {FixturePool} from './sql-fixture.mjs'
 import {runFixtureActor} from './deployed-actor.mjs'
 import {buildAuthorityWorker,buildMemoryWorker} from './deployed-bootstrap.mjs'
@@ -49,7 +50,7 @@ function workerInputs(profile){
 
 async function fixture(t){
   const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-deployed-source-test-'))
-  let pool=null,memory=null,authority=null,bridge=null
+  let pool=null,memory=null,workflowStore=null,authority=null,bridge=null
   t.after(()=>{pool?.close();rmSync(root,{recursive:true,force:true})})
   const planned=planWorkerPostgresFixture({config:{...PG_CONFIG},statePath:join(root,'public-fixture.json')})
   assert.equal(planned.PostgreSQL_connected,false)
@@ -68,11 +69,13 @@ async function fixture(t){
   assert.equal(unprovisioned.loginChallenge({owner_id:profile.identities[0].owner_id,kind:'passkey'}).ok,false)
   assert.equal(existsSync(config.statePath),false)
   assert.equal(ok(provisionNewAuthorityStore({...config,provisionTrustedState:true})).status,'PROVISIONED')
-  const connect=()=>{
+  const connect=async()=>{
     memory=createPostgresMemory({pool,authority,contracts,indexTarget:memoryWorker.indexTarget,indexGeneration:memoryWorker.indexGeneration})
-    bridge=createRuntimeBridge({authority,memory,taskRegistry,resolveHostContext:memoryWorker.resolveHostContext})
+    await memory.migrate()
+    workflowStore=createPostgresWorkflowStore({pool});await workflowStore.migrate()
+    bridge=createRuntimeBridge({authority,memory,workflowStore,taskRegistry,resolveHostContext:memoryWorker.resolveHostContext})
   }
-  authority=createAuthorityService(config);pool=new FixturePool(databasePath);connect();await memory.migrate()
+  authority=createAuthorityService(config);pool=new FixturePool(databasePath);await connect()
   const calls=[]
   const connections=Object.fromEntries(['primary','secondary'].map(owner=>[owner,{request:async(method,input)=>{
     const result=await bridge.handleTrusted(method,input,{role:'owner_control',request:{transport:'ipc',credential_id:credentialId(profile,owner)}})
@@ -83,7 +86,7 @@ async function fixture(t){
     get pool(){return pool},get memory(){return memory},get authority(){return authority},get bridge(){return bridge},
     readSigner:()=>readPrivateJson(signerPath),
     witness:{read:()=>readPrivateJson(witnessPath),write:value=>writePrivateJson(witnessPath,value,{exclusive:true})},
-    coldReopen(){pool.close();pool=new FixturePool(databasePath);authority=createAuthorityService(config);connect()},
+    async coldReopen(){pool.close();pool=new FixturePool(databasePath);authority=createAuthorityService(config);await connect()},
   }
 }
 
@@ -166,7 +169,7 @@ test('fixture actor/controller completes actual C/D save and all retained phases
   assert.deepEqual(saved.durable.map(s=>[s.owners.primary.counter,s.owners.secondary.counter]),[[1,0],[2,0],[2,1],[2,1]])
   const perPhase=[saved]
   for(const phase of PHASES.slice(1)){
-    f.coldReopen()
+    await f.coldReopen()
     const retained=await runPhase(f,phase)
     perPhase.push(retained)
     assert.deepEqual(retained.report.expected,expected)

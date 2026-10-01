@@ -11,6 +11,7 @@ import * as contracts from '../../contracts/src/runtime.mjs'
 import {createPostgresMemory} from '../../memory/src/index.mjs'
 import {sha256} from '../../memory/src/codecs.mjs'
 import {createRuntimeBridge,createTrustedTaskRegistry} from '../src/index.mjs'
+import {createPostgresWorkflowStore} from '../src/workflow-store.mjs'
 import {createUiAdapters} from '../src/ui-adapter.mjs'
 import {authorityFixture} from './authority-fixture.mjs'
 import {FixturePool} from './sql-fixture.mjs'
@@ -69,7 +70,8 @@ async function fixture(t) {
   const event=Buffer.from(JSON.stringify({type:'turn',text:'Synthetic owner likes banana.',seq:0,at})+'\n')
   const host={privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(event)},events:[event]}
   memory=createPostgresMemory({pool,authority:auth.service,contracts});await memory.migrate()
-  const bridge=createRuntimeBridge({authority:auth.service,memory,taskRegistry,
+  const workflowStore=createPostgresWorkflowStore({pool});await workflowStore.migrate()
+  const bridge=createRuntimeBridge({authority:auth.service,memory,workflowStore,taskRegistry,
     resolveHostContext:({request,session})=>{
       if(request?.route!=='lifecycle-fixture')throw new Error('synthetic trusted request association missing')
       return session?{task_id:task.task_id,memory_host:host}:{login_owner_id:ownerId}

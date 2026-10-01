@@ -3,6 +3,7 @@
 // B owns the controller, signer, review display and approval-action hook.
 import {canonicalJson,validateContract,ERROR_CODES} from '../../contracts/src/shared.mjs'
 import {validateCaptureDraft,validateCaptureReview} from '../../memory/src/capture-review.mjs'
+import {validatePilotMetadata} from './pilot-capture.mjs'
 
 const DIGEST=/^sha256:[a-f0-9]{64}$/, HEX=/^[a-f0-9]{64}$/
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
@@ -14,6 +15,39 @@ const copy=value=>JSON.parse(canonicalJson(value))
 function immutable(value){if(value&&typeof value==='object'){for(const child of Object.values(value))immutable(child);Object.freeze(value)}return value}
 const boundedString=(value,max)=>typeof value==='string'&&value.length>0&&new TextEncoder().encode(value).length<=max
 const errorCode=value=>codes.has(value?.error_code)?value.error_code:codes.has(value?.code)?value.code:'UNAVAILABLE'
+async function recoveryReply(value,owner){
+  const reply=copy(closed(value,['ok','owner_id','owner_subject','task_id','operation_id','operation_digest','action_type','state','reconciliation_required','result','receipt','receipt_digest','authority_settlement','citation','index']))
+  requireValue(reply.ok===true&&['idle','known_unsent','saved','forgotten','unknown'].includes(reply.state)
+    &&reply.reconciliation_required===(reply.state==='unknown')&&reply.owner_id===owner.owner_id
+    &&/^aukora:1:[a-f0-9]{64}$/.test(reply.owner_subject)&&boundedString(reply.task_id,1024),'OWNER_MEMORY_RECOVERY_REQUIRED')
+  requireValue(reply.state==='idle'?[reply.operation_id,reply.operation_digest,reply.action_type].every(value=>value===null)
+    :boundedString(reply.operation_id,1024)&&DIGEST.test(reply.operation_digest)&&['memory.save','memory.forget'].includes(reply.action_type),'OWNER_MEMORY_RECOVERY_REFERENCE_REQUIRED')
+  if(!['saved','forgotten'].includes(reply.state)){
+    requireValue(['result','receipt','receipt_digest','authority_settlement','citation','index'].every(key=>reply[key]===null),'OWNER_MEMORY_RECOVERY_NO_EFFECT_REQUIRED')
+    return immutable(reply)
+  }
+  const record=reply.result,receipt=reply.receipt
+  closed(receipt,['version','kind','operation_id','operation_digest','grant_id','request_id','request_digest','owner_subject','action_type','status','result_digest','result'])
+  requireValue(reply.action_type===(reply.state==='saved'?'memory.save':'memory.forget')&&receipt.version===1&&receipt.kind==='prime-memory-effect/v1'
+    &&receipt.operation_id===reply.operation_id&&receipt.operation_digest===reply.operation_digest&&DIGEST.test(reply.operation_digest)
+    &&receipt.owner_subject===reply.owner_subject&&receipt.action_type===reply.action_type&&receipt.status==='applied'
+    &&UUID.test(receipt.request_id)&&DIGEST.test(receipt.request_digest)&&DIGEST.test(receipt.result_digest)
+    &&record.grants_authority===false&&canonicalJson(receipt.result)===canonicalJson(record)
+    &&reply.authority_settlement==='completed'&&DIGEST.test(reply.receipt_digest),'OWNER_MEMORY_RECOVERY_BINDING_REQUIRED')
+  if(reply.state==='saved'){
+    validateContract('MemoryRecord',record)
+    requireValue(record.owner_subject===reply.owner_subject&&record.task_id===reply.task_id&&record.storage_status==='saved','OWNER_MEMORY_RECOVERY_RECORD_REQUIRED')
+  }else requireValue(record.state==='tombstoned'&&boundedString(record.record_id,1024)&&record.canonical_payload_retained===true
+    &&record.physical_media_erasure===false&&record.authority_approval_history_erased===false&&record.backups_erased===false&&record.wal_erased===false
+    &&reply.index===null&&reply.citation===null,'OWNER_MEMORY_RECOVERY_FORGET_REQUIRED')
+  const digest=async(domain,data)=>'sha256:'+Array.from(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(domain+'\0'+canonicalJson(data)))),byte=>byte.toString(16).padStart(2,'0')).join('')
+  requireValue(receipt.result_digest===await digest('aukora-prime.memory-result.v1',record)
+    &&reply.receipt_digest===await digest('aukora-prime.memory-receipt.v1',receipt),'OWNER_MEMORY_RECOVERY_DIGEST_REQUIRED')
+  const saved={record},entry={saved}
+  if(reply.index!==null){try{reply.index=indexReply({ok:true,...reply.index},entry)}catch{reply.index=null}}
+  if(reply.citation!==null){try{reply.citation=citeReply({ok:true,citation:reply.citation},entry)}catch{reply.citation=null}}
+  return immutable(reply)
+}
 const initial=()=>({phase:'idle',operation:null,memory_capture:null,operation_digest:null,approval:'not_requested',save:'not_attempted',saved:false,
   record:null,receipt:null,receipt_digest:null,citation:null,citation_status:'not_requested',index:{status:'unconfirmed',indexed:null,searchable:null},authority_settlement:null,
   reconciliation_required:false,error_code:null,read_error_code:null})
@@ -67,18 +101,19 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
   if(['getSnapshot','subscribe','setOperation','approve'].some(name=>typeof controller?.[name]!=='function')
     ||['proposeSave','save','status','cite'].some(name=>typeof memory?.[name]!=='function')||typeof contracts?.operationDigest!=='function')throw fault('UNAVAILABLE','OWNER_MEMORY_INJECTED_SERVICES_REQUIRED')
   const listeners=new Set(),usedKeys=new Set()
-  let state=immutable(initial()),active=null,proposalFlight=null,actionFlight=null,readFlight=null,disposed=false,blocked=false,generation=0,owner=controller.getSnapshot().owner
+  let state=immutable(initial()),active=null,proposalFlight=null,actionFlight=null,readFlight=null,disposed=false,blocked=false,blockedRef=null,generation=0,owner=controller.getSnapshot().owner
   const publish=patch=>{if(disposed)return;state=immutable({...state,...patch});for(const listener of listeners){try{listener()}catch{ /* Presentation listeners cannot change dispatch. */ }} }
   const current=entry=>!disposed&&entry.generation===generation&&controller.getSnapshot().owner===entry.owner
   const ownerReady=()=>{const snapshot=controller.getSnapshot();if(!snapshot.owner||snapshot.authority_available!==true||snapshot.expired===true||Date.parse(snapshot.owner.expiry)<=Date.now())throw fault('UNAUTHORIZED','OWNER_MEMORY_CURRENT_OWNER_REQUIRED');return snapshot}
   const unavailable=()=>{publish({error_code:'UNAVAILABLE'});return Promise.resolve(state)}
   const refuse=(code='INVALID')=>{publish({error_code:code});return Promise.resolve(state)}
-  const unknown=entry=>{blocked=true;if(current(entry))publish({phase:'outcome_unknown',save:entry.attempted?'unknown':state.save,saved:entry.attempted?null:state.saved,
+  const unknown=entry=>{blocked=true;if(entry.operation)blockedRef={operation_id:entry.operation.operation_id,digest:entry.digest,owner_id:entry.owner.owner_id};if(current(entry))publish({phase:'outcome_unknown',save:entry.attempted?'unknown':state.save,saved:entry.attempted?null:state.saved,
     approval:entry.attempted?'approved':'unknown',reconciliation_required:true,error_code:'OUTCOME_UNKNOWN'});return state}
   function cleared(phase){
     const confirmed=actionFlight?.entry.saved??active?.saved??(state.save==='saved'&&state.saved===true?{authority_settlement:state.authority_settlement}:null)
     const uncertain=(actionFlight?.entry.attempted===true&&!confirmed)||(state.save==='unknown'&&state.saved===null)
     if(uncertain)blocked=true
+    if(blocked&&!blockedRef){const entry=actionFlight?.entry??active;if(entry?.operation)blockedRef={operation_id:entry.operation.operation_id,digest:entry.digest,owner_id:entry.owner.owner_id}}
     // Hide the previous owner's record/receipt while retaining content-free
     // facts. Ending a session during reads cannot undo a confirmed save.
     return {...initial(),phase:blocked&&!confirmed?'outcome_unknown':phase,approval:confirmed||uncertain?'approved':blocked?'unknown':'not_requested',
@@ -114,6 +149,8 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
 
   const api={
     getSnapshot:()=>state,
+    /** Fixed server pilot metadata, separate from the B save-result contract. */
+    getCaptureMetadata:()=>active&&current(active)?active.metadata??null:null,
     subscribe(listener){if(typeof listener!=='function')throw new TypeError('INVALID: owner memory listener');if(disposed)return ()=>{};listeners.add(listener);return ()=>listeners.delete(listener)},
     proposeSave(input){
       if(disposed)return unavailable()
@@ -139,7 +176,8 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
           const digest=await contracts.operationDigest(operation)
           if(!current(entry))return state
           requireValue(DIGEST.test(digest),'OWNER_MEMORY_OPERATION_DIGEST_REQUIRED')
-          Object.assign(entry,{operation,memory_capture:capture,digest,operation_json:canonicalJson(operation)})
+          const metadata=proposed.capture_metadata?validatePilotMetadata(copy(proposed.capture_metadata)):null
+          Object.assign(entry,{operation,memory_capture:capture,digest,operation_json:canonicalJson(operation),metadata})
           controller.setOperation(operation,{memoryCapture:capture})
           if(!current(entry))return state
           active=entry
@@ -189,7 +227,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
           if(!current(entry))return state
           if(reply?.ok!==true){const code=errorCode(reply);if(['UNAVAILABLE','OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(code)||reply?.reconciliation_required===true)return unknown(entry);publish({phase:'refused',save:'refused',saved:false,error_code:code});return state}
           entry.saved=savedReply(reply,entry)
-          if(entry.saved.reconciliation_required)blocked=true
+          if(entry.saved.reconciliation_required){blocked=true;blockedRef={operation_id:entry.operation.operation_id,digest:entry.digest,owner_id:entry.owner.owner_id}}
           publish({phase:'saved',save:'saved',saved:true,record:entry.saved.record,receipt:entry.saved.receipt,receipt_digest:entry.saved.receipt_digest??null,index:{status:entry.saved.record.index_status,indexed:null,searchable:null},
             authority_settlement:entry.saved.authority_settlement,reconciliation_required:entry.saved.reconciliation_required,error_code:entry.saved.reconciliation_required?'RECONCILIATION_REQUIRED':null})
           return await readSaved(entry)
@@ -205,6 +243,51 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
       try{ownerReady()}catch(error){return refuse(errorCode(error))}
       const entry=active,flight={promise:null};readFlight=flight
       flight.promise=Promise.resolve().then(()=>readSaved(entry)).finally(()=>{if(readFlight===flight)readFlight=null});return flight.promise
+    },
+    recover(input={operation_id:null}){
+      if(disposed)return unavailable()
+      if(actionFlight||proposalFlight)return refuse('UNAVAILABLE')
+      if(readFlight)return readFlight.promise
+      if(typeof memory.recover!=='function')return refuse('UNAVAILABLE')
+      let request,snapshot
+      try {
+        request=copy(closed(input,['operation_id']));snapshot=ownerReady()
+        requireValue(request.operation_id===null||boundedString(request.operation_id,1024),'OWNER_MEMORY_RECOVERY_REFERENCE_REQUIRED')
+        // A retained uncertain operation must be resolved by its own durable
+        // reference; unrelated history or an empty result cannot clear it.
+        if(blockedRef){requireValue(blockedRef.owner_id===snapshot.owner.owner_id,'OWNER_MEMORY_RECOVERY_OWNER_REQUIRED');request.operation_id=blockedRef.operation_id}
+      } catch(error){return refuse(errorCode(error))}
+      const entry={owner:snapshot.owner,generation},flight={promise:null};readFlight=flight
+      flight.promise=Promise.resolve().then(async()=>{
+        try {
+          const reply=await memory.recover(request)
+          if(!current(entry))return state
+          if(reply?.ok!==true)throw fault(errorCode(reply),'OWNER_MEMORY_RECOVERY_REFUSED')
+          const recovered=await recoveryReply(reply,entry.owner)
+          if(!current(entry))return state
+          if(recovered.state!=='unknown'&&request.operation_id!==null)requireValue(recovered.operation_id===request.operation_id,'OWNER_MEMORY_RECOVERY_REFERENCE_REQUIRED')
+          if(blockedRef&&recovered.state!=='unknown')requireValue(recovered.operation_id===blockedRef.operation_id&&recovered.operation_digest===blockedRef.digest,'OWNER_MEMORY_RECOVERY_RETAINED_REFERENCE_REQUIRED')
+          if(recovered.state==='unknown'||blocked&&recovered.state==='idle'){
+            if(recovered.state==='unknown'&&!blockedRef)blockedRef={operation_id:recovered.operation_id,digest:recovered.operation_digest,owner_id:recovered.owner_id}
+            blocked=true;publish({phase:'outcome_unknown',reconciliation_required:true,error_code:'RECONCILIATION_REQUIRED'});return state
+          }
+          blocked=false;blockedRef=null;active=null
+          if(recovered.state==='saved')publish({...initial(),phase:'saved',approval:'approved',save:'saved',saved:true,
+            operation_digest:recovered.operation_digest,record:recovered.result,receipt:recovered.receipt,receipt_digest:recovered.receipt_digest,
+            authority_settlement:'completed',citation:recovered.citation,citation_status:recovered.citation?.verdict.toLowerCase()??'unavailable',
+            index:recovered.index??{status:recovered.result.index_status,indexed:null,searchable:null},read_error_code:recovered.index===null||recovered.citation===null?'UNAVAILABLE':null})
+          else publish({...initial(),phase:'idle'})
+          return state
+        } catch(error){if(current(entry)){blocked=true;publish({reconciliation_required:true,error_code:errorCode(error)})}return state}
+        finally{if(readFlight===flight)readFlight=null}
+      });return flight.promise
+    },
+    async logout(){
+      // The controller removes local owner state before the existing adapter
+      // revokes C's durable token. Ending access never cancels a dispatched save.
+      controller.logout?.()
+      if(typeof memory.logout!=='function')return {ok:false,error_code:'UNAVAILABLE',reason:'OWNER_LOGOUT_UNMOUNTED'}
+      return memory.logout()
     },
     dispose(){if(disposed)return;const reset=cleared('unavailable');generation++;active=null;off();state=immutable({...reset,error_code:reset.error_code??'UNAVAILABLE'});disposed=true;for(const listener of listeners){try{listener()}catch{}}listeners.clear()},
   }

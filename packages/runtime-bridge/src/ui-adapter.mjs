@@ -8,16 +8,35 @@ export function createUiAdapters({call}={}) {
   if(typeof call!=='function')throw new TypeError('UNAVAILABLE: injected bridge call required')
   const reviews=new Map()
   const captures=new Map()
+  const forgets=new Map()
   const pendingCaptures=new Set(),pendingReviews=new Set()
   let sessionToken=null,authRevision=0,loginPending=null
+  let logoutFlight=null
   const copy=value=>JSON.parse(canonicalJson(value))
   const key=(session,operationId)=>session+'\0'+operationId
   const captureRefusal=()=>({ok:false,error_code:'INVALID',reason:'UI_EXACT_CAPTURE_REQUIRED'})
   const sessionRefusal=()=>({ok:false,error_code:'UNAUTHORIZED',reason:'UI_SESSION_CHANGED'})
-  function invalidate(){authRevision++;sessionToken=null;loginPending=null;reviews.clear();captures.clear()}
+  function invalidate(){authRevision++;sessionToken=null;loginPending=null;reviews.clear();captures.clear();forgets.clear()}
   const sameSession=(revision,session)=>revision===authRevision&&session===sessionToken
-  function prune(){for(const [id,capture] of captures)if(Date.parse(capture.expiry)<=Date.now()){captures.delete(id);reviews.delete(id)}}
+  function logout(){
+    if(logoutFlight)return logoutFlight
+    const current=sessionToken;invalidate()
+    if(typeof current!=='string')return Promise.resolve({ok:false,error_code:'UNAUTHORIZED',reason:'UI_NO_OWNER_SESSION'})
+    // Remove local access immediately, then revoke this exact real C session.
+    // One request only; a lost reply is not proof of server logout.
+    const flight=Promise.resolve().then(()=>call('owner.logout',{session_token:current}))
+      .then(result=>result?.ok===true&&result.status==='LOGGED_OUT'?result:result?.ok===false?result:{ok:false,error_code:'OUTCOME_UNKNOWN',reason:'UI_OWNER_LOGOUT_NOT_CONFIRMED'},
+        ()=>({ok:false,error_code:'OUTCOME_UNKNOWN',reason:'UI_OWNER_LOGOUT_NOT_CONFIRMED'}))
+      .finally(()=>{if(logoutFlight===flight)logoutFlight=null})
+    logoutFlight=flight;return flight
+  }
+  function prune(){for(const collection of [captures,forgets])for(const [id,capture] of collection)if(Date.parse(capture.expiry)<=Date.now()){collection.delete(id);reviews.delete(id)}}
   function requireCapture(session,operation) {
+    if(operation.action_type==='memory.forget'){
+      const retained=forgets.get(key(session,operation.operation_id))
+      if(!retained||retained.operation_json!==canonicalJson(operation))throw new TypeError('INVALID: immutable forget proposal required')
+      return retained
+    }
     if(operation.action_type!=='memory.save')return
     const capture=captures.get(key(session,operation.operation_id))
     if(!capture||capture.operation_json!==canonicalJson(operation))throw new TypeError('INVALID: immutable memory capture required')
@@ -25,7 +44,9 @@ export function createUiAdapters({call}={}) {
     return capture
   }
   const authority=Object.freeze({
+    logout:()=>logout(),
     async loginChallenge(input) {
+      if(logoutFlight)return {ok:false,error_code:'UNAVAILABLE',reason:'UI_OWNER_LOGOUT_PENDING'}
       invalidate();const revision=authRevision
       const result=await call('owner.loginChallenge',copy(input))
       if(revision!==authRevision)return sessionRefusal()
@@ -38,7 +59,7 @@ export function createUiAdapters({call}={}) {
       loginPending=null
       const result=await call('owner.loginComplete',detached)
       if(revision!==authRevision)return sessionRefusal()
-      if(result?.ok===true){sessionToken=result.session_token;reviews.clear();captures.clear()}
+      if(result?.ok===true){sessionToken=result.session_token;reviews.clear();captures.clear();forgets.clear()}
       return result
     },
     async approvalChallenge(input) {
@@ -68,7 +89,7 @@ export function createUiAdapters({call}={}) {
       reviews.delete(key(input.session_token,input.proof.operation_id))
       return call('owner.approvalComplete',copy({...input,operation}))
     },
-    async declineApproval(input){if(input.session_token!==sessionToken)return sessionRefusal();const id=key(input.session_token,input.operation_id);reviews.delete(id);captures.delete(id);return call('owner.declineApproval',copy(input))},
+    async declineApproval(input){if(input.session_token!==sessionToken)return sessionRefusal();const id=key(input.session_token,input.operation_id);reviews.delete(id);captures.delete(id);forgets.delete(id);return call('owner.declineApproval',copy(input))},
     status:input=>call('owner.status',copy(input)),
   })
   const withSession=input=>{
@@ -77,6 +98,38 @@ export function createUiAdapters({call}={}) {
     return copy({...input,session_token:sessionToken})
   }
   const memory=Object.freeze({
+    logout:()=>logout(),
+    async proposeForget(input){
+      prune();if(forgets.size+pendingCaptures.size>=16)return {ok:false,error_code:'UNAVAILABLE',reason:'UI_FORGET_QUOTA'}
+      if(!input||Object.keys(input).join(',')!=='record_id'||typeof input.record_id!=='string')return captureRefusal()
+      const detached=withSession(input),revision=authRevision,session=detached.session_token,reservation={revision,session};pendingCaptures.add(reservation)
+      try{
+        const result=await call('memory.proposeForget',detached)
+        if(!sameSession(revision,session))return sessionRefusal()
+        if(result?.ok===true){
+          try{
+            validateContract('OperationProposal',result.operation)
+            const params=result.operation.canonical_parameters,summary=result.record_summary
+            if(result.operation.action_type!=='memory.forget'||params?.profile!=='prime-logical-forget/v1'
+              ||params.record_id!==detached.record_id||summary?.record_id!==params.record_id||summary.revision!==params.revision
+              ||summary.statement!==params.statement||summary.attributed_to!==params.attributed_to)throw new TypeError('INVALID: exact forget record required')
+            forgets.set(key(session,result.operation.operation_id),{operation_json:canonicalJson(result.operation),expiry:result.operation.expiry,record_summary:copy(summary)})
+          }catch{return captureRefusal()}
+        }
+        return result
+      }finally{pendingCaptures.delete(reservation)}
+    },
+    forget(input){
+      const detached=withSession(input)
+      let retained
+      try{
+        if(!input||Object.keys(input).sort().join(',')!=='approval_proof,operation'||detached.operation.action_type!=='memory.forget')throw new TypeError('INVALID: approved forget required')
+        retained=requireCapture(detached.session_token,detached.operation)
+      }catch{return Promise.resolve(captureRefusal())}
+      if(retained.attempted)return Promise.resolve({ok:false,error_code:'RECONCILIATION_REQUIRED',reason:'UI_FORGET_ALREADY_ATTEMPTED'})
+      retained.attempted=true
+      return call('memory.forget',detached)
+    },
     async proposeSave(input) {
       prune();if(captures.size+pendingCaptures.size>=16)return {ok:false,error_code:'UNAVAILABLE',reason:'UI_CAPTURE_QUOTA'}
       const detached=withSession(input),revision=authRevision,session=detached.session_token,reservation={revision,session};pendingCaptures.add(reservation)
@@ -106,6 +159,10 @@ export function createUiAdapters({call}={}) {
     status:input=>call('memory.status',withSession(input)),
     cite:input=>call('memory.cite',withSession(input)),
     recall:input=>call('memory.recall',withSession(input)),
+    recover:input=>{
+      if(!input||Object.keys(input).join(',')!=='operation_id'||!(input.operation_id===null||typeof input.operation_id==='string'))return Promise.resolve(captureRefusal())
+      return call('memory.recover',withSession(input))
+    },
   })
-  return Object.freeze({authority,memory,logout:invalidate})
+  return Object.freeze({authority,memory,logout})
 }

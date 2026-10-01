@@ -15,15 +15,18 @@ const authority = createAuthorityService({
   observeTarget: operation => memory.authorityTargetObservation(operation),
 })
 memory = createPostgresMemory({pool: pgPool, authority, contracts})
+const workflowStore = createPostgresWorkflowStore({pool: pgPool})
 const bridge = createRuntimeBridge({
-  authority, memory, taskRegistry, resolveHostContext, verifyHostQualification,
+  authority, memory, workflowStore, taskRegistry, resolveHostContext, verifyHostQualification,
 })
 ```
 
 The host supplies an already configured `pgPool`. No credential discovery or
 automatic migration/provisioning occurs. Every authority dependency must be the
-corrected service, including `authenticateSession` and the D memory settlement
-join. Required missing methods report `unmounted`; a mounted graph without host
+corrected service, including `authenticateSession`, `logoutSession` and the D memory settlement
+join. The approved schema initializer explicitly runs `memory.migrate()` and
+`workflowStore.migrate()` on the same pool. Ordinary starts reopen those tables.
+Required missing methods or an absent branded store report `unmounted`; a mounted graph without host
 acceptance reports `unqualified`. Public service calls remain unavailable.
 
 `resolveHostContext({request,session})` is a trusted host callback that selects
@@ -62,20 +65,31 @@ Public method allowlist:
 - `owner.approvalChallenge`: `{session_token,operation}`.
 - `owner.approvalComplete`: `{session_token,operation,proof}`.
 - `owner.declineApproval` / `owner.status`: `{session_token,operation_id}`.
+- `owner.logout`: `{session_token}`, authenticated owner-control only.
 - `memory.proposeSave`: `{session_token,extraction_json,idempotency_key}`.
 - `memory.save`: `{session_token,operation,approval_proof,extraction_json,idempotency_key}`.
+- `memory.proposeForget`: `{session_token,record_id}`.
+- `memory.forget`: `{session_token,operation,approval_proof}`, owner-control only.
+- `memory.recover`: `{session_token,operation_id:null|string}`, owner-control only.
 - `memory.status`: `{session_token,record_id,revision:null|string}`.
 - `memory.cite`: `{session_token,record_id,revision:null|string,retained_head:null|string}`.
 - `memory.recall`: `{session_token,query,limit}`.
 
-No public reserve, claim, settlement, cancellation, epoch, import, erasure or
+No public reserve, claim, receipt intake, cancellation, epoch, import, purge or
 administrative route exists. The proposer channel can propose and read; only the
-owner-control channel can mutate approval or save. Channel credentials never
+owner-control channel can approve, save, forget, reconcile a retained receipt or log out. Channel credentials never
 prove owner identity. `extraction_json` is a bounded original UTF-8 JSON string so
 historical confidence decimals survive inside the frozen integer-only envelope.
 D's duplicate/depth/finite-number parser reads it; the OperationProposal contains
 capture/key hashes, exact live heads and literal statement/attribution. The frozen
 v1 digest profile is unchanged.
+
+New pilot capture input is statement-only. Older callers may supply category,
+validFrom, observedAt, confidence and sensitivity only at the fixed values:
+fact, trusted source date/time, 0.7 and none. Links and metadata overrides refuse.
+The proposal has a separate `capture_metadata` sibling for H/B display; it does
+not claim a new capture hash profile or change the exact literal. The source join
+requires C `eb90fc7`, D `4e6d033`, and B `d9f94f` (full pins are in the runner).
 
 `memory.proposeSave` obtains D's exact capture binding and builds the operation
 from C's verified owner plus host-owned task/route/policy. C proposal admission
@@ -99,6 +113,78 @@ Unknown outcomes remain consumed. D's host-only `reconcileEffect` resends only a
 committed local receipt; an unresolved intent forbids automatic retry. The bridge
 has no public reconciliation receipt intake. Neither transport reconnect nor
 client timeout resubmits a mutation.
+
+## Durable recovery and logout
+
+`createPostgresWorkflowStore({pool})` is a small reference journal in the host's
+configured PostgreSQL schema. It stores owner/task/operation IDs, existing
+digests, phase and receipt/request references; it stores no statement, capture,
+source events, operation payload, proof, grant or receipt bytes. The bridge writes
+a proposal reference before C admission and atomically marks an attempt before
+calling D. Owner-scoped attempt admission refuses another unresolved attempt.
+The table grants no authority and never performs a memory effect. C and D remain
+the owners of consumption, durable intent, effect and settlement evidence.
+
+`memory.recover` discovers active references and reads actual C status and D
+`reconcileEffect`. D may resend only its retained committed receipt. An unresolved
+intent, uncertain attempted call, unavailable binding or missing effect stays
+unknown; fresh proposal/dispatch remains blocked. A never-dispatched proposal
+with matching unconsumed C status and no D intent becomes `known_unsent`, closing
+that old proposal permanently. It permits a fresh key and exact review. Active
+reference overflow refuses without dropping unknown history.
+
+The closed response is `{ok,owner_id,owner_subject,task_id,operation_id,
+operation_digest,action_type,state,reconciliation_required,result,receipt,
+receipt_digest,authority_settlement,citation,index}`. `state` is `idle`,
+`known_unsent`, `saved`, `forgotten` or `unknown`; null operation ID selects active
+blockers first, then the most recent reference. C/D completed receipt facts bind
+the result. Citation/index reads may be unavailable without undoing a confirmed
+save. Recovery never reconstructs an operation/proof from that result, retries an
+effect, unconsumes an approval or accepts a browser receipt. Keep references
+through worker restarts; a record snapshot alone cannot replace this journal.
+
+After ordinary owner login on remount, H calls `workflow.recover()` on its fresh
+controller/workflow binding. The helper validates owner/reference/digest and
+receipt bindings, exposes recovered saved facts, and retains unknown fences.
+Its local closure supplements these server fences. `refresh()` remains reads
+only; `recover()` can resend a factual settlement receipt through D.
+
+`workflow.logout()` removes local controller access immediately, then calls the
+same adapter's authenticated `owner.logout` route, forwarding exactly to C's
+durable `logoutSession({session_token})`. Only `{ok:true,status:'LOGGED_OUT'}`
+confirms revocation. Lost replies stay unknown and local generations remain
+invalidated. One pending logout is coalesced; a new login waits for its outcome.
+This join does not change epochs, revoke unrelated credentials or cancel an
+already dispatched effect. B's local controller logout alone is insufficient;
+H must invoke this joined method for its logout action.
+
+## Approved logical forget
+
+`createOwnerForgetWorkflow({controller,memory,contracts})` is a separate
+browser-safe export. `proposeForget({record_id})` retains D's independent record
+summary and exact operation. H/B obtain and render the existing fresh review,
+including escaped literal statement/attribution, record/revision, canonical SHA,
+time and heads. `approveAndForget()` obtains the exact owner proof and calls D's
+approved forget once; concurrent calls coalesce. It receives the genuine
+`forgetRecord(...,{include_receipt:true})` result/receipt, and `recover()` reads
+that retained receipt without repeating the effect.
+
+Logical forget hides the record and removes its search projection. Its result
+truthfully preserves canonical payloads and reports physical erasure, authority
+history erasure, backup erasure and WAL erasure as false. There is no raw delete
+or purge route. This is a separate forget result, never a fake saved MemoryRecord.
+H/B must explicitly mount the forget action; B's save-shaped approval hook alone
+does not invoke it. No face source or host composition is edited in this lane.
+
+The reproducible scoped runner is
+`test/verify-owner-recovery-source-join.mjs --authority-repository ABS
+--memory-repository ABS --ui-repository ABS --output ABSfresh`. It archives exact
+committed source pins in an isolated own-root snapshot, runs only ordinary new
+recovery/logout/forget/journal/pilot checks, and freezes hashes and logs. Tests
+use actual C P-256 proof verification, C durable files and D effect code, with a
+clearly synthetic SQLite SQL fixture. Cold service objects reopen existing
+state without provisioning/migration. They establish neither PostgreSQL nor
+deployed process/UID acceptance. The stopped adversarial review is not resumed.
 
 ## Owner memory action
 

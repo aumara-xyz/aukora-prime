@@ -25,15 +25,22 @@ export interface OwnerMemoryController {
   subscribe(listener:()=>void):()=>void
   setOperation(operation:unknown,options:{memoryCapture:MemoryCapture}):void
   approve():Promise<unknown>
+  logout?():void
 }
 export interface OwnerMemoryWorkflow {
   getSnapshot():MemoryWorkflowSnapshot
+  /** Server-fixed pilot note metadata; no private capture preimage is exposed. */
+  getCaptureMetadata():Readonly<{profile:'prime-pilot-memory-capture/v1';category:'fact';valid_from:string;observed_at:string;confidence_percent:70;sensitivity:'none'}>|null
   subscribe(listener:()=>void):()=>void
   proposeSave(draft:MemoryDraft):Promise<MemoryWorkflowSnapshot>
   approveAndSave():Promise<MemoryWorkflowSnapshot>
   /** Read only: refreshes known record status and retained-head citation. */
   refresh():Promise<MemoryWorkflowSnapshot>
+  /** Reads durable C/D facts and resends retained settlement receipts only. */
+  recover(input?:{operation_id:string|null}):Promise<MemoryWorkflowSnapshot>
+  /** Revokes the adapter's actual C session after removing local owner access. */
+  logout():Promise<unknown>
   /** Disposes this helper only, without cancelling or replaying any mutation. */
   dispose():void
 }
-export function createOwnerMemoryWorkflow(options:{controller:OwnerMemoryController;memory:{proposeSave(input:unknown):Promise<unknown>;save(input:unknown):Promise<unknown>;status(input:unknown):Promise<unknown>;cite(input:unknown):Promise<unknown>};contracts:{operationDigest(operation:unknown):string|Promise<string>}}):OwnerMemoryWorkflow
+export function createOwnerMemoryWorkflow(options:{controller:OwnerMemoryController;memory:{proposeSave(input:unknown):Promise<unknown>;save(input:unknown):Promise<unknown>;status(input:unknown):Promise<unknown>;cite(input:unknown):Promise<unknown>;recover?(input:unknown):Promise<unknown>;logout?():Promise<unknown>};contracts:{operationDigest(operation:unknown):string|Promise<string>}}):OwnerMemoryWorkflow
