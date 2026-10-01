@@ -1,0 +1,22 @@
+{
+  "package": "@aukora-prime/runtime-bridge",
+  "license": "AGPL-3.0-or-later",
+  "origin": "New Prime integration adapter source, lane task-40",
+  "base_commit": "669c077e9515179487a3e9282e9f45f61ad80120",
+  "owned_paths": ["packages/runtime-bridge/**"],
+  "dependencies": {
+    "contracts": "f4fbe48e9cbb2c751d7eb2aaa2b931a9522978d0",
+    "authority": "1be5ccc2d93b4657a6fe7de63ec4d6757c73b114",
+    "memory": ["f9ca8c6b7cdce9b9aadff9b5097acbe9bbec5a0b", "2bc604ef4d485123666128b3b696bfb12a99272c"],
+    "execution": ["d607d4c2a6f5ca643761be1bc9f9e66830cc59d3", "a2120713d5c412ac6b571cc470e6c424c511e9ec"],
+    "ui_transport": "66fb720d20689fbf6c86ba34fda4baebd3ed73eb"
+  },
+  "copied_or_adapted": [{
+    "destination": "test/sql-fixture.mjs",
+    "source": "packages/memory/test/memory.test.mjs FixturePool",
+    "license": "AGPL-3.0-or-later",
+    "changes": "Narrow test-only SQLite dialect shim, with injected lost COMMIT reply and post-dispatch write faults"
+  }],
+  "closure": "All imports resolve to Prime sibling packages or Node built-ins; no other owned repository is a build/runtime dependency",
+  "limits": ["PostgreSQL runtime unperformed", "same-UID disposable IPC only", "OpenShell protocol mocked in checks", "no real enrollment or deployment"]
+}
