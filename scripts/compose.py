@@ -21,7 +21,7 @@ for name in ['layout','sidebar','threads','apps','messages','memory','aumlok','d
   elif (src/n).is_file():shutil.copy2(src/n,dst/n)
  shutil.copy2(root/'harness/ui-host.mjs',dst/'lib/prime-host.mjs')
 shutil.copytree(root/'harness',release/'harness')
-disabled=['ui-layout','ui-settings-general','ui-sidebar','ui-workspace','llm-deepseek','llm-pi-ai','bash-sandbox','pwsh-sandbox','tool-pwsh','tool-jobs','terminal-controller','tool-subagent','tool-subagent-fork','subagent-spawn-in-process','subagent-fork-in-process','subagent-codex','subagent-claude-code','subagent-dsh-sdk','ptc-runtime','workflow-ptc','tool-workflow','tool-web','web-fetch-http','web-search-deepseek','mcp-resources','tool-fs','tool-fs-search','tool-skill','skill-filesystem','tool-ralph']
+disabled=['ui-layout','ui-settings-general','ui-sidebar','ui-workspace','llm-deepseek','llm-pi-ai','bash-sandbox','pwsh-sandbox','tool-pwsh','tool-jobs','terminal-controller','ui-sidebar-terminal','tool-subagent','tool-subagent-fork','subagent-spawn-in-process','subagent-fork-in-process','subagent-codex','subagent-claude-code','subagent-dsh-sdk','ptc-runtime','workflow-ptc','tool-workflow','tool-web','web-fetch-http','web-search-deepseek','mcp-resources','tool-fs','tool-fs-search','tool-skill','skill-filesystem','tool-ralph']
 text=''.join('- id: '+x+'\n  disabled: true\n' for x in disabled)
 text+='- insert:\n    - id: prime-shell\n      name: ./harness/shell-unavailable.mjs\n    - id: prime-host\n      name: ./harness/host.mjs\n'
 for name in ['layout','sidebar','threads','apps','messages','memory','aumlok','documents','settings']:
