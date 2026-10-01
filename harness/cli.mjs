@@ -20,8 +20,9 @@ else if(cmd==='boot'){
  const manifest=JSON.parse(readFileSync(resolve(release,'prime-release.json')));
  mkdirSync(state,{recursive:true,mode:0o700});mkdirSync(resolve(state,'workspace'),{recursive:true});mkdirSync(resolve(state,'home'),{recursive:true});
  const env={PATH:process.env.PATH,HOME:resolve(state,'home'),DSH_HOME:resolve(state,'home'),DSH_AGENTS_HOME:resolve(state,'agents'),DSH_TELEMETRY_MODE:'DISABLED',DSH_TELEMETRY_DISABLED:'1',NODE_NO_WARNINGS:'1'};
+ const releaseDigest=await digest();
  const p=spawn(process.execPath,[resolve(release,'apps/cli/lib/bin.js'),'--profile','web','--patch',resolve(release,'prime.patch.yml'),'--host','127.0.0.1','--port',value('--port','18731'),'--no-open'],{cwd:resolve(state,'workspace'),env,stdio:['ignore','pipe','pipe']});
- const r={status:'starting',pid:p.pid,version:manifest.version,source_commit:manifest.source_commit,ui_url:null,release_dir:release,release_digest:await digest(),unavailable_capabilities:manifest.unavailable_capabilities,started_at:new Date().toISOString()};
+ const r={status:'starting',pid:p.pid,version:manifest.version,source_commit:manifest.source_commit,ui_url:null,release_dir:release,release_digest:releaseDigest,unavailable_capabilities:manifest.unavailable_capabilities,started_at:new Date().toISOString()};
  const save=()=>{if(r.ui_url)writeFileSync(resolve(state,'launch-url.json'),JSON.stringify({url:r.ui_url,pid:r.pid}),{mode:0o600});writeFileSync(recordPath,JSON.stringify(r,null,2)+'\n',{mode:0o600});chmodSync(recordPath,0o600);};save();
  let buffer='';p.stdout.on('data',chunk=>{buffer+=chunk;const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines){const m=/dsh web: (http\S+)/.exec(line);if(m){r.ui_url=m[1];r.status='running';save();console.log('Prime UI '+r.ui_url);console.log('Running '+r.source_commit+'; unavailable: '+r.unavailable_capabilities.join(', '));}else console.log(line.replace(/(token=)[^\s&'"]+/g,'$1<redacted>'));}});
  p.stderr.on('data',chunk=>process.stderr.write(chunk.toString().replace(/(token=)[^\s&'"]+/g,'$1<redacted>')));
