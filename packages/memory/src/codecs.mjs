@@ -12,6 +12,8 @@ export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 export const AURA_RECORD_DOMAIN = 'aukora:aura-record:v1'
 export const CHAIN_DOMAINS = ['remembered', 'approved', 'legacy-presplit']
 export const MAX_BYTES = 64 * 1024 * 1024
+export const closedKeys = (value, keys, code) => requireMemory(value && typeof value === 'object'
+  && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key)), code)
 
 // Keep the v0 decimal encoder. The strict donor parser's integer policy cannot read historical v0.
 export function parseOriginal(bytes) {
@@ -47,10 +49,21 @@ export function validateOriginal(bytes, owner) {
     id = record.recordId; format = record.envelope?.format ?? 'v0'
     canon = record.envelope?.canon ?? 'aukora:canon-json:v0-ecmascript-number'; tier = 'approved'
   } else if (record.v === 1 && Array.isArray(record.evidence)) {
+    // The donor ID covers its envelope, not arbitrary extension fields. Extensions require a new format.
+    closedKeys(record, ['v','subject','scope','category','statement','attributedTo','evidence','validFrom','validTo',
+      'observedAt','confidence','sensitivity','privacy','links','origin','source','possibleChange','grantsAuthority','salt',
+      'id','tier','kind','text','createdAt','label','receiptState','contentHash','aura','bodyAtCapture','editedFrom'],
+    'memory:note-fields-invalid')
+    if (record.aura) closedKeys(record.aura,['index','entryHash'],'memory:aura-fields-invalid')
+    if (record.editedFrom) closedKeys(record.editedFrom,['id','statement','originallyCapturedFrom'],'memory:edit-fields-invalid')
     id = recomputeNoteId(record)
     requireMemory(id === record.id && /^rem:[0-9a-f]{64}$/.test(id), 'memory:note-id-changed')
     requireMemory(/^[0-9a-f]{64}$/.test(record.salt ?? ''), 'memory:note-salt-invalid')
     requireMemory(record.tier === 'remembered', 'memory:note-tier-invalid')
+    requireMemory(record.label===undefined || record.label===(record.source?.state==='UNLINKED'
+      ? 'remembered, source not found':'unreviewed'),'memory:note-label-invalid')
+    requireMemory(record.receiptState===undefined || record.receiptState===(record.source?.state==='UNLINKED'?'UNLINKED':'LINKED'),
+      'memory:note-receipt-state-invalid')
     requireMemory((record.kind === undefined || record.kind === record.category)
       && (record.text === undefined || record.text === record.statement)
       && (record.createdAt === undefined || record.createdAt === record.observedAt),
@@ -58,6 +71,9 @@ export function validateOriginal(bytes, owner) {
     requireMemory(record.evidence.length > 0 && record.source && typeof record.source === 'object', 'memory:note-evidence-missing')
     format = 'remembered-note/v1'; canon = 'aukora:remembered-canonicalOf/v1'; tier = 'remembered'
   } else {
+    closedKeys(record, ['id','tier','kind','text','createdAt','source','aura','subject','privacy','grantsAuthority','label',
+      'contentHash','bodyAtCapture'], 'memory:legacy-fields-invalid')
+    if (record.aura) closedKeys(record.aura,['index','entryHash'],'memory:aura-fields-invalid')
     id = recomputeRecordId(record)
     requireMemory(id === record.id && /^[0-9a-f]{64}$/.test(id), 'memory:legacy-id-changed')
     requireMemory(record.tier === 'remembered', 'memory:legacy-tier-invalid')
@@ -66,6 +82,27 @@ export function validateOriginal(bytes, owner) {
   requireMemory(['local', 'private', 'exportable'].includes(record.privacy), 'memory:privacy-invalid')
   return { record, id, format, canon, tier, scope: record.scope ?? 'owner', privacy: record.privacy,
     statement: record.statement ?? record.text ?? canonicalJSON(record.content), digest: sha256(bytes) }
+}
+
+export const chainRecordId = entry => entry.id ?? entry.recordId ?? entry.key
+export const isCreation = entry => ['remember','add','index-content','memory.put'].includes(entry.op)
+  || (entry.operation==='memory.put' && entry.verdict==='accepted')
+
+// A redacted export cannot rewrite hash-bearing historical bytes to remove text. Refuse such a chain.
+export function requireRedactableChain(entries) {
+  for (const entry of entries) {
+    closedKeys(entry, ['prev','hash','sequence','op','id','recordId','key','at','tier','by','contentHash',
+      'contentSha256','entryHash','originKey','bodyAtCapture','verdict','operation','scope','controlDigest'], 'memory:redacted-chain-contains-payload')
+    for (const key of ['contentHash','contentSha256','entryHash','originKey','controlDigest']) if (entry[key] !== undefined) {
+      requireMemory(/^[0-9a-f]{64}$/.test(entry[key]), 'memory:redacted-chain-contains-payload')
+    }
+    requireMemory(entry.bodyAtCapture === undefined || entry.bodyAtCapture === null,
+      'memory:redacted-chain-contains-payload')
+    requireMemory(entry.scope===undefined || entry.scope==='owner','memory:redacted-chain-contains-payload')
+    requireMemory(entry.by === undefined || ['prime.capture/v1','prime.forget/v1','prime.erase/v1',
+      'kira-extract/v1','kira-capture/v1','backfill','owner','memory-owner'].includes(entry.by),
+    'memory:redacted-chain-contains-payload')
+  }
 }
 
 // Exact functions lifted from Genesis memory-owner.mjs; their preimage and separator are unchanged.

@@ -8,10 +8,11 @@ try {
   if (!file || !owner) throw new Error('usage: cold-verify.mjs SNAPSHOT OWNER [RETAINED_HEADS_JSON]')
   const snapshot = parseOriginal(readFileSync(file))
   const checked = inspectSnapshot(snapshot, owner, { expectedHeads: headsFile ? parseOriginal(readFileSync(headsFile)) : undefined })
-  process.stdout.write(JSON.stringify({ verdict: 'VERIFIED', verified_scope: 'snapshot-integrity', records: checked.records.length,
+  process.stdout.write(JSON.stringify({ verdict: checked.anchored ? 'VERIFIED' : 'UNANCHORED', verified_scope: 'snapshot-integrity', records: checked.records.length,
+    redacted_records: checked.redactions.length,
     citations: checked.records.map(r => ({ record_id: r.meta.id, revision: r.file.revision,
       tombstoned: checked.tombstones.some(t => t.id === r.meta.id), ...r.citation })),
-    heads: snapshot.heads, independent_trust_anchor_supplied: Boolean(headsFile),
+    heads: snapshot.heads, independent_trust_anchor_supplied: checked.anchored,
     grants_authority: false, ceiling: 'Integrity and provenance only; no truth, authority, or human-presence claim.' }) + '\n')
 } catch (error) {
   process.stderr.write(JSON.stringify({ verdict: 'REFUSED', reason: error.code ?? error.message }) + '\n')

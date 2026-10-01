@@ -9,11 +9,12 @@ import { createPostgresMemory } from './index.mjs'
 export const MEMORY_CLI_USAGE = [
   'verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]',
   'export OWNER OUTPUT',
-  'restore SNAPSHOT OWNER --synthetic-fixture',
-  'Database commands require an explicitly configured PRIME_MEMORY_DATABASE_URL and a Prime-owned pg dependency.'
+  'restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]',
+  'AUTHORIZATION_JSON contains {operation,approval_proof}. Restore requires an injected C authority service.',
+  'Database commands require an explicitly configured PRIME_MEMORY_DATABASE_URL and the declared pg dependency.'
 ]
 
-export async function runMemoryCommand(argv,{pool}={}) {
+export async function runMemoryCommand(argv,{pool,authority,contracts}={}) {
   const [command,first,second,third] = argv
   if(command==='--help' || command==='help') return {usage:MEMORY_CLI_USAGE}
   requireMemory(['verify','export','restore'].includes(command) && first && second, 'memory:cli-arguments-invalid')
@@ -21,12 +22,14 @@ export async function runMemoryCommand(argv,{pool}={}) {
     const snapshot=parseOriginal(readBytesStrict(resolve(first)).bytes)
     const expectedHeads=third ? parseOriginal(readBytesStrict(resolve(third)).bytes) : undefined
     const checked=inspectSnapshot(snapshot,second,{expectedHeads})
-    return {snapshot_integrity:'VERIFIED',records:checked.records.length,heads:snapshot.heads,
+    return {snapshot_integrity:checked.anchored?'VERIFIED':'UNANCHORED',records:checked.records.length,heads:snapshot.heads,
+      redacted_records:checked.redactions.length,
       citations:checked.records.map(r=>({record_id:r.meta.id,revision:String(r.file.revision),
         tombstoned:checked.tombstones.some(t=>t.id===r.meta.id),...r.citation})),
-      independent_trust_anchor_supplied:Boolean(third),grants_authority:false}
+      independent_trust_anchor_supplied:checked.anchored,grants_authority:false}
   }
-  if(command==='restore') requireMemory(third==='--synthetic-fixture','memory:real-data-import-not-authorized')
+  if(command==='restore') requireMemory(third && !third.startsWith('--') && authority,
+    'memory:authority-unavailable')
   let ownedPool=false
   if(!pool) {
     const configured=process.env.PRIME_MEMORY_DATABASE_URL
@@ -35,16 +38,19 @@ export async function runMemoryCommand(argv,{pool}={}) {
     pool=new Pool({connectionString:configured});ownedPool=true
   }
   try {
-    const memory=createPostgresMemory({pool,allowSyntheticImport:command==='restore'})
+    const memory=createPostgresMemory({pool,authority,contracts})
     if(command==='export') {
       const snapshot=await memory.exportSnapshot({owner_subject:first})
       const output=resolve(second)
       durableWrite(output,JSON.stringify(snapshot)+'\n',{dir:dirname(output)})
-      return {snapshot_integrity:'VERIFIED',manifest_sha256:snapshot.manifest_sha256,output,grants_authority:false}
+      return {snapshot_integrity:'UNANCHORED',manifest_sha256:snapshot.manifest_sha256,output,grants_authority:false}
     }
-    await memory.migrate()
     const snapshot=parseOriginal(readBytesStrict(resolve(first)).bytes)
-    const restored=await memory.restoreSnapshot({owner_subject:second,task_id:'synthetic-restore'},snapshot,{mode:'synthetic-fixture'})
+    const authorization=parseOriginal(readBytesStrict(resolve(third)).bytes)
+    requireMemory(Object.keys(authorization).sort().join(',')==='approval_proof,operation','memory:validated-operation-required')
+    const expectedHeads=argv[4] ? parseOriginal(readBytesStrict(resolve(argv[4])).bytes) : undefined
+    const restored=await memory.restoreSnapshot({owner_subject:second,task_id:authorization.operation?.task_id},snapshot,
+      {...authorization,expectedHeads})
     return {...restored,index_status:'pending',grants_authority:false}
   } finally {if(ownedPool) await pool.end()}
 }

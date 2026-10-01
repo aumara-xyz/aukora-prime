@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { buildRememberedNote, RECALL_CEILINGS } from '../genesis/plugins/aukora-kira/lib/memory-tiers.mjs'
 import { contentFreeTombstone } from '../genesis/plugins/aukora-kira/lib/memory-law.mjs'
@@ -7,7 +8,9 @@ import { CONTROLS, ownerControlIn } from '../genesis/plugins/aukora-kira/lib/mem
 import { SECRET_PATTERNS } from './capture-policy.mjs'
 import { AURA_RECORD_DOMAIN, sha256, parseOriginal, validateOriginal, auraEntryHash,
   requireMemory, MemoryRefusal, verifyChain, verifyMembership, verifySources } from './codecs.mjs'
-import { makeSnapshot, inspectSnapshot } from './snapshot.mjs'
+import { makeSnapshot, inspectSnapshot, recordCommitment } from './snapshot.mjs'
+import { memoryAuthorization, memoryTarget, memoryStateVersion, memoryEffectDigest, memoryResultDigest, memoryReceiptDigest } from './authorization.mjs'
+import { requireRedactableChain } from './codecs.mjs'
 
 const rows = async (db, sql, values = []) => (await db.query(sql, values)).rows
 const ownerOf = host => {
@@ -24,7 +27,7 @@ const chainBytes = entries => Buffer.concat(entries.map(e => bytesOf(e.bytes)))
 
 /** Caller supplies a Prime-owned PostgreSQL Pool. This module never discovers credentials or a sibling repository. */
 export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:v1', indexGeneration = '1',
-  verifyApprovedEvidence, authorizeImport, allowSyntheticImport = false } = {}) {
+  verifyApprovedEvidence, authority, contracts } = {}) {
   requireMemory(typeof pool?.connect === 'function' && typeof pool?.query === 'function', 'memory:postgres-pool-required')
   requireMemory(typeof indexTarget === 'string' && indexTarget && typeof indexGeneration === 'string'
     && indexGeneration, 'memory:index-target-required')
@@ -124,56 +127,112 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     return selected[0]
   }
 
-  /** Ordinary automatic remembered capture. Host attribution/source/policy are separate from untrusted extraction. */
-  async function captureRemembered(host, input, idempotencyKey) {
-    host = structuredClone(host); input = structuredClone(input)
-    const owner = ownerOf(host)
-    requireMemory(typeof host.task_id === 'string' && host.task_id, 'memory:host-task-required')
-    requireMemory(typeof idempotencyKey === 'string' && idempotencyKey.length > 0 && idempotencyKey.length <= 1024, 'memory:idempotency-key-required')
-    const allowed = ['category','statement','validFrom','observedAt','confidence','sensitivity','links']
-    requireMemory(input && Object.keys(input).every(k => allowed.includes(k)), 'memory:extraction-fields-invalid')
-    requireMemory(host.offTheRecord !== true && host.paused !== true && host.privacy === 'local'
-      && !Object.entries(CONTROLS).some(([key,value]) => value.stopsCapture && host.controls?.[key]), 'memory:capture-policy-blocked')
-    requireMemory(['owner','owner-voice','owner-edit','backfill','lane-requester','dream','agent'].includes(host.attributedTo), 'memory:host-attribution-required')
-    const events = eventEntries(host), requestDigest = sha256(Buffer.from(canonicalJSON({ input,
-      subject: owner, task: host.task_id, source: host.source, attribution: host.attributedTo,
-      scope: host.scope ?? 'owner', origin: host.origin ?? {by:'prime.capture/v1'}, events: events.map(e => e.sha256) })))
-    return transaction(owner, async db => {
-      const [controls] = await rows(db, 'SELECT bytes FROM prime_memory_controls WHERE owner_subject=$1 AND scope=$2', [owner,host.scope ?? 'owner'])
-      const policy = controls ? parseOriginal(controls.bytes) : {}
-      requireMemory(policy.paused !== true && policy.offTheRecord !== true
-        && !Object.entries(CONTROLS).some(([key,value]) => value.stopsCapture && policy.controls?.[key]), 'memory:capture-control-blocked')
-      const [previous] = await rows(db, 'SELECT * FROM prime_memory_requests WHERE owner_subject=$1 AND idempotency_key=$2', [owner,idempotencyKey])
-      if (previous) {
-        requireMemory(previous.request_digest === requestDigest, 'memory:idempotency-conflict')
-        return contractOf(db, await loadRecord(db, owner, previous.record_id, previous.revision))
-      }
-      const sourceEvent = events.find(e => e.sha256 === host.source?.sha256)
-      requireMemory(sourceEvent, 'memory:capture-source-missing')
-      const event = parseOriginal(sourceEvent.bytes)
-      requireMemory(typeof event.text === 'string' && event.text.length > 0, 'memory:capture-source-text-missing')
-      requireMemory(!SECRET_PATTERNS.some(pattern => pattern.test(event.text) || pattern.test(input.statement)), 'memory:capture-secret-shape')
-      requireMemory(host.attributedTo === 'agent' || ownerControlIn(event.text) === null, 'memory:capture-owner-control')
-      const note = buildRememberedNote({ ...input, attributedTo: host.attributedTo, subject: owner,
-        scope: host.scope ?? 'owner', privacy: host.privacy, source: host.source,
-        origin: host.origin ?? {by:'prime.capture/v1'},
-        evidence: host.evidence ?? [{ log: host.source.sessionId, turn: host.source.seq,
-          turnDigest: host.source.sha256, quote: event.text }] })
-      const digest = sha256(Buffer.from(note.statement)), marker = sha256(Buffer.from(`${note.id}\0${digest}`))
-      const entry = await appendEntry(db, owner, 'remembered', { op: 'remember', id: note.id, at: note.observedAt,
-        tier: 'remembered', by: 'prime.capture/v1', contentHash: digest, entryHash: marker,
-        originKey: idempotencyKey, bodyAtCapture: host.bodyAtCapture ?? null })
-      const stored = { ...note, contentHash: digest, aura: { index: entry.sequence - 1, entryHash: marker },
-        bodyAtCapture: host.bodyAtCapture ?? null }
-      const bytes = Buffer.from(JSON.stringify(stored) + '\n'), meta = validateOriginal(bytes, owner)
-      const sourceVerdict = verifySources(meta, new Map(events.map(e => [e.sha256,e.bytes])))
-      requireMemory(sourceVerdict.verdict === 'VERIFIED', 'memory:capture-evidence-missing')
-      const requiredEvents = new Set([note.source.sha256,...note.evidence.map(e => e.turnDigest)])
-      await storeEvents(db, owner, events.filter(e => requiredEvents.has(e.sha256)))
-      await persistRecord(db, owner, meta, bytes, { taskId: host.task_id, revision: 1, chainDomain: 'remembered', chainSequence: entry.sequence })
+  function captureContext(host,input,idempotencyKey) {
+    host=structuredClone(host);input=structuredClone(input)
+    const owner=ownerOf(host)
+    requireMemory(typeof host.task_id==='string' && host.task_id,'memory:host-task-required')
+    requireMemory(typeof idempotencyKey==='string' && idempotencyKey.length>0 && idempotencyKey.length<=1024,'memory:idempotency-key-required')
+    const allowed=['category','statement','validFrom','observedAt','confidence','sensitivity','links']
+    requireMemory(input && Object.keys(input).every(k=>allowed.includes(k)),'memory:extraction-fields-invalid')
+    requireMemory(host.offTheRecord!==true && host.paused!==true && host.privacy==='local'
+      && !Object.entries(CONTROLS).some(([key,value])=>value.stopsCapture && host.controls?.[key]),'memory:capture-policy-blocked')
+    requireMemory(['owner','owner-voice','owner-edit','backfill','lane-requester','dream','agent'].includes(host.attributedTo),'memory:host-attribution-required')
+    const events=eventEntries(host),capture={input,subject:owner,task:host.task_id,source:host.source,
+      evidence:host.evidence ?? null,attribution:host.attributedTo,scope:host.scope ?? 'owner',privacy:host.privacy,
+      origin:host.origin ?? {by:'prime.capture/v1'},bodyAtCapture:host.bodyAtCapture ?? null,events:events.map(e=>e.sha256)}
+    return {host,input,owner,events,idempotencyKey,requestDigest:sha256(Buffer.from(canonicalJSON(capture)))}
+  }
+  async function currentHeads(db,owner) {
+    const heads={}
+    for(const head of await rows(db,'SELECT * FROM prime_memory_heads WHERE owner_subject=$1 ORDER BY chain_domain',[owner])) {
+      const entries=await rows(db,'SELECT bytes FROM prime_memory_chain WHERE owner_subject=$1 AND chain_domain=$2 ORDER BY sequence',[owner,head.chain_domain])
+      const verified=verifyChain(chainBytes(entries),head.hash)
+      requireMemory(verified.sequence===head.sequence,'memory:chain-head-sequence-changed');heads[head.chain_domain]=head.hash
+    }
+    return heads
+  }
+  async function prepareCaptureWrite(db,context) {
+    const {host,input,owner,events,idempotencyKey,requestDigest}=context
+    const [controls]=await rows(db,'SELECT bytes FROM prime_memory_controls WHERE owner_subject=$1 AND scope=$2',[owner,host.scope ?? 'owner'])
+    const policy=controls?parseOriginal(controls.bytes):{}
+    requireMemory(policy.paused!==true && policy.offTheRecord!==true
+      && !Object.entries(CONTROLS).some(([key,value])=>value.stopsCapture && policy.controls?.[key]),'memory:capture-control-blocked')
+    const [previous]=await rows(db,'SELECT * FROM prime_memory_requests WHERE owner_subject=$1 AND idempotency_key=$2',[owner,idempotencyKey])
+    if(previous) {
+      requireMemory(previous.request_digest===requestDigest,'memory:idempotency-conflict')
+      const [hidden]=await rows(db,'SELECT record_id FROM prime_memory_tombstones WHERE owner_subject=$1 AND record_id=$2',[owner,previous.record_id])
+      requireMemory(!hidden,'memory:record-tombstoned')
+      return async()=>contractOf(db,await loadRecord(db,owner,previous.record_id,previous.revision))
+    }
+    const sourceEvent=events.find(e=>e.sha256===host.source?.sha256)
+    requireMemory(sourceEvent,'memory:capture-source-missing')
+    const event=parseOriginal(sourceEvent.bytes)
+    requireMemory(typeof event.text==='string' && event.text.length>0,'memory:capture-source-text-missing')
+    requireMemory(!SECRET_PATTERNS.some(pattern=>pattern.test(event.text)||pattern.test(input.statement)),'memory:capture-secret-shape')
+    requireMemory(host.attributedTo==='agent' || ownerControlIn(event.text)===null,'memory:capture-owner-control')
+    const note=buildRememberedNote({...input,attributedTo:host.attributedTo,subject:owner,scope:host.scope ?? 'owner',
+      privacy:host.privacy,source:host.source,origin:host.origin ?? {by:'prime.capture/v1'},
+      evidence:host.evidence ?? [{log:host.source.sessionId,turn:host.source.seq,turnDigest:host.source.sha256,quote:event.text}]})
+    const digest=sha256(Buffer.from(note.statement)),marker=sha256(Buffer.from(`${note.id}\0${digest}`))
+    // Validate the complete byte/evidence closure before consuming any authority.
+    const candidate={...note,contentHash:digest,aura:{index:0,entryHash:marker},bodyAtCapture:host.bodyAtCapture ?? null}
+    const verdict=verifySources(validateOriginal(Buffer.from(JSON.stringify(candidate)),owner),new Map(events.map(e=>[e.sha256,e.bytes])))
+    requireMemory(verdict.verdict==='VERIFIED','memory:capture-evidence-missing')
+    return async()=>{
+      const entry=await appendEntry(db,owner,'remembered',{op:'remember',id:note.id,at:note.observedAt,tier:'remembered',
+        by:'prime.capture/v1',contentHash:digest,entryHash:marker,originKey:sha256(Buffer.from(idempotencyKey)),bodyAtCapture:host.bodyAtCapture ?? null})
+      const stored={...candidate,aura:{index:entry.sequence-1,entryHash:marker}},bytes=Buffer.from(JSON.stringify(stored)+'\n'),meta=validateOriginal(bytes,owner)
+      const required=new Set([note.source.sha256,...note.evidence.map(e=>e.turnDigest)])
+      await storeEvents(db,owner,events.filter(e=>required.has(e.sha256)))
+      await persistRecord(db,owner,meta,bytes,{taskId:host.task_id,revision:1,chainDomain:'remembered',chainSequence:entry.sequence})
       await db.query(`INSERT INTO prime_memory_requests(owner_subject,idempotency_key,request_digest,record_id,revision)
-        VALUES($1,$2,$3,$4,1)`, [owner,idempotencyKey,requestDigest,note.id])
-      return contractOf(db, await loadRecord(db, owner, note.id, 1))
+        VALUES($1,$2,$3,$4,1)`,[owner,idempotencyKey,requestDigest,note.id])
+      return contractOf(db,await loadRecord(db,owner,note.id,1))
+    }
+  }
+  async function captureRemembered(host,input,key) {
+    const context=captureContext(host,input,key)
+    return transaction(context.owner,async db=>(await prepareCaptureWrite(db,context))())
+  }
+  async function prepareCaptureBinding(host,input,key) {
+    const context=captureContext(host,input,key)
+    return transaction(context.owner,async db=>{
+      await prepareCaptureWrite(db,context)
+      const heads=await currentHeads(db,context.owner)
+      return {target_identity:memoryTarget(context.owner),state_version:memoryStateVersion(heads),
+        canonical_parameters:{capture_sha256:context.requestDigest,idempotency_key_sha256:sha256(Buffer.from(key)),heads}}
+    },{readOnly:true})
+  }
+  async function captureAuthorizedRemembered(host,input,key,options={}) {
+    const context=captureContext(host,input,key);options=structuredClone(options)
+    const parameters=options.operation?.canonical_parameters
+    requireMemory(parameters?.capture_sha256===context.requestDigest
+      && parameters.idempotency_key_sha256===sha256(Buffer.from(key)) && parameters.heads,'memory:capture-operation-mismatch')
+    return authorizedEffect(context.host,'memory.save',{capture_sha256:context.requestDigest,
+      idempotency_key_sha256:sha256(Buffer.from(key)),heads:parameters.heads},options,
+      async db=>{
+        const actual=await currentHeads(db,context.owner)
+        requireMemory(canonicalJSON(actual)===canonicalJSON(parameters.heads),'memory:target-state-changed')
+        return prepareCaptureWrite(db,context)
+      },{includeReceipt:true})
+  }
+  const activeTargets=new Map()
+  function authorityTargetObservation(operation) {
+    const active=activeTargets.get(operation?.operation_id)
+    requireMemory(active && canonicalJSON(operation)===active.operation_json,'memory:target-observation-outside-lock')
+    return structuredClone(active.observation)
+  }
+  async function withAuthorityTargetObservation(host,operation,fn) {
+    host=structuredClone(host);operation=structuredClone(operation)
+    requireMemory(typeof fn==='function' && typeof host.owner_id==='string' && operation.owner_id===host.owner_id && ownerOf(host) && operation.task_id===host.task_id
+      && canonicalJSON(operation.target_identity)===canonicalJSON(memoryTarget(host.owner_subject)),'memory:target-binding-mismatch')
+    return transaction(host.owner_subject,async db=>{
+      const heads=await currentHeads(db,host.owner_subject)
+      requireMemory(operation.expected_state_version===memoryStateVersion(heads),'memory:target-state-changed')
+      requireMemory(!activeTargets.has(operation.operation_id),'memory:target-observation-reentrant')
+      activeTargets.set(operation.operation_id,{operation_json:canonicalJSON(operation),
+        observation:{target_identity:memoryTarget(host.owner_subject),state_version:memoryStateVersion(heads)}})
+      try {return await fn()} finally {activeTargets.delete(operation.operation_id)}
     })
   }
 
@@ -256,6 +315,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   async function cite(host, id, revision, expectedHead) {
     const owner = ownerOf(host)
     return transaction(owner, async db => {
+      const [hidden] = await rows(db, 'SELECT record_id FROM prime_memory_tombstones WHERE owner_subject=$1 AND record_id=$2', [owner,id])
+      requireMemory(!hidden, 'memory:record-tombstoned')
       const row = await loadRecord(db, owner, id, revision); checkReadPolicy(host,row.privacy,row.scope)
       return citeIn(db,owner,row,expectedHead)
     }, { readOnly: true })
@@ -263,6 +324,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   async function status(host, id, revision) {
     const owner = ownerOf(host)
     return transaction(owner, async db => {
+      const [hidden] = await rows(db, 'SELECT record_id FROM prime_memory_tombstones WHERE owner_subject=$1 AND record_id=$2', [owner,id])
+      requireMemory(!hidden, 'memory:record-tombstoned')
       const row = await loadRecord(db, owner, id, revision)
       checkReadPolicy(host,row.privacy,row.scope)
       return { record: await contractOf(db,row), ...await rawStatus(db,owner,id,row.revision) }
@@ -310,65 +373,207 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     const owner = ownerOf(host)
     requireMemory(typeof at === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(at), 'memory:tombstone-time-invalid')
     return transaction(owner, async db => {
-      const row = await loadRecord(db, owner, id)
       const [existing] = await rows(db, 'SELECT record_id FROM prime_memory_tombstones WHERE owner_subject=$1 AND record_id=$2', [owner,id])
       if (existing) return { record_id: id, state: 'tombstoned', grants_authority: false }
+      const row = await loadRecord(db, owner, id)
       const { tombstone } = contentFreeTombstone({ id, at }), bytes = Buffer.from(canonicalJSON(tombstone) + '\n')
       await db.query('INSERT INTO prime_memory_tombstones(owner_subject,record_id,bytes,sha256) VALUES($1,$2,$3,$4)', [owner,id,bytes,sha256(bytes)])
-      await appendEntry(db, owner, row.tier === 'remembered' ? 'remembered' : 'approved', { op: 'forget', id, at, by: 'prime.forget/v1' })
+      await appendEntry(db, owner, row.chain_domain, { op: 'forget', id, at, by: 'prime.forget/v1' })
       await db.query('DELETE FROM prime_memory_fts WHERE owner_subject=$1 AND record_id=$2', [owner,id])
       await enqueue(db,owner,id,row.revision,'remove')
       return { record_id: id, state: 'tombstoned', grants_authority: false }
     })
   }
 
+  async function buildExport(db, owner, { full = false } = {}) {
+    const files=[],heads={},tombstones=await rows(db,'SELECT * FROM prime_memory_tombstones WHERE owner_subject=$1',[owner])
+    const hidden=new Set(tombstones.map(t=>t.record_id)),redactions=[],removedEvents=new Set()
+    for (const row of await rows(db,'SELECT * FROM prime_memory_records WHERE owner_subject=$1 ORDER BY record_id,revision',[owner])) {
+      if (!full && hidden.has(row.record_id)) redactions.push(recordCommitment(row,bytesOf(row.canonical_bytes)))
+      else files.push({path:`records/${row.record_id}/${row.revision}.json`,role:'record',record_id:row.record_id,
+        task_id:row.task_id,revision:row.revision,chain_domain:row.chain_domain,chain_sequence:row.chain_sequence,bytes:bytesOf(row.canonical_bytes)})
+    }
+    const retained=await rows(db,'SELECT bytes FROM prime_memory_redactions WHERE owner_subject=$1',[owner])
+    requireMemory(!full || retained.length===0,'memory:full-backup-payload-unavailable')
+    for (const row of retained) {
+      const value=parseOriginal(row.bytes)
+      if (!redactions.some(r=>r.record_id===value.record_id && r.revision===value.revision)) redactions.push(value)
+    }
+    for (const r of redactions) {
+      for(const hash of r.source_digests) removedEvents.add(hash)
+      files.push({path:`redactions/${r.record_id}/${r.revision}.json`,role:'redaction',bytes:Buffer.from(canonicalJSON(r)+'\n')})
+    }
+    for (const head of await rows(db,'SELECT * FROM prime_memory_heads WHERE owner_subject=$1 ORDER BY chain_domain',[owner])) {
+      const entries=await rows(db,'SELECT bytes FROM prime_memory_chain WHERE owner_subject=$1 AND chain_domain=$2 ORDER BY sequence',[owner,head.chain_domain])
+      heads[head.chain_domain]=head.hash
+      files.push({path:`chains/${head.chain_domain}.jsonl`,role:'chain',chain_domain:head.chain_domain,bytes:chainBytes(entries)})
+    }
+    for (const event of await rows(db,'SELECT sha256,bytes FROM prime_memory_events WHERE owner_subject=$1',[owner])) {
+      if (!removedEvents.has(event.sha256)) files.push({path:`events/${event.sha256}.json`,role:'event',bytes:bytesOf(event.bytes)})
+    }
+    for (const t of tombstones) {
+      const original=parseOriginal(t.bytes),bare=original.tombstone ?? original
+      // v2 emits the content-free commitment, while full v1 backups preserve the original wrapper bytes.
+      const bytes=full?bytesOf(t.bytes):Buffer.from(canonicalJSON({kind:'tombstone',recordId:t.record_id,at:bare.at})+'\n')
+      files.push({path:`tombstones/${t.record_id}.json`,role:'tombstone',bytes})
+    }
+    for (const control of await rows(db,'SELECT * FROM prime_memory_controls WHERE owner_subject=$1',[owner])) {
+      files.push({path:`controls/${sha256(Buffer.from(control.scope))}.json`,role:'control',scope:control.scope,bytes:bytesOf(control.bytes)})
+    }
+    const opaque=new Set()
+    for (const original of await rows(db,'SELECT * FROM prime_memory_originals WHERE owner_subject=$1',[owner])) {
+      const metadata=parseOriginal(original.metadata_bytes)
+      if(full) files.push({path:`originals/${original.snapshot_digest}/${original.logical_path}`,
+        role:metadata.role==='approved-evidence'?'approved-evidence':'original',original_metadata:metadata,bytes:bytesOf(original.bytes)})
+      else if(metadata.role==='opaque-original') opaque.add(parseOriginal(original.bytes).sha256)
+      else opaque.add(original.sha256)
+    }
+    for (const source of await rows(db,'SELECT * FROM prime_memory_snapshots WHERE owner_subject=$1',[owner])) {
+      if(full) files.push({path:`original-manifests/${source.digest}.json`,role:'original',bytes:bytesOf(source.manifest_bytes)})
+      else opaque.add(sha256(source.manifest_bytes))
+    }
+    for (const hash of opaque) files.push({path:`opaque-originals/${hash}.json`,role:'opaque-original',
+      bytes:Buffer.from(canonicalJSON({kind:'opaque-original/v1',sha256:hash})+'\n')})
+    const snapshot=makeSnapshot(owner,files,heads,{redacted:!full});inspectSnapshot(snapshot,owner)
+    return snapshot
+  }
   async function exportSnapshot(host) {
-    const owner = ownerOf(host)
-    return transaction(owner, async db => {
-      const files = [], heads = {}
-      for (const row of await rows(db,'SELECT * FROM prime_memory_records WHERE owner_subject=$1 ORDER BY record_id,revision',[owner])) {
-        files.push({ path: `records/${row.record_id}/${row.revision}.json`, role: 'record', record_id: row.record_id,
-          task_id: row.task_id, revision: row.revision, chain_domain: row.chain_domain, chain_sequence: row.chain_sequence, bytes: bytesOf(row.canonical_bytes) })
-      }
-      for (const head of await rows(db,'SELECT * FROM prime_memory_heads WHERE owner_subject=$1 ORDER BY chain_domain',[owner])) {
-        const entries = await rows(db,'SELECT bytes FROM prime_memory_chain WHERE owner_subject=$1 AND chain_domain=$2 ORDER BY sequence',[owner,head.chain_domain])
-        heads[head.chain_domain] = head.hash
-        files.push({ path: `chains/${head.chain_domain}.jsonl`, role: 'chain', chain_domain: head.chain_domain, bytes: chainBytes(entries) })
-      }
-      for (const event of await rows(db,'SELECT sha256,bytes FROM prime_memory_events WHERE owner_subject=$1',[owner])) {
-        files.push({ path: `events/${event.sha256}.json`, role: 'event', bytes: bytesOf(event.bytes) })
-      }
-      for (const t of await rows(db,'SELECT * FROM prime_memory_tombstones WHERE owner_subject=$1',[owner])) {
-        files.push({ path: `tombstones/${t.record_id}.json`, role: 'tombstone', bytes: bytesOf(t.bytes) })
-      }
-      for (const control of await rows(db,'SELECT * FROM prime_memory_controls WHERE owner_subject=$1',[owner])) {
-        files.push({ path: `controls/${sha256(Buffer.from(control.scope))}.json`, role: 'control', scope: control.scope, bytes: bytesOf(control.bytes) })
-      }
-      for (const original of await rows(db,'SELECT * FROM prime_memory_originals WHERE owner_subject=$1',[owner])) {
-        const metadata = parseOriginal(original.metadata_bytes)
-        files.push({ path: `originals/${original.snapshot_digest}/${original.logical_path}`,
-          role: metadata.role === 'approved-evidence' ? 'approved-evidence' : 'original',
-          original_metadata: metadata, bytes: bytesOf(original.bytes) })
-      }
-      for (const source of await rows(db,'SELECT * FROM prime_memory_snapshots WHERE owner_subject=$1',[owner])) {
-        files.push({ path: `original-manifests/${source.digest}.json`, role: 'original', bytes: bytesOf(source.manifest_bytes) })
-      }
-      const snapshot = makeSnapshot(owner,files,heads)
-      inspectSnapshot(snapshot,owner)
-      return snapshot
-    }, { readOnly: true })
+    const owner=ownerOf(host)
+    return transaction(owner,db=>buildExport(db,owner),{readOnly:true})
+  }
+  async function settleCommitted(effect) {
+    const {operation,grant,receipt}=effect
+    if(typeof authority?.settleMemory!=='function') return {authority_settlement:'pending',reconciliation_required:true}
+    try {
+      const settled=await authority.settleMemory({operation,consumed_grant:grant,request_id:receipt.request_id,
+        request_digest:receipt.request_digest,receipt})
+      requireMemory(settled?.ok===true && settled.status==='COMPLETED' && settled.request_id===receipt.request_id
+        && settled.request_digest===receipt.request_digest && settled.receipt_digest===memoryReceiptDigest(receipt)
+        && settled.reconciliation_required===false,'memory:settlement-unconfirmed')
+      return {authority_settlement:'completed',receipt_digest:settled.receipt_digest,reconciliation_required:false}
+    } catch(error) {return {authority_settlement:'pending',reconciliation_required:true,settlement_reason:error.code ?? 'memory:settlement-unavailable'}}
+  }
+  async function readEffect(db,owner,id) {
+    const [row]=await rows(db,'SELECT * FROM prime_memory_effects WHERE owner_subject=$1 AND operation_id=$2',[owner,id])
+    if(!row) return null
+    const effect={result:parseOriginal(row.result_bytes),receipt:parseOriginal(row.receipt_bytes),
+      operation:parseOriginal(row.operation_bytes),grant:parseOriginal(row.grant_bytes)}
+    requireMemory(effect.receipt.result_digest===memoryResultDigest(effect.result)
+      && canonicalJSON(effect.receipt.result)===canonicalJSON(effect.result)
+      && row.request_digest===memoryEffectDigest(parseOriginal(row.request_bytes)), 'memory:effect-ledger-changed')
+    if(effect.operation.action_type==='memory.save') {
+      const [hidden]=await rows(db,'SELECT record_id FROM prime_memory_tombstones WHERE owner_subject=$1 AND record_id=$2',[owner,effect.result.record_id])
+      requireMemory(!hidden,'memory:record-tombstoned')
+    }
+    return effect
+  }
+  async function reconcileEffect(host,operation_id) {
+    host=structuredClone(host);const owner=ownerOf(host)
+    const effect=await transaction(owner,db=>readEffect(db,owner,operation_id),{readOnly:true})
+    if(!effect) {
+      const [intent]=await rows(pool,'SELECT * FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',[owner,operation_id])
+      requireMemory(intent,'memory:effect-missing-outcome-unknown')
+      const op=parseOriginal(intent.operation_bytes)
+      requireMemory(op.owner_id===host.owner_id && op.task_id===host.task_id,'memory:effect-owner-mismatch')
+      return {status:'unresolved',operation_id,request_id:intent.request_id,request_digest:intent.request_digest,
+        reconciliation_required:true,automatic_retry:false,grants_authority:false}
+    }
+    requireMemory(effect.operation.owner_id===host.owner_id && effect.operation.task_id===host.task_id,'memory:effect-owner-mismatch')
+    const settlement=await settleCommitted(effect)
+    return {result:effect.result,receipt:effect.receipt,...settlement}
+  }
+  async function authorizedEffect(host,action,parameters,options,work,{includeReceipt=false}={}) {
+    const owner=ownerOf(host),binding=await memoryAuthorization({authority,contracts},host,action,parameters,options)
+    const request_id=randomUUID(),request={version:1,action_type:action,owner_subject:owner,
+      operation_id:binding.operation.operation_id,operation_digest:binding.digest,parameters}
+    const request_digest=memoryEffectDigest(request)
+    let preparedGrant,dispatched=false,effect
+    const targetScope=async(db,fn)=>{
+      const heads=await currentHeads(db,owner)
+      requireMemory(binding.operation.expected_state_version===memoryStateVersion(heads),'memory:target-state-changed')
+      requireMemory(!activeTargets.has(binding.operation.operation_id),'memory:target-observation-reentrant')
+      activeTargets.set(binding.operation.operation_id,{operation_json:canonicalJSON(binding.operation),
+        observation:{target_identity:memoryTarget(owner),state_version:memoryStateVersion(heads)}})
+      try {return await fn()} finally {activeTargets.delete(binding.operation.operation_id)}
+    }
+    try {
+      effect=await transaction(owner,async db=>{
+        const prior=await readEffect(db,owner,binding.operation.operation_id)
+        if(prior) {
+          requireMemory(prior.receipt.operation_digest===binding.digest && prior.operation.action_type===action,'memory:operation-replay-conflict')
+          return prior
+        }
+        const [intent]=await rows(db,'SELECT request_id FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',[owner,binding.operation.operation_id])
+        requireMemory(!intent,'memory:effect-unresolved-reconciliation-required')
+        await work(db,{preflight:true})
+        preparedGrant=await targetScope(db,()=>binding.reserve())
+        // Durable intent precedes dispatch; its opaque request survives rollback or restart.
+        await db.query(`INSERT INTO prime_memory_intents(owner_subject,operation_id,operation_digest,grant_bytes,operation_bytes,
+          request_id,request_digest,request_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [owner,binding.operation.operation_id,binding.digest,Buffer.from(canonicalJSON(preparedGrant)),
+            Buffer.from(canonicalJSON(binding.operation)),request_id,request_digest,Buffer.from(canonicalJSON(request))])
+        return null
+      })
+      if(!effect) effect=await transaction(owner,async db=>{
+        // Any race after PREPARED is refused under the reacquired owner lock; no grant is unconsumed.
+        const execute=await work(db,{preflight:true}),grant=preparedGrant
+        await targetScope(db,async()=>{await binding.dispatch({grant,request_id,request_digest});dispatched=true})
+        const result=await execute(),result_digest=memoryResultDigest(result)
+        const receipt={version:1,kind:'prime-memory-effect/v1',operation_id:binding.operation.operation_id,
+          operation_digest:binding.digest,grant_id:grant.grant_id,request_id,request_digest,owner_subject:owner,
+          action_type:action,status:'applied',result_digest,result}
+        await db.query(`INSERT INTO prime_memory_effects(owner_subject,operation_id,operation_digest,grant_id,action,result_bytes,
+          request_id,request_digest,request_bytes,receipt_bytes,operation_bytes,grant_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          [owner,binding.operation.operation_id,binding.digest,grant.grant_id,action,Buffer.from(canonicalJSON(result)),
+            request_id,request_digest,Buffer.from(canonicalJSON(request)),Buffer.from(canonicalJSON(receipt)),
+            Buffer.from(canonicalJSON(binding.operation)),Buffer.from(canonicalJSON(grant))])
+        return {result,receipt,operation:binding.operation,grant}
+      })
+    } catch(error) {
+      if(!preparedGrant && !dispatched) throw error
+      if(dispatched && typeof authority?.markOutcomeUnknown==='function')
+        await Promise.resolve(authority.markOutcomeUnknown({operation:binding.operation,consumed_grant:preparedGrant,request_id,request_digest})).catch(()=>{})
+      const unknown=new MemoryRefusal('memory:authority-effect-outcome-unknown')
+      unknown.cause_code=error.code ?? 'memory:store-unavailable';unknown.reconciliation_required=true
+      unknown.operation_id=binding.operation.operation_id;unknown.request_id=request_id;unknown.request_digest=request_digest;throw unknown
+    }
+    // Only the committed, locally derived receipt can settle C. No guest receipt is accepted.
+    const settlement=await settleCommitted(effect)
+    return includeReceipt?{record:effect.result,receipt:effect.receipt,...settlement}:effect.result
+  }
+  async function exportBackup(host,options) {
+    host=structuredClone(host);options=structuredClone(options)
+    const owner=ownerOf(host),snapshot=await transaction(owner,db=>buildExport(db,owner,{full:true}),{readOnly:true})
+    return authorizedEffect(host,'memory.backup',{manifest_sha256:snapshot.manifest_sha256,heads:snapshot.heads},options,
+      async db=>{
+        const current=await buildExport(db,owner,{full:true})
+        requireMemory(current.manifest_sha256===snapshot.manifest_sha256,'memory:export-state-changed')
+        return async()=>current
+      })
+  }
+  async function prepareBackupBinding(host) {
+    host=structuredClone(host);const owner=ownerOf(host)
+    return transaction(owner,async db=>{
+      const snapshot=await buildExport(db,owner,{full:true}),heads=await currentHeads(db,owner)
+      return {target_identity:memoryTarget(owner),state_version:memoryStateVersion(heads),
+        canonical_parameters:{manifest_sha256:snapshot.manifest_sha256,heads:snapshot.heads}}
+    },{readOnly:true})
   }
 
-  async function importSnapshot(host, snapshot, { mode, expectedHeads, proof } = {}) {
+  async function importSnapshot(host, snapshot, options = {}) {
+    host=structuredClone(host);options=structuredClone(options)
+    const { mode = 'kira-import', expectedHeads } = options
     const owner = ownerOf(host)
     const frozen = JSON.parse(JSON.stringify(snapshot))
-    const synthetic = mode === 'synthetic-fixture' && allowSyntheticImport === true
-    const authorized = synthetic || (typeof authorizeImport === 'function'
-      && await authorizeImport({ owner_subject: owner, manifest_digest: frozen?.manifest_sha256, mode, proof }) === true)
-    requireMemory(authorized, 'memory:real-data-import-not-authorized')
-    // Detach once: asynchronous authority checks and SQL waits must never re-read a caller-mutated snapshot.
-    const checked = inspectSnapshot(frozen,owner,{ expectedHeads, quarantineInvalid: true })
-    return transaction(owner, async db => {
+    requireMemory(['kira-import','prime-restore'].includes(mode),'memory:import-mode-invalid')
+    // Detach before awaits. No payload label or constructor flag can authorize production import.
+    const checked = inspectSnapshot(frozen,owner,{expectedHeads,quarantineInvalid:true})
+    return authorizedEffect(host,mode==='prime-restore'?'memory.restore':'memory.import',
+      {manifest_sha256:checked.digest,mode,heads:frozen.heads,retained_heads:expectedHeads ?? null},options,async db=>{
+      const purges=await rows(db,'SELECT bytes FROM prime_memory_purges WHERE owner_subject=$1',[owner])
+      const purgedIds=new Set(purges.flatMap(row=>parseOriginal(row.bytes).record_ids))
+      requireMemory(!checked.records.some(r=>purgedIds.has(r.meta.id)),'memory:purged-payload-reimport')
+      return async()=>{
       const [prior] = await rows(db,'SELECT digest FROM prime_memory_snapshots WHERE owner_subject=$1 AND digest=$2',[owner,checked.digest])
       if (prior) return { imported: 0, already_imported: true, quarantined: checked.quarantine.length }
       await db.query('INSERT INTO prime_memory_snapshots(owner_subject,digest,manifest_bytes) VALUES($1,$2,$3)',[owner,checked.digest,checked.manifestBytes])
@@ -405,6 +610,10 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
           checked.quarantine.push({ path:item.file.path,reason:error.code })
         }
       }
+      for (const item of checked.redactions) {
+        await db.query(`INSERT INTO prime_memory_redactions(owner_subject,record_id,revision,bytes) VALUES($1,$2,$3,$4)
+          ON CONFLICT DO NOTHING`,[owner,item.value.record_id,item.value.revision,item.file.bytes])
+      }
       for (const item of checked.tombstones) {
         await db.query(`INSERT INTO prime_memory_tombstones(owner_subject,record_id,bytes,sha256) VALUES($1,$2,$3,$4)
           ON CONFLICT DO NOTHING`,[owner,item.id,item.file.bytes,item.file.sha256])
@@ -419,13 +628,56 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
           VALUES($1,$2,$3,$4)`,[owner,checked.digest,refused.path,refused.reason])
       }
       return { imported, already_imported: false, quarantined: checked.quarantine.length, snapshot_digest: checked.digest }
+      }
     })
   }
+  // Explicit owner-wide active-table purge. Backups/WAL/filesystem snapshots are outside this operation.
+  async function eraseOwnerPayloads(host,options={}) {
+    host=structuredClone(host);options=structuredClone(options)
+    const owner=ownerOf(host),at=options.at
+    requireMemory(typeof at==='string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(at),'memory:tombstone-time-invalid')
+    const prior=await exportSnapshot(host)
+    return authorizedEffect(host,'memory.erase-owner',
+      {profile:'prime-active-owner-payloads/v1',manifest_sha256:prior.manifest_sha256,heads:prior.heads,at},options,
+      async db=>{
+        const current=await buildExport(db,owner)
+        requireMemory(current.manifest_sha256===prior.manifest_sha256,'memory:erase-state-changed')
+        for(const chain of inspectSnapshot(current,owner).chains.values()) requireRedactableChain(chain.entries)
+        const records=await rows(db,'SELECT * FROM prime_memory_records WHERE owner_subject=$1 ORDER BY record_id,revision',[owner])
+        return async()=>{
+          const existing=await rows(db,'SELECT record_id FROM prime_memory_tombstones WHERE owner_subject=$1',[owner])
+          const hidden=new Set(existing.map(t=>t.record_id))
+          for(const row of records) {
+            const commitment=recordCommitment(row,bytesOf(row.canonical_bytes))
+            await db.query(`INSERT INTO prime_memory_redactions(owner_subject,record_id,revision,bytes) VALUES($1,$2,$3,$4)
+              ON CONFLICT DO NOTHING`,[owner,row.record_id,row.revision,Buffer.from(canonicalJSON(commitment)+'\n')])
+            if(!hidden.has(row.record_id)) {
+              const {tombstone}=contentFreeTombstone({id:row.record_id,at}),bytes=Buffer.from(canonicalJSON(tombstone)+'\n')
+              await db.query('INSERT INTO prime_memory_tombstones(owner_subject,record_id,bytes,sha256) VALUES($1,$2,$3,$4)',[owner,row.record_id,bytes,sha256(bytes)])
+              await appendEntry(db,owner,row.chain_domain,{op:'forget',id:row.record_id,at,by:'prime.erase/v1'})
+              hidden.add(row.record_id)
+            }
+          }
+          const purge={kind:'prime-active-owner-purge/v1',record_ids:[...hidden].sort(),at}
+          await db.query('INSERT INTO prime_memory_purges(owner_subject,operation_id,bytes) VALUES($1,$2,$3)',
+            [owner,options.operation.operation_id,Buffer.from(canonicalJSON(purge))])
+          for(const table of ['fts','outbox','requests','records','events','originals','snapshots','quarantine','intents'])
+            await db.query('DELETE FROM prime_memory_'+table+' WHERE owner_subject=$1',[owner])
+          // Previous full-backup effect results may contain plaintext, and must be removed too.
+          await db.query('DELETE FROM prime_memory_effects WHERE owner_subject=$1',[owner])
+          return {state:'active-table-payloads-purged',owner_subject:owner,records_purged:records.length,
+            retained:'historical-chain-and-opaque-tombstone-commitments',physical_media_erasure:false,
+            backups_erased:false,wal_erased:false,grants_authority:false}
+        }
+      })
+  }
   const restoreSnapshot = (host,snapshot,options) => importSnapshot(host,snapshot,{...options,mode: options?.mode ?? 'prime-restore'})
-  return Object.freeze({ migrate,captureRemembered,drainOutbox,repairIndex,status,recall,cite,tombstoneRecord,exportSnapshot,importSnapshot,restoreSnapshot })
+  return Object.freeze({ migrate,captureRemembered,captureAuthorizedRemembered,prepareCaptureBinding,authorityTargetObservation,withAuthorityTargetObservation,reconcileEffect,drainOutbox,repairIndex,status,recall,cite,tombstoneRecord,eraseOwnerPayloads,exportSnapshot,exportBackup,prepareBackupBinding,importSnapshot,restoreSnapshot })
 }
 
 export { MemoryRefusal } from './codecs.mjs'
 export { makeSnapshot, inspectSnapshot } from './snapshot.mjs'
 export { verifyDiamondEvidence } from './diamond.mjs'
 export { snapshotReadOnlyKiraFiles } from './read-only-snapshot.mjs'
+
+export { memoryStateVersion, memoryEffectDigest, memoryTarget, MEMORY_AUDIENCE } from './authorization.mjs'

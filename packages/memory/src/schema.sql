@@ -56,3 +56,24 @@ CREATE TABLE IF NOT EXISTS prime_memory_quarantine (
   owner_subject text NOT NULL, snapshot_digest text NOT NULL, logical_path text NOT NULL,
   reason text NOT NULL, PRIMARY KEY(owner_subject,snapshot_digest,logical_path)
 );
+CREATE TABLE IF NOT EXISTS prime_memory_redactions (
+  owner_subject text NOT NULL, record_id text NOT NULL, revision integer NOT NULL, bytes bytea NOT NULL,
+  PRIMARY KEY(owner_subject,record_id,revision)
+);
+CREATE TABLE IF NOT EXISTS prime_memory_effects (
+  owner_subject text NOT NULL, operation_id text NOT NULL, operation_digest text NOT NULL,
+  grant_id text NOT NULL, action text NOT NULL, result_bytes bytea NOT NULL,
+  request_id text NOT NULL UNIQUE, request_digest text NOT NULL, request_bytes bytea NOT NULL, receipt_bytes bytea NOT NULL,
+  operation_bytes bytea NOT NULL, grant_bytes bytea NOT NULL,
+  PRIMARY KEY(owner_subject,operation_id), UNIQUE(grant_id)
+);
+CREATE TABLE IF NOT EXISTS prime_memory_purges (
+  owner_subject text NOT NULL, operation_id text NOT NULL, bytes bytea NOT NULL,
+  PRIMARY KEY(owner_subject,operation_id)
+);
+CREATE TABLE IF NOT EXISTS prime_memory_intents (
+  owner_subject text NOT NULL, operation_id text NOT NULL, operation_digest text NOT NULL,
+  grant_bytes bytea NOT NULL, operation_bytes bytea NOT NULL, request_id text NOT NULL UNIQUE,
+  request_digest text NOT NULL, request_bytes bytea NOT NULL,
+  PRIMARY KEY(owner_subject,operation_id)
+);
