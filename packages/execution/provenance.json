@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "lane": "F",
+  "source_project": "https://github.com/aumara-xyz/aukora-genesis",
+  "genesis_public_core_commit": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "openshell_donor_commit": "1cde243eaf16fcf8b1e25b16c476c2149932450d",
+  "donor_source_sha256": {
+    "plugins/aukora-openshell/lib/runner.mjs": "58e19f520a5acf7a22f51c69cd04030de6df41aaf59e5ac91520cfd20779cd4e",
+    "plugins/aukora-openshell/lib/bash.mjs": "949281936cfbb03e23e9d446a8cbb2f012e5c78f7e9b55679da4547e233b5478",
+    "plugins/aukora-openshell/lib/index.mjs": "d530970a037c4a5cc5a2bae2e8fc911aa7030d597573d2f5f8f6ac3c20022056",
+    "plugins/aukora-openshell/policy.yaml": "0449663e0e19458096838eefdc02af959cd58dfeeaa05b470728de182255b284",
+    "LICENSE": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+    "NOTICE": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f"
+  },
+  "adaptations": {
+    "src/policy.mjs": "Carried donor validation, guest policy and environment translation; no host mounts or ambient credentials.",
+    "src/bash.mjs": "Carried foreground lifecycle seam; injected pinned ShellExecutor and trusted host callbacks.",
+    "src/owned-executor.mjs": "Replaces CLI ambiguity/in-process lock with typed raw SDK, durable fences/checkpoints and restart cleanup.",
+    "src/sdk-transport.ts": "New adapter using reviewed raw protobuf requestId/typed exec stream; structurally checked against real generated SDK."
+  },
+  "upstream": {
+    "project": "https://github.com/NVIDIA/OpenShell",
+    "tag": "v0.1.2",
+    "commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+    "package_name": "@nvidia/openshell-sdk",
+    "package_version": "0.0.0",
+    "archive_sha256": "298ee3c0566c51e593e9eadc724a0e1c072fbb542b4f362b82e82a254f8eaea6",
+    "selected_source_sha256": {
+      "sdk/typescript/src/client.ts": "1afae073728f8dfcc6fc8074d609e1b83cc56ff147a2514896a8ed49f4d33cc5",
+      "sdk/typescript/src/errors.ts": "eb0320b5d40f2c23b3cbef33123c49da29ab1ab23dde5dc3b1bfa8885cf95b85",
+      "sdk/typescript/src/raw.ts": "90b65af724f615cf58df4c80fa189d6b5294ce1419569051459967079bc367ab",
+      "sdk/typescript/package.json": "060d725a7e1e1d3a0392f8e148852cfb1fd1dfe8247090741477727c0f568c38",
+      "sdk/typescript/package-lock.json": "bf1003210a1a3c49454254304535a0002bbc5adf86ebcc05739361294f4c3a11",
+      "sdk/typescript/buf.gen.yaml": "6fd9a0b948f988cd73c6bf19d48ff8292369d3aaeea0ec8e6fc0053c3c387595",
+      "proto/openshell.proto": "2e31d0faca652b91729f88bd4053447e5d162e74de7dbacdcc06327ed82e5b95",
+      "proto/sandbox.proto": "ed3d2650c8d1c4cbb653259c6055adba2dba8a51498ab6a1b2cfc339997ab2b9",
+      "proto/datamodel.proto": "e50bd875a760f54b80269c65ee47984cae424fb623b7f59551ba62550c23e70b",
+      "proto/options.proto": "10c8a99b505047f759951285fdae6068afd267ef672d00a65385a91ee8d027ee",
+      "LICENSE": "c4be3acebe12527d7de689933d98329b4065f8c50cd929d0365584eafe6c20dd"
+    },
+    "license": "Apache-2.0"
+  },
+  "licenses": [
+    "licenses/AGPL-3.0.txt",
+    "licenses/Apache-2.0.txt",
+    "licenses/Genesis-NOTICE.txt"
+  ],
+  "runtime_owned_repo_dependencies": [],
+  "qualification": "NOT VERIFIED: approved immutable custom workload image, real Linux runtime/metadata enforcement, gateway and H/C join pending"
+}
