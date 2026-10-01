@@ -18,13 +18,9 @@ cd aukora-prime
 ./prime verify
 ```
 
-**Known failing entry point at this preparation checkpoint — RAN:** bare `./prime verify` currently routes to the memory snapshot verifier and exits 1 in under a second:
+**RAN at the integration checkpoint after `9d4c5372`:** bare `./prime verify` completed six ordinary source checks in 1.436 seconds and returned exit 2 (`UNPERFORMED`) for the pending short authority-renewal and executor-binding entries. The aggregate command now reaches the keyless runner. No complete-suite PASS has been observed yet.
 
-```json
-{"verdict":"REFUSED","reason":"memory:cli-arguments-invalid"}
-```
-
-The new keyless verification command is being integrated. Its target is about three minutes, with per-check PASS/FAIL and an explicit UNPERFORMED list. **No final PASS or successful duration has been observed for that command here.** The existing snapshot-verification interface remains `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`; it is a different, data-dependent check.
+It reports per-check PASS/FAIL and an explicit UNPERFORMED list. Owner enrollment, live PostgreSQL, current UID separation, guest containment, paid inference and composed pixels are excluded from this source profile. The target is about three minutes. The preserved snapshot interface is `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`.
 
 These three keyless source checks were run at the documentation baseline `9d6c2205`:
 
@@ -36,7 +32,7 @@ node harness/check-static-csp.mjs
 
 ## Status
 
-This documentation checkpoint is based on `9d6c2205`. Later repair handoffs require integration and checks before the status is updated. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
+The original documentation checks used `9d6c2205`; the keyless runner and later source repairs are now integrated after `9d4c5372`. Their scoped results do not establish that the running preview uses or qualifies them. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
 
 | Status | Claim | Command or evidence | Limit |
 | --- | --- | --- | --- |
@@ -53,12 +49,12 @@ Real PostgreSQL and separate Linux users are not wholly unperformed: the bounded
 
 ## Known gaps
 
-At this documentation baseline:
+At this integration checkpoint:
 
-- The keyless `./prime verify` entry point has the known refusal above. The longer authority suite was reported to outlive the five-minute session during its 265-save loop; a bounded fixture and normal signed re-login are being integrated. Production session TTL must stay unchanged.
-- Server logout needs durable revocation and approval/session binding joined through the bridge and UI. Authority-only repair source is in a later handoff; it has not qualified the complete path here.
-- Terminal authority history retains too much copied content. Later compaction source needs integration and a regression on the committed bytes.
-- Forget, purge and restore need their approved routes, independently retained controls and forgotten-payload checks joined end to end. Logical purge does not promise erasure of physical media, WAL or external copies.
+- The keyless runner has six passing configured checks and two pending C/F entries. Ordinary signed session-renewal source is integrated without changing the production five-minute TTL; the long 265-save loop is outside the keyless profile.
+- Durable server logout and session-bound approval source is integrated in C and the bridge. The final H/UI lifecycle join and actual protected owner path still need qualification.
+- Authority terminal-history compaction source is integrated. Its focused package evidence remains separate from current deployed-state acceptance.
+- Approved forget, purge and restore source and the independent-control adapter are integrated. The two-store marker-before-reservation and request-bound restore join remain unavailable. Logical purge does not promise erasure of physical media, WAL or external copies.
 - The owner review must show every saved policy-relevant field or use fixed server defaults. NFC, format controls, line separators and invisible fillers need a declared review filter without rewriting historical bytes.
 - The lifecycle regressions for cancellation before handler start, disposed owner state and recovery after known outcomes must remain shipped and reproducible.
 - Same-UID witness rollback remains a declared limit. Candidate-writable evidence is not an independent trust anchor.

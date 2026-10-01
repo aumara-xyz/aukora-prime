@@ -578,7 +578,7 @@ The original research's corrections are therefore part of its value. A system th
 
 This section is dated **1 October 2026**. It is a release-preparation account of Prime, not a claim that the entire constitutional architecture is operating. AUKORA Genesis supplied the prototype lineage; Prime carries its selected source and third-party inheritance locally, with provenance and licenses retained in this repository. No sibling checkout is required to inspect or build Prime.
 
-The preparation baseline is commit `9d6c220`. Repairs are being integrated; their arrival does not by itself establish that the running product uses or qualifies them. The README and verification output should identify the current release's remaining gaps. Source promotion, successful checks, service deployment and demonstrated confinement remain separate events.
+The original preparation baseline is commit `9d6c220`. The source integration checkpoint after `9d4c5372` adds the keyless runner and later repair source; their arrival does not by itself establish that the running product uses or qualifies them. The README and verification output should identify the current release's remaining gaps. Source promotion, successful checks, service deployment and demonstrated confinement remain separate events.
 
 Use these evidence labels literally:
 
@@ -598,9 +598,9 @@ The intended entry point for a cold review is:
 ./prime verify
 ```
 
-At the preparation baseline, this no-argument command was **RAN · FAIL**: it still dispatched to the memory snapshot CLI and refused with `memory:cli-arguments-invalid`. The fast, keyless aggregate verifier is pending integration. Its target is roughly three minutes on an ordinary laptop, with separate PASS, FAIL and UNPERFORMED reporting. This paper does not claim it already ends in PASS.
+The original preparation baseline refused this command through the memory snapshot CLI. **RAN at the integration checkpoint after `9d4c5372`:** it now reaches the keyless aggregate runner, completing six ordinary source checks in 1.436 seconds with exit 2 for the pending short C authority-renewal and F executor-binding entries. Its target is roughly three minutes on an ordinary laptop, with separate PASS, FAIL and UNPERFORMED reporting. No complete-suite PASS has been observed yet; current owner, database, UID, guest, paid-provider and browser qualification remain excluded.
 
-The earlier full authority suite is also a reported failing long check: the 265-save admission fixture could outlive the five-minute session. The repair must use ordinary signed session renewal and a bounded fixture, preserving the production session lifetime. A repaired package check is not an excuse to omit the cold review entry point or silently suppress a failure.
+The earlier full authority suite could outlive the five-minute session during its 265-save admission fixture. Ordinary signed session-renewal source is integrated, preserving the production session lifetime; the long admission run remains outside this keyless profile. A repaired package check is not an excuse to omit the cold review entry point or silently suppress a failure.
 
 ### Built / Proposed: commands and limits
 
@@ -637,7 +637,7 @@ The configured reproduction entry point is `node packages/runtime-bridge/src/ver
 
 ### Gaps that remain named
 
-The preparation baseline has outstanding integration or qualification work around server logout, bounded terminal authority history, restore/purge retention, and the review character filter. Repairs must establish server token revocation and session-bound approvals; terminal history must retain necessary replay evidence without retaining copied forgotten text; purge commitments must survive export/import and the relevant restore boundary; and reviewed text must follow the explicit Unicode policy without rewriting legacy bytes. A local UI reset cannot stand in for server logout, and a tombstone cannot stand in for payload deletion.
+Durable logout, session-bound approvals, terminal-history compaction, approved forget/purge/restore and a separate retained-control adapter are now integrated source. The final H/UI join and current protected runtime remain unqualified. Independent control publication still lacks the marker-before-reservation and request-bound restore participant join, so mutation/restore assembly stays unavailable. The explicit review character policy remains open. Repairs must establish server token revocation and session-bound approvals; terminal history must retain necessary replay evidence without retaining copied forgotten text; purge commitments must survive export/import and the relevant restore boundary; and reviewed text must follow the explicit Unicode policy without rewriting legacy bytes. A local UI reset cannot stand in for server logout, and a tombstone cannot stand in for payload deletion.
 
 Three lifecycle regressions also remain part of the acceptance obligation: cancellation before a handler starts must settle, disposed owner state must become unusable, and recovery after a known-unsent or confirmed-saved result must remain possible without granting a retry of an uncertain effect. Threads must either activate with its declared read-only workspace routes or visibly report that it is unavailable. Served bytes must be checked at boot, not inferred from a successful source build.
 

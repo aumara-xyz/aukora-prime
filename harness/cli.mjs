@@ -1,6 +1,7 @@
 import {spawn,spawnSync} from 'node:child_process';
-import {existsSync,mkdirSync,readFileSync,writeFileSync,chmodSync} from 'node:fs';
-import {resolve,dirname} from 'node:path';
+import {existsSync,mkdirSync,mkdtempSync,realpathSync,readFileSync,writeFileSync,chmodSync} from 'node:fs';
+import {resolve,dirname,join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {privateDirectory,readPrivateJson,writePrivateJson,cleanOrigin} from './private-state.mjs';
 import {readPreviewDeploymentManifest} from './deployment-manifest.mjs';
@@ -39,5 +40,12 @@ else if(cmd==='boot'){
  p.on('exit',code=>{r.status='stopped';save();process.exitCode=code??1;});
 }
 else if(cmd==='check'){const p=spawnSync(process.execPath,[resolve(packagesRoot,'ops/cli.mjs'),'check',args.shift()??'G1','--root',root,...args],{cwd:root,stdio:'inherit'});process.exitCode=p.status??1;}
+else if(cmd==='verify'&&args.length===0){
+ // The reviewed source profile owns its exact checks and statuses. Evidence is
+ // retained outside the candidate; no snapshot, credential or service is opened.
+ const parent=mkdtempSync(join(realpathSync(tmpdir()),'aukora-prime-verify-'));
+ const p=spawnSync(process.execPath,[resolve(packagesRoot,'ops/verify-fast.mjs'),'--root',root,'--evidence-dir',join(parent,'evidence')],{cwd:root,stdio:'inherit'});
+ process.exitCode=p.status??1;
+}
 else if(['export','verify','restore'].includes(cmd)){const p=spawnSync(process.execPath,[resolve(packagesRoot,'memory/src/cli.mjs'),cmd,...args],{cwd:root,stdio:'inherit'});process.exitCode=p.status??1;}
-else {console.log('./prime build | compose | boot --deployment-manifest /etc/aukora-prime/preview-deployment.json [--port 18731] [--state-dir DIR] | status --json | check G1 ... | export OWNER OUTPUT | verify SNAPSHOT OWNER [RETAINED_HEADS_JSON] | restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]');}
+else {console.log('./prime build | compose | boot --deployment-manifest /etc/aukora-prime/preview-deployment.json [--port 18731] [--state-dir DIR] | status --json | check G1 ... | verify | export OWNER OUTPUT | verify SNAPSHOT OWNER [RETAINED_HEADS_JSON] | restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]');}
