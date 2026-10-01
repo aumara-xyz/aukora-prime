@@ -1,0 +1,143 @@
+import {createHash} from 'node:crypto'
+import {constants} from 'node:fs'
+import {lstat, open, readdir, realpath, writeFile} from 'node:fs/promises'
+import {isAbsolute, join, resolve} from 'node:path'
+import {fileURLToPath,pathToFileURL} from 'node:url'
+
+const DONOR='645d3213b8aede3b544269b4224ae09df06b0a42'
+const DSH='0d1f50007f9bca3f52b06e1c3074fa14d5fb0720'
+const LOCK='ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1'
+const FACES=['layout','sidebar','threads','apps','messages','memory','aumlok','documents','settings']
+const HEX=/^[a-f0-9]{64}$/
+const fail=(reason,path='')=>{const error=new Error(`PRIME_UI_INTEGRITY:${reason}${path?':'+path:''}`);error.code='PRIME_UI_INTEGRITY';error.reason=reason;throw error}
+const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
+function keys(value,required,optional=[]){if(!value||typeof value!=='object'||Array.isArray(value)||required.some(k=>!Object.hasOwn(value,k))||Object.keys(value).some(k=>!required.includes(k)&&!optional.includes(k)))fail('manifest-shape')}
+function pathName(path){if(typeof path!=='string'||!path||isAbsolute(path)||path.includes('\\')||path.includes('\0')||path.split('/').some(p=>!p||p==='.'||p==='..'))fail('path-refused');return path}
+function item(value){keys(value,['path','bytes','sha256'],['face','source_path','id','source','role','output_path']);pathName(value.path);if(!Number.isSafeInteger(value.bytes)||value.bytes<0||!HEX.test(value.sha256))fail('file-pin-invalid',value.path);return {path:value.path,bytes:value.bytes,sha256:value.sha256}}
+function items(values){if(!Array.isArray(values)||!values.length||values.length>10000)fail('file-list-invalid');const result=values.map(item);if(new Set(result.map(x=>x.path)).size!==result.length)fail('duplicate-path');return result}
+async function rootPath(root){const path=resolve(root);if((await lstat(path)).isSymbolicLink())fail('root-symlink');return realpath(path)}
+async function subRoot(root,path){pathName(path);let location=root;for(const part of path.split('/')){location=join(location,part);const stat=await lstat(location);if(stat.isSymbolicLink()||!stat.isDirectory())fail('directory-refused',path)}return location}
+async function bytesAt(root,path){pathName(path);let location=root;for(const part of path.split('/')){location=join(location,part);if((await lstat(location)).isSymbolicLink())fail('file-symlink',path)}const before=await lstat(location);if(!before.isFile())fail('not-regular-file',path);const handle=await open(location,constants.O_RDONLY|constants.O_NOFOLLOW);try{const after=await handle.stat();if(!after.isFile()||before.dev!==after.dev||before.ino!==after.ino)fail('file-replaced',path);return await handle.readFile()}finally{await handle.close()}}
+async function pinned(root,entry){const bytes=await bytesAt(root,entry.path);if(bytes.length!==entry.bytes||sha(bytes)!==entry.sha256)fail('file-changed',entry.path);return bytes}
+async function pin(root,path){const bytes=await bytesAt(root,path);return {path,bytes:bytes.length,sha256:sha(bytes)}}
+// Manifest JSON is bounded and duplicate keys are refused before JSON.parse.
+function json(bytes){if(bytes.length>8388608)fail('manifest-too-large');const text=bytes.toString('utf8');if(!Buffer.from(text).equals(bytes))fail('manifest-utf8');let i=0;const ws=()=>{while(/\s/.test(text[i]??'')&&i<text.length)i++};function string(){const start=i++;while(i<text.length){const char=text[i++];if(char==='\\'){i++;continue}if(char==='"')return JSON.parse(text.slice(start,i))}fail('manifest-json')};function value(depth=0){if(depth>64)fail('manifest-depth');ws();if(text[i]==='"'){string();return}if(text[i]==='{'){i++;ws();const seen=new Set();if(text[i]==='}'){i++;return}while(true){ws();if(text[i]!=='"')fail('manifest-json');const name=string();if(seen.has(name))fail('manifest-duplicate-key');seen.add(name);ws();if(text[i++]!==':')fail('manifest-json');value(depth+1);ws();if(text[i]==='}'){i++;return}if(text[i++]!==',')fail('manifest-json')}}if(text[i]==='['){i++;ws();if(text[i]===']'){i++;return}while(true){value(depth+1);ws();if(text[i]===']'){i++;return}if(text[i++]!==',')fail('manifest-json')}}const match=/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(text.slice(i));if(!match)fail('manifest-json');i+=match[0].length}try{value();ws();if(i!==text.length)fail('manifest-json');return JSON.parse(text)}catch(error){if(error.code==='PRIME_UI_INTEGRITY')throw error;fail('manifest-json')}}
+function servedFaces(manifest){if(manifest.schema_version!==1||manifest.commit!==DONOR||JSON.stringify(manifest.faces)!==JSON.stringify(FACES))fail('donor-pin');const all=items(manifest.files);const served=all.filter(entry=>{const parts=entry.path.split('/');return parts[0]==='faces'&&FACES.includes(parts[1])&&['package.json','lib','assets','vendor'].includes(parts[2])});for(const face of FACES)if(!served.some(x=>x.path===`faces/${face}/lib/client.js`))fail('face-client-missing',face);return {all,served}}
+function faceReleasePath(path){const [,face,...rest]=path.split('/');return `plugins/aukora-face-${face}/${rest.join('/')}`}
+async function walk(root,prefix){await subRoot(root,prefix);const result=[];for(const dirent of await readdir(join(root,prefix),{withFileTypes:true})){const path=prefix+'/'+dirent.name;if(dirent.isSymbolicLink())fail('file-symlink',path);if(dirent.isDirectory())result.push(...await walk(root,path));else if(dirent.isFile())result.push(path);else fail('not-regular-file',path)}return result.sort()}
+function sameList(left,right){return JSON.stringify(left.map(item).sort((a,b)=>a.path.localeCompare(b.path)))===JSON.stringify(right.map(item).sort((a,b)=>a.path.localeCompare(b.path)))}
+const OWNER_ID='@aukora/prime-authority-ui'
+const OWNER_CONFIG=`import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(OWNER_ID)}, [], { hostPhase: true })\n`
+const BUILD_PATHS=['.dsh-build/pinned-harness-build.json','pnpm-lock.yaml','tsconfig.base.json','tsconfig.base.client.json','packages/client/tsdown.client.ts','packages/client/modules/src/client/manifest.ts','packages/client/web/src/platform.ts','scripts/client-build-environment.ts','scripts/bundle-input-isolation.ts'].sort((a,b)=>a.localeCompare(b,'en'))
+function ownerReceipt(receipt){
+ if(receipt.version!==2||receipt.owner_build?.version!==1)fail('owner-source-receipt-missing')
+ if(receipt.upstream_commit!==DSH||receipt.source_commit!==DSH||receipt.source_commit_attribution!=='pinned-dsh-upstream; not Prime/UI source proof'||receipt.mode!=='client-only'||receipt.legacy_hosts_mounted!==false||receipt.source_lock_sha256!==LOCK||receipt.overlay_lock_sha256!==LOCK||!HEX.test(receipt.harness_receipt_sha256))fail('owner-build-pin')
+ const owner=receipt.owner_build
+ keys(owner,['version','package_id','source_inputs','source_inputs_before_sha256','source_inputs_after_sha256','build_inputs','build_inputs_before_sha256','build_inputs_after_sha256','output_artifacts'])
+ if(owner.package_id!==OWNER_ID)fail('owner-package-pin')
+ const sources=items(owner.source_inputs),outputs=items(owner.output_artifacts)
+ const sourceDigest=sha(Buffer.from(JSON.stringify(owner.source_inputs))),buildDigest=sha(Buffer.from(JSON.stringify(owner.build_inputs)))
+ if(owner.source_inputs_before_sha256!==sourceDigest||owner.source_inputs_after_sha256!==sourceDigest)fail('owner-source-digest-binding')
+ if(owner.build_inputs_before_sha256!==buildDigest||owner.build_inputs_after_sha256!==buildDigest)fail('owner-build-digest-binding')
+ keys(owner.build_inputs,['pinned','generated','declared_dependencies','build_dependencies'])
+ const pins=items(owner.build_inputs.pinned)
+ if(JSON.stringify(pins.map(x=>x.path))!==JSON.stringify(BUILD_PATHS))fail('owner-pinned-build-set')
+ const generated=item(owner.build_inputs.generated)
+ if(generated.path!=='packages/client/aukora-prime-authority/.prime-client.config.ts'||generated.bytes!==Buffer.byteLength(OWNER_CONFIG)||generated.sha256!==sha(Buffer.from(OWNER_CONFIG)))fail('owner-generated-config')
+ for(const field of ['declared_dependencies','build_dependencies']){
+  const dependencies=owner.build_inputs[field]
+  if(!Array.isArray(dependencies)||!dependencies.length||dependencies.length>1000)fail('owner-dependency-set')
+  for(const dependency of dependencies){keys(dependency,['name','declared','version','origin','path','bytes','sha256']);pathName(dependency.path);if(typeof dependency.name!=='string'||typeof dependency.version!=='string'||!['prime-ui','pinned-harness'].includes(dependency.origin)||!Number.isSafeInteger(dependency.bytes)||dependency.bytes<1||!HEX.test(dependency.sha256)||!(dependency.declared===null||typeof dependency.declared==='string'))fail('owner-dependency-pin')}
+ }
+ if(JSON.stringify(owner.build_inputs.build_dependencies.map(x=>x.name))!==JSON.stringify(['typescript','tsdown','lightningcss']))fail('owner-build-tool-set')
+ for(const output of owner.output_artifacts){if(!output.path.startsWith('prime-authority/lib/')||output.output_path!==output.path.replace('prime-authority/lib/','prime-authority/'))fail('owner-output-path')}
+ for(const path of ['prime-authority/lib/client.js','prime-authority/lib/client.js.map','prime-authority/lib/index.js','prime-authority/lib/types/client/index.d.ts','prime-authority/lib/types/client/controller.d.mts','prime-authority/lib/types/client/controller.mjs'])if(!outputs.some(x=>x.path===path))fail('owner-output-missing',path)
+ for(const extension of ['mjs','d.mts']){const source=sources.find(x=>x.path==='prime-authority/src/client/controller.'+extension),output=outputs.find(x=>x.path==='prime-authority/lib/types/client/controller.'+extension);if(!source||source.bytes!==output.bytes||source.sha256!==output.sha256)fail('owner-copied-controller-binding')}
+ for(const output of owner.output_artifacts.filter(x=>/\/client\.js(?:\.map)?$/.test(x.path))){const compiled=receipt.artifacts?.find(x=>x.id===OWNER_ID&&x.path===output.output_path);if(!compiled||compiled.bytes!==output.bytes||compiled.sha256!==output.sha256)fail('owner-output-artifact-binding',output.path)}
+ return {sources,outputs,buildInputs:owner.build_inputs}
+}
+
+/** Verify owned source before copying. Owner builds must carry genuine input pins. */
+export async function verifyUiSource({sourceRoot}){
+ const root=await rootPath(sourceRoot),ui=await subRoot(root,'packages/ui')
+ const baselineBytes=await bytesAt(ui,'baseline-manifest.json'),baseline=json(baselineBytes),faces=servedFaces(baseline)
+ for(const entry of faces.all)await pinned(ui,entry)
+ const foundationBytes=await bytesAt(ui,'foundation/prime-import-manifest.json'),foundation=json(foundationBytes)
+ if(foundation.version!==1||foundation.commit!==DONOR||foundation.client_id!=='@aukora/dsh-plugin-foundation'||foundation.baseline_face_diff!==0)fail('foundation-pin')
+ const foundationFiles=items(foundation.copied_exact)
+ if(JSON.stringify(foundationFiles.map(x=>x.path).sort())!==JSON.stringify(['src/client/index.tsx','lib/client.js','lib/build-manifest.json','package.json','tsdown.config.ts','assets/AUMARA-FULL-TRANSPARENT-ICON.png','assets/AUMARA-ICON-96.png'].sort()))fail('foundation-file-set')
+ const foundationRoot=await subRoot(ui,'foundation')
+ for(const entry of foundationFiles)await pinned(foundationRoot,entry)
+ const foundationReceipt=json(await bytesAt(ui,'foundation/lib/build-manifest.json'))
+ for(const path of ['src/client/index.tsx','tsdown.config.ts'])if(foundationReceipt.source?.[path]!==foundationFiles.find(x=>x.path===path)?.sha256)fail('foundation-source-binding',path)
+ if(foundationReceipt.outputs?.['lib/client.js']!==foundationFiles.find(x=>x.path==='lib/client.js')?.sha256)fail('foundation-output-binding')
+ const ownerBytes=await bytesAt(ui,'prime-authority/lib/build.json'),owner=json(ownerBytes)
+ const binding=ownerReceipt(owner),ownerSources=binding.sources,ownerOutputs=binding.outputs
+ for(const entry of ownerSources)await pinned(ui,entry)
+ for(const entry of ownerOutputs)await pinned(ui,entry)
+ // Use B's actual verifier for the complete current source/dependency/output closure.
+ // Dynamic import is compose-only. verifyReleaseUi has no B/runtime source dependency.
+ await bytesAt(ui,'scripts/verify-owner-build.mjs')
+ const {verifyOwnerBuild}=await import(pathToFileURL(join(ui,'scripts/verify-owner-build.mjs')).href)
+ if(typeof verifyOwnerBuild!=='function')fail('owner-verifier-export')
+ const verified=await verifyOwnerBuild({uiRoot:ui,receiptPath:join(ui,'prime-authority/lib/build.json'),dsh:await subRoot(root,'vendor/dsh')})
+ if(verified?.result!=='PASS'||verified.source_output_binding!=='MATCH'||verified.pinned_build_inputs!=='MATCH')fail('owner-verifier-refused')
+ const sourceRecords=[await pin(ui,'baseline-manifest.json'),await pin(ui,'foundation/prime-import-manifest.json'),await pin(ui,'prime-authority/lib/build.json')]
+ return {version:1,donor:DONOR,baseline,served:faces.served,foundation,foundationFiles,owner,ownerSources,ownerOutputs,sourceRecords}
+}
+
+/** Compose seam: call after copying and before final release digest calculation. */
+export async function writeUiIntegritySnapshot({sourceRoot,releaseRoot}){
+ const source=await verifyUiSource({sourceRoot}),root=await rootPath(releaseRoot),files=[]
+ const add=entry=>{const existing=files.find(x=>x.path===entry.path);if(existing){if(existing.bytes!==entry.bytes||existing.sha256!==entry.sha256)fail('duplicate-release-path');return}files.push(entry)}
+ for(const entry of source.served)add({...entry,path:faceReleasePath(entry.path)})
+ add({...source.sourceRecords[0],path:'prime-packages/ui/baseline-manifest.json'})
+ const baseline=json(await bytesAt(root,'prime-served-baseline.json'))
+ if(baseline.version!==1||baseline.donor!==DONOR||baseline.rebuilt_substitutions!==false||!sameList(baseline.files,source.served))fail('served-baseline-pin')
+ add(await pin(root,'prime-served-baseline.json'))
+ for(const entry of source.foundationFiles.filter(x=>!x.path.startsWith('src/')))add({...entry,path:'plugins/aukora-foundation/'+entry.path})
+ add({...source.sourceRecords[1],path:'plugins/aukora-foundation/prime-import-manifest.json'})
+ add({...source.sourceRecords[2],path:'plugins/prime-authority/lib/build.json'})
+ for(const entry of source.ownerOutputs)add({...entry,path:'plugins/'+entry.path})
+ // Additional owned host/package/type bytes are pinned to the reviewed source.
+ const ui=await subRoot(await rootPath(sourceRoot),'packages/ui')
+ for(const [sourcePath,target] of [['foundation/lib/index.js','plugins/aukora-foundation/lib/index.js'],['prime-authority/package.json','plugins/prime-authority/package.json'],['prime-authority/lib/index.js','plugins/prime-authority/lib/index.js'],...((await walk(ui,'prime-authority/lib/types')).map(path=>[path,'plugins/'+path]))])add({...await pin(ui,sourcePath),path:target})
+ for(const entry of files)await pinned(root,entry)
+ const snapshot={version:1,kind:'aukora-prime-ui-integrity/v1',donor:DONOR,source_records:source.sourceRecords,owner_source_files:source.ownerSources,files:files.sort((a,b)=>a.path.localeCompare(b.path))}
+ const bytes=Buffer.from(JSON.stringify(snapshot,null,2)+'\n'),path='prime-ui-integrity.json'
+ try{await writeFile(join(root,path),bytes,{flag:'wx',mode:0o644})}catch(error){if(error.code==='EEXIST')fail('snapshot-already-exists');throw error}
+ return {result:'PASS',snapshot:path,snapshot_sha256:sha(bytes),served_files:files.length,owner_source_build_binding:'VERIFIED_RECEIPT_INPUTS'}
+}
+
+/** Boot seam: run before importing any served plugin. Trust the deployment digest separately. */
+export async function verifyReleaseUi({releaseRoot,expectedSnapshotSha256}){
+ const root=await rootPath(releaseRoot),bytes=await bytesAt(root,'prime-ui-integrity.json')
+ if(expectedSnapshotSha256!==undefined&&(!HEX.test(expectedSnapshotSha256)||sha(bytes)!==expectedSnapshotSha256))fail('snapshot-trusted-pin-mismatch')
+ const snapshot=json(bytes);keys(snapshot,['version','kind','donor','source_records','owner_source_files','files'])
+ if(snapshot.version!==1||snapshot.kind!=='aukora-prime-ui-integrity/v1'||snapshot.donor!==DONOR)fail('snapshot-pin')
+ const files=items(snapshot.files);items(snapshot.owner_source_files);const sourceRecords=items(snapshot.source_records)
+ const records=[['baseline-manifest.json','prime-packages/ui/baseline-manifest.json'],['foundation/prime-import-manifest.json','plugins/aukora-foundation/prime-import-manifest.json'],['prime-authority/lib/build.json','plugins/prime-authority/lib/build.json']]
+ if(sourceRecords.length!==records.length)fail('source-record-set')
+ for(const [sourcePath,path] of records){const original=sourceRecords.find(x=>x.path===sourcePath),copied=files.find(x=>x.path===path);if(!original||!copied||original.sha256!==copied.sha256||original.bytes!==copied.bytes)fail('source-record-snapshot-mismatch',path)}
+ for(const entry of files)await pinned(root,entry)
+ const baseline=json(await bytesAt(root,'prime-packages/ui/baseline-manifest.json')),served=servedFaces(baseline).served
+ const servedSnapshot=json(await bytesAt(root,'prime-served-baseline.json'))
+ if(servedSnapshot.version!==1||servedSnapshot.donor!==DONOR||servedSnapshot.rebuilt_substitutions!==false||!sameList(servedSnapshot.files,served))fail('served-baseline-pin')
+ for(const entry of served){const copied=files.find(x=>x.path===faceReleasePath(entry.path));if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('served-snapshot-omission',entry.path)}
+ const foundation=json(await bytesAt(root,'plugins/aukora-foundation/prime-import-manifest.json'))
+ if(foundation.version!==1||foundation.commit!==DONOR||foundation.client_id!=='@aukora/dsh-plugin-foundation')fail('foundation-pin')
+ for(const entry of items(foundation.copied_exact).filter(x=>!x.path.startsWith('src/'))){const copied=files.find(x=>x.path==='plugins/aukora-foundation/'+entry.path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('foundation-snapshot-omission',entry.path)}
+ const owner=json(await bytesAt(root,'plugins/prime-authority/lib/build.json'))
+ const binding=ownerReceipt(owner)
+ if(!sameList(binding.sources,snapshot.owner_source_files))fail('owner-source-snapshot-mismatch')
+ for(const entry of binding.outputs){const path='plugins/'+entry.path,copied=files.find(x=>x.path===path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('owner-snapshot-omission',path)}
+ return {result:'PASS',snapshot_sha256:sha(bytes),served_files:files.length,external_trust_pin:expectedSnapshotSha256!==undefined}
+}
+
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+ const [action,...argv]=process.argv.slice(2)
+ if(action==='source'&&argv.length===1)console.log(JSON.stringify({result:'PASS',donor:(await verifyUiSource({sourceRoot:argv[0]})).donor}))
+ else if(action==='snapshot'&&argv.length===2)console.log(JSON.stringify(await writeUiIntegritySnapshot({sourceRoot:argv[0],releaseRoot:argv[1]})))
+ else if(action==='verify'&&(argv.length===1||argv.length===2))console.log(JSON.stringify(await verifyReleaseUi({releaseRoot:argv[0],expectedSnapshotSha256:argv[1]})))
+ else throw new Error('usage: release-integrity.mjs source SOURCE_ROOT | snapshot SOURCE_ROOT RELEASE_ROOT | verify RELEASE_ROOT [TRUSTED_SNAPSHOT_SHA256]')
+}

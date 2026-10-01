@@ -1,11 +1,22 @@
 import {readFileSync} from 'node:fs';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
 import {apply as registerWelcomeSettings} from '../packages/client/ui-settings-general/lib/index.js';
 import {createStaticAppRoutes} from '../prime-packages/ui/adapters/static-assets.mjs';
+import {buildStaticHtmlCsp} from './static-csp.mjs';
+import {providerCatalog,providerNamespace,mountDshCatalog} from '../prime-packages/inference/src/provider-settings.mjs';
+import {providerNamespaceView} from '../prime-packages/ui/adapters/provider-settings.mjs';
+import * as contracts from '../prime-packages/contracts/src/runtime.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const Schema=createRequire(resolve(root,'packages/api/settings-controller/package.json'))('@deepseek-ai/schemastery');
 export function apply(ctx){
  registerWelcomeSettings(ctx);
+ ctx.inject(['llm','settings'],host=>{
+  mountDshCatalog(host);
+  const view=providerNamespaceView(providerNamespace(),{Schema,contracts});
+  host.settings.register(view.ns,new Schema(view.schema),{base:view.base,applies:'live'});
+ });
  ctx.inject(['webServer','connection'], web=>{
   const guarded=work=>async(req,res)=>{
    const reject=web.connection?.requestRejection?.(req);
@@ -18,6 +29,10 @@ export function apply(ctx){
    if(req.method!=='GET'){send(res,405,{ok:false,error_code:'INVALID'});return;}
    send(res,200,{version:1,source_commit:release.source_commit,runtime_pid:process.pid,release_digest:'sha256:'+process.env.PRIME_RELEASE_DIGEST,unavailable_capabilities:release.unavailable_capabilities,phase:'disposable-preview',qualification:'PENDING'});
   })}),'prime observed preview capabilities');
+  web.effect(()=>web.webServer.register({kind:'exact',path:'/api/prime/inference/catalog',handler:guarded((req,res)=>{
+   if(req.method!=='GET'){send(res,405,{ok:false,error_code:'INVALID'});return;}
+   send(res,200,providerCatalog());
+  })}),'prime unavailable provider read catalog');
   for(const filename of ['browser.mjs','shared.mjs','json.mjs'])web.effect(()=>web.webServer.register({kind:'exact',path:'/prime/contracts/'+filename,handler:guarded((req,res)=>{
    if(!['GET','HEAD'].includes(req.method)){send(res,405,{ok:false,error_code:'INVALID'});return;}
    res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});
@@ -29,8 +44,15 @@ export function apply(ctx){
   web.effect(()=>web.webServer.register({kind:'prefix',path:'/api/auma-live',handler:guarded((req,res)=>send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Embedded live runtime not configured'}))}),'prime embedded runtime refusal');
   web.effect(async()=>{
    const manifest=JSON.parse(readFileSync(resolve(root,'prime-packages/ui/baseline-manifest.json')));
-   const routes=await createStaticAppRoutes({appRoot:resolve(root,'plugins/aukora-face-apps'),manifest});
-   const disposers=routes.map(route=>web.webServer.register({...route,handler:guarded(route.handler)}));
+   const appRoot=resolve(root,'plugins/aukora-face-apps');
+   const routes=await createStaticAppRoutes({appRoot,manifest});
+   const policies=await buildStaticHtmlCsp({appRoot,manifest});
+   const disposers=routes.map(route=>web.webServer.register({...route,handler:guarded(async(req,res)=>{
+    let path;
+    try{path=decodeURIComponent(new URL(req.url??'/','http://prime-static.local').pathname);}catch{res.writeHead(400);res.end();return;}
+    if(policies[path])res.setHeader('content-security-policy',policies[path]);
+    await route.handler(req,res);
+   })}));
    return ()=>{for(const dispose of disposers)dispose();};
   },'prime frozen embedded Apps routes');
  });

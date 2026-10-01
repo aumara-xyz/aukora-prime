@@ -1,14 +1,19 @@
+import {createRequire} from 'node:module';
+import {installStrictGatewayWebSocketIngress} from './ingress.mjs';
+import {parseStrictJson} from '../prime-packages/contracts/src/runtime.mjs';
 // Restricted first-party adapters; no environment credentials, YAML, file intake or host spawning.
 import {CredentialProvider} from '../packages/credentials/credentials/lib/index.js';
 import {SettingsProvider} from '../packages/settings/settings/lib/index.js';
 import {TypertGatewayService} from '../packages/api/gateway/lib/index.js';
 import {Service} from '../vendor/cordis/lib/index.js';
+const require=createRequire(new URL('../packages/api/gateway/package.json',import.meta.url));
+installStrictGatewayWebSocketIngress(require('ws').WebSocketServer,parseStrictJson);
 const unavailable=()=>{throw Object.assign(new Error('UNAVAILABLE: preview capability not qualified'),{code:'UNAVAILABLE'});};
 const browserKey='client-connection/browser-session';
 export class PreviewCredentials extends CredentialProvider {
  #record;
  resolve(){return Promise.resolve(undefined);}
- describe(){return Promise.resolve({configured:false,writable:false});}
+ describe(){return unavailable();}
  set(){return unavailable();} unset(){return unavailable();}
  readRecord=key=>{if(key!==browserKey)return unavailable();return Promise.resolve(structuredClone(this.#record));};
  describeRecord(){return unavailable();}listRecords(){return unavailable();}deleteRecord(){return unavailable();}

@@ -6,14 +6,13 @@ With Node 24.11.1, pnpm 11.7.0, Python 3.10+ and an ordinary native compiler ava
 
 ```sh
 ./prime build
-node packages/ui/scripts/build-client.mjs --dsh vendor/dsh --output .runtime/client-dist
 ./prime compose
-./prime boot
+./prime boot --deployment-manifest /etc/aukora-prime/preview-deployment.json
 ```
 
-`boot` runs the pinned harness in the foreground on `127.0.0.1:18731`, using a new isolated state home. The private launch URL is printed once; `./prime status --json` exposes only the clean origin. `./prime stop` verifies the owned process before stopping it. Process observation denied by a sandbox is reported as unavailable.
+`boot` requires a separately retained, protected root-owned deployment manifest outside the release. It checks the selected source commit, full release digest and UI snapshot against that anchor before starting the pinned harness in the foreground on `127.0.0.1:18731`. The release and launcher must be protected against writes by the application identity. Manifest creation and host protection belong to the approved operator deployment step; composing a release alone does not authorize or qualify it. Launch access is stored only in the named private `launch-url.json` descriptor; `./prime status --json` exposes the clean origin. `./prime stop` verifies the owned process before stopping it. Process observation denied by a sandbox is reported as unavailable.
 
-Composition verifies pinned build receipts and every new client artifact, preserves the exact UI baseline, and mounts separate Prime adapters. Embedded static Apps retain their selected assets. Original donor host entries are never mounted. The original DSH welcome notice persists only in the new Prime state home.
+Composition verifies the genuine owner UI source/output receipt and pinned build inputs, preserves all nine donor client bundles and assets exactly, and mounts separate Prime adapters. Embedded static Apps retain their selected assets with hash-bound script CSP. Original donor host entries are never mounted. The DSH welcome notice and preview theme preferences live only in the new process-local settings provider.
 
 The actual execution factory is wired with capability `unavailable`: foreground Bash and child launchers refuse before any grant callback or host process spawn. Owner login/approval, PostgreSQL persistence, external inference, messaging and media remain unavailable until their trusted configuration and acceptance are established. The DSH browser cookie grants access to this disposable UI, not owner authority.
 

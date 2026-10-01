@@ -6,8 +6,12 @@ root=Path(__file__).resolve().parents[1]
 source=root/'vendor/dsh'
 release=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else root/'.runtime/release'
 if not release.is_relative_to(root/'.runtime'):raise SystemExit('release-path-refused')
+def require_clean_source():
+ if subprocess.check_output(['git','status','--porcelain','--untracked-files=normal'],cwd=root,text=True).strip():raise SystemExit('source-not-committed: compose requires a coherent clean source checkpoint')
+require_clean_source()
 subprocess.run([sys.executable,str(root/'scripts/build-dsh.py'),'--verify-built'],cwd=root,check=True)
 subprocess.run(['node',str(root/'packages/ui/scripts/verify-baseline.mjs')],cwd=root,check=True)
+subprocess.run(['node',str(root/'harness/release-integrity.mjs'),'source',str(root)],check=True)
 if release.exists(): raise SystemExit('release-exists: keep previous bytes; remove only this task-owned release before explicit rebuild')
 release.parent.mkdir(exist_ok=True)
 def ignored(directory,names):
@@ -22,7 +26,7 @@ for name in ['layout','sidebar','threads','apps','messages','memory','aumlok','d
   elif (src/n).is_file():shutil.copy2(src/n,dst/n)
  shutil.copy2(root/'harness/ui-host.mjs',dst/'lib/prime-host.mjs')
 shutil.copytree(root/'harness',release/'harness')
-for package in ['contracts','execution','authority','memory','inference']:
+for package in ['contracts','execution','authority','memory','inference','ops']:
  shutil.copytree(root/'packages'/package,release/'prime-packages'/package,symlinks=True,ignore=lambda directory,names:[n for n in names if n in ['test','tests','checks'] or n in ['check.mjs','build-sdk.py']])
 ui=release/'prime-packages/ui';ui.mkdir(parents=True)
 shutil.copytree(root/'packages/ui/adapters',ui/'adapters')
@@ -49,7 +53,9 @@ for link in release.rglob('*'):
  if link.is_symlink() and not link.exists():
   removed_links.append(str(link.relative_to(release)));link.unlink()
 (release/'prime-stripped-links.json').write_text(json.dumps(removed_links,indent=2)+'\n')
+subprocess.run(['node',str(root/'harness/release-integrity.mjs'),'snapshot',str(root),str(release)],check=True)
 subprocess.run(['node',str(root/'scripts/compose-entries.mjs'),str(release)],check=True)
 commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+require_clean_source()
 (release/'prime-release.json').write_text(json.dumps({'version':'0.1.0','source_commit':commit,'dsh_commit':'0d1f50007f9bca3f52b06e1c3074fa14d5fb0720','cordis':'4.0.2','ui_donor':'645d3213b8aede3b544269b4224ae09df06b0a42','unavailable_capabilities':['owner-passkey','approved-shell','sdk-child-launchers','model-inference','durable-memory','messaging','media-generation']},indent=2)+'\n')
 print('COMPOSED',release)
