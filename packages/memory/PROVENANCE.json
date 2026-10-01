@@ -1,0 +1,206 @@
+{
+  "genesisCommit": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "extraction": "selected source closure, unchanged bytes",
+  "files": [
+    {
+      "source": "LICENSE",
+      "path": "genesis/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef"
+    },
+    {
+      "source": "NOTICE",
+      "path": "genesis/NOTICE",
+      "sha256": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f"
+    },
+    {
+      "source": "plugins/aukora-kira/PROVENANCE.md",
+      "path": "genesis/plugins/aukora-kira/PROVENANCE.md",
+      "sha256": "7d98c80b9a2c90f28a63edc71995e78a7f5738c6452ec90439550783457be9b2"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/cite-service.mjs",
+      "path": "genesis/plugins/aukora-kira/lib/cite-service.mjs",
+      "sha256": "de52bafdece2ff76544d97587f116b734a4d05d35980561cf151614cf701cb5c"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/memory-law.mjs",
+      "path": "genesis/plugins/aukora-kira/lib/memory-law.mjs",
+      "sha256": "8525f7e20ce3b17efa44ca0419a2bbb87499e7b7b9c6f4668f5f11241545e907"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/memory-tiers.mjs",
+      "path": "genesis/plugins/aukora-kira/lib/memory-tiers.mjs",
+      "sha256": "a9585dc3986bcf1f46f9736ae00607ac01f79b30cd7c286dbf904820f7a63d56"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/memory-verify.mjs",
+      "path": "genesis/plugins/aukora-kira/lib/memory-verify.mjs",
+      "sha256": "7d0ad9101eb98d63acc86ca3700bf7ef3361e5794af067723e30e552c22cf884"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/record.mjs",
+      "path": "genesis/plugins/aukora-kira/lib/record.mjs",
+      "sha256": "2c83153256638fe908334953186de28b52254870aecfbb36b48313aa1d8c1c4a"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/strict-read.mjs",
+      "path": "genesis/plugins/aukora-kira/lib/strict-read.mjs",
+      "sha256": "1d9ed9eec4b38675af91d01e09d64136b6634cfebf682ebfb68e7659d1a04be8"
+    },
+    {
+      "source": "vendor/aukora-packages/lib/packages/memory/src/envelope.js",
+      "path": "genesis/vendor/aukora-packages/lib/packages/memory/src/envelope.js",
+      "sha256": "024cf31ba15d22639a65046e70f242c62127631ffe848b4567d36eaf89393525"
+    },
+    {
+      "source": "vendor/aukora-packages/lib/packages/memory/src/ingestGate.js",
+      "path": "genesis/vendor/aukora-packages/lib/packages/memory/src/ingestGate.js",
+      "sha256": "6f0de9feea6486ca935b365403c80d09af499e52c2336e827e3e56afb4c6f0db"
+    },
+    {
+      "source": "vendor/authority/deps/@noble/hashes@2.2.0/_md.js",
+      "path": "genesis/vendor/authority/deps/@noble/hashes@2.2.0/_md.js",
+      "sha256": "8227b9b5cabf078a9d7f7317f7a1ace6e46627539aa9364667aec724e1636f14"
+    },
+    {
+      "source": "vendor/authority/deps/@noble/hashes@2.2.0/_u64.js",
+      "path": "genesis/vendor/authority/deps/@noble/hashes@2.2.0/_u64.js",
+      "sha256": "766b91a693a798f9d3cde97b25db4a6d0cef66b2ca21153d3d42424d37878870"
+    },
+    {
+      "source": "vendor/authority/deps/@noble/hashes@2.2.0/sha2.js",
+      "path": "genesis/vendor/authority/deps/@noble/hashes@2.2.0/sha2.js",
+      "sha256": "0fb8e3c3f2c73a890be2524ac5d2542aaed4decff69e561231a86131203b3973"
+    },
+    {
+      "source": "vendor/authority/deps/@noble/hashes@2.2.0/utils.js",
+      "path": "genesis/vendor/authority/deps/@noble/hashes@2.2.0/utils.js",
+      "sha256": "e2adfc13c846487feff0410bd5508a1d66f5ebadc3188f3a40a6b55449981e2f"
+    },
+    {
+      "source": "vendor/authority/lib/canonical.js",
+      "path": "genesis/vendor/authority/lib/canonical.js",
+      "sha256": "b213762567fc959e419372e75454eaf320fd123f62aabb7538a080da11a5abf3"
+    },
+    {
+      "source": "vendor/authority/lib/errors.js",
+      "path": "genesis/vendor/authority/lib/errors.js",
+      "sha256": "66a2aafddaf95a6473061849a6333d8670d100fd9f01eff83459915ed02bed08"
+    },
+    {
+      "source": "vendor/kira-export/LICENSE",
+      "path": "genesis/vendor/kira-export/LICENSE",
+      "sha256": "1f7e2277a29ae557cc0c3ae44a50e51934045bc95bf1311ff933fb312aa0b27e"
+    },
+    {
+      "source": "vendor/kira-export/diamond/__init__.py",
+      "path": "genesis/vendor/kira-export/diamond/__init__.py",
+      "sha256": "48eb118ec734d2c4e165367e2b7d534e7278bdd7e72b178fb1d6026093e149db"
+    },
+    {
+      "source": "vendor/kira-export/diamond/approval_artifact.py",
+      "path": "genesis/vendor/kira-export/diamond/approval_artifact.py",
+      "sha256": "53eb34ee1a3e607bccee0685d4299d98a7e378390b1c9cb6d10deb81f4149e3b"
+    },
+    {
+      "source": "vendor/kira-export/diamond/aumlok_approval.py",
+      "path": "genesis/vendor/kira-export/diamond/aumlok_approval.py",
+      "sha256": "0c92a389abe16ba2767d9ea543a3b53e01dd43121d2ed5f17abb25d5b5f69494"
+    },
+    {
+      "source": "vendor/kira-export/diamond/ed25519.py",
+      "path": "genesis/vendor/kira-export/diamond/ed25519.py",
+      "sha256": "9030712e962525fec5b48e6dba2a6e60789715a5d87d982540f2eeb167100d6f"
+    },
+    {
+      "source": "vendor/kira-export/diamond/hexutil.py",
+      "path": "genesis/vendor/kira-export/diamond/hexutil.py",
+      "sha256": "82d1f9a3b7caa9c288573506eb788808f1f69c35f1f5140dba5af533cf975388"
+    },
+    {
+      "source": "vendor/kira-export/diamond/jcs.py",
+      "path": "genesis/vendor/kira-export/diamond/jcs.py",
+      "sha256": "cf8f1558dbaa72d914a650ac52ca4d0e7442af9ec8c1a232187f667df60e9848"
+    },
+    {
+      "source": "vendor/kira-export/diamond/kira_evidence.py",
+      "path": "genesis/vendor/kira-export/diamond/kira_evidence.py",
+      "sha256": "3155d704dceac4f3873129974836adcfd1a398e399a504f7708a8563c921a264"
+    },
+    {
+      "source": "vendor/kira-export/scripts/verify-kira-evidence.py",
+      "path": "genesis/vendor/kira-export/scripts/verify-kira-evidence.py",
+      "sha256": "bd153146c74f7f99721d6b1230dd6aa0dc0a51065192e26a3dbc13310eb088d7"
+    },
+    {
+      "source": "vendor/kira-export/upstream-diamond.json",
+      "path": "genesis/vendor/kira-export/upstream-diamond.json",
+      "sha256": "dea5dc86cd51cd844a23699ea1a20369d660ac305cf2ec20c89083ba3a6b3aba"
+    },
+    {
+      "source": "vendor/aukora-packages/LICENSE",
+      "path": "genesis/vendor/aukora-packages/LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    },
+    {
+      "source": "vendor/aukora-packages/NOTICE",
+      "path": "genesis/vendor/aukora-packages/NOTICE",
+      "sha256": "6c737c8ce6b5a651f36ead98f0107084e8a65d74dce0c8ee16fa9cc122c20228"
+    },
+    {
+      "source": "vendor/aukora-packages/PROVENANCE.json",
+      "path": "genesis/vendor/aukora-packages/PROVENANCE.json",
+      "sha256": "fac5a8fc182e957d4fa845285ebc585f83168632fa56ce5f515fa155713c6b58"
+    },
+    {
+      "source": "vendor/authority/LICENSE",
+      "path": "genesis/vendor/authority/LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    },
+    {
+      "source": "vendor/authority/NOTICE",
+      "path": "genesis/vendor/authority/NOTICE",
+      "sha256": "1452a9200b6d9e53c3b8a8ffdc68345976493d151a671213431d7409528a4561"
+    },
+    {
+      "source": "vendor/authority/PROVENANCE.json",
+      "path": "genesis/vendor/authority/PROVENANCE.json",
+      "sha256": "5f132089b776f2af2ee90864ef662f19e9eb489ee4614fe67b023629243b3fba"
+    },
+    {
+      "source": "vendor/authority/deps/@noble/hashes@2.2.0/LICENSE",
+      "path": "genesis/vendor/authority/deps/@noble/hashes@2.2.0/LICENSE",
+      "sha256": "4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec"
+    },
+    {
+      "source": "vendor/authority/deps/PROVENANCE.json",
+      "path": "genesis/vendor/authority/deps/PROVENANCE.json",
+      "sha256": "8fcd23d47c15eaf5d984ab2bc80b3bc1e944f24c60f212db63ae86251e677670"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/memory-forget.mjs",
+      "path": "genesis/plugins/aukora-kira/lib/memory-forget.mjs",
+      "sha256": "baa2252375b1da6ea8b05fcec3b4a66c7df8679dcf17b0922f7d37e717933f01"
+    }
+  ],
+  "ackRepairReference": {
+    "commit": "589c7d5a4aeaacadb96949c72f6ba7984b65db87",
+    "disposition": "No OpenViking runtime copied. Prime outbox ACKs scoped to target generation and revision; reference implementation not executed."
+  },
+  "adaptations": [
+    {
+      "source": "plugins/aukora-kira/lib/compaction-export.mjs",
+      "sourceSha256": "3df29d4bbbf0e10e90b3a853690c09251d3406753f3976901309afe5a5948da2",
+      "selected": "SECRET_PATTERNS declaration",
+      "destination": "src/capture-policy.mjs",
+      "copiedBlockSha256": "b18b16a0f0a04fe10da4f06a0a7f5a3abca347bd76d1f0a41cf8f755836ce6ce"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/memory-owner.mjs",
+      "sourceSha256": "7ff95642662e518eb2f523cbae1d5b14dca8579e60064a8fa768286535b7543b",
+      "selected": "AURA_RECORD_DOMAIN, auraEntryHash, auraEntryPreimage",
+      "destination": "src/codecs.mjs",
+      "note": "Functions and canonical preimage copied unchanged; SQL chain/storage adapter added separately."
+    }
+  ]
+}
