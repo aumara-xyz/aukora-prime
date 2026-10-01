@@ -10,11 +10,11 @@ export const MEMORY_CLI_USAGE = [
   'verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]',
   'export OWNER OUTPUT',
   'restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]',
-  'AUTHORIZATION_JSON contains {operation,approval_proof}. Restore requires an injected C authority service.',
+  'AUTHORIZATION_JSON contains {operation,approval_proof}. Restore requires an injected C service and trusted host identity.',
   'Database commands require an explicitly configured PRIME_MEMORY_DATABASE_URL and the declared pg dependency.'
 ]
 
-export async function runMemoryCommand(argv,{pool,authority,contracts}={}) {
+export async function runMemoryCommand(argv,{pool,authority,contracts,host}={}) {
   const [command,first,second,third] = argv
   if(command==='--help' || command==='help') return {usage:MEMORY_CLI_USAGE}
   requireMemory(['verify','export','restore'].includes(command) && first && second, 'memory:cli-arguments-invalid')
@@ -28,7 +28,7 @@ export async function runMemoryCommand(argv,{pool,authority,contracts}={}) {
         tombstoned:checked.tombstones.some(t=>t.id===r.meta.id),...r.citation})),
       independent_trust_anchor_supplied:checked.anchored,grants_authority:false}
   }
-  if(command==='restore') requireMemory(third && !third.startsWith('--') && authority,
+  if(command==='restore') requireMemory(third && !third.startsWith('--') && authority && host,
     'memory:authority-unavailable')
   let ownedPool=false
   if(!pool) {
@@ -49,7 +49,8 @@ export async function runMemoryCommand(argv,{pool,authority,contracts}={}) {
     const authorization=parseOriginal(readBytesStrict(resolve(third)).bytes)
     requireMemory(Object.keys(authorization).sort().join(',')==='approval_proof,operation','memory:validated-operation-required')
     const expectedHeads=argv[4] ? parseOriginal(readBytesStrict(resolve(argv[4])).bytes) : undefined
-    const restored=await memory.restoreSnapshot({owner_subject:second,task_id:authorization.operation?.task_id},snapshot,
+    requireMemory(host.owner_subject===second,'memory:cli-owner-mismatch')
+    const restored=await memory.restoreSnapshot(host,snapshot,
       {...authorization,expectedHeads})
     return {...restored,index_status:'pending',grants_authority:false}
   } finally {if(ownedPool) await pool.end()}

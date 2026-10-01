@@ -20,6 +20,6 @@ CLI path is `packages/memory/src/cli.mjs`:
 - `export OWNER OUTPUT`
 - `restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]`
 
-Authorization JSON contains `{operation,approval_proof}`. Restore requires an injected trusted C adapter via `runMemoryCommand(argv,{pool,authority,contracts})`; standalone restore fails closed. Export uses explicitly supplied `PRIME_MEMORY_DATABASE_URL`. Database migration is an explicit host bootstrap call, not a CLI restore side effect.
+Authorization JSON contains `{operation,approval_proof}`. Restore requires an injected trusted C adapter via `runMemoryCommand(argv,{pool,authority,contracts,host})`; standalone restore fails closed. Export uses explicitly supplied `PRIME_MEMORY_DATABASE_URL`. Database migration is an explicit host bootstrap call, not a CLI restore side effect.
 
 Run the focused source fixture with `node --test packages/memory/test/memory.test.mjs`. Its disk/restart SQL adapter is SQLite, not PG evidence; the toy authority is private test code with exact registered digests, not production proof verification. G5 is `PRIME_MEMORY_POSTGRES_BINDIR=<existing approved official bin directory> sh packages/memory/test/g5-postgres.sh`, after the declared pg driver is materialized. It starts only a disposable marked cluster with a private Unix socket and no TCP listener. No PostgreSQL binary/driver was available here; that arm remains explicitly UNPERFORMED.

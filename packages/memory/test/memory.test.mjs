@@ -175,6 +175,11 @@ test('synthetic durable capture, honest ACKs, owner filters, restart, import and
       assert.equal((await restored.restoreSnapshot(captureHost,snapshot,await toyImport(restoredPool,snapshot,{mode:'prime-restore',expectedHeads:snapshot.heads}))).imported,1)
       assert.equal((await restored.importSnapshot(captureHost,snapshot,await toyImport(restoredPool,snapshot))).already_imported,true)
       await assert.rejects(runMemoryCommand(['restore',join(dir,'snapshot.json'),owner,'--synthetic-fixture'],{pool:restoredPool}),{code:'memory:authority-unavailable'})
+      const cliAuth=await toyImport(restoredPool,snapshot,{mode:'prime-restore'})
+      const cliAuthFile=join(dir,'authorization.json')
+      writeFileSync(cliAuthFile,JSON.stringify({operation:cliAuth.operation,approval_proof:cliAuth.approval_proof}))
+      assert.equal((await runMemoryCommand(['restore',join(dir,'snapshot.json'),owner,cliAuthFile],
+        {pool:restoredPool,authority:toyAuthority,contracts:toyContracts,host:captureHost})).already_imported,true)
       assert.equal((await restored.status(captureHost,saved.record_id)).record.canonical_bytes,saved.canonical_bytes)
       assert.equal((await restored.status(captureHost,saved.record_id)).indexed,false)
       await restored.drainOutbox(captureHost)
