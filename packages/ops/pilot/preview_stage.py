@@ -124,11 +124,14 @@ def stable_bytes(path, expected=None, maximum=16 * 1024 * 1024):
 def spec_value(value):
     need(isinstance(value, dict) and set(value) == {
         'schema', 'release_source', 'release_digest', 'node_source', 'node_sha256',
-        'manifest_source', 'manifest_sha256', 'app_entry_sha256'}, 'CLOSED_PREVIEW_SPEC_REQUIRED')
+        'node_license_source', 'node_license_sha256', 'manifest_source',
+        'manifest_sha256', 'app_entry_sha256', 'port'}, 'CLOSED_PREVIEW_SPEC_REQUIRED')
     need(value['schema'] == 'prime-preview-stage-v1', 'PREVIEW_SPEC_SCHEMA')
-    for key in ['release_source', 'node_source', 'manifest_source']:
+    need(type(value['port']) is int and value['port'] in (18731, 18732),
+         'EXACT_REVIEWED_PREVIEW_PORT_REQUIRED')
+    for key in ['release_source', 'node_source', 'node_license_source', 'manifest_source']:
         absolute(value[key])
-    for key in ['release_digest', 'node_sha256', 'manifest_sha256', 'app_entry_sha256']:
+    for key in ['release_digest', 'node_sha256', 'node_license_sha256', 'manifest_sha256', 'app_entry_sha256']:
         digest(value[key])
     return value
 
@@ -136,6 +139,7 @@ def spec_value(value):
 def paths(spec):
     base = CODE / 'preview' / spec['release_digest']
     return {'base': base, 'release': base / 'release', 'node': base / 'node',
+            'node_license': base / 'node-LICENSE',
             'launcher': base / 'launch', 'manifest': MANIFEST,
             'state': STATE / 'app' / ('preview-' + spec['release_digest'])}
 
@@ -279,6 +283,7 @@ def verify(spec):
     manifest_bytes = stable_bytes(spec['manifest_source'], spec['manifest_sha256'], 16384)
     manifest = manifest_value(manifest_bytes, spec)
     node = stable_bytes(spec['node_source'], spec['node_sha256'], 256 * 1024 * 1024)
+    node_license = stable_bytes(spec['node_license_source'], spec['node_license_sha256'], 2 * 1024 * 1024)
     observed = tree(spec['release_source'])
     need(observed['digest'] == spec['release_digest'], 'RELEASE_PIN_MISMATCH')
     need(observed['entries'].get('harness/cli.mjs', {}).get('sha256') == spec['app_entry_sha256'],
@@ -290,10 +295,11 @@ def verify(spec):
     metadata = strict(stable_bytes(Path(spec['release_source']) / 'prime-release.json', metadata_pin, maximum=MAX_METADATA))
     need(isinstance(metadata, dict) and metadata.get('source_commit') == manifest['source_commit'],
          'SOURCE_COMMIT_BINDING_MISMATCH')
-    return manifest_bytes, node, observed
+    return manifest_bytes, node, node_license, observed
 
 
 def launcher(spec):
+    spec_value(spec)
     p = paths(spec)
     return ('#!/bin/sh\nset -eu\n'
             '[ "$(/usr/bin/id -u)" = "997" ] && [ "$(/usr/bin/id -g)" = "987" ] || exit 77\n'
@@ -303,15 +309,15 @@ def launcher(spec):
             + str(p['node']) + ' ' + str(p['release'] / 'harness/cli.mjs')
             + ' boot --deployment-manifest ' + str(MANIFEST)
             + ' --release-dir ' + str(p['release'])
-            + ' --state-dir ' + str(p['state']) + ' --port 18731\n').encode()
+            + ' --state-dir ' + str(p['state']) + ' --port ' + str(spec['port']) + '\n').encode()
 
 
 def plan(spec):
     spec_value(spec)
     return {'schema': 'prime-preview-stage-plan-v1', 'qualification': 'PENDING',
             'destinations': {key: str(value) for key, value in paths(spec).items()},
-            'app_identity': {'uid': APP_UID, 'gid': APP_GID}, 'port': 18731,
-            'effects': ['fresh app-only release/node/launcher/manifest/private preview state'],
+            'app_identity': {'uid': APP_UID, 'gid': APP_GID}, 'port': spec['port'],
+            'effects': ['fresh app-only release/node/license/launcher/manifest/private preview state'],
             'unperformed': ['H trusted outer script/spec verification', 'H staging',
                             'separate approved app launch and port availability',
                             'OS/process/resource qualification', 'all worker/PG/API qualification'],
@@ -329,6 +335,13 @@ def fresh_file(path, data, mode):
         write_all(fd, data); os.fchmod(fd, mode); os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def runtime_files(base, node, node_license, launch):
+    """Write only previously verified captured bytes; no source reads or execution."""
+    fresh_file(base / 'node', node, 0o755)
+    fresh_file(base / 'node-LICENSE', node_license, 0o644)
+    fresh_file(base / 'launch', launch, 0o755)
 
 
 def root_directory(path, exact_mode=None, create=False):
@@ -397,7 +410,7 @@ def apply(spec):
     need((account.pw_uid, account.pw_gid) == (APP_UID, APP_GID)
          and set(os.getgrouplist('prime-app', APP_GID)) == {APP_GID, APP_IPC_GID},
          'EXACT_APP_IDENTITY_GROUPS_REQUIRED')
-    manifest, node, _ = verify(spec)
+    manifest, node, node_license, _ = verify(spec)
     p = paths(spec)
     for required in [STATE, RUN]:
         fd = root_directory(required, 0o711); os.close(fd)
@@ -421,8 +434,7 @@ def apply(spec):
         temporary.mkdir(mode=0o755); os.chmod(temporary, 0o755)
         observed = tree(spec['release_source'], temporary / 'release')
         need(observed['digest'] == spec['release_digest'], 'RELEASE_CHANGED_DURING_STAGE')
-        fresh_file(temporary / 'node', node, 0o755)
-        fresh_file(temporary / 'launch', launcher(spec), 0o755)
+        runtime_files(temporary, node, node_license, launcher(spec))
         need(tree(temporary / 'release')['digest'] == spec['release_digest'], 'STAGED_RELEASE_PIN_MISMATCH')
         # Capture the new state inode under a protected root parent, before moving it
         # into the app-owned namespace. An app rename cannot redirect root fchown.
@@ -477,13 +489,14 @@ def main():
         elif args.phase == 'plan':
             result = plan(spec)
         else:
-            manifest, _, observed = verify(spec)
+            manifest, _, node_license, observed = verify(spec)
             result = {**plan(spec), 'input_verification': 'MATCH',
                       'release_files': observed['files'], 'release_bytes': observed['bytes']}
             if args.phase == 'render':
                 need(args.output_dir is not None, 'FRESH_OUTPUT_DIRECTORY_REQUIRED')
                 output = absolute(args.output_dir); output.mkdir(mode=0o700)
                 fresh_file(output / 'launch', launcher(spec), 0o755)
+                fresh_file(output / 'node-LICENSE', node_license, 0o644)
                 fresh_file(output / 'preview-deployment.json', manifest, 0o644)
                 fresh_file(output / 'plan.json', (json.dumps(result, indent=2) + '\n').encode(), 0o644)
         print(json.dumps(result, sort_keys=True))

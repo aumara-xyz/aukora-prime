@@ -32,9 +32,13 @@ class PreviewChecks(unittest.TestCase):
         (self.release / 'node_modules').mkdir(mode=0o755)
         os.symlink('../physical', self.release / 'node_modules/example')
         self.node = self.base / 'trusted-node'; self.node.write_bytes(b'approved node bytes fixture')
-        self.spec = {'schema': 'prime-preview-stage-v1', 'release_source': str(self.release),
+        self.node_license = self.base / 'trusted-node-LICENSE'
+        self.node_license.write_bytes(b'Official Node license fixture\nCopyright terms preserved exactly.\n')
+        self.spec = {'schema': 'prime-preview-stage-v1', 'port': 18732, 'release_source': str(self.release),
                      'release_digest': p.tree(self.release)['digest'], 'node_source': str(self.node),
                      'node_sha256': p.sha(self.node.read_bytes()), 'manifest_source': str(self.base / 'anchor.json'),
+                     'node_license_source': str(self.node_license),
+                     'node_license_sha256': p.sha(self.node_license.read_bytes()),
                      'manifest_sha256': '0' * 64,
                      'app_entry_sha256': p.sha((self.release / 'harness/cli.mjs').read_bytes())}
         self.manifest = {'version': 1, 'kind': 'prime-preview-deployment/v1', 'source_commit': 'a' * 40,
@@ -58,9 +62,10 @@ class PreviewChecks(unittest.TestCase):
         self.assertEqual(str(caught.exception), reason)
 
     def test_independent_pins_match_with_internal_dependency_links(self):
-        anchor, node, observed = p.verify(self.spec)
+        anchor, node, license_bytes, observed = p.verify(self.spec)
         self.assertEqual(anchor, Path(self.spec['manifest_source']).read_bytes())
         self.assertEqual(node, self.node.read_bytes())
+        self.assertEqual(license_bytes, self.node_license.read_bytes())
         self.assertEqual(observed['digest'], self.spec['release_digest'])
         self.assertIn('physical/module.mjs', observed['entries'])
 
@@ -117,6 +122,45 @@ class PreviewChecks(unittest.TestCase):
         self.node.write_bytes(b'other node')
         self.rejects(lambda: p.verify(self.spec), 'FILE_PIN_MISMATCH')
 
+    def test_license_source_and_exact_pin_are_required(self):
+        for field in ['node_license_source', 'node_license_sha256']:
+            spec = copy.deepcopy(self.spec); del spec[field]
+            self.rejects(lambda: p.spec_value(spec), 'CLOSED_PREVIEW_SPEC_REQUIRED')
+        spec = {**self.spec, 'node_license_sha256': 'wrong'}
+        self.rejects(lambda: p.spec_value(spec), 'EXACT_SHA256_REQUIRED')
+        spec = {**self.spec, 'node_license_source': 'relative/LICENSE'}
+        self.rejects(lambda: p.spec_value(spec), 'ABSOLUTE_CANONICAL_PATH_REQUIRED')
+
+    def test_changed_or_wrong_license_pin_is_rejected(self):
+        self.rejects(lambda: p.verify({**self.spec, 'node_license_sha256': 'f' * 64}), 'FILE_PIN_MISMATCH')
+        self.node_license.write_bytes(b'changed license')
+        self.rejects(lambda: p.verify(self.spec), 'FILE_PIN_MISMATCH')
+
+    def test_license_bound_and_source_link_refused(self):
+        self.node_license.write_bytes(b'x' * (2 * 1024 * 1024 + 1))
+        self.spec['node_license_sha256'] = p.sha(self.node_license.read_bytes())
+        self.rejects(lambda: p.verify(self.spec), 'BOUNDED_SINGLE_LINK_REGULAR_FILE_REQUIRED')
+        self.node_license.unlink(); os.symlink('trusted-node', self.node_license)
+        with self.assertRaises(OSError):
+            p.verify(self.spec)
+
+    def test_runtime_copy_uses_captured_pinned_license_without_source_reread(self):
+        _, node, license_bytes, _ = p.verify(self.spec)
+        self.node_license.write_bytes(b'changed after verification')
+        output = self.base / 'runtime-files'; output.mkdir(mode=0o755)
+        previous = os.umask(0o077)
+        try:
+            p.runtime_files(output, node, license_bytes, p.launcher(self.spec))
+        finally:
+            os.umask(previous)
+        self.assertEqual((output / 'node-LICENSE').read_bytes(), license_bytes)
+        self.assertEqual((output / 'node-LICENSE').stat().st_mode & 0o777, 0o644)
+        self.assertEqual((output / 'node').read_bytes(), node)
+        self.assertEqual((output / 'node').stat().st_mode & 0o777, 0o755)
+        self.assertEqual((output / 'launch').read_bytes(), p.launcher(self.spec))
+        self.assertEqual(p.plan(self.spec)['destinations']['node_license'],
+                         str(p.paths(self.spec)['base'] / 'node-LICENSE'))
+
     def test_changed_manifest_rejected_before_candidate_observation(self):
         Path(self.spec['manifest_source']).write_bytes(b'{}')
         self.rejects(lambda: p.verify(self.spec), 'FILE_PIN_MISMATCH')
@@ -154,7 +198,7 @@ class PreviewChecks(unittest.TestCase):
         self.rejects(lambda: p.verify(self.spec), 'EXACT_PENDING_PREVIEW_REQUIRED')
 
     def test_closed_scope_no_worker_configuration_or_entry_override(self):
-        for key in ['authority', 'memory', 'config_source', 'app_entrypoint', 'port']:
+        for key in ['authority', 'memory', 'config_source', 'app_entrypoint']:
             bad = {**self.spec, key: 'forbidden extension'}
             self.rejects(lambda: p.spec_value(bad), 'CLOSED_PREVIEW_SPEC_REQUIRED')
         data = Path(self.spec['manifest_source']).read_bytes().replace(b'"version": 1', b'"version": 1, "version": 1')
@@ -187,9 +231,33 @@ class PreviewChecks(unittest.TestCase):
         self.assertIn('boot --deployment-manifest /etc/aukora-prime/preview-deployment.json', launch)
         self.assertIn('--release-dir ' + str(p.paths(self.spec)['release']), launch)
         self.assertIn('--state-dir ' + str(p.paths(self.spec)['state']), launch)
-        self.assertIn('--port 18731', launch)
+        self.assertIn('--port 18732', launch)
         self.assertNotIn('systemctl', launch); self.assertNotIn('--expected-release-digest', launch)
         self.assertNotIn('authority', launch); self.assertNotIn('memory', launch)
+
+    def test_both_explicit_ports_change_launcher_and_spec_pins(self):
+        launchers, spec_pins = [], []
+        for port in [18731, 18732]:
+            spec = {**self.spec, 'port': port}
+            launch = p.launcher(spec)
+            record = p.plan(spec)
+            self.assertEqual(record['port'], port)
+            self.assertTrue(launch.endswith((' --port ' + str(port) + '\n').encode()))
+            self.assertEqual(record['launcher_sha256'], p.sha(launch))
+            launchers.append(record['launcher_sha256'])
+            spec_pins.append(p.sha(json.dumps(spec, sort_keys=True).encode()))
+        self.assertNotEqual(launchers[0], launchers[1])
+        self.assertNotEqual(spec_pins[0], spec_pins[1])
+
+    def test_port_is_required_exact_integer_without_default_or_coercion(self):
+        missing = copy.deepcopy(self.spec); del missing['port']
+        self.rejects(lambda: p.spec_value(missing), 'CLOSED_PREVIEW_SPEC_REQUIRED')
+        for port in [True, False, None, '18731', '18732', 18731.0, 18732.0,
+                     0, -1, 443, 18730, 18733, [], {}]:
+            with self.subTest(port=port):
+                spec = {**self.spec, 'port': port}
+                self.rejects(lambda: p.plan(spec), 'EXACT_REVIEWED_PREVIEW_PORT_REQUIRED')
+                self.rejects(lambda: p.launcher(spec), 'EXACT_REVIEWED_PREVIEW_PORT_REQUIRED')
 
     def test_local_render_has_no_process_or_host_mutation(self):
         spec_path = self.base / 'spec.json'; spec_path.write_text(json.dumps(self.spec))
@@ -200,7 +268,9 @@ class PreviewChecks(unittest.TestCase):
         record = json.loads(result.stdout)
         self.assertEqual(record['qualification'], 'PENDING')
         self.assertEqual(sorted(item.name for item in output.iterdir()),
-                         ['launch', 'plan.json', 'preview-deployment.json'])
+                         ['launch', 'node-LICENSE', 'plan.json', 'preview-deployment.json'])
+        self.assertEqual((output / 'node-LICENSE').read_bytes(), self.node_license.read_bytes())
+        self.assertEqual((output / 'node-LICENSE').stat().st_mode & 0o777, 0o644)
         self.assertEqual((output / 'preview-deployment.json').read_bytes(),
                          Path(self.spec['manifest_source']).read_bytes())
         self.assertFalse(p.paths(self.spec)['base'].exists())
