@@ -1,0 +1,158 @@
+{
+  "schema": "prime-fast-verify/v1",
+  "status": "PASS",
+  "exit_code": 0,
+  "cases": [
+    {
+      "id": "contracts-v1",
+      "property": "Frozen operation vectors and transport envelopes",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "75f3b3119b8e55000986cf59da9e98e09c37a35d7b4f4f56d198727b162c00f2",
+      "duration_ms": 68,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "memory-original-bytes",
+      "property": "Historical record bytes and IDs survive original byte forms",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "f11e4592b33f80112ceed7b091292d1f513c2577cd38c0102c9cc0c2ea456737",
+      "duration_ms": 68,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED",
+      "test_count": 1
+    },
+    {
+      "id": "inference-mock-accounting",
+      "property": "Mock-only body, data scope and durable accounting",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "d20bb25f5152137431575ba96049f31d721669968ad20528e3fe5f66fc22d1b2",
+      "duration_ms": 311,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED",
+      "test_count": 1
+    },
+    {
+      "id": "ui-static-boundary",
+      "property": "Local native assets and static route boundaries",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "d7eb762cb80e5db0880ec5cdb97ecf151467a6af3fac9b9f6e5b64d149174e46",
+      "duration_ms": 67,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "ui-owner-presentation",
+      "property": "Injected owner review and signing presentation boundaries",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "00efe464cd365865b0f5cb56d66a0a3cbd18d92962a61f67870dae4e5d67bac0",
+      "duration_ms": 53,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "ops-release-metadata",
+      "property": "Release digest, ordinary archive bytes and metadata refusal",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "f7b8fe1f6b1e80301f3f8a9c52113ea91c04b1c9bb85ee7486adaf9c478e6b5d",
+      "duration_ms": 476,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "authority-review-renewal",
+      "property": "Ordinary authenticated review TTL renewal",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "54b51ea7401e4c4e01674edec553c0738731a58500b10366dbe27e73ece8a35c",
+      "duration_ms": 1220,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "execution-ordinary-binding",
+      "property": "Ordinary executor qualification/binding regression",
+      "status": "PASS",
+      "descendant_cleanup": "UNPERFORMED",
+      "entry_sha256": "dee9796d61f751ccde7eca94afebbabcb867878bfbed6206bd52ad13bed36f70",
+      "duration_ms": 107,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    }
+  ],
+  "configured_case_count": 8,
+  "duration_ms": 2553,
+  "counts": {
+    "pass": 8,
+    "fail": 0,
+    "unperformed": 0
+  },
+  "qualification": "UNPERFORMED",
+  "g1": "PENDING",
+  "unperformed": [
+    {
+      "id": "owner-ceremony",
+      "status": "UNPERFORMED",
+      "reason": "KEYLESS_SOURCE_PROFILE"
+    },
+    {
+      "id": "live-pg",
+      "status": "UNPERFORMED",
+      "reason": "HISTORICAL_RECORD_ONLY_NO_CONNECTION"
+    },
+    {
+      "id": "current-cross-uid",
+      "status": "UNPERFORMED",
+      "reason": "NO_HOST_PERMISSION_OBSERVATION"
+    },
+    {
+      "id": "qualified-guest",
+      "status": "UNPERFORMED",
+      "reason": "NO_GUEST_OR_HELD_OPENSHELL_FIXTURE"
+    },
+    {
+      "id": "paid-inference",
+      "status": "UNPERFORMED",
+      "reason": "NO_CREDENTIALS_OR_EXTERNAL_REQUEST"
+    },
+    {
+      "id": "composed-pixels",
+      "status": "UNPERFORMED",
+      "reason": "NO_GUI_OR_RUNNING_APP_TARGET"
+    },
+    {
+      "id": "extended-authority-save",
+      "status": "UNPERFORMED",
+      "reason": "EXTENDED_SUITE_ONLY_NO_265_SAVE_RUN"
+    }
+  ],
+  "budget": {
+    "suite_ms": 150000,
+    "wall_target_ms": 180000,
+    "wall_limit_enforcement": "COOPERATIVE_NOT_KERNEL_ENFORCED",
+    "cleanup_guarantee": "COOPERATIVE_DIRECT_CHILD_ONLY"
+  },
+  "descendant_cleanup": "UNPERFORMED",
+  "source_pin_scope": "COMPILED_ENTRYPOINTS_AND_LITERAL_SUPPORT_PINS",
+  "evaluator": {
+    "engine_sha256": "2ba15414eddc73b0046a5ce8418c3ab3470f2142f5712b4cb5846cf6d8647aea",
+    "manifest_sha256": "ee0094dc97a1b4e9810cfbfcc44a7dd7749e79108db48356d3d8a0d66ce9cb16",
+    "identity_scope": "OBSERVED_DISK_BYTES",
+    "os_independence": "NOT_ESTABLISHED"
+  },
+  "observed_source_commit": "e76a45f379ef35f8514c850d8c5b3b71c65ac089",
+  "observed_source_tree": "e7eec072c8b60de5bd8ccbc42c65d458a7a226df",
+  "command": "./prime verify",
+  "environment": {
+    "node_version": "v24.11.1",
+    "python_version": "3.9",
+    "scope": "Local keyless synthetic source checks. No service, SSH target, credential, live database, installed app, guest or paid provider used."
+  },
+  "evidence_scope": "Selected public fields from actual evaluator output. Private runtime paths and scratch locations omitted; complete original output retained privately. Later documentation-only commits do not relabel this source checkpoint."
+}
