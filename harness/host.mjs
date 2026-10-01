@@ -1,10 +1,13 @@
 import {readFileSync, existsSync, realpathSync} from 'node:fs';
 import {resolve,relative,extname,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {apply as registerWelcomeSettings} from '../packages/client/ui-settings-general/lib/index.js';
+import {createStaticAppRoutes} from '../prime-packages/ui/adapters/static-assets.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const faces=['layout','sidebar','threads','apps','messages','memory','aumlok','documents','settings'];
 const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.woff2':'font/woff2'};
 export function apply(ctx){
+ registerWelcomeSettings(ctx);
  ctx.inject(['webServer','connection'], web=>{
   const guarded=work=>async(req,res)=>{
    const reject=web.connection?.requestRejection?.(req);
@@ -14,6 +17,13 @@ export function apply(ctx){
   const send=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
   web.effect(()=>web.webServer.register({kind:'prefix',path:'/api/prime',handler:guarded((req,res)=>send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Owner passkey verifier/enrollment, broker boundary and service composition pending'}))}),'prime owner route');
   web.effect(()=>web.webServer.register({kind:'prefix',path:'/api/aukora',handler:guarded((req,res)=>send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Prime backend capability not configured'}))}),'prime retained route refusal');
+  web.effect(()=>web.webServer.register({kind:'prefix',path:'/api/auma-live',handler:guarded((req,res)=>send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Embedded live runtime not configured'}))}),'prime embedded runtime refusal');
+  web.effect(async()=>{
+   const manifest=JSON.parse(readFileSync(resolve(root,'prime-packages/ui/baseline-manifest.json')));
+   const routes=await createStaticAppRoutes({appRoot:resolve(root,'plugins/aukora-face-apps'),manifest});
+   const disposers=routes.map(route=>web.webServer.register({...route,handler:guarded(route.handler)}));
+   return ()=>{for(const dispose of disposers)dispose();};
+  },'prime frozen embedded Apps routes');
   web.effect(()=>web.webServer.register({kind:'prefix',path:'/aukora',handler:guarded((req,res)=>{
    let path;try{path=decodeURIComponent(new URL(req.url,'http://localhost').pathname)}catch{res.writeHead(400);res.end();return;}
    const match=/^\/aukora\/([^/]+)\/(.*)$/.exec(path);
@@ -28,4 +38,3 @@ export function apply(ctx){
   })}),'prime selected assets');
  });
 }
-

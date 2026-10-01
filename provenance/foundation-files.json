@@ -1,0 +1,101 @@
+[
+  {
+    "source": "scripts/build-dsh.py",
+    "source_sha256": "9a0d9be68d370e20a1a8c714c36fc5a48574fc55c16417f67e600bc2d2621ce2",
+    "destination": "scripts/build-dsh.py",
+    "destination_sha256": "9a0d9be68d370e20a1a8c714c36fc5a48574fc55c16417f67e600bc2d2621ce2",
+    "modified": false,
+    "license": "MIT/AGPL as retained notices",
+    "modification": null
+  },
+  {
+    "source": "scripts/artifact-record.mjs",
+    "source_sha256": "7d6a7909d0bcd02b73cc3625e0af1c7df5d59a73a93d500475aac2fcb24aea5b",
+    "destination": "scripts/artifact-record.mjs",
+    "destination_sha256": "7d6a7909d0bcd02b73cc3625e0af1c7df5d59a73a93d500475aac2fcb24aea5b",
+    "modified": false,
+    "license": "Genesis AGPL-3.0-or-later",
+    "modification": null
+  },
+  {
+    "source": "scripts/lib/artifact-integrity.mjs",
+    "source_sha256": "39e2f64643ceb2e0d93fabd14467ebaf5efd6de0e0a70f76cf19ce69825b5a41",
+    "destination": "scripts/lib/artifact-integrity.mjs",
+    "destination_sha256": "39e2f64643ceb2e0d93fabd14467ebaf5efd6de0e0a70f76cf19ce69825b5a41",
+    "modified": false,
+    "license": "Genesis AGPL-3.0-or-later",
+    "modification": null
+  },
+  {
+    "source": "scripts/lib/release-strip.mjs",
+    "source_sha256": "1a687a82424b84420497edbdc5e6c13cb14e065fe4d262f0e859e9e85264b641",
+    "destination": "scripts/lib/release-strip.mjs",
+    "destination_sha256": "1a687a82424b84420497edbdc5e6c13cb14e065fe4d262f0e859e9e85264b641",
+    "modified": false,
+    "license": "Genesis AGPL-3.0-or-later",
+    "modification": null
+  },
+  {
+    "source": "scripts/artifacts-coverage.json",
+    "source_sha256": "4b652f8963fe5ed4ebe9436621c709d217cd08e97ff7986f14900efba6f9c592",
+    "destination": "scripts/artifacts-coverage.json",
+    "destination_sha256": "c78826139170c0cd5792561e3b936628a2bc249f1af30b48bbb96dd8bb92c7c2",
+    "modified": true,
+    "license": "Genesis AGPL-3.0-or-later",
+    "modification": "Prime coverage paths replace Genesis coverage paths"
+  },
+  {
+    "source": "upstream-dsh.json",
+    "source_sha256": "31efa8bc9bea996ce85b30ba02c368bfc34242da0e496e92cac3f4687afb73c4",
+    "destination": "upstream-dsh.json",
+    "destination_sha256": "31efa8bc9bea996ce85b30ba02c368bfc34242da0e496e92cac3f4687afb73c4",
+    "modified": false,
+    "license": "Genesis AGPL-3.0-or-later",
+    "modification": null
+  },
+  {
+    "source": "LICENSE",
+    "source_sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+    "destination": "LICENSE",
+    "destination_sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+    "modified": false,
+    "license": "Genesis AGPL-3.0-or-later",
+    "modification": null
+  },
+  {
+    "source": "patches/client-hmr-events-auth.patch.json",
+    "source_sha256": "ec6959e6e4e944202c20151a70a9e731362b61ce65fa2c98e044c3852754f5a1",
+    "destination": "patches/client-hmr-events-auth.patch.json",
+    "destination_sha256": "ec6959e6e4e944202c20151a70a9e731362b61ce65fa2c98e044c3852754f5a1",
+    "modified": false,
+    "license": "MIT/AGPL as retained notices",
+    "modification": null
+  },
+  {
+    "source": "patches/subprocess-output-tail-copy.patch.json",
+    "source_sha256": "b116a442e173e37ae9054b6a0a8fc171c70ee408c7b99109d78f941bb4de4edf",
+    "destination": "patches/subprocess-output-tail-copy.patch.json",
+    "destination_sha256": "b116a442e173e37ae9054b6a0a8fc171c70ee408c7b99109d78f941bb4de4edf",
+    "modified": false,
+    "license": "MIT/AGPL as retained notices",
+    "modification": null
+  },
+  {
+    "source": "patches/mandatory-agent-confinement.patch.json",
+    "source_sha256": "d7091a14e87ab13116b5cdd5f772fef8d499a0a83396df391a0a79de5fc69c9f",
+    "destination": "patches/mandatory-agent-confinement.patch.json",
+    "destination_sha256": "d7091a14e87ab13116b5cdd5f772fef8d499a0a83396df391a0a79de5fc69c9f",
+    "modified": false,
+    "license": "MIT/AGPL as retained notices",
+    "modification": null
+  },
+  {
+    "source": "patches/host-build-heap-fits-the-rehearsal-container.patch.json",
+    "source_sha256": "901b5b02ac89d68ce166efa6f618c9393ff5a0fbfbd12be7e6200e5f57f88c6e",
+    "destination": "patches/host-build-heap-fits-the-rehearsal-container.patch.json",
+    "destination_sha256": "901b5b02ac89d68ce166efa6f618c9393ff5a0fbfbd12be7e6200e5f57f88c6e",
+    "modified": false,
+    "license": "MIT/AGPL as retained notices",
+    "modification": null
+  }
+]

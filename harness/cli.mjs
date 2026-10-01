@@ -8,7 +8,7 @@ const value=(key,def)=>{const i=args.indexOf(key);return i<0?def:args[i+1];};
 const release=resolve(root,value('--release-dir','.runtime/release'));
 const state=resolve(root,value('--state-dir','.prime-state'));
 const recordPath=resolve(state,'running.json');
-function live(){if(!existsSync(recordPath))return{status:'stopped',pid:null,ui_url:null,version:'0.1.0',release_dir:release,release_digest:null,unavailable_capabilities:[]};const r=JSON.parse(readFileSync(recordPath));try{process.kill(r.pid,0);return{...r,status:r.ui_url?'running':'starting'}}catch{return{...r,status:'stopped'}}}
+function live(){if(!existsSync(recordPath))return{status:'stopped',pid:null,ui_url:null,version:'0.1.0',release_dir:release,release_digest:null,unavailable_capabilities:[]};const r=JSON.parse(readFileSync(recordPath));try{process.kill(r.pid,0);return{...r,status:r.ui_url?'running':'starting'}}catch(error){if(error.code==='ESRCH')return{...r,status:'stopped'};return{...r,status:'observation_unavailable',observation_error:error.code??'UNKNOWN'};}}
 async function digest(){if(existsSync(resolve(root,'packages/ops/gates.mjs'))){const {fullTreeDigest}=await import('../packages/ops/gates.mjs');return fullTreeDigest(release).digest;}return null;}
 if(cmd==='status'){const r=live();const safe={...r,ui_url:r.ui_url?new URL(r.ui_url).origin+'/':null,ui_access_file:resolve(state,'launch-url.json'),release_digest_algorithm:'aukora-prime:full-release:v1'};console.log(args.includes('--json')?JSON.stringify(safe):JSON.stringify(safe,null,2));}
 else if(cmd==='stop'){const r=live();if(r.status!=='stopped'){const ps=spawnSync('ps',['-p',String(r.pid),'-o','command='],{encoding:'utf8'});if(!ps.stdout?.includes(resolve(r.release_dir,'apps/cli/lib/bin.js')))throw new Error('REFUSED: process identity differs');process.kill(r.pid,'SIGTERM');console.log('Stopped owned Prime PID '+r.pid);}}
@@ -32,4 +32,3 @@ else if(cmd==='boot'){
 else if(cmd==='check'){const p=spawnSync(process.execPath,[resolve(root,'packages/ops/cli.mjs'),'check',args.shift()??'G1','--root',root,...args],{cwd:root,stdio:'inherit'});process.exitCode=p.status??1;}
 else if(['export','verify','restore'].includes(cmd)){const p=spawnSync(process.execPath,[resolve(root,'packages/memory/src/cli.mjs'),cmd,...args],{cwd:root,stdio:'inherit'});process.exitCode=p.status??1;}
 else {console.log('./prime build | compose | boot [--port 18731] [--state-dir DIR] | status --json | check G1 ... | export | verify | restore --into EMPTY_DIR');}
-

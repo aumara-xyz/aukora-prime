@@ -1,8 +1,10 @@
-import { ShellExecutor } from '../packages/shell/shell/lib/index.js';
-export default class PrimeUnavailableShell extends ShellExecutor {
- get sandboxMode(){return 'read-only';}
- resolve(request) { return {...request,workdir:request.workdir??process.cwd(),timeoutMs:Math.min(request.timeoutMs??30000,30000),stdoutMaxBytes:Math.min(request.stdoutMaxBytes??65536,65536),sandboxPolicy:request.sandboxPolicy}; }
- async run() { throw Object.assign(new Error('UNAVAILABLE: OpenShell owned lifecycle is not qualified; host execution refused'),{code:'UNAVAILABLE'}); }
- async start() { throw Object.assign(new Error('UNAVAILABLE: SDK/background child launcher is not qualified'),{code:'UNAVAILABLE'}); }
-}
-
+// Pinned defaults reused without constructing the host executor.
+import {ShellExecutor} from '../packages/shell/shell/lib/index.js';
+import {LocalBashExecutor} from '../packages/shell/bash-local/lib/index.js';
+import {createDshOpenShellExecutor} from '../prime-packages/execution/src/bash.mjs';
+const unavailable=()=>{throw Object.assign(new Error('UNAVAILABLE: owned OpenShell image/runtime and trusted authority join are unqualified'),{code:'UNAVAILABLE'});};
+const executor=Object.freeze({capability:'unavailable',execute:unavailable});
+export default createDshOpenShellExecutor({
+ ShellExecutor,executor,resolveOperation:unavailable,
+ resolveSpec:request=>LocalBashExecutor.prototype.resolve.call({config:{timeoutMs:30000,maxTimeoutMs:30000,maxOutputBytes:65536}},request),
+});
