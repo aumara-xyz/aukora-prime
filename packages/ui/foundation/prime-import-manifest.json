@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "repository": "https://github.com/aumara-xyz/aukora-genesis.git",
+  "commit": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "client_id": "@aukora/dsh-plugin-foundation",
+  "mount": "native Cordis client closure only",
+  "copied_exact": [
+    {
+      "path": "src/client/index.tsx",
+      "source_path": "plugins/aukora-foundation/src/client/index.tsx",
+      "bytes": 4886,
+      "sha256": "aa53084947ce210013cbcc0c2d71ca0964eb90ae767d145d35bad12ce89e3fee"
+    },
+    {
+      "path": "lib/client.js",
+      "source_path": "plugins/aukora-foundation/lib/client.js",
+      "bytes": 25299,
+      "sha256": "2f8c54346a033f8b213985d541544e868912a7cf49cd07a8b3469e509f6edc16"
+    },
+    {
+      "path": "lib/build-manifest.json",
+      "source_path": "plugins/aukora-foundation/lib/build-manifest.json",
+      "bytes": 838,
+      "sha256": "b245b0630b9ae836784d37f0a322727eb3f8ef348bf8694e52a0065f1908cc0a"
+    },
+    {
+      "path": "package.json",
+      "source_path": "plugins/aukora-foundation/package.json",
+      "bytes": 808,
+      "sha256": "4c38609d2e1dae4f1032e24edd3a493c5c66e37c8f0a8e658458c51b0ed06337"
+    },
+    {
+      "path": "tsdown.config.ts",
+      "source_path": "plugins/aukora-foundation/tsdown.config.ts",
+      "bytes": 3236,
+      "sha256": "4e1d0872b988e69560956213f76cc1c9dc0642775880a85554a390110f5f1348"
+    },
+    {
+      "path": "assets/AUMARA-FULL-TRANSPARENT-ICON.png",
+      "source_path": "plugins/aukora-foundation/assets/AUMARA-FULL-TRANSPARENT-ICON.png",
+      "bytes": 598820,
+      "sha256": "ff70a0b50ad45a7d949bdf5f6244b4c1db4590566ed3df5b088a65dbd7e1336e"
+    },
+    {
+      "path": "assets/AUMARA-ICON-96.png",
+      "source_path": "plugins/aukora-foundation/assets/AUMARA-ICON-96.png",
+      "bytes": 8057,
+      "sha256": "f7b5a4fac8c8a6309b159ee7f6d65995157fba077625f935824bc9130dee1cdb"
+    }
+  ],
+  "host_replacement": {
+    "path": "lib/index.js",
+    "purpose": "Prime-owned no-op host descriptor"
+  },
+  "excluded_host": [
+    "src/index.ts",
+    "lib/index.js"
+  ],
+  "baseline_face_diff": 0
+}

@@ -10,6 +10,7 @@
     "./passkey": "./adapters/passkey.mjs",
     "./static-assets": "./adapters/static-assets.mjs",
     "./owner-package": "./prime-authority/package.json",
+    "./foundation-package": "./foundation/package.json",
     "./baseline-manifest": "./baseline-manifest.json",
     "./compatibility": "./compatibility.json"
   },
@@ -18,5 +19,5 @@
     "check:transport": "node scripts/check-transport.mjs",
     "check:static": "node scripts/check-static.mjs"
   },
-  "files": ["faces", "adapters", "prime-authority", "licenses", "baseline-manifest.json", "compatibility.json"]
+  "files": ["faces", "adapters", "prime-authority", "foundation", "licenses", "baseline-manifest.json", "compatibility.json"]
 }
