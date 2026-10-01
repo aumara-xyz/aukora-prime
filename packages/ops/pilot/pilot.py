@@ -44,6 +44,13 @@ ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C',
        'NEEDRESTART_MODE': 'l', 'NEEDRESTART_SUSPEND': '1'}
 HASH = re.compile(r'[0-9a-f]{64}')
 WORKER_CONFIG_HOLD = 'WORKER_ACTIVATION_QUALIFICATION_PENDING'
+OPERATOR_FILES = Path(__file__).resolve().parent / 'operator'
+OPERATOR_PINS = {
+    'create-synthetic.sql': '6002ed433c882c7c8a9064c108976daf9abb60fdfbb90d381aad6527bb03463c',
+    'verify-synthetic.sql': '6c424cccf8d4885f5cd2b7e069d6e692f2c8c9f404ed0ace567efd8e7b0eb08f',
+    'pg_hba.conf': '5ae7e589b6eee86d58cbcb9e87c45395bd7e07b549df22e891f1341697545f7b',
+    'pg_ident.conf': '2fed2d131e2ed5cef7da89cbb94869ddfcd49113c5438b41d881a33fa73cfd02',
+}
 
 class Refusal(ValueError):
     pass
@@ -240,9 +247,8 @@ def postgres_files():
             "shared_buffers = '256MB'\nwork_mem = '4MB'\nmaintenance_work_mem = '64MB'\n"
             "fsync = on\nfull_page_writes = on\nsynchronous_commit = on\n"
             "logging_collector = off\nlog_statement = 'none'\nlog_min_error_statement = 'panic'\n"),
-        'pg_hba.conf': ('local all postgres peer\nlocal aukora_prime_synthetic prime_memory peer map=prime_memory_role\n'
-                        'local all all reject\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n'),
-        'pg_ident.conf': 'prime_memory_role prime-memory prime_memory\n',
+        'pg_hba.conf': operator_text('pg_hba.conf'),
+        'pg_ident.conf': operator_text('pg_ident.conf'),
     }
 
 def shared_layout():
@@ -326,16 +332,16 @@ def render(spec, out):
         (out / UNITS[kind]).write_text(text)
     for name, text in postgres_files().items():
         (out / name).write_text(text)
-    # Exclusive operator's least-privilege role/schema plan must be retained
-    # exactly. No guessed ownership, CREATE/TEMP, or schema grants are emitted.
-    (out / 'pg-role-plan.status.json').write_bytes(json_bytes(dict(
-        status='PENDING_EXCLUSIVE_OPERATOR_EXACT_PLAN', sql_emitted=False)))
+    # Exact copied operator source text, never run by this renderer. No inferred
+    # UUID schema/marker plan or cleanup privileges are generated here.
+    (out / 'peer-role.sql').write_text(peer_role_sql())
+    (out / 'verify-synthetic.sql').write_text(operator_text('verify-synthetic.sql'))
     data = json_bytes(expectations(spec, texts))
     (out / 'expected-privileges.json').write_bytes(data)
     (out / 'deployment.json').write_bytes(json_bytes(spec))
     return dict(status='RENDERED_SOURCE', out=str(out), expected_privileges_sha256=sha(data),
                 runtime_qualification='PENDING', services_started=False, autostart=False,
-                postgres_role_plan='PENDING_EXCLUSIVE_OPERATOR_EXACT_PLAN')
+                postgres_role_plan='EXACT_OPERATOR_SOURCE_ONLY_NOT_EXECUTED')
 
 def command(argv, *, data=None, timeout=120):
     result = subprocess.run(argv, input=data, capture_output=True, env=ENV, timeout=timeout)
@@ -559,8 +565,12 @@ def install_units(spec):
                          'C reviewed setup API', 'H boot/manifest join', 'synthetic qualification'])
 
 def peer_role_sql():
-    """Only the exclusive operator defines database/schema/table privileges."""
-    raise Refusal('PG_OPERATOR_EXACT_ROLE_SCHEMA_PLAN_REQUIRED')
+    """Exact approved operator source. No database/schema ownership for memory."""
+    return operator_text('create-synthetic.sql')
+
+def operator_text(name):
+    need(name in OPERATOR_PINS, 'UNKNOWN_OPERATOR_SOURCE')
+    return regular(OPERATOR_FILES / name, OPERATOR_PINS[name]).decode('utf-8')
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)

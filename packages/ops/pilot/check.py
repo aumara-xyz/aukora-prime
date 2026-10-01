@@ -60,8 +60,8 @@ class PilotChecks(unittest.TestCase):
             result = pilot.render(self.spec, self.base / 'rendered')
         self.assertEqual(result['runtime_qualification'], 'PENDING')
         self.assertFalse(result['services_started'])
-        self.assertFalse((self.base / 'rendered/peer-role.sql').exists())
-        self.assertEqual(result['postgres_role_plan'], 'PENDING_EXCLUSIVE_OPERATOR_EXACT_PLAN')
+        self.assertEqual((self.base / 'rendered/peer-role.sql').read_text(), pilot.peer_role_sql())
+        self.assertEqual(result['postgres_role_plan'], 'EXACT_OPERATOR_SOURCE_ONLY_NOT_EXECUTED')
         value = json.loads((self.base / 'rendered/expected-privileges.json').read_bytes())
         verify.validate_spec(value)
         observation = verify.verify(value, 'source', pilot.sha(pilot.json_bytes(value)))
@@ -175,10 +175,23 @@ class PilotChecks(unittest.TestCase):
         configs = pilot.postgres_files()
         self.assertIn("listen_addresses = ''", configs['postgresql.conf'])
         self.assertIn("unix_socket_group = 'prime-pg-socket'\nunix_socket_permissions = 0770", configs['postgresql.conf'])
-        self.assertIn('local aukora_prime_synthetic prime_memory peer map=prime_memory_role', configs['pg_hba.conf'])
-        self.assertEqual(configs['pg_ident.conf'], 'prime_memory_role prime-memory prime_memory\n')
-        with self.assertRaisesRegex(pilot.Refusal, 'PG_OPERATOR_EXACT_ROLE_SCHEMA_PLAN_REQUIRED'):
-            pilot.peer_role_sql()
+        self.assertIn('local aukora_prime_synthetic prime_memory peer map=prime_memory_os', configs['pg_hba.conf'])
+        self.assertIn('prime_memory_os prime-memory prime_memory\n', configs['pg_ident.conf'])
+        sql = pilot.peer_role_sql()
+        self.assertIn('NOINHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 4 PASSWORD NULL', sql)
+        self.assertIn('OWNER postgres', sql)
+        self.assertIn('CREATE SCHEMA prime_memory AUTHORIZATION postgres', sql)
+        self.assertIn('GRANT CONNECT ON DATABASE aukora_prime_synthetic TO prime_memory', sql)
+        self.assertIn('GRANT USAGE, CREATE ON SCHEMA prime_memory TO prime_memory', sql)
+        self.assertNotIn('OWNER prime_memory', sql)
+        self.assertNotIn('ALTER SCHEMA public OWNER', sql)
+
+    def test_operator_owned_plan_copied_exactly_and_pin_drift_refuses(self):
+        for name, expected in pilot.OPERATOR_PINS.items():
+            self.assertEqual(pilot.sha((pilot.OPERATOR_FILES / name).read_bytes()), expected)
+        with patch.object(pilot, 'OPERATOR_FILES', self.base):
+            (self.base / 'create-synthetic.sql').write_text('ALTER SCHEMA public OWNER TO prime_memory;')
+            with self.assertRaisesRegex(pilot.Refusal, 'FILE_PIN_MISMATCH'): pilot.peer_role_sql()
 
     def test_cluster_suppression_parser_rejects_ambiguous_policy(self):
         self.assertTrue(pilot.compatible_create_policy(b'# reviewed\ncreate_main_cluster = false # keep\n'))

@@ -1,0 +1,45 @@
+{
+  "database_owner": "postgres",
+  "database_schema": "prime_memory",
+  "files": [
+    {
+      "copied_exactly": true,
+      "file": "create-synthetic.sql",
+      "sha256": "6002ed433c882c7c8a9064c108976daf9abb60fdfbb90d381aad6527bb03463c",
+      "source": "operator-preparation:pg16/create-synthetic.sql"
+    },
+    {
+      "copied_exactly": true,
+      "file": "verify-synthetic.sql",
+      "sha256": "6c424cccf8d4885f5cd2b7e069d6e692f2c8c9f404ed0ace567efd8e7b0eb08f",
+      "source": "operator-preparation:pg16/verify-synthetic.sql"
+    },
+    {
+      "copied_exactly": true,
+      "file": "pg_hba.conf",
+      "sha256": "5ae7e589b6eee86d58cbcb9e87c45395bd7e07b549df22e891f1341697545f7b",
+      "source": "operator-preparation:pg16/pg_hba.conf"
+    },
+    {
+      "copied_exactly": true,
+      "file": "pg_ident.conf",
+      "sha256": "2fed2d131e2ed5cef7da89cbb94869ddfcd49113c5438b41d881a33fa73cfd02",
+      "source": "operator-preparation:pg16/pg_ident.conf"
+    }
+  ],
+  "operator_managed_uuid_schemas": "EXACT_D_PLAN_ONLY_NOT_GUESSED_OR_CREATED",
+  "owner": "exclusive PG operator task30",
+  "prepared_files_not_installation_evidence": true,
+  "role_connection_limit": 4,
+  "role_database_privileges": [
+    "CONNECT"
+  ],
+  "role_noinherit": true,
+  "role_schema_privileges": [
+    "USAGE",
+    "CREATE"
+  ],
+  "schema": "prime-ops-operator-plan-provenance-v1",
+  "schema_owner": "postgres",
+  "sql_execution": "NOT_PERFORMED_BY_G"
+}

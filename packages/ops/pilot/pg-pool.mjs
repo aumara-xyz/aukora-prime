@@ -9,10 +9,10 @@ export function createPeerPgPool({Pool,memoryUid}={}) {
       || Object.keys(process.env).some(name=>name.startsWith('PG'))) refuse()
   return new Pool({host:'/run/aukora-prime/postgres',port:55434,
     database:'aukora_prime_synthetic',user:'prime_memory',ssl:false,
-    client_encoding:'UTF8',options:'-c search_path=public',replication:'false',
+    client_encoding:'UTF8',options:'-c search_path=prime_memory',replication:'false',
     // Truthy callback suppresses pg's inherited PGPASSWORD default; a password
     // challenge is a refusal. Correct peer authentication never calls it.
-    password:refuse,max:6,min:0,connectionTimeoutMillis:3000,idleTimeoutMillis:10000,
+    password:refuse,max:4,min:0,connectionTimeoutMillis:3000,idleTimeoutMillis:10000,
     statement_timeout:10000,query_timeout:10000,
     application_name:'aukora-prime-memory-synthetic'})
 }
