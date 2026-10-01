@@ -6,12 +6,9 @@ This directory is an additive source-license index. Original notices remain besi
 
 ## Owned package declarations
 
-At the source commit recorded in the inventory, 20 of 22 Prime-owned package manifests declare `AGPL-3.0-or-later`. Two owned manifests omit the field:
+All 22 current Prime-owned package manifests declare `AGPL-3.0-or-later`. The historical inventory baseline had 20 declarations and two omissions; the separate current observation in `inventory.json` records the added metadata.
 
-- `packages/ui/foundation/package.json`
-- `runtime-dependencies/pg/package.json` (and the corresponding root entry in its lockfile)
-
-The existing root license and declared variant remain in place. The missing metadata should use the same variant. The foundation's package bytes are bound by content/provenance manifests and build receipts; its owner must refresh those bindings when adding the field. The third-party jsQR module shim also omits a package field, and retains its Apache-2.0 license beside the source.
+The foundation manifest records the package as an explicit license-only adaptation, retaining the original donor byte hash. Its served client and historical donor build receipt are unchanged. The PostgreSQL root lock entry carries the same owned license; dependency versions and upstream license declarations are unchanged, and driver provenance records both lock hashes. The third-party jsQR shim retains its Apache-2.0 license beside the source. No new binary build or runtime qualification is claimed.
 
 ## Upstream source
 

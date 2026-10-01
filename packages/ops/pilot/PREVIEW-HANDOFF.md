@@ -73,3 +73,5 @@ python3 -I -B packages/ops/pilot/check_preview_stage.py
 ```
 
 They cover closed external pins, metadata/source/UI binding, digest compatibility, physical dependency/link/mode coverage, finite bounds, no-replace/conflict behavior, launcher identity/arguments/environment, and no staging/boot side effects in source phases. G made no SSH/VM mutation, app start, paid call, key migration, private import or publication.
+
+Publication privacy note: private source locations and account document identifiers were replaced with logical references. Historical commit IDs, measured hashes and reported results identify the original private source or release; they do not attest to rebuilt sanitized bytes. The private original is retained separately. Operator placeholders are required inputs and do not qualify a deployment.

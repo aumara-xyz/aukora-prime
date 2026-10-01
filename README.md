@@ -18,9 +18,9 @@ cd aukora-prime
 ./prime verify
 ```
 
-**RAN at the integration checkpoint after `956f744f`:** bare `./prime verify` completed all eight configured ordinary source checks in 3.051 seconds and returned exit 0 (`PASS`). No credential, live service, database or guest was used.
+**RAN at frozen integration checkpoint `7f5988e4`:** bare `./prime verify` completed all eight configured ordinary source checks in 3.051 seconds and returned exit 0 (`PASS`). No credential, live service, database or guest was used.
 
-It reports per-check PASS/FAIL and an explicit UNPERFORMED list. Owner enrollment, live PostgreSQL, current UID separation, guest containment, paid inference and composed pixels are excluded from this source profile. The target is about three minutes. The preserved snapshot interface is `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`.
+It reports per-check PASS/FAIL and an explicit UNPERFORMED list. Owner enrollment, live PostgreSQL, current UID separation, guest containment, paid inference and composed pixels are excluded from this source profile. Expect a few seconds for this profile on a recent laptop; its bounded target is under three minutes. The preserved snapshot interface is `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`.
 
 These three keyless source checks were run at the documentation baseline `9d6c2205`:
 
@@ -32,7 +32,7 @@ node harness/check-static-csp.mjs
 
 ## Status
 
-The original documentation checks used `9d6c2205`; the keyless runner and later source repairs are now integrated after `9d4c5372`. Their scoped results do not establish that the running preview uses or qualifies them. The eight-check PASS is a source-suite result. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
+The original documentation checks used historical source `9d6c2205`; the keyless runner and later repairs were checked at frozen integration `7f5988e4`. Their scoped results do not establish that the running preview uses or qualifies them. The eight-check PASS is a source-suite result. RAN means executed under the stated conditions; SOURCE-ONLY means inspected code; UNPERFORMED means no qualifying execution has been established.
 
 | Status | Claim | Command or evidence | Limit |
 | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ At this integration checkpoint:
 - OpenShell remains unqualified and disabled. Live inference, a second-machine reproducible release digest, device revocation/key rotation and bounded login-challenge lockout remain unqualified or incomplete.
 - Threads needs an actually available read-only workspace host or an explicit unavailable state. UI appearance alone does not establish the host path.
 - Composition currently refuses the old owner receipt until a genuine v3 build is supplied. The read-only Models source includes documented DeepSeek metadata; current assembled row and secure credential entry remain unqualified.
-- Two owned package manifests still need their missing license declarations added with the existing `AGPL-3.0-or-later` variant and corresponding provenance checked.
+- Protected pilot and SSH acceptance configuration is required and has not been provisioned or qualified for this sanitized source.
 - A private security reporting contact has not yet been confirmed.
 
 The live agent is not yet fully contained. Root and identity design still need hardening. Every repair should land with a focused regression and update this list when the integrated command actually passes.

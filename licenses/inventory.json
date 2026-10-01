@@ -1163,5 +1163,147 @@
     "@electron-internal/extract-zip@1.0.5 has no full copyright/license notice in its SRI-verified npm archive; obtain the exact notice and Rust/native dependency attribution for binary redistribution.",
     "The DSH C launcher is documented to statically link musl on Linux; inventory the exact Linux build/toolchain notices before redistributing the binary.",
     "OpenShell gateway image, OS/native libraries, optional provider executables and frozen browser-asset correspondence require an exact binary release inventory."
-  ]
+  ],
+  "publication_metadata_observation": {
+    "scope": "Current source-only metadata after approved publication adaptation; original baseline rows and exact upstream notice hashes above remain historical.",
+    "owned_package_count": 22,
+    "owned_license_variant": "AGPL-3.0-or-later",
+    "owned_packages": [
+      {
+        "path": "package.json",
+        "name": "@aukora-prime/core",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "76744857b7fdd537615b8ddf048658836bda6946dcf643f3e49abf24f324741d"
+      },
+      {
+        "path": "packages/authority/package.json",
+        "name": "@aukora-prime/authority",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "5ee5a07801ce874fb129e7907e8994b4903216caf68da2c79413e6ff02a309d1"
+      },
+      {
+        "path": "packages/contracts/package.json",
+        "name": "@aukora-prime/contracts",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "0c42b75f1352cc0def2ceeb11009ef999003b5916211a0f5a37ad21bcf2800cb"
+      },
+      {
+        "path": "packages/desktop/package.json",
+        "name": "aukora-prime-preview",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "50924885bad0a5443d0432069984d84d4352919ef64e5c3702438ed6d79e14d1"
+      },
+      {
+        "path": "packages/execution/package.json",
+        "name": "@aukora/prime-execution",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "d077bdbe1dc11e857f0fc55d9217bde3df252dcdb53acd7d318fc18cc6716049"
+      },
+      {
+        "path": "packages/inference/package.json",
+        "name": "@aukora-prime/inference",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "23971cdaf601f0df357b03fc146a6edcaac6157461494d15c60bd52ca997ff70"
+      },
+      {
+        "path": "packages/memory/package.json",
+        "name": "@aukora-prime/memory",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "abc3f3fa925ccff31aa40635393bf34209b306b78ae13d197a551fbceaa57f57"
+      },
+      {
+        "path": "packages/ops/package.json",
+        "name": "@aukora-prime/ops",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "88208d54389f149dd84d8d6817ea3b138ea0ea17a47ac59dd04122c9c3e00c17"
+      },
+      {
+        "path": "packages/runtime-bridge/package.json",
+        "name": "@aukora-prime/runtime-bridge",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "99867514cbe19f4a274802c04de6ef65485962782c61336dc5daec22606607b8"
+      },
+      {
+        "path": "packages/ui/faces/apps/package.json",
+        "name": "@aukora/face-apps",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "29ff994d71b1480dca4e41e9fda0b687957cd409e42e88aad11c72e38c80ed1a"
+      },
+      {
+        "path": "packages/ui/faces/aumlok/package.json",
+        "name": "@aukora/face-aumlok",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "eba9be32455a3acb4c161954ba0ba1c1c7099fff04d0f70279fb518bbda64dbc"
+      },
+      {
+        "path": "packages/ui/faces/documents/package.json",
+        "name": "@aukora/face-documents",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "79fae3f5a16a5b7ac7238f4dc931338eec95d62620a916dd9a118bf95f86c4ba"
+      },
+      {
+        "path": "packages/ui/faces/layout/package.json",
+        "name": "@aukora/face-layout",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "dc8b4776e5bc692e686298c5108b8197dbb72f5ae7b64f4c078d95823e00190c"
+      },
+      {
+        "path": "packages/ui/faces/memory/package.json",
+        "name": "@aukora/face-memory",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "7ac53a46c6f454809c9f2d6fa76c848eaebdcab3b667d0580723c2cf87a93f54"
+      },
+      {
+        "path": "packages/ui/faces/messages/package.json",
+        "name": "@aukora/face-messages",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "3ae2db2693c0cc08a6c0da258647b9215bfd7ac168b6fbfc748aa467906cea04"
+      },
+      {
+        "path": "packages/ui/faces/settings/package.json",
+        "name": "@aukora/face-settings",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "38c6f4a6b1346ed1b92caec5d23d72518c0261f157a375c957ce6f80641b6ba4"
+      },
+      {
+        "path": "packages/ui/faces/sidebar/package.json",
+        "name": "@aukora/face-sidebar",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "2beda426ddbe93f1daa986086b4e1083bc9a0fcb21234690fd6a7d40624208c2"
+      },
+      {
+        "path": "packages/ui/faces/threads/package.json",
+        "name": "@aukora/face-threads",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "23bbb9668a926837be33658c9a643b3e7de9008b01fc0bc82d54b45207748b61"
+      },
+      {
+        "path": "packages/ui/foundation/package.json",
+        "name": "@aukora/dsh-plugin-foundation",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "7d326495c4c181e9a4693df61dbb7cd8f6f44f6ddaa78b04e07da41b7b7320e1"
+      },
+      {
+        "path": "packages/ui/package.json",
+        "name": "@aukora/prime-ui",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "46fe1af0d2f1fe671f0c5cf9142d79760dc4c12a6d7685ea32d9f201eac5f69e"
+      },
+      {
+        "path": "packages/ui/prime-authority/package.json",
+        "name": "@aukora/prime-authority-ui",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "36e9adfa04d2a3e16b17370706e55e232ef9488f8774246e049e89be1bf2c288"
+      },
+      {
+        "path": "runtime-dependencies/pg/package.json",
+        "name": "@aukora-prime/pg-runtime",
+        "license": "AGPL-3.0-or-later",
+        "sha256": "86003deb102fcb427e5916d42a22d1dda484e1169b3f7bade3030525ebb386a8"
+      }
+    ],
+    "pg_lock_sha256": "a2bace04322eef963b4ae155fe2d7ba6c49ac33fe56d5b8008ccd27e27c1dbfc",
+    "genuine_new_build": "UNPERFORMED",
+    "foundation_adaptation": "packages/ui/foundation/prime-import-manifest.json"
+  }
 }

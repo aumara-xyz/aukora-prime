@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -218,6 +219,71 @@ class PilotChecks(unittest.TestCase):
                                capture_output=True, text=True)
             self.assertNotEqual(r.returncode, 0)
             self.assertEqual(json.loads(r.stdout)['status'], 'REFUSED')
+
+    def test_target_requires_retained_pin_and_closed_host_binding(self):
+        machine = b'a' * 32 + b'\n'
+        target = dict(schema='prime-pilot-target-v1', provider='Nebius',
+                      instance='computeinstance-' + 'synthetic', machine_id_sha256=pilot.sha(machine))
+        data = pilot.json_bytes(target)
+        def fixture_bytes(path, **options):
+            if path == pilot.TARGET_CONFIG:
+                self.assertEqual(options, dict(modes={0o400}, maximum=4096))
+                return data
+            self.assertEqual(path, pilot.MACHINE_ID)
+            self.assertEqual(options, dict(modes={0o400, 0o444, 0o600, 0o644}, maximum=33))
+            return machine
+        with patch.object(pilot, 'protected_target_bytes', side_effect=fixture_bytes):
+            self.assertTrue(pilot.target_identity(pilot.sha(data)))
+            with self.assertRaisesRegex(pilot.Refusal, 'EXTERNALLY_PINNED_TARGET_REQUIRED'):
+                pilot.target_identity(None)
+            with self.assertRaisesRegex(pilot.Refusal, 'TARGET_CONFIGURATION_PIN_MISMATCH'):
+                pilot.target_identity('0' * 64)
+            for field, value, reason in [
+                    ('fallback', True, 'CLOSED_TARGET_CONFIGURATION_REQUIRED'),
+                    ('provider', 'other', 'EXACT_TARGET_PROVIDER_REQUIRED'),
+                    ('instance', 'unbound', 'EXACT_INSTANCE_ID_REQUIRED'),
+                    ('machine_id_sha256', 'b' * 64, 'TARGET_HOST_IDENTITY_MISMATCH')]:
+                altered = {**target, field: value}; data = pilot.json_bytes(altered)
+                with self.assertRaisesRegex(pilot.Refusal, reason):
+                    pilot.target_identity(pilot.sha(data))
+            data = pilot.json_bytes(target); machine = b'bad-machine-id'
+            with self.assertRaisesRegex(pilot.Refusal, 'EXACT_MACHINE_ID_FORMAT_REQUIRED'):
+                pilot.target_identity(pilot.sha(data))
+
+    def test_target_file_requires_protected_owner_mode_inode_and_bounded_read(self):
+        path = self.base / 'target.json'; data = b'{"synthetic":true}\n'; path.write_bytes(data)
+        def metadata(**changes):
+            value = {key: getattr(path.stat(), key) for key in
+                     ('st_dev', 'st_ino', 'st_mode', 'st_nlink', 'st_size')}
+            value.update(st_uid=0, st_gid=0, st_mode=0o100400)
+            return SimpleNamespace(**{**value, **changes})
+        with patch.object(pilot, 'root_parents') as ancestors, \
+             patch.object(Path, 'lstat', return_value=metadata()), \
+             patch.object(pilot.os, 'fstat', return_value=metadata()):
+            self.assertEqual(pilot.protected_target_bytes(path, modes={0o400}, maximum=4096), data)
+            ancestors.assert_called_once_with(path)
+        for changes in (dict(st_uid=123), dict(st_gid=123), dict(st_mode=0o100600),
+                        dict(st_mode=0o120777), dict(st_nlink=2), dict(st_size=4097)):
+            with patch.object(pilot, 'root_parents'), \
+                 patch.object(Path, 'lstat', return_value=metadata(**changes)), \
+                 patch.object(pilot.os, 'open', side_effect=AssertionError('unprotected open')):
+                with self.assertRaisesRegex(pilot.Refusal, 'PROTECTED_TARGET_FILE_REQUIRED'):
+                    pilot.protected_target_bytes(path, modes={0o400}, maximum=4096)
+        with patch.object(pilot, 'root_parents'), \
+             patch.object(Path, 'lstat', return_value=metadata()), \
+             patch.object(pilot.os, 'fstat', return_value=metadata(st_ino=0)):
+            with self.assertRaisesRegex(pilot.Refusal, 'TARGET_FILE_CHANGED_DURING_OPEN'):
+                pilot.protected_target_bytes(path, modes={0o400}, maximum=4096)
+
+    def test_target_pin_is_forwarded_before_active_operator_phases(self):
+        expected = 'a' * 64
+        with patch.object(pilot, 'linux_root', side_effect=pilot.Refusal('SYNTHETIC_STOP')) as guard:
+            for operation, args in ((pilot.package_preflight, ({}, expected)),
+                                    (pilot.install_packages, ({}, expected)),
+                                    (pilot.provision_layout, (expected,))):
+                with self.assertRaisesRegex(pilot.Refusal, 'SYNTHETIC_STOP'):
+                    operation(*args)
+                self.assertEqual(guard.call_args.args, (expected,))
 
 
 if __name__ == '__main__':

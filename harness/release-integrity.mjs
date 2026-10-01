@@ -15,6 +15,32 @@ function keys(value,required,optional=[]){if(!value||typeof value!=='object'||Ar
 function pathName(path){if(typeof path!=='string'||!path||isAbsolute(path)||path.includes('\\')||path.includes('\0')||path.split('/').some(p=>!p||p==='.'||p==='..'))fail('path-refused');return path}
 function item(value){keys(value,['path','bytes','sha256'],['face','source_path','id','source','role','output_path']);pathName(value.path);if(!Number.isSafeInteger(value.bytes)||value.bytes<0||!HEX.test(value.sha256))fail('file-pin-invalid',value.path);return {path:value.path,bytes:value.bytes,sha256:value.sha256}}
 function items(values){if(!Array.isArray(values)||!values.length||values.length>10000)fail('file-list-invalid');const result=values.map(item);if(new Set(result.map(x=>x.path)).size!==result.length)fail('duplicate-path');return result}
+// A package-license adaptation carries current pins separately from original
+// donor attribution. Historical exact-only manifests remain readable.
+export function foundationFileRecords(manifest){
+ const exact=items(manifest.copied_exact),adapted=manifest.adapted??[]
+ if(!Array.isArray(adapted)||adapted.length>1)fail('foundation-adaptation-set')
+ const records=[...exact]
+ if(adapted.length){
+  const adaptation=adapted[0]
+  keys(adaptation,['path','bytes','sha256','kind','license','donor'])
+  keys(adaptation.donor,['source_path','bytes','sha256'])
+  if(adaptation.path!=='package.json'||adaptation.kind!=='owned-license-declaration'||adaptation.license!=='AGPL-3.0-or-later'
+   ||adaptation.donor.source_path!=='plugins/aukora-foundation/package.json'||adaptation.donor.bytes!==808
+   ||adaptation.donor.sha256!=='4c38609d2e1dae4f1032e24edd3a493c5c66e37c8f0a8e658458c51b0ed06337')fail('foundation-adaptation-pin')
+  records.push(item({path:adaptation.path,bytes:adaptation.bytes,sha256:adaptation.sha256}))
+ }
+ if(JSON.stringify(records.map(x=>x.path).sort())!==JSON.stringify(['src/client/index.tsx','lib/client.js','lib/build-manifest.json','package.json','tsdown.config.ts','assets/AUMARA-FULL-TRANSPARENT-ICON.png','assets/AUMARA-ICON-96.png'].sort()))fail('foundation-file-set')
+ return records
+}
+export async function verifyFoundationAdaptation({foundationRoot,manifest}){
+ if(!manifest.adapted?.length)return
+ const adaptation=manifest.adapted[0],bytes=await pinned(foundationRoot,item({path:adaptation.path,bytes:adaptation.bytes,sha256:adaptation.sha256}))
+ const line='  "license": "AGPL-3.0-or-later",\n',text=bytes.toString('utf8')
+ if(!Buffer.from(text).equals(bytes)||text.split(line).length!==2||json(bytes).license!==adaptation.license)fail('foundation-license-adaptation')
+ const donorBytes=Buffer.from(text.replace(line,''))
+ if(donorBytes.length!==adaptation.donor.bytes||sha(donorBytes)!==adaptation.donor.sha256)fail('foundation-license-adaptation')
+}
 async function rootPath(root){const path=resolve(root);if((await lstat(path)).isSymbolicLink())fail('root-symlink');return realpath(path)}
 async function subRoot(root,path){pathName(path);let location=root;for(const part of path.split('/')){location=join(location,part);const stat=await lstat(location);if(stat.isSymbolicLink()||!stat.isDirectory())fail('directory-refused',path)}return location}
 async function bytesAt(root,path){pathName(path);let location=root;for(const part of path.split('/')){location=join(location,part);if((await lstat(location)).isSymbolicLink())fail('file-symlink',path)}const before=await lstat(location);if(!before.isFile())fail('not-regular-file',path);const handle=await open(location,constants.O_RDONLY|constants.O_NOFOLLOW);try{const after=await handle.stat();if(!after.isFile()||before.dev!==after.dev||before.ino!==after.ino)fail('file-replaced',path);return await handle.readFile()}finally{await handle.close()}}
@@ -153,10 +179,10 @@ export async function verifyUiSource({sourceRoot}){
  for(const entry of faces.all)await pinned(ui,entry)
  const foundationBytes=await bytesAt(ui,'foundation/prime-import-manifest.json'),foundation=json(foundationBytes)
  if(foundation.version!==1||foundation.commit!==DONOR||foundation.client_id!=='@aukora/dsh-plugin-foundation'||foundation.baseline_face_diff!==0)fail('foundation-pin')
- const foundationFiles=items(foundation.copied_exact)
- if(JSON.stringify(foundationFiles.map(x=>x.path).sort())!==JSON.stringify(['src/client/index.tsx','lib/client.js','lib/build-manifest.json','package.json','tsdown.config.ts','assets/AUMARA-FULL-TRANSPARENT-ICON.png','assets/AUMARA-ICON-96.png'].sort()))fail('foundation-file-set')
+ const foundationFiles=foundationFileRecords(foundation)
  const foundationRoot=await subRoot(ui,'foundation')
  for(const entry of foundationFiles)await pinned(foundationRoot,entry)
+ await verifyFoundationAdaptation({foundationRoot,manifest:foundation})
  const foundationReceipt=json(await bytesAt(ui,'foundation/lib/build-manifest.json'))
  for(const path of ['src/client/index.tsx','tsdown.config.ts'])if(foundationReceipt.source?.[path]!==foundationFiles.find(x=>x.path===path)?.sha256)fail('foundation-source-binding',path)
  if(foundationReceipt.outputs?.['lib/client.js']!==foundationFiles.find(x=>x.path==='lib/client.js')?.sha256)fail('foundation-output-binding')
@@ -221,7 +247,8 @@ export async function verifyReleaseUi({releaseRoot,expectedSnapshotSha256}){
  for(const entry of served){const copied=files.find(x=>x.path===faceReleasePath(entry.path));if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('served-snapshot-omission',entry.path)}
  const foundation=json(await bytesAt(root,'plugins/aukora-foundation/prime-import-manifest.json'))
  if(foundation.version!==1||foundation.commit!==DONOR||foundation.client_id!=='@aukora/dsh-plugin-foundation')fail('foundation-pin')
- for(const entry of items(foundation.copied_exact).filter(x=>!x.path.startsWith('src/'))){const copied=files.find(x=>x.path==='plugins/aukora-foundation/'+entry.path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('foundation-snapshot-omission',entry.path)}
+ for(const entry of foundationFileRecords(foundation).filter(x=>!x.path.startsWith('src/'))){const copied=files.find(x=>x.path==='plugins/aukora-foundation/'+entry.path);if(!copied||copied.sha256!==entry.sha256||copied.bytes!==entry.bytes)fail('foundation-snapshot-omission',entry.path)}
+ await verifyFoundationAdaptation({foundationRoot:await subRoot(root,'plugins/aukora-foundation'),manifest:foundation})
  const owner=json(await bytesAt(root,'plugins/prime-authority/lib/build.json'))
  const binding=ownerReceipt(owner)
  if(identityJson(binding.harnessIdentity)!==identityJson(identity))fail('owner-harness-snapshot-mismatch')

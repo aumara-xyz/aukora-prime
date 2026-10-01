@@ -2,6 +2,7 @@
   "name": "@aukora/dsh-plugin-foundation",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "description": "AUKORA foundation: sidebar brand slots (icon + AUKORA wordmark) and the AUKORA dark palette, delivered as a composed DSH client plugin.",
   "type": "module",
   "main": "lib/index.js",

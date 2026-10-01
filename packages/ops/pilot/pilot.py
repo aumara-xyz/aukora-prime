@@ -23,6 +23,8 @@ CONF = Path('/etc/aukora-prime')
 STATE = Path('/var/lib/aukora-prime')
 WITNESS = Path('/var/lib/aukora-prime-witness/pilot')
 RUN = Path('/run/aukora-prime')
+TARGET_CONFIG = CONF / 'pilot-target.json'
+MACHINE_ID = Path('/etc/machine-id')
 UNITS = {'app': 'prime-app.service', 'authority': 'prime-authority.service',
          'memory': 'prime-memory.service', 'postgres': 'prime-postgresql.service'}
 PACKAGES = {
@@ -353,10 +355,54 @@ def command(argv, *, data=None, timeout=120):
     need(result.returncode == 0, 'COMMAND_REFUSED:' + Path(argv[0]).name)
     return result.stdout
 
-def linux_root():
+def protected_target_bytes(path, *, modes, maximum):
+    """Fixed operator paths only; root-owned files and ancestors, no alias or fallback."""
+    path = Path(path)
+    root_parents(path)
+    st = path.lstat()
+    need(stat.S_ISREG(st.st_mode) and st.st_nlink == 1 and st.st_uid == 0 and st.st_gid == 0
+         and stat.S_IMODE(st.st_mode) in modes and 0 < st.st_size <= maximum,
+         'PROTECTED_TARGET_FILE_REQUIRED')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        held = os.fstat(fd)
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_uid, value.st_gid,
+                                   value.st_mode, value.st_nlink, value.st_size)
+        need(identity(held) == identity(st), 'TARGET_FILE_CHANGED_DURING_OPEN')
+        with os.fdopen(fd, 'rb', closefd=False) as handle:
+            data = handle.read(maximum + 1)
+        need(0 < len(data) <= maximum and len(data) == held.st_size,
+             'TARGET_FILE_SIZE_CHANGED')
+    finally:
+        os.close(fd)
+    return data
+
+def target_identity(expected_target_sha256):
+    """Do not derive approval from the config: the operator supplies its retained pin."""
+    need(expected_target_sha256 is not None, 'EXTERNALLY_PINNED_TARGET_REQUIRED')
+    expected = digest_value(expected_target_sha256)
+    data = protected_target_bytes(TARGET_CONFIG, modes={0o400}, maximum=4096)
+    need(sha(data) == expected, 'TARGET_CONFIGURATION_PIN_MISMATCH')
+    value = json.loads(data, object_pairs_hook=pairs)
+    need(isinstance(value, dict) and set(value) == {'schema', 'provider', 'instance',
+         'machine_id_sha256'}, 'CLOSED_TARGET_CONFIGURATION_REQUIRED')
+    need(value['schema'] == 'prime-pilot-target-v1' and value['provider'] == 'Nebius',
+         'EXACT_TARGET_PROVIDER_REQUIRED')
+    need(isinstance(value['instance'], str)
+         and re.fullmatch(r'computeinstance-[A-Za-z0-9_-]{1,128}', value['instance']),
+         'EXACT_INSTANCE_ID_REQUIRED')
+    digest_value(value['machine_id_sha256'])
+    machine = protected_target_bytes(MACHINE_ID, modes={0o400, 0o444, 0o600, 0o644}, maximum=33)
+    need(re.fullmatch(rb'[0-9a-f]{32}\n?', machine), 'EXACT_MACHINE_ID_FORMAT_REQUIRED')
+    need(sha(machine) == value['machine_id_sha256'], 'TARGET_HOST_IDENTITY_MISMATCH')
+    # Never put the protected provider or machine identity in plans or public evidence.
+    return True
+
+def linux_root(expected_target_sha256=None):
     need(sys.platform == 'linux' and os.geteuid() == 0, 'DESIGNATED_OPERATOR_LINUX_ROOT_ONLY')
     text = Path('/etc/os-release').read_text()
     need('ID=ubuntu\n' in text and 'VERSION_ID="24.04"' in text, 'EXACT_UBUNTU_24_04_REQUIRED')
+    target_identity(expected_target_sha256)
 
 def root_parents(path):
     for p in [Path(path).parent, *Path(path).parent.parents]:
@@ -394,8 +440,8 @@ def package_plan(spec):
     need(seen == set(PACKAGES), 'EXACT_PACKAGE_CLOSURE_REQUIRED')
     return spec
 
-def package_preflight(spec):
-    linux_root(); package_plan(spec)
+def package_preflight(spec, expected_target_sha256=None):
+    linux_root(expected_target_sha256); package_plan(spec)
     need(sha(command(['/usr/bin/apt-config', 'dump'])) == spec['reviewed_apt_config_sha256'], 'APT_HOOK_REVIEW_PIN_REQUIRED')
     for row in spec['packages']:
         regular(row['path'], row['sha256'])
@@ -418,8 +464,8 @@ def package_preflight(spec):
         need(st.st_uid == 0 and not st.st_mode & 0o022 and compatible_create_policy(regular(policy)), 'EXISTING_CLUSTER_POLICY_UNSAFE_DO_NOT_OVERWRITE')
     return dict(status='PREFLIGHT_SOURCE_GUARDS_READY', packages=8, runtime_qualification='PENDING')
 
-def install_packages(spec):
-    package_preflight(spec)
+def install_packages(spec, expected_target_sha256=None):
+    package_preflight(spec, expected_target_sha256)
     # apt/dpkg must never reopen a caller-writable reviewed file. Stage verified
     # bytes in a fresh root-owned directory, then validate/use only those paths.
     stage_parent = Path('/var/lib')
@@ -432,7 +478,7 @@ def install_packages(spec):
         target = stage / (row['name'] + '.deb')
         exclusive(target, data, 0o644)
         row['path'] = str(target)
-    package_preflight(staged)
+    package_preflight(staged, expected_target_sha256)
     policy = Path('/etc/postgresql-common/createcluster.conf')
     parent = policy.parent
     if not parent.exists():
@@ -488,9 +534,9 @@ def create_directory(row):
     os.chown(p, pwd.getpwnam(row['owner']).pw_uid, grp.getgrnam(row['group']).gr_gid)
     os.chmod(p, int(row['mode'], 8)); check_directory(row)
 
-def provision_layout():
+def provision_layout(expected_target_sha256=None):
     import pwd, grp
-    linux_root(); postgres_identity()
+    linux_root(expected_target_sha256); postgres_identity()
     # NSS assigns unused system IDs; output records actual numbers, never presumed worker IDs.
     for name in ['prime-app', 'prime-authority', 'prime-memory']:
         try: pwd.getpwnam(name)
@@ -582,11 +628,14 @@ def main():
     p.add_argument('phase', choices=['plan', 'render', 'package-preflight', 'install-packages', 'provision-layout', 'install-code', 'install-units'])
     p.add_argument('--spec'); p.add_argument('--expected-spec-sha256'); p.add_argument('--out')
     p.add_argument('--expected-artifact-sha256')
+    p.add_argument('--expected-target-sha256')
     args = p.parse_args()
     if args.phase == 'plan':
-        value = dict(status='SOURCE_PLAN', instance='OPERATOR_INSTANCE_REQUIRED', os='Ubuntu24.04',
+        value = dict(status='SOURCE_PLAN', instance=None, os='Ubuntu24.04',
+            target_configuration=str(TARGET_CONFIG),
+            target_status='PROTECTED_OPERATOR_CONFIGURATION_REQUIRED',
             packages=PACKAGES, units=UNITS, source_only=True,
-            mutations_by={'PG':'exclusive Nebius operator designated PostgreSQL operator','app_C_D_layout':'H coordinates with PG operator'},
+            mutations_by={'PG':'designated PostgreSQL operator','app_C_D_layout':'H coordinates with PG operator'},
             package_status='OPERATOR_REPORTED_INSTALLED_16_15_NOT_REVERIFIED_G',
             worker_config_guard_source='ca382593545c9877e0fce4f19e406c90f7a84027',
             source_group_conflicts=[], pg_socket_group='prime-pg-socket', pg_port=55434,
@@ -597,14 +646,14 @@ def main():
     elif args.phase == 'provision-layout':
         need(args.expected_artifact_sha256, 'EXTERNALLY_PINNED_ARTIFACT_REQUIRED')
         regular(__file__, args.expected_artifact_sha256)
-        value = provision_layout()
+        value = provision_layout(args.expected_target_sha256)
     else:
         need(args.spec and args.expected_spec_sha256, 'EXTERNALLY_PINNED_SPEC_REQUIRED')
         spec = json.loads(regular(args.spec, args.expected_spec_sha256), object_pairs_hook=pairs)
         if args.phase == 'render':
             need(args.out, 'NEW_RENDER_OUTPUT_REQUIRED'); value = render(spec, args.out)
-        elif args.phase == 'package-preflight': value = package_preflight(spec)
-        elif args.phase == 'install-packages': value = install_packages(spec)
+        elif args.phase == 'package-preflight': value = package_preflight(spec, args.expected_target_sha256)
+        elif args.phase == 'install-packages': value = install_packages(spec, args.expected_target_sha256)
         elif args.phase == 'install-code': value = install_code(spec)
         elif args.phase == 'install-units': value = install_units(spec)
         else: raise Refusal('UNSUPPORTED_PHASE')

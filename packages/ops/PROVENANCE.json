@@ -55,8 +55,11 @@
     }
   ],
   "master": {
-    "library_file_id": "private-source-reference-redacted",
-    "version": 2
+    "version": 2,
+    "document": "AUKORA Prime implementation plan",
+    "source_locator": "private-source-reference-redacted",
+    "source_content_hash": "UNRECORDED",
+    "scope": "Historical private master reference; no content hash was supplied, so none is invented."
   },
   "legacy_digest_scope": "Retained v1 bytes for ordinary metadata, with C0/DEL guard; legacy exclusions and opaque link text do not establish physical containment or installation/loaded-code identity. Full-release digest separately covers marker and contained target bytes/modes.",
   "owned_repo_build_runtime_dependencies": [],

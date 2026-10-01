@@ -18,7 +18,7 @@ helper SHA256 is `89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96
 - `deployed-bootstrap.mjs`: setup-only C provisioning, D table migration,
   existing C/D worker start, and D's bounded committed-save verification.
 - `deployed-actor.mjs`: existing B transport/bridge client running as App997.
-- `deployed-controller.mjs`: Mac-only synthetic ES256 signer and fixed SSH actor launch.
+- `deployed-controller.mjs`: Mac-only synthetic ES256 signer and protected-approved SSH actor launch.
 - `deployed-pipes.mjs`: strict bounded anonymous stdin/stdout protocol.
 
 Stage the full Prime-local authority, memory, contracts and runtime-bridge
@@ -73,14 +73,53 @@ The closed controller config has these fields:
   "source_root": "/opt/aukora-prime-acceptance/SOURCE_SHA256/source",
   "node_path": "/opt/aukora-prime-acceptance/SOURCE_SHA256/tools/node",
   "actor_config_path": null,
-  "ssh_identity_path": "/absolute/operator-controlled/ssh-identity",
-  "ssh_known_hosts_path": "/absolute/operator-controlled/ssh-known-hosts",
+  "ssh_identity_path": "/APPROVED-SSH/identity",
+  "ssh_known_hosts_path": "/APPROVED-SSH/known-hosts",
   "deployment": null
 }
 ```
 
 Paths above are placeholders, never discovered by the fixture. H supplies the
-existing SSH paths; source code checks their metadata without reading key bytes.
+existing SSH paths in the run config. Their exact values must equal a separately
+protected operator approval; the run config cannot select the SSH host or approve
+its own authentication paths. Source code checks key-file metadata without
+reading key bytes.
+
+Before any controller phase, an authorized operator must install
+`/private/etc/aukora-prime/acceptance-ssh-approval.json` on the Mac. This fixed,
+canonical path has no command-line, run-config or environment override. The file
+must be root-owned 0440, with the current controller's primary GID; its direct
+parent must be root-owned 0750 with that GID. All ancestor directories must be
+canonical, real, root-owned and not group/other writable. The controller refuses
+an absent, oversized, malformed or unprotected approval. The closed JSON is at
+most 16 KiB/depth8 and binds the current real/effective UID and primary GID:
+
+```json
+{
+  "version": 1,
+  "kind": "prime-private-cd-pg-ssh-approval/v1",
+  "controller_uid": 501,
+  "controller_gid": 20,
+  "ssh_host": "fixture.example.invalid",
+  "ssh_identity_path": "/APPROVED-SSH/identity",
+  "ssh_known_hosts_path": "/APPROVED-SSH/known-hosts"
+}
+```
+
+The numeric identities and `.invalid` host above are synthetic examples, never
+operator defaults. The operator approves one exact IPv4 address or lowercase DNS
+name and two distinct canonical absolute paths. Paths accept only ASCII letters,
+digits, slash, underscore, dot and hyphen, excluding SSH token expansion. Root
+approval is separate from caller-controlled fixture state; changing it requires
+the operator's existing authority. Both SSH files must be current-owner regular
+canonical files with no group/other write; the identity must also have no
+group/other access. `StrictHostKeyChecking=yes` checks the exact approved
+known-hosts file. The file contents remain within the Mac owner's trust boundary;
+this fixture does not establish containment against that same owner or UID.
+
+The source-only grammar/lifecycle checks use synthetic approval objects. They do
+not prove that this protected configuration is installed or that SSH deployment
+works; those are fresh operator qualification steps after a source change.
 `plan` invokes D's `planWorkerPostgresFixture`, writes its exact public state and
 two-schema creation plan, generates two disposable P256 credentials, and writes
 only their public material to the profile. Only the Mac signer file retains
@@ -109,7 +148,7 @@ controller does not independently prove remote stage ownership or source equalit
 It reports that limitation. `source_root` must contain the record's exact source
 SHA; Node is pinned to that stage's exact `tools/node`, with `tools/LICENSE` retained.
 
-The only launch is `/usr/bin/ssh`, destination `ubuntu@192.0.2.1`, using
+The only launch is `/usr/bin/ssh`, destination `ubuntu@APPROVED_HOST`, using
 `-F /dev/null`, BatchMode, StrictHostKeyChecking, explicit existing identity and
 known-hosts paths, no forwarding/agent/local command/connection sharing. Its
 remote command is fixed sudo as `prime-app:prime-app`, the pinned staged Node,

@@ -80,3 +80,5 @@ Paths are relative to reviewed Prime HEAD unless prefixed `DSH/`; DSH anchors re
 - G1: G `packages/ops/gates.mjs:10-12,147-175,192-245`; G `owned-process.mjs` retains its fixed environment.
 
 Remaining limits: G1 full qualification, owner/passkey and C/F join, durable Postgres/runtime/cold-memory gates, provider/settings remote allowlist, voice routing, served UI parity and per-feature browser interactions remain unperformed here. No new refusal or auto-review rejection occurred during this source review. No policy was changed to pass a check.
+
+Publication privacy note: private source locations and account document identifiers were replaced with logical references. Historical commit IDs, measured hashes and reported results identify the original private source or release; they do not attest to rebuilt sanitized bytes. The private original is retained separately. Operator placeholders are required inputs and do not qualify a deployment.

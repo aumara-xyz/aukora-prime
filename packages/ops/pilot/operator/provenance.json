@@ -41,5 +41,6 @@
   ],
   "schema": "prime-ops-operator-plan-provenance-v1",
   "schema_owner": "postgres",
-  "sql_execution": "NOT_PERFORMED_BY_G"
+  "sql_execution": "NOT_PERFORMED_BY_G",
+  "source_reference_scope": "Logical preparation reference; original private location redacted. Source byte hashes and copied-exactly statements are unchanged."
 }

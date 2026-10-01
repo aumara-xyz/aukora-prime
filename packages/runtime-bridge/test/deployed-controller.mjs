@@ -4,6 +4,8 @@ import {spawn} from 'node:child_process'
 import {createHash,createPrivateKey,sign} from 'node:crypto'
 import {open,unlink,lstat,realpath} from 'node:fs/promises'
 import {resolve,dirname} from 'node:path'
+import {constants} from 'node:fs'
+import {isIP} from 'node:net'
 import {fileURLToPath} from 'node:url'
 import * as contracts from '../../contracts/src/runtime.mjs'
 import {loginSigningBytes,approvalSigningBytes} from '../../authority/src/index.mjs'
@@ -13,7 +15,34 @@ import {closed,copy} from '../src/registry.mjs'
 import {createFixturePipe} from './deployed-pipes.mjs'
 import {PHASES,IDS,dFixture,absolute,validatePg,validateProfile,createProfile,validateSigner,validateReview,readPrivateJson,writePrivateJson,rootProtectedPath,must} from './deployed-profile.mjs'
 
-export function validateControllerConfig(config){
+// This path is part of the protected operator trust boundary. Neither the run
+// config nor the process environment can select a different approval record.
+export const SSH_APPROVAL_PATH='/private/etc/aukora-prime/acceptance-ssh-approval.json'
+export function validateSshApproval(approval){
+  must(approval&&typeof approval==='object'&&!Array.isArray(approval),'PROTECTED_SSH_APPROVAL_REQUIRED')
+  closed(approval,['version','kind','controller_uid','controller_gid','ssh_host','ssh_identity_path','ssh_known_hosts_path'])
+  must(approval.version===1&&approval.kind==='prime-private-cd-pg-ssh-approval/v1'&&Number.isSafeInteger(approval.controller_uid)&&approval.controller_uid>0&&Number.isSafeInteger(approval.controller_gid)&&approval.controller_gid>0,'EXACT_CONTROLLER_SSH_APPROVAL_REQUIRED')
+  const host=approval.ssh_host
+  must(typeof host==='string'&&host.length<=253&&(isIP(host)===4||host.includes('.')&&host.split('.').every(label=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))),'EXACT_APPROVED_SSH_HOST_REQUIRED')
+  for(const name of ['ssh_identity_path','ssh_known_hosts_path']){absolute(approval[name]);must(/^\/[A-Za-z0-9_./-]+$/.test(approval[name]),'EXACT_APPROVED_SSH_PATH_REQUIRED')}
+  must(approval.ssh_identity_path!==approval.ssh_known_hosts_path,'DISTINCT_APPROVED_SSH_FILES_REQUIRED')
+  return approval
+}
+export async function readProtectedSshApproval(){
+  const uid=process.getuid?.(),gid=process.getgid?.()
+  must(process.platform==='darwin'&&Number.isSafeInteger(uid)&&uid>0&&uid===process.geteuid?.()&&Number.isSafeInteger(gid)&&gid>0&&gid===process.getegid?.(),'MAC_PRIVATE_CONTROLLER_ONLY')
+  await rootProtectedPath(SSH_APPROVAL_PATH,{fileMode:0o440,parentMode:0o750,gid})
+  const file=await open(SSH_APPROVAL_PATH,constants.O_RDONLY|constants.O_NOFOLLOW)
+  try{
+    const stat=await file.stat()
+    must(stat.isFile()&&stat.uid===0&&stat.gid===gid&&(stat.mode&0o7777)===0o440&&stat.size<=16384,'ROOT_PROTECTED_SSH_APPROVAL_REQUIRED')
+    const approval=validateSshApproval(contracts.parseStrictJson(await file.readFile('utf8'),{maxBytes:16384,maxDepth:8}))
+    must(approval.controller_uid===uid&&approval.controller_gid===gid,'APPROVED_SSH_CONTROLLER_IDENTITY_REQUIRED')
+    return approval
+  }finally{await file.close()}
+}
+export function validateControllerConfig(config,sshApproval){
+  validateSshApproval(sshApproval)
   closed(config,['version','kind','synthetic_fixture','backend','postgres','fixture_path','profile_path','signer_path','source_root','node_path','actor_config_path','ssh_identity_path','ssh_known_hosts_path','deployment'])
   must(config.version===1&&config.kind==='prime-private-cd-pg-controller/v1'&&config.synthetic_fixture===true&&config.backend==='mac-strict-ssh-v1','MAC_ISOLATED_SYNTHETIC_CONTROLLER_REQUIRED')
   validatePg(config.postgres)
@@ -21,11 +50,11 @@ export function validateControllerConfig(config){
   if(config.actor_config_path!==null)absolute(config.actor_config_path)
   must(new Set([config.fixture_path,config.profile_path,config.signer_path]).size===3&&dirname(config.fixture_path)===dirname(config.profile_path)&&dirname(config.profile_path)===dirname(config.signer_path),'ONE_PRIVATE_CONTROLLER_NAMESPACE_REQUIRED')
   must(/^\/opt\/aukora-prime-acceptance\/[a-f0-9]{64}\/source$/.test(config.source_root)&&config.node_path===dirname(config.source_root)+'/tools/node','EXACT_PROTECTED_STAGE_REQUIRED')
-  must(config.ssh_identity_path==='/absolute/operator-controlled/ssh-identity'&&config.ssh_known_hosts_path==='/absolute/operator-controlled/ssh-known-hosts','EXISTING_APPROVED_SSH_PATHS_REQUIRED')
+  must(config.ssh_identity_path===sshApproval.ssh_identity_path&&config.ssh_known_hosts_path===sshApproval.ssh_known_hosts_path,'EXISTING_APPROVED_SSH_PATHS_REQUIRED')
   must(config.deployment===null||typeof config.deployment==='object','DEPLOYMENT_RECORD_REQUIRED');return config
 }
-export function sshActorLaunch(config,phase,profile){
-  validateControllerConfig(config);must(PHASES.includes(phase),'EXACT_FIXTURE_PHASE_REQUIRED')
+export function sshActorLaunch(config,phase,profile,sshApproval){
+  validateControllerConfig(config,sshApproval);must(PHASES.includes(phase),'EXACT_FIXTURE_PHASE_REQUIRED')
   const expectedConfig='/etc/aukora-prime/acceptance-'+profile.fixture.run_id+'/app/actor.json'
   must(config.actor_config_path===expectedConfig,'EXACT_ACTOR_CONFIG_REQUIRED')
   closed(config.deployment,['kind','source_sha256','actor_sha256','node_sha256','actor_config_sha256','protected_stage_verified','actor_uid','actor_gid','signer_location'])
@@ -34,7 +63,7 @@ export function sshActorLaunch(config,phase,profile){
   // Every remote token is fixed or selected from this closed path/phase grammar.
   // SSH invokes a remote shell, so no caller-selected argv or shell metacharacters survive.
   const command=['/usr/bin/sudo','-n','-u','prime-app','-g','prime-app',config.node_path,actor,'--config',expectedConfig,'--phase',phase].join(' ')
-  return {file:'/usr/bin/ssh',args:['-F','/dev/null','-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','PermitLocalCommand=no','-o','ControlMaster=no','-o','ControlPath=none','-o','IdentitiesOnly=yes','-o','UserKnownHostsFile='+config.ssh_known_hosts_path,'-i',config.ssh_identity_path,'ubuntu@192.0.2.1',command]}
+  return {file:'/usr/bin/ssh',args:['-F','/dev/null','-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','PermitLocalCommand=no','-o','ControlMaster=no','-o','ControlPath=none','-o','IdentitiesOnly=yes','-o','UserKnownHostsFile='+config.ssh_known_hosts_path,'-i',config.ssh_identity_path,'ubuntu@'+sshApproval.ssh_host,command]}
 }
 export function createFixtureSigner({profile,signer,phase,persist}){
   validateSigner(signer,profile);must(PHASES.includes(phase)&&typeof persist==='function','FIXED_SIGNER_PHASE_REQUIRED')
@@ -116,7 +145,8 @@ export async function acquireFixturePhase({signerPath,profile,phase}){
 async function main(){
   const args=process.argv.slice(2);must(args.length===4&&args[0]==='--config'&&args[2]==='--phase'&&['plan','disable',...PHASES].includes(args[3]),'CLOSED_CONTROLLER_COMMAND_REQUIRED')
   must(process.platform==='darwin'&&process.getuid?.()>0&&process.getuid?.()===process.geteuid?.(),'MAC_PRIVATE_CONTROLLER_ONLY')
-  const config=validateControllerConfig(await readPrivateJson(args[1])),phase=args[3]
+  const sshApproval=await readProtectedSshApproval()
+  const config=validateControllerConfig(await readPrivateJson(args[1]),sshApproval),phase=args[3]
   must(dirname(config.profile_path)===dirname(args[1]),'PRIVATE_CONTROLLER_CONFIG_NAMESPACE_REQUIRED')
   if(phase==='plan'){
     const planned=(await dFixture()).planWorkerPostgresFixture({config:config.postgres,statePath:config.fixture_path})
@@ -137,7 +167,7 @@ async function main(){
       process.stdout.write(JSON.stringify({status:'DISABLED',synthetic_fixture:true,run_id:profile.fixture.run_id,private_key_file_unlinked:true,secure_erasure_claimed:false})+'\n');return
     }finally{await lock.close();await unlink(lockPath)}
   }
-  const launch=sshActorLaunch(config,phase,profile)
+  const launch=sshActorLaunch(config,phase,profile,sshApproval)
   await rootProtectedPath(launch.file,{executable:true})
   for(const path of [config.ssh_identity_path,config.ssh_known_hosts_path]){const stat=await lstat(path);must(stat.isFile()&&!stat.isSymbolicLink()&&await realpath(path)===path&&stat.uid===process.getuid()&&(stat.mode&0o022)===0&&(path!==config.ssh_identity_path||(stat.mode&0o077)===0),'EXISTING_PRIVATE_SSH_METADATA_REQUIRED')}
   const admission=await acquireFixturePhase({signerPath:config.signer_path,profile,phase});let child,pipe,completion,phaseTimer

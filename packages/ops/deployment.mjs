@@ -1,5 +1,7 @@
 export const PILOT = Object.freeze({
-  provider: 'Nebius', instance: 'OPERATOR_INSTANCE_REQUIRED', os: 'Ubuntu 24.04',
+  provider: 'Nebius', instance: null, os: 'Ubuntu 24.04',
+  target_configuration: '/etc/aukora-prime/pilot-target.json',
+  target_status: 'PROTECTED_OPERATOR_CONFIGURATION_REQUIRED',
   cpu: 2, memory_gib: 8, disk_gib: 40, new_cpu_disk_ip_usd_day_cap: '2.00',
   paid_inference: false, gpu: false, deployed: false,
   invoice_reconciliation: 'PENDING', hard_provider_cost_stop: 'NOT_IMPLEMENTED',

@@ -24,12 +24,6 @@
       "sha256": "b245b0630b9ae836784d37f0a322727eb3f8ef348bf8694e52a0065f1908cc0a"
     },
     {
-      "path": "package.json",
-      "source_path": "plugins/aukora-foundation/package.json",
-      "bytes": 808,
-      "sha256": "4c38609d2e1dae4f1032e24edd3a493c5c66e37c8f0a8e658458c51b0ed06337"
-    },
-    {
       "path": "tsdown.config.ts",
       "source_path": "plugins/aukora-foundation/tsdown.config.ts",
       "bytes": 3236,
@@ -48,6 +42,21 @@
       "sha256": "f7b5a4fac8c8a6309b159ee7f6d65995157fba077625f935824bc9130dee1cdb"
     }
   ],
+  "adapted": [
+    {
+      "path": "package.json",
+      "bytes": 842,
+      "sha256": "7d326495c4c181e9a4693df61dbb7cd8f6f44f6ddaa78b04e07da41b7b7320e1",
+      "kind": "owned-license-declaration",
+      "license": "AGPL-3.0-or-later",
+      "donor": {
+        "source_path": "plugins/aukora-foundation/package.json",
+        "bytes": 808,
+        "sha256": "4c38609d2e1dae4f1032e24edd3a493c5c66e37c8f0a8e658458c51b0ed06337"
+      }
+    }
+  ],
+  "adaptation_qualification": "SOURCE-ONLY: license metadata added; donor client bundle and historical build receipt unchanged; no new compilation or runtime qualification",
   "host_replacement": {
     "path": "lib/index.js",
     "purpose": "Prime-owned no-op host descriptor"
