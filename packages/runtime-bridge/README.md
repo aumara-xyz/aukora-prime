@@ -142,3 +142,49 @@ and F's explicit test-only SDK mock. It does not run OpenShell or establish runt
 confinement. The IPC check uses a distinct child process and disposable socket.
 No real owner enrollment, credentials, private memory, paid inference, live app
 activation, new UID/security setup or deployment is performed here.
+
+## Worker followup for H's approved isolated setup
+
+Run `node packages/runtime-bridge/src/worker.mjs --config /absolute/worker-config.mjs`.
+The immutable host module's default export is one of these closed records:
+
+- Authority: `{kind:'authority',ipc,registryEntries,authorityConfig}`.
+- Memory: `{kind:'memory',ipc,registryEntries,authorityChannel,createPgPool,
+  resolveHostContext,initializeSchema?,indexTarget?,indexGeneration?}`.
+
+`ipc` is `{socketPath,credentials,limits?,socketAccess?}`. Authority credentials
+accept only the fixed `memory_effect` role/private authority method list.
+`authorityChannel` is `{socketPath,credential,limits?,socketAccess?}`. Memory
+credentials accept the public role matrix. `createPgPool()` supplies the explicit
+host pg 8.16.3 closure and config; it is not discovered. `initializeSchema:true`
+is only for H's freshly authorized disposable schema. Both workers report
+unqualified, and do not enable the app's HTTP routes.
+
+Separate-UID `socketAccess` is exactly `{server_uid,client_uid,group_gid}`.
+H/G must provision a canonical server-owned directory with exact mode 0710 and
+the configured group, plus memberships. The server verifies its UID, binds its
+new socket, sets its group and mode 0660; the client verifies its own UID and
+server directory/socket ownership and modes. Clients cannot write the parent.
+No worker creates a UID, group, parent directory or system unit. App ownership
+must not reach broker source/config/state/witness or database writer credentials.
+
+The private wrapper is exactly `{input,operation,operation_digest,observation}`.
+Only review/reserve/claim carries D's closed live observation. It comes from D's
+active owner database lock; memory's proxy retains the full canonical reviewed
+operation keyed by owner, operation and digest. C installs a request-local scope,
+calls its synchronous real method and clears in `finally`. There is no await or
+cache inside that C scope. C independently verifies registered task/owner/route,
+operation digest and normal proof. Dispatch IDs/digests come from D's committed
+intent. Settlement carries no observation and no caller-produced receipt.
+
+H can run `node packages/runtime-bridge/src/verify-deployed.mjs --config
+/absolute/synthetic-client.mjs --phase save`, restart the approved services, then
+run the same command with `--phase read`. The trusted synthetic-only config
+exports `{profile:'synthetic-prime-cd-check/v1',client,owner_id,passkeySigner,
+extraction_json,idempotency_key,witness_path}`. H supplies the disposable signer
+matched to C's explicitly configured synthetic public credential. The client
+creates no keys/enrollment and prints only content-free evidence; an exclusive
+witness records original-byte digest and retained citation head. The read phase
+verifies exact bytes and C settlement across service restart. H must separately
+observe actual PostgreSQL/version/fsync and distinct UID/ACL properties. This
+source and its same-UID SQLite worker fixture do not supply those observations.

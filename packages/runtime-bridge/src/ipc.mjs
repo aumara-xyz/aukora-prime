@@ -4,7 +4,7 @@
 // This transport does not establish deployed UID separation or witness custody.
 import net from 'node:net'
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import { chmod, lstat, realpath, unlink } from 'node:fs/promises'
+import { chmod, chown, lstat, realpath, unlink } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { canonicalJson, parseStrictJson } from '../../contracts/src/runtime.mjs'
 
@@ -20,7 +20,14 @@ export const IPC_METHOD_ROLES = Object.freeze(Object.fromEntries([
   ...owner.map(method => [method, Object.freeze(['owner_control'])]),
 ]))
 export const PUBLIC_METHODS = Object.freeze(Object.keys(IPC_METHOD_ROLES))
-const mutation = method => !reads.includes(method)
+export const PRIVATE_AUTHORITY_METHODS = Object.freeze(['authority.propose','authority.loginChallenge','authority.loginComplete',
+  'authority.authenticateSession','authority.approvalChallenge','authority.approvalComplete','authority.declineApproval',
+  'authority.status','authority.reserve','authority.claimDispatch','authority.settleMemory','authority.markOutcomeUnknown'])
+const PRIVATE_ROLES = Object.freeze(['memory_effect'])
+const PRIVATE_METHOD_ROLES = Object.freeze(Object.fromEntries(PRIVATE_AUTHORITY_METHODS.map(method=>[method,PRIVATE_ROLES])))
+const PUBLIC_PROFILE = Object.freeze({roles:ROLES,methods:IPC_METHOD_ROLES})
+const AUTHORITY_PROFILE = Object.freeze({roles:PRIVATE_ROLES,methods:PRIVATE_METHOD_ROLES})
+const mutation = method => ![...reads,'authority.authenticateSession','authority.status'].includes(method)
 const DEFAULTS = Object.freeze({maxFrameBytes:65_536, maxOutputBytes:65_536, maxConnections:8,
   maxInflight:8, maxInflightPerConnection:2, handshakeTimeoutMs:2_000,
   idleTimeoutMs:30_000, requestTimeoutMs:5_000, maxRequestsPerConnection:256})
@@ -91,24 +98,43 @@ function framer(socket,bounds,onFrame,onFault) {
     } catch (error) {stopped=true;body=null;onFault(error)}
   })
 }
-async function socketPath(path) {
+async function socketPath(path,access,side) {
   if (typeof path !== 'string' || resolve(path) !== path || Buffer.byteLength(path) > 103 || path.includes('\0'))
     throw new TypeError('INVALID: absolute bounded Unix socket path')
   const parent = dirname(path),stat = await lstat(parent)
-  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(parent) !== parent
-    || (stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid()))
+  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(parent) !== parent)
     throw fail('UNAVAILABLE','IPC_PRIVATE_HOST_SOCKET_DIRECTORY_REQUIRED')
-  return path
+  if(access===undefined) {
+    if((stat.mode&0o077)||(process.getuid&&stat.uid!==process.getuid()))throw fail('UNAVAILABLE','IPC_PRIVATE_HOST_SOCKET_DIRECTORY_REQUIRED')
+    return null
+  }
+  const policy=JSON.parse(canonicalJson(access));closed(policy,['server_uid','client_uid','group_gid'])
+  if(Object.values(policy).some(value=>!Number.isSafeInteger(value)||value<0)
+    ||typeof process.getuid!=='function'||process.getuid()!==policy[side==='server'?'server_uid':'client_uid']
+    ||stat.uid!==policy.server_uid||stat.gid!==policy.group_gid||(stat.mode&0o7777)!==0o710)
+    throw fail('UNAVAILABLE','IPC_PROVISIONED_SOCKET_ACCESS_REQUIRED')
+  if(side==='client') {
+    const socket=await lstat(path)
+    if(!socket.isSocket()||socket.isSymbolicLink()||socket.uid!==policy.server_uid||socket.gid!==policy.group_gid||(socket.mode&0o7777)!==0o660)
+      throw fail('UNAVAILABLE','IPC_PROVISIONED_SOCKET_ACCESS_REQUIRED')
+  }
+  // The host must provision UID/group membership and this directory. These
+  // checks create no users, groups, directories or deployment qualification.
+  return Object.freeze(policy)
 }
 
-export async function createIpcServer({socketPath:path,credentials,handlePublic,limits:inputLimits}) {
-  const bounds = limits(inputLimits);await socketPath(path)
+// Profiles are private constants, never constructor options. Public and private
+// listeners cannot be configured to accept a union of roles or method sets.
+export const createIpcServer = options => createServer(options,PUBLIC_PROFILE)
+export const createAuthorityIpcServer = options => createServer(options,AUTHORITY_PROFILE)
+async function createServer({socketPath:path,credentials,handlePublic,limits:inputLimits,socketAccess},profile) {
+  const bounds = limits(inputLimits),access=await socketPath(path,socketAccess,'server')
   if (!Array.isArray(credentials) || !credentials.length || credentials.length > 64 || typeof handlePublic !== 'function')
     throw new TypeError('INVALID: host IPC credentials/handler')
   const pins = new Map()
   for (const credential of credentials) {
     closed(credential,['id','role','secret'])
-    if (!ID.test(credential.id) || !ROLES.includes(credential.role) || pins.has(credential.id)) throw new TypeError('INVALID: IPC credential identity/role')
+    if (!ID.test(credential.id) || !profile.roles.includes(credential.role) || pins.has(credential.id)) throw new TypeError('INVALID: IPC credential identity/role')
     pins.set(credential.id,{role:credential.role,secret:secretBytes(credential.secret)})
   }
   try {await lstat(path);throw fail('UNAVAILABLE','IPC_SOCKET_PATH_ALREADY_EXISTS')} catch(error) {if (error.code !== 'ENOENT') throw error}
@@ -150,7 +176,7 @@ export async function createIpcServer({socketPath:path,credentials,handlePublic,
         || !Number.isSafeInteger(value.seq) || value.seq !== sequence+1 || value.seq > bounds.maxRequestsPerConnection)
         throw fail('UNAUTHORIZED','IPC_SEQUENCE_OR_AUTH_REFUSED')
       sequence=value.seq
-      if (!Object.hasOwn(IPC_METHOD_ROLES,value.method) || !IPC_METHOD_ROLES[value.method].includes(role)) {
+      if (!Object.hasOwn(profile.methods,value.method) || !profile.methods[value.method].includes(role)) {
         send(value.seq,refusal('UNAUTHORIZED','IPC_METHOD_ROLE_REFUSED'));return
       }
       if (!value.input || typeof value.input !== 'object' || Array.isArray(value.input)) {send(value.seq,refusal('INVALID','IPC_REQUEST_OBJECT_REQUIRED'));return}
@@ -170,7 +196,11 @@ export async function createIpcServer({socketPath:path,credentials,handlePublic,
   // Keep an error listener after binding so late errors cannot crash the broker.
   server.on('error',()=>{})
   await new Promise((done,reject)=>{const error=e=>{server.off('listening',ready);reject(e)},ready=()=>{server.off('error',error);done()};server.once('error',error);server.once('listening',ready);server.listen(path)})
-  try {await chmod(path,0o600);ownedSocket=await lstat(path)} catch(error) {server.close();for (const socket of connections)socket.destroy();throw error}
+  try {
+    if(access)await chown(path,access.server_uid,access.group_gid)
+    await chmod(path,access?0o660:0o600);ownedSocket=await lstat(path)
+    if(access&&(ownedSocket.uid!==access.server_uid||ownedSocket.gid!==access.group_gid||(ownedSocket.mode&0o7777)!==0o660))throw fail('UNAVAILABLE','IPC_PROVISIONED_SOCKET_ACCESS_REQUIRED')
+  } catch(error) {server.close();for (const socket of connections)socket.destroy();throw error}
   return Object.freeze({address:path, async close() {
     if (closedServer) return
     closedServer=true;for (const socket of connections)socket.destroy()
@@ -182,8 +212,10 @@ export async function createIpcServer({socketPath:path,credentials,handlePublic,
   }})
 }
 
-export async function createIpcClient({socketPath:path,credential,limits:inputLimits}) {
-  const bounds=limits(inputLimits);await socketPath(path)
+export const createIpcClient = options => createClient(options,PUBLIC_PROFILE)
+export const createAuthorityIpcClient = options => createClient(options,AUTHORITY_PROFILE)
+async function createClient({socketPath:path,credential,limits:inputLimits,socketAccess},profile) {
+  const bounds=limits(inputLimits);await socketPath(path,socketAccess,'client')
   closed(credential,['id','secret'])
   if (!ID.test(credential.id)) throw new TypeError('INVALID: IPC credential identity')
   const secret=secretBytes(credential.secret),socket=net.createConnection(path),pending=new Map()
@@ -211,7 +243,7 @@ export async function createIpcClient({socketPath:path,credential,limits:inputLi
       closed(value,['version','type','credential_id','server_nonce','client_nonce','role','mac'])
       const {mac:signature,...answer}=value
       if (value.version !== VERSION || value.type !== 'authenticated' || value.credential_id !== credential.id
-        || value.server_nonce !== serverNonce || value.client_nonce !== clientNonce || !ROLES.includes(value.role)
+        || value.server_nonce !== serverNonce || value.client_nonce !== clientNonce || !profile.roles.includes(value.role)
         || !validMac(key,'authenticated',answer,signature)) throw fail('UNAUTHORIZED','IPC_SERVER_AUTH_REFUSED')
       role=value.role;clearTimeout(timer);readyResolve();return
     }
@@ -226,7 +258,7 @@ export async function createIpcClient({socketPath:path,credential,limits:inputLi
   try {await ready} catch(error) {socket.destroy();throw error}
   return Object.freeze({get role(){return role}, request(method,input) {
     if (clientClosed || socket.destroyed) return Promise.reject(fail('UNAVAILABLE','IPC_CHANNEL_UNAVAILABLE'))
-    if (!Object.hasOwn(IPC_METHOD_ROLES,method)) return Promise.reject(fail('INVALID','IPC_METHOD_UNAVAILABLE'))
+    if (!Object.hasOwn(profile.methods,method)) return Promise.reject(fail('INVALID','IPC_METHOD_UNAVAILABLE'))
     if (pending.size >= bounds.maxInflightPerConnection || sequence >= bounds.maxRequestsPerConnection) return Promise.reject(fail('UNAVAILABLE','IPC_REQUEST_BOUND'))
     if (!input || typeof input !== 'object' || Array.isArray(input)) return Promise.reject(fail('INVALID','IPC_REQUEST_OBJECT_REQUIRED'))
     let request,signed
