@@ -152,11 +152,16 @@ The immutable host module's default export is one of these closed records:
 - Memory: `{kind:'memory',ipc,registryEntries,authorityChannel,createPgPool,
   resolveHostContext,initializeSchema?,indexTarget?,indexGeneration?}`.
 
-Worker and synthetic client CLI config modules must be canonical regular files
-with exact mode 0600, owned by root or their running UID. G/H must also keep
-imported secret material private, and source/config/state ancestors protected
-from app modification. The entry-file check alone does not qualify all imported
-module permissions or deployment ACLs.
+Production worker CLI config modules must be canonical root-owned regular files
+with exact mode 0440 and the running worker's primary group. The direct parent
+must be root-owned 0750 with that group; ancestors must be root-owned and forbid
+group/other writes. The entry runs as a non-root worker. G/H must verify that the
+dedicated primary group contains only its worker, has no extra app ACL, and that
+imported secret material and all source/config/state ancestors remain protected.
+This check alone does not qualify imported module permissions or deployment ACLs.
+The synthetic client uses its private 0600 config. `test/worker-fixture.mjs`
+permits same-UID 0600 disposable worker configs only for checks; it is not a
+production export or installed entry point.
 
 `ipc` is `{socketPath,credentials,limits?,socketAccess?}`. Authority credentials
 accept only the fixed `memory_effect` role/private authority method list.

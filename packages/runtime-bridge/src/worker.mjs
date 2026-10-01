@@ -2,7 +2,7 @@
 // Explicit host-configured workers. No credentials, UID, database or task discovery.
 import {pathToFileURL,fileURLToPath} from 'node:url'
 import {lstat,realpath} from 'node:fs/promises'
-import {resolve} from 'node:path'
+import {resolve,dirname} from 'node:path'
 import * as contracts from '../../contracts/src/runtime.mjs'
 import {createAuthorityService} from '../../authority/src/index.mjs'
 import {createPostgresMemory} from '../../memory/src/index.mjs'
@@ -123,7 +123,15 @@ async function main() {
   const args=process.argv.slice(2)
   if(args.length!==2||args[0]!=='--config'||resolve(args[1])!==args[1])throw new TypeError('INVALID: explicit absolute worker config required')
   const configPath=args[1],stat=await lstat(configPath)
-  if(!stat.isFile()||stat.isSymbolicLink()||await realpath(configPath)!==configPath||(stat.mode&0o7777)!==0o600||process.getuid&&![0,process.getuid()].includes(stat.uid))throw refuse('WORKER_PRIVATE_CONFIG_REQUIRED')
+  const primaryGid=process.getgid?.(),workerUid=process.getuid?.()
+  if(!Number.isSafeInteger(primaryGid)||!Number.isSafeInteger(workerUid)||workerUid===0||!stat.isFile()||stat.isSymbolicLink()||await realpath(configPath)!==configPath||(stat.mode&0o7777)!==0o440||stat.uid!==0||stat.gid!==primaryGid)throw refuse('WORKER_ROOT_PROTECTED_CONFIG_REQUIRED')
+  let parent=dirname(configPath),direct=true
+  for(;;) {
+    const directory=await lstat(parent)
+    if(!directory.isDirectory()||directory.isSymbolicLink()||await realpath(parent)!==parent||directory.uid!==0||(directory.mode&0o022)||direct&&((directory.mode&0o7777)!==0o750||directory.gid!==primaryGid))throw refuse('WORKER_ROOT_PROTECTED_CONFIG_PARENT_REQUIRED')
+    if(parent===dirname(parent))break
+    parent=dirname(parent);direct=false
+  }
   const imported=await import(pathToFileURL(configPath).href),worker=await startWorker(imported.default)
   process.stdout.write(JSON.stringify({status:'STARTED',...worker.status()})+'\n')
   let closing=false

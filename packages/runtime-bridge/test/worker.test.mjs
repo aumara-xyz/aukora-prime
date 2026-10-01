@@ -2,7 +2,7 @@
 // Actual authority and memory child workers. Test-only SQLite factory; same UID.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync,realpathSync,mkdirSync,writeFileSync,rmSync,chmodSync} from 'node:fs'
+import {mkdtempSync,realpathSync,mkdirSync,writeFileSync,rmSync,chmodSync,existsSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {pathToFileURL,fileURLToPath} from 'node:url'
@@ -16,9 +16,10 @@ import {createIpcClient} from '../src/ipc.mjs'
 import {authorityFixture} from './authority-fixture.mjs'
 import {sha256} from '../../memory/src/codecs.mjs'
 const workerPath=fileURLToPath(new URL('../src/worker.mjs',import.meta.url))
+const fixturePath=fileURLToPath(new URL('./worker-fixture.mjs',import.meta.url))
 const sqlFixture=pathToFileURL(fileURLToPath(new URL('./sql-fixture.mjs',import.meta.url))).href
 async function child(config) {
-  const processChild=spawn(process.execPath,[workerPath,'--config',config],{stdio:['ignore','pipe','pipe']})
+  const processChild=spawn(process.execPath,[fixturePath,'--config',config],{stdio:['ignore','pipe','pipe']})
   let output='',error=''
   processChild.stderr.on('data',b=>{error+=b})
   const result=await new Promise((done,reject)=>{
@@ -26,20 +27,24 @@ async function child(config) {
     processChild.once('exit',code=>{clearTimeout(timer);reject(new Error('worker fixture exited:'+code+':'+error))})
     processChild.stdout.on('data',b=>{output+=b;if(output.includes('\n')){clearTimeout(timer);done(JSON.parse(output.trim()))}})
   })
-  assert.equal(result.status,'STARTED');assert.equal(result.qualification,'unqualified')
+  assert.equal(result.status,'STARTED');assert.equal(result.qualification,'unqualified');assert.equal(result.loader,'test-only')
   return processChild
 }
 async function stop(processChild){if(!processChild||processChild.exitCode!==null)return;const closed=once(processChild,'exit');processChild.kill('SIGTERM');await closed}
 test('worker and synthetic client refuse readable secret-bearing config before importing it',async()=>{
-  const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-config-')),config=join(root,'readable.mjs')
-  writeFileSync(config,"throw new Error('CONFIG_MUST_NOT_BE_IMPORTED');\n",{mode:0o600});chmodSync(config,0o644)
+  const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-config-')),config=join(root,'readable.mjs'),marker=join(root,'imported')
+  writeFileSync(config,`import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},'imported');throw new Error('CONFIG_MUST_NOT_BE_IMPORTED');\n`,{mode:0o600});chmodSync(config,0o644)
   try {
     for(const [source,args] of [[workerPath,['--config',config]],[fileURLToPath(new URL('../src/verify-deployed.mjs',import.meta.url)),['--config',config,'--phase','save']]]) {
       const spawned=spawn(process.execPath,[source,...args],{stdio:['ignore','pipe','pipe']})
       let output='';spawned.stderr.on('data',b=>{output+=b})
       assert.equal((await once(spawned,'exit'))[0],1)
       assert(!output.includes('CONFIG_MUST_NOT_BE_IMPORTED'));assert.match(output,/REFUSED|NOT_VERIFIED/)
+      assert.equal(existsSync(marker),false,'unsafe config must be refused before its code executes')
     }
+    chmodSync(config,0o600)
+    const mutable=spawn(process.execPath,[workerPath,'--config',config],{stdio:['ignore','pipe','pipe']})
+    assert.equal((await once(mutable,'exit'))[0],1);assert.equal(existsSync(marker),false,'production entry must refuse worker-owned mutable config')
   } finally {rmSync(root,{recursive:true,force:true})}
 })
 test('actual separate C/D worker processes preserve real passkey + locked observation + save/settle/cited restart; no PG or UID proof',async()=>{
