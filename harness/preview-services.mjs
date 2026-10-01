@@ -10,14 +10,14 @@ export class PreviewCredentials extends CredentialProvider {
  resolve(){return Promise.resolve(undefined);}
  describe(){return Promise.resolve({configured:false,writable:false});}
  set(){return unavailable();} unset(){return unavailable();}
- readRecord(key){if(key!==browserKey)return unavailable();return Promise.resolve(structuredClone(this.#record));}
+ readRecord=key=>{if(key!==browserKey)return unavailable();return Promise.resolve(structuredClone(this.#record));};
  describeRecord(){return unavailable();}listRecords(){return unavailable();}deleteRecord(){return unavailable();}
- async modifyRecord(key,mutate){if(key!==browserKey||this.#record!==undefined)return unavailable();const next=await mutate(undefined);if(next?.kind!=='grant'||next?.payload?.version!==1||typeof next.payload.secret!=='string')return unavailable();this.#record=structuredClone(next);return structuredClone(this.#record);}
+ modifyRecord=async(key,mutate)=>{if(key!==browserKey||this.#record!==undefined)return unavailable();const next=await mutate(undefined);if(next?.kind!=='grant'||next?.payload?.version!==1||typeof next.payload.secret!=='string')return unavailable();this.#record=structuredClone(next);return structuredClone(this.#record);};
 }
 export class PreviewSettings extends SettingsProvider {
  writable=true;#document={};
- load(){return Promise.resolve(structuredClone(this.#document));}
- persist(ns,section){if(!['ui-onboarding','ui-theme','locale'].includes(ns))return unavailable();this.#document[ns]=structuredClone(section);return Promise.resolve();}
+ load=()=>Promise.resolve(structuredClone(this.#document));
+ persist=(ns,section)=>{if(!['ui-onboarding','ui-theme','locale'].includes(ns))return unavailable();this.#document[ns]=structuredClone(section);return Promise.resolve();};
 }
 export class UnavailableUploads extends Service {
  constructor(ctx){super(ctx,'fileUploads');}

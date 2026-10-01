@@ -33,4 +33,4 @@ else if(cmd==='boot'){
 }
 else if(cmd==='check'){const p=spawnSync(process.execPath,[resolve(root,'packages/ops/cli.mjs'),'check',args.shift()??'G1','--root',root,...args],{cwd:root,stdio:'inherit'});process.exitCode=p.status??1;}
 else if(['export','verify','restore'].includes(cmd)){const p=spawnSync(process.execPath,[resolve(root,'packages/memory/src/cli.mjs'),cmd,...args],{cwd:root,stdio:'inherit'});process.exitCode=p.status??1;}
-else {console.log('./prime build | compose | boot [--port 18731] [--state-dir DIR] | status --json | check G1 ... | export OWNER OUTPUT | verify SNAPSHOT OWNER [RETAINED_HEADS_JSON] | restore SNAPSHOT OWNER APPROVAL_PROOF [RETAINED_HEADS_JSON]');}
+else {console.log('./prime build | compose | boot [--port 18731] [--state-dir DIR] | status --json | check G1 ... | export OWNER OUTPUT | verify SNAPSHOT OWNER [RETAINED_HEADS_JSON] | restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]');}

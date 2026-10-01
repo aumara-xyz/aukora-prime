@@ -41,6 +41,7 @@ for package,target in [('foundation','aukora-foundation'),('prime-authority','pr
  src=root/'packages/ui'/package;dst=release/'plugins'/target
  shutil.copytree(src,dst,symlinks=True,ignore=lambda directory,names:[n for n in names if n in ['src','checks','licenses']])
 shutil.copy2(root/'harness/preview-connection.mjs',release/'packages/client/connection/lib/prime-host.mjs')
+shutil.copy2(root/'harness/gateway-host.mjs',release/'packages/api/gateway/lib/prime-host.mjs')
 for target in ['packages/api/workspace-controller','packages/client/file-upload']:
  shutil.copy2(root/'harness/ui-host.mjs',release/target/'lib/prime-host.mjs')
 removed_links=[]
