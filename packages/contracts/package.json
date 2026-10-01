@@ -6,9 +6,16 @@
   "license": "AGPL-3.0-or-later",
   "exports": {
     ".": {
+      "browser": {
+        "types": "./src/browser.d.ts",
+        "default": "./src/browser.mjs"
+      },
       "types": "./src/index.ts",
       "import": "./src/runtime.mjs"
+    },
+    "./browser": {
+      "types": "./src/browser.d.ts",
+      "import": "./src/browser.mjs"
     }
   }
 }
-

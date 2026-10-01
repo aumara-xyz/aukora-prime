@@ -20,8 +20,19 @@ export interface OperationProposal {
 export interface ApprovalProof {
  readonly version: 1; readonly operation_id: string; readonly operation_digest: Digest; readonly owner_id: string;
  readonly audience: string; readonly authorization_epoch: number; readonly expiry: string; readonly nonce: string;
- readonly material: { readonly kind: 'owner_key'|'passkey'; readonly [key: string]: JsonValue };
+ readonly material: ApprovalMaterial;
 }
+export interface ApprovalRequest {
+ readonly domain: 'aukora:owner-approval-request:v1'; readonly subject: string;
+ readonly activeControlDigest: string; readonly operationDigest: string; readonly challenge: string;
+ readonly issuedAt: number; readonly expiresAt: number;
+}
+export type ApprovalMaterial = { readonly kind: 'owner_key'; readonly request: ApprovalRequest; readonly signature: string }
+ | { readonly kind: 'passkey'; readonly credential_id: string; readonly client_data_json: string;
+     readonly authenticator_data: string; readonly signature: string; readonly user_handle: string | null };
+/** Presentation only. Never a signed approval. */
+export type ApprovalTemplate = Omit<ApprovalProof, 'material'> & { readonly material:
+ { readonly kind: 'owner_key'; readonly request: ApprovalRequest; readonly signature: '' } | { readonly kind: 'passkey' } };
 export interface ConsumedGrant {
  readonly version: 1; readonly grant_id: string; readonly operation_id: string; readonly operation_digest: Digest;
  readonly owner_id: string; readonly audience: string; readonly authorization_epoch: number;
@@ -70,3 +81,25 @@ export interface MemoryRecord {
  readonly storage_status: 'pending'|'saved'|'failed'; readonly index_status: 'pending'|'indexing'|'indexed'|'searchable'|'failed';
 }
 
+export interface StrictJsonOptions { readonly maxBytes?: number; readonly maxDepth?: number }
+export interface ContractMap {
+ Task: Task; OperationProposal: OperationProposal; ApprovalProof: ApprovalProof; ConsumedGrant: ConsumedGrant;
+ ExecutionReceipt: ExecutionReceipt; BrowserSession: BrowserSession; ModelRoute: ModelRoute; MemoryRecord: MemoryRecord;
+}
+export type ContractKind = keyof ContractMap;
+export declare class ContractValidationError extends TypeError {
+ constructor(reason: string, path?: string);
+ readonly code: 'INVALID'; readonly error_code: 'INVALID'; readonly reason: string; readonly path: string;
+}
+export declare const CONTRACT_VERSION: 1;
+export declare const CONTRACT_FIELDS: Readonly<Record<ContractKind, readonly string[]>>;
+export declare const ERROR_CODES: readonly PrimeErrorCode[];
+export declare const MAX_JSON_BYTES: number;
+export declare const MAX_JSON_DEPTH: number;
+export declare function canonicalJson(value: unknown): string;
+export declare function parseStrictJson(text: string, options?: StrictJsonOptions): JsonValue;
+export declare function validateContract<K extends ContractKind>(kind: K, value: unknown): ContractMap[K];
+export declare function validateApprovalTemplate(value: unknown): ApprovalTemplate;
+export declare function parseContract<K extends ContractKind>(kind: K, text: string, options?: StrictJsonOptions): ContractMap[K];
+export declare function operationBytes(proposal: OperationProposal): Uint8Array;
+export declare function operationDigest(proposal: OperationProposal): Digest;

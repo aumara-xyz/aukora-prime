@@ -1,0 +1,149 @@
+{
+  "captured_from": "669c077e9515179487a3e9282e9f45f61ad80120",
+  "domain": "aukora-prime.operation.v1\\0",
+  "vectors": [
+    {
+      "proposal": {
+        "version": 1,
+        "operation_id": "golden-op",
+        "task_id": "golden-task",
+        "owner_id": "aukora:1:1111111111111111111111111111111111111111111111111111111111111111",
+        "agent_id": "golden-agent",
+        "audience": "prime:fixture",
+        "action_type": "memory.save",
+        "target_identity": {
+          "store": "fixture-memory",
+          "record": "note1"
+        },
+        "canonical_parameters": {
+          "content": "public synthetic note"
+        },
+        "data_scope": [
+          "public"
+        ],
+        "expected_state_version": "r1",
+        "provider_and_region": {
+          "provider": "none",
+          "region": "local"
+        },
+        "maximum_cost": {
+          "currency": "USD",
+          "amount": "0"
+        },
+        "expiry": "2030-01-02T03:04:05.000Z",
+        "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+        "policy_version": "p1",
+        "authorization_epoch": 0
+      },
+      "canonical_json": "{\"action_type\":\"memory.save\",\"agent_id\":\"golden-agent\",\"audience\":\"prime:fixture\",\"authorization_epoch\":0,\"canonical_parameters\":{\"content\":\"public synthetic note\"},\"data_scope\":[\"public\"],\"expected_state_version\":\"r1\",\"expiry\":\"2030-01-02T03:04:05.000Z\",\"maximum_cost\":{\"amount\":\"0\",\"currency\":\"USD\"},\"nonce\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"operation_id\":\"golden-op\",\"owner_id\":\"aukora:1:1111111111111111111111111111111111111111111111111111111111111111\",\"policy_version\":\"p1\",\"provider_and_region\":{\"provider\":\"none\",\"region\":\"local\"},\"target_identity\":{\"record\":\"note1\",\"store\":\"fixture-memory\"},\"task_id\":\"golden-task\",\"version\":1}",
+      "bytes_hex": "61756b6f72612d7072696d652e6f7065726174696f6e2e7631007b22616374696f6e5f74797065223a226d656d6f72792e73617665222c226167656e745f6964223a22676f6c64656e2d6167656e74222c2261756469656e6365223a227072696d653a66697874757265222c22617574686f72697a6174696f6e5f65706f6368223a302c2263616e6f6e6963616c5f706172616d6574657273223a7b22636f6e74656e74223a227075626c69632073796e746865746963206e6f7465227d2c22646174615f73636f7065223a5b227075626c6963225d2c2265787065637465645f73746174655f76657273696f6e223a227231222c22657870697279223a22323033302d30312d30325430333a30343a30352e3030305a222c226d6178696d756d5f636f7374223a7b22616d6f756e74223a2230222c2263757272656e6379223a22555344227d2c226e6f6e6365223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c226f7065726174696f6e5f6964223a22676f6c64656e2d6f70222c226f776e65725f6964223a2261756b6f72613a313a31313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c22706f6c6963795f76657273696f6e223a227031222c2270726f76696465725f616e645f726567696f6e223a7b2270726f7669646572223a226e6f6e65222c22726567696f6e223a226c6f63616c227d2c227461726765745f6964656e74697479223a7b227265636f7264223a226e6f746531222c2273746f7265223a22666978747572652d6d656d6f7279227d2c227461736b5f6964223a22676f6c64656e2d7461736b222c2276657273696f6e223a317d",
+      "digest": "sha256:5b0981227e21ccbffab7e9df5c750ffd2f81107afad0212c5ff4899934d073a7"
+    },
+    {
+      "proposal": {
+        "version": 1,
+        "operation_id": "golden-op",
+        "task_id": "golden-task",
+        "owner_id": "aukora:1:1111111111111111111111111111111111111111111111111111111111111111",
+        "agent_id": "golden-agent",
+        "audience": "prime:fixture",
+        "action_type": "shell.bash.foreground",
+        "target_identity": {
+          "backend": "openshell-linux",
+          "workspace": "fixture",
+          "image_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "policy_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "logical_workspace_root": "/logical/workspace"
+        },
+        "canonical_parameters": {
+          "command": "synthetic inert command",
+          "workdir": "/logical/workspace",
+          "sandbox_mode": "read-only",
+          "stdin": "",
+          "env": {},
+          "dsh_env": {},
+          "timeout_ms": 500,
+          "max_output_bytes": 128
+        },
+        "data_scope": [
+          "public"
+        ],
+        "expected_state_version": "r1",
+        "provider_and_region": {
+          "provider": "none",
+          "region": "local"
+        },
+        "maximum_cost": {
+          "currency": "USD",
+          "amount": "0"
+        },
+        "expiry": "2030-01-02T03:04:05.000Z",
+        "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+        "policy_version": "p1",
+        "authorization_epoch": 0
+      },
+      "canonical_json": "{\"action_type\":\"shell.bash.foreground\",\"agent_id\":\"golden-agent\",\"audience\":\"prime:fixture\",\"authorization_epoch\":0,\"canonical_parameters\":{\"command\":\"synthetic inert command\",\"dsh_env\":{},\"env\":{},\"max_output_bytes\":128,\"sandbox_mode\":\"read-only\",\"stdin\":\"\",\"timeout_ms\":500,\"workdir\":\"/logical/workspace\"},\"data_scope\":[\"public\"],\"expected_state_version\":\"r1\",\"expiry\":\"2030-01-02T03:04:05.000Z\",\"maximum_cost\":{\"amount\":\"0\",\"currency\":\"USD\"},\"nonce\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"operation_id\":\"golden-op\",\"owner_id\":\"aukora:1:1111111111111111111111111111111111111111111111111111111111111111\",\"policy_version\":\"p1\",\"provider_and_region\":{\"provider\":\"none\",\"region\":\"local\"},\"target_identity\":{\"backend\":\"openshell-linux\",\"image_digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"logical_workspace_root\":\"/logical/workspace\",\"policy_digest\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"workspace\":\"fixture\"},\"task_id\":\"golden-task\",\"version\":1}",
+      "bytes_hex": "61756b6f72612d7072696d652e6f7065726174696f6e2e7631007b22616374696f6e5f74797065223a227368656c6c2e626173682e666f726567726f756e64222c226167656e745f6964223a22676f6c64656e2d6167656e74222c2261756469656e6365223a227072696d653a66697874757265222c22617574686f72697a6174696f6e5f65706f6368223a302c2263616e6f6e6963616c5f706172616d6574657273223a7b22636f6d6d616e64223a2273796e74686574696320696e65727420636f6d6d616e64222c226473685f656e76223a7b7d2c22656e76223a7b7d2c226d61785f6f75747075745f6279746573223a3132382c2273616e64626f785f6d6f6465223a22726561642d6f6e6c79222c22737464696e223a22222c2274696d656f75745f6d73223a3530302c22776f726b646972223a222f6c6f676963616c2f776f726b7370616365227d2c22646174615f73636f7065223a5b227075626c6963225d2c2265787065637465645f73746174655f76657273696f6e223a227231222c22657870697279223a22323033302d30312d30325430333a30343a30352e3030305a222c226d6178696d756d5f636f7374223a7b22616d6f756e74223a2230222c2263757272656e6379223a22555344227d2c226e6f6e6365223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c226f7065726174696f6e5f6964223a22676f6c64656e2d6f70222c226f776e65725f6964223a2261756b6f72613a313a31313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c22706f6c6963795f76657273696f6e223a227031222c2270726f76696465725f616e645f726567696f6e223a7b2270726f7669646572223a226e6f6e65222c22726567696f6e223a226c6f63616c227d2c227461726765745f6964656e74697479223a7b226261636b656e64223a226f70656e7368656c6c2d6c696e7578222c22696d6167655f646967657374223a227368613235363a33333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333222c226c6f676963616c5f776f726b73706163655f726f6f74223a222f6c6f676963616c2f776f726b7370616365222c22706f6c6963795f646967657374223a227368613235363a34343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434222c22776f726b7370616365223a2266697874757265227d2c227461736b5f6964223a22676f6c64656e2d7461736b222c2276657273696f6e223a317d",
+      "digest": "sha256:a58981d87fc57935e0f1e1d7e243780dda108136ef7d2c8a59aa39e8e2051267"
+    },
+    {
+      "proposal": {
+        "version": 1,
+        "operation_id": "golden-unicode",
+        "task_id": "golden-task",
+        "owner_id": "aukora:1:1111111111111111111111111111111111111111111111111111111111111111",
+        "agent_id": "golden-agent",
+        "audience": "prime:fixture",
+        "action_type": "memory.save",
+        "target_identity": {
+          "store": "fixture-memory",
+          "record": "note1"
+        },
+        "canonical_parameters": {
+          "😀": "é\n雪",
+          "z": false,
+          "a": [
+            null,
+            0,
+            9007199254740991
+          ]
+        },
+        "data_scope": [
+          "public"
+        ],
+        "expected_state_version": "r1",
+        "provider_and_region": {
+          "provider": "none",
+          "region": "local"
+        },
+        "maximum_cost": {
+          "currency": "USD",
+          "amount": "0.50000000"
+        },
+        "expiry": "2030-01-02T03:04:05Z",
+        "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+        "policy_version": "p1",
+        "authorization_epoch": 0
+      },
+      "canonical_json": "{\"action_type\":\"memory.save\",\"agent_id\":\"golden-agent\",\"audience\":\"prime:fixture\",\"authorization_epoch\":0,\"canonical_parameters\":{\"a\":[null,0,9007199254740991],\"z\":false,\"😀\":\"é\\n雪\"},\"data_scope\":[\"public\"],\"expected_state_version\":\"r1\",\"expiry\":\"2030-01-02T03:04:05Z\",\"maximum_cost\":{\"amount\":\"0.50000000\",\"currency\":\"USD\"},\"nonce\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"operation_id\":\"golden-unicode\",\"owner_id\":\"aukora:1:1111111111111111111111111111111111111111111111111111111111111111\",\"policy_version\":\"p1\",\"provider_and_region\":{\"provider\":\"none\",\"region\":\"local\"},\"target_identity\":{\"record\":\"note1\",\"store\":\"fixture-memory\"},\"task_id\":\"golden-task\",\"version\":1}",
+      "bytes_hex": "61756b6f72612d7072696d652e6f7065726174696f6e2e7631007b22616374696f6e5f74797065223a226d656d6f72792e73617665222c226167656e745f6964223a22676f6c64656e2d6167656e74222c2261756469656e6365223a227072696d653a66697874757265222c22617574686f72697a6174696f6e5f65706f6368223a302c2263616e6f6e6963616c5f706172616d6574657273223a7b2261223a5b6e756c6c2c302c393030373139393235343734303939315d2c227a223a66616c73652c22f09f9880223a2265cc815c6ee99baa227d2c22646174615f73636f7065223a5b227075626c6963225d2c2265787065637465645f73746174655f76657273696f6e223a227231222c22657870697279223a22323033302d30312d30325430333a30343a30355a222c226d6178696d756d5f636f7374223a7b22616d6f756e74223a22302e3530303030303030222c2263757272656e6379223a22555344227d2c226e6f6e6365223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232222c226f7065726174696f6e5f6964223a22676f6c64656e2d756e69636f6465222c226f776e65725f6964223a2261756b6f72613a313a31313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c22706f6c6963795f76657273696f6e223a227031222c2270726f76696465725f616e645f726567696f6e223a7b2270726f7669646572223a226e6f6e65222c22726567696f6e223a226c6f63616c227d2c227461726765745f6964656e74697479223a7b227265636f7264223a226e6f746531222c2273746f7265223a22666978747572652d6d656d6f7279227d2c227461736b5f6964223a22676f6c64656e2d7461736b222c2276657273696f6e223a317d",
+      "digest": "sha256:3674fd936c3487c097ca61c41ee0678dac706da70f7e3a263d2f6e8b458b1f7a"
+    }
+  ],
+  "kira_vectors": [
+    {
+      "canonical_bytes": "{\n  \"domain\": \"aukora:kira-memory-record:v0\",\n  \"grantsAuthority\": false,\n  \"recordId\": \"kira:24400a432a304748d50e538b23218612fc3be1b156ad055d95be148d76602f34\",\n  \"subject\": \"aukora:1:1111111111111111111111111111111111111111111111111111111111111111\",\n  \"kind\": \"observation\",\n  \"source\": [],\n  \"content\": {\n    \"decimal\": 1.5\n  },\n  \"links\": [],\n  \"privacy\": \"local\",\n  \"createdAt\": \"2026-10-01T11:03:00Z\"\n}\n",
+      "record_id": "kira:24400a432a304748d50e538b23218612fc3be1b156ad055d95be148d76602f34",
+      "record_format": "v0",
+      "canonicalizer": "aukora:canon-json:v0-ecmascript-number",
+      "original_sha256": "bc922c76b06411908338d3c677e361fdfa3f91db4cde32f414d6bd3e9d097e4e"
+    },
+    {
+      "canonical_bytes": "{\n  \"domain\": \"aukora:kira-memory-record:v1\",\n  \"grantsAuthority\": false,\n  \"recordId\": \"kira:89acb6e374e7019853925c16d91cdbb655346022532dfe0d991ad0547479f23b\",\n  \"envelope\": {\n    \"format\": \"v1\",\n    \"canon\": \"aukora:canon-json:v1-safe-integer\",\n    \"algs\": {\n      \"digest\": \"sha256\"\n    }\n  },\n  \"subject\": \"aukora:1:1111111111111111111111111111111111111111111111111111111111111111\",\n  \"kind\": \"observation\",\n  \"source\": [],\n  \"content\": {\n    \"decimal\": \"1.5\"\n  },\n  \"links\": [],\n  \"privacy\": \"local\",\n  \"createdAt\": \"2026-10-01T11:03:00Z\"\n}\n",
+      "record_id": "kira:89acb6e374e7019853925c16d91cdbb655346022532dfe0d991ad0547479f23b",
+      "record_format": "v1",
+      "canonicalizer": "aukora:canon-json:v1-safe-integer",
+      "original_sha256": "963306ade893cca3cb5181adca626e6b8789f88204fd583d09d5a7ad8596f441"
+    }
+  ]
+}
