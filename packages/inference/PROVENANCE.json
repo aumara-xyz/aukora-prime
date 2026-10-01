@@ -58,5 +58,30 @@
     "mac_assembled_release_commit": "4e61cde081860495da25fb9a4a9bbab52690522e",
     "mac_assembled_provider_mount_markers": false,
     "running_linux_preview": "not observed by E"
+  },
+  "publication_history_correspondence": {
+    "scope": "Original provenance observations remain historical, including build and runtime receipts. Corresponding sanitized source references below record redactions and identity metadata, not new acceptance.",
+    "refs": [
+      {
+        "field": "contracts_commit",
+        "original_commit": "f502d539a01e5efae4fc688ad4759162205aa0f4",
+        "corresponding_sanitized_commit": "1bfdedb9026c8ca0d76147c5b947e1696e713495"
+      },
+      {
+        "field": "integration_assessment_commit",
+        "original_commit": "e736ae5b82ff23cd0768346cbbfbf47b7dd3ff3c",
+        "corresponding_sanitized_commit": "cdd1bad75e6198aec2831d7207b2065a7ce932e7"
+      },
+      {
+        "field": "catalog_composition_correction.canonical_assessment_commit",
+        "original_commit": "f581b1070e8d26970ed6ca26c87e242ef7a1c3c7",
+        "corresponding_sanitized_commit": "16d2bb41a6adcfe7b363a0cb0ddb42c01749b798"
+      },
+      {
+        "field": "catalog_composition_correction.mac_assembled_release_commit",
+        "original_commit": "4e61cde081860495da25fb9a4a9bbab52690522e",
+        "corresponding_sanitized_commit": "d65494b0cbf5581b79ff9a57ebfb08250d59961c"
+      }
+    ]
   }
 }

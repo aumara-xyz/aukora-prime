@@ -18,7 +18,7 @@ import {FixturePool} from './sql-fixture.mjs'
 import {fixture as ownerFixture,draft,extraction,assertSaved} from './owner-memory-fixture.mjs'
 
 const hostRoot=process.env.PRIME_OWNER_MEMORY_HOST_ROOT
-const hostPin='4a2cd94de1394aff53fb1afcafd6a187e4c5b8f9'
+const hostPin='9b2b10a971e1e902367ed162af943a62638ceeed'
 const hostOptions={skip:hostRoot?false:'Set PRIME_OWNER_MEMORY_HOST_ROOT to the exact H '+hostPin+' source snapshot; host join not performed'}
 const helperHashes={
   'owner-memory-browser.mjs':'50d0c774a441dd8070ec76626ed0a9e9af41cc65659fdf1f6e4c3297652bc754',

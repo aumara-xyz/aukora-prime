@@ -61,7 +61,7 @@ for(const name of ['transport.mjs','passkey.mjs','capture-review.mjs']){
   if(hash(bytes)!==hash(readFileSync(join(snapshot,path))))throw new TypeError('SOURCE_JOIN_UI_ADAPTER_CLOSURE_CHANGED')
   ui.push({path,bytes:bytes.length,sha256:hash(bytes)})
 }
-const hostCommit='4a2cd94de1394aff53fb1afcafd6a187e4c5b8f9',host=[]
+const hostCommit='9b2b10a971e1e902367ed162af943a62638ceeed',host=[]
 for(const name of ['owner-memory-browser.mjs','owner-memory-transport.mjs','owner-memory-ipc.mjs','owner-memory-context.mjs']){
   const path='harness/'+name,bytes=git(['show',hostCommit+':'+path],options['--host-repository'])
   mkdirSync(join(snapshot,'harness'),{recursive:true,mode:0o700});writeFileSync(join(snapshot,path),bytes)

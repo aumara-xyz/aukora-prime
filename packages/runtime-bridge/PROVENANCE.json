@@ -3,21 +3,56 @@
   "license": "AGPL-3.0-or-later",
   "origin": "New Prime integration adapter source, lane task-40",
   "base_commit": "669c077e9515179487a3e9282e9f45f61ad80120",
-  "owned_paths": ["packages/runtime-bridge/**"],
+  "owned_paths": [
+    "packages/runtime-bridge/**"
+  ],
   "dependencies": {
     "contracts": "f4fbe48e9cbb2c751d7eb2aaa2b931a9522978d0",
-    "authority": ["1be5ccc2d93b4657a6fe7de63ec4d6757c73b114", "8c4aa994ac36a85c512fe18a03f90678f413adee"],
-    "memory": ["f9ca8c6b7cdce9b9aadff9b5097acbe9bbec5a0b", "2bc604ef4d485123666128b3b696bfb12a99272c", "1959785722a287775d1846859e59a9f171611bc9"],
-    "execution": ["d607d4c2a6f5ca643761be1bc9f9e66830cc59d3", "a2120713d5c412ac6b571cc470e6c424c511e9ec"],
-    "ui_transport": ["66fb720d20689fbf6c86ba34fda4baebd3ed73eb", "5b3e20fa790486d249c2038bd6bcc0c80d7925bb", "b3a9baf7105273f5bbbe8ad99f3b454b95d49a80"]
+    "authority": [
+      "1be5ccc2d93b4657a6fe7de63ec4d6757c73b114",
+      "8c4aa994ac36a85c512fe18a03f90678f413adee"
+    ],
+    "memory": [
+      "f9ca8c6b7cdce9b9aadff9b5097acbe9bbec5a0b",
+      "2bc604ef4d485123666128b3b696bfb12a99272c",
+      "1959785722a287775d1846859e59a9f171611bc9"
+    ],
+    "execution": [
+      "d607d4c2a6f5ca643761be1bc9f9e66830cc59d3",
+      "a2120713d5c412ac6b571cc470e6c424c511e9ec"
+    ],
+    "ui_transport": [
+      "66fb720d20689fbf6c86ba34fda4baebd3ed73eb",
+      "5b3e20fa790486d249c2038bd6bcc0c80d7925bb",
+      "b3a9baf7105273f5bbbe8ad99f3b454b95d49a80"
+    ]
   },
-  "capture_review_helper_sha256": "89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96c0",
-  "copied_or_adapted": [{
-    "destination": "test/sql-fixture.mjs",
-    "source": "packages/memory/test/memory.test.mjs FixturePool",
-    "license": "AGPL-3.0-or-later",
-    "changes": "Narrow test-only SQLite dialect shim, with injected lost COMMIT reply and post-dispatch write faults"
-  }],
+  "capture_review_helper_sha256": "2e15f75f9ca6c6e4caab1b6ee05fed0cb8e995a2ce7a7c5c24408a1fd70ec9dc",
+  "copied_or_adapted": [
+    {
+      "destination": "test/sql-fixture.mjs",
+      "source": "packages/memory/test/memory.test.mjs FixturePool",
+      "license": "AGPL-3.0-or-later",
+      "changes": "Narrow test-only SQLite dialect shim, with injected lost COMMIT reply and post-dispatch write faults"
+    }
+  ],
   "closure": "All imports resolve to Prime sibling packages or Node built-ins; no other owned repository is a build/runtime dependency",
-  "limits": ["PostgreSQL runtime unperformed", "same-UID disposable IPC only", "OpenShell protocol mocked in checks", "no real enrollment or deployment"]
+  "limits": [
+    "PostgreSQL runtime unperformed",
+    "same-UID disposable IPC only",
+    "OpenShell protocol mocked in checks",
+    "no real enrollment or deployment"
+  ],
+  "publication_history_correspondence": {
+    "scope": "Original provenance observations remain historical, including build and runtime receipts. Corresponding sanitized source references below record redactions and identity metadata, not new acceptance.",
+    "refs": [
+      {
+        "field": "base_commit",
+        "original_commit": "669c077e9515179487a3e9282e9f45f61ad80120",
+        "corresponding_sanitized_commit": "92275973f537d5a37e9c37e390e87c0be248e04e"
+      }
+    ]
+  },
+  "capture_review_helper_original_sha256": "89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96c0",
+  "capture_review_helper_adaptation": "Only exact host source commit mapped after confirming all four original helper byte pins remain identical. Full source join remains unperformed."
 }

@@ -23,5 +23,15 @@
     "selected_lock_packages": 13,
     "local_binary_sha256": "52591945c62a357a093d45bab2a13ef95636e5e16c40ea960e428123ce58365e",
     "local_runtime": "Official existing dist copied intact to ignored package-local .runtime/electron; LICENSE and LICENSES.chromium.html retained alongside it. This receipt is an observed local hash, not vendor signature attestation."
+  },
+  "publication_history_correspondence": {
+    "scope": "Original provenance observations remain historical, including build and runtime receipts. Corresponding sanitized source references below record redactions and identity metadata, not new acceptance.",
+    "refs": [
+      {
+        "field": "prime_reference.commit",
+        "original_commit": "f0f2ec0a11ec96857da9bedb967f05abb494ec93",
+        "corresponding_sanitized_commit": "a30c288d56ba4bc886108297b3504552d3cb9543"
+      }
+    ]
   }
 }
