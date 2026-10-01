@@ -1,0 +1,1167 @@
+{
+  "schema_version": 1,
+  "source_commit": "9d6c2205af5a05651b9fff7525505fb2ce0e076d",
+  "declared_repository_license": "AGPL-3.0-or-later",
+  "root_license_sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+  "scope": "Additive exact notices for tracked source and pinned selected dependency closures. This is not a binary release SBOM.",
+  "tracked_package_declarations_at_source_commit": [
+    {
+      "path": "package.json",
+      "name": "@aukora-prime/core",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/authority/package.json",
+      "name": "@aukora-prime/authority",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/authority/upstream/vendor/authority/deps/@noble/ciphers@2.2.0/package.json",
+      "name": "@noble/ciphers",
+      "version": "2.2.0",
+      "license": "MIT",
+      "role": "third-party vendored package or local shim"
+    },
+    {
+      "path": "packages/authority/upstream/vendor/authority/deps/@noble/curves@2.2.0/package.json",
+      "name": "@noble/curves",
+      "version": "2.2.0",
+      "license": "MIT",
+      "role": "third-party vendored package or local shim"
+    },
+    {
+      "path": "packages/authority/upstream/vendor/authority/deps/@noble/hashes@2.2.0/package.json",
+      "name": "@noble/hashes",
+      "version": "2.2.0",
+      "license": "MIT",
+      "role": "third-party vendored package or local shim"
+    },
+    {
+      "path": "packages/authority/upstream/vendor/authority/deps/@noble/post-quantum@0.6.1/package.json",
+      "name": "@noble/post-quantum",
+      "version": "0.6.1",
+      "license": "MIT",
+      "role": "third-party vendored package or local shim"
+    },
+    {
+      "path": "packages/authority/upstream/vendor/authority/package.json",
+      "name": "@aukora/kernel",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "frozen AUKORA donor package"
+    },
+    {
+      "path": "packages/contracts/package.json",
+      "name": "@aukora-prime/contracts",
+      "version": "1.0.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/desktop/package.json",
+      "name": "aukora-prime-preview",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/execution/package.json",
+      "name": "@aukora/prime-execution",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/inference/package.json",
+      "name": "@aukora-prime/inference",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/memory/package.json",
+      "name": "@aukora-prime/memory",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ops/package.json",
+      "name": "@aukora-prime/ops",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/runtime-bridge/package.json",
+      "name": "@aukora-prime/runtime-bridge",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/apps/package.json",
+      "name": "@aukora/face-apps",
+      "version": "0.1.1-rc.2",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/apps/vendor/three/package.json",
+      "name": "three",
+      "version": "0.180.0",
+      "license": "MIT",
+      "role": "third-party vendored package or local shim"
+    },
+    {
+      "path": "packages/ui/faces/aumlok/package.json",
+      "name": "@aukora/face-aumlok",
+      "version": "0.1.1-rc.2",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/documents/package.json",
+      "name": "@aukora/face-documents",
+      "version": "0.1.1-rc.2",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/layout/package.json",
+      "name": "@aukora/face-layout",
+      "version": "0.1.1-rc.2",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/memory/package.json",
+      "name": "@aukora/face-memory",
+      "version": "0.1.1-rc.2",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/messages/package.json",
+      "name": "@aukora/face-messages",
+      "version": "0.1.1-rc.2",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/messages/src/vendor/jsqr/package.json",
+      "name": null,
+      "version": null,
+      "license": null,
+      "role": "third-party vendored package or local shim"
+    },
+    {
+      "path": "packages/ui/faces/settings/package.json",
+      "name": "@aukora/face-settings",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/sidebar/package.json",
+      "name": "@aukora/face-sidebar",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/faces/threads/package.json",
+      "name": "@aukora/face-threads",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/foundation/package.json",
+      "name": "@aukora/dsh-plugin-foundation",
+      "version": "0.1.0",
+      "license": null,
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/package.json",
+      "name": "@aukora/prime-ui",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "packages/ui/prime-authority/package.json",
+      "name": "@aukora/prime-authority-ui",
+      "version": "0.1.0",
+      "license": "AGPL-3.0-or-later",
+      "role": "Prime-owned package"
+    },
+    {
+      "path": "runtime-dependencies/pg/package.json",
+      "name": "@aukora-prime/pg-runtime",
+      "version": "0.1.0",
+      "license": null,
+      "role": "Prime-owned package"
+    }
+  ],
+  "upstreams": {
+    "DSH": {
+      "source_repository": "https://github.com/deepseek-ai/deepseek-harness",
+      "source_commit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+      "archive_sha256": "ae0968314dcd5e3c9d7e8f1f5748bbd289afc4ef5668187e0ef6524a7c64c87e",
+      "pinned_pnpm_lock_sha256": "ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1",
+      "license": "MIT; native/system BSD-3-Clause; exact foundation licenses retained"
+    },
+    "pg": {
+      "lockfile": "runtime-dependencies/pg/package-lock.json",
+      "lock_sha256": "c12f559894b5f4ef4eab90ec7ba8a14e2c3e800a3c00e90f2703896332134b6e",
+      "packages": [
+        {
+          "name": "pg",
+          "version": "8.16.3",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/pg/-/pg-8.16.3.tgz",
+          "integrity": "sha512-enxc1h0jA/aq5oSDMvqyW3q89ra6XIIDZgCX9vkMrnz5DFTw/Ny3Li2lFQ+pt3L6MCgm/5o2o8HW9hiJji+xvw==",
+          "archive_sha256": "33c9619b46fec18bd5d0f01043302226acd532e1e7e2f447514b08e1e568b056",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "pg-cloudflare",
+          "version": "1.4.1",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/pg-cloudflare/-/pg-cloudflare-1.4.1.tgz",
+          "integrity": "sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ==",
+          "archive_sha256": "7a3b140775e885d245bcd0c08f60cc5d726449a4dfabda6a31537b7411ef38cc",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "pg-connection-string",
+          "version": "2.14.1",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/pg-connection-string/-/pg-connection-string-2.14.1.tgz",
+          "integrity": "sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA==",
+          "archive_sha256": "22f69d9711c971d8b66eb78474073ba7f47f27bb69a4347c13cb8ab7c75dfaff",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "pg-int8",
+          "version": "1.0.1",
+          "license_declared_in_lock": "ISC",
+          "resolved": "https://registry.npmjs.org/pg-int8/-/pg-int8-1.0.1.tgz",
+          "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==",
+          "archive_sha256": "f010d48974a96814e841edbb6fc6096385574610714d2a50e99811170c365e92",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "pg-pool",
+          "version": "3.14.0",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/pg-pool/-/pg-pool-3.14.0.tgz",
+          "integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw==",
+          "archive_sha256": "0b0b8729c09d5eaa059313c9c3d11efc8907441386bbf86ccc57e1298c6ce71a",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "pg-protocol",
+          "version": "1.16.1",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/pg-protocol/-/pg-protocol-1.16.1.tgz",
+          "integrity": "sha512-p9VOFMiHB/ZbJATetbg+99PxssTVSQRnyuPSQ67mN1+1KBOjZaZ83ZQzltnxPhJwSsC3nwVjJ10DVJlerbFzLg==",
+          "archive_sha256": "e1315b9dc839a029109e3a521c1dd1d9c7265722fdbc50d27ff5f7274f70732f",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "pg-types",
+          "version": "2.2.0",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/pg-types/-/pg-types-2.2.0.tgz",
+          "integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==",
+          "archive_sha256": "c4804fd058140c32f8fda78883ad45dee3eaa4fd9e9127b6eb659fefe51981bd",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "pgpass",
+          "version": "1.0.5",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/pgpass/-/pgpass-1.0.5.tgz",
+          "integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==",
+          "archive_sha256": "ff794c956186430afd600b5bc4500f3f0faf34b62be6ff98494f4c7f4a6d8597",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "postgres-array",
+          "version": "2.0.0",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/postgres-array/-/postgres-array-2.0.0.tgz",
+          "integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==",
+          "archive_sha256": "dbf1035c777631d4b0a4b5c035b1f6247dd923db6b2ea115b93b1eabb172b3a0",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "postgres-bytea",
+          "version": "1.0.1",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/postgres-bytea/-/postgres-bytea-1.0.1.tgz",
+          "integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==",
+          "archive_sha256": "0395e34ecb9945b0003132af6e11463ec7ec8f17fb5cbdbccc5a822bd6807d96",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "postgres-date",
+          "version": "1.0.7",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/postgres-date/-/postgres-date-1.0.7.tgz",
+          "integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q==",
+          "archive_sha256": "a67a8d90e7b8f64041a6f425b102b27a3e86d5854ace7e9414a890912f3adb59",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "postgres-interval",
+          "version": "1.2.0",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/postgres-interval/-/postgres-interval-1.2.0.tgz",
+          "integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==",
+          "archive_sha256": "e67563626b30aa7d22caf930e38529bb137476146a11eaaa0bb1e07c0a2413b1",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "split2",
+          "version": "4.2.0",
+          "license_declared_in_lock": "ISC",
+          "resolved": "https://registry.npmjs.org/split2/-/split2-4.2.0.tgz",
+          "integrity": "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==",
+          "archive_sha256": "e0061e7f042fc5ff6dcda8afb66619757d92ab1ff514a28a5904f2ebde27bf54",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "xtend",
+          "version": "4.0.2",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/xtend/-/xtend-4.0.2.tgz",
+          "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==",
+          "archive_sha256": "bd22a01d43c799be7bb53dfa9e775b132045e39525e51efb977528a00041ba48",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        }
+      ]
+    },
+    "desktop": {
+      "lockfile": "packages/desktop/package-lock.json",
+      "lock_sha256": "e738bd7c9a68075962b73153e7e244fa5f0e71ab90b535722a1fee22fe308a40",
+      "packages": [
+        {
+          "name": "electron",
+          "version": "44.4.3",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/electron/-/electron-44.4.3.tgz",
+          "integrity": "sha512-LTpSFTB40qVCXIX5xMo+cgHI/Jjkbjw7VpB26PccEbroqOn72LBukeaDwPVo1fBYzSzs0c9iPuAucFCO7Tw81Q==",
+          "archive_sha256": "89dd85f3ee808d0364826f99bcf634b0f1c6575c1538b229cf2481764833d253",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "@electron-internal/extract-zip",
+          "version": "1.0.5",
+          "license_declared_in_lock": "BSD-2-Clause",
+          "resolved": "https://registry.npmjs.org/@electron-internal/extract-zip/-/extract-zip-1.0.5.tgz",
+          "integrity": "sha512-+bqFCP98pLI0Tt0XQo1TmlXtwjWchISndDOxCkEcIuUgXWpBnLyRI+2DU+mesvnMMX6L1XDqYNA0lXNDHd/yiA==",
+          "archive_sha256": "939b4462974f8fa1b339dd4f420c62787ddf06903cc9c61f1f0661f096f5370b",
+          "archive_sri_verified": true,
+          "notice_status": "full text absent from cached archive"
+        },
+        {
+          "name": "@electron/get",
+          "version": "5.1.0",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/@electron/get/-/get-5.1.0.tgz",
+          "integrity": "sha512-3kSBtG8ObcTVfXanm5vVJ6UnBLEVmVsRk1M+vGqCuMBV+XLCbJYuWQful+yIy0GQDsSlK0kHEriEHn7SPk4EnA==",
+          "archive_sha256": "bdaedaeec759d5b41a20e4d3ae930a86f0406ecf07f28777d8c3c1e9c62182bf",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "debug",
+          "version": "4.4.3",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
+          "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+          "archive_sha256": "89c1ac9c946ee8905a875837114528e97eeae35e03be3190584b2216af43e4a7",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "ms",
+          "version": "2.1.3",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+          "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+          "archive_sha256": "f6616e15e530ed552f9daa2d3ce71963947c6bc7c98c9b64fd3e673fd02622c6",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "env-paths",
+          "version": "3.0.0",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/env-paths/-/env-paths-3.0.0.tgz",
+          "integrity": "sha512-dtJUTepzMW3Lm/NPxRf3wP4642UWhjL2sQxc+ym2YMj1m/H2zDNQOlezafzkHwn6sMstjHTwG6iQQsctDW/b1A==",
+          "archive_sha256": "a8e2aad7f6ca2bc85381ad33d0781dd84a311e6f3d0004c108860a801e00a7c8",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "graceful-fs",
+          "version": "4.2.11",
+          "license_declared_in_lock": "ISC",
+          "resolved": "https://registry.npmjs.org/graceful-fs/-/graceful-fs-4.2.11.tgz",
+          "integrity": "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==",
+          "archive_sha256": "3961374aa161e6fed80d6f4b6aaf2fb7eafd2c9e5be34e865b375f0114dd099c",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "progress",
+          "version": "2.0.3",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/progress/-/progress-2.0.3.tgz",
+          "integrity": "sha512-7PiHtLll5LdnKIMw100I+8xJXR5gW2QwWYkT6iJva0bXitZKa/XMrSbdmg3r2Xnaidz9Qumd0VPaMrZlF9V9sA==",
+          "archive_sha256": "701865e18ff6c0e3ba778756ddef8db1dc05c00a901babe57bc7a0a7e0e82aa4",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "semver",
+          "version": "7.8.5",
+          "license_declared_in_lock": "ISC",
+          "resolved": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
+          "integrity": "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==",
+          "archive_sha256": "d85045d4300d7d57c891336b95df532e73f34c22ffcd222452b6d08b9d127d5d",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "sumchecker",
+          "version": "3.0.1",
+          "license_declared_in_lock": "Apache-2.0",
+          "resolved": "https://registry.npmjs.org/sumchecker/-/sumchecker-3.0.1.tgz",
+          "integrity": "sha512-MvjXzkz/BOfyVDkG0oFOtBxHX2u3gKbMHIF/dXblZsgD3BWOFLmHovIpZY7BykJdAjcqRCBi1WYBNdEC9yI7vg==",
+          "archive_sha256": "6756f3005b33a71933a803b3cd072fafd7f4eba50a837e54fc68527c75ffdd08",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "undici",
+          "version": "7.29.1",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/undici/-/undici-7.29.1.tgz",
+          "integrity": "sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q==",
+          "archive_sha256": "93b3abe22a9d2858938b5f3829a9fd8952392348ffed9057662ae846e2e46d54",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "@types/node",
+          "version": "24.13.6",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/@types/node/-/node-24.13.6.tgz",
+          "integrity": "sha512-SGrw/h3KPFshy3OE6ZL53LMBG5vGQQ8/gIpiqz/kRZhPJ7HgwCEs8LBuNtWLa8dvGZVpSF7+Bf+c11HUrCb/yg==",
+          "archive_sha256": "755b5147491e323c24541830f8eba438c1d1ef8931de725fc613b5439708464a",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        },
+        {
+          "name": "undici-types",
+          "version": "7.18.2",
+          "license_declared_in_lock": "MIT",
+          "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-7.18.2.tgz",
+          "integrity": "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==",
+          "archive_sha256": "4d92799b0e619468a30f70eff033c1a27e713134a4ff353e1a6794f67e425497",
+          "archive_sri_verified": true,
+          "notice_status": "full text retained"
+        }
+      ]
+    },
+    "OpenShell": {
+      "project": "https://github.com/NVIDIA/OpenShell",
+      "tag": "v0.1.2",
+      "commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+      "package_name": "@nvidia/openshell-sdk",
+      "package_version": "0.0.0",
+      "archive_sha256": "298ee3c0566c51e593e9eadc724a0e1c072fbb542b4f362b82e82a254f8eaea6",
+      "license": "Apache-2.0",
+      "license_sha256": "c4be3acebe12527d7de689933d98329b4065f8c50cd929d0365584eafe6c20dd"
+    }
+  },
+  "exact_notice_copies": [
+    {
+      "source": "publication-prep",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/prime-source/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/authority/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/NOTICE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/NOTICE",
+      "sha256": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f",
+      "bytes": 3912
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/vendor/authority/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/vendor/authority/LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/vendor/authority/NOTICE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/vendor/authority/NOTICE",
+      "sha256": "1452a9200b6d9e53c3b8a8ffdc68345976493d151a671213431d7409528a4561",
+      "bytes": 1483
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/vendor/authority/deps/@noble/ciphers@2.2.0/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/vendor/authority/deps/@noble/ciphers@2.2.0/LICENSE",
+      "sha256": "f36671a5487c9c5050efacb58011c37c24c55a889803cb036cf9d9a6347c1e2d",
+      "bytes": 1161
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/vendor/authority/deps/@noble/curves@2.2.0/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/vendor/authority/deps/@noble/curves@2.2.0/LICENSE",
+      "sha256": "4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec",
+      "bytes": 1109
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/vendor/authority/deps/@noble/hashes@2.2.0/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/vendor/authority/deps/@noble/hashes@2.2.0/LICENSE",
+      "sha256": "4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec",
+      "bytes": 1109
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/authority/upstream/vendor/authority/deps/@noble/post-quantum@0.6.1/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/authority/upstream/vendor/authority/deps/@noble/post-quantum@0.6.1/LICENSE",
+      "sha256": "0dea4b70b40ca57e3cfe30186e3dbd245147fe4d83ac566e92e70203aac59034",
+      "bytes": 1109
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/desktop/licenses/Electron-MIT.txt",
+      "path": "licenses/upstream/prime-source/packages/desktop/licenses/Electron-MIT.txt",
+      "sha256": "5154e165bd6c2cc0cfbcd8916498c7abab0497923bafcd5cb07673fe8480087d",
+      "bytes": 1096
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/execution/licenses/AGPL-3.0.txt",
+      "path": "licenses/upstream/prime-source/packages/execution/licenses/AGPL-3.0.txt",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/execution/licenses/Apache-2.0.txt",
+      "path": "licenses/upstream/prime-source/packages/execution/licenses/Apache-2.0.txt",
+      "sha256": "c4be3acebe12527d7de689933d98329b4065f8c50cd929d0365584eafe6c20dd",
+      "bytes": 11437
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/execution/licenses/Genesis-NOTICE.txt",
+      "path": "licenses/upstream/prime-source/packages/execution/licenses/Genesis-NOTICE.txt",
+      "sha256": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f",
+      "bytes": 3912
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/inference/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/inference/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/NOTICE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/NOTICE",
+      "sha256": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f",
+      "bytes": 3912
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/vendor/aukora-packages/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/vendor/aukora-packages/LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/vendor/aukora-packages/NOTICE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/vendor/aukora-packages/NOTICE",
+      "sha256": "6c737c8ce6b5a651f36ead98f0107084e8a65d74dce0c8ee16fa9cc122c20228",
+      "bytes": 1783
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/vendor/authority/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/vendor/authority/LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/vendor/authority/NOTICE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/vendor/authority/NOTICE",
+      "sha256": "1452a9200b6d9e53c3b8a8ffdc68345976493d151a671213431d7409528a4561",
+      "bytes": 1483
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/vendor/authority/deps/@noble/hashes@2.2.0/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/vendor/authority/deps/@noble/hashes@2.2.0/LICENSE",
+      "sha256": "4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec",
+      "bytes": 1109
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/memory/genesis/vendor/kira-export/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/memory/genesis/vendor/kira-export/LICENSE",
+      "sha256": "1f7e2277a29ae557cc0c3ae44a50e51934045bc95bf1311ff933fb312aa0b27e",
+      "bytes": 35209
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ops/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/ops/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/runtime-bridge/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/runtime-bridge/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ui/faces/apps/vendor/three/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/ui/faces/apps/vendor/three/LICENSE",
+      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601",
+      "bytes": 1081
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ui/faces/aumlok/src/vendor/qrcodegen/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/ui/faces/aumlok/src/vendor/qrcodegen/LICENSE",
+      "sha256": "013bb580e895ea9ac7c2e56665b3fda772d45cadc36ede41daa369b13b0aa533",
+      "bytes": 1177
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ui/faces/messages/src/vendor/jsqr/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/ui/faces/messages/src/vendor/jsqr/LICENSE",
+      "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
+      "bytes": 11358
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ui/foundation/licenses/genesis/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/ui/foundation/licenses/genesis/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ui/foundation/licenses/genesis/NOTICE",
+      "path": "licenses/upstream/prime-source/packages/ui/foundation/licenses/genesis/NOTICE",
+      "sha256": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f",
+      "bytes": 3912
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ui/licenses/genesis/LICENSE",
+      "path": "licenses/upstream/prime-source/packages/ui/licenses/genesis/LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "bytes": 34523
+    },
+    {
+      "source": "publication-prep",
+      "source_path": "packages/ui/licenses/genesis/NOTICE",
+      "path": "licenses/upstream/prime-source/packages/ui/licenses/genesis/NOTICE",
+      "sha256": "c5a9f02cd5c2dbfcb1edcd7edd6bf2070c660ace3901819dfcc1e7da3ede781f",
+      "bytes": 3912
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/dsh/LICENSE",
+      "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+      "bytes": 1065
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "THIRD_PARTY_NOTICES.md",
+      "path": "licenses/upstream/dsh/THIRD_PARTY_NOTICES.md",
+      "sha256": "82211a06d79227912a4ca76d86b7bf5b18ab260515ce4912fd1787d66995a786",
+      "bytes": 19263
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "native/system/LICENSE",
+      "path": "licenses/upstream/dsh/native/system/LICENSE",
+      "sha256": "fed2134d7f6af959ff9fbf2c0a35ea747db10e21d1b5d2d1ac58be88ce43ad90",
+      "bytes": 1523
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "native/system/packages/darwin-arm64/LICENSE",
+      "path": "licenses/upstream/dsh/native/system/packages/darwin-arm64/LICENSE",
+      "sha256": "fed2134d7f6af959ff9fbf2c0a35ea747db10e21d1b5d2d1ac58be88ce43ad90",
+      "bytes": 1523
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "native/system/packages/darwin-x64/LICENSE",
+      "path": "licenses/upstream/dsh/native/system/packages/darwin-x64/LICENSE",
+      "sha256": "fed2134d7f6af959ff9fbf2c0a35ea747db10e21d1b5d2d1ac58be88ce43ad90",
+      "bytes": 1523
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "native/system/packages/linux-arm64/LICENSE",
+      "path": "licenses/upstream/dsh/native/system/packages/linux-arm64/LICENSE",
+      "sha256": "fed2134d7f6af959ff9fbf2c0a35ea747db10e21d1b5d2d1ac58be88ce43ad90",
+      "bytes": 1523
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "native/system/packages/linux-x64/LICENSE",
+      "path": "licenses/upstream/dsh/native/system/packages/linux-x64/LICENSE",
+      "sha256": "fed2134d7f6af959ff9fbf2c0a35ea747db10e21d1b5d2d1ac58be88ce43ad90",
+      "bytes": 1523
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/cordis/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/cordis/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/cosmokit/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/cosmokit/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/group/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/group/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/hmr/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/hmr/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/include/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/include/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/loader/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/loader/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/logger-console/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/logger-console/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/schemastery/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/schemastery/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "DSH exact pinned archive",
+      "source_path": "vendor/timer/LICENSE",
+      "path": "licenses/upstream/dsh/vendor/timer/LICENSE",
+      "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+      "bytes": 1071
+    },
+    {
+      "source": "npm cache SRI verified pg@8.16.3",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/pg@8.16.3/LICENSE",
+      "sha256": "192b8f5c96900f04a1271dec39688655d7416c1c6ea84a508e18b50d2b6751f3",
+      "bytes": 1077,
+      "package": "pg",
+      "version": "8.16.3",
+      "archive_integrity": "sha512-enxc1h0jA/aq5oSDMvqyW3q89ra6XIIDZgCX9vkMrnz5DFTw/Ny3Li2lFQ+pt3L6MCgm/5o2o8HW9hiJji+xvw=="
+    },
+    {
+      "source": "npm cache SRI verified pg@8.16.3",
+      "source_path": "README.md",
+      "path": "licenses/upstream/npm/pg@8.16.3/README.md",
+      "sha256": "25e19d878c5a492023778a2596e8e26d76fc3e2b97a9582d4bdde675b8932408",
+      "bytes": 4316,
+      "package": "pg",
+      "version": "8.16.3",
+      "archive_integrity": "sha512-enxc1h0jA/aq5oSDMvqyW3q89ra6XIIDZgCX9vkMrnz5DFTw/Ny3Li2lFQ+pt3L6MCgm/5o2o8HW9hiJji+xvw=="
+    },
+    {
+      "source": "npm cache SRI verified pg-cloudflare@1.4.1",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/pg-cloudflare@1.4.1/LICENSE",
+      "sha256": "192b8f5c96900f04a1271dec39688655d7416c1c6ea84a508e18b50d2b6751f3",
+      "bytes": 1077,
+      "package": "pg-cloudflare",
+      "version": "1.4.1",
+      "archive_integrity": "sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ=="
+    },
+    {
+      "source": "npm cache SRI verified pg-cloudflare@1.4.1",
+      "source_path": "README.md",
+      "path": "licenses/upstream/npm/pg-cloudflare@1.4.1/README.md",
+      "sha256": "d76b5e56e088f30e86dba1466ed03adf924344db31278ec966c5a35d219aca26",
+      "bytes": 4383,
+      "package": "pg-cloudflare",
+      "version": "1.4.1",
+      "archive_integrity": "sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ=="
+    },
+    {
+      "source": "npm cache SRI verified pg-connection-string@2.14.1",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/pg-connection-string@2.14.1/LICENSE",
+      "sha256": "2244b5486c4427001b6756a87b9a297d427c111dcc3ba64a097492a8979c23d0",
+      "bytes": 1082,
+      "package": "pg-connection-string",
+      "version": "2.14.1",
+      "archive_integrity": "sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA=="
+    },
+    {
+      "source": "npm cache SRI verified pg-int8@1.0.1",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/pg-int8@1.0.1/LICENSE",
+      "sha256": "4e8e87ccdfc7e4b47fd89015f78468aa53b6bf43ab6e6e12d43e8f55294911de",
+      "bytes": 750,
+      "package": "pg-int8",
+      "version": "1.0.1",
+      "archive_integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw=="
+    },
+    {
+      "source": "npm cache SRI verified pg-pool@3.14.0",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/pg-pool@3.14.0/LICENSE",
+      "sha256": "4f15ee7fc2a72082859d7e0d12dfa4bcdd70b1c744ad3850d07780730ac08557",
+      "bytes": 1073,
+      "package": "pg-pool",
+      "version": "3.14.0",
+      "archive_integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw=="
+    },
+    {
+      "source": "npm cache SRI verified pg-pool@3.14.0",
+      "source_path": "README.md",
+      "path": "licenses/upstream/npm/pg-pool@3.14.0/README.md",
+      "sha256": "9d7028ff70e7cddeb97e7a2fda222e12c0e52fe954baf640d62d29880d9628bb",
+      "bytes": 13094,
+      "package": "pg-pool",
+      "version": "3.14.0",
+      "archive_integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw=="
+    },
+    {
+      "source": "npm cache SRI verified pg-protocol@1.16.1",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/pg-protocol@1.16.1/LICENSE",
+      "sha256": "192b8f5c96900f04a1271dec39688655d7416c1c6ea84a508e18b50d2b6751f3",
+      "bytes": 1077,
+      "package": "pg-protocol",
+      "version": "1.16.1",
+      "archive_integrity": "sha512-p9VOFMiHB/ZbJATetbg+99PxssTVSQRnyuPSQ67mN1+1KBOjZaZ83ZQzltnxPhJwSsC3nwVjJ10DVJlerbFzLg=="
+    },
+    {
+      "source": "npm cache SRI verified pg-types@2.2.0",
+      "source_path": "README.md",
+      "path": "licenses/upstream/npm/pg-types@2.2.0/README.md",
+      "sha256": "ecda9bca71d3f0cee4e600d1dd2bef336213f39ef2e8fca6a1a1c1c8723f643a",
+      "bytes": 3831,
+      "package": "pg-types",
+      "version": "2.2.0",
+      "archive_integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA=="
+    },
+    {
+      "source": "npm cache SRI verified pgpass@1.0.5",
+      "source_path": "README.md",
+      "path": "licenses/upstream/npm/pgpass@1.0.5/README.md",
+      "sha256": "62549909404b5a0dcb2b4b74c9a930baf8095dbcfa1543c4ffc79378acd22b57",
+      "bytes": 3294,
+      "package": "pgpass",
+      "version": "1.0.5",
+      "archive_integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug=="
+    },
+    {
+      "source": "npm cache SRI verified postgres-array@2.0.0",
+      "source_path": "license",
+      "path": "licenses/upstream/npm/postgres-array@2.0.0/license",
+      "sha256": "f057f36739d53d228a746de4440c1e0c644ecde06d6beab45337d39c9d12a393",
+      "bytes": 1111,
+      "package": "postgres-array",
+      "version": "2.0.0",
+      "archive_integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA=="
+    },
+    {
+      "source": "npm cache SRI verified postgres-bytea@1.0.1",
+      "source_path": "license",
+      "path": "licenses/upstream/npm/postgres-bytea@1.0.1/license",
+      "sha256": "f057f36739d53d228a746de4440c1e0c644ecde06d6beab45337d39c9d12a393",
+      "bytes": 1111,
+      "package": "postgres-bytea",
+      "version": "1.0.1",
+      "archive_integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ=="
+    },
+    {
+      "source": "npm cache SRI verified postgres-date@1.0.7",
+      "source_path": "license",
+      "path": "licenses/upstream/npm/postgres-date@1.0.7/license",
+      "sha256": "f057f36739d53d228a746de4440c1e0c644ecde06d6beab45337d39c9d12a393",
+      "bytes": 1111,
+      "package": "postgres-date",
+      "version": "1.0.7",
+      "archive_integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q=="
+    },
+    {
+      "source": "npm cache SRI verified postgres-interval@1.2.0",
+      "source_path": "license",
+      "path": "licenses/upstream/npm/postgres-interval@1.2.0/license",
+      "sha256": "f057f36739d53d228a746de4440c1e0c644ecde06d6beab45337d39c9d12a393",
+      "bytes": 1111,
+      "package": "postgres-interval",
+      "version": "1.2.0",
+      "archive_integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ=="
+    },
+    {
+      "source": "npm cache SRI verified split2@4.2.0",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/split2@4.2.0/LICENSE",
+      "sha256": "c372ef2fa1dfcb124ed807609751e75e3a009f108c5724916b489288fcb88a0c",
+      "bytes": 764,
+      "package": "split2",
+      "version": "4.2.0",
+      "archive_integrity": "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg=="
+    },
+    {
+      "source": "npm cache SRI verified xtend@4.0.2",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/xtend@4.0.2/LICENSE",
+      "sha256": "82e67379203d5794e7c44549847d8d64ae6904591381682360470898bd306821",
+      "bytes": 1078,
+      "package": "xtend",
+      "version": "4.0.2",
+      "archive_integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="
+    },
+    {
+      "source": "npm cache SRI verified electron@44.4.3",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/electron@44.4.3/LICENSE",
+      "sha256": "5154e165bd6c2cc0cfbcd8916498c7abab0497923bafcd5cb07673fe8480087d",
+      "bytes": 1096,
+      "package": "electron",
+      "version": "44.4.3",
+      "archive_integrity": "sha512-LTpSFTB40qVCXIX5xMo+cgHI/Jjkbjw7VpB26PccEbroqOn72LBukeaDwPVo1fBYzSzs0c9iPuAucFCO7Tw81Q=="
+    },
+    {
+      "source": "npm cache SRI verified @electron/get@5.1.0",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/@electron/get@5.1.0/LICENSE",
+      "sha256": "edab8abb78d9c5b36944c3e00aebf6a90eb32378993f49ac8a3904007029c629",
+      "bytes": 1088,
+      "package": "@electron/get",
+      "version": "5.1.0",
+      "archive_integrity": "sha512-3kSBtG8ObcTVfXanm5vVJ6UnBLEVmVsRk1M+vGqCuMBV+XLCbJYuWQful+yIy0GQDsSlK0kHEriEHn7SPk4EnA=="
+    },
+    {
+      "source": "npm cache SRI verified debug@4.4.3",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/debug@4.4.3/LICENSE",
+      "sha256": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95",
+      "bytes": 1139,
+      "package": "debug",
+      "version": "4.4.3",
+      "archive_integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="
+    },
+    {
+      "source": "npm cache SRI verified debug@4.4.3",
+      "source_path": "README.md",
+      "path": "licenses/upstream/npm/debug@4.4.3/README.md",
+      "sha256": "486cb669048bd5014adf9ea117e27a45c4e61b0e668f464c724273beb8170797",
+      "bytes": 22115,
+      "package": "debug",
+      "version": "4.4.3",
+      "archive_integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="
+    },
+    {
+      "source": "npm cache SRI verified ms@2.1.3",
+      "source_path": "license.md",
+      "path": "licenses/upstream/npm/ms@2.1.3/license.md",
+      "sha256": "1662fae9b5314d11cf51284e2dcd1f006a354f7343f08712a730fcff9a359801",
+      "bytes": 1079,
+      "package": "ms",
+      "version": "2.1.3",
+      "archive_integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="
+    },
+    {
+      "source": "npm cache SRI verified env-paths@3.0.0",
+      "source_path": "license",
+      "path": "licenses/upstream/npm/env-paths@3.0.0/license",
+      "sha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+      "bytes": 1117,
+      "package": "env-paths",
+      "version": "3.0.0",
+      "archive_integrity": "sha512-dtJUTepzMW3Lm/NPxRf3wP4642UWhjL2sQxc+ym2YMj1m/H2zDNQOlezafzkHwn6sMstjHTwG6iQQsctDW/b1A=="
+    },
+    {
+      "source": "npm cache SRI verified graceful-fs@4.2.11",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/graceful-fs@4.2.11/LICENSE",
+      "sha256": "f65c5d9f22a317b2a10803bd1868461ce6499c2ed7217bc80c0cc772a748789c",
+      "bytes": 791,
+      "package": "graceful-fs",
+      "version": "4.2.11",
+      "archive_integrity": "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="
+    },
+    {
+      "source": "npm cache SRI verified progress@2.0.3",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/progress@2.0.3/LICENSE",
+      "sha256": "d7d2a7786de7c7cfd96f920c6f12927d74e1d2a861ca4498bf465c3bc3f4c21c",
+      "bytes": 1098,
+      "package": "progress",
+      "version": "2.0.3",
+      "archive_integrity": "sha512-7PiHtLll5LdnKIMw100I+8xJXR5gW2QwWYkT6iJva0bXitZKa/XMrSbdmg3r2Xnaidz9Qumd0VPaMrZlF9V9sA=="
+    },
+    {
+      "source": "npm cache SRI verified semver@7.8.5",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/semver@7.8.5/LICENSE",
+      "sha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
+      "bytes": 765,
+      "package": "semver",
+      "version": "7.8.5",
+      "archive_integrity": "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA=="
+    },
+    {
+      "source": "npm cache SRI verified sumchecker@3.0.1",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/sumchecker@3.0.1/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "package": "sumchecker",
+      "version": "3.0.1",
+      "archive_integrity": "sha512-MvjXzkz/BOfyVDkG0oFOtBxHX2u3gKbMHIF/dXblZsgD3BWOFLmHovIpZY7BykJdAjcqRCBi1WYBNdEC9yI7vg=="
+    },
+    {
+      "source": "npm cache SRI verified undici@7.29.1",
+      "source_path": "lib/web/fetch/LICENSE",
+      "path": "licenses/upstream/npm/undici@7.29.1/lib/web/fetch/LICENSE",
+      "sha256": "a21d6c8d3fc631198b97e57584697f7f9c37805c71c6cf9a12e4442b40394b88",
+      "bytes": 1071,
+      "package": "undici",
+      "version": "7.29.1",
+      "archive_integrity": "sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q=="
+    },
+    {
+      "source": "npm cache SRI verified undici@7.29.1",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/undici@7.29.1/LICENSE",
+      "sha256": "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27",
+      "bytes": 1090,
+      "package": "undici",
+      "version": "7.29.1",
+      "archive_integrity": "sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q=="
+    },
+    {
+      "source": "npm cache SRI verified @types/node@24.13.6",
+      "source_path": "node v24.13/LICENSE",
+      "path": "licenses/upstream/npm/@types/node@24.13.6/node v24.13/LICENSE",
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "bytes": 1141,
+      "package": "@types/node",
+      "version": "24.13.6",
+      "archive_integrity": "sha512-SGrw/h3KPFshy3OE6ZL53LMBG5vGQQ8/gIpiqz/kRZhPJ7HgwCEs8LBuNtWLa8dvGZVpSF7+Bf+c11HUrCb/yg=="
+    },
+    {
+      "source": "npm cache SRI verified undici-types@7.18.2",
+      "source_path": "LICENSE",
+      "path": "licenses/upstream/npm/undici-types@7.18.2/LICENSE",
+      "sha256": "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27",
+      "bytes": 1090,
+      "package": "undici-types",
+      "version": "7.18.2",
+      "archive_integrity": "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="
+    }
+  ],
+  "remaining_binary_inventory": [
+    "Electron distribution LICENSES.chromium.html and exact runtime license closure are not present in tracked source.",
+    "@electron-internal/extract-zip@1.0.5 has no full copyright/license notice in its SRI-verified npm archive; obtain the exact notice and Rust/native dependency attribution for binary redistribution.",
+    "The DSH C launcher is documented to statically link musl on Linux; inventory the exact Linux build/toolchain notices before redistributing the binary.",
+    "OpenShell gateway image, OS/native libraries, optional provider executables and frozen browser-asset correspondence require an exact binary release inventory."
+  ]
+}

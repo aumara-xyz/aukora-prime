@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "kind": "aukora-prime-share-assets/v1",
+  "donor_repository": "https://github.com/aumara-xyz/aukora-genesis",
+  "donor_commit": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "assets": [
+    {
+      "path": "docs/assets/aukora-human-first.png",
+      "donor_path": "docs/assets/aukora-human-first.png",
+      "sha256": "e5d1722dd97252c201566afa9d2c3b78bbe674ba2a329308f4895f8e490bbc6d",
+      "bytes": 1842262,
+      "disposition": "unchanged donor copy; illustration of intended architecture, not a measured status report"
+    },
+    {
+      "path": "docs/AUKORA-GOLDEN-BOUNDARY.md",
+      "donor_path": "docs/AUKORA-GOLDEN-BOUNDARY.md",
+      "donor_sha256": "145a02f45c9630101482e4f5611af7f96aa0dd1c7d7e443f5622309e84587900",
+      "disposition": "adapted general AUKORA paper; current claims and limits are in section 17; this Prime file is canonical"
+    }
+  ],
+  "terms": "First-party donor material retains the donor AGPL terms and notices; third-party material retains its own licenses.",
+  "runtime_dependency_on_donor_checkout": false
+}

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "kind": "aukora-prime-bounded-memory-experiment-summary/v1",
+  "evidence_class": "RAN (recorded historical experiment; not repeated by source verification)",
+  "source_commit": "0531653bc1440345bc46c93b8c1688e426eb0f84",
+  "recorded_at": "2026-10-01T20:13:31.269210+00:00",
+  "scope": {
+    "approved_saves": 1,
+    "signer": "synthetic P-256",
+    "postgres_major": 16,
+    "authority_linux_uid": 995,
+    "memory_linux_uid": 994,
+    "data": "synthetic fixture; no owner data"
+  },
+  "observed": {
+    "save": "PASS",
+    "authority_restart": "PASS",
+    "memory_restart": "PASS",
+    "postgres_restart": "PASS",
+    "storage_status": "saved",
+    "indexed": false,
+    "searchable": false,
+    "index_status": "pending",
+    "phase_check_counts": {
+      "after-authority-restart": 5,
+      "after-memory-restart": 5,
+      "after-postgres-restart": 5,
+      "save": 9
+    },
+    "actual_postgresql_audit": "PASS",
+    "canonical_bytes_citation_receipt_preserved_across_restarts": true
+  },
+  "cleanup": {
+    "fixture_workers_stopped": true,
+    "fixture_sockets_absent": true,
+    "two_fixture_schemas_dropped": true,
+    "status": "COMPLETE"
+  },
+  "limits": {
+    "real_owner_enrollment": false,
+    "hardware_custody_established": false,
+    "human_identity_established": false,
+    "human_attendance_established": false,
+    "current_head_qualified": false,
+    "whole_product_qualified": false,
+    "public_routes_qualified": false,
+    "openshell_qualified": false,
+    "live_inference_measured": false,
+    "physical_media_wal_or_backup_erasure_claim": false
+  },
+  "provenance": {
+    "summary_only": true,
+    "independent_acceptance": false,
+    "original_artifacts_private": true,
+    "original_sha256": [
+      {
+        "name": "cd-pg-94d2bf-summary.json",
+        "sha256": "f8807bf26077c7d9b47d2e9fb1f40aaa8b9a645df3141969b71b6580d541037f"
+      },
+      {
+        "name": "cd-pg-94d2bf-save.json",
+        "sha256": "0f2aa6ac400d2c760ef6fb611d3ebd49337717e12918098a3f898dbcfc764b04"
+      },
+      {
+        "name": "cd-pg-94d2bf-after-authority-restart.json",
+        "sha256": "95ac9ce37a9d0d5025f3ef852060274025551cf9d91c533a3ac96abf533b1b49"
+      },
+      {
+        "name": "cd-pg-94d2bf-after-memory-restart.json",
+        "sha256": "1f5a013e4a6a27b7a49dd4e06716a86358b97b59e70f0b8b78941b4ef7bc01bf"
+      },
+      {
+        "name": "cd-pg-94d2bf-after-postgres-restart.json",
+        "sha256": "68ce722080046066067572f37373b42df246169209a54666bc8a239e5ed300c3"
+      },
+      {
+        "name": "cd-pg-94d2bf-operator-final-cleanup.json",
+        "sha256": "6f8632938b8f06e42c97759daf9113ea5d251193545b3b5ee0d48b5ca87f488d"
+      }
+    ]
+  },
+  "interpretation": "One actual PostgreSQL and separated-UID synthetic experiment held under the named restart conditions. This summary preserves its scope; inspecting it does not reproduce the experiment or qualify newer source."
+}
