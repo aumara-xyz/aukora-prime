@@ -4,7 +4,7 @@ import {readFile,mkdtemp,mkdir,writeFile,rm,realpath} from 'node:fs/promises'
 import {dirname,join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {fileURLToPath} from 'node:url'
-import {buildStaticHtmlCsp,graphStaticCsp,selectedStaticHtml} from './static-csp.mjs'
+import {buildStaticHtmlCsp,graphStaticCsp,selectedStaticHtml,createPrimeStaticAppHandler} from './static-csp.mjs'
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),ui=join(root,'packages/ui')
 const manifest=JSON.parse(await readFile(join(ui,'baseline-manifest.json'),'utf8'))
 const source=join(ui,'faces/apps'),temporary=await realpath(await mkdtemp(join(tmpdir(),'prime-static-csp-')))
@@ -12,6 +12,16 @@ const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
 const refused=reason=>error=>error.code==='PRIME_STATIC_CSP'&&error.reason===reason
 let assertions=0
 try{
+ let donorCalls=0
+ const served=[]
+ const handler=createPrimeStaticAppHandler({route:{handler:async(req,res)=>{donorCalls++;res.writeHead(200);res.end('preserved donor bytes')}},policies:{'/stock-apps/human-graph/index.html':graphStaticCsp}})
+ async function request(url,method='GET'){const response={headers:{},setHeader(name,value){this.headers[name]=value},writeHead(status,headers={}){this.status=status;Object.assign(this.headers,headers)},end(body){this.body=body}};await handler({url,method},response);served.push(response);return response}
+ for(const path of ['/stock-apps/auma-lingwa.html','/app/auma/auma.js','/stock-apps/auma-live.html','/stock-apps/auma-live.html?mode=voice','/stock-apps/auma%2dlive.html','/app/aumalive.js','/app/aumalive-audio.js','/app/aumalive-duplex.js']){
+  const response=await request(path);assert.equal(response.status,503);assert.equal(JSON.parse(response.body).error_code,'UNAVAILABLE');assert.equal(donorCalls,0);assert.equal(response.headers['x-content-type-options'],'nosniff');assert.ok(response.headers['content-security-policy'].includes("default-src 'none'"));assertions+=5
+ }
+ const head=await request('/stock-apps/auma-live.html','HEAD');assert.equal(head.status,503);assert.equal(head.body,undefined);assert.equal(donorCalls,0);assertions+=3
+ const normal=await request('/stock-apps/human-graph/index.html');assert.equal(normal.status,200);assert.equal(normal.body,'preserved donor bytes');assert.equal(normal.headers['content-security-policy'],graphStaticCsp);assert.equal(donorCalls,1);assertions+=4
+ const invalid=await request('/%zz');assert.equal(invalid.status,400);assert.equal(donorCalls,1);assertions+=2
  const actual=await buildStaticHtmlCsp({manifest,appRoot:source})
  assert.equal(Object.keys(actual).length,6);assertions++
  for(const [route,path] of Object.entries(selectedStaticHtml)){
@@ -52,5 +62,5 @@ try{
  await fixtureRefusal(original.toString().replace("'/app/auma/auma.js'","'https://external.invalid/app.js'").replace('</head>','<script src="https://external.invalid/code.js"></script></head>'),'external-resource-refused')
  await fixtureRefusal(original.toString().replace('<main ','<main oncl&#105;ck="alert(1)" '),'html-attribute-unhandled')
  await fixtureRefusal(original.toString().replace('</head>','<script src="&#104;ttps://external.invalid/code.js"></script></head>'),'external-resource-refused')
- console.log(JSON.stringify({result:'PASS',assertions,verified_html_routes:6,literal_inline_scripts_hashed:4,exact_fold_document_link_preserved:true,script_unsafe_inline:false,script_unsafe_eval:false,graph_policy_unchanged:true,browser_parity:'UNPERFORMED'}))
+ console.log(JSON.stringify({result:'PASS',assertions,verified_html_routes:6,literal_inline_scripts_hashed:4,exact_fold_document_link_preserved:true,script_unsafe_inline:false,script_unsafe_eval:false,graph_policy_unchanged:true,live_voice_page:'UNAVAILABLE_BEFORE_DONOR_HANDLER',browser_parity:'UNPERFORMED'}))
 }finally{await rm(temporary,{recursive:true,force:true})}

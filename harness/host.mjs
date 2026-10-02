@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {apply as registerWelcomeSettings} from '../packages/client/ui-settings-general/lib/index.js';
 import {createStaticAppRoutes} from '../prime-packages/ui/adapters/static-assets.mjs';
-import {buildStaticHtmlCsp} from './static-csp.mjs';
+import {buildStaticHtmlCsp,createPrimeStaticAppHandler} from './static-csp.mjs';
 import {providerCatalog,providerNamespace,mountDshCatalog} from '../prime-packages/inference/src/provider-settings.mjs';
 import {providerNamespaceView} from '../prime-packages/ui/adapters/provider-settings.mjs';
 import * as contracts from '../prime-packages/contracts/src/runtime.mjs';
@@ -47,12 +47,7 @@ export function apply(ctx){
    const appRoot=resolve(root,'plugins/aukora-face-apps');
    const routes=await createStaticAppRoutes({appRoot,manifest});
    const policies=await buildStaticHtmlCsp({appRoot,manifest});
-   const disposers=routes.map(route=>web.webServer.register({...route,handler:guarded(async(req,res)=>{
-    let path;
-    try{path=decodeURIComponent(new URL(req.url??'/','http://prime-static.local').pathname);}catch{res.writeHead(400);res.end();return;}
-    if(policies[path])res.setHeader('content-security-policy',policies[path]);
-    await route.handler(req,res);
-   })}));
+   const disposers=routes.map(route=>web.webServer.register({...route,handler:guarded(createPrimeStaticAppHandler({route,policies}))}));
    return ()=>{for(const dispose of disposers)dispose();};
   },'prime frozen embedded Apps routes');
  });

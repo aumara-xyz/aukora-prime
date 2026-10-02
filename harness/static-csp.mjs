@@ -18,6 +18,24 @@ function fail(reason,path=''){const error=new Error(`PRIME_STATIC_CSP:${reason}$
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
 const scriptHash=text=>`'sha256-${createHash('sha256').update(text,'utf8').digest('base64')}'`
 
+// A backend refusal cannot disable browser speech. Preserve the donor files,
+// but do not execute the unqualified live page or its voice entry modules.
+const unavailableLivePaths=new Set(['/stock-apps/auma-lingwa.html','/app/auma/auma.js','/stock-apps/auma-live.html','/app/aumalive.js','/app/aumalive-audio.js','/app/aumalive-duplex.js'])
+export function createPrimeStaticAppHandler({route,policies}){
+ if(typeof route?.handler!=='function'||!policies)throw new TypeError('Prime static route required')
+ return async(req,res)=>{
+  let path
+  try{path=decodeURIComponent(new URL(req.url??'/','http://prime-static.local').pathname)}catch{res.writeHead(400);res.end();return}
+  if(unavailableLivePaths.has(path)){
+   res.writeHead(503,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; frame-ancestors 'self'"})
+   res.end(req.method==='HEAD'?undefined:JSON.stringify({ok:false,error_code:'UNAVAILABLE',reason:'Live voice and vision are not qualified; browser speech fallback is disabled'}))
+   return
+  }
+  if(policies[path])res.setHeader('content-security-policy',policies[path])
+  await route.handler(req,res)
+ }
+}
+
 async function verifiedHtml(root,path,entry){
  let location=root
  for(const segment of path.split('/')){if(!segment||segment==='.'||segment==='..'||segment.includes('\\'))fail('path-refused',path);location=join(location,segment);if((await lstat(location)).isSymbolicLink())fail('symlink-refused',path)}
