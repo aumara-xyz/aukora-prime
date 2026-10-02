@@ -4,7 +4,7 @@
 
 The software that proposes an act should not be the authority that permits it.
 
-AUKORA is an open, AGPL personal-AI foundation where the human holds identity, memory and authority. Models and apps are replaceable; the intended durable center is the person and the boundaries they control. The image describes that intended architecture. Prime is the implementation in this repository, with its measured scope below.
+AUKORA Prime is a research release of an open, AGPL governed personal-AI core. It has measured source mechanisms and a pinned UI preview; real owner effects, product memory, paid inference and live execution remain disabled. The intended architecture puts identity, memory and authority with the human while models and apps remain replaceable. The image describes that intended architecture; measured results and gaps follow below.
 
 **Reviewing the project? Start with [the verification-first review guide](SHARE.md).** It leads through the checks, setup requirements and scoped source questions before the optional architectural discussion. [The Golden Boundary paper](docs/AUKORA-GOLDEN-BOUNDARY.md) separates that vision from the implementation ledger in [§17](docs/AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today).
 
