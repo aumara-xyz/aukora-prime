@@ -6,7 +6,7 @@ import {mountOwnerMemoryHost} from './owner-memory-host.mjs';
 import {validateInferenceContext,validateInferenceDraft} from './owner-inference-producer.mjs';
 const refused=(code,reason)=>({ok:false,error_code:code,reason});
 const codeOf=e=>['INVALID','UNAUTHORIZED','UNAVAILABLE','OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(e?.error_code)?e.error_code:'UNAVAILABLE';
-function validateBrowserBinding(value){
+export function validateBrowserBinding(value){
  if(!value||Object.keys(value).sort().join(',')!=='context,ownerBinding'
   ||!value.ownerBinding||Object.keys(value.ownerBinding).sort().join(',')!=='owner_id,passkeyProfile')throw new TypeError('INVALID_HOST_BOOTSTRAP');
  validateInferenceContext(value.context);

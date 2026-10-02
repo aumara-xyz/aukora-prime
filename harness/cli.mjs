@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {privateDirectory,readPrivateJson,writePrivateJson,cleanOrigin} from './private-state.mjs';
 import {readPreviewDeploymentManifest} from './deployment-manifest.mjs';
+import {readOwnerMemoryBootConfig} from './owner-memory-boot.mjs';
 import {verifyReleaseUi} from './release-integrity.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const packagesRoot=resolve(root,existsSync(resolve(root,'prime-release.json'))?'prime-packages':'packages');
@@ -27,10 +28,15 @@ else if(cmd==='boot'){
  const manifest=JSON.parse(readFileSync(resolve(release,'prime-release.json')));
  const releaseDigest=await digest();if(releaseDigest!==expectedDigest)throw new Error('PRIME_RELEASE_DIGEST_MISMATCH');
  await verifyReleaseUi({releaseRoot:release,expectedSnapshotSha256:anchor.manifest.ui_integrity_sha256});
+ const ownerConfigPath=value('--owner-memory-config');
+ if(args.includes('--owner-memory-config')&&!ownerConfigPath)throw new Error('PROTECTED_OWNER_MEMORY_CONFIG_REQUIRED');
+ const ownerConfig=ownerConfigPath===undefined?undefined:readOwnerMemoryBootConfig({configPath:ownerConfigPath,releaseRoot:release,
+  appDeployment:{source_commit:anchor.manifest.source_commit,release_digest:'sha256:'+releaseDigest}});
  privateDirectory(state,{create:true});for(const name of ['workspace','home','agents'])privateDirectory(resolve(state,name),{create:true});
  const env={PATH:process.env.PATH,HOME:resolve(state,'home'),DSH_HOME:resolve(state,'home'),DSH_AGENTS_HOME:resolve(state,'agents'),DSH_TELEMETRY_MODE:'DISABLED',DSH_TELEMETRY_DISABLED:'1',NODE_NO_WARNINGS:'1'};
  env.PRIME_RELEASE_DIGEST=releaseDigest;
- const p=spawn(process.execPath,['--max-old-space-size=1536',resolve(release,'harness/run.mjs'),state,value('--port','18731'),deploymentPath,anchor.manifest_sha256,resolve(packagesRoot,'ops/gates.mjs')],{cwd:resolve(state,'workspace'),env,stdio:['ignore','pipe','pipe','ipc']});
+ const p=spawn(process.execPath,['--max-old-space-size=1536',resolve(release,'harness/run.mjs'),state,value('--port','18731'),deploymentPath,anchor.manifest_sha256,resolve(packagesRoot,'ops/gates.mjs'),
+  ...(ownerConfig?[ownerConfigPath,ownerConfig.config_sha256]:[])],{cwd:resolve(state,'workspace'),env,stdio:['ignore','pipe','pipe','ipc']});
  const r={status:'starting',pid:p.pid,version:manifest.version,source_commit:manifest.source_commit,ui_url:null,release_dir:release,release_digest:releaseDigest,unavailable_capabilities:manifest.unavailable_capabilities,started_at:new Date().toISOString()};
  const save=()=>writePrivateJson(recordPath,r);save();
  p.on('message',message=>{if(message?.type!=='prime-ready'||message.pid!==p.pid)return;const u=new URL(message.url);if(u.pathname!=='/'||u.searchParams.size!==1||!u.searchParams.has('token'))throw new Error('PRIVATE_READY_REFUSED');r.ui_url=cleanOrigin(message.url);writePrivateJson(resolve(state,'launch-url.json'),{url:message.url,pid:p.pid});r.status='running';save();console.log('Prime UI '+r.ui_url);console.log('Running '+r.source_commit+'; unavailable: '+r.unavailable_capabilities.join(', '));});
@@ -48,4 +54,4 @@ else if(cmd==='verify'&&args.length===0){
  process.exitCode=p.status??1;
 }
 else if(['export','verify','restore'].includes(cmd)){const p=spawnSync(process.execPath,[resolve(packagesRoot,'memory/src/cli.mjs'),cmd,...args],{cwd:root,stdio:'inherit'});process.exitCode=p.status??1;}
-else {console.log('./prime build | compose | boot --deployment-manifest /etc/aukora-prime/preview-deployment.json [--port 18731] [--state-dir DIR] | status --json | check G1 ... | verify | export OWNER OUTPUT | verify SNAPSHOT OWNER [RETAINED_HEADS_JSON] | restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]');}
+else {console.log('./prime build | compose | boot --deployment-manifest /etc/aukora-prime/preview-deployment.json [--owner-memory-config /absolute/protected/owner-memory.json] [--port 18731] [--state-dir DIR] | status --json | check G1 ... | verify | export OWNER OUTPUT | verify SNAPSHOT OWNER [RETAINED_HEADS_JSON] | restore SNAPSHOT OWNER AUTHORIZATION_JSON [RETAINED_HEADS_JSON]');}

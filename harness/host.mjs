@@ -9,6 +9,7 @@ import {providerCatalog,providerNamespace,mountDshCatalog} from '../prime-packag
 import {providerNamespaceView} from '../prime-packages/ui/adapters/provider-settings.mjs';
 import * as contracts from '../prime-packages/contracts/src/runtime.mjs';
 import {createNextHostRoutes,mountNextHostServices} from './next-host-services.mjs';
+import {observeOwnerMemoryCapabilities} from './owner-memory-boot.mjs';
 import {createProviderSettingsHandler} from '../prime-packages/inference/src/provider-http.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const Schema=createRequire(resolve(root,'packages/api/settings-controller/package.json'))('@deepseek-ai/schemastery');
@@ -44,9 +45,14 @@ export function apply(ctx){
    const handler=createProviderSettingsHandler(selected);
    if(!await handler(req,res))send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Provider method unavailable'});
   })}),'prime actual provider settings boundary');
-  web.effect(()=>web.webServer.register({kind:'exact',path:'/api/prime/capabilities',handler:guarded((req,res)=>{
+  web.effect(()=>web.webServer.register({kind:'exact',path:'/api/prime/capabilities',handler:guarded(async(req,res)=>{
    if(req.method!=='GET'){send(res,405,{ok:false,error_code:'INVALID'});return;}
-   send(res,200,{version:1,source_commit:release.source_commit,runtime_pid:process.pid,release_digest:'sha256:'+process.env.PRIME_RELEASE_DIGEST,unavailable_capabilities:release.unavailable_capabilities,phase:'disposable-preview',qualification:'PENDING'});
+   const selected=services;
+   const current=()=>services===selected&&selected?.isOwnerMemoryActive?.()===true;
+   const observed=await observeOwnerMemoryCapabilities(release.unavailable_capabilities,selected,current);
+   if(res.destroyed||res.writableEnded)return;
+   const unavailable=current()?observed:release.unavailable_capabilities;
+   send(res,200,{version:1,source_commit:release.source_commit,runtime_pid:process.pid,release_digest:'sha256:'+process.env.PRIME_RELEASE_DIGEST,unavailable_capabilities:unavailable,phase:'disposable-preview',qualification:'PENDING'});
   })}),'prime observed preview capabilities');
   web.effect(()=>web.webServer.register({kind:'exact',path:'/api/prime/inference/catalog',handler:guarded((req,res)=>{
    if(req.method!=='GET'){send(res,405,{ok:false,error_code:'INVALID'});return;}
