@@ -54,7 +54,14 @@ export function createNextHostRoutes({root,contracts,connection,getServices=()=>
   }
   if(req.method!=='POST'){send(res,405,refused('INVALID','OWNER_INFERENCE_METHOD'));return;}
   const abort=new AbortController();let timer;
+  // Own cancellation before body/admission awaits: a close during owner
+  // authentication must not begin a provider attempt when that wait resolves.
+  const closed=()=>abort.abort();res.on('close',closed);
+  const requireOpen=()=>{if(abort.signal.aborted||res.closed||res.destroyed||res.writableEnded){
+   abort.abort();throw Object.assign(new Error(),{error_code:'UNAVAILABLE'});
+  }};
   try{
+   requireOpen();
    const profile=runtime.guardRequest({host:req.headers.host??'',origin:req.headers.origin??''});
    if(!profile||profile.origin!==req.headers.origin||new URL(profile.origin).host!==req.headers.host)throw Object.assign(new Error(),{error_code:'UNAUTHORIZED'});
    if(!/^application\/json(?:\s*;.*)?$/i.test(req.headers['content-type']??''))throw Object.assign(new Error(),{error_code:'INVALID'});
@@ -69,26 +76,27 @@ export function createNextHostRoutes({root,contracts,connection,getServices=()=>
    const expected=method==='status'?'session_token':'request_uuid,session_token,text';
    if(!input||Object.getPrototypeOf(input)!==Object.prototype||Object.keys(input).sort().join(',')!==expected
     ||typeof input.session_token!=='string'||!/^[a-f0-9]{64}$/.test(input.session_token))throw Object.assign(new Error(),{error_code:'INVALID'});
+   requireOpen();
    const owner=await runtime.authenticateOwner({session_token:input.session_token});
+   requireOpen();
    if(getServices()?.inference!==runtime)throw Object.assign(new Error(),{error_code:'UNAVAILABLE'});
    if(owner?.owner_id!==runtime.producer.context?.owner_id||!Number.isFinite(Date.parse(owner.expiry))||Date.parse(owner.expiry)<=Date.now())throw Object.assign(new Error(),{error_code:'UNAUTHORIZED'});
    if(method==='status'){const observed=await runtime.producer.status(owner);
-    if(getServices()?.inference!==runtime)throw Object.assign(new Error(),{error_code:'UNAVAILABLE'});send(res,200,observed);return;}
+    requireOpen();if(getServices()?.inference!==runtime)throw Object.assign(new Error(),{error_code:'UNAVAILABLE'});send(res,200,observed);return;}
    const draft=validateInferenceDraft({request_uuid:input.request_uuid,text:input.text});
    // Waiting/cancellation is not proof of provider cancellation. The existing
    // producer/C/E path owns the attempt, reservation and factual uncertainty.
-   const closed=()=>abort.abort();res.once('close',closed);
-   try{const result=await runtime.producer.requestOne(draft,{signal:abort.signal,owner,isCurrent:()=>getServices()?.inference===runtime});
+   requireOpen();
+   const result=await runtime.producer.requestOne(draft,{signal:abort.signal,owner,isCurrent:()=>getServices()?.inference===runtime});
     if(getServices()?.inference!==runtime||abort.signal.aborted)throw Object.assign(new Error(),{error_code:'OUTCOME_UNKNOWN'});
     let confirmed;
     try{confirmed=await runtime.authenticateOwner({session_token:input.session_token});}
     catch{throw Object.assign(new Error(),{error_code:'OUTCOME_UNKNOWN'});}
     if(getServices()?.inference!==runtime||confirmed?.owner_id!==owner.owner_id||confirmed.expiry!==owner.expiry
      ||Date.parse(confirmed.expiry)<=Date.now())throw Object.assign(new Error(),{error_code:'OUTCOME_UNKNOWN'});
-    if(!res.destroyed&&!res.writableEnded)send(res,200,result);
-   }finally{res.removeListener('close',closed);}
-  }catch(error){if(!res.destroyed&&!res.writableEnded){const code=codeOf(error);send(res,code==='INVALID'?400:code==='UNAUTHORIZED'?401:503,refused(code,'OWNER_INFERENCE_REPLY_UNAVAILABLE'));}}
-  finally{clearTimeout(timer);}
+    if(!abort.signal.aborted&&!res.closed&&!res.destroyed&&!res.writableEnded)send(res,200,result);
+  }catch(error){if(!abort.signal.aborted&&!res.closed&&!res.destroyed&&!res.writableEnded){const code=codeOf(error);send(res,code==='INVALID'?400:code==='UNAUTHORIZED'?401:503,refused(code,'OWNER_INFERENCE_REPLY_UNAVAILABLE'));}}
+  finally{clearTimeout(timer);res.removeListener('close',closed);}
  })});
  return Object.freeze(routes);
 }

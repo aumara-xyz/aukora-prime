@@ -145,6 +145,42 @@ test('SOURCE withdrawing runtime during real route waits prevents status or requ
  assert.equal(res.status,503);assert.equal(res.json().error_code,'UNAVAILABLE');
 });
 
+test('SOURCE response close during initial owner authentication prevents producer admission and releases its listener once',async()=>{
+ for(const suffix of ['request-one','status']){
+  const entered=deferred(),admitted=deferred();let statusCalls=0,requestCalls=0,closeRemovals=0;
+  const runtime=TEST_ONLY_runtime({authenticateOwner:async()=>{entered.resolve();return admitted.promise;},producer:{context:TEST_ONLY_CONTEXT,
+   status:async()=>{statusCalls++;return TEST_ONLY_READY;},requestOne:async()=>{requestCalls++;return result();}}});
+  const res=TEST_ONLY_response(),remove=res.removeListener;
+  res.removeListener=function(name,listener){if(name==='close')closeRemovals++;return remove.call(this,name,listener);};
+  const pending=TEST_ONLY_routes(()=>({inference:runtime})).handler('/api/prime/inference/'+suffix)
+   (TEST_ONLY_request(suffix==='status'?statusBody():requestBody()),res);
+  await entered.promise;
+  const admissionListeners=res.listenerCount('close');
+  res.destroyed=true;res.emit('close');admitted.resolve(owner());await pending;
+  assert.equal(statusCalls,0);assert.equal(requestCalls,0,'a closed response must not begin a provider attempt');
+  assert.equal(admissionListeners,1,'cancellation is owned before initial authentication completes');
+  assert.equal(res.status,null);assert.equal(res.listenerCount('close'),0);assert.equal(closeRemovals,1);
+ }
+ // A close event may precede route entry; flags must fence admission too.
+ for(const flag of ['closed','destroyed','writableEnded']){
+  let authCalls=0,requestCalls=0;const res=TEST_ONLY_response();res[flag]=true;
+  const runtime=TEST_ONLY_runtime({authenticateOwner:async()=>{authCalls++;return owner();},producer:{context:TEST_ONLY_CONTEXT,
+   requestOne:async()=>{requestCalls++;return result();}}});
+  await TEST_ONLY_routes(()=>({inference:runtime})).handler('/api/prime/inference/request-one')(TEST_ONLY_request(requestBody()),res);
+  assert.equal(authCalls,0);assert.equal(requestCalls,0);assert.equal(res.listenerCount('close'),0);
+ }
+ // The same owned listener remains until the post-attempt owner wait settles.
+ const actor=owner(),entered=deferred(),confirmed=deferred();let authCalls=0,signal,closeRemovals=0;
+ const runtime=TEST_ONLY_runtime({authenticateOwner:async()=>{if(++authCalls===1)return actor;entered.resolve();return confirmed.promise;},
+  producer:{context:TEST_ONLY_CONTEXT,requestOne:async(_draft,options)=>{signal=options.signal;return result();}}});
+ const res=TEST_ONLY_response(),remove=res.removeListener;
+ res.removeListener=function(name,listener){if(name==='close')closeRemovals++;return remove.call(this,name,listener);};
+ const pending=TEST_ONLY_routes(()=>({inference:runtime})).handler('/api/prime/inference/request-one')(TEST_ONLY_request(requestBody()),res);
+ await entered.promise;assert.equal(res.listenerCount('close'),1);assert.equal(signal.aborted,false);
+ res.emit('close');assert.equal(signal.aborted,true);confirmed.resolve(actor);await pending;
+ assert.equal(res.status,null);assert.equal(res.listenerCount('close'),0);assert.equal(closeRemovals,1);
+});
+
 test('SOURCE returned request result requires the same live service and a freshly confirmed owner lifetime',async()=>{
  for(const scenario of ['withdrawn','logout','changed-expiry','auth-throws']){
   const entered=deferred(),reply=deferred();let authCalls=0,current=true;const original=owner();
