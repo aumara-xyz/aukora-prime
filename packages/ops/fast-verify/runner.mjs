@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url'
 import {CASES, NODE_VERSION, SOURCE_REVIEW_COMMIT, HISTORY, UNPERFORMED} from './manifest.mjs'
 
 const CONTROLS = /[\x00-\x1f\x7f]/
-const SUITE_MS = 150_000, OUTPUT_BYTES = 65_536, ENTRY_BYTES = 1_048_576
+const SUITE_MS = 600_000, OUTPUT_BYTES = 65_536, ENTRY_BYTES = 1_048_576
 const outside = value => value === '..' || value.startsWith('..' + sep) || isAbsolute(value)
 const reject = reason => {throw new Error(reason)}
 const same = (a, b) => ['dev', 'ino', 'mode', 'uid', 'gid', 'nlink', 'size', 'mtimeNs', 'ctimeNs'].every(key => a[key] === b[key])
@@ -44,7 +44,7 @@ function sourceRoot(root) {
 }
 
 function compiledCases(root) {
-  if (!Array.isArray(CASES) || CASES.length < 1 || CASES.length > 32) reject('INVALID_COMPILED_MANIFEST')
+  if (!Array.isArray(CASES) || CASES.length < 1 || CASES.length > 37) reject('INVALID_COMPILED_MANIFEST')
   const ids = new Set()
   return CASES.map(row => {
     if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,79}$/.test(row.id) || ids.has(row.id) ||
@@ -61,7 +61,7 @@ function compiledCases(root) {
         row.entry.split('/').some(part => !part || part === '.' || part === '..') || row.entry.includes('\\') ||
         !Array.isArray(row.args) || row.args.some(value => !safePath(value)) ||
         (row.nodeArgs !== undefined && (!Array.isArray(row.nodeArgs) || row.nodeArgs.some(value => !safePath(value)))) ||
-        !/^[0-9a-f]{64}$/.test(row.expectedSha256) || !Number.isInteger(row.timeoutMs) || row.timeoutMs < 1 || row.timeoutMs > 30_000 ||
+        !/^[0-9a-f]{64}$/.test(row.expectedSha256) || !Number.isInteger(row.timeoutMs) || row.timeoutMs < 1 || row.timeoutMs > (row.requireComplete === true && row.protocol === 'tap' ? 120_000 : 30_000) ||
         !['assert-script', 'tap', 'json-assertions'].includes(row.protocol) ||
         (row.requiresPython !== undefined && typeof row.requiresPython !== 'boolean') ||
         (row.requireComplete !== undefined && typeof row.requireComplete !== 'boolean') ||
@@ -218,7 +218,10 @@ export async function runFastVerify(options) {
     qualification: 'UNPERFORMED', g1: 'PENDING', historical: HISTORY, unperformed: UNPERFORMED,
     source_review_commit: SOURCE_REVIEW_COMMIT, source_review_attribution: 'LITERAL_ENTRY_PINS_NOT_CHECKOUT_ATTESTATION',
     node: {version: process.version, executable: process.execPath, pin_verification: 'OBSERVED_ONLY'},
-    budget: {suite_ms: SUITE_MS, wall_target_ms: 180_000, wall_limit_enforcement: 'COOPERATIVE_NOT_KERNEL_ENFORCED', cleanup_guarantee: 'COOPERATIVE_DIRECT_CHILD_ONLY'},
+    budget: {suite_ms: SUITE_MS, wall_target_ms: null, expected_full_profile_duration_ms: null,
+      expected_full_profile_duration_status: 'UNMEASURED', wall_limit_enforcement: 'COOPERATIVE_NOT_KERNEL_ENFORCED', cleanup_guarantee: 'COOPERATIVE_DIRECT_CHILD_ONLY'},
+    preparation_scope: {required_full_tap_files: 20, expanded_required_tap_cases: 106, required_full_json_files: 9,
+      status: 'SOURCE_DECLARATIONS_COUNTED_AT_PROFILE_PREPARATION_NOT_RUN'},
     descendant_cleanup: 'UNPERFORMED', source_pin_scope: 'COMPILED_ENTRYPOINTS_AND_LITERAL_SUPPORT_PINS',
     scratch_retention: 'PRIVATE_DISPOSABLE_DIRECTORIES_RETAINED'}
   let evidence, evidenceBinding, codeBefore, plan = []

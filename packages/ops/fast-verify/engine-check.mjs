@@ -174,6 +174,37 @@ try {
     const result = await own.run(); cleanSummary(result)
     assert.equal(result.status, 'PASS'); assert.equal(result.cases[0].required_full_file, true)
   })
+  await check('compiled-profile-supports-only-the-reviewed-37-job-ceiling', async () => {
+    const rows = Array.from({length: 37}, (_, index) => row('pass', {id: 'reviewed-' + index}))
+    const own = await fixture(rows), result = await own.run(); cleanSummary(result)
+    assert.equal(result.status, 'PASS'); assert.equal(result.configured_case_count, 37)
+    assert.equal(result.cases.length, 37)
+    const overflow = await fixture([...rows, row('pass', {id: 'unreviewed-38'})])
+    const refused = await overflow.run(); cleanSummary(refused)
+    assert.equal(refused.reason, 'INVALID_COMPILED_MANIFEST')
+    assert.equal(existsSync(overflow.evidenceDir), false)
+  })
+  await check('reviewed-full-tap-budget-permits-120-seconds-without-waiting', async () => {
+    const own = await fixture([tapRow('fullTap', {nodeArgs: [], requireComplete: true, timeoutMs: 120000})])
+    const result = await own.run(); cleanSummary(result)
+    assert.equal(result.status, 'PASS'); assert.equal(result.budget.suite_ms, 600000)
+    assert.equal(result.budget.wall_target_ms, null)
+    assert.equal(result.budget.expected_full_profile_duration_status, 'UNMEASURED')
+  })
+  await check('longer-case-budget-is-closed-to-reviewed-full-tap-only', async () => {
+    for (const configured of [tapRow('fullTap', {nodeArgs: [], timeoutMs: 120000}),
+      row('jsonPass', {protocol: 'json-assertions', requireComplete: true, timeoutMs: 120000}),
+      tapRow('fullTap', {nodeArgs: [], requireComplete: true, timeoutMs: 120001})]) {
+      const own = await fixture([configured]), result = await own.run(); cleanSummary(result)
+      assert.equal(result.reason, 'INVALID_COMPILED_MANIFEST'); assert.equal(existsSync(own.evidenceDir), false)
+    }
+  })
+  await check('caller-cannot-configure-a-suite-or-case-budget', async () => {
+    for (const options of [{suiteMs: 600000}, {timeoutMs: 120000}]) {
+      const own = await fixture([row('pass')]), result = await own.run(options); cleanSummary(result)
+      assert.equal(result.reason, 'CLOSED_ENGINE_OPTIONS_REQUIRED'); assert.equal(existsSync(own.evidenceDir), false)
+    }
+  })
   await check('required-full-tap-refuses-mixed-skip-and-nested-todo', async () => {
     const own = await fixture(['fullMixedSkip', 'fullNestedTodo'].map(kind => tapRow(kind, {nodeArgs: [], requireComplete: true})))
     const result = await own.run(); cleanSummary(result)
