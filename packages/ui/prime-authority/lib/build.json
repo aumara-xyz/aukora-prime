@@ -76,7 +76,7 @@
       "id": "@aukora/prime-authority-ui",
       "path": "prime-authority/client.js",
       "bytes": 225030,
-      "sha256": "4335a321a639a7b32e76fe0bca61cfdc0da8b5932cdd7de1725985d51a97710d"
+      "sha256": "7b5b395b2939e4dd8e3bfc1b2d8660a7a46862ba9975db5b02247ee1cdaad1a7"
     },
     {
       "face": "prime-authority",
@@ -527,8 +527,8 @@
       },
       {
         "path": "scripts/build-client.mjs",
-        "bytes": 16577,
-        "sha256": "0fa33945db77f56459f2fde740f16a6a91349748a64f699e4db76551c91255ca"
+        "bytes": 16646,
+        "sha256": "88c8a7263a081f3024df8ba6b6e3571903beee39efdea7c6625a16fdb9374a95"
       },
       {
         "path": "scripts/publish-owner-types.mjs",
@@ -537,12 +537,12 @@
       },
       {
         "path": "scripts/verify-owner-build.mjs",
-        "bytes": 23413,
-        "sha256": "a0d7d2157870deb95a25ecd63ffa4a4aa2e1ff2539954ee168af4e382ef1fde1"
+        "bytes": 26288,
+        "sha256": "cf86dad8b85d0dd5444089256bab041738c78808c114a53efbb0cb0f37ac48e5"
       }
     ],
-    "source_inputs_before_sha256": "3f9e45dfe6695c31b7a565333cbdfa94204fae08d7e26c23b7e4363543b858cb",
-    "source_inputs_after_sha256": "3f9e45dfe6695c31b7a565333cbdfa94204fae08d7e26c23b7e4363543b858cb",
+    "source_inputs_before_sha256": "6c9ab0a6864808f02c76cad0369f06611af0b09b28cda07a7e868269c6eecb82",
+    "source_inputs_after_sha256": "6c9ab0a6864808f02c76cad0369f06611af0b09b28cda07a7e868269c6eecb82",
     "build_inputs": {
       "harness_identity": {
         "path": ".dsh-build/pinned-harness-identity.json",
@@ -593,8 +593,8 @@
       ],
       "generated": {
         "path": "packages/client/aukora-prime-authority/.prime-client.config.ts",
-        "bytes": 134,
-        "sha256": "a547dad0fc9d0edb7dcb6b64a95e533a489af46ad3b43bfd878694f6ca4fd661"
+        "bytes": 2841,
+        "sha256": "800fcf2c05089795e876f190ce27d50dfbc25512a146b9f56ef8e8a787d01342"
       },
       "declared_dependencies": [
         {
@@ -691,14 +691,14 @@
         }
       ]
     },
-    "build_inputs_before_sha256": "c4682822e27bd0cef00722dab4bf2c33c865204efddc8dcb9aea29c0aed9a3cd",
-    "build_inputs_after_sha256": "c4682822e27bd0cef00722dab4bf2c33c865204efddc8dcb9aea29c0aed9a3cd",
+    "build_inputs_before_sha256": "2bf36834547641bca15bde065e37b05f335c7000ff3c072ad9dc6f9c20e1e08a",
+    "build_inputs_after_sha256": "2bf36834547641bca15bde065e37b05f335c7000ff3c072ad9dc6f9c20e1e08a",
     "output_artifacts": [
       {
         "path": "prime-authority/lib/client.js",
         "output_path": "prime-authority/client.js",
         "bytes": 225030,
-        "sha256": "4335a321a639a7b32e76fe0bca61cfdc0da8b5932cdd7de1725985d51a97710d"
+        "sha256": "7b5b395b2939e4dd8e3bfc1b2d8660a7a46862ba9975db5b02247ee1cdaad1a7"
       },
       {
         "path": "prime-authority/lib/client.js.map",

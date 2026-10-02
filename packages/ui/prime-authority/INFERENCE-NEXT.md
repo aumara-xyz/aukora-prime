@@ -132,3 +132,12 @@ of request, immutable UUID/text, cancellation and result lifecycle. No approved
 running host or browser acceptance connection was supplied for this followup.
 No substitute demo or screenshot is runtime evidence. The Peter-relayed GLM verdict
 and publisher candidate permission remain pending; no push or activation occurred.
+
+## Stable CSS hash followup
+
+The subsequent [filename repair and paired reproduction](CSS-REPRODUCTION.md)
+addresses the physical-path variation left by the comment-only checkpoint above.
+Two genuine owner-only builds now reproduce all 54 emitted files exactly. Their
+new client identity and receipt are included in `lib`; old artifacts and failed
+comparisons are retained. This build result establishes no served or runtime
+acceptance.

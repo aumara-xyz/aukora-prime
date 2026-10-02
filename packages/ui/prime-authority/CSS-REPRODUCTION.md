@@ -16,7 +16,7 @@ region comments are identical. An in-memory prefix comparison diagnosed the
 cause; it did not make raw reproduction pass. The retained committed artifact,
 original failed comparison and H's handoff remain untouched.
 
-**SOURCE-ONLY · recipe repair:** the generated owner configuration uses the
+**RAN · recipe repair:** the generated owner configuration uses the
 existing pinned LightningCSS 1.32.0 `projectRoot` option. Its value is the physical
 DSH overlay root, so the CSS hash filename becomes the stable owned relative path
 under `packages/client/aukora-prime-authority/`. The patch covers only
@@ -47,7 +47,35 @@ does. No source recipe change or prefix substitution followed that check failure
 This check does not rebuild the complete owner plugin or establish served or
 runtime behavior.
 
-**UNPERFORMED:** the patched owner-only rebuild and full raw bundle reproduction,
-pending parent allocation of the single necessary build. Frozen faces, retained
-outputs, composition, activation, browser interaction, credentials and inference
-are outside this source patch.
+**RAN · genuine owner build and full raw reproduction PASS:** after parent
+allocated the owner-only build slot, the unchanged recipe at
+`df7d1733aceb7f1f93d202d38e97d25240ec2444` ran in two independent disposable
+overlays. Both runs type-checked and compiled one owner plugin, with zero
+frozen-face builds or installs. All 54 emitted files are byte-identical, including
+the complete build receipt and package metadata; all 52 declared artifacts match
+their recorded sizes and hashes. No comparison exclusions or substitutions were
+used. The official owner verifier passed for 90 source inputs, 52 artifacts and
+the unchanged pinned harness.
+
+The source digest is
+`6c9ab0a6864808f02c76cad0369f06611af0b09b28cda07a7e868269c6eecb82`;
+the build-input digest is
+`2bf36834547641bca15bde065e37b05f335c7000ff3c072ad9dc6f9c20e1e08a`.
+
+| New artifact | Bytes | SHA256 |
+| --- | ---: | --- |
+| client.js | 225030 | `7b5b395b2939e4dd8e3bfc1b2d8660a7a46862ba9975db5b02247ee1cdaad1a7` |
+| client.js.map | 303614 | `11ca777933342b523acffd09cab3cbab9757542698cdbc21efdda81f25851a3d` |
+| build.json | 40591 | `4415212e16e86933a8a2e0f97e22835fab10b927c9adaf7ca1c31818fa3b6e8d` |
+
+Comparing the corrected output against either old output still yields 51/52
+matching artifacts; only `client.js` differs. The old recipe used an absolute
+random overlay path in each CSS hash. The corrected recipe uses stable relative
+hash inputs, so a new generated client identity is expected. Both original failed
+receipts and old outputs remain preserved; this new reproduction does not change
+their historical FAIL. Genuine first-run bytes were copied into the owned
+canonical `lib` directory without manual edits.
+
+**UNPERFORMED:** composition, activation, guarded served bytes, browser/runtime
+acceptance, credentials and inference. Frozen faces and owner UI source/styles
+remain unchanged.
