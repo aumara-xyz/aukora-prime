@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
 import * as contracts from '../packages/contracts/src/runtime.mjs';
 import {createNextHostRoutes,HOST_BROWSER_MODULES} from './next-host-services.mjs';
 import {createOwnerInferenceClient,mountOwnerInferenceClient} from './owner-inference-client.mjs';
@@ -13,6 +15,22 @@ import {createDshOwnerInferenceProducer} from './owner-inference-producer.mjs';
 import {createAcceptedOwnerSessionObserver} from './native-host-client.mjs';
 import {prepareRequest} from '../packages/inference/src/policy.mjs';
 import {fixture as TEST_ONLY_inferencePolicy} from '../packages/runtime-bridge/checks/inference-fixture.mjs';
+
+test('SOURCE authored native factory materializes through the actual pinned loader without activation',async()=>{
+ const pkg=JSON.parse(readFileSync(new URL('./native-host/package.json',import.meta.url),'utf8'));
+ const {parseDshClient}=await import('../vendor/dsh/packages/client/modules/lib/types/client/manifest.js');
+ const {ClientModuleSystem}=await import('../vendor/dsh/packages/client/modules/lib/types/client/system.js');
+ const descriptor=parseDshClient(pkg.name,pkg.dsh.client);
+ assert.equal(descriptor.platform,'web');assert.deepEqual(descriptor.inject,['@aukora/prime-authority-ui']);
+ const target={mode:'queue',pendingQueue:[],load(value){this.pendingQueue.push(value);}};
+ runInNewContext(readFileSync(new URL('./native-host/client.js',import.meta.url),'utf8'),{window:{__ModuleLoader__:target}});
+ const loader=new ClientModuleSystem({manifest:{modules:[],plugins:[],rev:'TEST_ONLY'},staticModules:{},registrationTarget:target,
+  bootstrapModule:{id:'@deepseek-ai/dsh-client-modules',exports:{}},loadBundle:()=>assert.fail('No bundle transport is permitted')});
+ const actual=await loader.import(pkg.name);
+ assert.deepEqual([...actual.inject],['primeOwnerUi','primeOwnerNativeConnection']);assert.equal(typeof actual.apply,'function');
+ assert.equal(await loader.import(pkg.name),actual);
+ // apply is never invoked: no native owner connection, fetch or DOM effects.
+});
 
 const TEST_ONLY_CONTEXT=Object.freeze({owner_id:'source-owner',task_id:'source-task',conversation_id:'source-conversation'});
 const TEST_ONLY_UUID='11111111-1111-4111-8111-111111111111';
