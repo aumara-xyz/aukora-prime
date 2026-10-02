@@ -8,6 +8,8 @@ import {buildStaticHtmlCsp,createPrimeStaticAppHandler} from './static-csp.mjs';
 import {providerCatalog,providerNamespace,mountDshCatalog} from '../prime-packages/inference/src/provider-settings.mjs';
 import {providerNamespaceView} from '../prime-packages/ui/adapters/provider-settings.mjs';
 import * as contracts from '../prime-packages/contracts/src/runtime.mjs';
+import {createNextHostRoutes,mountNextHostServices} from './next-host-services.mjs';
+import {createProviderSettingsHandler} from '../prime-packages/inference/src/provider-http.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const Schema=createRequire(resolve(root,'packages/api/settings-controller/package.json'))('@deepseek-ai/schemastery');
 export function apply(ctx){
@@ -18,6 +20,15 @@ export function apply(ctx){
   host.settings.register(view.ns,new Schema(view.schema),{base:view.base,applies:'live'});
  });
  ctx.inject(['webServer','connection'], web=>{
+  let services;
+  web.inject(['primeNextHostServices'],configured=>{
+   const selected=configured.primeNextHostServices;
+   configured.effect(()=>{
+    const remove=mountNextHostServices({webServer:web.webServer,connection:web.connection,contracts,services:selected});
+    services=selected;
+    return ()=>{if(services===selected)services=undefined;remove();};
+   },'prime genuine configured host services');
+  });
   const guarded=work=>async(req,res)=>{
    const reject=web.connection?.requestRejection?.(req);
    if(!web.connection||typeof web.connection.requestRejection!=='function'||reject!==undefined){res.writeHead(reject??403);res.end();return;}
@@ -25,6 +36,14 @@ export function apply(ctx){
   };
   const send=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
   const release=JSON.parse(readFileSync(resolve(root,'prime-release.json')));
+  for(const route of createNextHostRoutes({root,contracts,connection:web.connection,getServices:()=>services}))
+   web.effect(()=>web.webServer.register(route),'prime native host module and request boundary');
+  web.effect(()=>web.webServer.register({kind:'prefix',path:'/api/prime/inference',handler:guarded(async(req,res)=>{
+   const selected=services?.providers;
+   if(!selected){send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Genuine provider settings service is not configured'});return;}
+   const handler=createProviderSettingsHandler(selected);
+   if(!await handler(req,res))send(res,503,{ok:false,error_code:'UNAVAILABLE',reason:'Provider method unavailable'});
+  })}),'prime actual provider settings boundary');
   web.effect(()=>web.webServer.register({kind:'exact',path:'/api/prime/capabilities',handler:guarded((req,res)=>{
    if(req.method!=='GET'){send(res,405,{ok:false,error_code:'INVALID'});return;}
    send(res,200,{version:1,source_commit:release.source_commit,runtime_pid:process.pid,release_digest:'sha256:'+process.env.PRIME_RELEASE_DIGEST,unavailable_capabilities:release.unavailable_capabilities,phase:'disposable-preview',qualification:'PENDING'});

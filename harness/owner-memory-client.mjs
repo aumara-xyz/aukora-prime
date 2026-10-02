@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Unmounted browser composition for the separate native owner controller.
+// Browser composition for the separate native owner controller.
 // These own-package imports are rewritten to prime-packages by compose.py.
 import {createUiAdapters} from '../packages/runtime-bridge/src/ui-adapter.mjs';
 import {createOwnerMemoryWorkflow} from '../packages/runtime-bridge/src/owner-memory-workflow.mjs';
@@ -9,7 +9,7 @@ import {createOwnerMemoryHttpCall} from './owner-memory-browser.mjs';
 /** The owner binding and signer are trusted composition inputs. This factory
  * creates no identity, credential, session, listener or accepted host record.
  * Existing capability status must separately enable the native controller. */
-export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner,isCurrentConnection}={}) {
+export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner,isCurrentConnection,observeAuthorityCall,observeAuthorityReply}={}) {
  if(['connect','getSnapshot','subscribe','setApprovalAction','setForgetAction','submitApproval','reconcileApprovalAction','logout','disconnect','setCapabilities','capabilitiesUnavailable'].some(name=>typeof controller?.[name]!=='function'))throw new TypeError('UNAVAILABLE: native owner controller required');
  if(typeof isCurrentConnection!=='function')throw new TypeError('UNAVAILABLE: exact native connection observer required');
  if(!ownerBinding||Object.getPrototypeOf(ownerBinding)!==Object.prototype
@@ -21,7 +21,15 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
  Object.freeze(owner.passkeyProfile);
  // B's existing signer validates the profile and actual secure browser origin
  // before an assertion. Missing/unqualified capabilities keep login disabled.
- const adapters=createUiAdapters({call:createOwnerMemoryHttpCall({contracts,fetcher})});
+ for(const observer of [observeAuthorityCall,observeAuthorityReply])if(observer!==undefined&&typeof observer!=='function')throw new TypeError('INVALID: trusted authority observer required');
+ const originalCall=createOwnerMemoryHttpCall({contracts,fetcher});
+ const detached=value=>contracts.parseStrictJson(contracts.canonicalJson(value),{maxBytes:65536,maxDepth:32});
+ const adapters=createUiAdapters({async call(method,input){
+  const observation=method.startsWith('owner.')?observeAuthorityCall?.(method,detached(input)):undefined;
+  const reply=await originalCall(method,input);
+  if(method.startsWith('owner.'))observeAuthorityReply?.(method,detached(input),detached(reply),observation);
+  return reply;
+ }});
  // Old B controllers notify local sign-out; newer controllers also call the
  // authority logout method. Keep the same actual server result for both paths,
  // including lost replies, until a fresh login attempt starts a new generation.

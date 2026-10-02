@@ -26,6 +26,7 @@ export const ownedEntries=Object.freeze([
  {id:'aukora-foundation',name:'./plugins/aukora-foundation/lib/index.js'},
  ...faceNames.map(name=>({id:'aukora-face-'+name,name:'./plugins/aukora-face-'+name+'/lib/prime-host.mjs'})),
  {id:'prime-owner-ui',name:'./plugins/prime-authority/lib/index.js'},
+ {id:'prime-native-host',name:'./harness/native-host/index.mjs'},
 ]);
 export function assertEntrySet(entries) {
  const expected=[...pinnedIds,...ownedEntries.map(e=>e.id)];const ids=entries.map(e=>e.id);
