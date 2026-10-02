@@ -1,0 +1,149 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "new_read_only_local_metadata_extraction_with_explicit_historical_operator_sections",
+  "started_at_utc": "2026-10-02T08:54:06.380182+00:00",
+  "command": "python3 capture_readiness_inventory.py --operator-root ../../../../../task-9",
+  "source_audit_captured_at_utc": "2026-10-02T02:06:12.268610+00:00",
+  "selected_inputs": [
+    {
+      "artifact_alias": "pairs-burn-13.json",
+      "historical_operator_metadata": {
+        "evidence_class": "historical_measured",
+        "bytes": 85368,
+        "sha256": "d465ead722c1fb2bcfd08f30eb82b098539d47b2e6380d9157e6b5981f197beb",
+        "row_count": 7,
+        "row_key_union": [
+          "chosen",
+          "prompt",
+          "source"
+        ]
+      },
+      "current_local_metadata": {
+        "evidence_class": "measured",
+        "bytes": 85368,
+        "sha256": "d465ead722c1fb2bcfd08f30eb82b098539d47b2e6380d9157e6b5981f197beb"
+      },
+      "content_not_parsed_or_printed": true
+    },
+    {
+      "artifact_alias": "pairs-burn-16.json",
+      "historical_operator_metadata": {
+        "evidence_class": "historical_measured",
+        "bytes": 208828,
+        "sha256": "e3e1e33ecc47ea4749301f33ab08f6f963908b4ebeb7f45766ec6b6591f98c36",
+        "row_count": 146,
+        "row_key_union": [
+          "chosen",
+          "prompt",
+          "source"
+        ]
+      },
+      "current_local_metadata": {
+        "evidence_class": "measured",
+        "bytes": 208828,
+        "sha256": "e3e1e33ecc47ea4749301f33ab08f6f963908b4ebeb7f45766ec6b6591f98c36"
+      },
+      "content_not_parsed_or_printed": true
+    },
+    {
+      "artifact_alias": "train_burn18-hybrid.py",
+      "historical_operator_metadata": {
+        "evidence_class": "historical_measured",
+        "bytes": 6305,
+        "sha256": "5db86fcf16433ef6fef6568be7fe83e555570c37b98b615b05de21664dabc5ee"
+      },
+      "current_local_metadata": {
+        "evidence_class": "measured",
+        "bytes": 6305,
+        "sha256": "5db86fcf16433ef6fef6568be7fe83e555570c37b98b615b05de21664dabc5ee"
+      },
+      "content_not_parsed_or_printed": true
+    }
+  ],
+  "checkpoint_historical": {
+    "evidence_class": "historical_measured",
+    "started_at_utc": "2026-10-02T02:07:42.853236+00:00",
+    "bytes": 1107347624,
+    "sha256": "ed8b316728368f73f670485eaf2bac09126585e68f17e50dd48cb4c9b9ee1dac",
+    "config_sha256": "38e08fda482a14a20d1f294b0da71ce1d0b930323fa2db9ba761e84cca18c1be",
+    "header_extent_valid": true,
+    "stable_during_read": true,
+    "tensor_values_loaded": false,
+    "base_revision_in_adapter_config": null,
+    "local_base_backup_directory_present": false,
+    "base_and_tokenizer_hashes": "UNRECOVERED in named local backup; remote paths not accessible in this subtask"
+  },
+  "checkpoint_current_metadata": {
+    "evidence_class": "measured",
+    "present_regular_file": true,
+    "current_bytes": 1107347624,
+    "checkpoint_hash_not_repeated": true
+  },
+  "provider_historical": {
+    "evidence_class": "historical_measured",
+    "state": "STOPPED",
+    "platform": "gpu-h200-sxm",
+    "preset": "1gpu-16vcpu-200gb",
+    "captured_at_utc": "2026-10-02T02:40:14.783249+00:00",
+    "output_sha256": "d36880e5102fd6f570622dbd6c86d0afcd08796c20e59e87637702f8c5b8688a",
+    "currency_in_quote_json": "UNSPECIFIED; USD corroboration reported separately by operator",
+    "quoted_hourly_amounts": {
+      "h200_compute": "5.4",
+      "boot200_storage": "0.0194444",
+      "data186_storage": "0.013433292"
+    },
+    "fresh_capacity_or_current_state_established": false
+  },
+  "source_files": [
+    {
+      "alias": "local-source-audit/local-source-manifest.json",
+      "bytes": 146813,
+      "sha256": "6044bf875eb3b382856d6473b274bf47d5bd53d22fb25bd085900d17727eee59"
+    },
+    {
+      "alias": "local-source-audit/gen16-continuation-checkpoint.json",
+      "bytes": 2645,
+      "sha256": "3273c5a954f3ac109ae3c478114a74724720969d71ec262a28d3e35d95f75cb3"
+    },
+    {
+      "alias": "private-provider/resume-final-h200-get.receipt.json",
+      "bytes": 799,
+      "sha256": "27ab9c5668f97c5f2c261c34e83d4950fd243e02eb285950f496e961f56d2019"
+    },
+    {
+      "alias": "private-provider/resume-final-h200-get.stdout",
+      "bytes": 1890,
+      "sha256": "d36880e5102fd6f570622dbd6c86d0afcd08796c20e59e87637702f8c5b8688a"
+    },
+    {
+      "alias": "private-provider/resume-h200-quote.stdout",
+      "bytes": 256,
+      "sha256": "b20916303f082079380f1fdba13465af63d71895b1f5ff1df1871e69acc52ab9"
+    },
+    {
+      "alias": "private-provider/resume-boot200-quote.stdout",
+      "bytes": 268,
+      "sha256": "0eb63fc6d1e638a100c4e2a40233923170a897fb1d5c85a4d5ace231a06cbd8c"
+    },
+    {
+      "alias": "private-provider/resume-data186-quote.stdout",
+      "bytes": 271,
+      "sha256": "aa805d9815735ea86f08125a4b7233e0d2d8db421cb74d3dd08700cf4af633a1"
+    }
+  ],
+  "wall_seconds": 0.018033209,
+  "new_paid_experiment_spend_usd": 0,
+  "model_imports": 0,
+  "model_calls": 0,
+  "tests_run": 0,
+  "provider_calls": 0,
+  "resources_mutated": 0,
+  "cost_excludes": [
+    "standing storage",
+    "host electricity",
+    "agent/subscription usage"
+  ],
+  "privacy": "No private text, raw provider IDs, journal, key or raw operator manifest is exported",
+  "limits": "Local metadata and saved provider observations only; no tensor load, remote inspection, compatibility, disk or stop/export qualification"
+}

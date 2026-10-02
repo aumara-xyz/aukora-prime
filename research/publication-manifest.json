@@ -5,9 +5,10 @@
   "publication_base": "a15966fd4cda16186757adf84c954b44f4ccf5c8",
   "source_commits": [
     "43810da533c044cbd6f3c8c375fba47e9f983bb5",
-    "1cea929b784c6deba13bb5ce11e90e1e5ffa6ab3"
+    "1cea929b784c6deba13bb5ce11e90e1e5ffa6ab3",
+    "3e0f870f9fa4e008f4410d160b2b9e77bda539ae"
   ],
-  "tracked_research_file_count": 119,
+  "tracked_research_file_count": 140,
   "old_source_history_imported": false,
   "untracked_work_included": false,
   "raw_provider_records_included": false,
@@ -1084,7 +1085,236 @@
       "source_commit": "1cea929b784c6deba13bb5ce11e90e1e5ffa6ab3",
       "published_sha256": "61466dbc080158b998395306826e9c0e0cb0260c037595187a79bde8e79de171",
       "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/.gitignore",
+      "source_blob": "6aa041f1e4eaa61376edcf340dbc7ce279d55c85",
+      "source_sha256": "7728c7888f32bf5eed9a39d85d18d4138425ceb174bdacdc8cf426f887508996",
+      "bytes": 101,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "7728c7888f32bf5eed9a39d85d18d4138425ceb174bdacdc8cf426f887508996",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/BASELINE-INTERFACE.md",
+      "source_blob": "99a57f547a8fe085f800c5522899fdd958896e1e",
+      "source_sha256": "6b982c3d4f5409f170a26fb25d5e9b4e576739e45669a63b3cc6c06d3eb91b83",
+      "bytes": 7355,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "6b982c3d4f5409f170a26fb25d5e9b4e576739e45669a63b3cc6c06d3eb91b83",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/ELIGIBILITY-REGISTRATION.md",
+      "source_blob": "4def2a3f82cf0e51c070d2d4982fe7fcea5ed7fa",
+      "source_sha256": "a1f9b6c4e5b832d11e184ceaa5bcaba3c99d22a7d35011943d8427dd796db9a0",
+      "bytes": 6776,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "a1f9b6c4e5b832d11e184ceaa5bcaba3c99d22a7d35011943d8427dd796db9a0",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/GO-NO-GO.md",
+      "source_blob": "118c467fb2f90e4c2fa5cd7b0435c9b2f3d4d3dc",
+      "source_sha256": "da55f3c1f74be35455c66e502096f28b8ea8551cec035f521ae3437f3fce608d",
+      "bytes": 9967,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "da55f3c1f74be35455c66e502096f28b8ea8551cec035f521ae3437f3fce608d",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/RESULTS.md",
+      "source_blob": "8e60a18901704a27ee32fcbe6f06ead8deb5a257",
+      "source_sha256": "62e6074fda4907cccca48fecbae2cf17976fefa790ac306b2d11dc5347c2dd5f",
+      "bytes": 11165,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "62e6074fda4907cccca48fecbae2cf17976fefa790ac306b2d11dc5347c2dd5f",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/baseline-draft-commitment.json",
+      "source_blob": "56fe6b720f47774a4f63b8316d10af1838909a6e",
+      "source_sha256": "54789c9fd4301047012902764f9869b9893d66f4a3aef3d5ed88f1ddd92f6570",
+      "bytes": 866,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "54789c9fd4301047012902764f9869b9893d66f4a3aef3d5ed88f1ddd92f6570",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/baseline-manifest-template.json",
+      "source_blob": "6405e5209295ffdcbcaad3d86177f6ed7d7a77d3",
+      "source_sha256": "15318a2ae55b3e37a5b28c6fea79215bb1754f9992feb815a5c6003434ef4c3c",
+      "bytes": 2660,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "15318a2ae55b3e37a5b28c6fea79215bb1754f9992feb815a5c6003434ef4c3c",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/baseline-preregistration-DRAFT.json",
+      "source_blob": "33ffb15edfcacbf62b8a64a88fc207fd1efa6997",
+      "source_sha256": "d674e3c1069a6d36a61c58569b536cad46afcb1731a1a671be858d730d089f2e",
+      "bytes": 3475,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "d674e3c1069a6d36a61c58569b536cad46afcb1731a1a671be858d730d089f2e",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/baseline_runner.py",
+      "source_blob": "e056cac644108990ac1182b20c939d7c632b1b98",
+      "source_sha256": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a",
+      "bytes": 25390,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/capture_readiness_inventory.py",
+      "source_blob": "15392cc78e34172741007ef203ed1aa51b2905ea",
+      "source_sha256": "85d7c4f7f284d8fff9fa5f1047d79e6c4c31d8d794b3921dc8c3fb6b0261c992",
+      "bytes": 5078,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "85d7c4f7f284d8fff9fa5f1047d79e6c4c31d8d794b3921dc8c3fb6b0261c992",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/current-source-evidence-manifest.json",
+      "source_blob": "ab0dfc50e5e7362eb6b489154304be91457135fa",
+      "source_sha256": "5b145a4306fcda86724cd6e6bf36761220de1b71c0f51fa1b8e15dae5b34d440",
+      "bytes": 4502,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "5b145a4306fcda86724cd6e6bf36761220de1b71c0f51fa1b8e15dae5b34d440",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/focused-local-checks.capture.json",
+      "source_blob": "ae940efe507f9e5fada9899d001b628b80db5bcf",
+      "source_sha256": "e66a27fc74078399d04e9e0c7cc74e76ebf70ec28e5b01e7bf6a748c28915b6f",
+      "bytes": 1135,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "e66a27fc74078399d04e9e0c7cc74e76ebf70ec28e5b01e7bf6a748c28915b6f",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/focused-local-checks.results.json",
+      "source_blob": "191e8fc9870c5aa02793f6d721a4e4d494f20a90",
+      "source_sha256": "15f3f39a1975338dc216d7efa7c715d79a68324e0232d0e88305f96f90d8df85",
+      "bytes": 3384,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "15f3f39a1975338dc216d7efa7c715d79a68324e0232d0e88305f96f90d8df85",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/focused-local-checks.stderr.txt",
+      "source_blob": "a8f707af1cf5ccaa163413358669399a99fd8874",
+      "source_sha256": "7ce71cc113216ca8464069376bdb3e70a56801319fd434e3ee2a464144a454c8",
+      "bytes": 93,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "7ce71cc113216ca8464069376bdb3e70a56801319fd434e3ee2a464144a454c8",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/focused-local-checks.stdout.txt",
+      "source_blob": "e14e018c8ad96c48154a028999a6ad012f0f38d7",
+      "source_sha256": "18d9fb1f524ec6234130f4faa4b6f008565c03df4856314f8fbdff757657c9d4",
+      "bytes": 274,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "18d9fb1f524ec6234130f4faa4b6f008565c03df4856314f8fbdff757657c9d4",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/focused_local_checks.py",
+      "source_blob": "341aaa9c6a0c9eb47f48b4b2d843bea80b43fabe",
+      "source_sha256": "060bb027ccf5d905c252093e47e66832e45a40ade2383214ecea0ba873e5aae8",
+      "bytes": 16608,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "060bb027ccf5d905c252093e47e66832e45a40ade2383214ecea0ba873e5aae8",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/measured-row-registration.json",
+      "source_blob": "ed352052cae49cc5a73a2a2e3886d69d71312db3",
+      "source_sha256": "ffbbea34edbd686d5fba4a61cfe1d7ce99a1aeb913666964e957e6c2361dab8f",
+      "bytes": 2773,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "ffbbea34edbd686d5fba4a61cfe1d7ce99a1aeb913666964e957e6c2361dab8f",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/prepare_baseline_registration.py",
+      "source_blob": "cfe4f693d174c9b09c711784c31fbad643cf1ee2",
+      "source_sha256": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7",
+      "bytes": 9979,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/readiness-inventory.json",
+      "source_blob": "6c645e75801a13baaca7d0bb220e979ce6cd6bf2",
+      "source_sha256": "59d1b3b96a0e7a85df6f8c27391f6fcf6e843fc1781a9e1c667183d7d36b4080",
+      "bytes": 5421,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "59d1b3b96a0e7a85df6f8c27391f6fcf6e843fc1781a9e1c667183d7d36b4080",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/source-handoff-manifest.json",
+      "source_blob": "98598b9acd1a2e68c1c5300620edd0b3a2afacb9",
+      "source_sha256": "71acbd71bb2c612bec69f5654b7f76d9f4ff483d131273b1d983a4468fc5a519",
+      "bytes": 2230,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "71acbd71bb2c612bec69f5654b7f76d9f4ff483d131273b1d983a4468fc5a519",
+      "byte_identical_to_source": true
+    },
+    {
+      "path": "research/evidence/2026-10-02-h200-readiness/source-status-history.json",
+      "source_blob": "fc1535232f63aeae3c02595a656c38de667df13b",
+      "source_sha256": "ba757cf0301722ccdef8d8538cf45b626d2b192b0c9e2d8c64926f45d6c26c0f",
+      "bytes": 2154,
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "published_sha256": "ba757cf0301722ccdef8d8538cf45b626d2b192b0c9e2d8c64926f45d6c26c0f",
+      "byte_identical_to_source": true
     }
   ],
-  "authorization": "Existing conditional owner authorization; readiness unmet, HELD; no second generic go required"
+  "authorization": "Existing conditional owner authorization; readiness unmet, HELD; no second generic go required",
+  "historical_payload_count_preserved": 119,
+  "source_patch_chain": [
+    {
+      "source_commit": "20fff326fb1f0c8c2b6c7b3adf28003d4fc652ce",
+      "patch_sha256": "da8c070b5317ada7d48fb031636c051093493bcd15d85c1acb85ad5ce33501ce"
+    },
+    {
+      "source_commit": "3013ec5af7cf20e0218ce0cbe664a3515313f6ee",
+      "patch_sha256": "b68e93b48b4fcaf035ad790f55f02ddda04a2746d39650ae315333f2edb62e00"
+    },
+    {
+      "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+      "patch_sha256": "92832341c41aad64132cc7ca9f3d8437a30c9710aac77ea7341149a4f8906e43"
+    }
+  ],
+  "baseline_preparation_status": {
+    "source_commit": "3e0f870f9fa4e008f4410d160b2b9e77bda539ae",
+    "reference_only": true,
+    "synthetic_cpu_checks": {
+      "suite_runs": 1,
+      "pass": 18,
+      "fail": 0,
+      "model_modules_imported": false
+    },
+    "measured_existing_row_hash_preparation": {
+      "runs": 1,
+      "row_hash_count": 7,
+      "raw_input_content_published": false,
+      "eligibility": "PENDING"
+    },
+    "registration": "UNREGISTERED",
+    "preregistration_stage": "PARTIAL_DRAFT_ONLY",
+    "freeze_time": null,
+    "execution_go": false,
+    "model_or_gpu_execution": "NOT_RUN",
+    "new_corpus_ingestion": "NOT_PERFORMED",
+    "new_paid_experimental_spend_usd": 0,
+    "runtime_or_stop_export_qualification": "UNPERFORMED",
+    "historical_prediction_lock": "MISSING_NOT_RECONSTRUCTED_OR_GRADED"
+  }
 }

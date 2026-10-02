@@ -1,0 +1,122 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "command": "python3 focused_local_checks.py",
+  "started_at_utc": "2026-10-02T11:00:39.313571+00:00",
+  "wall_seconds": 0.057010167,
+  "checks": [
+    {
+      "name": "reviewed_python_sources_compile_without_execution",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "unregistered_baseline_refuses",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "manifest_hash_mismatch_refuses",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "helper_hashes_existing_rows_without_text_or_approval_leak",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "helper_existing_output_refused_without_mutation",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "helper_first-write_preserves_durable_failure",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "helper_interrupt_preserves_durable_failure",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "helper_terminal-write_preserves_durable_failure",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "synthetic_receipt_refused_by_real_receipt_classifier",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "synthetic_structural_positive_binding_no_backend",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "missing_baseline_scope_readiness_refuses",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "qualification_wrong_target_refuses_before_backend",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "qualification_wrong_controller_refuses_before_backend",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "qualification_missing_raw_refuses_before_backend",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "qualification_raw_hash_mismatch_refuses_before_backend",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "baseline_existing_output_refuses_before_backend",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "baseline_load_failure_preserves_stop_and_results_without_STOPPED_claim",
+      "pass": true,
+      "evidence_class": "synthetic"
+    },
+    {
+      "name": "baseline_export_failure_is_incomplete_and_keeps_independent_stop_request",
+      "pass": true,
+      "evidence_class": "synthetic"
+    }
+  ],
+  "pass_count": 18,
+  "failure_count": 0,
+  "model_stack_imports": 0,
+  "model_calls": 0,
+  "provider_calls": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "test_only_injections": [
+    "synthetic parent pins",
+    "synthetic receipt classification",
+    "package metadata availability",
+    "remote filesystem headroom",
+    "no-model failure backend"
+  ],
+  "fixture_retention": "Fresh temporary fixtures only; no old refused cases; no fake measured qualification/model artifact retained in reference packet",
+  "does_not_establish": [
+    "real data eligibility",
+    "original base identity",
+    "GPU/model fit",
+    "actual independent stop/export",
+    "registered trial",
+    "training",
+    "all-in account spend"
+  ]
+}

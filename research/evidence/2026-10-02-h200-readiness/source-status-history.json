@@ -1,0 +1,48 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "current_process_status_clarifying_frozen_historical_source_headers_and_manifest",
+  "historical_snapshot": {
+    "file": "source-handoff-manifest.json",
+    "file_sha256": "71acbd71bb2c612bec69f5654b7f76d9f4ff483d131273b1d983a4468fc5a519",
+    "snapshot_commit": "20fff326fb1f0c8c2b6c7b3adf28003d4fc652ce",
+    "scope": "Original 20fff source fingerprint inventory and then-pending test approval; preserved, not a current readiness claim"
+  },
+  "current_tests": {
+    "approved": true,
+    "focused_suite_runs": 1,
+    "pass_count": 18,
+    "failure_count": 0,
+    "reference": "focused-local-checks.results.json"
+  },
+  "source_headers": {
+    "baseline_runner.py": {
+      "sha256": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a",
+      "unexecuted_header_scope": "Historical authoring/model-path description",
+      "current_status": "Compiled/imported and synthetic controls exercised; actual CUDA inference backend NOT RUN"
+    },
+    "prepare_baseline_registration.py": {
+      "sha256": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7",
+      "unexecuted_header_scope": "Historical authoring description retained so tested/source-committed bytes do not silently change",
+      "current_status": "Focused fixtures and one actual private known-row hash preparation completed; eligibility and registration remain pending"
+    }
+  },
+  "known_row_hashes": {
+    "measured_count": 7,
+    "reference": "measured-row-registration.json",
+    "does_not_approve_eligibility": true
+  },
+  "model_calls": 0,
+  "provider_calls": 0,
+  "registered_experiment": false,
+  "old_prediction_recreated": false,
+  "go": "NO-GO until original model/tokenizer, actual eligibility/operational receipts and final frozen registration exist",
+  "independent_read_only_audit": {
+    "scope": "Public evidence arithmetic, hashes, receipts, labels and privacy boundary",
+    "result": "PASS after historical/current wording clarifications",
+    "tests_run": 0,
+    "external_calls": 0,
+    "private_inputs_read": false,
+    "tested_source_bytes_preserved": true
+  }
+}

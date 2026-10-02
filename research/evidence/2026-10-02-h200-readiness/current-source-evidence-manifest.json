@@ -1,0 +1,125 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "current_sanitized_source_and_process_evidence_inventory_not_model_results",
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 101,
+      "sha256": "7728c7888f32bf5eed9a39d85d18d4138425ceb174bdacdc8cf426f887508996"
+    },
+    {
+      "path": "BASELINE-INTERFACE.md",
+      "bytes": 7355,
+      "sha256": "6b982c3d4f5409f170a26fb25d5e9b4e576739e45669a63b3cc6c06d3eb91b83"
+    },
+    {
+      "path": "ELIGIBILITY-REGISTRATION.md",
+      "bytes": 6776,
+      "sha256": "a1f9b6c4e5b832d11e184ceaa5bcaba3c99d22a7d35011943d8427dd796db9a0"
+    },
+    {
+      "path": "GO-NO-GO.md",
+      "bytes": 9967,
+      "sha256": "da55f3c1f74be35455c66e502096f28b8ea8551cec035f521ae3437f3fce608d"
+    },
+    {
+      "path": "RESULTS.md",
+      "bytes": 11165,
+      "sha256": "62e6074fda4907cccca48fecbae2cf17976fefa790ac306b2d11dc5347c2dd5f"
+    },
+    {
+      "path": "baseline-draft-commitment.json",
+      "bytes": 866,
+      "sha256": "54789c9fd4301047012902764f9869b9893d66f4a3aef3d5ed88f1ddd92f6570"
+    },
+    {
+      "path": "baseline-manifest-template.json",
+      "bytes": 2660,
+      "sha256": "15318a2ae55b3e37a5b28c6fea79215bb1754f9992feb815a5c6003434ef4c3c"
+    },
+    {
+      "path": "baseline-preregistration-DRAFT.json",
+      "bytes": 3475,
+      "sha256": "d674e3c1069a6d36a61c58569b536cad46afcb1731a1a671be858d730d089f2e"
+    },
+    {
+      "path": "baseline_runner.py",
+      "bytes": 25390,
+      "sha256": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a"
+    },
+    {
+      "path": "capture_readiness_inventory.py",
+      "bytes": 5078,
+      "sha256": "85d7c4f7f284d8fff9fa5f1047d79e6c4c31d8d794b3921dc8c3fb6b0261c992"
+    },
+    {
+      "path": "focused-local-checks.capture.json",
+      "bytes": 1135,
+      "sha256": "e66a27fc74078399d04e9e0c7cc74e76ebf70ec28e5b01e7bf6a748c28915b6f"
+    },
+    {
+      "path": "focused-local-checks.results.json",
+      "bytes": 3384,
+      "sha256": "15f3f39a1975338dc216d7efa7c715d79a68324e0232d0e88305f96f90d8df85"
+    },
+    {
+      "path": "focused-local-checks.stderr.txt",
+      "bytes": 93,
+      "sha256": "7ce71cc113216ca8464069376bdb3e70a56801319fd434e3ee2a464144a454c8"
+    },
+    {
+      "path": "focused-local-checks.stdout.txt",
+      "bytes": 274,
+      "sha256": "18d9fb1f524ec6234130f4faa4b6f008565c03df4856314f8fbdff757657c9d4"
+    },
+    {
+      "path": "focused_local_checks.py",
+      "bytes": 16608,
+      "sha256": "060bb027ccf5d905c252093e47e66832e45a40ade2383214ecea0ba873e5aae8"
+    },
+    {
+      "path": "measured-row-registration.json",
+      "bytes": 2773,
+      "sha256": "ffbbea34edbd686d5fba4a61cfe1d7ce99a1aeb913666964e957e6c2361dab8f"
+    },
+    {
+      "path": "prepare_baseline_registration.py",
+      "bytes": 9979,
+      "sha256": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7"
+    },
+    {
+      "path": "readiness-inventory.json",
+      "bytes": 5421,
+      "sha256": "59d1b3b96a0e7a85df6f8c27391f6fcf6e843fc1781a9e1c667183d7d36b4080"
+    },
+    {
+      "path": "source-handoff-manifest.json",
+      "bytes": 2230,
+      "sha256": "71acbd71bb2c612bec69f5654b7f76d9f4ff483d131273b1d983a4468fc5a519"
+    },
+    {
+      "path": "source-status-history.json",
+      "bytes": 2154,
+      "sha256": "ba757cf0301722ccdef8d8538cf45b626d2b192b0c9e2d8c64926f45d6c26c0f"
+    }
+  ],
+  "source_status_sidecar": "source-status-history.json",
+  "historical_snapshot_commit": "20fff326fb1f0c8c2b6c7b3adf28003d4fc652ce",
+  "synthetic_results": "focused-local-checks.results.json",
+  "measured_input_metadata": "measured-row-registration.json",
+  "partial_draft_commitment": "baseline-draft-commitment.json",
+  "source_helper_sha256": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7",
+  "baseline_source_sha256": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a",
+  "core_dependency": {
+    "path": "../2026-10-02-refresh-runner/runner_core.py",
+    "source_commit": "1cea929b784c6deba13bb5ce11e90e1e5ffa6ab3",
+    "sha256": "b75e3638bcb727fab69723846209df0ed1b7e606fb167761bfde500176b59b44"
+  },
+  "model_calls": 0,
+  "provider_calls": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "source_and_fixture_evidence_is_not_model_qualification": true,
+  "privacy_scope": "Public source/sanitized metadata only; private preparation directory, texts, paths and actual provider IDs excluded",
+  "scope": "Current immediate public files; this manifest excludes itself and generated caches"
+}

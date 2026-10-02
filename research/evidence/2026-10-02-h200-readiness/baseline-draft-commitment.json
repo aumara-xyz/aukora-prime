@@ -1,0 +1,16 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "local_file_hash_commitment_of_new_partial_baseline_proposal_not_model_prediction",
+  "created_at_utc": "2026-10-02T11:04:37.080877+00:00",
+  "draft_file": "baseline-preregistration-DRAFT.json",
+  "draft_sha256": "d674e3c1069a6d36a61c58569b536cad46afcb1731a1a671be858d730d089f2e",
+  "measured_row_metadata_file": "measured-row-registration.json",
+  "measured_row_metadata_sha256": "ffbbea34edbd686d5fba4a61cfe1d7ce99a1aeb913666964e957e6c2361dab8f",
+  "stage": "PARTIAL_DRAFT_ONLY",
+  "registered": false,
+  "executed": false,
+  "approved_by_hashing": false,
+  "old_prediction_locked_or_recreated": false,
+  "pending": "Original model/tokenizer and eligible inputs plus actual operational control/cost receipts; final complete private manifest must be independently frozen before any model run"
+}

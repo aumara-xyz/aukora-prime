@@ -1,0 +1,73 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "status": "PARTIAL_PREREGISTRATION_DRAFT_NOT_EXECUTABLE",
+  "assembled_at_utc": "2026-10-02T11:04:37.078683+00:00",
+  "target_deadline": "2026-10-02 23:00 Asia/Makassar (15:00 UTC)",
+  "question": "gen16_seven_row_prefix_baseline_v1",
+  "scope": "existing_weights_baseline_only_no_training",
+  "protocol": {
+    "question": "gen16_seven_row_prefix_baseline_v1",
+    "max_tokens": 16384,
+    "max_window_seconds": 3600,
+    "runner_wall_seconds": 1800,
+    "teardown_reserve_seconds": 1200,
+    "minimum_output_free_bytes": 1073741824
+  },
+  "metrics": {
+    "loss_floor": 0.001,
+    "prefix_characters": 240,
+    "max_new_tokens": 120,
+    "skip_special_tokens": false,
+    "clean_up_tokenization_spaces": false
+  },
+  "seed": 20260904,
+  "decision_rule": {
+    "target_deficit": "At least one of source-order rows0/1 fails strict character-prefix recall",
+    "both_targets_pass": "Stop restoration proposal",
+    "any_refusal_failure_or_partial_measurement": "Retain outputs; no complete baseline claim",
+    "deficit_does_not_authorize_training": true
+  },
+  "source_bindings": {
+    "baseline_runner.py": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a",
+    "prepare_baseline_registration.py": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7",
+    "runner_core.py": "b75e3638bcb727fab69723846209df0ed1b7e606fb167761bfde500176b59b44",
+    "baseline-manifest-template.json": "15318a2ae55b3e37a5b28c6fea79215bb1754f9992feb815a5c6003434ef4c3c"
+  },
+  "known_input_bindings": {
+    "gen16_parent_sha256": "ed8b316728368f73f670485eaf2bac09126585e68f17e50dd48cb4c9b9ee1dac",
+    "gen16_config_sha256": "38e08fda482a14a20d1f294b0da71ce1d0b930323fa2db9ba761e84cca18c1be",
+    "parent_binding_provenance": "historical operator fingerprint/header receipt; intended run-copy load not established",
+    "engraving_sha256": "d465ead722c1fb2bcfd08f30eb82b098539d47b2e6380d9157e6b5981f197beb",
+    "engraving_row_count": 7,
+    "row_content_sha256": [
+      "1f7de65b76679e5be3cfb9ce31c3a8f13f813a6174cbb95558220893eae239c0",
+      "6a8abc5afe429ce7f9b5a4f900c220155530f8300daada6b1fa81e12561ec6c3",
+      "8b7066291a3e96e028eaead57bb574b7fe6875fabed7ff8121bb7e143e661f5e",
+      "16eb00f95539c13254b36cb6b304d1aed1113a6f2aae23eb39457c0cc80b6399",
+      "52afa8b35244301b3eafacabdd30f637d869dc748f4b2a2b2a539cd4a8efd932",
+      "eb6f67a48cd7d207cb1f14ad9031e9eac63274ee5b5ec983e28d975038484f86",
+      "74fb21519d9ac2f79236cddd83d4b505006f9053f558aca1612cc1bda70f418f"
+    ],
+    "row_measurement_reference": "measured-row-registration.json"
+  },
+  "missing_bindings": {
+    "original_base_model_identity_revision": null,
+    "all_base_files": null,
+    "tokenizer_chat_template_files": null,
+    "data_eligibility_receipt": null,
+    "runtime_receipt": null,
+    "current_disk_receipt": null,
+    "current_pricing_receipt": null,
+    "independent_stop_export_received_copy_receipts": null,
+    "exact_provider_target": null,
+    "billing_start_deadline": null
+  },
+  "registration_status": "UNREGISTERED",
+  "frozen_executable_manifest": false,
+  "execution_go": false,
+  "eligibility_review": "PENDING",
+  "training_review": "NOT_REQUESTED",
+  "historical_prediction": "MISSING original lock; no reconstruction or grading",
+  "commitment_scope": "New baseline proposal/source/known-row hashes only; not a historical prediction, fully registered experiment, approval or model result"
+}

@@ -1,0 +1,64 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "local_source_and_sanitized_evidence_fingerprints_not_execution_or_tests",
+  "source_files": [
+    {
+      "path": ".gitignore",
+      "bytes": 101,
+      "sha256": "7728c7888f32bf5eed9a39d85d18d4138425ceb174bdacdc8cf426f887508996"
+    },
+    {
+      "path": "BASELINE-INTERFACE.md",
+      "bytes": 7249,
+      "sha256": "63390217a1bccf241d1022c124c82fcb5b244287f420ba91515f3cdf96b6f966"
+    },
+    {
+      "path": "GO-NO-GO.md",
+      "bytes": 9651,
+      "sha256": "fa15a37ddd90ac815792de39f8bbb8de7e40dfd47256c0a4aafb852c0a199292"
+    },
+    {
+      "path": "RESULTS.md",
+      "bytes": 6195,
+      "sha256": "eb9e796354ced9aea3af596ed68844bd9b3c8d90d7a5e5fdcbd875b899582a47"
+    },
+    {
+      "path": "baseline-manifest-template.json",
+      "bytes": 2660,
+      "sha256": "15318a2ae55b3e37a5b28c6fea79215bb1754f9992feb815a5c6003434ef4c3c"
+    },
+    {
+      "path": "baseline_runner.py",
+      "bytes": 25390,
+      "sha256": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a"
+    },
+    {
+      "path": "capture_readiness_inventory.py",
+      "bytes": 5078,
+      "sha256": "85d7c4f7f284d8fff9fa5f1047d79e6c4c31d8d794b3921dc8c3fb6b0261c992"
+    },
+    {
+      "path": "readiness-inventory.json",
+      "bytes": 5421,
+      "sha256": "59d1b3b96a0e7a85df6f8c27391f6fcf6e843fc1781a9e1c667183d7d36b4080"
+    }
+  ],
+  "dependency": {
+    "path": "../2026-10-02-refresh-runner/runner_core.py",
+    "source_commit": "1cea929b784c6deba13bb5ce11e90e1e5ffa6ab3",
+    "sha256": "b75e3638bcb727fab69723846209df0ed1b7e606fb167761bfde500176b59b44"
+  },
+  "static_review": {
+    "scope": "baseline_runner.py source only",
+    "disposition_reported": "PASS",
+    "source_sha256": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a",
+    "tests_run": 0,
+    "model_imports": 0,
+    "model_calls": 0,
+    "provider_calls": 0
+  },
+  "execution_readiness": "NO-GO; exact operator/data/runtime/disk/price/control receipts and reviewed registration absent; necessary test approval pending",
+  "new_paid_experiment_spend_usd": 0,
+  "privacy": "Sanitized metadata/source only; raw operator manifest, IDs, pair text, keys and journals excluded"
+}

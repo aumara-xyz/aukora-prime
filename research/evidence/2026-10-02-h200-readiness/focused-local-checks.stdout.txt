@@ -1,0 +1,3 @@
+Evidence class: SYNTHETIC fresh CPU control-fixture stdout; no model/provider output.
+Evidence class: SYNTHETIC fresh local fixtures; no model/provider qualification.
+{"pass_count": 18, "failure_count": 0, "wall_seconds": 0.057010167, "model_calls": 0, "provider_calls": 0}

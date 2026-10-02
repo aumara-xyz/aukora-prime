@@ -1,0 +1,72 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "actual_existing_seven_row_fingerprints_not_eligibility_or_model_results",
+  "input_type": "existing_private_pair_file; permitted_use_review_pending",
+  "command": "python3 prepare_baseline_registration.py --engraving <PRIVATE_EXISTING_7_ROW_FILE> --output-parent <PRIVATE_EXISTING_RESEARCH_EVIDENCE_PARENT> --run-id tonight-gen16-baseline-20261002",
+  "exact_argv_retention": "Private helper-run-capture.json; public path operands redacted to exclude private input/infra details",
+  "started_at_utc": "2026-10-02T11:02:21.271281+00:00",
+  "outer_wall_seconds": 0.047871125,
+  "exit_code": 0,
+  "helper_sha256": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7",
+  "source_sha256": "d465ead722c1fb2bcfd08f30eb82b098539d47b2e6380d9157e6b5981f197beb",
+  "source_bytes": 85368,
+  "source_row_count": 7,
+  "canonicalization": "UTF-8 json.dumps(row,sort_keys=True,ensure_ascii=False,separators=(',',':'))",
+  "row_fingerprints": [
+    {
+      "row": 0,
+      "row_content_sha256": "1f7de65b76679e5be3cfb9ce31c3a8f13f813a6174cbb95558220893eae239c0"
+    },
+    {
+      "row": 1,
+      "row_content_sha256": "6a8abc5afe429ce7f9b5a4f900c220155530f8300daada6b1fa81e12561ec6c3"
+    },
+    {
+      "row": 2,
+      "row_content_sha256": "8b7066291a3e96e028eaead57bb574b7fe6875fabed7ff8121bb7e143e661f5e"
+    },
+    {
+      "row": 3,
+      "row_content_sha256": "16eb00f95539c13254b36cb6b304d1aed1113a6f2aae23eb39457c0cc80b6399"
+    },
+    {
+      "row": 4,
+      "row_content_sha256": "52afa8b35244301b3eafacabdd30f637d869dc748f4b2a2b2a539cd4a8efd932"
+    },
+    {
+      "row": 5,
+      "row_content_sha256": "eb6f67a48cd7d207cb1f14ad9031e9eac63274ee5b5ec983e28d975038484f86"
+    },
+    {
+      "row": 6,
+      "row_content_sha256": "74fb21519d9ac2f79236cddd83d4b505006f9053f558aca1612cc1bda70f418f"
+    }
+  ],
+  "eligibility_review_status": "PENDING",
+  "training_review_status": "NOT_REQUESTED",
+  "registration_status": "UNREGISTERED",
+  "frozen_at_utc": null,
+  "execution_go": false,
+  "eligibility_receipt_bound": false,
+  "private_draft_manifest_sha256": "8d69d7ddf7088fc05a511570b8e631755039f37a0a498763279ed9ff20ed0749",
+  "raw_text_exported": false,
+  "private_paths_or_provider_ids_exported": false,
+  "ground_truth_labels_created": false,
+  "model_calls": 0,
+  "provider_calls": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "cost_excludes": [
+    "standing storage",
+    "local electricity",
+    "agent/subscription usage"
+  ],
+  "unproven": [
+    "source rights/privacy/prohibited replay eligibility",
+    "original base/tokenizer identity/hashes",
+    "GPU/runtime compatibility",
+    "current disk/cost/capacity",
+    "actual independent stop/export",
+    "model recall/training"
+  ]
+}

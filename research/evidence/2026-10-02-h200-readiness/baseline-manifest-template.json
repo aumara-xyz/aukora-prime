@@ -1,0 +1,80 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "schema_version": 1,
+  "status": "UNREGISTERED",
+  "execution_mode": "baseline_inference_only",
+  "run_id": null,
+  "baseline_not_yet_run_ack": true,
+  "frozen_at_utc": null,
+  "protocol": {
+    "question": "gen16_seven_row_prefix_baseline_v1",
+    "max_tokens": 16384,
+    "max_window_seconds": 3600,
+    "runner_wall_seconds": 1800,
+    "teardown_reserve_seconds": 1200,
+    "minimum_output_free_bytes": 1073741824
+  },
+  "metrics": {
+    "loss_floor": 0.001,
+    "prefix_characters": 240,
+    "max_new_tokens": 120,
+    "skip_special_tokens": false,
+    "clean_up_tokenization_spaces": false
+  },
+  "roots": {
+    "base_model": null,
+    "tokenizer": null,
+    "parent_adapter": null,
+    "output_parent": null
+  },
+  "inputs": {
+    "runner_files": [{"path": null, "sha256": null}, {"path": null, "sha256": null}],
+    "parent_weights": {"path": null, "sha256": "ed8b316728368f73f670485eaf2bac09126585e68f17e50dd48cb4c9b9ee1dac"},
+    "parent_config": {"path": null, "sha256": "38e08fda482a14a20d1f294b0da71ce1d0b930323fa2db9ba761e84cca18c1be"},
+    "base_files": [{"path": null, "sha256": null}],
+    "tokenizer_files": [{"path": null, "sha256": null}],
+    "engraving": {
+      "path": null,
+      "sha256": "d465ead722c1fb2bcfd08f30eb82b098539d47b2e6380d9157e6b5981f197beb",
+      "row_content_sha256": [null, null, null, null, null, null, null]
+    },
+    "runtime_receipt": {"path": null, "sha256": null},
+    "pricing_receipt": {"path": null, "sha256": null},
+    "supervisor_receipt": {"path": null, "sha256": null},
+    "supervisor_qualification_files": [
+      {"path": null, "sha256": null},
+      {"path": null, "sha256": null},
+      {"path": null, "sha256": null}
+    ],
+    "disk_receipt": {"path": null, "sha256": null},
+    "data_eligibility_receipt": {"path": null, "sha256": null}
+  },
+  "runtime": {
+    "python": null,
+    "packages": {"torch": null, "transformers": null, "peft": null, "safetensors": null},
+    "cuda_version": null,
+    "device": "cuda:0",
+    "qualified_context_tokens": null
+  },
+  "approval": {
+    "explicit_go": false,
+    "scope": "baseline_only_no_training",
+    "ceiling_usd": 30,
+    "max_window_seconds": 3600,
+    "currency": null,
+    "verified_hourly_rate_usd": null,
+    "unavoidable_costs_upper_usd": null,
+    "paid_window_started_at_utc": null,
+    "runner_wall_seconds": 1800,
+    "teardown_reserve_seconds": 1200
+  },
+  "supervision": {
+    "session_id": null,
+    "controller_identity": null,
+    "provider_target_sha256": null,
+    "heartbeat_file": null,
+    "heartbeat_max_age_seconds": 60,
+    "provider_deadline_utc": null
+  }
+}

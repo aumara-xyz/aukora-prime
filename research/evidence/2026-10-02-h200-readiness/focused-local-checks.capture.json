@@ -1,0 +1,29 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "command": [
+    "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "focused_local_checks.py"
+  ],
+  "started_at_utc": "2026-10-02T11:00:39.251908+00:00",
+  "outer_wall_seconds": 0.123700792,
+  "exit_code": 0,
+  "stdout_raw_bytes": 188,
+  "stderr_raw_bytes": 0,
+  "model_calls": 0,
+  "provider_calls": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "stderr_directory_sanitized": true,
+  "source_fingerprints_after_run": {
+    "baseline_runner.py": "70945ba9573bd08269e6c9ea525214e2900094dd6124ebc946bdfb6bbc97e00a",
+    "prepare_baseline_registration.py": "d9db358481f9d7abf8f2d1ad77d173303e4305697cec36f3773ea9f79ec40da7",
+    "focused_local_checks.py": "060bb027ccf5d905c252093e47e66832e45a40ade2383214ecea0ba873e5aae8",
+    "runner_core.py": "b75e3638bcb727fab69723846209df0ed1b7e606fb167761bfde500176b59b44"
+  },
+  "source_fingerprint_scope": "Current source bytes after the single suite; no source edit occurred between test execution and fingerprinting",
+  "cost_excludes": [
+    "standing storage",
+    "local electricity",
+    "agent/subscription usage"
+  ]
+}

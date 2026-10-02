@@ -1,0 +1,1 @@
+Evidence class: SYNTHETIC fresh CPU fixture stderr; directory paths sanitized; may be empty.
