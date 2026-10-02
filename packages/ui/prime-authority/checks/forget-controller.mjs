@@ -58,7 +58,7 @@ async function completed(f,proof) {
 }
 {
   const f=make();let invocations=0;await f.ready()
-  f.controller.setForgetAction(async()=>{invocations++;const approval=await f.controller.approve();return completed(f,approval.approval_proof)})
+  f.controller.setForgetAction(async(_view,options)=>{invocations++;const approval=await options.approve();return completed(f,approval.approval_proof)})
   const [first,second]=await Promise.all([f.controller.submitApproval(),f.controller.submitApproval()])
   assert.deepEqual(first,second);assert.equal(invocations,1);assert.equal(f.base.counts.approve,1)
   const state=f.controller.getSnapshot();assert.equal(state.forget_action_result.forgotten,true)
@@ -70,7 +70,7 @@ for(const mutate of [value=>{value.record_summary.statement='Changed'},value=>{v
   value=>{value.result.backups_erased=true},value=>{value.receipt.result_digest='sha256:'+'b'.repeat(64)},
   value=>{value.receipt_digest='sha256:'+'c'.repeat(64)},value=>{value.receipt.grant_id='grant:'+'f'.repeat(64)}]){
   const f=make();let invocations=0;await f.ready()
-  f.controller.setForgetAction(async()=>{invocations++;const approval=await f.controller.approve(),value=await completed(f,approval.approval_proof);mutate(value);return value})
+  f.controller.setForgetAction(async(_view,options)=>{invocations++;const approval=await options.approve(),value=await completed(f,approval.approval_proof);mutate(value);return value})
   assert.equal(await f.controller.submitApproval(),null);assert.equal(f.controller.getSnapshot().forget_action_result,null)
   assert.equal(f.controller.getSnapshot().phase,'outcome_unknown');await f.controller.submitApproval();assert.equal(invocations,1)
   assert.throws(()=>f.controller.setOperation(f.operation,{recordSummary:f.summary}),e=>e.code==='RECONCILIATION_REQUIRED')
@@ -78,7 +78,7 @@ for(const mutate of [value=>{value.record_summary.statement='Changed'},value=>{v
 }
 {
   const f=make();await f.ready();let invocations=0
-  f.controller.setForgetAction(async()=>{invocations++;await f.controller.approve();return {...idle(),phase:'outcome_unknown',operation:copy(f.operation),
+  f.controller.setForgetAction(async(_view,options)=>{invocations++;await options.approve();return {...idle(),phase:'outcome_unknown',operation:copy(f.operation),
     record_summary:copy(f.summary),operation_digest:await contracts.operationDigest(f.operation),approval:'approved',forget:'unknown',forgotten:null,
     reconciliation_required:true,error_code:'OUTCOME_UNKNOWN'}})
   const result=await f.controller.submitApproval();assert.equal(result.reconciliation_required,true)
@@ -98,7 +98,7 @@ for(const mutate of [value=>{value.record_summary.statement='Changed'},value=>{v
 {
   const f=make();await f.ready();let release,started
   const entered=new Promise(resolve=>{started=resolve}),gate=new Promise(resolve=>{release=resolve})
-  f.controller.setForgetAction(async()=>{await f.controller.approve();started();await gate;return {...idle(),phase:'outcome_unknown',
+  f.controller.setForgetAction(async(_view,options)=>{await options.approve();started();await gate;return {...idle(),phase:'outcome_unknown',
     approval:'approved',forget:'unknown',forgotten:null,reconciliation_required:true,error_code:'OUTCOME_UNKNOWN'}})
   const pending=f.controller.submitApproval();await entered;const logout=f.controller.logout();release();await pending;await logout
   assert.equal(f.controller.getSnapshot().owner,null);assert.equal(f.controller.getSnapshot().forget_action_result,null)

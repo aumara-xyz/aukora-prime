@@ -243,7 +243,7 @@ test('current B submitApproval and H byte factories carry one real C/D literal s
   await f.login();const operation=await f.prepare(draft('pinned-H-literal-save'))
   const review=f.controller.getSnapshot().presentation.memory_review
   assert.equal(review.statement,extraction.statement);assert.equal(review.attributed_to,'owner')
-  f.controller.setApprovalAction(()=>f.workflow.approveAndSave())
+  f.controller.setApprovalAction((_view,options)=>f.workflow.approveAndSave(options))
   const first=f.controller.submitApproval(),second=f.controller.submitApproval()
   assert.equal(first,second,'B must coalesce the two submitted approval actions')
   const action=await first,saved=f.workflow.getSnapshot()

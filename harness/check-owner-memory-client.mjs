@@ -149,6 +149,7 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   const one=f.approvalAction(),two=f.controller.submitApproval();assert.equal(one,two);
   const result=await one;assert.equal(result.saved,true);assert.equal(result.index.searchable,false);assert.equal(result.citation_status,'unverified');
   assert.equal(result.authority_settlement,'completed');assert.equal(f.count('memory.save'),1);checks++;
+  assert.throws(()=>f.client.approveAndForget(),/exact logical-forget review required/);assert.equal(f.count('memory.forget'),0);checks++;
   const save=f.calls.find(value=>value.method==='memory.save').input;
   assert.equal(save.operation.canonical_parameters.statement,literal);assert.equal(save.operation.canonical_parameters.attributed_to,capture.attributed_to);
   assert.deepEqual(save.operation.canonical_parameters.capture_metadata,captureMetadata);assert.equal(save.operation.canonical_parameters.evidence_quote,selectedEvent.text);
@@ -244,7 +245,10 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   await f.controller.submitApproval();off();
   assert.equal(detached,true);assert.equal(f.count('owner.approvalComplete'),1);assert.equal(f.count('memory.forget'),0);checks++;
   assert.equal(f.controller.getSnapshot().owner,null);assert.equal(f.client.forgetWorkflow.getSnapshot().record_summary,null);
-  assert.equal(f.client.forgetWorkflow.getSnapshot().forgotten,false);assert.equal(f.client.forgetWorkflow.getSnapshot().reconciliation_required,true);checks++;
+  // Disposal happened before the local memory method was invoked. The actual
+  // zero-call assertion above distinguishes this from an attempted effect;
+  // earlier lost-forget and lost-save cases retain their uncertainty fences.
+  assert.equal(f.client.forgetWorkflow.getSnapshot().forgotten,false);assert.equal(f.client.forgetWorkflow.getSnapshot().reconciliation_required,false);checks++;
   await new Promise(resolve=>setImmediate(resolve));assert.equal(f.count('owner.logout'),1);checks++;
  }finally{f.dispose();}
 }
@@ -253,7 +257,7 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   f.client.setCapabilities(caps);assert(await f.controller.login());
   assert.equal((await f.client.proposeForget({record_id:'source-fixture-record'})).phase,'proposed');
   assert(await f.controller.prepare());
-  const one=f.controller.submitApproval(),two=f.controller.submitApproval();assert.equal(one,two);
+  const one=f.client.approveAndForget(),two=f.controller.submitApproval();assert.equal(one,two);
   const result=await one;assert.equal(result.forgotten,true);assert.equal(result.result.physical_media_erasure,false);
   assert.equal(result.authority_settlement,'completed');assert.equal(f.count('memory.forget'),1);assert.equal(f.count('memory.save'),0);checks++;
   assert.equal(f.controller.getSnapshot().forget_action_result.forgotten,true);

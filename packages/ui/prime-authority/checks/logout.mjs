@@ -54,6 +54,7 @@ function fixture({ answer = confirmed, logout, missing = false, challengeGate, s
       return response
     },
   }
+  if (missing) delete authority.logout
   if (!missing) authority.logout = input => {
     calls.logout.push(structuredClone(input))
     // Fake shared-adapter local invalidation must occur before any asynchronous reply.

@@ -56,8 +56,15 @@ const rejects = (promise, code) => assert.rejects(promise, error => error.code =
 const login = f => f.transport.login({ owner_id: operation.owner_id, kind: 'owner_key' })
 let cases = 0
 
+// Independent synthetic selected-event context, never reconstructed from a proposal.
+const sourceAt = '2030-01-01T00:00:00Z'
+const captureMetadata = () => ({ profile:'prime-pilot-memory-capture/v1', category:'fact',
+  valid_from:sourceAt.slice(0,10), observed_at:sourceAt, confidence_percent:70, sensitivity:'none' })
+const evidenceQuote = 'A separately selected synthetic source quote: café < & > 😀'
+
 {
-  const memoryCapture = { statement: '  <script>literal memory</script>\nwith\ttabs 😀  ', attributed_to: 'owner-voice' }
+  const memoryCapture = { statement: '  <script>literal memory</script>\nwith\ttabs 😀  ', attributed_to: 'owner-voice',
+    capture_metadata:captureMetadata(), evidence_quote:evidenceQuote }
   const parameters = { capture_sha256: 'a'.repeat(64), idempotency_key_sha256: 'b'.repeat(64),
     heads: { remembered: 'c'.repeat(64) }, ...memoryCapture }
   const proposal = { ...operation, action_type: 'memory.save', canonical_parameters: parameters }
@@ -66,13 +73,17 @@ let cases = 0
   memoryCapture.statement = 'Caller changed the draft after review'
   assert.equal(view.memory_review.statement, parameters.statement)
   assert.equal(view.memory_review.attributed_to, parameters.attributed_to)
+  assert.deepEqual(view.memory_review.capture_metadata, captureMetadata())
+  assert.equal(view.memory_review.evidence_quote, evidenceQuote)
+  assert(Object.isFrozen(view.memory_review.capture_metadata))
   assert.equal(view.operation_digest, await contracts.operationDigest(proposal))
   assert(Object.isFrozen(view.memory_review))
   await f.transport.approve(view, { kind: 'owner_key' }); assert.equal(f.counts.approve, 1)
   cases++
 }
 {
-  const draft = { statement: 'Exact memory statement', attributed_to: 'owner' }
+  const draft = { statement: 'Exact memory statement', attributed_to: 'owner',
+    capture_metadata:captureMetadata(), evidence_quote:evidenceQuote }
   const parameters = { capture_sha256: 'a'.repeat(64), idempotency_key_sha256: 'b'.repeat(64), heads: {}, ...draft }
   const proposal = { ...operation, action_type: 'memory.save', canonical_parameters: parameters }
   let reviews = 0

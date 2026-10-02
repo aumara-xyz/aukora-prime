@@ -6,15 +6,19 @@ import {pathToFileURL} from 'node:url'
 import {resolve} from 'node:path'
 import {createPrimeOwnerController} from '../src/client/controller.mjs'
 import {createOwnerUiFixture} from './fixture.mjs'
-import {createApprovalHookPort} from './approval-hook-fixture.mjs'
 
 const contracts = await import(process.argv[2] ? pathToFileURL(resolve(process.argv[2])).href : new URL('../../../contracts/src/browser.mjs',import.meta.url).href)
 const bridgeSource = process.argv[3] ? pathToFileURL(resolve(process.argv[3]) + '/').href : new URL('../../../runtime-bridge/src/',import.meta.url).href
 const {createUiAdapters} = await import(new URL('ui-adapter.mjs', bridgeSource))
 const {createOwnerMemoryWorkflow} = await import(new URL('owner-memory-workflow.mjs', bridgeSource))
 const copy = value => JSON.parse(contracts.canonicalJson(value))
-const literal = '  Exact <script>literal</script> &\n\t🍌 e\u0301  '
-const capture = Object.freeze({statement:literal,attributed_to:'owner-edit'})
+const literal = '  Exact <script>literal</script> &\n\t🍌 é  '
+// This independent selected source fixture precedes the proposed operation.
+const source = Object.freeze({sessionId:'synthetic-source',seq:1,at:'2030-01-01T00:00:00Z',
+  sha256:'c'.repeat(64),text:'Selected source quote differs from statement: café < & > 🍌'})
+const capture = Object.freeze({statement:literal,attributed_to:'owner-edit',
+  capture_metadata:Object.freeze({profile:'prime-pilot-memory-capture/v1',category:'fact',valid_from:source.at.slice(0,10),
+    observed_at:source.at,confidence_percent:70,sensitivity:'none'}),evidence_quote:source.text})
 let cases = 0
 
 function gate() {
@@ -35,12 +39,18 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
   const operationFor = draft => ({...base.operation,operation_id:'memory-hook-' + (++nextOperation),
     audience:'aukora-prime.memory',action_type:'memory.save',target_identity:{kind:'prime-memory',owner_subject:'aukora:1:'+'1'.repeat(64)},
     canonical_parameters:{capture_sha256:'a'.repeat(64),idempotency_key_sha256:'b'.repeat(64),heads:{remembered:'aukora:aura-record:v1'},
-      statement:JSON.parse(draft.extraction_json).statement,attributed_to:capture.attributed_to}})
+      statement:JSON.parse(draft.extraction_json).statement,attributed_to:capture.attributed_to,
+      capture_metadata:copy(capture.capture_metadata),evidence_quote:source.text}})
   function savedReply(input) {
     const record = {version:1,record_id:'synthetic-record',owner_subject:input.operation.target_identity.owner_subject,
       task_id:input.operation.task_id,scope:'owner',privacy:'local',record_format:'synthetic-unchanged-bytes',canonicalizer:'fixture',
-      canonical_bytes:JSON.stringify({statement:JSON.parse(input.extraction_json).statement,attributedTo:capture.attributed_to}),
-      revision:'synthetic-revision',grants_authority:false,source_event_digest:'sha256:'+'c'.repeat(64),evidence:[],chain_domain:'remembered',
+      canonical_bytes:JSON.stringify({statement:JSON.parse(input.extraction_json).statement,attributedTo:capture.attributed_to,
+        category:capture.capture_metadata.category,validFrom:capture.capture_metadata.valid_from,observedAt:source.at,
+        confidence:capture.capture_metadata.confidence_percent/100,sensitivity:capture.capture_metadata.sensitivity,
+        source:{sessionId:source.sessionId,seq:source.seq,sha256:source.sha256},
+        evidence:[{log:source.sessionId,turn:source.seq,turnDigest:source.sha256,quote:source.text}]}),
+      revision:'synthetic-revision',grants_authority:false,source_event_digest:'sha256:'+source.sha256,
+      evidence:[{log:source.sessionId,turn:source.seq,turnDigest:source.sha256,quote:source.text}],chain_domain:'remembered',
       source_span:{fixture:true},storage_status:'saved',index_status:'pending'}
     const receipt = {version:1,kind:'prime-memory-effect/v1',operation_id:input.operation.operation_id,
       operation_digest:input.approval_proof.operation_digest,grant_id:'grant:'+input.approval_proof.nonce,
@@ -74,7 +84,7 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
       chain_domain:'remembered',chain_sequence:1,aura_entry_hash:'1'.repeat(64),verified_head:'2'.repeat(64),verdict:'UNVERIFIED',grants_authority:false}}
     throw new Error('Unexpected synthetic method '+method)
   }})
-  const controller = createApprovalHookPort(createPrimeOwnerController({now:()=>now,schedule:()=>null,unschedule:()=>{}}))
+  const controller = createPrimeOwnerController({now:()=>now,schedule:()=>null,unschedule:()=>{}})
   controller.connect({...base,operation:undefined,authority:adapters.authority,
     passkeySigner:async input=>{signerCalls++;return base.passkeySigner(input)}})
   const workflow = createOwnerMemoryWorkflow({controller,memory:adapters.memory,contracts})
@@ -85,7 +95,7 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
     getStored:()=>saved ? copy(saved) : null,
     async login(){assert.notEqual(await controller.login(),null);assert.equal(controller.getSnapshot().phase,'authenticated')},
     async prepare(){assert.equal((await workflow.proposeSave(draft)).phase,'proposed');assert.notEqual(await controller.prepare(),null)},
-    bind(){controller.setApprovalAction(()=>workflow.approveAndSave())},
+    bind(){controller.setApprovalAction((_view,options)=>workflow.approveAndSave(options))},
     dispose(){off();workflow.dispose();controller.dispose();adapters.logout()}}
 }
 
@@ -116,6 +126,8 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
     assert.equal((await proposing).phase,'proposed');await f.controller.prepare()
     const view=f.controller.getSnapshot().presentation
     assert.equal(view.memory_review.statement,literal);assert.equal(view.memory_review.attributed_to,capture.attributed_to)
+    assert.deepEqual(view.memory_review.capture_metadata,capture.capture_metadata)
+    assert.equal(view.memory_review.evidence_quote,source.text)
     let reentrant,requested=false
     const unsubscribe=f.controller.subscribe(()=>{
       if (!requested && f.controller.getSnapshot().phase==='approval_pending') {requested=true;reentrant=f.controller.submitApproval()}
@@ -174,7 +186,7 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
 {
   const held=gate(),f=make({approvalGate:held});try {
     await f.login();f.bind();await f.prepare();const pending=f.controller.submitApproval()
-    await held.entered;f.controller.logout();f.adapters.logout();await f.login()
+    await held.entered;await f.controller.logout();await f.adapters.logout();await f.login()
     const owner=f.controller.getSnapshot().owner
     held.release();await pending
     assert.equal(f.controller.getSnapshot().owner,owner);assert.equal(f.controller.getSnapshot().phase,'authenticated')
@@ -185,7 +197,7 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
 {
   const held=gate(),f=make({saveGate:held});try {
     await f.login();f.bind();await f.prepare();const pending=f.controller.submitApproval()
-    await held.entered;f.controller.logout();f.adapters.logout();await f.login()
+    await held.entered;await f.controller.logout();await f.adapters.logout();await f.login()
     const owner=f.controller.getSnapshot().owner
     held.release();await pending
     assert.equal(f.controller.getSnapshot().owner,owner);assert.equal(f.controller.getSnapshot().phase,'authenticated')
@@ -259,8 +271,8 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
 {
   const f=make();try {
     await f.login();await f.prepare()
-    f.controller.setApprovalAction(async()=>{
-      await f.controller.approve()
+    f.controller.setApprovalAction(async(_view,options)=>{
+      await options.approve()
       throw new Error('synthetic action result lost after approval')
     })
     assert.equal(await f.controller.submitApproval(),null)
@@ -295,7 +307,7 @@ async function staleHookFence(reply,label,{reject=false}={}) {
       return value
     })
     const pending=f.controller.submitApproval();await held.entered
-    f.controller.logout();f.adapters.logout();await f.login()
+    await f.controller.logout();await f.adapters.logout();await f.login()
     const owner=f.controller.getSnapshot().owner
     held.release();assert.equal(await pending,null,label)
     assert.equal(f.controller.getSnapshot().owner,owner,label+' must preserve the new owner')
@@ -327,7 +339,7 @@ await staleHookFence(()=>null,'rejected stale action',{reject:true})
     await f.login();await f.prepare()
     f.controller.setApprovalAction(()=>held.hold(cleared))
     const pending=f.controller.submitApproval();await held.entered
-    f.controller.logout();f.adapters.logout();await f.login()
+    await f.controller.logout();await f.adapters.logout();await f.login()
     held.release();assert.equal(await pending,null)
     assert.equal(f.controller.getSnapshot().approval_action_result,null)
     f.bind()

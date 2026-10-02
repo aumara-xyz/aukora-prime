@@ -10,7 +10,7 @@ import {createOwnerMemoryHttpCall} from './owner-memory-browser.mjs';
  * creates no identity, credential, session, listener or accepted host record.
  * Existing capability status must separately enable the native controller. */
 export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner}={}) {
- if(['connect','getSnapshot','subscribe','setApprovalAction','setForgetAction','reconcileApprovalAction','logout','disconnect','setCapabilities','capabilitiesUnavailable'].some(name=>typeof controller?.[name]!=='function'))throw new TypeError('UNAVAILABLE: native owner controller required');
+ if(['connect','getSnapshot','subscribe','setApprovalAction','setForgetAction','submitApproval','reconcileApprovalAction','logout','disconnect','setCapabilities','capabilitiesUnavailable'].some(name=>typeof controller?.[name]!=='function'))throw new TypeError('UNAVAILABLE: native owner controller required');
  if(!ownerBinding||Object.getPrototypeOf(ownerBinding)!==Object.prototype
   ||Object.keys(ownerBinding).sort().join(',')!=='owner_id,passkeyProfile'
   ||typeof ownerBinding.owner_id!=='string'||!ownerBinding.owner_id.length
@@ -65,7 +65,11 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
    return snapshot;
   },
   proposeForget:input=>attachedForget().proposeForget(input),
-  approveAndForget:()=>attachedForget().approveAndForget(),
+  approveAndForget:()=>{
+   attachedForget();
+   if(controller.getSnapshot().presentation?.operation?.action_type!=='memory.forget')throw new TypeError('UNAVAILABLE: exact logical-forget review required');
+   return controller.submitApproval();
+  },
   recoverForget:async input=>{
    const snapshot=await attachedForget().recover(input);
    await controller.reconcileApprovalAction(snapshot);

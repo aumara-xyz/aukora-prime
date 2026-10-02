@@ -43,3 +43,17 @@ The actual execution factory is wired with capability `unavailable`: foreground 
 Scoped package checks are in each package. `./prime check G1 --ui-launch-access true --evidence-dir /absolute/path/outside/this/repo` records observations and reports missing independent acceptance. It does not turn package checks into a running-system qualification. Memory CLI `./prime export OWNER OUTPUT`, `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`, and `./prime restore` delegate to the preserved memory closure; database access and non-synthetic restore require explicit trusted configuration.
 
 Persistent broker/UID/socket/security setup, OpenShell guest activation, real owner enrollment and production deployment remain separate approvals. No private data, provider keys or paid model calls belong in this repository.
+
+## Data residence in the preview
+
+The Mac window is a renderer for the approved Linux pilot. Its loopback connection is forwarded through the existing authenticated SSH connection to the remote HTTP application. This does not make the application or entered content local to the Mac.
+
+| Data or boundary | Current residence and limit |
+| --- | --- |
+| Shared repository | Source, licenses, synthetic fixtures and sanitized historical evidence. Personal runtime data, access tokens and provider credentials are excluded. The repository does not provision a machine or supply account authorization. |
+| Mac preview | Rendered DOM, a disposable Electron profile and an in-memory browser access cookie. Explicitly saved screenshots are local artifacts; the authorized screenshot archive was separately saved to Library. A browser access cookie is not owner authorization. |
+| Linux application | The running UI host, runtime workspace and private launch state reside on the pilot. Browser requests terminate there, so future entered content can reach that host. Current public owner, memory and inference effects remain unavailable. |
+| Memory evidence | The retained PostgreSQL experiment used synthetic data at its recorded older revision and was cleaned up. It is not a current active private-memory service or permission to import personal records. |
+| Credentials and processing | Separate worker and vault mechanisms are source interfaces, not qualified deployment custody. The unmounted inference ledger can retain exact request bodies and result/accounting receipts; a retention or forget policy for those payloads is not qualified. No real provider key or paid model call was used. Voice and vision are unavailable, and their egress has not been measured. |
+
+These observations do not establish local-only storage, hardware custody or a fully contained live agent. Any future sensitive-data use needs an explicit policy for the selected host, storage, provider and retention boundaries. The current preview’s disabled controls and read-only catalog do not enable those uses.
