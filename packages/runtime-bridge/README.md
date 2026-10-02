@@ -69,8 +69,42 @@ to its current protected anchor. It checks each forward journal transition and
 uses the same fixed CAS templates, returning `undefined`. It does not choose or
 authenticate an anchor, touch other D tables, open a transaction, or publish a
 checkpoint. D must validate and retain the complete restore on its owner session.
-The current C retained-restore refusal and D's missing multi-step restore scope
-still block that composed path; the Bridge participant alone cannot qualify it.
+The selected C/D source at assembly `251fdb5` provides that authorized effect and
+multi-step journal scope. H must inject the source-owned `restoreRetainedJournal`
+as D's `journalRestore` when constructing `createPrivateV2Memory`; no caller may
+supply this callback.
+
+The retained Bridge exposes a separate local `bridge.restore` facade:
+
+```js
+const context = {request: authenticatedChannelAssociation, role: 'owner_control'}
+await bridge.restore.propose({session_token}, coldBundle, context)
+await bridge.restore.approvalChallenge({session_token, operation}, context)
+await bridge.restore.approvalComplete({session_token, operation, proof}, context)
+await bridge.restore.apply({session_token, operation, approval_proof}, coldBundle, context)
+await bridge.restore.reconcile({session_token, operation}, context)
+```
+
+`request` and `role` belong to H's authenticated local channel context; they do
+not come from the bundle or browser body. Every call reuses C's current durable
+owner session and the existing trusted Task/context registry. D derives the full
+restore proposal under its protected ancestor/anchor checks. Both approval calls
+hold D's exact target-observation scope; C receives its original input shapes.
+The unchanged full bundle is detached through D's historical-data helper, which
+preserves donor decimal data rather than applying the strict operation codec.
+
+Restore never enters the thirteen-column save/forget journal, ordinary admission
+census, or negative retirement flow. D alone reserves, claims once, restores SQL
+and journal state, retains the original pending identity, and settles its genuine
+receipt. Bridge checks the unchanged C/D result and receipt bindings, and reads
+C's factual completed status before reporting completed settlement. A pending
+result or uncertainty permits only explicit `reconcile`, which forwards D's
+original committed-receipt recovery; it never resubmits `apply`, claims again,
+chooses a new request ID or labels a restore known-unsent.
+
+H must own/drain these calls under the same lifetime as C, D and the Pool. This
+facade adds no public or IPC method and supplies no runtime qualification. The
+actual composed restore, PostgreSQL and cold-runtime checks remain unperformed.
 
 The v2 adapter remains source-only and public routes report unqualified. The
 legacy host acceptance record cannot qualify retained custody, PostgreSQL guards

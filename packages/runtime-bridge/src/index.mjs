@@ -8,9 +8,10 @@ import {IPC_METHOD_ROLES,PUBLIC_METHODS} from './ipc.mjs'
 import {preparePilotCapture} from './pilot-capture.mjs'
 import {isWorkflowStore} from './workflow-store.mjs'
 import {createRecovery} from './recovery.mjs'
-import {isRetainedWorkflowStore,createRetainedWorkflowStore} from './retained-workflow-store.mjs'
+import {isRetainedWorkflowStore,createRetainedWorkflowStore,retainedWorkflowProfile} from './retained-workflow-store.mjs'
 import {createRetainedRecovery} from './retained-recovery.mjs'
 import {retainedUnknown} from './retained-pending.mjs'
+import {createRetainedRestoreForwarder} from './retained-restore-forwarder.mjs'
 export {createTrustedTaskRegistry,PUBLIC_METHODS}
 export {createRetainedWorkflowStore} from './retained-workflow-store.mjs'
 export {RETAINED_JOURNAL_SCHEMA,RETAINED_JOURNAL_STATEMENTS,RETAINED_JOURNAL_DESCRIPTORS,mutateRetainedWorkflow,mutateRetainedClosure} from './retained-journal-sql.mjs'
@@ -64,6 +65,7 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
   }
   const authorityMethods=['authenticateSession','logoutSession','propose','loginChallenge','loginComplete','approvalChallenge','approvalComplete','declineApproval','status','reserve','claimDispatch','settleMemory','markOutcomeUnknown',...(retained?['closeUnconsumedOperation','readUnconsumedClosure']:[])]
   const memoryMethods=['prepareCaptureBinding','captureAuthorizedRemembered','withAuthorityTargetObservation','status','cite','recall','prepareRecordMutationBinding','forgetRecord','reconcileEffect',...(retained?['closeUnsentOperation','readUnsentClosure']:[])]
+  const restoreSource=retained?memory:null
   const mounted=authorityMethods.every(k=>typeof authority?.[k]==='function')&&memoryMethods.every(k=>typeof memory?.[k]==='function')&&(isWorkflowStore(workflowStore)||retained)&&typeof taskRegistry?.getOwned==='function'&&typeof taskRegistry?.authorizeTask==='function'&&typeof resolveHostContext==='function'
   // Only exact approved save/forget, factual receipt reconciliation and reads
   // are retained. Raw writers, purge, import and restore remain outside dispatch.
@@ -349,5 +351,8 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
     try {if(!await accepted())return {ok:false,error_code:'UNAVAILABLE',reason:'SEPARATED_HOST_QUALIFICATION_REQUIRED'};return await handleTrusted(method,detached,boundContext)}
     catch{return {ok:false,error_code:'UNAVAILABLE',reason:'HOST_QUALIFICATION_UNAVAILABLE'}}
   }
-  return Object.freeze({handleTrusted,handlePublic,capability})
+  const restore=retained?createRetainedRestoreForwarder({authority,memory:restoreSource,
+    profile:retainedWorkflowProfile(workflowStore),taskRegistry,inFlight,
+    sourceContext:async(input,request)=>{const identity=await session(input);return {identity,...await context(request,identity)}}}):null
+  return Object.freeze({handleTrusted,handlePublic,capability,...(retained?{restore}:{})})
 }
