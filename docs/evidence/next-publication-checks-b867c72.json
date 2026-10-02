@@ -1,0 +1,71 @@
+{
+  "schema": "aukora-next-publication-checks/v1",
+  "checked_source_commit": "b867c725acf6b1bebe48f14699c035b0f1cb9d6c",
+  "implementation_source": "c04c46a44841d89953eb0fa4afd4321d519bc302",
+  "status": "RAN_SCOPED_SOURCE_CHECKS",
+  "checks": [
+    {
+      "command": "node --test --test-reporter=tap packages/inference/check-total-budget.mjs packages/inference/check-dispatch.mjs packages/inference/check-worker-outbox.mjs packages/inference/check-dispatch-expiry.mjs packages/inference/check-reserve-attempt.mjs packages/inference/check-worker-continuation.mjs",
+      "result": "PASS",
+      "command_output_sha256": "6af9cb45b43a50bf06dee7a3a9b59b2b9e08a54cae4eb31615cf7726fc6cde09",
+      "counts": {
+        "tests": 29,
+        "pass": 29,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "raw_output": "retained privately; command and exact source available",
+      "scope": "Disposable synthetic ledger/worker fixtures; no provider network or real credential custody."
+    },
+    {
+      "command": "node --test --test-reporter=tap packages/cordis-tool-provider/checks/provider.test.mjs",
+      "result": "PASS",
+      "command_output_sha256": "68bbe7af442d85abedfd4140b1a6b58ba1fb7687ba21f248c204929691fb4af8",
+      "counts": {
+        "tests": 25,
+        "pass": 25,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "raw_output": "retained privately; command and exact source available",
+      "scope": "Actual C/F source with mocked qualification and SDK; no gateway or target workload."
+    },
+    {
+      "command": "node packages/ui/scripts/verify-owner-build.mjs --ui packages/ui --dsh <verified-pinned-dsh> --prime-root .",
+      "result": "PASS",
+      "observed": {
+        "result": "PASS",
+        "source_inputs": 87,
+        "output_artifacts": 46,
+        "upstream_commit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+        "owner_client_sha256": "72a859bacb32e0d202f8b2074bf2bd9cf5261b5054a1359739afd59c88091154",
+        "source_output_binding": "MATCH",
+        "pinned_build_inputs": "MATCH",
+        "served_bytes": "UNPERFORMED: H must verify the guarded HTTP bytes and loaded descriptor"
+      },
+      "scope": "Source/output and pinned build inputs verified; no rebuild, boot or renderer observation."
+    }
+  ],
+  "initial_owner_check": {
+    "result": "BLOCKED_MISSING_INPUT",
+    "reason": "Isolated checkout lacked the pinned source archive; exact declared archive was verified and supplied as ignored input before retry. Initial failure retained."
+  },
+  "local_full_profile": {
+    "status": "UNPERFORMED",
+    "configured_jobs": 66,
+    "reason": "Execution transport disconnected before a summary or process exit result; empty command logs and interrupted attempt retained. No completed result is credited."
+  },
+  "runtime_qualification": "UNPERFORMED",
+  "g1": "PENDING",
+  "descendant_cleanup": "UNPERFORMED",
+  "new_emergency_security_work": false,
+  "limits": [
+    "Scoped fixture/build checks do not qualify a protected installed application.",
+    "Native interactive request producer and protected owner/key custody remain unfinished.",
+    "The normal public CI run must identify its exact tested revision and complete result; historical results cannot attest this revision."
+  ]
+}

@@ -24,6 +24,8 @@ From a checkout with [the prerequisites below](#check-it-yourself):
 
 Use Node 24.11.1, an existing Python 3.9 or later at `/usr/bin/python3`, and an environment that permits disposable private Unix-domain sockets. Use `umask 0022` in the disposable source-check shell; private fixture state still specifies restrictive modes explicitly. A wrapper that silently changes the child umask can change filesystem-refusal fixtures and must be recorded as a different test environment. Restricted sandboxes can reject the IPC fixtures with `EPERM`; retain that failed/blocked result rather than treating it as PASS. Run the command above from the repository root.
 
+**Current source checkpoint:** [focused publication checks](docs/evidence/next-publication-checks-b867c72.json) passed 29 inference cases, 25 Cordis-provider cases and the owner’s 87-input/46-output build verification. The local full-profile attempt was interrupted by an execution-tool connection failure before it returned a result, so it is UNPERFORMED. Inspect the [normal CI workflow](https://github.com/aumara-xyz/aukora-prime/actions/workflows/source-profile.yml) or run the command on the received revision; no current full-profile PASS is implied here.
+
 **Expected source-profile outcome:** exit `2` with zero job failures and the declared external PostgreSQL acceptance arm still UNPERFORMED. Report the complete result and exclusions; this is not a PostgreSQL, runtime or whole-product PASS.
 
 If repository access is available, a fresh review starts with:
