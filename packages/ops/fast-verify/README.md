@@ -247,6 +247,8 @@ closed worker socket binding, exact source qualification annotations, all12
 producer schemas and invocation metadata. Those engine checks establish no product completion
 or runtime qualification.
 
+The [retained original 46-check summary](../../../docs/evidence/json-all-producers-final-engine.json) is the 246-byte artifact with SHA256 `91b982377740553f0c152439b60e4375469d4c8dc5cf6338c2b21c2f7ce7617a`. It was not regenerated for this checkpoint.
+
 The current literal inventory contains 142 references across 101 source paths,
 following the initial adjudicated 140-reference/99-path profile and two reviewed
 fixture helper additions. All 66 job IDs, 65 entry files, required assertions and

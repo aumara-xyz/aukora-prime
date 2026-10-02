@@ -4,6 +4,8 @@ AUKORA Prime's existing package declaration is **AGPL-3.0-or-later**. The full G
 
 Recorded AUKORA attribution: Aumara and Peter Viviani (2026). Per-file and imported-component copyright and license notices remain authoritative. Current Prime-owned package declarations and SPDX identifiers use `AGPL-3.0-or-later`.
 
+Package declarations describe the software license. Auma language canon, curriculum and reader content are separately identified in [the Auma source and attribution notice](AUMA-LINGWA-NOTICES.md). A content-specific CC BY-SA declaration and attribution have not been established by the retained source records; this index does not assign a Creative Commons grant.
+
 This directory is an additive source-license index. Original notices remain beside imported source. The exact copies under [`upstream/`](upstream/) carry the same bytes; their source paths, hashes, archive integrity and selected versions are recorded in [`inventory.json`](inventory.json). Package declarations and file hashes describe the named source baseline and separately recorded metadata observations. They are not a current candidate package-hash attestation or a binary release SBOM; verify current source and build receipts separately.
 
 ## Owned package declarations
@@ -22,6 +24,9 @@ The foundation manifest records the package as an explicit license-only adaptati
 | DSH native system / Landlock launcher and platform packages | BSD-3-Clause | [Native system license](upstream/dsh/native/system/LICENSE); source and platform notices in [`upstream/dsh/native/system/`](upstream/dsh/native/system/) |
 | DSH Cordis and foundation libraries | MIT | Original licenses in [`upstream/dsh/vendor/`](upstream/dsh/vendor/) |
 | React / React DOM `19.2.6`, React JSX runtime and Scheduler `0.27.0` in the Dakini entry bundle | MIT | [Exact shared MIT notice](upstream/npm/react@19.2.6/LICENSE); [asset/version mapping and archive provenance](DAKINI-REACT-NOTICES.md) |
+| Lucide React `1.31.0` and Three.js `0.186.0` in the Dakini assets | ISC plus Feather MIT / MIT | [Exact notices and asset mapping](DAKINI-LUCIDE-THREE-NOTICES.md) |
+| Auma Lingwa language canon, curriculum and readers | AGPL-3.0-or-later, as declared by the retained donor | [Source records, attribution and license evidence](AUMA-LINGWA-NOTICES.md) |
+| Zeta Harp and historical Membrane donor provenance | Retained per-source terms and notices | [Local source and anonymous availability limits](DONOR-SOURCE-AVAILABILITY.md); external donor availability UNQUALIFIED |
 | NVIDIA OpenShell `v0.1.2`, commit `6648bd0c290efbc41ba131ee9831ee45cd431f94` | Apache-2.0 | [License](upstream/prime-source/packages/execution/licenses/Apache-2.0.txt); [SDK provenance](../packages/execution/provenance.json) |
 | Noble ciphers, curves, hashes `2.2.0`; post-quantum `0.6.1` | MIT | [Exact licenses](upstream/prime-source/packages/authority/upstream/vendor/authority/deps/); [pinned dependency provenance](../packages/authority/upstream/vendor/authority/deps/PROVENANCE.json) |
 | Three.js `0.180.0` / `r180` | MIT | [License](upstream/prime-source/packages/ui/faces/apps/vendor/three/LICENSE); [upstream file hashes](../packages/ui/faces/apps/vendor/three/upstream-three.json) |
