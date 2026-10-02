@@ -27,8 +27,9 @@ export function createAcceptedOwnerSessionObserver(controller,ownerId){
 }
 export async function apply(scope){
  let active=true,native,inference,off,sessions;
+ const lifetime=new AbortController();
  const controller=scope.primeOwnerUi;
- const cleanup=()=>{active=false;sessions?.dispose();const errors=[];
+ const cleanup=()=>{active=false;lifetime.abort();sessions?.dispose();const errors=[];
   if(off)try{off();off=undefined;}catch(error){errors.push(error);}
   try{inference?.dispose();}catch(error){errors.push(error);}
   try{native?.dispose();}catch(error){errors.push(error);}
@@ -37,7 +38,8 @@ export async function apply(scope){
  // Register ownership before any await or synchronous controller notification.
  scope.effect(()=>cleanup,'prime native host lifetime');
  const contracts=await import('/prime/contracts/browser.mjs');if(!active)return;
- const read=async(url,options={})=>{const response=await fetch(url,{...options,credentials:'same-origin',redirect:'error',cache:'no-store'});
+ const read=async(url,options={})=>{const signal=options.signal?AbortSignal.any([options.signal,lifetime.signal]):lifetime.signal;
+  const response=await fetch(url,{...options,signal,credentials:'same-origin',redirect:'error',cache:'no-store'});
   const value=contracts.parseStrictJson(await response.text(),{maxBytes:262144,maxDepth:32});
   if(!response.ok||value?.ok===false)throw Object.assign(new Error('GENUINE_HOST_UNAVAILABLE'),{code:value?.error_code??'UNAVAILABLE'});return value;};
  let config;try{config=await read('/api/prime/host/bootstrap');}catch{return;}
