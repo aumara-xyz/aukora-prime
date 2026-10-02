@@ -4,13 +4,12 @@ const closed=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)
 const fields=['endpoint','model','region','allowedDataClasses','maxInputTokens','maxOutputTokens','maxRequests','enabled','credentialConfigured','taskSpendCeiling']
 export const PRIME_PROVIDER_DIRECTORY=Object.freeze({provider:'externalDeepSeek',displayName:'DeepSeek',settingsNs:'prime-inference',settingsPath:Object.freeze(['providers','externalDeepSeek']),declared:false})
 
-/** Convert E's nonsecret read view into the pinned Schemastery protocol. No writes or credential access. */
-export function providerNamespaceView(input,{Schema,contracts,revision=0}={}) {
-  if(typeof Schema?.object!=='function'||typeof contracts?.canonicalJson!=='function')throw new PrimeTransportError('UNAVAILABLE','ui:provider-schema-helper-unavailable')
+export function validateProviderNamespace(input,contracts) {
+  if(typeof contracts?.canonicalJson!=='function')throw new PrimeTransportError('UNAVAILABLE','ui:provider-schema-helper-unavailable')
   let value
   try {value=JSON.parse(contracts.canonicalJson(input))}catch{invalid()}
   if(!closed(value,['namespace','section'])||value.namespace!=='prime-inference'||!closed(value.section,['providers'])||
-    !closed(value.section.providers,['externalDeepSeek'])||!Number.isSafeInteger(revision)||revision<0)invalid()
+    !closed(value.section.providers,['externalDeepSeek']))invalid()
   const row=value.section.providers.externalDeepSeek
   if(!closed(row,fields)||row.endpoint!=='https://api.deepseek.com'||typeof row.model!=='string'||typeof row.region!=='string'||
     !Array.isArray(row.allowedDataClasses)||row.allowedDataClasses.some(s=>typeof s!=='string'||!s)||
@@ -18,6 +17,13 @@ export function providerNamespaceView(input,{Schema,contracts,revision=0}={}) {
     typeof row.enabled!=='boolean'||typeof row.credentialConfigured!=='boolean')invalid()
   const cost=row.taskSpendCeiling
   if(cost!==null&&(!closed(cost,['currency','amount'])||cost.currency!=='USD'||typeof cost.amount!=='string'||! /^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(cost.amount)))invalid()
+  return value
+}
+
+/** Convert E's nonsecret read view into the pinned Schemastery protocol. No writes or credential access. */
+export function providerNamespaceView(input,{Schema,contracts,revision=0}={}) {
+  if(typeof Schema?.object!=='function'||!Number.isSafeInteger(revision)||revision<0)throw new PrimeTransportError('UNAVAILABLE','ui:provider-schema-helper-unavailable')
+  const value=validateProviderNamespace(input,contracts)
   const readonly=node=>node.role('readonly')
   const money=Schema.object({currency:readonly(Schema.const('USD')),amount:readonly(Schema.string())})
   const provider=Schema.object({endpoint:readonly(Schema.string()),model:readonly(Schema.string()),region:readonly(Schema.string()),

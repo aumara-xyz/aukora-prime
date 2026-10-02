@@ -178,7 +178,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
           requireValue(DIGEST.test(digest),'OWNER_MEMORY_OPERATION_DIGEST_REQUIRED')
           const metadata=proposed.capture_metadata?validatePilotMetadata(copy(proposed.capture_metadata)):null
           Object.assign(entry,{operation,memory_capture:capture,digest,operation_json:canonicalJson(operation),metadata})
-          controller.setOperation(operation,{memoryCapture:capture})
+          controller.setOperation(operation,{memoryCapture:capture,...(metadata?{captureMetadata:metadata}:{})})
           if(!current(entry))return state
           active=entry
           publish({phase:'proposed',operation,memory_capture:capture,operation_digest:digest,error_code:null});return state

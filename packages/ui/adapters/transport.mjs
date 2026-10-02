@@ -4,6 +4,8 @@
  * or signing keys live here. Session tokens remain in memory, outside presentation objects.
  */
 import { validateCaptureReview } from './capture-review.mjs'
+import { validateCaptureMetadata } from './capture-metadata.mjs'
+import { validateForgetReview } from './forget-review.mjs'
 
 export class PrimeTransportError extends Error {
   constructor(code, reason) {
@@ -54,6 +56,8 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
   let loginPending = null
   let loginOwner = null
   let authRevision = 0
+  let logoutFlight = null
+  let logoutResult = null
   const presentations = new WeakMap()
   const submissions = new Map()
 
@@ -149,15 +153,19 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
 
   async function login({ owner_id, kind = 'passkey', signal } = {}) {
     if (typeof owner_id !== 'string' || !owner_id || !kinds.has(kind)) fail('INVALID', 'ui:invalid-login-request')
+    if (logoutFlight) fail('RECONCILIATION_REQUIRED', 'ui:logout-pending')
     if (loginPending) {
       if (loginOwner !== `${kind}:${owner_id}`) fail('UNAUTHORIZED', 'ui:another-login-in-progress')
       return loginPending
     }
     session = null
+    logoutResult = null
     const revision = ++authRevision
     loginOwner = `${kind}:${owner_id}`
-    loginPending = (async () => {
+    const flight = (async () => {
       const answer = await call('loginChallenge', { owner_id, kind }, signal)
+      if (authRevision !== revision) fail('CANCELLED', 'ui:login-cancelled')
+      checkSignal(signal)
       const challenge = copy(object(answer.challenge, 'login-challenge'), 'login-challenge')
       if (challenge.owner_id !== owner_id) fail('UNAUTHORIZED', 'ui:login-owner-mismatch')
       if (challenge.version !== 1 || typeof challenge.challenge !== 'string' || !challenge.challenge ||
@@ -179,19 +187,59 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       session = { owner_id, session_token: complete.session_token, expiry: complete.expiry }
       return freeze({ owner_id, expiry: complete.expiry })
     })()
-    try { return await loginPending }
-    finally { loginPending = null; loginOwner = null }
+    loginPending = flight
+    try { return await flight }
+    finally { if (loginPending === flight) { loginPending = null; loginOwner = null } }
   }
 
-  async function prepareApproval(proposal, { signal, memoryCapture } = {}) {
+  function logout() {
+    if (logoutFlight) return logoutFlight
+    if (!session && !loginPending && logoutResult) return Promise.resolve(logoutResult)
+    const current = session
+    session = null; authRevision++; loginPending = null; loginOwner = null
+    const unconfirmed = code => freeze({ ok: false, error_code: code,
+      reason: code === 'UNAVAILABLE' ? 'ui:server-logout-unavailable'
+        : code === 'UNAUTHORIZED' ? 'ui:server-logout-refused' : 'ui:server-logout-not-confirmed' })
+    let resolveAnswer
+    const answer = new Promise(resolve => { resolveAnswer = resolve })
+    const flight = answer.then(result => {
+      if (result && !Array.isArray(result) && Object.keys(result).sort().join(',') === 'ok,status' &&
+          result.ok === true && result.status === 'LOGGED_OUT') return freeze({ ok: true, status: 'LOGGED_OUT' })
+      return unconfirmed(result?.ok === false && ['UNAUTHORIZED', 'UNAVAILABLE'].includes(result.error_code)
+        ? result.error_code : 'OUTCOME_UNKNOWN')
+    }).catch(() => unconfirmed('OUTCOME_UNKNOWN')).then(result => {
+      logoutResult = result
+      return result
+    }).finally(() => { if (logoutFlight === flight) logoutFlight = null })
+    logoutFlight = flight
+    try {
+      // Invoke immediately: a shared bridge adapter must also fence its local
+      // memory/review generation before another owner action can run.
+      resolveAnswer(typeof authority?.logout === 'function'
+        ? authority.logout(current ? { session_token: current.session_token } : {})
+        : unconfirmed('UNAVAILABLE'))
+    } catch { resolveAnswer(unconfirmed('OUTCOME_UNKNOWN')) }
+    return flight
+  }
+
+  async function prepareApproval(proposal, { signal, memoryCapture, captureMetadata, recordSummary } = {}) {
     const current = ownerSession()
     validateContract('OperationProposal', proposal)
     const operation = copy(proposal)
     let memoryDraft = null
+    let forgetDraft = null
+    let metadata = null
     if (operation.action_type === 'memory.save') {
       try { validateCaptureReview(operation.canonical_parameters, memoryCapture) }
       catch { fail('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
       memoryDraft = copy(memoryCapture, 'memory-capture-draft')
+      if (captureMetadata !== undefined) {
+        try { metadata = validateCaptureMetadata(captureMetadata) }
+        catch { fail('TARGET_MISMATCH', 'ui:fixed-capture-metadata-required') }
+      }
+    } else if (operation.action_type === 'memory.forget') {
+      try { forgetDraft = validateForgetReview(operation, recordSummary) }
+      catch { fail('TARGET_MISMATCH', 'ui:forget-record-review-missing-or-mismatched') }
     }
     if (operation.owner_id !== current.owner_id) fail('UNAUTHORIZED', 'ui:operation-owner-mismatch')
     checkExpiry(operation.expiry)
@@ -220,9 +268,11 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       rows: Object.keys(labels).map(key => ({ key, label: labels[key], value: operation[key], exact: canonicalJson(operation[key]) })),
       memory_review: memoryDraft ? { statement: memoryDraft.statement, attributed_to: memoryDraft.attributed_to,
         capture_sha256: operation.canonical_parameters.capture_sha256 } : null,
+      capture_metadata: metadata,
+      forget_review: forgetDraft ? { ...forgetDraft, canonical_sha256: operation.canonical_parameters.canonical_sha256 } : null,
     })
     presentations.set(presentation, { operation, digest, proofTemplate, request, owner_id: current.owner_id,
-      session_token: current.session_token, public_key: answer.public_key ? copy(answer.public_key) : undefined, memoryDraft })
+      session_token: current.session_token, public_key: answer.public_key ? copy(answer.public_key) : undefined, memoryDraft, forgetDraft })
     return presentation
   }
 
@@ -244,6 +294,9 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     if (record.operation.action_type === 'memory.save') {
       try { validateCaptureReview(record.operation.canonical_parameters, record.memoryDraft) }
       catch { fail('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
+    } else if (record.operation.action_type === 'memory.forget') {
+      try { validateForgetReview(record.operation, record.forgetDraft) }
+      catch { fail('TARGET_MISMATCH', 'ui:forget-record-review-missing-or-mismatched') }
     }
     checkExpiry(record.operation.expiry)
     checkExpiry(record.proofTemplate.expiry)
@@ -314,8 +367,7 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     return pending
   }
 
-  return Object.freeze({ login, prepareApproval, approve, decline,
-    logout() { session = null; authRevision++ },
+  return Object.freeze({ login, prepareApproval, approve, decline, logout,
     owner() { return session ? freeze({ owner_id: session.owner_id, expiry: session.expiry }) : null },
   })
 }

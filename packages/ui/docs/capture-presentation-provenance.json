@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "source_package": "@aukora-prime/memory",
+  "source_commit": "4e6d0336a286aa84e53479f0200d20d480ada5f8",
+  "source_path": "packages/memory/src/capture-presentation.mjs",
+  "copied_path": "packages/ui/adapters/capture-presentation.mjs",
+  "bytes": 3241,
+  "sha256": "3679ba8564e93fc5ff82e0e03336b638ad3794aa4d45c5d0dafa59495ac5aa91",
+  "license": "AGPL-3.0-or-later",
+  "copy": "exact bytes",
+  "purpose": "Informational Unicode display hints after independent exact pairing. No normalization, replacement, authority, or complete confusable detection.",
+  "owned_declaration": "packages/ui/adapters/capture-presentation.d.mts",
+  "owned_component": "packages/ui/prime-authority/src/client/MemoryCaptureHints.tsx",
+  "policy_reference": {
+    "source_path": "packages/memory/src/pilot-capture.mjs",
+    "source_commit": "4e6d0336a286aa84e53479f0200d20d480ada5f8",
+    "bytes": 4183,
+    "sha256": "2816e9e7a0e104e2336baeccb70a174ae066fc6b84684b76393578406e3d7532",
+    "usage": "Documented fixed new-capture policy displayed read-only; main gates mounting on independent host metadata checks. No private host validation or dynamic policy override is implemented in this component."
+  }
+}

@@ -10,7 +10,7 @@ import {createOwnerMemoryHttpCall} from './owner-memory-browser.mjs';
  * creates no identity, credential, session, listener or accepted host record.
  * Existing capability status must separately enable the native controller. */
 export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner}={}) {
- if(['connect','getSnapshot','subscribe','setApprovalAction','logout','disconnect','setCapabilities','capabilitiesUnavailable'].some(name=>typeof controller?.[name]!=='function'))throw new TypeError('UNAVAILABLE: native owner controller required');
+ if(['connect','getSnapshot','subscribe','setApprovalAction','setForgetAction','logout','disconnect','setCapabilities','capabilitiesUnavailable'].some(name=>typeof controller?.[name]!=='function'))throw new TypeError('UNAVAILABLE: native owner controller required');
  if(!ownerBinding||Object.getPrototypeOf(ownerBinding)!==Object.prototype
   ||Object.keys(ownerBinding).sort().join(',')!=='owner_id,passkeyProfile'
   ||typeof ownerBinding.owner_id!=='string'||!ownerBinding.owner_id.length
@@ -48,23 +48,24 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
     // Also fences a logout before a pending login has established an owner.
     if(!state.owner&&['logged_out','unavailable','expired'].includes(state.phase))revoke();
    });
-   controller.setApprovalAction(()=>workflow.approveAndSave());return workflow;
+   controller.setApprovalAction(()=>workflow.approveAndSave());
+   controller.setForgetAction(()=>forgetWorkflow.approveAndForget());return workflow;
   },
   get workflow(){return workflow;},
   get forgetWorkflow(){return forgetWorkflow;},
-  proposeSave(draft){const current=attached();controller.setApprovalAction(()=>current.approveAndSave());return current.proposeSave(draft);},
+  proposeSave:draft=>attached().proposeSave(draft),
   refresh:()=>attached().refresh(),
   // An explicit call after a fresh authenticated binding. Recovery reads C/D
   // facts and may deliver an already committed receipt; never replays an effect.
   recover:input=>attached().recover(input),
-  proposeForget(input){const current=attachedForget();controller.setApprovalAction(()=>current.approveAndForget());return current.proposeForget(input);},
+  proposeForget:input=>attachedForget().proposeForget(input),
   approveAndForget:()=>attachedForget().approveAndForget(),
   recoverForget:input=>attachedForget().recover(input),
   setCapabilities:value=>{attached();controller.setCapabilities(value);},
   capabilitiesUnavailable:()=>{attached();controller.capabilitiesUnavailable();},
   logout:()=>attached().logout(),
   dispose(){if(disposed)return;disposed=true;
-   try{if(workflow){workflow.dispose();forgetWorkflow.dispose();off?.();revoke();controller.setApprovalAction(null);controller.disconnect();}}
+   try{if(workflow){workflow.dispose();forgetWorkflow.dispose();off?.();revoke();controller.setApprovalAction(null);controller.setForgetAction(null);controller.disconnect();}}
    finally{off?.();revoke();}
   },
  });

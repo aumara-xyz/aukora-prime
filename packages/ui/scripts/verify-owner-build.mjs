@@ -3,6 +3,7 @@ import { readFile, readdir, lstat, stat, realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { resolve, join, relative, dirname, basename, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import {verifyOwnerTypeSources} from './publish-owner-types.mjs'
 
 export const OWNER_ID = '@aukora/prime-authority-ui'
 export const OWNER_CONFIG = `import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(OWNER_ID)}, [], { hostPhase: true })\n`
@@ -56,14 +57,14 @@ async function rootPath(root) {
   if ((await lstat(resolved)).isSymbolicLink()) fail('symlink-root')
   return realpath(resolved)
 }
-async function regularPath(root, path) {
+async function regularPath(root, path, directory = false) {
   root = await rootPath(root); pathName(path)
   let actual = root
   const parts = path.split('/')
   for (const [index, part] of parts.entries()) {
     actual = join(actual, part)
     const stat = await lstat(actual)
-    if (stat.isSymbolicLink() || (index === parts.length - 1 ? !stat.isFile() : !stat.isDirectory())) fail(`nonregular-input:${path}`)
+    if (stat.isSymbolicLink() || (index === parts.length - 1 && !directory ? !stat.isFile() : !stat.isDirectory())) fail(`nonregular-input:${path}`)
   }
   return actual
 }
@@ -137,7 +138,7 @@ export async function snapshotOwnerSources({ uiRoot, ownerRoot = join(uiRoot, 'p
   for (const path of await files(join(ownerRoot, 'src'))) inputs.push(await record(`prime-authority/src/${path}`, join(ownerRoot, 'src', path)))
   for (const path of ['package.json', 'tsconfig.client.json']) inputs.push(await record(`prime-authority/${path}`, join(ownerRoot, path)))
   for (const path of (await files(adapterRoot)).filter(path => !path.includes('/') && (path.endsWith('.mjs') || path.endsWith('.d.mts')))) inputs.push(await record(`adapters/${path}`, join(adapterRoot, path)))
-  for (const path of ['scripts/build-client.mjs', 'scripts/verify-owner-build.mjs', 'compatibility.json', 'baseline-manifest.json']) inputs.push(await record(path, join(uiRoot, path)))
+  for (const path of ['scripts/build-client.mjs', 'scripts/verify-owner-build.mjs', 'scripts/publish-owner-types.mjs', 'compatibility.json', 'baseline-manifest.json']) inputs.push(await record(path, join(uiRoot, path)))
   try { inputs.push(await record('docs/capture-review-provenance.json', join(uiRoot, 'docs/capture-review-provenance.json'))) } catch (error) { if (error.code !== 'ENOENT') throw error }
   for (const path of await files(join(layoutRoot, 'src'))) inputs.push(await record(`faces/layout/src/${path}`, join(layoutRoot, 'src', path)))
   for (const path of ['package.json', 'tsconfig.json', 'lib/client.js']) inputs.push(await record(`faces/layout/${path}`, join(layoutRoot, path)))
@@ -265,13 +266,14 @@ export function createOwnerReceipt({ sourceBefore, sourceAfter, buildBefore, bui
 
 export async function publishedOwnerOutputs(uiRoot) {
   const paths = ['prime-authority/lib/client.js', 'prime-authority/lib/client.js.map', 'prime-authority/lib/index.js']
-  for (const path of await files(join(uiRoot, 'prime-authority/lib/types'))) {
+  const typeRoot=await regularPath(uiRoot,'prime-authority/lib/types',true)
+  for (const path of await files(typeRoot)) {
     paths.push(`prime-authority/lib/types/${path}`)
   }
   for (const path of ['prime-authority/lib/types/client/index.d.ts', 'prime-authority/lib/types/client/controller.d.mts', 'prime-authority/lib/types/client/controller.mjs']) {
     if (!paths.includes(path)) fail(`missing-published-type:${path}`)
   }
-  return Promise.all(paths.sort((a, b) => a.localeCompare(b, 'en')).map(path => record(path, join(uiRoot, path))))
+  return Promise.all(paths.sort((a, b) => a.localeCompare(b, 'en')).map(async path => record(path, await regularPath(uiRoot,path))))
 }
 
 export async function verifyOwnerBuild({ uiRoot, receiptPath = join(uiRoot, 'prime-authority/lib/build.json'), dsh, primeRoot }) {
@@ -308,11 +310,8 @@ export async function verifyOwnerBuild({ uiRoot, receiptPath = join(uiRoot, 'pri
   const outputs = await publishedOwnerOutputs(uiRoot)
   assert.deepEqual(owner.output_artifacts, outputs.map(item => ({ ...item,
     output_path: item.path.replace('prime-authority/lib/', 'prime-authority/') })), 'ui-owner-build:output-artifact-mismatch')
-  for (const extension of ['mjs', 'd.mts']) {
-    const source = sources.find(item => item.path === `prime-authority/src/client/controller.${extension}`)
-    const output = outputs.find(item => item.path === `prime-authority/lib/types/client/controller.${extension}`)
-    if (source?.bytes !== output?.bytes || source?.sha256 !== output?.sha256) fail(`copied-controller-mismatch:${extension}`)
-  }
+  await verifyOwnerTypeSources({sourceClient:join(uiRoot,'prime-authority/src/client'),
+    adapterRoot:join(uiRoot,'adapters'),typeRoot:join(uiRoot,'prime-authority/lib/types')})
   for (const item of owner.output_artifacts.filter(item => /\/client\.js(?:\.map)?$/.test(item.path))) {
     const compiled = receipt.artifacts?.find(artifact => artifact.id === OWNER_ID && artifact.path === item.output_path)
     if (compiled?.bytes !== item.bytes || compiled.sha256 !== item.sha256) fail(`artifact-table-mismatch:${item.path}`)

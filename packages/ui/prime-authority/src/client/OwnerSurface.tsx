@@ -4,21 +4,33 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { Controller } from './controller.mjs'
 import { CAPABILITY_LABELS } from './controller.mjs'
 import { validateCaptureReview } from '../../../adapters/capture-review.mjs'
+import { validateCaptureMetadata } from '../../../adapters/capture-metadata.mjs'
+import { validateForgetReview } from '../../../adapters/forget-review.mjs'
+import { MemoryCaptureHints } from './MemoryCaptureHints'
 import css from './OwnerSurface.module.css'
 
 export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.surface'> & {controller:Controller}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
-  const busy = state.phase.endsWith('_pending') || state.approval_action_pending
+  const busy = state.phase.endsWith('_pending') || state.approval_action_pending || state.logout_status === 'pending'
   const locked = busy || state.phase === 'outcome_unknown'
   const view = state.presentation
-  let memoryReady = view?.operation.action_type !== 'memory.save'
+  const memoryAction = view?.operation.action_type === 'memory.save' || view?.operation.action_type === 'memory.forget'
+  let memoryReady = !memoryAction
   if (!memoryReady && view?.memory_review) {
     try {
       validateCaptureReview(view.operation.canonical_parameters, {
         statement: view.memory_review.statement, attributed_to: view.memory_review.attributed_to,
       })
       memoryReady = view.memory_review.capture_sha256 === (view.operation.canonical_parameters as {capture_sha256:string}).capture_sha256
-    } catch { /* Missing or changed memory content must remain unapprovable. */ }
+      if (view.capture_metadata) validateCaptureMetadata(view.capture_metadata)
+    } catch { memoryReady = false }
+  }
+  if (!memoryReady && view?.operation.action_type === 'memory.forget' && view.forget_review) {
+    try {
+      const {record_id,revision,statement,attributed_to,canonical_sha256} = view.forget_review
+      validateForgetReview(view.operation,{record_id,revision,statement,attributed_to})
+      memoryReady = canonical_sha256 === (view.operation.canonical_parameters as {canonical_sha256:string}).canonical_sha256
+    } catch { memoryReady = false }
   }
   return <section className={css.surface} hidden={activeSurface !== 'prime-owner'} data-prime-owner-surface data-phase={state.phase}>
     <SectionHeader className={css.header}><h1>Owner access and approvals</h1>
@@ -34,8 +46,12 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
       <div className={css.actions}>
         {!state.owner && state.login_kinds.map(kind => <ActionButton key={kind} disabled={busy || !state.owner_id || !state.authority_available || state.phase === 'unavailable'}
           onClick={() => { void controller.login(kind) }}>{kind === 'passkey' ? 'Sign in with passkey' : 'Sign in with owner key'}</ActionButton>)}
-        {state.owner && <ActionButton disabled={busy} onClick={() => controller.logout()}>Sign out</ActionButton>}
+        {state.owner && <ActionButton disabled={busy} onClick={() => { void controller.logout() }}>Sign out</ActionButton>}
       </div>
+      {state.logout_status !== 'idle' && <p role="status" data-server-logout-status={state.logout_status}>
+        {state.logout_status === 'confirmed' ? 'The host confirmed server logout.'
+          : state.logout_status === 'pending' ? 'Local access removed. Server logout is pending.' : 'Local access removed. Server logout is unconfirmed.'}
+      </p>}
     </Panel>
     <Panel className={css.card}>
       <h2>Exact operation</h2>
@@ -48,8 +64,24 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
           {memoryReady ? <><pre data-memory-statement>{view.memory_review!.statement}</pre>
             <p>Attribution</p><pre data-memory-attribution>{view.memory_review!.attributed_to}</pre>
             <p>Capture hash</p><pre data-memory-capture-hash>{view.memory_review!.capture_sha256}</pre>
-            <p>The operation digest below binds this exact statement and attribution. The host verifies the private capture.</p></>
+            <p>The operation digest below binds this exact statement and attribution. The host verifies the private capture.</p>
+            <MemoryCaptureHints statement={view.memory_review!.statement} />
+            {view.capture_metadata ? <dl data-fixed-capture-dates>
+              <dt>Source observed at</dt><dd><time>{view.capture_metadata.observed_at}</time></dd>
+              <dt>Valid from</dt><dd><time>{view.capture_metadata.valid_from}</time></dd>
+            </dl> : <p data-fixed-capture-dates-unavailable>The host has not supplied the capture dates.</p>}
+          </>
             : <p role="alert" data-memory-review-refused>The exact memory statement and attribution are missing or do not match the capture draft. Approval is unavailable.</p>}
+        </div>}
+        {view.operation.action_type === 'memory.forget' && <div data-memory-forget-review>
+          <h3>Exact original record for logical forget</h3>
+          {memoryReady ? <><p>Record</p><pre data-forget-record-id>{view.forget_review!.record_id}</pre>
+            <p>Revision</p><pre data-forget-revision>{view.forget_review!.revision}</pre>
+            <p>Original statement</p><pre data-forget-statement>{view.forget_review!.statement}</pre>
+            <p>Original attribution</p><pre data-forget-attribution>{view.forget_review!.attributed_to === null ? 'null' : view.forget_review!.attributed_to}</pre>
+            <p>Original canonical bytes hash</p><pre data-forget-canonical-hash>{view.forget_review!.canonical_sha256}</pre>
+            <p>Logical forget removes visibility. Canonical payloads, backups, WAL, authority history and physical media are retained.</p></>
+            : <p role="alert" data-forget-review-refused>The original record and exact literals are missing or changed. Approval is unavailable.</p>}
         </div>}
         <dl className={css.fields} data-exact-operation>{view.rows.map(row => <div key={row.key} data-operation-field={row.key}>
           <dt>{row.label} <code>({row.key})</code></dt><dd><pre>{row.exact}</pre></dd></div>)}</dl>
@@ -59,12 +91,12 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
         <p>Exact canonical operation</p><pre data-canonical-operation>{view.canonical_operation}</pre>
         <div className={css.actions}>
           <ActionButton variant="gold" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available || !memoryReady || busy ||
-              (view.operation.action_type === 'memory.save' && !state.approval_action_available)}
+              (memoryAction && !state.approval_action_available)}
             onClick={() => { void controller.submitApproval() }}>Approve exact operation</ActionButton>
           <ActionButton variant="red-warning" disabled={state.phase !== 'review_ready' || state.expired || !state.authority_available}
             onClick={() => { void controller.decline() }}>Decline</ActionButton>
         </div>
-        {view.operation.action_type === 'memory.save' && !state.approval_action_available && !state.approval_action_result &&
+        {memoryAction && !state.approval_action_available && !state.approval_action_result && !state.forget_action_result &&
           <p role="status" data-memory-action-unavailable>The memory approval workflow is unavailable.</p>}
       </>}
     </Panel>
@@ -84,6 +116,19 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
         <pre data-memory-effect-receipt>{JSON.stringify(state.approval_action_result.receipt, null, 2)}</pre></details>}
       {state.approval_action_result.citation && <details><summary>Exact citation</summary>
         <pre data-memory-citation>{JSON.stringify(state.approval_action_result.citation, null, 2)}</pre></details>}
+    </Panel>}
+    {state.forget_action_result && <Panel className={css.card} data-memory-forget-result>
+      <h2>Host logical-forget result</h2>
+      <dl className={css.fields}>
+        <div><dt>Approval</dt><dd>{state.forget_action_result.approval}</dd></div>
+        <div><dt>Logical forget</dt><dd data-forget-status>{state.forget_action_result.forget}</dd></div>
+        <div><dt>Authority settlement</dt><dd data-forget-settlement>{state.forget_action_result.authority_settlement ?? 'unconfirmed'}</dd></div>
+        <div><dt>Receipt digest</dt><dd><pre>{state.forget_action_result.receipt_digest ?? 'unconfirmed'}</pre></dd></div>
+      </dl>
+      {state.forget_action_result.forgotten && <p>Visibility was removed. Canonical payloads, external backups, WAL and physical media were not erased.</p>}
+      {state.forget_action_result.reconciliation_required && <p role="alert">Reconciliation is required. Do not retry this forget operation.</p>}
+      {state.forget_action_result.receipt && <details><summary>Exact host forget receipt</summary>
+        <pre data-forget-receipt>{JSON.stringify(state.forget_action_result.receipt,null,2)}</pre></details>}
     </Panel>}
     <p role="status" aria-live="polite" data-prime-authority-status>{state.reason}</p>
     {state.error_code && <p role="alert" className={css.error} data-authority-error={state.error_code}>{state.error_code}</p>}

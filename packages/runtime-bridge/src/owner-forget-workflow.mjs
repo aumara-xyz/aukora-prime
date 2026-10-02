@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Browser-safe logical-forget coordinator. H/B must explicitly hand off this
-// separate workflow; the existing save-shaped submitApproval hook cannot use it.
+// separate workflow through B's distinct logical-forget approval hook.
 import {canonicalJson,parseStrictJson,validateContract,ERROR_CODES} from '../../contracts/src/shared.mjs'
 
 const DIGEST=/^sha256:[a-f0-9]{64}$/,HEX=/^[a-f0-9]{64}$/
@@ -193,7 +193,7 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
           ownerReady();requireValue(digest===proposed.operation_digest&&DIGEST.test(digest),'OWNER_FORGET_OPERATION_DIGEST_REQUIRED')
           if(usedOperations.has(proposed.operation.operation_id))throw fault('REPLAYED','OWNER_FORGET_OPERATION_ALREADY_USED')
           Object.assign(entry,{operation:proposed.operation,summary:proposed.record_summary,digest,operation_json:canonicalJson(proposed.operation)})
-          controller.setOperation(entry.operation)
+          controller.setOperation(entry.operation,{recordSummary:entry.summary})
           if(!current(entry))return state
           active=entry;publish({phase:'proposed',operation:entry.operation,record_summary:entry.summary,operation_digest:digest,error_code:null})
           return state

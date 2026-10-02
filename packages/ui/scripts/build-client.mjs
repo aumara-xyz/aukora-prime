@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { faces } from '../adapters/mount-plan.mjs'
 import { snapshotOwnerSources, snapshotOwnerBuildInputs, inputDigest, createOwnerReceipt,
   verifyStableHarness, discoverPinnedWorkspace, compilerCommand, validateBuildDirectories, HARNESS_IDENTITY_PATH } from './verify-owner-build.mjs'
+import {publishOwnerTypeSources} from './publish-owner-types.mjs'
 
 // Prime's already materialized pinned third-party harness is the sole build input.
 // The source tree and frozen face bytes are never written; all compilation happens in a fresh overlay.
@@ -125,6 +126,8 @@ for (const face of entries) {
 }
 const targets = []
 const authorityDirectory = join(overlay, 'packages/client/aukora-prime-authority')
+const ownerLib=await lstat(join(authorityDirectory,'lib'))
+if(!ownerLib.isDirectory()||ownerLib.isSymbolicLink())throw new Error('ui-build:unsupported-owner-lib-seat')
 // Fresh owner outputs must come from this compilation, not a copied incremental cache.
 await rm(join(authorityDirectory, 'lib/types'), { recursive: true, force: true })
 await rm(join(authorityDirectory, 'lib/tsconfig.client.tsbuildinfo'), { force: true })
@@ -149,8 +152,8 @@ for (const face of selected) {
 }
 console.log('UI build type-checking exact face sources')
 await run(globalThis.process.execPath, ['--max-old-space-size=3072', await compilerCommand(overlay,'typescript'), '-b', ...targets], overlay, 'ui-build:client-typecheck')
-await cp(join(authorityDirectory, 'src/client/controller.mjs'), join(authorityDirectory, 'lib/types/client/controller.mjs'))
-await cp(join(authorityDirectory, 'src/client/controller.d.mts'), join(authorityDirectory, 'lib/types/client/controller.d.mts'))
+await publishOwnerTypeSources({sourceClient:join(authorityDirectory,'src/client'),
+  adapterRoot:adapterSeats[0],typeRoot:join(authorityDirectory,'lib/types')})
 const artifacts = []
 const ownerOutputs = []
 for (const face of selected) {

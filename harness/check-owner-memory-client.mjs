@@ -187,7 +187,7 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   const proposed=await f.client.proposeForget({record_id:'source-fixture-record'});
   assert.equal(proposed.phase,'proposed');assert.equal(proposed.record_summary.statement,literal);checks++;
   assert(await f.controller.prepare());
-  const one=f.approvalAction(),two=f.client.approveAndForget();assert.equal(one,two);
+  const one=f.controller.submitApproval(),two=f.controller.submitApproval();assert.equal(one,two);
   const uncertain=await one;assert.equal(uncertain.forgotten,null);assert.equal(uncertain.reconciliation_required,true);
   assert.equal(f.count('memory.forget'),1);assert.equal(f.count('memory.save'),0);checks++;
   await f.client.approveAndForget();assert.equal(f.count('memory.forget'),1);checks++;
@@ -208,7 +208,7 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   assert.equal((await f.client.recoverForget({operation_id:proposed.operation.operation_id})).recovery_status,'known_unsent');
   assert.equal(f.count('memory.forget'),0);assert.equal(f.count('owner.approvalComplete'),0);checks++;
   assert.equal((await f.client.proposeSave({extraction_json:JSON.stringify({statement:literal,category:'fact'}),idempotency_key:'source-after-unsent-forget'})).phase,'proposed');
-  assert(await f.controller.prepare());assert.equal((await f.approvalAction()).saved,true);
+  assert(await f.controller.prepare());assert.equal((await f.controller.submitApproval()).saved,true);
   assert.equal(f.count('memory.save'),1);assert.equal(f.count('memory.forget'),0);checks++;
  }finally{f.dispose();}
 }
@@ -223,6 +223,18 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   assert.equal(f.controller.getSnapshot().owner,null);assert.equal(f.client.forgetWorkflow.getSnapshot().record_summary,null);
   assert.equal(f.client.forgetWorkflow.getSnapshot().forgotten,false);assert.equal(f.client.forgetWorkflow.getSnapshot().reconciliation_required,true);checks++;
   await new Promise(resolve=>setImmediate(resolve));assert.equal(f.count('owner.logout'),1);checks++;
+ }finally{f.dispose();}
+}
+{
+ const f=fixture();try{
+  f.client.setCapabilities(caps);assert(await f.controller.login());
+  assert.equal((await f.client.proposeForget({record_id:'source-fixture-record'})).phase,'proposed');
+  assert(await f.controller.prepare());
+  const one=f.controller.submitApproval(),two=f.controller.submitApproval();assert.equal(one,two);
+  const result=await one;assert.equal(result.forgotten,true);assert.equal(result.result.physical_media_erasure,false);
+  assert.equal(result.authority_settlement,'completed');assert.equal(f.count('memory.forget'),1);assert.equal(f.count('memory.save'),0);checks++;
+  assert.equal(f.controller.getSnapshot().forget_action_result.forgotten,true);
+  assert.equal(f.controller.getSnapshot().approval_action_result,null);checks++;
  }finally{f.dispose();}
 }
 {
