@@ -107,7 +107,8 @@ async function forgottenReply(value,entry,stillCurrent){
 async function recoveryReply(value,entry,stillCurrent,retained){
   const reply=closed(copy(value),['ok','owner_id','owner_subject','task_id','operation_id','operation_digest','action_type','state','reconciliation_required',
     'result','receipt','receipt_digest','authority_settlement','citation','index'])
-  requireValue(reply.ok===true&&['idle','known_unsent','saved','forgotten','unknown'].includes(reply.state)
+  if(reply.state==='known_unsent')throw fault('RECONCILIATION_REQUIRED','OWNER_FORGET_UNSENT_CLOSURE_UNAVAILABLE')
+  requireValue(reply.ok===true&&['idle','saved','forgotten','unknown'].includes(reply.state)
     &&reply.reconciliation_required===(reply.state==='unknown'),'OWNER_FORGET_RECOVERY_REQUIRED')
   requireValue(reply.owner_id===entry.owner.owner_id&&/^aukora:1:[a-f0-9]{64}$/.test(reply.owner_subject)&&text(reply.task_id,1024),
     'OWNER_FORGET_RECOVERY_OWNER_REQUIRED')

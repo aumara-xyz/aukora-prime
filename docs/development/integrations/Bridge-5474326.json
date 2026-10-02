@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "lane": "Bridge fixture correction",
+  "integration_parent": "42acd62faf8b7848e00b2584e69997d0201cb890",
+  "source_commit": "54743267f775c0d2bff1bdb502ee8735355b56f5",
+  "source_pin": "3f71aab044d5d1d821e5c6cc6d826c95532f50ef",
+  "patch": "known-unsent-fixture.patch",
+  "patch_sha256": "df30f5b3269feafb5d46ad6e40da53f3fd153544b98f58fe3868563992c1b923",
+  "files": [
+    {
+      "path": "packages/runtime-bridge/test/owner-memory-facade.test.mjs",
+      "preimage_sha256": "449620a7e1698ab3d67fef4c1194b988e33e59bdc7285f4162cde5199fd85288",
+      "sha256": "1abbdf3d701d0b44133c232176d294f3c8c9c12c800e3c6c25a31971070227a2"
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "package_adaptations": [],
+  "lane_check": {
+    "status": "RAN_PASS",
+    "node": "v24.11.1",
+    "command": "PRIME_OWNER_MEMORY_SOURCE_PIN=3f71aab044d5d1d821e5c6cc6d826c95532f50ef /usr/local/bin/node --test --test-reporter=tap --test-name-pattern='H new binding retains a reviewed unsent proposal' packages/runtime-bridge/test/owner-memory-facade.test.mjs",
+    "pass": 1,
+    "fail": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "duration_ms": 858.225167,
+    "log": "handoff/known-unsent-3f71aab-focused.tap",
+    "log_sha256": "7b214dd562b65d91bdad0e30d00f0f574eb09714194481f59da65dec4a860e0d",
+    "whitespace": "PASS"
+  },
+  "scope": "One fixture file only; no production source or NEXT index changes.",
+  "limits": [
+    "Synthetic P-256 and actual B/C/D/H source with disposable SQLite dialect fixture.",
+    "The retained fixture row is an actual proposed reference; no legacy known_unsent row is fabricated.",
+    "No broader facade suite, provider request, real enrollment, PostgreSQL or installed runtime qualification was performed."
+  ],
+  "production_changes": false,
+  "root_test_rerun": false
+}

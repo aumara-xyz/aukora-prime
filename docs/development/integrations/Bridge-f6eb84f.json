@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "lane": "Bridge",
+  "status": "SOURCE_ONLY_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "390bcacfb934edcbd9ac737a9945fcab35ee7743",
+  "source_commit": "f6eb84f18700b8d38af68f4d0ec54b06e058a97f",
+  "source_seed": "95e81960ee550323af08a734a3028abf4d3925c1",
+  "patch": "runtime-bridge-fbbb1ae-diagnostic-pilot.sanitized.patch",
+  "patch_sha256": "327254b42ac55981dccc217501333f5c0fe2f12fcc14b10a745f743b2b0863cc",
+  "import": "Exact runtime-bridge-only delta; no lane ancestry imported",
+  "files": [
+    {
+      "path": "packages/runtime-bridge/DIAGNOSTIC-PILOT.md",
+      "sha256": "13a2975994a33d1a4092e3c3812751ecb197ca3986b84ef8323bcaf7913b28ae",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/README.md",
+      "sha256": "b846b0bbbd613328dc5c86e50cec9b12852bdefe4402fd19a1760e907f596e06",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/index.mjs",
+      "sha256": "4d24be9722d9bf58107205d0b2c50feb92e7dc5259bf498954586c7ad36576d0",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/owner-forget-workflow.mjs",
+      "sha256": "fd2d5e52bbb0a6ece85235cfd53b49c89c70d4db1632e2d7379472eaa827e61a",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/owner-memory-workflow.d.mts",
+      "sha256": "bfc611ce3bffcc0ec01f8a008b065eb34dcaf581c155e4f3600ba0a3bb5b4972",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/owner-memory-workflow.mjs",
+      "sha256": "f22ba1db1c71708dc03317816d1679dcf9164bc4d07a810ff2d563fc77dbab3a",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/recovery.mjs",
+      "sha256": "b1dab44fece4fd3ae30eee4dd62145a2a445ad64e4adbf1c184327fa4ebed802",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/ui-adapter.mjs",
+      "sha256": "780756f8016a014594a865e226cb8827ee1f85ebbadac829c4be180c2b4c95bf",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/worker.mjs",
+      "sha256": "406fae4e98709e8b6d7c466ef1cafbc833e3c38bbfd96f399c8436692de93e88",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/runtime-bridge/src/workflow-store.mjs",
+      "sha256": "8f308abf47fe24a1003a5bc09906cb5b01a303fb77ac92b2e6270f23f60f167a",
+      "matches_handoff": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "patch_matches_commit_delta": true,
+    "all_preimages_match": true,
+    "all_postimages_match": true
+  },
+  "interfaces": {
+    "workflow_recall": "recall({query,limit}) -> MemoryRecallSnapshot; getRecallSnapshot(); subscribe()",
+    "B_save_contract": "getSnapshot/approve/save/recover closed shape unchanged",
+    "recall_response": "existing input; response adds C-derived owner_id,owner_subject,task_id",
+    "worker_private_config": {
+      "indexProjection": {
+        "profile": "prime-memory-outbox-projector/v1",
+        "batch_limit": "integer1..100"
+      }
+    },
+    "index_projection": "one private D flight, max32 coalesced owner contexts; scheduling follows fulfilled IPC receipt response; no effect replay",
+    "W1": "read-time known_unsent promotion OFF; legacy labels stay activeunknown; both client workflows refuse them"
+  },
+  "host_followup": "Expose recall/getRecallSnapshot on the existing H native memory client; keep save/recovery/recall snapshots distinct",
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "index_projection_configured": false,
+  "W1_closure_enabled": false
+}

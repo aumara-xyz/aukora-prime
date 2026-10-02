@@ -6,6 +6,14 @@ H owns the app mount and route qualification. C owns proof/session verification,
 reservation, dispatch and settlement. D owns transactional memory effects and
 the live target observation under its owner database lock.
 
+The isolated next-development pilot adds workflow recall, refreshable completed
+save recovery and opt-in private outbox projection. W1 read-time closure remains
+off and retains reconciliation duties. Focused inference and exact controller-
+witness checks ran after owner approval on isolated source snapshots; their
+commands and limits are in the handoff. Installed activation remains unperformed.
+See [the diagnostic pilot interfaces
+and acceptance steps](DIAGNOSTIC-PILOT.md) for B/E/H integration dependencies.
+
 ```js
 const taskRegistry = createTrustedTaskRegistry(trustedRegistryEntries)
 let memory
@@ -135,15 +143,15 @@ the owners of consumption, durable intent, effect and settlement evidence.
 `memory.recover` discovers active references and reads actual C status and D
 `reconcileEffect`. D may resend only its retained committed receipt. An unresolved
 intent, uncertain attempted call, unavailable binding or missing effect stays
-unknown; fresh proposal/dispatch remains blocked. A never-dispatched proposal
-with matching unconsumed C status and no D intent becomes `known_unsent`, closing
-that old proposal permanently. It permits a fresh key and exact review. Active
-reference overflow refuses without dropping unknown history.
+unknown; fresh proposal/dispatch remains blocked. W1 read-time closure is off:
+matching C status and a missing D effect do not close a proposal. Legacy
+`known_unsent` journal labels also remain active unknown duties. Active reference
+overflow refuses without dropping unknown history.
 
 The closed response is `{ok,owner_id,owner_subject,task_id,operation_id,
 operation_digest,action_type,state,reconciliation_required,result,receipt,
 receipt_digest,authority_settlement,citation,index}`. `state` is `idle`,
-`known_unsent`, `saved`, `forgotten` or `unknown`; null operation ID selects active
+`saved`, `forgotten` or `unknown`; null operation ID selects active
 blockers first, then the most recent reference. C/D completed receipt facts bind
 the result. Citation/index reads may be unavailable without undoing a confirmed
 save. Recovery never reconstructs an operation/proof from that result, retries an
@@ -153,8 +161,10 @@ through worker restarts; a record snapshot alone cannot replace this journal.
 After ordinary owner login on remount, H calls `workflow.recover()` on its fresh
 controller/workflow binding. The helper validates owner/reference/digest and
 receipt bindings, exposes recovered saved facts, and retains unknown fences.
-Its local closure supplements these server fences. `refresh()` remains reads
-only; `recover()` can resend a factual settlement receipt through D.
+The helper refuses legacy unsent labels as closure evidence. `refresh()` remains
+read-only, including after validated completed-save recovery; `recover()` can
+resend a factual settlement receipt through D. Recall is exposed separately by
+`getRecallSnapshot()` so B's closed approval/save result remains unchanged.
 
 `workflow.logout()` removes local controller access immediately, then calls the
 same adapter's authenticated `owner.logout` route, forwarding exactly to C's
@@ -392,6 +402,12 @@ witness records original-byte digest and retained citation head. The read phase
 verifies exact bytes and C settlement across service restart. H must separately
 observe actual PostgreSQL/version/fsync and distinct UID/ACL properties. This
 source and its same-UID SQLite worker fixture do not supply those observations.
+## Source-only inference connection
+
+The separate private `inference_effect` transport, trusted observer and C/E
+connection are documented in [docs/inference-join.md](docs/inference-join.md).
+The earlier E intent/outbox and C profile dependencies are now imported source; E’s shared continuation joins them in the [recorded connected mock pilot](../../docs/evidence/next-dsh-pilot-e994789.json). See the [current join decision](../../docs/development/INFERENCE-JOIN-DECISION.md) and [shared continuation](../inference/private-continuation.md). Focused keyless source checks retain their own scope. A qualified protected host connection, native interactive producer, installed activation and real provider requests remain UNPERFORMED. The source adds no public route.
+
 # Synthetic private C/D PostgreSQL fixture
 
 The fixture entry points, closed configuration/signing grammar, H/operator

@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "definition_id": "prime-openshell-workload-amd64-v1",
+  "status": "SOURCE_ONLY_UNQUALIFIED",
+  "platform": "linux/amd64",
+  "openshell_source_commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+  "sdk_package_version": "0.0.0",
+  "base": {
+    "reference": "docker.io/library/debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+    "manifest_digest": "sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+    "config_digest": "sha256:db9f02c6bde9fa90cc8074c92754b2b046947392f1a857726e77f041febb7b82",
+    "layer_bytes_verified": false
+  },
+  "build_context_files": [
+    {
+      "path": "runtime/image/Dockerfile",
+      "sha256": "sha256:0959ba515cbd84e7f067f6e902931916669e62a7c4ee62f0707d1b15e69e9d4c"
+    },
+    {
+      "path": "runtime/image/.dockerignore",
+      "sha256": "sha256:dff903861d9f0c39b4b107cf206243154443e801c48042429b6eaeaa311c9f64"
+    }
+  ],
+  "profile_source_files": [
+    {
+      "path": "src/create-profile.mjs",
+      "sha256": "sha256:870d981f5caad4db0997b6180a6691182074d816687ad2a1bc6a7160b288d9bf"
+    },
+    {
+      "path": "src/policy.mjs",
+      "sha256": "sha256:591422ad53d2c2477d5e2367ffa2b3669adebe747dda77281e2967f2dbf88c7e"
+    }
+  ],
+  "metadata_files": [
+    {
+      "path": "runtime/pins.json",
+      "sha256": "sha256:83ff42b744792e41192e9b4b529aee63d56040e6bd1219f2fc22d5329d5c98df"
+    },
+    {
+      "path": "runtime/registry-metadata.json",
+      "sha256": "sha256:2e6c8c029ccf967157b00b946d6793fbf7198d289cdb71bb36ff13acbc2c3adf"
+    },
+    {
+      "path": "runtime/pilot-official-metadata.json",
+      "sha256": "sha256:e11264312acc42ae7ad83959c1eb69c97b481ddcb72497455dca12cf179f9b97"
+    }
+  ],
+  "build": {
+    "status": "UNPERFORMED",
+    "context": "runtime/image",
+    "network": "none",
+    "source_date_epoch": 1790564896,
+    "provenance": false,
+    "output": "single_platform_oci_image",
+    "rewrite_timestamp": true,
+    "required_tools": {
+      "docker_engine": "5:29.8.2-1~ubuntu.24.04~noble",
+      "docker_buildx": "0.37.1-1~ubuntu.24.04~noble",
+      "buildkit": "0.33.1",
+      "actual_versions_observed": false
+    }
+  },
+  "expected_image_config": {
+    "User": "1000:1000",
+    "WorkingDir": "/sandbox",
+    "Entrypoint": [
+      "/bin/bash"
+    ],
+    "Cmd": [
+      "-c",
+      "exit 0"
+    ],
+    "Volumes": null,
+    "HOME": "/sandbox"
+  },
+  "execution_workdir": "/sandbox/work",
+  "expected_output": {
+    "workload_image_config_digest": null,
+    "workload_oci_manifest_digest": null
+  },
+  "rebuild_equality_verified": false,
+  "runtime_qualified": false,
+  "publish_required": false
+}

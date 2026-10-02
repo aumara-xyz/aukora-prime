@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "lane": "C",
+  "status": "SOURCE_PROPOSAL_IMPORTED_NO_RUNTIME_IMPLEMENTATION",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "86f24bcf72ce0a4199e385f976966d9bd3e28b27",
+  "source_commit": "01aec8a03bd0872310cd4d68f087f22161094eff",
+  "patch": "authority-next-inference-proposal-reviewed.patch",
+  "patch_sha256": "dee092f07d782b269de3d65462cdead46cfe9c670ba1444c7b1fe10bb411b2d9",
+  "files": [
+    {
+      "path": "packages/authority/docs/next-inference-interface-proposal.md",
+      "sha256": "d8636018805cd97b65465cd552d233eb542398cac0c40f902ce401f82e1a019f",
+      "matches_source_commit": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "patch_matches_commit_delta": true,
+    "preimage_absent": true,
+    "postimage_matches": true
+  },
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "scope": "C reviewed E12-field binding and inference digest/evidence profile; actual C inference lifecycle, E durable intent/outbox and private bridge role remain unimplemented."
+}

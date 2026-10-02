@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "lane": "C",
+  "status": "SOURCE_ONLY_IMPORTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "000451015feb547aa6845d687eb3808cf3effdb6",
+  "source_commit": "aa719a7a321416a8668d299efc47cafdd72523dd",
+  "source_patch_base": "9783feba4f73f942bec21186c582dc90b15d7b7f",
+  "patch": "authority-next-inference-settled.patch",
+  "patch_sha256": "f364c8e9e0599319d868b4072e808f8fcb547bbccb08bc97939e1b8a17ac6db0",
+  "files": [
+    {
+      "path": "packages/authority/README.md",
+      "sha256": "c96f4cb5514e9d10f302f376741730be40c47b1dec88cd6fcb45e7000bc00db1",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/docs/inference-authority-source.md",
+      "sha256": "3d35d33f499653003056ed7a64a61824e1da0f76813f76ddf89e1cc14321bd7f",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/docs/next-inference-interface-proposal.md",
+      "sha256": "f74b4838e02bf28db2d2ae0f485af24866a7603c52faee38eddb592da9aaf507",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/package.json",
+      "sha256": "04a96fd6e3f56a75e2033770d18b8176c64f1e3eddce1458bde0256879acd860",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/provenance/CHANGES.md",
+      "sha256": "d00792d4cd96269a1d434366d5ebe84275f9b41b311667184ab9d9f54bd3e112",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/src/index.mjs",
+      "sha256": "07e150ffadd6d0ed98e74f9c61b14124b8400179a0e3aa32cfdacef9fd7bf595",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/src/inference-admission.mjs",
+      "sha256": "dae12cbf6dbe51f413feb6511e2511e7374452650fd1fc71985199f44bc0b5c1",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/src/inference-effect.mjs",
+      "sha256": "de779778e323e3829885c6d9b9fae2fbd0038dc0c7f2a0853dbaf40e79d8e1d4",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/src/inference-profile.mjs",
+      "sha256": "9762ad4128adcb5407dfa514d5e26865b82f480c2257b60599675477430407be",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/src/retention.mjs",
+      "sha256": "4794d8034ec956b5c53a25f210e2b92a5d8a9f8edb763d097c1d62a852ee27e3",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/src/service.mjs",
+      "sha256": "3f344d5e750c45cd6a6d5cd0b498d2acb6d6a88ae277c49a007dad55a7dcb932",
+      "matches_source_commit": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "all_preimages_match": true,
+    "all_postimages_match": true
+  },
+  "source_review": "Two independent source reviews found no concrete import blocker. Exact worker settlement payload, original rate accounting, retained unknown reconciliation, terminal compaction and historical acknowledgement match the selected decision. Generic requestCancel remains excluded from inference_effect.",
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "limits": [
+    "Lane C focused checks and peer-resolution evidence pending.",
+    "E worker intent/outbox remains held for a final pre-transport expiry fence.",
+    "Bridge inference_effect scoped worker join and one keyless integration smoke remain pending."
+  ]
+}

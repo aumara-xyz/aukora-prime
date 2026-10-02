@@ -28,6 +28,13 @@ const PRIVATE_ROLES = Object.freeze(['memory_effect'])
 const PRIVATE_METHOD_ROLES = Object.freeze(Object.fromEntries(PRIVATE_AUTHORITY_METHODS.map(method=>[method,PRIVATE_ROLES])))
 const PUBLIC_PROFILE = Object.freeze({roles:ROLES,methods:IPC_METHOD_ROLES})
 const AUTHORITY_PROFILE = Object.freeze({roles:PRIVATE_ROLES,methods:PRIVATE_METHOD_ROLES})
+// This is a separate fixed profile, never a union with memory/public privileges.
+export const INFERENCE_AUTHORITY_METHODS = Object.freeze(['authority.propose','authority.loginChallenge','authority.loginComplete',
+  'authority.authenticateSession','authority.logoutSession','authority.approvalChallenge','authority.approvalComplete','authority.declineApproval',
+  'authority.status','authority.reserve','authority.claimDispatch','authority.settleInference','authority.reconcileInferenceSettlement'])
+const INFERENCE_ROLES = Object.freeze(['inference_effect'])
+const INFERENCE_METHOD_ROLES = Object.freeze(Object.fromEntries(INFERENCE_AUTHORITY_METHODS.map(method=>[method,INFERENCE_ROLES])))
+const INFERENCE_PROFILE = Object.freeze({roles:INFERENCE_ROLES,methods:INFERENCE_METHOD_ROLES})
 const mutation = method => ![...reads,'authority.authenticateSession','authority.status'].includes(method)
 const DEFAULTS = Object.freeze({maxFrameBytes:65_536, maxOutputBytes:65_536, maxConnections:8,
   maxInflight:8, maxInflightPerConnection:2, handshakeTimeoutMs:2_000,
@@ -63,7 +70,9 @@ function closed(value,keys) {
 const fail = (code,reason) => Object.assign(new Error(reason),{code,error_code:code})
 const refusal = (error_code,reason) => ({ok:false,error_code,reason})
 function parse(bytes,bounds) {
-  const text = new TextDecoder('utf-8',{fatal:true}).decode(bytes)
+  // Preserve a BOM so the frozen strict parser rejects it; do not strip bytes
+  // into a different canonical ingress on any profile.
+  const text = new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes)
   const value = parseStrictJson(text,{maxBytes:bounds.maxFrameBytes,maxDepth:32})
   if (canonicalJson(value) !== text) throw fail('INVALID','IPC_CANONICAL_FRAME_REQUIRED')
   return value
@@ -128,6 +137,7 @@ async function socketPath(path,access,side) {
 // listeners cannot be configured to accept a union of roles or method sets.
 export const createIpcServer = options => createServer(options,PUBLIC_PROFILE)
 export const createAuthorityIpcServer = options => createServer(options,AUTHORITY_PROFILE)
+export const createInferenceAuthorityIpcServer = options => createServer(options,INFERENCE_PROFILE)
 async function createServer({socketPath:path,credentials,handlePublic,limits:inputLimits,socketAccess},profile) {
   const bounds = limits(inputLimits),access=await socketPath(path,socketAccess,'server')
   if (!Array.isArray(credentials) || !credentials.length || credentials.length > 64 || typeof handlePublic !== 'function')
@@ -215,6 +225,7 @@ async function createServer({socketPath:path,credentials,handlePublic,limits:inp
 
 export const createIpcClient = options => createClient(options,PUBLIC_PROFILE)
 export const createAuthorityIpcClient = options => createClient(options,AUTHORITY_PROFILE)
+export const createInferenceAuthorityIpcClient = options => createClient(options,INFERENCE_PROFILE)
 async function createClient({socketPath:path,credential,limits:inputLimits,socketAccess},profile) {
   const bounds=limits(inputLimits);await socketPath(path,socketAccess,'client')
   closed(credential,['id','secret'])

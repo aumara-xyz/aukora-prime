@@ -70,7 +70,9 @@ const immutable = value => {
 /** Observable presentation owner; only the injected host can authenticate or approve. */
 export function createPrimeOwnerController({ now = Date.now, schedule = setTimeout, unschedule = clearTimeout } = {}) {
   const listeners = new Set()
+  const connectionWitnesses = new WeakMap()
   let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture, captureMetadata, recordSummary
+  let connectionGeneration = 0, disposed = false
   let logoutFlight = null
   let approvalAction = null, forgetAction = null, approvalFlight = null, approvalActionBlocked = false
   let reconciliation = null, recoveryFlight = null, actionGeneration = 0, settledPresentation = null
@@ -81,7 +83,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
     approval_action_available:false, approval_action_pending:false, approval_action_result:null, forget_action_result:null,
     logout_status:'idle', logout_error_code:null })
   const notify = patch => { state = Object.freeze({ ...state, ...patch }); for (const listen of listeners) listen() }
-  const stopTimer = () => { if (timer) unschedule(timer); timer = undefined }
+  const stopTimer = () => { const selected = timer; timer = undefined; if (selected) unschedule(selected) }
   const checkExpiry = () => {
     stopTimer()
     // A recovered applied receipt consumes its old review. Only the live owner
@@ -260,19 +262,41 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
   const api = {
     getSnapshot: () => state,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
-    connect(next) {
+    connect(next, { onConnection } = {}) {
+      if (disposed) return null
+      // Separate from session/operation revisions: only binding replacement,
+      // disconnection or disposal invalidates this connection witness.
+      const connection = ++connectionGeneration
+      const connecting = () => !disposed && connectionGeneration === connection
+      let completed = false, selected
+      const witness = Object.freeze({ isCurrent: () => completed && connecting() && binding === next && transport === selected })
+      connectionWitnesses.set(witness, connection)
+      // The native lifecycle must retain ownership before any synchronous
+      // notification can remove its scope. Completion remains false until end.
+      if (onConnection) onConnection(witness)
+      if (!connecting()) return null
       reconciliation = null; settledPresentation = null
-      cancelApprovalAction(); approvalAction = null; forgetAction = null
+      cancelApprovalAction()
+      if (!connecting()) return null
+      approvalAction = null; forgetAction = null
       const previous = transport
       const hadPending = !!pending
-      ++revision; pending?.abort.abort(); pending = undefined; transport = undefined; stopTimer(); operation = undefined; ownerKind = undefined; memoryCapture = undefined; captureMetadata = undefined; recordSummary = undefined
+      ++revision; pending?.abort.abort()
+      if (!connecting()) return null
+      stopTimer()
+      if (!connecting()) return null
+      pending = undefined; transport = undefined
+      operation = undefined; ownerKind = undefined; memoryCapture = undefined; captureMetadata = undefined; recordSummary = undefined
       if (previous && (previous.owner() || hadPending || logoutFlight)) {
         revokeTransport(previous, { owner:null, presentation:null, operation_available:false, approval_action_pending:false, approval_action_result:null, forget_action_result:null }, false)
       } else if (previous) { void previous.logout() }
+      if (!connecting()) return null
       binding = next
       try {
-        transport = createPrimeTransport({ authority: next.authority, contracts: next.contracts,
+        selected = createPrimeTransport({ authority: next.authority, contracts: next.contracts,
           ownerSigner: next.ownerSigner, passkeySigner: next.passkeySigner ?? createBrowserPasskeySigner({ contracts: next.contracts, profile:next.passkeyProfile }), now })
+        if (!connecting() || binding !== next) return null
+        transport = selected
         const available = next.requiresCapabilities !== true
         notify({ phase: available ? 'logged_out' : 'unavailable', owner: null, owner_id: next.owner_id ?? '', presentation: null, operation_available: false,
           login_kinds: Object.freeze((next.loginKinds ?? ['passkey']).filter(kind => kind === 'passkey' || kind === 'owner_key')),
@@ -281,8 +305,18 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
           ...(!logoutFlight ? {logout_status:'idle',logout_error_code:null} : {}),
           expired: false, error_code: available ? null : 'UNAVAILABLE', reason: available
             ? 'Sign in with an existing credential. The host must confirm your identity.' : 'Owner access is unavailable until the host supplies its capability status.' })
+        if (!connecting() || binding !== next || transport !== selected) return null
         if (next.operation) api.setOperation(next.operation, { memoryCapture: next.memoryCapture, captureMetadata: next.captureMetadata, recordSummary: next.recordSummary })
-      } catch (error) { transport = undefined; fail(error) }
+        if (!connecting() || binding !== next || transport !== selected || next.operation && !operation) return null
+        // An opaque, read-only lifetime witness. It carries no owner/session,
+        // capability, proof or authority material and performs no request.
+        completed = true
+        return witness
+      } catch (error) {
+        // A synchronous observer may already have established a replacement.
+        if (connecting()) { transport = undefined; fail(error) }
+        return null
+      }
     },
     setCapabilities(value) {
       const capabilities = validateCapabilities(value)
@@ -504,15 +538,29 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         approval_action_pending:false, approval_action_result:null, forget_action_result:null, approval_action_available:!!configuredAction() && !approvalActionBlocked,
         reason:'Local access was removed. Waiting for the server logout response.', error_code:null }, true)
     },
-    disconnect() {
-      reconciliation = null; settledPresentation = null
-      cancelApprovalAction(); approvalAction = null; forgetAction = null
+    disconnect(expectedWitness) {
+      // This also admits our still-connecting lifetime. A retained old witness
+      // cannot remove any later connection, even one to the identical binding.
+      if (expectedWitness !== undefined && connectionWitnesses.get(expectedWitness) !== connectionGeneration) {
+        return Promise.resolve(Object.freeze({ok:false,error_code:'UNAVAILABLE',reason:'ui:binding-disconnect-superseded'}))
+      }
+      const connection = ++connectionGeneration
       const previous = transport
-      ++revision; pending?.abort.abort(); pending = undefined; transport = undefined; ownerKind = undefined; operation = undefined; memoryCapture = undefined; captureMetadata = undefined; recordSummary = undefined; stopTimer()
+      const disconnecting = () => connectionGeneration === connection
+      const superseded = () => Promise.resolve(Object.freeze({ok:false,error_code:'UNAVAILABLE',reason:'ui:binding-disconnect-superseded'}))
+      reconciliation = null; settledPresentation = null
+      cancelApprovalAction()
+      if (!disconnecting()) return superseded()
+      approvalAction = null; forgetAction = null
+      ++revision; pending?.abort.abort()
+      if (!disconnecting()) return superseded()
+      stopTimer()
+      if (!disconnecting()) return superseded()
+      pending = undefined; transport = undefined; ownerKind = undefined; operation = undefined; memoryCapture = undefined; captureMetadata = undefined; recordSummary = undefined
       return revokeTransport(previous, { phase:'unavailable',owner:null,presentation:null,operation_available:false,expired:false,error_code:'UNAVAILABLE',reason:'Authority transport is unavailable.',authority_available:false,
         approval_action_available:false,approval_action_pending:false,approval_action_result:null,forget_action_result:null }, false)
     },
-    dispose() { void api.disconnect(); listeners.clear() },
+    dispose() { disposed = true; void api.disconnect(); listeners.clear() },
   }
   return Object.freeze(api)
 }

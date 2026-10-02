@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "date": "2026-10-02",
+  "authorization": "Parent relayed Peter explicit approval for needed focused keyless local tests, avoiding repetitive unchanged suites.",
+  "status": "RAN_SCOPED_NOT_PRODUCT_QUALIFICATION",
+  "committed_baseline": "36cdbeee3e4bb746799fcef1186595c593f0880d",
+  "candidate_patches": [
+    {
+      "name": "H-exact-native-ack.patch",
+      "sha256": "34b1a09976b73d412cb5a1ceb43bb64f39750a4e3da49984e1a56b5143dc9f21",
+      "status": "HELD_OUTSIDE_COMMITTED_BRANCH"
+    },
+    {
+      "name": "B-01c8e727-held.patch",
+      "sha256": "d19982ef8bcae3f10856577750e6486ed168b6a188ba3fecc201a0f52b6d6870",
+      "status": "HELD_OUTSIDE_COMMITTED_BRANCH"
+    }
+  ],
+  "checks": [
+    {
+      "command": "node harness/check-owner-memory-transport.mjs",
+      "result": "PASS",
+      "assertions": 61,
+      "implementation_question": "Does owned registration dispose and roll back all exact routes while fencing pending body/IPC admission?",
+      "scope": "In-memory streams and fake dispatcher; transport files unchanged from committed baseline."
+    },
+    {
+      "command": "node harness/check-owner-memory-client.mjs",
+      "result": "PASS",
+      "checks": 95,
+      "before_C_import": true,
+      "initial_failures": "Two outdated known_unsent expectations failed; H fixture now asserts retained/refused RECONCILIATION_REQUIRED without clearing evidence."
+    },
+    {
+      "command": "node --test harness/check-owner-memory-recovery.mjs",
+      "result": "PASS",
+      "tests": 6,
+      "before_C_import": true
+    },
+    {
+      "command": "node --test --test-name-pattern='H recovered actual save updates' harness/check-owner-memory-recovery.mjs",
+      "result": "PASS",
+      "tests": 1,
+      "after_C_import": "36cdbeee3e4bb746799fcef1186595c593f0880d",
+      "candidate_B_H_patches_present": true,
+      "reason": "C changes shared policy and terminal retention; verify the actual memory save/recovery boundary once after import."
+    }
+  ],
+  "initial_failures_retained": [
+    "Memory client check first failed expecting idle for known_unsent recovery. Bridge intentionally keeps the proposal and reports RECONCILIATION_REQUIRED.",
+    "After fixing that assertion, the next check failed expecting known_unsent for forget recovery. Bridge intentionally returns refused with RECONCILIATION_REQUIRED. Both fixture corrections are preserved in pending H patch."
+  ],
+  "unperformed": [
+    "Combined inference/memory integration smoke: awaits B cleanup correction, E expiry correction and Bridge inference_effect join.",
+    "Native Cordis lifecycle/browser UI/build qualification.",
+    "C inference profile peer resolution and factual settlement execution; lane evidence pending.",
+    "Full prime verify (not requested; no unchanged aggregate run).",
+    "Real PostgreSQL, actual owner ceremony, credential custody, paid/provider calls and runtime activation."
+  ]
+}

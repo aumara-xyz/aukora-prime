@@ -12,6 +12,7 @@ import * as contracts from '../packages/contracts/src/browser.mjs';
 import {createPrimeOwnerController} from '../packages/ui/prime-authority/src/client/controller.mjs';
 import {createOwnerUiFixture} from '../packages/ui/prime-authority/checks/fixture.mjs';
 import {createOwnerMemoryClient} from './owner-memory-client.mjs';
+import {createOwnerMemoryNativeBinding} from './owner-memory-native.mjs';
 import {createOwnerMemoryHost} from './owner-memory-host.mjs';
 import {createOwnerMemoryHttpRoutes} from './owner-memory-transport.mjs';
 import {createLocalhostPilotGuard} from '../packages/runtime-bridge/src/pilot-origin.mjs';
@@ -33,7 +34,7 @@ const guardRequest=createLocalhostPilotGuard(ownerBinding.passkeyProfile);
 const connection={requestRejection:()=>undefined};
 const digest=(domain,value)=>'sha256:'+createHash('sha256').update(domain+'\0'+contracts.canonicalJson(value)).digest('hex');
 
-function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=false,onClearHook}={}){
+function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=false,onClearHook,reconcile}={}){
  const base=createOwnerUiFixture(contracts),calls=[];
  let saved,forgotten,proposed,holdLogin,releaseLogin;
  const entered=new Promise(resolve=>{holdLogin=resolve;});
@@ -116,19 +117,27 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   return new Response(body,{status,headers});
  };
  const controller=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}});
- const joinedController={...controller,setApprovalAction(handler){if(handler===null)onClearHook?.();return controller.setApprovalAction(handler);}};
- const client=createOwnerMemoryClient({controller:joinedController,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner});
+ const joinedController={...controller,setApprovalAction(handler){if(handler===null)onClearHook?.();return controller.setApprovalAction(handler);},
+  reconcileApprovalAction:snapshot=>reconcile?reconcile(snapshot,()=>controller.reconcileApprovalAction(snapshot)):controller.reconcileApprovalAction(snapshot)};
+ let connectionWitness;
+ const client=createOwnerMemoryClient({controller:joinedController,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner,
+  isCurrentConnection:()=>connectionWitness?.isCurrent()===true});
  // Source simulation of native primeAuthority injection. No Cordis mount or
  // default-browser effect is claimed by this check.
  assert.throws(()=>client.proposeSave({}),/not attached/);checks++;
- controller.connect(client.binding);client.attach();assert.equal(client.attach(),client.workflow);checks++;
- return {client,controller,calls,entered,releaseLogin,
+ assert.throws(()=>client.recall({query:'literal',limit:1}),/not attached/);
+ assert.throws(()=>client.getRecallSnapshot(),/not attached/);
+ assert.throws(()=>client.providePilotMemory({}),/not attached/);checks++;
+ connectionWitness=controller.connect(client.binding);client.attach();assert.equal(client.attach(),client.workflow);checks++;
+ return {client,controller,nativeController:joinedController,calls,entered,releaseLogin,
   // Invoke through B so the handler receives B's actual captured options.
   approvalAction:()=>controller.submitApproval(),
   freshClient(){
    const freshController=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}});
-   const fresh=createOwnerMemoryClient({controller:freshController,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner});
-   freshController.connect(fresh.binding);fresh.attach();
+   let freshWitness;
+   const fresh=createOwnerMemoryClient({controller:freshController,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner,
+    isCurrentConnection:()=>freshWitness?.isCurrent()===true});
+   freshWitness=freshController.connect(fresh.binding);fresh.attach();
    return {client:fresh,controller:freshController,dispose(){fresh.dispose();freshController.dispose();}};
   },
   count:method=>calls.filter(value=>value.method===method).length,
@@ -201,7 +210,9 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   assert.equal(f.count('memory.recover'),0);assert.equal((await f.client.recover()).phase,'idle');
   assert.equal(f.count('memory.recover'),1);assert.equal(f.count('memory.save'),0);checks++;
   await f.prepare();const operation=f.client.workflow.getSnapshot().operation;
-  assert.equal((await f.client.recover({operation_id:operation.operation_id})).phase,'idle');
+  const unsent=await f.client.recover({operation_id:operation.operation_id});
+  assert.equal(unsent.phase,'proposed');assert.equal(unsent.error_code,'RECONCILIATION_REQUIRED');
+  assert.equal(unsent.operation.operation_id,operation.operation_id);
   assert.equal(f.count('memory.save'),0);assert.equal(f.count('owner.approvalComplete'),0);checks++;
  }finally{f.dispose();}
 }
@@ -229,7 +240,9 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   f.client.setCapabilities(caps);assert(await f.controller.login());
   const proposed=await f.client.proposeForget({record_id:'source-fixture-record'});assert.equal(proposed.phase,'proposed');
   assert(await f.controller.prepare());
-  assert.equal((await f.client.recoverForget({operation_id:proposed.operation.operation_id})).recovery_status,'known_unsent');
+  const recovered=await f.client.recoverForget({operation_id:proposed.operation.operation_id});
+  assert.equal(recovered.recovery_status,'refused');assert.equal(recovered.error_code,'RECONCILIATION_REQUIRED');
+  assert.equal(recovered.operation.operation_id,proposed.operation.operation_id);
   assert.equal(f.count('memory.forget'),0);assert.equal(f.count('owner.approvalComplete'),0);checks++;
   assert.equal((await f.client.proposeSave({extraction_json:JSON.stringify({statement:literal,category:'fact'}),idempotency_key:'source-after-unsent-forget'})).phase,'proposed');
   assert(await f.controller.prepare());assert.equal((await f.controller.submitApproval()).saved,true);
@@ -280,6 +293,186 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   assert.equal(f.client.workflow.getSnapshot().reconciliation_required,false);checks++;
  }finally{f.dispose();}
 }
+// NEXT focused source regressions; synthetic native registry, never activation.
+// A fake native service scope checks ordering only; it is not a Cordis render.
+{
+ let removed=false;
+ const f=fixture({onClearHook(){assert.equal(removed,true);}});try{
+  let projection,unprovides=0;
+  const scope={primeOwnerUi:f.nativeController,reflect:{provide(name,value){
+   assert.equal(name,'primePilotMemory');projection=value;
+   return ()=>{removed=true;unprovides++;};
+  }}};
+  assert.throws(()=>f.client.providePilotMemory({...scope,primeOwnerUi:f.controller}),/matching native owner UI scope/);
+  const before=f.calls.length,release=f.client.providePilotMemory(scope);
+  assert.equal(projection.ownerController,f.nativeController);assert.equal(projection.client,f.client);
+  assert(Object.isFrozen(projection));assert.equal(f.calls.length,before);
+  assert.throws(()=>f.client.providePilotMemory(scope),/already provided/);checks++;
+  assert.equal(f.client.getRecallSnapshot(),f.client.workflow.getRecallSnapshot());
+  await f.client.recall({query:'literal',limit:1});assert.equal(f.calls.length,before);checks++;
+  f.client.dispose();assert.equal(unprovides,1);release();assert.equal(unprovides,1);
+  assert.throws(()=>f.client.getRecallSnapshot(),/not attached/);checks++;
+ }finally{f.dispose();}
+}
+{
+ const f=fixture();try{
+  let unprovides=0;
+  const scope={primeOwnerUi:f.nativeController,reflect:{provide(){f.client.dispose();return ()=>{unprovides++;};}}};
+  const release=f.client.providePilotMemory(scope);
+  assert.equal(unprovides,1);release();assert.equal(unprovides,1);checks++;
+ }finally{f.dispose();}
+}
+{
+ const f=fixture();try{
+  let attempts=0,removed=false;
+  const scope={primeOwnerUi:f.nativeController,reflect:{provide(){
+   f.client.dispose();
+   return ()=>{attempts++;f.client.dispose();if(attempts<3)throw new Error('synthetic native removal failure');removed=true;};
+  }}};
+  assert.throws(()=>f.client.providePilotMemory(scope),/synthetic native removal failure/);
+  assert.equal(attempts,2);assert.equal(removed,false);
+  f.client.dispose();assert.equal(attempts,3);assert.equal(removed,true);
+  f.client.dispose();assert.equal(attempts,3);checks++;
+ }finally{f.dispose();}
+}
+// Optional native provider ownership, with actual B controller but a fake
+// scoped service registry. No Cordis runtime or browser connection is implied.
+function nativeFixture({removeAuthorityFailures=0}={}){
+ const base=createOwnerUiFixture(contracts),events=[];
+ const actual=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}});
+ const controller={...actual,setForgetAction(handler){events.push(handler?'install:forget':'clear:forget');return actual.setForgetAction(handler);}};
+ let fetches=0,authorityRemovals=0,witness,selected;
+ const scope={primeOwnerUi:controller,reflect:{provide(name,value){
+  assert.equal(scope[name],undefined);scope[name]=value;events.push('provide:'+name);
+  return ()=>{
+   events.push('remove:'+name);
+   if(name==='primeAuthority'&&++authorityRemovals<=removeAuthorityFailures)throw new Error('synthetic authority removal failure');
+   if(scope[name]===value)delete scope[name];
+  };
+ }}};
+ scope.primeOwnerNativeConnection=Object.freeze({controller,isConnected:binding=>binding===selected&&witness?.isCurrent()===true});
+ const native=createOwnerMemoryNativeBinding(scope,{contracts,ownerBinding,passkeySigner:base.passkeySigner,
+  fetcher:async()=>{fetches++;throw new Error('unexpected native source-fixture fetch');}});
+ return {scope,native,controller,events,get fetches(){return fetches;},get authorityRemovals(){return authorityRemovals;},
+  // Explicit source simulation of B's connect notification, never a host probe.
+  connect(){selected=scope.primeAuthority;witness=controller.connect(selected);},dispose(){native.dispose();controller.dispose();}};
+}
+{
+ const f=nativeFixture();try{
+  assert.equal(f.fetches,0);assert.equal(f.scope.primePilotMemory,undefined);
+  assert.throws(()=>f.native.client,/not attached/);
+  assert.throws(()=>f.native.setCapabilities(caps),/not attached/);checks++;
+  f.connect();const client=f.native.attachAfterNativeConnection();
+  assert.equal(client,f.native.client);assert.equal(f.native.attachAfterNativeConnection(),client);
+  assert.equal(f.scope.primePilotMemory.ownerController,f.controller);
+  assert.equal(f.scope.primePilotMemory.client,client);assert.equal(f.fetches,0);checks++;
+  f.native.setCapabilities(caps);assert.equal(f.controller.getSnapshot().capability_status,'loaded');
+  f.native.capabilitiesUnavailable();assert.equal(f.controller.getSnapshot().capability_status,'unavailable');
+  f.native.dispose();assert.deepEqual(f.events.filter(event=>event.startsWith('remove:')),['remove:primePilotMemory','remove:primeAuthority']);
+  assert.equal(f.scope.primeAuthority,undefined);assert.equal(f.scope.primePilotMemory,undefined);
+  assert.throws(()=>f.native.attachAfterNativeConnection(),/no longer current/);
+  assert.throws(()=>f.native.setCapabilities(caps),/no longer current/);assert.equal(f.fetches,0);checks++;
+ }finally{f.dispose();}
+}
+{
+ const f=nativeFixture();try{
+  assert.throws(()=>f.native.attachAfterNativeConnection(),/exact native connection is not current/);
+  assert.notEqual(f.scope.primeAuthority,undefined);assert.equal(f.scope.primePilotMemory,undefined);
+  f.connect();assert.equal(f.native.attachAfterNativeConnection(),f.native.client);
+  assert.equal(f.fetches,0);checks++;
+ }finally{f.dispose();}
+}
+{
+ const f=nativeFixture({removeAuthorityFailures:1});try{
+  f.connect();f.native.attachAfterNativeConnection();
+  assert.throws(()=>f.native.dispose(),/OWNER_MEMORY_NATIVE_CLEANUP_FAILED/);
+  assert.equal(f.scope.primePilotMemory,undefined);assert.notEqual(f.scope.primeAuthority,undefined);
+  assert.throws(()=>f.native.capabilitiesUnavailable(),/no longer current/);
+  f.native.dispose();assert.equal(f.scope.primeAuthority,undefined);assert.equal(f.authorityRemovals,2);
+  f.native.dispose();assert.equal(f.authorityRemovals,2);assert.equal(f.fetches,0);checks++;
+ }finally{f.dispose();}
+}
+{
+ const f=nativeFixture();let off;try{
+  f.connect();let detached=false;
+  off=f.controller.subscribe(()=>{if(!detached){detached=true;f.native.dispose();}});
+  assert.throws(()=>f.native.attachAfterNativeConnection(),/disposed during attachment/);
+  assert.equal(detached,true);assert.equal(f.events.includes('install:forget'),false);
+  assert.equal(f.scope.primeAuthority,undefined);assert.equal(f.scope.primePilotMemory,undefined);
+  assert.equal(f.fetches,0);checks++;
+ }finally{off?.();f.dispose();}
+}
+{
+ const f=nativeFixture();let off;try{
+  f.connect();let reentered=false;
+  off=f.controller.subscribe(()=>{if(!reentered){reentered=true;
+   assert.throws(()=>f.native.attachAfterNativeConnection(),/attachment in progress/);
+  }});
+  const client=f.native.attachAfterNativeConnection();
+  assert.equal(reentered,true);assert.equal(f.native.client,client);
+  assert.equal(f.events.filter(event=>event==='provide:primePilotMemory').length,1);
+  assert.equal(f.events.filter(event=>event==='install:forget').length,1);assert.equal(f.fetches,0);checks++;
+ }finally{off?.();f.dispose();}
+}
+{
+ const f=nativeFixture();let off;try{
+  f.connect();let replaced=false,replacementWitness;
+  off=f.controller.subscribe(()=>{if(!replaced){replaced=true;
+   replacementWitness=f.controller.connect({...f.scope.primeAuthority});
+   f.controller.setForgetAction(async()=>null);
+  }});
+  assert.throws(()=>f.native.attachAfterNativeConnection(),/disposed during attachment|exact native connection/);
+  assert.equal(replacementWitness.isCurrent(),true);
+  assert.equal(f.events.filter(event=>event==='install:forget').length,1);
+  assert.equal(f.events.includes('clear:forget'),false);
+  f.native.dispose();assert.equal(replacementWitness.isCurrent(),true);assert.equal(f.fetches,0);checks++;
+ }finally{off?.();f.dispose();}
+}
+{
+ const f=nativeFixture();let off;try{
+  f.connect();const client=f.native.attachAfterNativeConnection();
+  let replaced=false,replacementWitness;
+  off=f.controller.subscribe(()=>{if(!replaced){replaced=true;
+   replacementWitness=f.controller.connect({...f.scope.primeAuthority});
+   f.controller.setForgetAction(async()=>null);
+  }});
+  f.native.dispose();assert.equal(replacementWitness.isCurrent(),true);
+  assert.equal(f.events.includes('clear:forget'),false);
+  assert.throws(()=>client.setCapabilities(caps),/not attached/);
+  assert.equal(f.fetches,0);checks++;
+ }finally{off?.();f.dispose();}
+}
+{
+ const f=nativeFixture();try{
+  f.connect();const client=f.native.attachAfterNativeConnection();
+  // Reusing exactly the same object still creates a different connection.
+  const replacement=f.controller.connect(f.scope.primeAuthority);
+  assert.equal(replacement.isCurrent(),true);
+  assert.throws(()=>client.refresh(),/not attached|exact native connection/);
+  assert.throws(()=>f.native.setCapabilities(caps),/exact native connection/);
+  f.native.dispose();assert.equal(replacement.isCurrent(),true);assert.equal(f.fetches,0);checks++;
+ }finally{f.dispose();}
+}
+{
+ const f=nativeFixture();try{
+  f.connect();const client=f.native.attachAfterNativeConnection(),ack=f.scope.primeOwnerNativeConnection;
+  f.scope.primeOwnerNativeConnection=Object.freeze({...ack});
+  assert.throws(()=>client.getRecallSnapshot(),/exact native connection/);
+  assert.throws(()=>f.native.setCapabilities(caps),/exact native connection/);assert.equal(f.fetches,0);checks++;
+ }finally{f.dispose();}
+}
+{
+ let enter,release;
+ const entered=new Promise(resolve=>{enter=resolve;}),gate=new Promise(resolve=>{release=resolve;});
+ const f=fixture({reconcile:async(_snapshot,apply)=>{enter();await gate;return apply();}});
+ try{
+  await f.prepare();await f.controller.submitApproval();
+  const pending=f.client.recover();await entered;
+  f.controller.logout();release();
+  await assert.rejects(pending,/recovery owner is no longer current/);
+  assert.equal(f.count('memory.save'),1);assert.equal(f.count('memory.recover'),1);checks++;
+ }finally{release();f.dispose();}
+}
 // Import the exact release module closure from a disposable layout containing
 // no source checkout or node_modules. Never run the full composer/boot here.
 const stage=mkdtempSync(join(tmpdir(),'prime-owner-client-import-'));
@@ -291,10 +484,13 @@ try{
    cpSync(new URL('../packages/'+name+'/'+file,import.meta.url),destination);}
  }
  cpSync(new URL('./owner-memory-browser.mjs',import.meta.url),join(stage,'harness/owner-memory-browser.mjs'));
+ cpSync(new URL('./owner-memory-native.mjs',import.meta.url),join(stage,'harness/owner-memory-native.mjs'));
  const source=readFileSync(new URL('./owner-memory-client.mjs',import.meta.url),'utf8');
  writeFileSync(join(stage,'harness/owner-memory-client.mjs'),source.replaceAll("'../packages/runtime-bridge/src/","'../prime-packages/runtime-bridge/src/"));
  const module=await import(pathToFileURL(join(stage,'harness/owner-memory-client.mjs')).href);
  assert.equal(typeof module.createOwnerMemoryClient,'function');checks++;
+ const nativeModule=await import(pathToFileURL(join(stage,'harness/owner-memory-native.mjs')).href);
+ assert.equal(typeof nativeModule.createOwnerMemoryNativeBinding,'function');checks++;
 }finally{rmSync(stage,{recursive:true,force:true});}
 console.log(JSON.stringify({result:'PASS',checks,scope:'actual B controller + bridge workflow + H root/browser/HTTP assembly',
  synthetic_replies:true,listener_started:false,actual_C_crypto:false,actual_postgres:false,production_acceptance:false,runtime_changes:false}));

@@ -16,6 +16,9 @@ import { DIGEST, UUID, executionReceiptDigest, validatedReceipt, settlementStatu
 import { memoryEffectReceipt, memoryEffectReceiptDigest } from './memory-effect.mjs'
 import {isTerminalRecord,ownerKey,consumedGrantDigest,kernelPreparationMatches,RETAINED_TERMINAL_SCHEMA} from './retention.mjs'
 import {configureRetainedMemoryParticipant,validateRetainedMemoryPermit} from './retained-memory.mjs'
+import {configureInferenceProfile,inferenceOperation,inferencePolicyContext} from './inference-profile.mjs'
+import {parseInferenceOperation} from './inference-admission.mjs'
+import {inferenceEffectReceipt,inferenceEffectReceiptDigest,validateInferenceReceiptBinding} from './inference-effect.mjs'
 
 const hex = /^[a-f0-9]{64}$/
 const sha = value => createHash('sha256').update(value).digest('hex')
@@ -80,6 +83,7 @@ function authorityService(options, provisionNew) {
     if(pinned.has(id.owner_id)) throw new TypeError('INVALID: duplicate registered owner')
     pinned.set(id.owner_id,id)
   }
+  const inferenceProfile=configureInferenceProfile(c.inferenceProfile,pinned)
   const now = () => Date.now() // wire callers can never select an audit clock
   class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes,retainedMemoryProfile:!!retainedParticipant})}}
   if(provisionNew) return attempt(()=>{
@@ -195,12 +199,13 @@ function authorityService(options, provisionNew) {
     const task=detachContract('Task',authorized.task)
     if(task.task_id!==op.task_id||task.owner_id!==op.owner_id||task.agent_id!==op.agent_id||
        !['pending','running'].includes(task.status)||op.data_scope.some(x=>!task.allowed_data_classes.includes(x))||dollars(op.maximum_cost)>dollars(task.task_spend_ceiling)) refuse('UNAUTHORIZED','OWNED_TASK_BINDING_MISMATCH')
-    return id
+    return inferenceOperation(op)?inferencePolicyContext(inferenceProfile,op,{owner:id,task}):null
   }
   function liveTarget(op) {
     if(typeof c.observeTarget!=='function') refuse('UNAVAILABLE','TARGET_STATE_UNAVAILABLE')
     let observed
     try { observed=c.observeTarget(deepFreeze(structuredClone(op)));canonicalBytes(observed) } catch { refuse('UNAVAILABLE','TARGET_STATE_UNAVAILABLE') }
+    if(inferenceOperation(op))closed(observed,['target_identity','state_version'])
     if(!equal(observed.target_identity,op.target_identity)||observed.state_version!==op.expected_state_version) refuse('TARGET_MISMATCH','TARGET_STATE_CHANGED')
   }
   function operationRow(store,op) {
@@ -226,7 +231,7 @@ function authorityService(options, provisionNew) {
   function boundedOperation(input) {
     const op=detachContract('OperationProposal',input)
     if(Buffer.byteLength(canonicalJson(op))>c.limits.operation_bytes) refuse('INVALID','OPERATION_BYTE_QUOTA')
-    return op
+    return inferenceOperation(op)?parseInferenceOperation(op):op
   }
   function admitOperation(store,ownerId) {
     const rows=Object.values(store.broker.operations).filter(r=>['PROPOSED','APPROVED'].includes(r.status)&&discardablePending(store,r))
@@ -350,7 +355,7 @@ function authorityService(options, provisionNew) {
     })
   }) }
   function verifiedApproval(store,op,proof) {
-    policy(store,op);liveTarget(op);const row=operationRow(store,op)
+    const inferenceContext=policy(store,op);liveTarget(op);const row=operationRow(store,op)
     if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op))refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')
     if(row.status==='DENIED')refuse('CANCELLED','OWNER_DECLINED')
     if(row.status!=='APPROVED'||!row.approval||!equal(row.approval.proof,proof))refuse(row.grant||row.grant_digest?'REPLAYED':'UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
@@ -360,6 +365,12 @@ function authorityService(options, provisionNew) {
       const checked=verifyWebauthnAssertion({material:proof.material,config:c.webauthn,ownerId:op.owner_id,
         challenge:webauthnChallenge(approvalSigningBytes(row.review.request)),checkCounter:false})
       if(checked.signed_bytes_digest!==row.approval.assertion.signed_bytes_digest)refuse('INVALID','ASSERTION_PREIMAGE_CHANGED')
+    }
+    if(inferenceContext) {
+      if(row.inference_context&&!equal(row.inference_context,inferenceContext))refuse('STALE','ORIGINAL_INFERENCE_CONTEXT_CHANGED')
+      // The original approved rates/caps/evidence survive subsequent profile
+      // changes until genuine factual settlement and terminal compaction.
+      row.inference_context=structuredClone(inferenceContext)
     }
     return row
   }
@@ -440,8 +451,10 @@ function authorityService(options, provisionNew) {
     if(typeof v.request_id!=='string'||!UUID.test(v.request_id)||typeof v.request_digest!=='string'||!DIGEST.test(v.request_digest)) refuse('INVALID','EXACT_EXECUTOR_REQUEST_BINDING_REQUIRED')
     legacyMemoryGate(op)
     return tx(store=>{
-      policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant)
+      const inferenceContext=policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant)
       if(row.status!=='PREPARED'||!equal(row.grant,grant)) refuse('REPLAYED','RESERVATION_NOT_DISPATCHABLE')
+      if(inferenceContext&&(!row.inference_context||!equal(row.inference_context,inferenceContext)||
+         v.request_id!==op.canonical_parameters.binding.request_uuid||v.request_digest!==op.canonical_parameters.request_digest))refuse('RECONCILIATION_REQUIRED','ORIGINAL_INFERENCE_DISPATCH_BINDING_REQUIRED')
       approvalSession(store,row)
       if(Date.parse(row.approval.proof.expiry)<=now()) refuse('EXPIRED','APPROVAL_EXPIRED')
       row.status='DISPATCHED';row.dispatch={request_id:v.request_id,request_digest:v.request_digest,cancel_requested:false,cancel_reason:null,receipt:null,receipt_digest:null,settlement_digests:[]};store.commitBroker()
@@ -492,6 +505,7 @@ function authorityService(options, provisionNew) {
   })}
   function settleExecution(input,reconcile=false) {return attempt(()=>{
     const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt','receipt_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant),receipt=validatedReceipt(v.receipt)
+    if(inferenceOperation(op))refuse('INVALID','GENUINE_INFERENCE_RECEIPT_REQUIRED')
     legacyMemoryGate(op)
     const receiptDigest=executionReceiptDigest(receipt)
     if(receiptDigest!==v.receipt_digest)refuse('INVALID','EXECUTOR_RECEIPT_DIGEST_MISMATCH')
@@ -523,6 +537,50 @@ function authorityService(options, provisionNew) {
   })}
   const settle=input=>settleExecution(input,false)
   const reconcileSettlement=input=>settleExecution(input,true)
+  function settleInferenceEvidence(input,reconcile=false) {return attempt(()=>{
+    const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt','receipt_digest']),
+      op=parseInferenceOperation(boundedOperation(v.operation)),grant=detachContract('ConsumedGrant',v.consumed_grant),
+      receipt=inferenceEffectReceipt(v.receipt),receiptDigest=inferenceEffectReceiptDigest(receipt)
+    if(receiptDigest!==v.receipt_digest)refuse('INVALID','INFERENCE_RECEIPT_DIGEST_MISMATCH')
+    return tx(store=>{
+      // Authenticated inference_effect IPC is the evidence source. No session,
+      // current epoch, live route or provider call is used for factual settlement.
+      const row=dispatchedRow(store,op,grant,v.request_id,v.request_digest),d=row.dispatch
+      // Acknowledgement describes these exact factual bytes. An old unknown
+      // digest can be acknowledged after later completed evidence without
+      // labelling that old receipt completed or rolling the current row back.
+      const factualStatus=receipt.outcome==='completed'?'COMPLETED':'OUTCOME_UNKNOWN'
+      const result=idempotent=>({ok:true,status:factualStatus,request_id:v.request_id,
+        request_digest:d.request_digest,receipt_digest:receiptDigest,idempotent,
+        reconciliation_required:factualStatus==='OUTCOME_UNKNOWN'})
+      if(isTerminalRecord(row)) {
+        if(d.evidence_kind!=='inference'||row.status!=='COMPLETED'||!d.settlement_digests.includes(receiptDigest))refuse('STALE','EXPLICIT_UNKNOWN_RECONCILIATION_REQUIRED')
+        // Exact canonical digest was fully validated before compaction. A
+        // duplicate needs neither deleted rate payloads nor current configuration.
+        return result(true)
+      }
+      if(!row.inference_context)refuse('RECONCILIATION_REQUIRED','ORIGINAL_INFERENCE_CONTEXT_REQUIRED')
+      validateInferenceReceiptBinding(receipt,{operation:op,consumed_grant:grant,
+        request_id:v.request_id,request_digest:v.request_digest,
+        owner_subject:store.broker.owners[keyOf(op.owner_id)]?.subject,rates:row.inference_context.rates})
+      if(d.settlement_digests.includes(receiptDigest))return result(true)
+      if(!['DISPATCHED','OUTCOME_UNKNOWN'].includes(row.status))refuse('STALE','INFERENCE_DISPATCH_NOT_SETTLEABLE')
+      if(d.receipt) {
+        if(!reconcile||row.status!=='OUTCOME_UNKNOWN'||d.receipt.kind!=='prime-inference-effect/v1'||
+           d.receipt.outcome!=='outcome_unknown')refuse('STALE','EXPLICIT_UNKNOWN_RECONCILIATION_REQUIRED')
+        // Binding validation fixes every original identity/config/budget field.
+        // New evidence cannot predate its previously committed observation.
+        if(Date.parse(receipt.observed_at)<Date.parse(d.receipt.observed_at))refuse('INVALID','CONFLICTING_INFERENCE_RECONCILIATION_EVIDENCE')
+      } else if(row.status==='OUTCOME_UNKNOWN'&&receipt.outcome==='completed'&&!reconcile)refuse('STALE','EXPLICIT_UNKNOWN_RECONCILIATION_REQUIRED')
+      if(d.settlement_digests.length>=32)refuse('UNAVAILABLE','SETTLEMENT_EVIDENCE_QUOTA_REACHED')
+      row.status=receipt.outcome==='completed'?'COMPLETED':'OUTCOME_UNKNOWN'
+      d.receipt=structuredClone(receipt);d.receipt_digest=receiptDigest;d.settlement_digests.push(receiptDigest)
+      store.commitBroker()
+      return result(false)
+    })
+  })}
+  const settleInference=input=>settleInferenceEvidence(input,false)
+  const reconcileInferenceSettlement=input=>settleInferenceEvidence(input,true)
   function markOutcomeUnknown(input) {return attempt(()=>{
     const v=closed(input,['operation','consumed_grant','request_id','request_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
     return tx(store=>{
@@ -607,5 +665,5 @@ function authorityService(options, provisionNew) {
       return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN'].includes(row.status)}
     })
   }) }
-  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,logoutSession,approvalChallenge,approvalComplete,declineApproval,reserve,reserveRetained,claimDispatch,claimDispatchRetained,requestCancel,settle,reconcileSettlement,markOutcomeUnknown,settleMemory,settleMemoryRetained,advanceAuthorizationEpoch,status})
+  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,logoutSession,approvalChallenge,approvalComplete,declineApproval,reserve,reserveRetained,claimDispatch,claimDispatchRetained,requestCancel,settle,reconcileSettlement,settleInference,reconcileInferenceSettlement,markOutcomeUnknown,settleMemory,settleMemoryRetained,advanceAuthorizationEpoch,status})
 }

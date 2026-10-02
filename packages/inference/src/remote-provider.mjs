@@ -11,7 +11,7 @@ export class RemoteDeepSeekProvider {
     const { signal, ...envelope } = request;
     // Reject accidental secret fields at the application IPC boundary. Only this closed payload crosses it.
     const allowed = ['route_id','endpoint','body','request_uuid','body_sha256','citations','headers','owner_id','task_id',
-      'conversation_id','config_digest','credential_generation','admission','reserved_tokens','reserved_cost_microusd','binding_hash','citations_sha256'];
+      'conversation_id','config_digest','credential_generation','total_budget_id','admission','reserved_tokens','reserved_cost_microusd','binding_hash','citations_sha256'];
     if (Object.keys(envelope).some(k => !allowed.includes(k))) refuse('INVALID_PRIVATE_DISPATCH');
     canonical(envelope);
     const reply = await this.dispatch(structuredClone(envelope),{ signal });

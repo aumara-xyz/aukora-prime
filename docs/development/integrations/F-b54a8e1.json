@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "lane": "F",
+  "status": "SOURCE_ONLY_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "f05682e416431b7af5ed3251a9a61fb5bfc2dc14",
+  "source_commit": "b54a8e1f19792db8ca2cf00ac2789cf26c2b2326",
+  "patch": "execution-fixture-source.patch",
+  "patch_sha256": "a455d70fc11f4fe42089b54fe38de8d115d9587ccef6c917b1798f2165dcbe03",
+  "files": [
+    {
+      "path": "packages/execution/checks/controls.mjs",
+      "sha256": "b6d7dbb7358252d91a0fc4082fca89bd2fe552db0303ae349d0ef793542bb916",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/checks/mutations.py",
+      "sha256": "17bf1da876b73e0ef8937957d52c115b755a74662222bbe898794651a1197eec",
+      "matches_source_commit": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "patch_matches_commit_delta": true,
+    "all_preimages_match": true,
+    "all_postimages_match": true
+  },
+  "source_review": "Independent source review found no blocker: synthetic scratch bound equals three tmpfs mounts, image mutant removes both guards only in disposable copies, original failure/count assertions retained.",
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "limits": [
+    "Changes align authored fixtures only; no execution qualification or successful mutation result follows."
+  ]
+}

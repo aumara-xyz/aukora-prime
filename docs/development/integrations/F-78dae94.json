@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "lane": "F guardian monitor",
+  "status": "SOURCE_IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "integration_parent": "75e83968d44a6a4802b89444a3146c647f971f7a",
+  "source_commit": "78dae94c097320d1fc8a8111aa74c069e33a6eee",
+  "implementation_commit": "303fd55618e0ae5bee81ce6e66c82a02f04ee35f",
+  "patch_base": "e3ea48828524604c5ebd0008b031bceda76d0d70",
+  "patch": "execution-guardian-process.patch",
+  "patch_sha256": "be65949b207cf08e0bb2e01b0a5dbd97d82e86dc30ae865f3413f73de00142f1",
+  "files": [
+    {
+      "path": "packages/execution/README.md",
+      "preimage_sha256": "a9732979764b73544ae520b3e8e1742fb1e1435fc6edd7c44277d02171ff77b4",
+      "sha256": "69e1131605b245df272478fcce8c4a46c9a91d55559090d2f3f29657314af434",
+      "bytes": 16268
+    },
+    {
+      "path": "packages/execution/checks/guardian-boundary.mjs",
+      "preimage_sha256": null,
+      "sha256": "40ced18b4aa8db24b9160d02c81b63d00fd762a6201cb7c71a88a099d9b1668b",
+      "bytes": 2562
+    },
+    {
+      "path": "packages/execution/checks/guardian-fixture-worker.mjs",
+      "preimage_sha256": null,
+      "sha256": "ce409bc085c70d15fcb48c0f9e78a47a1aadbdf9960a6470cd5544adc25b4440",
+      "bytes": 9258
+    },
+    {
+      "path": "packages/execution/checks/guardian-process.mjs",
+      "preimage_sha256": null,
+      "sha256": "d5c1ef324a2327e1cc3d147e4ce43102ad8edf927f235091065996d812ae5b3d",
+      "bytes": 15760
+    },
+    {
+      "path": "packages/execution/package.json",
+      "preimage_sha256": "d077bdbe1dc11e857f0fc55d9217bde3df252dcdb53acd7d318fc18cc6716049",
+      "sha256": "c9253d4a9619ecf87a99e372867310ae43aa29d538cd426ca00d336c1cc64b20",
+      "bytes": 481
+    },
+    {
+      "path": "packages/execution/provenance.json",
+      "preimage_sha256": "897cb1ba0e5ef12b30fe355200f1ed589371a525c0163461b9039ab3848204ff",
+      "sha256": "86664bf6e5ed8adb7e067e306a9ead0d9a12fd450fc7580c256677f08f386542",
+      "bytes": 7051
+    },
+    {
+      "path": "packages/execution/runtime/DEADLINE_OWNERSHIP.md",
+      "preimage_sha256": "1107bb7fd779e8d56495e26f890d106443fc6ce864ca741c8d546a366234801b",
+      "sha256": "d1a1e3620d39d299b18114bd942b84dcef81775d7fdbe3d64179278b4c32cf98",
+      "bytes": 16498
+    },
+    {
+      "path": "packages/execution/runtime/GUARDIAN_PROCESS.md",
+      "preimage_sha256": null,
+      "sha256": "f562ac4aaa7cf8a6a6d8ba88e86bf7efbc34b045912e5653f2f510d507d5a24f",
+      "bytes": 8128
+    },
+    {
+      "path": "packages/execution/runtime/LIFETIME_SAFEGUARD.md",
+      "preimage_sha256": "0c78d3ce9e604b5a07a09e7cf9013ed230e762ccf97a2a97d3e351beb5fa421b",
+      "sha256": "de14b0b89db0271e0a4daa0b1fba6500cd856bce7846fac7415e111be3d99a30",
+      "bytes": 16204
+    },
+    {
+      "path": "packages/execution/runtime/LINUX_QUALIFICATION_RUN.md",
+      "preimage_sha256": null,
+      "sha256": "131387b1ea5da757699065ef9881a262e034ab0eb40b029c3dd7eb238104bb7d",
+      "bytes": 11176
+    },
+    {
+      "path": "packages/execution/src/guardian/index.d.mts",
+      "preimage_sha256": null,
+      "sha256": "6ea382e3bfc14f8e93c83fbb012a2d7b58c27226012fdd9bfd82ee55e7c36e6b",
+      "bytes": 3682
+    },
+    {
+      "path": "packages/execution/src/guardian/index.mjs",
+      "preimage_sha256": null,
+      "sha256": "80ef7462b7cdd6d52c630cae3dffa26e1348c015df70795ad80495a4ba8f77b0",
+      "bytes": 311
+    },
+    {
+      "path": "packages/execution/src/guardian/ipc.mjs",
+      "preimage_sha256": null,
+      "sha256": "12130f1848440ead07b96701241cbdd77e29d5ee9804e1fee9bc78eeef2973ac",
+      "bytes": 2512
+    },
+    {
+      "path": "packages/execution/src/guardian/pinned-backend.mjs",
+      "preimage_sha256": null,
+      "sha256": "1d7a2acf11530c797644a4a9bb27bbfa8dbd7c7b7fe667352f6e1d74e55c157c",
+      "bytes": 1535
+    },
+    {
+      "path": "packages/execution/src/guardian/process.mjs",
+      "preimage_sha256": null,
+      "sha256": "ca2b663042aad8180fac688ffe05a26269a3eaaf7940bd727acfbc29d25e6114",
+      "bytes": 1849
+    },
+    {
+      "path": "packages/execution/src/guardian/registration.mjs",
+      "preimage_sha256": null,
+      "sha256": "bf2cff3ab00fd26ed724e457ad795d42264b50ab8b6d36685e6c2377f76126e1",
+      "bytes": 5179
+    },
+    {
+      "path": "packages/execution/src/guardian/store.mjs",
+      "preimage_sha256": null,
+      "sha256": "4bc58f248e9ae7d79e66edde0309462627dec0c45e2924061b4af7c3c7f1a492",
+      "bytes": 7638
+    },
+    {
+      "path": "packages/execution/src/guardian/worker.mjs",
+      "preimage_sha256": null,
+      "sha256": "420cc05ad757873590b3d890975639bcc77275176b0c26a8c9ab30fecbb6b14a",
+      "bytes": 9317
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "package_adaptations": [],
+  "checks_sha256": "fec97735fab0b426f896fbeb64d63eda0dfe88c29a1cc91eba6daee7e1172ad8",
+  "gateway_audit_sha256": "3522879a2d137f70d955204f49938fe86e836edba559dc4f38cf6ac1324edc80",
+  "lane_checks": {
+    "same_UID_Mac_process_cases": 7,
+    "adapter_strict_ingress_cases": 4,
+    "affected_selector_rerun": 1,
+    "declaration_check": "PASS; noImplicitAny false for existing undeclared mjs imports",
+    "root_rerun": false
+  },
+  "source_review": "Durable original registrations and cleanup attempts; exclusive SQLite owner lease; latched original deadline; continued late-resource monitoring with exact immutable identity. Pinned backend lacks create provenance and refuses reclamation. No terminal settlement or app mount.",
+  "limits": [
+    "Separate same-UID Mac fixture process mechanism; not Linux cross-UID, driver/guest, real clock/boot or actual gateway qualification.",
+    "Fixture backend is a separately serialized conditional reclaimer and NOT a pinned API primitive or app callback acceptance.",
+    "All rows permanently retain effect_outcome unknown/runtime_qualified false/terminal_fence unavailable/artifact_cleanup unverified; no terminal settlement receipt is emitted.",
+    "Same-UID store/config/socket custody remains disclosed; no service supervisor or authenticated cross-UID path installed."
+  ],
+  "remaining_before_real_action": [
+    "Reviewed terminal target fence and atomic configuration admission/freeze, caller-bound immutable reclamation and complete driver inventory evidence.",
+    "Explicitly approved and observed Linux protected guardian/config/store/IPC credential placement, supervision and clock/boot rollback policy.",
+    "Actual immutable workload outputs and kernel/resource/mount/control readbacks.",
+    "Real authenticated C ordinary review/reserve/one-use dispatch and bound factual F settlement; guardian adds no approval authority.",
+    "Separately authorized one bounded inert action and exact cleanup/receipt evidence; source/process/mock checks cannot open current gates."
+  ],
+  "runtime_activation": false,
+  "runtime_qualified": false
+}

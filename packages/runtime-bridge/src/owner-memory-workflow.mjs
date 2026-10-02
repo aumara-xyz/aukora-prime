@@ -26,7 +26,8 @@ function approvalInvocation(options){
 }
 async function recoveryReply(value,owner){
   const reply=copy(closed(value,['ok','owner_id','owner_subject','task_id','operation_id','operation_digest','action_type','state','reconciliation_required','result','receipt','receipt_digest','authority_settlement','citation','index']))
-  requireValue(reply.ok===true&&['idle','known_unsent','saved','forgotten','unknown'].includes(reply.state)
+  if(reply.state==='known_unsent')throw fault('RECONCILIATION_REQUIRED','OWNER_MEMORY_UNSENT_CLOSURE_UNAVAILABLE')
+  requireValue(reply.ok===true&&['idle','saved','forgotten','unknown'].includes(reply.state)
     &&reply.reconciliation_required===(reply.state==='unknown')&&reply.owner_id===owner.owner_id
     &&/^aukora:1:[a-f0-9]{64}$/.test(reply.owner_subject)&&boundedString(reply.task_id,1024),'OWNER_MEMORY_RECOVERY_REQUIRED')
   requireValue(reply.state==='idle'?[reply.operation_id,reply.operation_digest,reply.action_type].every(value=>value===null)
@@ -57,6 +58,7 @@ async function recoveryReply(value,owner){
   if(reply.citation!==null){try{reply.citation=citeReply({ok:true,citation:reply.citation},entry)}catch{reply.citation=null}}
   return immutable(reply)
 }
+const recallInitial=()=>({status:'not_requested',query:null,availability:null,records:null,ceilings:[],reason:null,error_code:null})
 const initial=()=>({phase:'idle',operation:null,memory_capture:null,operation_digest:null,approval:'not_requested',save:'not_attempted',saved:false,
   record:null,receipt:null,receipt_digest:null,citation:null,citation_status:'not_requested',index:{status:'unconfirmed',indexed:null,searchable:null},authority_settlement:null,
   reconciliation_required:false,error_code:null,read_error_code:null})
@@ -102,6 +104,29 @@ function citeReply(reply,entry){
   if(citation.verdict==='VERIFIED')requireValue('sha256:'+citation.source_digest===record.source_event_digest&&canonicalJson(citation.source_span)===canonicalJson(record.source_span),'OWNER_MEMORY_CITATION_SOURCE_REQUIRED')
   return immutable(citation)
 }
+function recallReply(value,owner,limit){
+  const result=copy(value)
+  requireValue(result?.ok===true&&result.owner_id===owner.owner_id&&/^aukora:1:[a-f0-9]{64}$/.test(result.owner_subject)
+    &&boundedString(result.task_id,1024)&&result.grants_authority===false,'OWNER_MEMORY_RECALL_OWNER_REQUIRED')
+  if(result.availability==='undetermined'){
+    closed(result,['ok','owner_id','owner_subject','task_id','availability','reason','records','grants_authority'])
+    requireValue(result.records===null&&boundedString(result.reason,512),'OWNER_MEMORY_RECALL_UNDETERMINED_REQUIRED')
+    return immutable({status:'unavailable',availability:'undetermined',records:null,ceilings:[],reason:result.reason,error_code:'UNAVAILABLE'})
+  }
+  closed(result,['ok','owner_id','owner_subject','task_id','availability','records','ceilings','grants_authority'])
+  requireValue(result.availability==='found'&&Array.isArray(result.records)&&result.records.length<=limit
+    &&Array.isArray(result.ceilings)&&result.ceilings.length<=16&&result.ceilings.every(value=>boundedString(value,256)),'OWNER_MEMORY_RECALL_RESULT_REQUIRED')
+  const references=new Set()
+  for(const item of result.records){
+    closed(item,['record','citation']);validateContract('MemoryRecord',item.record)
+    requireValue(item.record.owner_subject===result.owner_subject&&item.record.storage_status==='saved'
+      &&item.record.index_status==='searchable'&&item.record.grants_authority===false,'OWNER_MEMORY_RECALL_RECORD_REQUIRED')
+    const reference=item.record.record_id+'\0'+item.record.revision
+    requireValue(!references.has(reference),'OWNER_MEMORY_RECALL_DUPLICATE_REQUIRED');references.add(reference)
+    item.citation=citeReply({ok:true,citation:item.citation},{saved:{record:item.record}})
+  }
+  return immutable({status:'ready',availability:'found',records:result.records,ceilings:result.ceilings,reason:null,error_code:null})
+}
 
 /** Pair this memory facade with the same adapter instance's authority in B's
  * controller. This helper creates no transport, owner/session/source context,
@@ -110,8 +135,9 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
   if(['getSnapshot','subscribe','setOperation','approve'].some(name=>typeof controller?.[name]!=='function')
     ||['proposeSave','save','status','cite'].some(name=>typeof memory?.[name]!=='function')||typeof contracts?.operationDigest!=='function')throw fault('UNAVAILABLE','OWNER_MEMORY_INJECTED_SERVICES_REQUIRED')
   const listeners=new Set(),usedKeys=new Set()
-  let state=immutable(initial()),active=null,proposalFlight=null,actionFlight=null,readFlight=null,disposed=false,blocked=false,blockedRef=null,generation=0,owner=controller.getSnapshot().owner
+  let state=immutable(initial()),recallState=immutable(recallInitial()),active=null,proposalFlight=null,actionFlight=null,readFlight=null,disposed=false,blocked=false,blockedRef=null,generation=0,owner=controller.getSnapshot().owner
   const publish=patch=>{if(disposed)return;state=immutable({...state,...patch});for(const listener of listeners){try{listener()}catch{ /* Presentation listeners cannot change dispatch. */ }} }
+  const publishRecall=patch=>{if(disposed)return;recallState=immutable({...recallState,...patch});for(const listener of listeners){try{listener()}catch{ /* Read presentation cannot change dispatch. */ }} }
   const current=entry=>!disposed&&entry.generation===generation&&controller.getSnapshot().owner===entry.owner
   const releaseInvocation=flight=>{
     if(!flight)return
@@ -140,7 +166,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
     const next=controller.getSnapshot().owner
     if(next===owner)return
     releaseInvocation(actionFlight)
-    const reset=cleared('idle');owner=next;generation++;active=null;publish(reset)
+    const reset=cleared('idle');owner=next;generation++;active=null;recallState=immutable(recallInitial());publish(reset)
   })
 
   async function readSaved(entry,flight=null){
@@ -169,6 +195,8 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
 
   const api={
     getSnapshot:()=>state,
+    // Keep recall outside B's closed approval/save/recovery result contract.
+    getRecallSnapshot:()=>recallState,
     /** Fixed server pilot metadata, separate from the B save-result contract. */
     getCaptureMetadata:()=>active&&current(active)?active.metadata??null:null,
     subscribe(listener){if(typeof listener!=='function')throw new TypeError('INVALID: owner memory listener');if(disposed)return ()=>{};listeners.add(listener);return ()=>listeners.delete(listener)},
@@ -282,16 +310,40 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
     refresh(){
       if(disposed)return unavailable()
       if(actionFlight)return actionFlight.promise
-      if(readFlight)return readFlight.promise
+      if(readFlight)return readFlight.kind==='refresh'?readFlight.promise:refuse('UNAVAILABLE')
       if(proposalFlight||!active?.saved||!current(active))return refuse('UNAVAILABLE')
       try{ownerReady()}catch(error){return refuse(errorCode(error))}
-      const entry=active,flight={promise:null};readFlight=flight
+      const entry=active,flight={kind:'refresh',promise:null};readFlight=flight
       flight.promise=Promise.resolve().then(()=>readSaved(entry)).finally(()=>{if(readFlight===flight)readFlight=null});return flight.promise
+    },
+    recall(input){
+      if(disposed)return Promise.resolve(recallState)
+      if(actionFlight||proposalFlight||readFlight){publishRecall({...recallInitial(),status:'unavailable',error_code:'UNAVAILABLE'});return Promise.resolve(recallState)}
+      let request,snapshot
+      try{
+        request=copy(closed(input,['query','limit']));snapshot=ownerReady()
+        requireValue(boundedString(request.query,4096)&&Number.isSafeInteger(request.limit)&&request.limit>=1&&request.limit<=100,'OWNER_MEMORY_RECALL_QUERY_REQUIRED')
+        if(typeof memory.recall!=='function')throw fault('UNAVAILABLE','OWNER_MEMORY_RECALL_UNMOUNTED')
+      }catch(error){publishRecall({...recallInitial(),status:'unavailable',error_code:errorCode(error)});return Promise.resolve(recallState)}
+      const entry={owner:snapshot.owner,generation},flight={kind:'recall',promise:null};readFlight=flight
+      flight.promise=Promise.resolve().then(async()=>{
+        try{
+          if(!current(entry))return recallState
+          publishRecall({...recallInitial(),status:'pending',query:request.query})
+          if(!current(entry))return recallState
+          const reply=await memory.recall(request)
+          if(!current(entry))return recallState
+          if(reply?.ok!==true)throw fault(errorCode(reply),'OWNER_MEMORY_RECALL_REFUSED')
+          publishRecall({...recallReply(reply,entry.owner,request.limit),query:request.query})
+        }catch(error){if(current(entry))publishRecall({...recallInitial(),status:'unavailable',query:request.query,error_code:errorCode(error)})}
+        finally{if(readFlight===flight)readFlight=null}
+        return recallState
+      });return flight.promise
     },
     recover(input={operation_id:null}){
       if(disposed)return unavailable()
       if(actionFlight||proposalFlight)return refuse('UNAVAILABLE')
-      if(readFlight)return readFlight.promise
+      if(readFlight)return readFlight.kind==='recover'?readFlight.promise:refuse('UNAVAILABLE')
       if(typeof memory.recover!=='function')return refuse('UNAVAILABLE')
       let request,snapshot
       try {
@@ -301,7 +353,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
         // reference; unrelated history or an empty result cannot clear it.
         if(blockedRef){requireValue(blockedRef.owner_id===snapshot.owner.owner_id,'OWNER_MEMORY_RECOVERY_OWNER_REQUIRED');request.operation_id=blockedRef.operation_id}
       } catch(error){return refuse(errorCode(error))}
-      const entry={owner:snapshot.owner,generation},flight={promise:null};readFlight=flight
+      const entry={owner:snapshot.owner,generation},flight={kind:'recover',promise:null};readFlight=flight
       flight.promise=Promise.resolve().then(async()=>{
         try {
           const reply=await memory.recover(request)
@@ -316,10 +368,17 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
             blocked=true;publish({phase:'outcome_unknown',reconciliation_required:true,error_code:'RECONCILIATION_REQUIRED'});return state
           }
           blocked=false;blockedRef=null;active=null
-          if(recovered.state==='saved')publish({...initial(),phase:'saved',approval:'approved',save:'saved',saved:true,
+          if(recovered.state==='saved'){
+            // Restore only a read context. No draft, operation, proof or effect
+            // retry authority is reconstructed from recovered receipt facts.
+            active={owner:snapshot.owner,generation,attempted:true,proofConfirmed:true,
+              saved:{record:recovered.result,receipt:recovered.receipt,receipt_digest:recovered.receipt_digest,
+                authority_settlement:'completed',reconciliation_required:false},citation:recovered.citation}
+            publish({...initial(),phase:'saved',approval:'approved',save:'saved',saved:true,
             operation_digest:recovered.operation_digest,record:recovered.result,receipt:recovered.receipt,receipt_digest:recovered.receipt_digest,
             authority_settlement:'completed',citation:recovered.citation,citation_status:recovered.citation?.verdict.toLowerCase()??'unavailable',
             index:recovered.index??{status:recovered.result.index_status,indexed:null,searchable:null},read_error_code:recovered.index===null||recovered.citation===null?'UNAVAILABLE':null})
+          }
           else publish({...initial(),phase:'idle'})
           return state
         } catch(error){if(current(entry)){blocked=true;publish({reconciliation_required:true,error_code:errorCode(error)})}return state}
@@ -338,7 +397,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
       if(typeof memory.logout!=='function')return {ok:false,error_code:'UNAVAILABLE',reason:'OWNER_LOGOUT_UNMOUNTED'}
       return memory.logout()
     },
-    dispose(){if(disposed)return;releaseInvocation(actionFlight);const reset=cleared('unavailable');generation++;active=null;off();state=immutable({...reset,error_code:reset.error_code??'UNAVAILABLE'});disposed=true;for(const listener of listeners){try{listener()}catch{}}listeners.clear()},
+    dispose(){if(disposed)return;releaseInvocation(actionFlight);const reset=cleared('unavailable');generation++;active=null;off();state=immutable({...reset,error_code:reset.error_code??'UNAVAILABLE'});recallState=immutable({...recallInitial(),status:'unavailable',error_code:'UNAVAILABLE'});disposed=true;for(const listener of listeners){try{listener()}catch{}}listeners.clear()},
   }
   return Object.freeze(api)
 }

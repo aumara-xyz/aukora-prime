@@ -1,13 +1,14 @@
 // SOURCE-ONLY scoped HTTP adapter check. Fake streams/dispatcher only; no
 // listener, credentials, authority, memory, browser or production qualification.
 import assert from 'node:assert/strict';
-import {Readable} from 'node:stream';
+import {Readable,PassThrough} from 'node:stream';
 import * as contracts from '../packages/contracts/src/runtime.mjs';
 import {createRuntimeBridge,PUBLIC_METHODS} from '../packages/runtime-bridge/src/index.mjs';
 import {createLocalhostPilotGuard} from '../packages/runtime-bridge/src/pilot-origin.mjs';
 import {createOwnerMemoryHttpRoutes} from './owner-memory-transport.mjs';
 import {createOwnerMemoryHttpCall,OWNER_MEMORY_METHODS} from './owner-memory-browser.mjs';
 import {createOwnerMemoryIpcBoundary} from './owner-memory-ipc.mjs';
+import {mountOwnerMemoryHost} from './owner-memory-host.mjs';
 const guardRequest=createLocalhostPilotGuard({profile:'localhost-pilot-v1',origin:'http://localhost:18731',rp_id:'localhost'});
 const connection={requestRejection:()=>undefined};
 let checks=0,calls=[];
@@ -113,4 +114,57 @@ for(const lost of [false,true]){
  const reply=await proxy.handlePublic('memory.save',{marker:'literal'},{request:{credential_id:'guest'},role:'guest'});
  assert.equal(reply.error_code,lost?'OUTCOME_UNKNOWN':undefined);assert.equal(sent.length,2);assert.deepEqual(sent[1],{method:'memory.save',input:{marker:'literal'}});assert.equal(closed,1);checks++;
 }
-console.log(JSON.stringify({status:'PASS',checks,scope:'source-only HTTP/browser adapters and guards',actual_authority_or_PG:false,listener_started:false,production_qualification:false}));
+// NEXT regression source; execution awaits the owner's focused-check approval.
+// Disposing during body collection must refuse before any real IPC connection.
+const registered=[],removed=[];
+const stop=mountOwnerMemoryHost({connection,guardRequest,contracts,channel,deployment,
+ webServer:{register(route){registered.push(route);return ()=>removed.push(route.path);}}});
+assert.deepEqual(registered.map(route=>route.path),routes.map(route=>route.path));checks++;
+const delayed=new PassThrough();delayed.method='POST';delayed.url='/api/prime/bridge/memory.save';
+delayed.headers={host:'localhost:18731',origin:'http://localhost:18731','content-type':'application/json'};
+const delayedResponse=new Response();
+const waiting=registered.find(route=>route.path===delayed.url).handler(delayed,delayedResponse);
+stop();delayed.end('{}');await waiting;
+assert.equal(delayedResponse.status,503);assert.equal(JSON.parse(delayedResponse.body).reason,'OWNER_MEMORY_HOST_DISPOSED');
+assert.deepEqual(removed,[...registered].reverse().map(route=>route.path));stop();assert.equal(removed.length,registered.length);checks++;
+res=await invoke({routes:registered});assert.equal(res.status,503);assert.equal(JSON.parse(res.body).reason,'OWNER_MEMORY_HOST_DISPOSED');checks++;
+// Partial registration rolls back every earlier registration and fences copies.
+const partial=[],rolledBack=[];
+assert.throws(()=>mountOwnerMemoryHost({connection,guardRequest,contracts,channel,deployment,
+ webServer:{register(route){if(partial.length===2)throw new Error('synthetic registration failure');partial.push(route);return ()=>rolledBack.push(route.path);}}}),/synthetic registration failure/);
+assert.deepEqual(rolledBack,[...partial].reverse().map(route=>route.path));
+res=await invoke({method:OWNER_MEMORY_METHODS[0],routes:partial});assert.equal(res.status,503);checks++;
+// One failed unregister must not prevent the rest; the failed one can retry.
+const cleanupAttempts=[];let failCleanup=true;
+const retryStop=mountOwnerMemoryHost({connection,guardRequest,contracts,channel,deployment,
+ webServer:{register(route){return ()=>{cleanupAttempts.push(route.path);if(route.path===routes[0].path&&failCleanup)throw new Error('synthetic cleanup failure');};}}});
+assert.throws(retryStop,/OWNER_MEMORY_HOST_CLEANUP_FAILED/);assert.equal(cleanupAttempts.length,routes.length);
+failCleanup=false;retryStop();assert.equal(cleanupAttempts.length,routes.length+1);checks++;
+// Registration + cleanup failure still exposes the inert residual cleanup.
+let rollbackFailure,registeredCount=0,rollbackAttempts=0,failRollback=true;
+try {mountOwnerMemoryHost({connection,guardRequest,contracts,channel,deployment,
+ webServer:{register(){if(registeredCount++===1)throw new Error('synthetic register failure');
+  return ()=>{rollbackAttempts++;if(failRollback)throw new Error('synthetic rollback failure');};}}});}
+catch(error){rollbackFailure=error;}
+assert.equal(rollbackFailure?.message,'OWNER_MEMORY_HOST_REGISTRATION_FAILED');
+assert.equal(typeof rollbackFailure.dispose,'function');assert.equal(rollbackAttempts,1);
+failRollback=false;rollbackFailure.dispose();assert.equal(rollbackAttempts,2);checks++;
+// Lifecycle changes across each asynchronous IPC seam cannot start a new effect.
+for(const at of ['connect','capability','dispatch']){
+ let active=true,closed=0;const sent=[];
+ const proxy=createOwnerMemoryIpcBoundary({channel,deployment,isActive:()=>active,connect:async()=>{
+  if(at==='connect')active=false;
+  return {async request(method){sent.push(method);
+   if(method==='capability.status'){
+    if(at==='capability')active=false;
+    return {ok:true,available:true,public_routes:'available',public_dispatch:'qualified-owner-memory/v1',qualification:deployment};
+   }
+   active=false;return {ok:true,status:'ALREADY_SUBMITTED_RESULT'};
+  },async close(){closed++;}};
+ }});
+ const reply=await proxy.handlePublic('memory.save',{});
+ assert.deepEqual(sent,at==='connect'?[]:at==='capability'?['capability.status']:['capability.status','memory.save']);
+ assert.equal(reply.ok,at==='dispatch');assert.equal(closed,1);
+ if(at!=='dispatch')assert.equal(reply.reason,'PUBLIC_WORKER_DISPOSED');checks++;
+}
+console.log(JSON.stringify({status:'PASS',checks,scope:'source-only HTTP/browser adapters, registration lifecycle and guards',actual_authority_or_PG:false,listener_started:false,production_qualification:false}));

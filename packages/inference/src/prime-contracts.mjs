@@ -29,7 +29,8 @@ export function fromQualifiedPrimeRoute(route, qualification) {
   const base = fromPrimeRoute(route,{ ...qualification, mode: 'unavailable' });
   return validateRoute({ ...base, mode: 'production', pricing_evidence_id: qualification.pricing_evidence_id,
     terms_evidence_id: qualification.terms_evidence_id, served_version: qualification.served_version,
-    credential_generation: qualification.credential_generation, config_digest: qualification.config_digest });
+    credential_generation: qualification.credential_generation, config_digest: qualification.config_digest,
+    total_budget_id: qualification.total_budget_id });
 }
 
 export function fromPrimeTask(task, route, { max_total_tokens } = {}) {

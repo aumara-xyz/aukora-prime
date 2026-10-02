@@ -150,7 +150,7 @@ export function createPostgresWorkflowStore({pool}={}) {
     return transaction(async db=>{
       const found=await rows(db,`SELECT ${COLUMNS} FROM prime_runtime_workflows
         WHERE owner_subject=$1 AND owner_id=$2 AND task_id=$3
-        ${active?"AND phase NOT IN ('saved','forgotten','known_unsent')":''}
+        ${active?"AND phase NOT IN ('saved','forgotten')":''}
         ORDER BY created_at${active?'':' DESC'},operation_id${active?'':' DESC'} LIMIT $4`,[owner.owner_subject,owner.owner_id,owner.task_id,limit+1])
       const overflow=found.length>limit
       if(active&&overflow)refuse('WORKFLOW_LIST_OVERFLOW','UNAVAILABLE',{overflow:true})

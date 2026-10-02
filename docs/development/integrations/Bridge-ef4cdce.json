@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "lane": "Bridge",
+  "status": "SOURCE_IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "integration_parent": "b11a2506f8f2884a83ad88bc412c994a1d00de37",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "source_commit": "ef4cdcee90c745a47b59b632306f7cdd6a49778c",
+  "patch_base": "b96ea4ab5da9a9746f5ab32e5e4ea8e9f3515f89",
+  "patch": "inference-ef4cdce.patch",
+  "patch_sha256": "9c6d493b49de45e8a4f6ed426129f1878a5cbe438e8aba9d89ea524c31f7400b",
+  "files": [
+    {
+      "path": "packages/runtime-bridge/README.md",
+      "sha256": "9ef18271e829d471d32f52fd4ece12cc5ae4a9728e0de0f8928dd4cc3a90dd94",
+      "bytes": 32111
+    },
+    {
+      "path": "packages/runtime-bridge/checks/inference-boundary.test.mjs",
+      "sha256": "a6cb1539f2028e9efb60a2e5aff306c942a0e0901eec906121dd4a237f8c753e",
+      "bytes": 9063
+    },
+    {
+      "path": "packages/runtime-bridge/checks/inference-fixture.mjs",
+      "sha256": "e0bbba0e270af3ed7c60dd49fafe52a1e600f6ef14fcdb84e63066a8b82461ce",
+      "bytes": 6086
+    },
+    {
+      "path": "packages/runtime-bridge/checks/inference-real-authority.test.mjs",
+      "sha256": "3eff7e54eeab73db651bd0e5992da4ade4d036cbd7c90d6729067a44801bc6e7",
+      "bytes": 18121
+    },
+    {
+      "path": "packages/runtime-bridge/docs/inference-join.md",
+      "sha256": "ece90fe9c6d839fe13a7c36f5ec00d7051bd28feeae6b79be2775a0a5ee2ceec",
+      "bytes": 12994
+    },
+    {
+      "path": "packages/runtime-bridge/package.json",
+      "sha256": "3f42d1b91ba82bdcbaf1a2b68f15e300ea4be5a36a154673dc05157b8c6cf3f9",
+      "bytes": 684
+    },
+    {
+      "path": "packages/runtime-bridge/src/inference-authority.mjs",
+      "sha256": "f69ed01508c8dddebb17b4466e5ce615752366577315e497da7800f1a4b98c61",
+      "bytes": 15201
+    },
+    {
+      "path": "packages/runtime-bridge/src/inference-observer.mjs",
+      "sha256": "4881deedc381d7a8126f817134e3246a0c8e44425e2600c93944146e5e92c771",
+      "bytes": 6990
+    },
+    {
+      "path": "packages/runtime-bridge/src/inference-support.mjs",
+      "sha256": "254b6349bb9421e787392630763067304dfd2d92c61edef794d5d7b3b3bb248c",
+      "bytes": 3357
+    },
+    {
+      "path": "packages/runtime-bridge/src/inference-worker.mjs",
+      "sha256": "02354cb7bd6206d10acd736742bd1eadfbe44fa9308cec1cc94bcb05ee332e4d",
+      "bytes": 6721
+    },
+    {
+      "path": "packages/runtime-bridge/src/inference.d.mts",
+      "sha256": "288a45c3885f743888dbd67be445998adf1fc9578456c2ba0dba4ee3ccbe960f",
+      "bytes": 13744
+    },
+    {
+      "path": "packages/runtime-bridge/src/inference.mjs",
+      "sha256": "c83dc2ab610ab1828429dfec810918f180cd16b09bc95b1924b29e08dd88ac62",
+      "bytes": 345
+    },
+    {
+      "path": "packages/runtime-bridge/src/ipc.mjs",
+      "sha256": "6413922a450452124883a8a3ee17c2aa9d24a79fe48d5bac04101619ae92a7c9",
+      "bytes": 20376
+    },
+    {
+      "path": "packages/runtime-bridge/test/authority-fixture.mjs",
+      "sha256": "a33527968ea54cd7788741c1b5d35b1a58c336955e3724edf3baeb65fc1a3d24",
+      "bytes": 2874
+    },
+    {
+      "path": "packages/runtime-bridge/test/inference-ipc.test.mjs",
+      "sha256": "fc847c1228642aa146c16bdaad28ce79ea76238a134fe001f886c3ea58878db2",
+      "bytes": 14767
+    },
+    {
+      "path": "packages/runtime-bridge/test/inference-unmounted.test.mjs",
+      "sha256": "7b2e6063d3bdd45bd9c53f664ee3704077057cbacbfbd3290f1dc88475f6bfc3",
+      "bytes": 3538
+    },
+    {
+      "path": "packages/runtime-bridge/test/owner-memory-facade.test.mjs",
+      "sha256": "449620a7e1698ab3d67fef4c1194b988e33e59bdc7285f4162cde5199fd85288",
+      "bytes": 14205
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "package_adaptations": [],
+  "lane_checks": {
+    "distinct_focused_cases": 19,
+    "ipc": 4,
+    "boundary": 8,
+    "genuine_C_and_unmounted": 3,
+    "owner_memory_exact_witness": 4,
+    "focused_type_consumer": "PASS with skipLibCheck true",
+    "full_declaration_traversal": "BLOCKED: missing agreed SDK dependency declarations"
+  },
+  "source_review": "No C/E grammar or scoped role/observer import blocker. Real E service continuation is not yet wired; do not map withDispatch to verifyDispatchAdmission.",
+  "integration_gaps": [
+    "E-owned private continuation must enclose current worker ledger/vault/HTTP lifecycle inside Bridge withDispatch without duplicate reserve/claim or early observation-fence release.",
+    "E durable pre-C-reserve attempt guard is absent; local Bridge latch does not survive restart.",
+    "Bridge facade known_unsent fixture still expects fresh save success despite retained refusal; owner fix required."
+  ],
+  "runtime_activation": false,
+  "runtime_qualified": false
+}

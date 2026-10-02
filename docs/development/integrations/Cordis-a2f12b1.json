@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "lane": "Cordis tool provider",
+  "status": "SOURCE_IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "integration_parent": "5bd6c25f27e03c48689e0d8f02ea341d3762129d",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "source_commit": "a2f12b1c08bcc9587fcf5c923b4629e6ff38d83c",
+  "patch_base": "c66634acdef7220fc0274ab56587d563d99b28b3",
+  "patch": "cordis-tool-provider.patch",
+  "patch_sha256": "b1c16c265450e7c5334cf7cedf6c54133f12dec629d74d7ff13a81aed2be8d3d",
+  "files": [
+    {
+      "path": "packages/cordis-tool-provider/EVIDENCE.md",
+      "sha256": "4fe289da0a4cd7f98e28aaebcd8125cc93e5f411d0974a0f1b2a5d6741682c15",
+      "bytes": 3757
+    },
+    {
+      "path": "packages/cordis-tool-provider/README.md",
+      "sha256": "1443a27810b62eb680e1b3cda297895c6ab6aedee089ea18d04dc127f484ccd6",
+      "bytes": 6762
+    },
+    {
+      "path": "packages/cordis-tool-provider/checks/cordis.test.mjs",
+      "sha256": "d27d48dba6524480340ca799378f43afc01579f8f795c12c4c1a112b28098717",
+      "bytes": 9623
+    },
+    {
+      "path": "packages/cordis-tool-provider/checks/provider-fixture.mjs",
+      "sha256": "868fdd57379fe7197eb57bc792e8741f5ac26b243c967ba2efa8869136239e83",
+      "bytes": 6315
+    },
+    {
+      "path": "packages/cordis-tool-provider/checks/provider.test.mjs",
+      "sha256": "d5377bfd3286d47b189cf6a2e2764c934bd3b85f6f47c7f9bc3b7d4dc366cecf",
+      "bytes": 13880
+    },
+    {
+      "path": "packages/cordis-tool-provider/package.json",
+      "sha256": "b45304fbfc3fb8b10d3c1411be765062d2c146888b1a094d69fd1be0ba588c9d",
+      "bytes": 281
+    },
+    {
+      "path": "packages/cordis-tool-provider/src/index.mjs",
+      "sha256": "43106338ef2c732799a4789a2cf869fc401bcd2a951ed7a56158096dcd6da127",
+      "bytes": 10026
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "package_adaptations": [],
+  "lane_checks": {
+    "provider_actual_C_F_mocked_context_SDK": 25,
+    "pinned_Cordis_DSH": 5,
+    "exact_F_e3ea488_overlay": {
+      "passed": 30,
+      "failed": 0
+    },
+    "root_rerun": false
+  },
+  "source_review": "No import blocker. Isolated seven-file package; compatible with F lifetime safeguard. Defaults unavailable, fixed one-action operation, C owns approval/reserve and F owns claim/execution/settlement.",
+  "unperformed": [
+    "product mount",
+    "real owner enrollment",
+    "provider or gateway calls",
+    "real Linux action",
+    "containment and complete cleanup",
+    "full build and full prime verify"
+  ],
+  "runtime_activation": false,
+  "runtime_qualified": false
+}

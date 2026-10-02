@@ -65,6 +65,15 @@ export class MockedProtocolExecutor extends OpenShellOwnedExecutor {
   constructor(options){super({...options,qualification:null});this.protocolAdmission=options.protocolAdmission??(()=>true)}
   get capability(){return this.disposed||this.protocolAdmission()!==true?'unavailable':'qualified'}
   admission(){return this.capability==='qualified'}
+  // Explicit fixture-only simulation. No provider implements these methods;
+  // it cannot turn an acceptance callback or API absence into runtime proof.
+  requireIndependentLifetime() {}
+  requireAtomicConfiguration() {}
+  requireIndependentCleanup() {}
+  confirmOwnedCleanup(job) {
+    if(job.public_cleanup_observation?.state!=='api_absent'||job.public_cleanup_observation.sandbox_uid!==job.id)throw new Error('synthetic cleanup observation differs')
+    job.receipt.cleanup='confirmed_absent';job.stage='cleaned'
+  }
   availability(){return {...super.availability(),state:'unavailable',protocol:'mocked',runtime:'unavailable',runtimeEnforcementVerified:false}}
   async execute(request){this.broker.prepare?.(request);return super.execute(request)}
 }

@@ -148,7 +148,12 @@ export function createPrimeProviderController({now=Date.now,fetcher=globalThis.f
         ownerReady();secureEntry()
         if(state.entry_status!=='ready'||!descriptor||Date.parse(descriptor.expires_at)<=now()||typeof input?.value!=='string')refusal()
         secret=input.value
-        if(!secret||secret.length>4096)refusal()
+        // Match the separated worker before consuming its one-use ticket.
+        // Never trim, normalize or repair an entered credential.
+        if(secret.length<8||secret.length>4096||!/^[\x21-\x7e]+$/u.test(secret)){
+          notify({reason:'Enter an 8–4096 character key using non-space printable ASCII. No key was sent.'})
+          return null
+        }
         // Consume before dispatch. Never cache a secret or retry a lost reply.
         ticket=null;stopExpiry();input.value=''
         body=binding.contracts.canonicalJson({ticket:descriptor.ticket,secret});secret=undefined

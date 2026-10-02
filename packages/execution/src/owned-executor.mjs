@@ -6,6 +6,9 @@ import { SDK_SOURCE_COMMIT, SDK_PACKAGE_VERSION } from './sdk-transport.ts'
 import { executorRequestDigest,executionReceiptDigest,requireBroker,brokerRefusal } from './binding.mjs'
 import { inspectQualification } from './qualification.mjs'
 import { assertEffectiveConfiguration } from './effective-policy.mjs'
+import { createTemplate, createProfileDigest, assertCreateTemplate, assertCreateBounds, guestWorkdir } from './create-profile.mjs'
+import { PINNED_EXECUTION_SAFETY,createLocalLifetime,localLifetimeDigest,inspectLocalLifetime,
+  refuseIndependentLifetime,refuseAtomicConfiguration,refuseOwnedArtifactCleanup } from './lifetime-safety.mjs'
 
 const LABEL='aukora.openshell/owner'
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -28,6 +31,7 @@ function snapshot(request, settings) {
   const {signal,...json}=request
   closed(json,['operation','consumed_grant','request_id','image_digest','policy_digest','wall_time_ms','max_output_bytes'])
   const r=clone(json), op=r.operation, grant=r.consumed_grant
+  assertCreateBounds(r)
   validateContract('OperationProposal',op); validateContract('ConsumedGrant',grant)
   const digest=operationDigest(op)
   for (const key of ['operation_id','owner_id','audience','authorization_epoch']) if(op[key]!==grant[key]) throw refused('consumed grant binding differs','UNAUTHORIZED')
@@ -44,7 +48,9 @@ function snapshot(request, settings) {
     sandboxPolicy:{mode:p.sandbox_mode,workspaceRoot:settings.logical_workspace_root},signal}
   validateSpec(spec,{workspaceRoot:settings.logical_workspace_root})
   if(r.wall_time_ms!==spec.timeoutMs||r.max_output_bytes!==spec.stdoutMaxBytes||r.policy_digest!==policyDigest(p.sandbox_mode)) throw refused('approved execution bounds/policy differ','TARGET_MISMATCH')
-  return {r,spec,env:guestEnvironment(spec),policy:wirePolicy(p.sandbox_mode),digest,signal}
+  return {r,spec,env:guestEnvironment(spec),policy:wirePolicy(p.sandbox_mode),digest,signal,
+    create_template:createTemplate(settings.image_digest),create_profile_digest:createProfileDigest(settings.image_digest),
+    guest_workdir:guestWorkdir(spec.workdir,settings.logical_workspace_root)}
 }
 
 function own(sandbox,job,settings) {
@@ -57,6 +63,10 @@ function own(sandbox,job,settings) {
 }
 function admitted(s,job,settings,env) {
   own(s,job,settings)
+  const template=assertCreateTemplate(s.spec?.template,settings.image_digest)
+  if(job.create_profile_digest!==createProfileDigest(settings.image_digest)
+    ||canonicalJson(template)!==canonicalJson(job.create_template)
+    ||job.guest_workdir!==guestWorkdir(settings.logical_workspace_root,settings.logical_workspace_root))throw refused('owned create profile changed','UNAVAILABLE')
   if(s.status?.phase!==2||s.status.configurationAdmission?.state!==2||!s.status.configurationAdmission.policyHash
     ||s.spec.template?.image!==settings.image_digest||s.spec.tty!==false
     ||s.spec.providers?.length!==0||canonicalJson(s.spec.environment)!==canonicalJson(env)
@@ -78,10 +88,27 @@ export class OpenShellOwnedExecutor {
     this.broker=requireBroker(broker);this.qualification=qualification;this.runtimeBinding=runtimeBinding?Object.freeze(clone(runtimeBinding)):null;this.disposed=false;this.active=null
   }
   acceptedQualification(policy=null,bounds=null) {return this.disposed?null:inspectQualification(this.qualification,this.settings,policy,bounds,{binding:this.runtimeBinding,ledger_id:this.ledger.identity,gateway_identity:this.transport.gatewayIdentity})}
-  get capability() {return this.acceptedQualification()?'qualified':'unavailable'}
-  admission(request) {return !!this.acceptedQualification(request.policy_digest,request)}
+  // Accepted observations cannot manufacture unsupported backend mechanisms.
+  executionSafeguardsAvailable() {return Object.values(PINNED_EXECUTION_SAFETY).every(value=>value==='available')}
+  get capability() {const record=this.acceptedQualification();return record&&this.executionSafeguardsAvailable()?'qualified':'unavailable'}
+  admission(request) {return !!this.acceptedQualification(request.policy_digest,request)&&this.executionSafeguardsAvailable()}
+  requireIndependentLifetime() {refuseIndependentLifetime()}
+  requireAtomicConfiguration() {refuseAtomicConfiguration()}
+  requireIndependentCleanup() {refuseOwnedArtifactCleanup()}
+  confirmOwnedCleanup() {refuseOwnedArtifactCleanup()}
+  observeLifetime(job) {
+    const observed=inspectLocalLifetime(job)
+    if(observed.lifetime)job.lifetime=observed.lifetime
+    job.local_lifetime_status=observed.status;this.ledger.save(job)
+    return observed
+  }
+  assertLifetime(job) {
+    const observed=this.observeLifetime(job)
+    if(observed.status!=='active')throw refused('original owned lifetime expired or uncertain',observed.status==='expired'?'EXPIRED':'RECONCILIATION_REQUIRED')
+    return observed.remaining_ms
+  }
   availability() {
-    const record=this.acceptedQualification()
+    const accepted=this.acceptedQualification(),record=this.executionSafeguardsAvailable()?accepted:null
     return {backend:'openshell-linux',state:record?'qualified':'unavailable',cleanup:this.ledger.pending().length?'pending':'unprobed',
       source:'pinned_source',protocol:'unperformed',runtime:record?'accepted':'unavailable',runtimeEnforcementVerified:!!record,
       qualification_id:record?.qualification_id??null,host_profile:record?.host_profile??null,settlement:this.ledger.recovery().length?'pending':'settled'}
@@ -108,12 +135,14 @@ export class OpenShellOwnedExecutor {
         claim_state:'prepared',claim_reply:null,outbox:[],cancel_state:null,
         stage:'prepared',create_confirmed:false,policy_digest:snap.r.policy_digest,workspace:this.settings.workspace,image_digest:this.settings.image_digest,
         gateway_identity:this.transport.gatewayIdentity,ledger_id:this.ledger.identity,runtime_binding:this.runtimeBinding,
+        create_template:clone(snap.create_template),create_profile_digest:snap.create_profile_digest,guest_workdir:snap.guest_workdir,
         stdout_b64:'',stderr_b64:'',receipt:{version:1,receipt_id:randomUUID(),operation_id:snap.r.operation.operation_id,
           task_id:snap.r.operation.task_id,owner_id:snap.r.operation.owner_id,operation_digest:snap.digest,
           grant_id:snap.r.consumed_grant.grant_id,request_id:snap.r.request_id,status:'outcome_unknown',stdout:'',stderr:'',
           exit_code:null,rpc_completion:'not_started',output_truncated:false,sandbox:null,cleanup:'pending',
           started_at:null,finished_at:iso(),error_code:'OUTCOME_UNKNOWN',reconciliation_required:true}}
       // F's non-launch fence exists before the actual one-use durable C claim.
+      job.lifetime=createLocalLifetime(job);job.lifetime_digest=localLifetimeDigest(job.lifetime)
       this.ledger.reserve(job)
       this.active={controller,job}
       try {this.active.promise=this.run(job,snap,controller);return await this.active.promise}
@@ -192,13 +221,17 @@ export class OpenShellOwnedExecutor {
     const abort=()=>cutShort('caller'),ownerAbort=()=>cutShort('dispose')
     controller.signal.addEventListener('abort',ownerAbort,{once:true});snap.signal?.addEventListener('abort',abort,{once:true})
     if(snap.signal?.aborted)abort()
-    timer=setTimeout(()=>cutShort('timeout'),snap.spec.timeoutMs)
     try {
+      const lifetime=this.observeLifetime(job)
+      if(lifetime.status!=='active')throw refused('original owned lifetime expired or uncertain',lifetime.status==='expired'?'EXPIRED':'RECONCILIATION_REQUIRED')
+      // Never grant a fresh full timeout after claim delays or a successor.
+      timer=setTimeout(()=>cutShort('timeout'),lifetime.remaining_ms)
       await this.claim(job)
       if(job.cancel_cause&&!cancelPromise)cancelPromise=this.requestCancellation(job)
       if(this.disposed&&!controller.signal.aborted)cutShort('dispose')
       if(!controller.signal.aborted) {
         if(!this.admission(snap.r)||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('runtime evidence revoked or operation expired before create','UNAVAILABLE')
+        this.assertLifetime(job);this.requireIndependentLifetime(job)
         job.stage='create_attempted';this.ledger.save(job)
         const created=await this.transport.create(job,this.settings,clone(snap.policy),clone(snap.env),{timeoutMs:this.settings.control_timeout_ms,signal:controller.signal})
         own(created,job,this.settings);job.create_confirmed=true;job.stage='created';this.ledger.save(job)
@@ -219,6 +252,7 @@ export class OpenShellOwnedExecutor {
           await this.verifyConfiguration(job,snap,controller.signal)
           controller.signal.throwIfAborted()
           if(!this.admission(snap.r)||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired or runtime evidence revoked before exec','UNAVAILABLE')
+          this.assertLifetime(job);this.requireAtomicConfiguration(job)
           // A crash after drained RPC but before final config corroboration must
           // preserve uncertainty across restart. Only a durable verified save clears it.
           job.configuration_verification='pending'
@@ -234,7 +268,15 @@ export class OpenShellOwnedExecutor {
           catch(error){job.configuration_uncertain=true;this.ledger.save(job);throw error}
         }
       }
-    } catch(error) {dispatchError=error}
+    } catch(error) {
+      dispatchError=error
+      if(job.claim_state==='prepared') {
+        // Local accounting failure before C is a non-launch refusal. It must
+        // not invent timeout intent, claim C dispatch, or settle an effect.
+        job.claim_state='refused';job.claim_reply={ok:false,error_code:error.code??'UNAVAILABLE',reason:'dispatch never attempted; reservation retained'}
+        this.ledger.save(job)
+      }
+    }
     finally {clearTimeout(timer);snap.signal?.removeEventListener('abort',abort);controller.signal.removeEventListener('abort',ownerAbort)}
     if(cancelPromise)await cancelPromise
     try {await this.cleanup(job)}catch {job.receipt.cleanup='unknown'}
@@ -267,8 +309,19 @@ export class OpenShellOwnedExecutor {
   async cleanup(job) {
     if(job.workspace!==this.settings.workspace||job.image_digest!==this.settings.image_digest||job.gateway_identity!==this.transport.gatewayIdentity
       ||job.ledger_id!==this.ledger.identity||canonicalJson(job.runtime_binding)!==canonicalJson(this.runtimeBinding))throw refused('ledger deployment scope changed','TARGET_MISMATCH')
-    if(['confirmed_absent','not_created'].includes(job.receipt.cleanup))return
-    if(job.stage==='prepared'){job.receipt.cleanup='not_created';return}
+    if(job.receipt.cleanup==='not_created'||job.stage==='prepared') {
+      if(job.stage!=='prepared'||job.create_confirmed||job.id!==null||job.receipt.sandbox!==null
+        ||job.receipt.started_at!==null||job.receipt.exit_code!==null||job.receipt.rpc_completion!=='not_started')throw refused('non-launch evidence differs','RECONCILIATION_REQUIRED')
+      job.receipt.cleanup='not_created'
+      return
+    }
+    if(job.receipt.cleanup==='confirmed_absent') {this.requireIndependentCleanup(job);this.confirmOwnedCleanup(job);return}
+    // Older profile jobs remain fenced for trusted reconciliation. This source
+    // increment cannot reinterpret their image/mount identity or relaunch them.
+    if(job.create_profile_digest!==createProfileDigest(this.settings.image_digest)
+      ||canonicalJson(job.create_template)!==canonicalJson(createTemplate(this.settings.image_digest))
+      ||job.guest_workdir!==guestWorkdir(this.settings.logical_workspace_root,this.settings.logical_workspace_root))throw refused('legacy or changed owned create profile','RECONCILIATION_REQUIRED')
+    this.requireIndependentCleanup(job)
     const deadline=Date.now()+this.settings.cleanup_timeout_ms,found=await this.find(job,deadline)
     if(found) {
       job.create_confirmed=true;this.ledger.save(job)
@@ -279,7 +332,10 @@ export class OpenShellOwnedExecutor {
       while(await this.find(job,deadline))await new Promise(r=>setTimeout(r,this.settings.poll_ms))
     }
     if(!job.create_confirmed)throw refused('late creation cannot be excluded','RECONCILIATION_REQUIRED')
-    job.receipt.cleanup='confirmed_absent';job.stage='cleaned'
+    // Public API disappearance is an observation, not proof of all driver
+    // artifacts or a terminal late-create fence. Production cannot promote it.
+    job.public_cleanup_observation={state:'api_absent',sandbox_uid:job.id,observed_at:iso()};this.ledger.save(job)
+    this.confirmOwnedCleanup(job)
   }
   async reconcileLocked() {
     const receipts=[]
@@ -287,10 +343,14 @@ export class OpenShellOwnedExecutor {
       if(!job.request||!job.request_digest||!Array.isArray(job.outbox))throw refused('legacy/incomplete ledger requires trusted reconciliation; never reconstruct authority','RECONCILIATION_REQUIRED')
       if(executorRequestDigest(job.request)!==job.request_digest||job.request.request_id!==job.request_id)throw refused('durable request binding differs','RECONCILIATION_REQUIRED')
       const before=canonicalJson(job.receipt)
+      const lifetime=this.observeLifetime(job)
       if(job.claim_state==='prepared') {
         // The attempt checkpoint is durable before invoking C. This state is
         // proof no claim call occurred, not permission to retry or unconsume.
         job.claim_state='refused';job.claim_reply={ok:false,error_code:'UNAVAILABLE',reason:'dispatch never attempted; reservation retained'}
+      }
+      if(lifetime.status==='expired'&&job.receipt.rpc_completion!=='complete'&&!job.cancel_cause&&job.claim_state!=='refused') {
+        job.cancel_cause='timeout';job.cancel_state='pending';this.ledger.save(job)
       }
       if(job.cancel_cause&&!['recorded','late'].includes(job.cancel_state))await this.requestCancellation(job)
       try {await this.cleanup(job)}catch {job.receipt.cleanup='unknown'}

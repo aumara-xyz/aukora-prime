@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "lane": "E",
+  "status": "SOURCE_ONLY_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "2151ec55bcb20fa4dd4f8bdf773a2e4d41c85717",
+  "source_commit": "23b0723706e90ab54911509acc8a78c87d860d53",
+  "patch": "prime-inference-bom-next.patch",
+  "patch_sha256": "989bed84da2e2b511697c491646c09761f2cd371a8a44cedd6289b9cee4f7d19",
+  "files": [
+    {
+      "path": "packages/inference/src/provider-http.mjs",
+      "sha256": "24e6217c347ddd140f694081afc0512b8215d73e1b8a6fd48e14ca58f23a829c",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/credential-http.mjs",
+      "sha256": "b829fc3af2eb9528341fa3343269008ff14277fe8db56879c122075e405c909c",
+      "matches_source_commit": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "all_preimages_match": true,
+    "all_postimages_match": true
+  },
+  "supersedes": "Held 8a94ea6 strict request parser patch; replaces it with strict request parsing and explicit BOM preservation for strict rejection at both HTTP decoders.",
+  "source_review": "Independent source read confirmed strict parser receives leading BOM, byte bounds remain and app credential-entry refuses before body read.",
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "limits": [
+    "Parser rejection and valid-input behavior require approved focused execution; this is source review only."
+  ]
+}

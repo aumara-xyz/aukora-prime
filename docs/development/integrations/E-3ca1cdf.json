@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "lane": "E private continuation",
+  "status": "SOURCE_IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "integration_parent": "9c76964ba6e4211d878da66867208423b40533f4",
+  "source_commit": "3ca1cdf685b8e2bc40d3e8387b4a688f20e7b3b2",
+  "patch_base": "377da04d279bf2a2a569e2c47d65352cc433b0e6",
+  "next_preimage_checkpoint": "3f71aab044d5d1d821e5c6cc6d826c95532f50ef",
+  "patch": "prime-inference-private-continuation.patch",
+  "patch_sha256": "2e680e2c3278e23e7121a17a2cc629b6ab20348c63a11cccd0fb2d5ee2fe5e88",
+  "files": [
+    {
+      "path": "packages/inference/README.md",
+      "preimage_sha256": "8a21d31b895f1fa320d1e9830b818050f95c2227d8048aab669fa290d3b61105",
+      "sha256": "e53dd194558282c9f215f068aa6eb03bffb3e61c8d6c7a42515cfa3d84b88015",
+      "bytes": 19793
+    },
+    {
+      "path": "packages/inference/check-reserve-attempt.mjs",
+      "preimage_sha256": null,
+      "sha256": "21554e2e2365ba6d22bd8a17d2ccd48651a6798460560597c5be62796eba62b5",
+      "bytes": 9892
+    },
+    {
+      "path": "packages/inference/check-worker-continuation.mjs",
+      "preimage_sha256": null,
+      "sha256": "d65a328ca99e7ee044f33dfd06a0b1e98a3f14271de049efff504718e3874c6f",
+      "bytes": 10006
+    },
+    {
+      "path": "packages/inference/check-worker-types.mts",
+      "preimage_sha256": "dd03ae740a111d0287ae4702bd90242568426dcc0c444b46e0a8c5cfc2bc8f54",
+      "sha256": "2c4174e9634aab61ac21da810492b22132453c10e1a67a5f1b8bd9a51d7fc2ac",
+      "bytes": 15639
+    },
+    {
+      "path": "packages/inference/package.json",
+      "preimage_sha256": "64be6690c524511d14805a0190b2d3af8aa17ec037fee368aac259cc6a49fb9f",
+      "sha256": "17ea796ffe3fbe16e7100ca0488acdb09dd5599b22bf6e84a7f07cea9b8732f1",
+      "bytes": 952
+    },
+    {
+      "path": "packages/inference/private-continuation.md",
+      "preimage_sha256": null,
+      "sha256": "504897e1bcf5bd07969e7fa3999b7114d2afd4cd0a0f49f0a2c08e0db92a1099",
+      "bytes": 7302
+    },
+    {
+      "path": "packages/inference/src/credential-http.mjs",
+      "preimage_sha256": "0dce52048da24f99f51df105e659071740f47c1676df834c742d46c3f0a05986",
+      "sha256": "392d875b687a0046fc01cee78488113b43a39c270108849c6c1106bfa2d05221",
+      "bytes": 5220
+    },
+    {
+      "path": "packages/inference/src/credential-service.d.mts",
+      "preimage_sha256": "faa29b8cfce5635aad1eaeb9be468903d309348e398b76660d90eae31b3feb5a",
+      "sha256": "cd0223b3cc2b0474c60682e3f515bd395409bdd33c372493111f8e1dafd81ef6",
+      "bytes": 5611
+    },
+    {
+      "path": "packages/inference/src/credential-service.mjs",
+      "preimage_sha256": "51f02aa3ab1249793d7842e1b040550649d9ad40e621487f568be138ba5d6508",
+      "sha256": "3d67edb2781ac5b5dde824c762cca7d68f6381c028dc723ecc1f7fa473205fc2",
+      "bytes": 13784
+    },
+    {
+      "path": "packages/inference/src/index.d.mts",
+      "preimage_sha256": "67e4e64db24be0c9c2adc77d9f872401020870e653601b4cb45483757fb79202",
+      "sha256": "6049fd9ebdda46ff328cd5e27197f9fc0b4d4bbd8fcc7ad15fe8da358371ee3c",
+      "bytes": 13292
+    },
+    {
+      "path": "packages/inference/src/ledger.mjs",
+      "preimage_sha256": "2c170d7f7d96bdfd783b49f7aec494f4907d68bf43b6cec1327317bd7c36d9e0",
+      "sha256": "2c1c5fed7b8f8b2b11710a71d34e9d8ab3a3d7d0db4ac7dee5edc2345f6f54e2",
+      "bytes": 19011
+    },
+    {
+      "path": "packages/inference/src/reserve-attempt-binding.mjs",
+      "preimage_sha256": null,
+      "sha256": "bfa1c86c34108baaedd3b4cdc3d2d12fb5b36de32f1599baea25a8d97f079310",
+      "bytes": 4714
+    },
+    {
+      "path": "packages/inference/src/worker-continuation.mjs",
+      "preimage_sha256": null,
+      "sha256": "035328347d3022bff40594fa3e44562dadbe74ce7467b0a49d35ccfed22d3cef",
+      "bytes": 8872
+    },
+    {
+      "path": "packages/inference/worker-intent-outbox.md",
+      "preimage_sha256": "a7a9c5ba985f064f391308ec2fab95c6fb9aadf0ec6dbc6aed92617edd0fd68f",
+      "sha256": "79c23e78772412b6b417c9fccf0d14efe37699e33e1584a382885b0b5cbaa653",
+      "bytes": 12517
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "package_adaptations": [],
+  "lane_checks": {
+    "distinct_runtime_groups": 15,
+    "reserve_attempt_groups": 6,
+    "continuation_groups": 6,
+    "expiry_groups": 2,
+    "affected_mock_wire_groups": 1,
+    "strict_type_consumer": "PASS with TypeScript6.0.3, 215 resolved inputs, zero external non-toolchain inputs",
+    "affected_rerun": "Only six continuation groups repeated after active-scope quiescence correction",
+    "log_hashes_verified": true,
+    "source_manifest_entries_verified": 33
+  },
+  "source_review": "Durable attempt precedes reviewed-pair return; active original continuation encloses claim/provider/evidence; callback quiescence and both expiry guards retained. Bridge runtime narrow parsers supply validation; no direct TypeScript alias is claimed.",
+  "wiring": "packages/inference/private-continuation.md",
+  "remaining": [
+    "Connected C/Bridge/DSH pilot pending at import.",
+    "Typed host integration needs a real validating narrower boundary; no cast.",
+    "Production Linux UID/custody/configuration and installed runtime qualification unperformed."
+  ],
+  "runtime_activation": false,
+  "runtime_qualified": false
+}

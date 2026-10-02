@@ -13,9 +13,9 @@
 .fields dt { color: var(--aukora-text-secondary); font-size: 13px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .owner { display: flex; flex-direction: column; gap: 8px; }
-.owner input { box-sizing: border-box; border: 1px solid var(--aukora-border); border-radius: var(--aukora-radius);
+.owner input, .owner textarea { box-sizing: border-box; border: 1px solid var(--aukora-border); border-radius: var(--aukora-radius);
   padding: 10px 14px; background: var(--aukora-surface); color: var(--aukora-text); font: inherit; }
-.owner input:focus-visible { outline: 2px solid var(--aukora-blue); outline-offset: 2px; }
+.owner input:focus-visible, .owner textarea:focus-visible { outline: 2px solid var(--aukora-blue); outline-offset: 2px; }
 .error { color: var(--aukora-red-warning); }
 .menu { width: 100%; }
 .capabilities { margin: 12px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }

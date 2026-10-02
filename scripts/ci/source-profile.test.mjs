@@ -56,6 +56,31 @@ test('accepts only the complete 65 PASS / 0 FAIL / 1 declared PostgreSQL UNPERFO
     qualification: 'UNPERFORMED', g1: 'PENDING', counts: {pass: 65, fail: 0, unperformed: 1}});
 });
 
+test('previous facade evidence cannot omit the two reviewed native-witness assertions', () => {
+  const {summary, invocation} = fixture();
+  const row = summary.cases.find(row => row.id === 'full-owner-memory-facade');
+  Object.assign(row, {test_count: 9, required_test_count: 9, observed_test_count: 9, expected_test_count: 9,
+    tap_summary: {tests: 9, pass: 9, fail: 0, cancelled: 0, skipped: 0, todo: 0}});
+  assert.throws(() => validateSummary(summary, invocation), /full-owner-memory-facade: ASSERTION_COUNTS_MISMATCH/);
+});
+
+test('previous H assembly counters cannot replace the reviewed successor assertions', () => {
+  for (const [id, observed] of [['full-h-owner-memory-client', 55], ['full-h-owner-memory-transport', 52]]) {
+    const {summary, invocation} = fixture();
+    const row = summary.cases.find(row => row.id === id);
+    Object.assign(row, {test_count: observed, observed_test_count: observed,
+      counter: {key: 'checks', expected: observed, observed}});
+    assert.throws(() => validateSummary(summary, invocation), /JSON_COUNTER_MISMATCH/);
+  }
+});
+
+test('present total-budget source cannot establish live qualification', () => {
+  const {summary, invocation} = fixture();
+  const gate = summary.unperformed.find(row => row.id === 'inference-total-budget-delivery');
+  gate.status = 'PASS';
+  assert.throws(() => validateSummary(summary, invocation), /QUALIFICATION_EXCLUSIONS_CHANGED/);
+});
+
 const refusals = [
   ['exit 0 cannot substitute for reviewed exit 2', (_, i) => {i.exitCode = 0;}, /EXPECTED_EXIT_2/],
   ['exit 1 remains a failure', (_, i) => {i.exitCode = 1;}, /EXPECTED_EXIT_2/],

@@ -37,6 +37,7 @@ export function createDshAdapter(LlmAdapter, { gateway, bindRequest, attribution
         mode: result.mode, provider: 'deepseek', route_id: result.route_id, model: gateway.route.model,
         owner_id: request.owner_id, task_id: request.task_id, conversation_id: request.conversation_id,
         config_digest: result.mode === 'production' ? gateway.route.config_digest : null,
+        total_budget_id: result.mode === 'production' ? gateway.route.total_budget_id : null,
         usage: { ...result.usage }, grants_authority: false,
       } } } };
     }

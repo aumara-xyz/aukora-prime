@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "lane": "B",
+  "status": "SOURCE_ONLY_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "b80a6c1b434f7c6cf5731c4bfaef0f032e68df2c",
+  "source_commit": "3071ac1a8a309dd14a9aee82e7548ff9998d70fb",
+  "patch": "prime-ui-pilot-next-3071ac1.patch",
+  "patch_sha256": "e5a6a49683a944aa40f2d0af6e41e011b89dfa45faca5203d994a11d3b919efe",
+  "import": "Exact owner-UI-only source delta; no lane ancestry imported",
+  "files": [
+    {
+      "path": "packages/ui/prime-authority/PILOT-NEXT.md",
+      "sha256": "482705da261b00d16379cec8f62ecc4064b227aba8790eb45eece7be5024e301",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/AumaReplyView.tsx",
+      "sha256": "c2a5110aa58bcc82364db6afe2d2e8a0d4a9c27e742c247a480d828b994938d5",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/OwnerSurface.module.css",
+      "sha256": "1ede39176d07a090d3df9994bf56d6bfa0cf99d7cd33f22f67ebea5aa789930f",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/OwnerSurface.tsx",
+      "sha256": "e39ee7ecd14bfa56726cf68c58a53f987b3a472cc37966ee6ba636c4344f3b88",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/PilotMemoryPanel.tsx",
+      "sha256": "9567b6f3173aa0b94d8a5b2c808cfb8a997cb981e38996c1e329bfe06ac40c92",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/PrimeProviderEditor.tsx",
+      "sha256": "e30532c5a7dbd0b500a10d17bdecdba320e2e40db9827a978048b1f1cea7096e",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/index.ts",
+      "sha256": "956b000db42ef56d77f31eccfa1fb87020589b65866788b52d5db2e56c068a7d",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/provider-controller.mjs",
+      "sha256": "01b01ab0d5b5beeec04947332a13c9b4a365bd3743ba90435ea026cc6daa80cc",
+      "matches_source_commit": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "patch_matches_commit_delta": true,
+    "all_preimages_match": true,
+    "all_postimages_match": true
+  },
+  "dependencies": {
+    "memory": "H supplies primeAuthority from existing createOwnerMemoryClient, waits for same native controller connection, attaches client, then provides primePilotMemory:{ownerController:controller,client}",
+    "credential_entry": "E/H must supply exact credential-entry proposal/action and owner-review callback before connecting prepareCredentialEntry({expected_generation,approval_proof}); no invented schema or new method",
+    "reply": "E/H/bridge must supply exact owner/task-bound one-reply method/result and stale-session fences; frozen public bridge currently has no inference/reply method",
+    "build": "Integrator must generate new owner-only outputs and genuine input/output receipt using its original pinned harness after approval; historical lib artifacts remain unchanged"
+  },
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "compiled_artifacts_updated": false,
+  "frozen_faces_changed": false,
+  "evolution_lab_mounted": false,
+  "limits": [
+    "Reply view has no result producer; send remains disabled.",
+    "Credential-entry approval callback remains unmounted.",
+    "New owner source requires a genuine fresh build/receipt before composition; historical lib artifacts do not bind these inputs."
+  ]
+}

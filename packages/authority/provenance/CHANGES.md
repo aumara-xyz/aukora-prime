@@ -1,5 +1,46 @@
 # Lane C provenance and pending changes
 
+## Approved focused inference checks
+
+Parent relayed explicit owner green light for needed tests. Added three
+keyless focused check files and package command aliases; production authority
+modules remain byte-identical to source commit aa719a7. Mapper/profile: 20 cases / 127
+assertions; evidence/retention: 10 cases / 143 checks; post-dispatch local
+C/store: 5 cases / 59 assertions passed. Changed modules passed syntax checks and
+optional peer loading was exercised with owned pure helper source. Test
+metadata models owner review/dispatch; unchanged kernel/store preparation and
+actual factual settlement are exercised in disposable paths. No signed owner
+admission, private IPC, E atomic allowance/outbox or provider/runtime claim.
+Only the service check reran for invalid executor-fixture corrections; no
+unchanged full suites, credentials, private keys, services, network, host settings or
+live effects ran.
+
+## NEXT settled inference source join
+
+Prime-only service/admission/profile/evidence/retention code now implements the
+settled NEXT inference interfaces. The original owner review and kernel/store
+PREPARED path consumes approval once; dispatch checks the exact original UUID,
+request digest and immutable context. Original LocalTask/route/configuration,
+budget and rates persist in that PREPARED commit. Factual inference metadata
+uses its own receipt domain and explicit unknown reconciliation. Completed
+inference compaction preserves the original consumed/prepared/witness duties;
+unknown remains full. Historical receipt acknowledgements describe the exact
+submitted evidence, while status lookup describes current operation state.
+
+The optional shared E helper loads by its declared budget-binding subpath only
+when configuring an inference profile, with no C budget normalization copy.
+Original configuration bytes and rates are compared before profile use. Source
+exports and the optional peer declaration are added; no worker/IPC role, HTTP
+route, runtime configuration or key-entry/configuration approval is installed.
+Existing donor kernel/stores/adapters/dependency bytes and frozen public
+contracts/digests are unchanged. Independent static review corrected primitive
+success forwarding and clarified historical unknown acknowledgements. No
+import, syntax check, test, build, service, key or provider action ran.
+
+## NEXT guarded inference mapper (earlier checkpoint)
+
+New Prime-only `src/inference-admission.mjs` parses E's accepted closed operation/binding/admission fields and the inference request digest. Structural equality is explicitly non-authority. Its private factory has no enabling callback/configuration branch and all effect methods remain UNAVAILABLE pending trusted budget/state and receipt/outbox agreement. Package root, worker roles/routes, frozen contracts, donor kernel/stores/adapters and dependency bytes are unchanged. Static review corrected UUID type coercion before handoff. No import, syntax/package check, test, build, key, host or runtime action ran for this source-only increment.
+
 ## Confirmed C/F complete-RPC unknown receipt alignment
 
 Based on Prime authority checkpoint `de55df926e212c98f7feb55829c4933e624be466`, this narrow Prime validator change implements the exact F `b18b0e0546f39de244edff9ef8ea91ba781b3fc4` source agreement. A complete RPC with null command exit is allowed only as a started, reconciliation-required `outcome_unknown`. Cancellation and confirmed cleanup cannot convert it to a terminal command result. Public sandbox nullability, frozen receipt/request fields, digest domains, original owned identity, one-use consumption and monotone reconciliation are unchanged. Raw gateway exit124 stays private F evidence; no kernel, donor adapter/store, dependency or shared contract bytes change. The single focused check uses normal synthetic signed login/propose/review/reserve/dispatch against the real C kernel/stores and disposable local state, without executing an SDK/guest or recreating the stopped audit.

@@ -6,7 +6,7 @@ import {join} from 'node:path'
 import {createAuthorityService,provisionNewAuthorityStore} from '../../authority/src/index.mjs'
 import {didKeyFromEd25519PublicKey} from '../../authority/upstream/plugins/aukora-aumlok/lib/did-key.mjs'
 const hash=value=>createHash('sha256').update(value).digest()
-export function authorityFixture({root,audience,authorizeTask,observeTarget,actions=['memory.save']}={}) {
+export function authorityFixture({root,audience,authorizeTask,observeTarget,actions=['memory.save'],policy,inferenceProfile}={}) {
   mkdirSync(join(root,'state'),{mode:0o700})
   const ed=generateKeyPairSync('ed25519'),ec=generateKeyPairSync('ec',{namedCurve:'prime256v1'})
   const jwk=ec.publicKey.export({format:'jwk'}),raw=Buffer.from(ed.publicKey.export({format:'jwk'}).x,'base64url').toString('hex')
@@ -14,7 +14,8 @@ export function authorityFixture({root,audience,authorizeTask,observeTarget,acti
   const credential={owner_id:identity.owner_id,credential_id:randomBytes(32).toString('base64url'),public_key_hex:'04'+Buffer.from(jwk.x,'base64url').toString('hex')+Buffer.from(jwk.y,'base64url').toString('hex'),user_handle:Buffer.from('synthetic-owner').toString('base64url'),sign_count:0,backup_eligible:false}
   const webauthn={rp_id:'prime.example.test',origins:['https://prime.example.test'],credentials:[credential]}
   const config={statePath:join(root,'state','authority.json'),stateRoot:join(root,'state'),witnessDir:join(root,'witness'),audience,identities:[identity],webauthn,
-    policy:{version:'synthetic-policy',actions,agents:['synthetic-agent'],data_scope:['synthetic'],maximum_cost:{currency:'USD',amount:'0'}},provisionTrustedState:true,authorizeTask,observeTarget}
+    policy:policy??{version:'synthetic-policy',actions,agents:['synthetic-agent'],data_scope:['synthetic'],maximum_cost:{currency:'USD',amount:'0'}},
+    ...(inferenceProfile===undefined?{}:{inferenceProfile}),provisionTrustedState:true,authorizeTask,observeTarget}
   const provisioned=provisionNewAuthorityStore(config)
   if(provisioned.ok!==true)throw new Error('synthetic explicit provisioning failed:'+JSON.stringify(provisioned))
   let counter=0

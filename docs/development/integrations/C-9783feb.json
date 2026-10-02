@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "lane": "C",
+  "status": "SOURCE_ONLY_GUARDED_MAPPER_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "6becb72f309355d76f803e68c02173aafbd9fb40",
+  "source_commit": "9783feba4f73f942bec21186c582dc90b15d7b7f",
+  "patch": "authority-next-inference-guarded.patch",
+  "patch_sha256": "3b1ea736e5cbf4aab7b221985068ebfe4e800a61ba73423b77d820f1eea4bf9e",
+  "files": [
+    {
+      "path": "packages/authority/README.md",
+      "sha256": "4d4e8275459348861327535d9c531c799515651c19a1ffbbd9e72802315f3adf",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/docs/next-inference-interface-proposal.md",
+      "sha256": "6710adcdfab6bf3b224b85520c5bb814b5122ca81a684ecb5c3849bed36b899c",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/provenance/CHANGES.md",
+      "sha256": "95bdb7d6bc4a4e79145d0b5743f4271120aa368b3e559a9c03bb41dba0bd6e18",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/authority/src/inference-admission.mjs",
+      "sha256": "94e5a8736f216867760d38837ac9da6e399fa14b49286c4895b19e8a2f180e67",
+      "matches_source_commit": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "patch_matches_commit_delta": true,
+    "all_preimages_match": true,
+    "all_postimages_match": true
+  },
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "limits": [
+    "Structural parser only; all factory effect methods remain UNAVAILABLE with no enabling branch.",
+    "No private role/mount or package root export. E helper consumption, trusted observations and actual receipt/settlement/terminal support remain pending."
+  ]
+}

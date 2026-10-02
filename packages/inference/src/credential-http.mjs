@@ -1,5 +1,6 @@
 // Server-only module. Never import into the renderer, planner or the generic application host.
-import { hash, integer, refuse } from './policy.mjs';
+import { hash, integer, refuse, assertDispatchExpiry } from './policy.mjs';
+import { parseStrictJson } from '../../contracts/src/json.mjs';
 
 const CHAT_COMPLETIONS = 'https://api.deepseek.com/chat/completions';
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -14,7 +15,9 @@ async function boundedJson(response, maxBytes) {
       if (size > maxBytes) { await reader.cancel(); refuse('PROVIDER_RESPONSE_LIMIT'); }
       chunks.push(Buffer.from(value));
     }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    // Retain a leading BOM so the strict JSON parser rejects it instead of silently stripping it.
+    const text = new TextDecoder('utf-8',{ fatal:true,ignoreBOM:true }).decode(Buffer.concat(chunks));
+    return parseStrictJson(text,{ maxBytes,maxDepth:32 });
   } catch { refuse('INVALID_PROVIDER_RESPONSE'); }
   finally { reader.releaseLock(); }
 }
@@ -40,6 +43,9 @@ export class DeepSeekHttpProvider {
     return this.useCredential(request.owner_id,request.credential_generation,async secret => {
       if (typeof secret !== 'string' || secret.length < 8 || secret.length > 4096 || !/^[\x21-\x7e]+$/u.test(secret)) refuse('CREDENTIAL_INVALID');
       let response;
+      // Key custody is asynchronous. Check the bound operation again at the actual effect boundary.
+      assertDispatchExpiry(request.admission?.operation?.expiry);
+      if (request.signal?.aborted) refuse('CANCELLED_BEFORE_DISPATCH');
       try {
         response = await this.transport(CHAT_COMPLETIONS,{ method: 'POST', redirect: 'error', credentials: 'omit',
           headers: { 'content-type': 'application/json', 'user-agent': request.headers['user-agent'], authorization: 'Bearer ' + secret },
@@ -50,14 +56,16 @@ export class DeepSeekHttpProvider {
         try { await response.body?.cancel(); } catch {}
         refuse('PROVIDER_REQUEST_FAILED');
       }
-      const wire = await boundedJson(response,Math.min(MAX_RESPONSE_BYTES,request.body.max_tokens * 32 + 16384));
+      const responseLimit = Math.min(MAX_RESPONSE_BYTES,request.body.max_tokens * 32 + 16384);
+      const wire = await boundedJson(response,responseLimit);
       if (!Array.isArray(wire.choices) || wire.choices.length !== 1 || wire.model !== (request.served_version ?? request.body.model)
           || !integer(wire.usage?.prompt_tokens) || !integer(wire.usage?.completion_tokens)
           || wire.usage.completion_tokens > request.body.max_tokens
           || wire.choices[0].message?.tool_calls?.length
           || !['stop','length'].includes(wire.choices[0].finish_reason)
           || typeof wire.choices[0].message?.content !== 'string') refuse('INVALID_PROVIDER_RESPONSE');
-      let proposal; try { proposal = JSON.parse(wire.choices[0].message.content); } catch { refuse('INVALID_MODEL_PROPOSAL'); }
+      let proposal; try { proposal = parseStrictJson(wire.choices[0].message.content,{ maxBytes:responseLimit,maxDepth:16 }); }
+      catch { refuse('INVALID_MODEL_PROPOSAL'); }
       if (!proposal || Object.keys(proposal).sort().join(',') !== 'source_ids,text' || typeof proposal.text !== 'string'
           || proposal.text.includes(secret) || !Array.isArray(proposal.source_ids)
           || proposal.source_ids.some(id => !request.citations.some(c => c.source_id === id))) refuse('INVALID_MODEL_PROPOSAL');

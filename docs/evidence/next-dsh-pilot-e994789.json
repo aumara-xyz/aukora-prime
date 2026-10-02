@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "status": "RAN_SCOPED_PASS",
+  "source_commit": "e994789d06f17f54169963cdb7502382c311fdb2",
+  "smoke": "harness/check-next-inference-join.mjs",
+  "smoke_sha256": "7098318999b4726f54c80c994752dcd44e3b8108ca5d98c5f7199b1caec9bda7",
+  "package_tree_ids": {
+    "authority": "60951b46c0523fa8a9cb22ef8326e623fde72330",
+    "contracts": "ab890e3046a6bff557f8502643b3268d595c10f1",
+    "inference": "b57f73e0bb4ba58b527e43397e00a44856fb4a0a",
+    "runtime-bridge": "3447cc1842cb08888b633708a65316fc18230332"
+  },
+  "command": "PRIME_PINNED_DSH_DIR=<verified-pinned-dsh> PRIME_NEXT_PILOT_RESULT_FILE=<new-absolute-file> node --test --test-reporter=tap harness/check-next-inference-join.mjs",
+  "execution": "Owned disposable git archive of exact packages and smoke. Internal C/E package peer. Approved temporary Unix IPC; same UID. No provider network or installed service.",
+  "pinned_harness": {
+    "origin": "Isolated copy of previously verified local DSH build; no install or rebuild",
+    "prior_verification": "python3 scripts/build-dsh.py --verify-built --source <owned-pinned-build>",
+    "built_artifacts": 8389,
+    "pinned_patches": 4,
+    "llm_package": "@deepseek-ai/dsh-llm@0.1.6-alpha.1",
+    "cordis_version": "4.0.2",
+    "limits": "Smoke checks package versions; full build provenance was verified separately before this execution.",
+    "prior_verification_evidence": "next-preview-baef862.json"
+  },
+  "result": {
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "duration_seconds": 1.137,
+    "provider_calls": 1,
+    "provider": "MockDeepSeekProvider",
+    "provider_network_calls": 0,
+    "usage": {
+      "input_tokens": 393,
+      "output_tokens": 18,
+      "cost_microusd": 411
+    }
+  },
+  "observed": [
+    "Actual pinned DSH LlmRuntime.stream and LlmAdapter call the existing ExternalDeepSeekGateway and RemoteDeepSeekProvider.",
+    "Genuine synthetic passkey approval over C private IPC; actual parsers narrow runtime operation/admission. Policy fixture proof and grant are discarded.",
+    "E reviewedReserveAttempt commits the original attempt before Bridge sees approval; no worker allowance is charged until immutable intent reservation.",
+    "WorkerDispatchContinuation holds Bridge observation through one C claim, mock generation and durable evidence/outbox; observation releases before settlement.",
+    "App and worker ledgers each account for the same one request; original-rate actual usage replaces worst allowance and the request slot stays spent.",
+    "After deliberate acknowledgement-commit omission, logout and graceful same-process worker/database reopen, exact settlement is idempotent without a live session or policy reobservation.",
+    "C state/witness and E completed row remain unchanged by redelivery; original pre-reserve attempt survives and fresh Bridge cannot reserve again; completed dispatch replay refuses."
+  ],
+  "exported_result": {
+    "path": "next-dsh-pilot-e994789-result.json",
+    "sha256": "32ae3255b911f879ec334922c0af2ddc9fe649a023480041bd73934980d8e582",
+    "unchanged": true,
+    "mode": "production",
+    "mode_explanation": "This is the protocol admission path exercised with a final MockDeepSeekProvider. It does not claim real provider inference."
+  },
+  "browser_projection": {
+    "status": "RAN_READ_ONLY_SYNTHETIC_FIXTURE",
+    "browser": "Safari native UI automation",
+    "component": "Exact compiled B AumaReplyView",
+    "fixture_relative_path": ".runtime/next-reply-fixture-e994789",
+    "files_sha256": {
+      "owner.js": "72a859bacb32e0d202f8b2074bf2bd9cf5261b5054a1359739afd59c88091154",
+      "layout.js": "a4c9dfcb0bf3e5db90afd4dc5fb19173fc31d5e523a37e0e42a4cb94bea500a1",
+      "index.html": "b26e518f0448df1ce9e19c331105f6ebc53d74f6c0494195e2dcecc0cce51c5d",
+      "pilot-result.json": "32ae3255b911f879ec334922c0af2ddc9fe649a023480041bd73934980d8e582"
+    },
+    "observed": [
+      "Prominent synthetic/mock/no-network fixture notice and unchanged production-mode explanation.",
+      "Actual Auma reply component shows Mock sourced note., externalDeepSeek, original UUID, 393 input tokens, 18 output tokens and 411 micro USD.",
+      "Proposal grants no authority and is not saved as memory; exact receipt disclosure is available.",
+      "Static page has no send or save control."
+    ],
+    "screenshot": "Observed, not saved; browser chrome contained unrelated account labels.",
+    "cleanup": {
+      "owned_fixture_tab_closed": true,
+      "temporary_listener_exited": true
+    }
+  },
+  "limits": [
+    "Mock provider only; SeparatedCredentialService, native provider HTTP and credential custody are unexercised. Its unsupported Mac constructor was not bypassed.",
+    "Trusted policy/observation and owner identity are synthetic fixtures, not protected provisioner inputs.",
+    "Acknowledgement commit omitted after C reply; no IPC transport-loss injection and no process-crash recovery.",
+    "Read-only compiled reply projection is a static fixture; native interactive request binding and installed Prime conversation remain unfinished.",
+    "No real owner enrollment, independent UID/store qualification, provider call, gateway, guest, H200 or runtime activation.",
+    "Full ./prime verify and current installed-product acceptance are UNPERFORMED."
+  ],
+  "passing_output_sha256": "6db76e973174198476fe6afee966471a1bd24599306e3a50d03a1970614ae9d0",
+  "passing_tap_output": "TAP version 13\n# (node:<pid>) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: NEXT pinned DSH mock reply uses genuine C approval, Bridge and E continuation across dropped acknowledgement and reopen\nok 1 - NEXT pinned DSH mock reply uses genuine C approval, Bridge and E continuation across dropped acknowledgement and reopen\n  ---\n  duration_ms: 829.501125\n  type: 'test'\n  ...\n# Pinned DSH/Cordis, actual C synthetic approval/IPC, and E shared reserve fence/continuation/accounting/outbox; one MockDeepSeekProvider reply. Production-shaped metadata is unchanged, not real inference. Acknowledgement commit omitted; graceful same-process reopen only. No separated service, custody, enrollment, native UI or runtime qualification.\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 986.764625\n"
+}

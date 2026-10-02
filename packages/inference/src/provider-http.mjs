@@ -1,4 +1,5 @@
 import { InferenceRefusal, integer, refuse } from './policy.mjs';
+import { parseStrictJson } from '../../contracts/src/json.mjs';
 
 const PREFIX = '/api/prime/inference';
 const PUBLIC_ERRORS = new Set(['OWNER_AUTH_UNAVAILABLE','OWNER_AUTH_REQUIRED','OWNER_APPROVAL_UNAVAILABLE','OWNER_APPROVAL_REQUIRED',
@@ -22,7 +23,12 @@ async function readBody(req, maxBytes) {
     if (size > maxBytes) refuse('INVALID_HTTP_REQUEST');
     chunks.push(Buffer.from(chunk));
   }
-  let value; try { value = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { refuse('INVALID_HTTP_REQUEST'); }
+  let value;
+  try {
+    // Retain a leading BOM so the strict JSON parser rejects it instead of silently stripping it.
+    const text = new TextDecoder('utf-8',{ fatal:true,ignoreBOM:true }).decode(Buffer.concat(chunks));
+    value = parseStrictJson(text,{ maxBytes });
+  } catch { refuse('INVALID_HTTP_REQUEST'); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) refuse('INVALID_HTTP_REQUEST');
   return value;
 }

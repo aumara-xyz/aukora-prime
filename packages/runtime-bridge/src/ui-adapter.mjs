@@ -134,6 +134,11 @@ export function createUiAdapters({call}={}) {
     if(Object.hasOwn(input,'session_token'))throw new TypeError('INVALID: injected session only')
     return copy({...input,session_token:sessionToken})
   }
+  async function readWithSession(method,input) {
+    const detached=withSession(input),revision=authRevision,session=detached.session_token
+    const result=await call(method,detached)
+    return sameSession(revision,session)?copy(result):sessionRefusal()
+  }
   const memory=Object.freeze({
     logout:()=>logout(),
     async proposeForget(input){
@@ -201,15 +206,16 @@ export function createUiAdapters({call}={}) {
       await retireCompleted(session,revision,capture,result)
       return result
     },
-    status:input=>call('memory.status',withSession(input)),
-    cite:input=>call('memory.cite',withSession(input)),
-    recall:input=>call('memory.recall',withSession(input)),
+    status:input=>readWithSession('memory.status',input),
+    cite:input=>readWithSession('memory.cite',input),
+    recall:input=>readWithSession('memory.recall',input),
     recover:async input=>{
       if(!input||Object.keys(input).join(',')!=='operation_id'||!(input.operation_id===null||typeof input.operation_id==='string'))return captureRefusal()
       const detached=withSession(input),revision=authRevision,session=detached.session_token
       const result=await call('memory.recover',detached),capture=captures.get(key(session,result?.operation_id))
+      if(!sameSession(revision,session))return sessionRefusal()
       if(capture)await retireCompleted(session,revision,capture,result,{recovered:true})
-      return result
+      return sameSession(revision,session)?copy(result):sessionRefusal()
     },
   })
   return Object.freeze({authority,memory,logout})

@@ -1,11 +1,15 @@
-import type { Task, ModelRoute } from '@aukora-prime/contracts';
+import type { Task, ModelRoute, OperationProposal, ConsumedGrant, Digest } from '@aukora-prime/contracts';
+import type { TotalBudgetBinding } from './budget-binding.mjs';
+import type { WorkerIntent, WorkerPhase, WorkerClaimReply, PendingWorkerSettlement } from './worker-evidence.mjs';
+export { normalizeTotalBudget, totalBudgetPolicyDigest, totalBudgetBinding, inferenceBudgetState } from './budget-binding.mjs';
+export type { TotalBudgetBinding, InferenceTargetIdentity, InferenceBudgetState } from './budget-binding.mjs';
 export interface LocalRoute {
   route_id: 'externalDeepSeek'; provider: 'deepseek'; endpoint: 'https://api.deepseek.com'; model: string;
   allowed_data_classes: readonly string[]; max_input_tokens: number; max_output_tokens: number; max_request_ms: number;
   mode: 'mock'|'unavailable'|'production'; input_microusd_per_token: number; output_microusd_per_token: number;
   max_requests: number; spend_cap_microusd: number; region: string; transport_status: ModelRoute['status'];
   pricing_evidence_id?: string; terms_evidence_id?: string; served_version?: string;
-  credential_generation?: number; config_digest?: string;
+  credential_generation?: number; config_digest?: string; total_budget_id?: string;
 }
 export interface LocalTask {
   owner_id: string; task_id: string; conversation_id: string; route_id: 'externalDeepSeek';
@@ -30,27 +34,55 @@ export function usdMicros(limit: {currency: 'USD'; amount: string}): number;
 export function fromPrimeRoute(route: ModelRoute, mock: {mode:'mock'|'unavailable'; max_request_ms: number;
   input_microusd_per_token: number; output_microusd_per_token: number}): LocalRoute;
 export function fromPrimeTask(task: Task, route: LocalRoute, options?: {max_total_tokens?: number}): LocalTask;
+export interface TotalTestingBudget {
+ version:1;budget_id:string;owner_id:string;provider:'deepseek';route_id:'externalDeepSeek';
+ ceiling:{currency:'USD';amount:string};approval_reference:string;
+}
+export interface TotalBudgetUsage {
+ budget_id:string;ceiling_microusd:number;requests:number;tokens:number;cost_microusd:number;remaining_microusd:number;
+}
+/** Permanent pre-C-reserve fence; no approval proof, operation plaintext, prompt or credential is retained. */
+export interface ReserveAttemptRecord {
+ binding:DispatchBinding;operation_id:string;operation_digest:Digest;request_digest:Digest;
+}
 export class SpendLedger {
- constructor(path: string);
+ constructor(path: string,options?:{total_budget?:TotalTestingBudget});
+ requireTotalBudget(owner:string,budget_id:string):TotalTestingBudget & {ceiling_microusd:number};
+ storedTotalBudget():TotalTestingBudget|undefined;
+ totalBudgetBinding(owner:string,budget_id:string):TotalBudgetBinding;
+ totalUsage(owner:string,budget_id:string):TotalBudgetUsage;
  register(task: LocalTask, route: LocalRoute): void;
  task(owner: string, task: string): LocalTask;
  route(owner: string, task: string): LocalRoute;
  usage(owner: string, task: string): {requests: number; tokens: number; cost_microusd: number};
  get(owner: string, task: string, uuid: string): {status: 'reserved'|'dispatched'|'outcome_unknown'|'completed';
    receipt: BodyReceipt; result?: InferenceResult; charged_cost: number; reserved_cost: number; charged_tokens: number; reserved_tokens: number} | undefined;
+ /** Private synchronous guard: requires registered trusted task/route and commits before C reserve. Never retry a retained attempt. */
+ beginReserveAttempt(binding:DispatchBinding,operation:OperationProposal):ReserveAttemptRecord;
+ reserveAttempt(owner:string,task:string,uuid:string):ReserveAttemptRecord|undefined;
  reconcile(owner: string, task: string, uuid: string, usage: {tokens: number; cost_microusd: number; evidence_id: string}): void;
+ /** Private worker methods. Recovered phases must never resume claim/HTTP. */
+ reserveWorkerIntent(intent:WorkerIntent):WorkerIntent;
+ workerIntent(owner:string,task:string,uuid:string):{intent:WorkerIntent;phase:WorkerPhase;claim_reply:WorkerClaimReply|null};
+ beginWorkerClaim(owner:string,task:string,uuid:string):void;
+ acceptWorkerClaim(owner:string,task:string,uuid:string,reply:unknown):void;
+ beginWorkerHttp(owner:string,task:string,uuid:string):void;
+ recordWorkerEvidence(owner:string,task:string,uuid:string,reply:ProviderReply|null,observed_at:string,options?:{reconciliation?:boolean}):PendingWorkerSettlement;
+ pendingWorkerSettlement(owner:string,task:string,uuid:string):PendingWorkerSettlement|null;
+ pendingWorkerRequests(owner:string,options?:{after_request_id?:string;limit?:number}):{owner_id:string;task_id:string;request_id:string;phase:WorkerPhase;outcome:string}[];
+ acknowledgeWorkerSettlement(owner:string,task:string,uuid:string,receipt_digest:string,reply:unknown):void;
  close(): void;
 }
 export interface DispatchBinding {
  owner_id:string; task_id:string; conversation_id:string; request_uuid:string; body_sha256:string;
  binding_hash:string; citations_sha256:string; config_digest:string; reserved_tokens:number;
- reserved_cost_microusd:number; credential_generation:number;
+ reserved_cost_microusd:number; credential_generation:number;total_budget_id:string;
 }
-export type DispatchAdmission = DispatchBinding & Record<string,unknown>;
-export interface ProviderRequest extends Omit<DispatchBinding,'config_digest'|'credential_generation'> {
+export type DispatchAdmission = DispatchBinding & {operation:OperationProposal;consumed_grant:ConsumedGrant;request_digest:Digest};
+export interface ProviderRequest extends Omit<DispatchBinding,'config_digest'|'credential_generation'|'total_budget_id'> {
  route_id:'externalDeepSeek'; endpoint:'https://api.deepseek.com';
  body:{model:string; messages:{role:'system'|'user'|'assistant';content:string}[]; max_tokens:number; stream:false; response_format:{type:'json_object'};thinking:{type:'disabled'}};
- citations:SourceCitation[]; headers:Record<string,string>; config_digest:string|null; credential_generation:number|null;
+ citations:SourceCitation[]; headers:Record<string,string>; config_digest:string|null; credential_generation:number|null;total_budget_id:string|null;
  admission?:DispatchAdmission; signal:AbortSignal;
 }
 export interface ProviderReply {text:string;input_tokens:number;output_tokens:number;source_ids:string[]}
@@ -78,7 +110,7 @@ export interface PricingQualification {
  pricing_evidence_id:string; terms_evidence_id:string; served_version:string;
 }
 /** This helper constructs data; it does not verify an owner proof or enable network access. */
-export function fromQualifiedPrimeRoute(route:ModelRoute,qualification:PricingQualification & {credential_generation:number;config_digest:string}):LocalRoute;
+export function fromQualifiedPrimeRoute(route:ModelRoute,qualification:PricingQualification & {credential_generation:number;config_digest:string;total_budget_id:string}):LocalRoute;
 export interface ProviderConfiguration {route:ModelRoute;pricing:PricingQualification}
 export interface CredentialStatus {configured:boolean;generation:number|null}
 export interface CredentialHandoff {provider:'externalDeepSeek';method:'POST';path:'/api/prime/inference/credential-entry';ticket:string;expires_at:string}

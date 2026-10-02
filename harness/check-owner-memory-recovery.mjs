@@ -38,10 +38,12 @@ async function assembled(t,{reconcile}={}){
  const mount=()=>{
   const controller=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}});
   const joined=reconcile?{...controller,reconcileApprovalAction:snapshot=>reconcile(snapshot,()=>controller.reconcileApprovalAction(snapshot))}:controller;
+  let connectionWitness;
   const client=createOwnerMemoryClient({controller:joined,contracts,ownerBinding,
+   isCurrentConnection:()=>connectionWitness?.isCurrent()===true,
    passkeySigner:({public_key})=>{signatures++;return f.auth.assertion(public_key.challenge);},
    fetcher:(url,options)=>http(routes,url,options)});
-  controller.connect(client.binding);client.attach();client.setCapabilities(caps);
+  connectionWitness=controller.connect(client.binding);client.attach();client.setCapabilities(caps);
   const m={client,controller,disposed:false,
    async login(){assert(await controller.login());assert.equal(controller.getSnapshot().phase,'authenticated');},
    dispose(){if(this.disposed)return;this.disposed=true;client.dispose();controller.dispose();}};

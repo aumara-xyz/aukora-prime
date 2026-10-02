@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "kind": "first-conversation-example",
+  "status": "unavailable",
+  "auto_load": false,
+  "route_id": "externalDeepSeek",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "total_testing_ceiling": {
+    "currency": "USD",
+    "amount": "10.000000"
+  },
+  "first_task_route_ceiling": {
+    "currency": "USD",
+    "amount": "0.010000"
+  },
+  "max_requests": 1,
+  "max_input_tokens": 4096,
+  "max_output_tokens": 256,
+  "max_total_tokens": 4352,
+  "max_request_ms": 15000,
+  "allowed_data_classes": [
+    "conversation"
+  ],
+  "allowed_tools": [],
+  "thinking": "disabled",
+  "credential_entry": "separate authenticated owner control; no secret field in this profile",
+  "pending": [
+    "enrolled owner and exact operation approval",
+    "qualified pricing/terms/served-version/config/generation",
+    "one protected total-budget worker store",
+    "inference-specific private C claim and evidence join",
+    "direct secure credential entry/custody and UI binding"
+  ],
+  "retention": "Plaintext request/reply retention disclosed; unchanged; non-sensitive prompt only"
+}

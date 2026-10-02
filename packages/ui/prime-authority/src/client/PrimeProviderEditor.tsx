@@ -89,6 +89,11 @@ export function PrimeProviderEditor({provider,controller}:PrimeProviderEditorPro
         <button type="submit" className={styles['primaryButton']} disabled={!entryReady}>Store key with approved handoff</button>
       </div>
     </form>
+    {!entryReady && <p className={styles['advancedHint']} data-prime-provider-entry-help>
+      Sign in through Owner access and refresh owner status. Secure key-entry approval must be supplied by the owner/provider flow;
+      its approval control is not mounted in this source preview. The key field stays disabled until a fresh single-use handoff to separate credential storage is supplied.
+      This flow requires its qualified HTTPS origin; the localhost passkey profile does not enable key entry.
+    </p>}
     <p className={styles['advancedHint']} role="status" aria-live="polite" data-prime-provider-reason>{state.reason}</p>
   </div>
 }

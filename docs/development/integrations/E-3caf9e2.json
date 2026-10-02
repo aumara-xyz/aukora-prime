@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "lane": "E",
+  "status": "SOURCE_ONLY_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "232b2cd80973f2ad911c0365257577d36c134029",
+  "source_commit": "3caf9e282981919293f43af6d3846af8f3ce088c",
+  "source_seed": "2bf71bd1254f520489f32012a7b4bcb34e3501a3",
+  "seed_inference_tree": "7355e283e66a00f48e063e2f519e14c093d3240c",
+  "patch": "prime-inference-next.patch",
+  "patch_sha256": "209def57fcbfc1c385dab31fb84185a62bcefb28e02f16e916cc7a8f38731242",
+  "import": "Inference-only delta; no lane ancestry or archive history imported",
+  "source_identity_inspection": {
+    "patch_matches_full_index_commit_delta": true,
+    "seed_package_matches_reviewed_base": true,
+    "all_preimages_match": true,
+    "all_postimages_match_commit_and_handoff": true
+  },
+  "package_adaptations": [],
+  "files": [
+    {
+      "path": "packages/inference/PROVENANCE.json",
+      "sha256": "eb3467e229e2eb61be182c2f232508d9c3ac537d168565603300ecf5c3619c57",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/README.md",
+      "sha256": "a42ff180b11db4535518901f680e69b72177259651bce635135c07d99d6d6559",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/check-dispatch.mjs",
+      "sha256": "70e91d4a8e42ad5d206a6bb92ab5b3e610d309c570440582ad98f8f78dda18f2",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/check-total-budget.mjs",
+      "sha256": "6ec6ad4d3556f4fe3f71fb667558debfae61cde853f715907df51c2932f6c9ab",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/check.mjs",
+      "sha256": "38bd0377a76f50fbf46a99cf53ff85c566cd679c0f9d0275eca8f81c994e3149",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/first-conversation-profile.example.json",
+      "sha256": "bedfe9a138765cd72ccf80aac46fdaa900eb956483b95e56bbcfab970744f88a",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/inference-contract-request.md",
+      "sha256": "319887d842eea7c54edeb07055d3d8c861fa7d1b38a1a6aa5a5190836f62cc98",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/next-development-handoff.md",
+      "sha256": "a1627090cf714c837ac6d94c3efad3818b88e0e7e184a1e267c326290cb2f579",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/owner-handoff.md",
+      "sha256": "d93d95deb4d8156fe0ec956d56ae4366b68caaea799b3e8b11f9eb26df42d657",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/package.json",
+      "sha256": "e937df29eda4cf6e9b1298dc52a26906909fdae387aa3691a6770b45e3e1d5a7",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/credential-http.mjs",
+      "sha256": "ec9314d9443b91a712f4a4595be97bfd1713612bb31dfee3d5b233805a59df16",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/credential-service.d.mts",
+      "sha256": "331b8457218b15f342a953147730e49907c0fa68d080e58b05ca582df8c1ec0e",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/credential-service.mjs",
+      "sha256": "18e68d0506d9bfe99dcbc2c83d41f5c5b643e5251c1b9095eda62f638b0051a9",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/dispatch-policy.mjs",
+      "sha256": "49e27bac82bdf56e331383da1d2a155b14617254a59f0dd7c2e64b714f3395c4",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/dsh-adapter.mjs",
+      "sha256": "8311574219f0238ed45f1a81f64f5290ed6edcef8c9c00696f523cb12818d992",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/gateway.mjs",
+      "sha256": "c6cbea39d3a94224a43b5ac240f57c40cd800337d8d5f6be8940bef4a8737fe9",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/index.d.mts",
+      "sha256": "720c1f8b3b061bcab86e641a467409d19a1100ab54f56b5b7929a41d5f46cb17",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/ledger.mjs",
+      "sha256": "c74de5871174826a400bd4b69eeaca4f6109be9ec0eba770026a9bc655beb2cd",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/policy.mjs",
+      "sha256": "847c79f3a329210d0f967696b0503059e8656c9e63cac773e668aa710ab9a915",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/prime-contracts.mjs",
+      "sha256": "bd6b632cfe7f0ac57ccf5f7fbb6b01f3e350936504efb40079ea0e08411da0f1",
+      "matches_handoff": true
+    },
+    {
+      "path": "packages/inference/src/remote-provider.mjs",
+      "sha256": "4c73d1ebc3b75863e013b439baa0fbf16ce5e315f4c25d2405d728e26ac45190",
+      "matches_handoff": true
+    }
+  ],
+  "source_review_findings": [
+    "No blocker found for disabled source-only import by independent source inspection.",
+    "The strict JSON change covers provider wire replies and nested note JSON in credential-http.mjs. provider-http.mjs still uses JSON.parse for owner settings/credential-entry requests; E owns that pending ingress alignment before mounting.",
+    "Proposed inference audience/action/request/result/settlement domains require C agreement; the proposal is not an implemented authority route.",
+    "Total-budget custody/rollback and the single authoritative worker store remain deployment obligations.",
+    "Existing plaintext request/receipt/reply retention is unchanged."
+  ],
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_qualified": false,
+  "runtime_activation": false,
+  "candidate_profile_auto_loaded": false,
+  "contract_proposal": "packages/inference/inference-contract-request.md",
+  "proposed_checks": [
+    "node --test packages/inference/check.mjs packages/inference/check-dispatch.mjs packages/inference/check-total-budget.mjs from integrated root (synthetic, disposable, zero provider calls)",
+    "Focused synthetic HTTP cases: duplicate outer/nested JSON keys, unsafe numbers, excess bytes/depth, malformed UTF-8; unknown reservation/no key leakage on rejection",
+    "Strict TypeScript consumer against NEXT frozen contracts/pinned DSH declarations, no install/build",
+    "Once C/NEXT agrees seam: one keyless UI->private-worker mock round trip, exact UUID/body/digest/budget/generation binding, one visible reply and lost-response fencing"
+  ]
+}

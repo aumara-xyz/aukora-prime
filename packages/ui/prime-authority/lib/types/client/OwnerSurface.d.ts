@@ -1,7 +1,9 @@
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type { Controller } from './controller.mjs';
-export declare function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.surface'> & {
+import type { MemoryPilotBinding } from './PilotMemoryPanel';
+export declare function OwnerSurface({ activeSurface, openSurface, controller, memoryPilot }: PropsRuntime<'shell.surface'> & {
     controller: Controller;
+    memoryPilot?: MemoryPilotBinding;
 }): import("react").JSX.Element;
 export declare function CapabilityBadge({ controller }: {
     controller: Controller;

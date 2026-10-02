@@ -10,7 +10,7 @@ This directory is an additive source-license index. Original notices remain besi
 
 ## Owned package declarations
 
-All 22 current Prime-owned package manifests declare `AGPL-3.0-or-later`. The historical inventory baseline had 20 declarations and two omissions; the separate historical publication-adaptation observation in `inventory.json` records the added metadata. Its package hashes are not current-checkout or release-byte pins.
+All 23 current Prime-owned package manifests declare `AGPL-3.0-or-later`, including the new Cordis tool provider. The historical inventory baseline had 20 declarations and two omissions; the separate historical publication-adaptation observation in `inventory.json` records the added metadata. Its package hashes are not current-checkout or release-byte pins.
 
 The foundation manifest records the package as an explicit license-only adaptation, retaining the original donor byte hash. Its served client and historical donor build receipt are unchanged. The PostgreSQL root lock entry carries the same owned license; dependency versions and upstream license declarations are unchanged, and driver provenance records both lock hashes. The third-party jsQR shim retains its Apache-2.0 license beside the source. No new binary build or runtime qualification is claimed.
 

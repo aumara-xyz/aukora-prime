@@ -15,7 +15,9 @@
   "adaptations": {
     "src/policy.mjs": "Carried donor validation, guest policy and environment translation; no host mounts or ambient credentials.",
     "src/bash.mjs": "Carried foreground lifecycle seam; injected pinned ShellExecutor and trusted host callbacks. One mounted Cordis effect owns a shared awaited cleanup promise; exact frozen unavailable stub supported.",
-    "src/owned-executor.mjs": "Typed SDK lifecycle plus actual one-use C claim, ordered durable settlement outbox, conservative cancellation, exact gateway/profile/ledger recovery binding.",
+    "src/owned-executor.mjs": "Typed SDK lifecycle plus actual one-use C claim, ordered durable settlement outbox, conservative cancellation and exact gateway/profile/ledger recovery binding. Private original wall deadline and fixed unsupported-mechanism refusal gates; public sandbox absence cannot establish complete owned cleanup.",
+    "src/lifetime-safety.mjs": "First-party closed durable local accounting bound to the full original request. Explicit unavailable independent expiry/late-create, atomic configuration and complete artifact cleanup mechanisms; no new backend wire fields or runtime enable callback.",
+    "src/guardian/": "First-party separately launched durable monitor: private SQLite owner/registration state, Unix IPC, original-deadline timers and continuing identity-bound late-resource reconciliation. Pinned SDK observer refuses unsupported immutable-target reclamation; Mac separate-process fixtures use an explicit serialized backend simulator. No qualified launch acknowledgment or runtime mount.",
     "src/sdk-transport.ts": "New adapter using reviewed raw protobuf requestId/typed exec stream; structurally checked against real generated SDK. Raw effective-config readback; ambiguous124 evidence distinct from command exit; explicit completion emitted only after RPC drain.",
     "src/ledger.mjs": "Separate OS SQLite lease and FULL-sync job checkpoints; explicit provisioning, identity/integrity validation and no silent ledger-loss reinitialization.",
     "src/binding.mjs": "Agreed C/F request/receipt digest domains and exact private authority join; no naked consumed-envelope acceptance.",
@@ -54,7 +56,7 @@
     "licenses/Genesis-NOTICE.txt"
   ],
   "runtime_owned_repo_dependencies": [],
-  "qualification": "NOT VERIFIED: immutable custom image, resource/mount join, atomic configuration fencing, independent termination/late-create supervision and C complete/null unknown receipt alignment remain prerequisites.",
+  "qualification": "UNAVAILABLE: immutable custom image output, observed resource/mount enforcement, atomic configuration fencing and independent expiry/late-create/complete artifact cleanup remain prerequisites. Create-profile joining and reviewed C complete/null receipt alignment exist as source; local accounting and accepted observations cannot enable missing mechanisms.",
   "runtime_preparation": {
     "source_commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
     "source_sha256": {

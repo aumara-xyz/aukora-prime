@@ -12,10 +12,15 @@ The initial adjudicated literal source-review basis was
 `739bab5176f78c5b7333a8350c69cc75544709e5`. Its 140-reference/99-path closure and
 manifest `618fdac6f1ca1d62a797ee7461c40ef7b06011c9a95bdc6488e58d65d1f1accb`
 remain historical in PROVENANCE.json, with the original closure/profile receipt
-hashes preserved. Reviewed corrections now bind 142 references across 101 paths;
-the current manifest is
+hashes preserved. Released corrections bound 142 references across 101 paths;
+their manifest was
 `d7916f11cdd9b2bda39e7efe3e7e6b217140b7bbec03e4fb4e6cf9b352cfcca7`.
-Every selected source pin matched before freeze. The released paired 66-job
+The reviewed NEXT refresh preserves that 66-job inventory and selected-path scope,
+updates 19 literal pin references across 13 changed selected paths, and requires
+two additional native-connection witness titles plus the expanded H assembly
+counters. Its current manifest is
+`c9491a181d601580c306501bf7734b758777149f11ef227118c9fb3450a98173`.
+Pins were reviewed from source changes, rather than a received result. The released paired 66-job
 runs at `58a95f4` each recorded 65 PASS, 0 FAIL and 1 external PostgreSQL
 UNPERFORMED, exit 2; see the [evidence history](../../../docs/EVIDENCE-HISTORY.md#released-source-profile)
 for the immutable receipt and exact revision. Current runtime remains
@@ -45,7 +50,7 @@ reuse, command, selector, callback or environment override is accepted.
 | H assembly | Whole `harness/check-owner-memory-client.mjs`, `check-owner-memory-context.mjs`, `check-owner-memory-transport.mjs` and all six recovery cases |
 | B source | Whole controller, approval-action, logout, forget-review, forget-result, forget-controller, recovery, hook, capture-review and expanded-transport files |
 | UI transport and static boundary | Whole transport presentation check and static checker with pinned baseline |
-| Inference | Whole mock accounting file; no external request and no E total-budget gate |
+| Inference | Whole mock accounting file with synthetic total-budget configuration; no external request or live total-budget qualification |
 | Ops metadata | Whole digest/archive check with existing Python prerequisite |
 
 These eight H-only entries are mandatory whole files; the earlier G53 profile did
@@ -87,7 +92,7 @@ is the explicit compiled exception. Entry and support SHA256 pins bind reviewed 
 are never refreshed from candidate output at launch. Required inventories include
 dynamic registrations, exact titles, PASS labels and terminal counters; custom
 assertion scripts run directly rather than counting a Node wrapper as an assertion.
-Final reviewed counts are 43 TAP jobs with 273 required titles plus one
+Final reviewed counts are 43 TAP jobs with 275 required titles plus one
 declared external title, eight pass-line jobs with 71 required labels, 12 JSON jobs
 and three assertion scripts. The 42 full TAP jobs have 120000 ms bounds; inference
 retains 20000 ms. The current 142 references and 101 selected paths are literal
@@ -96,6 +101,8 @@ The previous 61-job review recorded
 39 TAP jobs, 247 required titles plus one external title, 70 PASS labels, 12 JSON
 jobs and 118 references across 85 paths; those are superseded declaration counts.
 Its H client adjustment from 53 to 55 is also historical review metadata.
+The reviewed NEXT H client and transport counters are 95 and 61 respectively;
+their previous 55 and 52 counters no longer satisfy the current source profile.
 Counters have different units, so their sum does not count independent tests. A changed
 required entry is UNPERFORMED until its new bytes and literal pin are reviewed.
 `source_review_commit` names the historical literal pin-review base and is
@@ -186,9 +193,12 @@ evidence. Matching production joins and genuine owner assets require owner revie
 before a combined run. Changed assertion, controller or support bytes require
 explicit literal review; there is no automatic repinning or policy change to pass.
 
-The E total-budget gate is absent at the reviewed H source basis and remains
-UNPERFORMED. Its deferral intent is UNKNOWN pending the E owner. The ordinary mock
-accounting file does not establish this missing gate.
+The E total-budget gate and `packages/inference/check-total-budget.mjs` are now
+source-present. The selected mock accounting file uses synthetic total-budget
+configuration; the separate total-budget check remains outside these 66 jobs.
+Real owner approval, protected credential deployment and live provider/budget
+qualification remain UNPERFORMED. Source presence and mock accounting do not
+establish an approved live all-in cap.
 
 | Exit | Meaning |
 | --- | --- |

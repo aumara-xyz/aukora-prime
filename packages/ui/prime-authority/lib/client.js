@@ -4,8 +4,8 @@ window.__ModuleLoader__.load({
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-		let react_jsx_runtime = require("react/jsx-runtime");
 		let react = require("react");
+		let react_jsx_runtime = require("react/jsx-runtime");
 		let _aukora_face_layout_client = require("@aukora/face-layout/client");
 		//#region lib/types/adapters/capture-review.mjs
 		const CAPTURE_STATEMENT_MAX = 4096;
@@ -1323,7 +1323,9 @@ window.__ModuleLoader__.load({
 		/** Observable presentation owner; only the injected host can authenticate or approve. */
 		function createPrimeOwnerController({ now = Date.now, schedule = setTimeout, unschedule = clearTimeout } = {}) {
 			const listeners = /* @__PURE__ */ new Set();
+			const connectionWitnesses = /* @__PURE__ */ new WeakMap();
 			let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture, captureMetadata, recordSummary;
+			let connectionGeneration = 0, disposed = false;
 			let logoutFlight = null;
 			let approvalAction = null, forgetAction = null, approvalFlight = null, approvalActionBlocked = false;
 			let reconciliation = null, recoveryFlight = null, actionGeneration = 0, settledPresentation = null;
@@ -1357,8 +1359,9 @@ window.__ModuleLoader__.load({
 				for (const listen of listeners) listen();
 			};
 			const stopTimer = () => {
-				if (timer) unschedule(timer);
+				const selected = timer;
 				timer = void 0;
+				if (selected) unschedule(selected);
 			};
 			const checkExpiry = () => {
 				stopTimer();
@@ -1630,19 +1633,30 @@ window.__ModuleLoader__.load({
 					listeners.add(listener);
 					return () => listeners.delete(listener);
 				},
-				connect(next) {
+				connect(next, { onConnection } = {}) {
+					if (disposed) return null;
+					const connection = ++connectionGeneration;
+					const connecting = () => !disposed && connectionGeneration === connection;
+					let completed = false, selected;
+					const witness = Object.freeze({ isCurrent: () => completed && connecting() && binding === next && transport === selected });
+					connectionWitnesses.set(witness, connection);
+					if (onConnection) onConnection(witness);
+					if (!connecting()) return null;
 					reconciliation = null;
 					settledPresentation = null;
 					cancelApprovalAction();
+					if (!connecting()) return null;
 					approvalAction = null;
 					forgetAction = null;
 					const previous = transport;
 					const hadPending = !!pending;
 					++revision;
 					pending?.abort.abort();
+					if (!connecting()) return null;
+					stopTimer();
+					if (!connecting()) return null;
 					pending = void 0;
 					transport = void 0;
-					stopTimer();
 					operation = void 0;
 					ownerKind = void 0;
 					memoryCapture = void 0;
@@ -1657,9 +1671,10 @@ window.__ModuleLoader__.load({
 						forget_action_result: null
 					}, false);
 					else if (previous) previous.logout();
+					if (!connecting()) return null;
 					binding = next;
 					try {
-						transport = createPrimeTransport({
+						selected = createPrimeTransport({
 							authority: next.authority,
 							contracts: next.contracts,
 							ownerSigner: next.ownerSigner,
@@ -1669,6 +1684,8 @@ window.__ModuleLoader__.load({
 							}),
 							now
 						});
+						if (!connecting() || binding !== next) return null;
+						transport = selected;
 						const available = next.requiresCapabilities !== true;
 						notify({
 							phase: available ? "logged_out" : "unavailable",
@@ -1693,14 +1710,21 @@ window.__ModuleLoader__.load({
 							error_code: available ? null : "UNAVAILABLE",
 							reason: available ? "Sign in with an existing credential. The host must confirm your identity." : "Owner access is unavailable until the host supplies its capability status."
 						});
+						if (!connecting() || binding !== next || transport !== selected) return null;
 						if (next.operation) api.setOperation(next.operation, {
 							memoryCapture: next.memoryCapture,
 							captureMetadata: next.captureMetadata,
 							recordSummary: next.recordSummary
 						});
+						if (!connecting() || binding !== next || transport !== selected || next.operation && !operation) return null;
+						completed = true;
+						return witness;
 					} catch (error) {
-						transport = void 0;
-						fail(error);
+						if (connecting()) {
+							transport = void 0;
+							fail(error);
+						}
+						return null;
 					}
 				},
 				setCapabilities(value) {
@@ -2027,15 +2051,31 @@ window.__ModuleLoader__.load({
 						error_code: null
 					}, true);
 				},
-				disconnect() {
+				disconnect(expectedWitness) {
+					if (expectedWitness !== void 0 && connectionWitnesses.get(expectedWitness) !== connectionGeneration) return Promise.resolve(Object.freeze({
+						ok: false,
+						error_code: "UNAVAILABLE",
+						reason: "ui:binding-disconnect-superseded"
+					}));
+					const connection = ++connectionGeneration;
+					const previous = transport;
+					const disconnecting = () => connectionGeneration === connection;
+					const superseded = () => Promise.resolve(Object.freeze({
+						ok: false,
+						error_code: "UNAVAILABLE",
+						reason: "ui:binding-disconnect-superseded"
+					}));
 					reconciliation = null;
 					settledPresentation = null;
 					cancelApprovalAction();
+					if (!disconnecting()) return superseded();
 					approvalAction = null;
 					forgetAction = null;
-					const previous = transport;
 					++revision;
 					pending?.abort.abort();
+					if (!disconnecting()) return superseded();
+					stopTimer();
+					if (!disconnecting()) return superseded();
 					pending = void 0;
 					transport = void 0;
 					ownerKind = void 0;
@@ -2043,7 +2083,6 @@ window.__ModuleLoader__.load({
 					memoryCapture = void 0;
 					captureMetadata = void 0;
 					recordSummary = void 0;
-					stopTimer();
 					return revokeTransport(previous, {
 						phase: "unavailable",
 						owner: null,
@@ -2060,6 +2099,7 @@ window.__ModuleLoader__.load({
 					}, false);
 				},
 				dispose() {
+					disposed = true;
 					api.disconnect();
 					listeners.clear();
 				}
@@ -2272,8 +2312,8 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css$1 = ".dSSOzq_surface[hidden]{display:none!important}.dSSOzq_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.dSSOzq_header{flex-direction:column;align-items:flex-start;gap:4px}.dSSOzq_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.dSSOzq_header p{color:var(--aukora-text-secondary);margin:0}.dSSOzq_card{min-width:0;padding:16px}.dSSOzq_card h2{margin-top:0;font-size:16px;font-weight:600}.dSSOzq_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.dSSOzq_fields{flex-direction:column;gap:12px;display:flex}.dSSOzq_fields dd{margin:0}.dSSOzq_fields dt{color:var(--aukora-text-secondary);font-size:13px}.dSSOzq_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.dSSOzq_owner{flex-direction:column;gap:8px;display:flex}.dSSOzq_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.dSSOzq_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.dSSOzq_error{color:var(--aukora-red-warning)}.dSSOzq_menu{width:100%}.dSSOzq_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.dSSOzq_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.dSSOzq_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.dSSOzq_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.dSSOzq_badgePanel h2{font-size:14px}";
+		//#region \0dsh-css:/private/tmp/prime-next-owner-corrected/work/ui-build-MWbOAR/dsh/packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
+		const css$1 = "._0-LBXW_surface[hidden]{display:none!important}._0-LBXW_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}._0-LBXW_header{flex-direction:column;align-items:flex-start;gap:4px}._0-LBXW_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}._0-LBXW_header p{color:var(--aukora-text-secondary);margin:0}._0-LBXW_card{min-width:0;padding:16px}._0-LBXW_card h2{margin-top:0;font-size:16px;font-weight:600}._0-LBXW_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}._0-LBXW_fields{flex-direction:column;gap:12px;display:flex}._0-LBXW_fields dd{margin:0}._0-LBXW_fields dt{color:var(--aukora-text-secondary);font-size:13px}._0-LBXW_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}._0-LBXW_owner{flex-direction:column;gap:8px;display:flex}._0-LBXW_owner input,._0-LBXW_owner textarea{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}._0-LBXW_owner input:focus-visible,._0-LBXW_owner textarea:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}._0-LBXW_error{color:var(--aukora-red-warning)}._0-LBXW_menu{width:100%}._0-LBXW_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}._0-LBXW_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}._0-LBXW_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}._0-LBXW_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}._0-LBXW_badgePanel h2{font-size:14px}";
 		const tagId$1 = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
@@ -2283,21 +2323,409 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "dSSOzq_actions",
-			"badge": "dSSOzq_badge",
-			"badgePanel": "dSSOzq_badgePanel",
-			"capabilities": "dSSOzq_capabilities",
-			"card": "dSSOzq_card",
-			"error": "dSSOzq_error",
-			"fields": "dSSOzq_fields",
-			"header": "dSSOzq_header",
-			"menu": "dSSOzq_menu",
-			"owner": "dSSOzq_owner",
-			"surface": "dSSOzq_surface"
+			"actions": "_0-LBXW_actions",
+			"badge": "_0-LBXW_badge",
+			"badgePanel": "_0-LBXW_badgePanel",
+			"capabilities": "_0-LBXW_capabilities",
+			"card": "_0-LBXW_card",
+			"error": "_0-LBXW_error",
+			"fields": "_0-LBXW_fields",
+			"header": "_0-LBXW_header",
+			"menu": "_0-LBXW_menu",
+			"owner": "_0-LBXW_owner",
+			"surface": "_0-LBXW_surface"
 		};
 		//#endregion
+		//#region lib/types/client/PilotMemoryPanel.js
+		function currentOwner(controller, binding, expected) {
+			const state = controller.getSnapshot();
+			const owner = state.owner;
+			const ownerId = binding.client.binding?.owner_id;
+			if (binding.ownerController !== controller || typeof ownerId !== "string" || !ownerId || !owner || state.owner_id !== ownerId || owner.owner_id !== ownerId || expected && owner !== expected || !state.authority_available || state.expired || state.logout_status === "pending" || !Number.isFinite(Date.parse(owner.expiry)) || Date.parse(owner.expiry) <= Date.now()) return null;
+			return owner;
+		}
+		function attached(client) {
+			return !!client.workflow && !!client.forgetWorkflow && typeof client.workflow.getSnapshot === "function" && typeof client.workflow.subscribe === "function" && typeof client.forgetWorkflow.getSnapshot === "function" && typeof client.forgetWorkflow.subscribe === "function" && [
+				"proposeSave",
+				"refresh",
+				"recover",
+				"recoverForget"
+			].every((name) => typeof client[name] === "function");
+		}
+		function Unavailable({ reason }) {
+			return (0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
+				className: OwnerSurface_module_css_default.card,
+				"data-memory-pilot": true,
+				"data-memory-pilot-unavailable": true,
+				children: [
+					(0, react_jsx_runtime.jsx)("h2", { children: "Owner-approved memory" }),
+					(0, react_jsx_runtime.jsx)("p", {
+						role: "status",
+						children: reason
+					}),
+					(0, react_jsx_runtime.jsxs)("div", {
+						className: OwnerSurface_module_css_default.actions,
+						children: [
+							(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+								disabled: true,
+								children: "Read memory recovery"
+							}),
+							(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+								disabled: true,
+								children: "Read forget recovery"
+							}),
+							(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+								disabled: true,
+								children: "Refresh record"
+							}),
+							(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+								disabled: true,
+								children: "Prepare memory proposal"
+							})
+						]
+					})
+				]
+			});
+		}
+		function PilotMemoryPanel({ controller, binding }) {
+			(0, react.useSyncExternalStore)(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+			const session = (0, react.useRef)({
+				binding: void 0,
+				owner: null,
+				key: 0
+			});
+			if (!binding) return (0, react_jsx_runtime.jsx)(Unavailable, { reason: "The host has not supplied an owner memory client." });
+			if (binding.ownerController !== controller || binding.client.binding?.owner_id !== controller.getSnapshot().owner_id) return (0, react_jsx_runtime.jsx)(Unavailable, { reason: "The memory client does not match this configured owner controller." });
+			if (!attached(binding.client)) return (0, react_jsx_runtime.jsx)(Unavailable, { reason: "The host has not attached the owner memory workflows." });
+			const owner = currentOwner(controller, binding);
+			if (!owner) return (0, react_jsx_runtime.jsx)(Unavailable, { reason: "Sign in with the configured owner's current, unexpired credential before reading or proposing memory." });
+			if (session.current.binding !== binding || session.current.owner !== owner) session.current = {
+				binding,
+				owner,
+				key: session.current.key + 1
+			};
+			return (0, react_jsx_runtime.jsx)(AttachedMemoryPanel, {
+				controller,
+				binding,
+				owner,
+				workflow: binding.client.workflow,
+				forgetWorkflow: binding.client.forgetWorkflow
+			}, session.current.key);
+		}
+		function AttachedMemoryPanel({ controller, binding, owner, workflow, forgetWorkflow }) {
+			const rendered = (0, react.useRef)({
+				binding,
+				owner,
+				workflow,
+				forgetWorkflow
+			});
+			rendered.current = {
+				binding,
+				owner,
+				workflow,
+				forgetWorkflow
+			};
+			const mounted = (0, react.useRef)(true);
+			const flight = (0, react.useRef)(null);
+			const statementInput = (0, react.useRef)(null);
+			const [pending, setPending] = (0, react.useState)(null);
+			const [reason, setReason] = (0, react.useState)("Recovery reads existing facts and may deliver an already committed settlement receipt. It does not restore data or repeat an effect.");
+			const live = (0, react.useCallback)(() => mounted.current && rendered.current.binding === binding && rendered.current.owner === owner && rendered.current.workflow === workflow && rendered.current.forgetWorkflow === forgetWorkflow && binding.client.workflow === workflow && binding.client.forgetWorkflow === forgetWorkflow && currentOwner(controller, binding, owner) !== null, [
+				controller,
+				binding,
+				owner,
+				workflow,
+				forgetWorkflow
+			]);
+			const readMemory = (0, react.useCallback)(() => live() ? workflow.getSnapshot() : null, [live, workflow]);
+			const readForget = (0, react.useCallback)(() => live() ? forgetWorkflow.getSnapshot() : null, [live, forgetWorkflow]);
+			const memory = (0, react.useSyncExternalStore)(workflow.subscribe, readMemory, readMemory);
+			const forget = (0, react.useSyncExternalStore)(forgetWorkflow.subscribe, readForget, readForget);
+			const state = (0, react.useSyncExternalStore)(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+			(0, react.useEffect)(() => {
+				mounted.current = true;
+				return () => {
+					mounted.current = false;
+					flight.current = null;
+				};
+			}, []);
+			(0, react.useEffect)(() => {
+				const input = statementInput.current;
+				if (input) input.value = "";
+				setReason("Recovery reads existing facts and may deliver an already committed settlement receipt. It does not restore data or repeat an effect.");
+				setPending(null);
+				return () => {
+					if (input) input.value = "";
+				};
+			}, [
+				binding,
+				owner,
+				workflow,
+				forgetWorkflow
+			]);
+			if (!memory || !forget || !live()) return (0, react_jsx_runtime.jsx)(Unavailable, { reason: "The owner session or memory binding has changed." });
+			const busy = pending !== null || state.phase.endsWith("_pending") || state.approval_action_pending || state.logout_status === "pending" || memory.phase.endsWith("_pending") || forget.phase.endsWith("_pending") || forget.recovery_status === "pending";
+			const uncertain = state.phase === "outcome_unknown" || state.error_code === "OUTCOME_UNKNOWN" || state.error_code === "RECONCILIATION_REQUIRED" || memory.reconciliation_required || forget.reconciliation_required || memory.phase === "outcome_unknown" || forget.phase === "outcome_unknown" || memory.save === "unknown" || forget.forget === "unknown" || state.approval_action_result?.reconciliation_required === true || state.forget_action_result?.reconciliation_required === true;
+			const canRefresh = memory.saved === true && memory.record !== null && memory.operation !== null;
+			const randomUuid = typeof globalThis.crypto?.randomUUID === "function";
+			async function run(label, action) {
+				if (flight.current || busy || !live()) return;
+				const current = controller.getSnapshot();
+				const currentMemory = workflow.getSnapshot(), currentForget = forgetWorkflow.getSnapshot();
+				if (current.phase.endsWith("_pending") || current.approval_action_pending || current.logout_status === "pending" || currentMemory.phase.endsWith("_pending") || currentForget.phase.endsWith("_pending") || currentForget.recovery_status === "pending") return;
+				if (label === "proposal" && (current.phase === "outcome_unknown" || current.error_code === "OUTCOME_UNKNOWN" || current.error_code === "RECONCILIATION_REQUIRED" || currentMemory.reconciliation_required || currentForget.reconciliation_required || currentMemory.phase === "outcome_unknown" || currentForget.phase === "outcome_unknown" || currentMemory.save === "unknown" || currentForget.forget === "unknown" || current.approval_action_result?.reconciliation_required || current.forget_action_result?.reconciliation_required)) return;
+				if (!live()) return;
+				const token = {};
+				flight.current = token;
+				setPending(label);
+				try {
+					const result = await action();
+					if (flight.current !== token || !live()) return;
+					setReason(result.reconciliation_required ? "The outcome still requires reconciliation. Do not repeat the attempted effect." : result.error_code ? `The memory request was refused or unavailable: ${result.error_code}.` : label === "proposal" ? "The proposal is prepared. Use Exact operation to request a fresh review and approve it explicitly." : "The current workflow facts are shown below. No effect was retried.");
+				} catch {
+					if (flight.current === token && live()) setReason("The memory request is unavailable or its outcome is unconfirmed. No effect was retried.");
+				} finally {
+					if (flight.current === token) {
+						flight.current = null;
+						if (live()) setPending(null);
+					}
+				}
+			}
+			return (0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
+				className: OwnerSurface_module_css_default.card,
+				"data-memory-pilot": true,
+				children: [
+					(0, react_jsx_runtime.jsx)("h2", { children: "Owner-approved memory" }),
+					(0, react_jsx_runtime.jsx)("p", { children: "Read the current workflow directly, including recovery after a fresh owner session. Storage, indexing, citation and authority settlement remain separate facts." }),
+					(0, react_jsx_runtime.jsxs)("div", {
+						className: OwnerSurface_module_css_default.actions,
+						children: [
+							(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+								disabled: busy,
+								onClick: () => {
+									run("memory recovery", () => binding.client.recover({ operation_id: null }));
+								},
+								children: "Read memory recovery"
+							}),
+							(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+								disabled: busy,
+								onClick: () => {
+									run("forget recovery", () => binding.client.recoverForget({ operation_id: null }));
+								},
+								children: "Read forget recovery"
+							}),
+							(0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+								disabled: busy || !canRefresh,
+								onClick: () => {
+									run("record refresh", () => binding.client.refresh());
+								},
+								children: "Refresh record"
+							})
+						]
+					}),
+					!canRefresh && (0, react_jsx_runtime.jsx)("p", {
+						"data-memory-refresh-unavailable": true,
+						children: "Refresh requires an active confirmed save. Read recovery to inspect retained facts after a fresh session."
+					}),
+					(0, react_jsx_runtime.jsxs)("form", {
+						onSubmit: (event) => {
+							event.preventDefault();
+							const statement = statementInput.current?.value;
+							if (busy || uncertain || !randomUuid || !live()) return;
+							if (typeof statement !== "string" || !statement.trim() || statement.length > 4096) {
+								setReason("Enter a nonblank literal statement of at most 4,096 characters before preparing a proposal.");
+								return;
+							}
+							run("proposal", () => binding.client.proposeSave({
+								extraction_json: JSON.stringify({ statement }),
+								idempotency_key: globalThis.crypto.randomUUID()
+							}));
+						},
+						children: [
+							(0, react_jsx_runtime.jsxs)("label", {
+								className: OwnerSurface_module_css_default.owner,
+								children: ["Literal memory statement", (0, react_jsx_runtime.jsx)("textarea", {
+									ref: statementInput,
+									"aria-label": "Literal memory statement",
+									autoComplete: "off",
+									spellCheck: false,
+									disabled: busy || uncertain,
+									rows: 4
+								})]
+							}),
+							(0, react_jsx_runtime.jsx)("p", { children: "Preparing a proposal does not save memory. Use the existing Exact operation card to request a fresh review, inspect the exact source quotation and approve explicitly. New capture text must already satisfy the worker's text policy." }),
+							(0, react_jsx_runtime.jsx)("div", {
+								className: OwnerSurface_module_css_default.actions,
+								children: (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+									disabled: busy || uncertain || !randomUuid,
+									onClick: () => {
+										statementInput.current?.form?.requestSubmit();
+									},
+									children: "Prepare memory proposal"
+								})
+							})
+						]
+					}),
+					!randomUuid && (0, react_jsx_runtime.jsx)("p", {
+						role: "status",
+						children: "A secure browser UUID is unavailable; proposal preparation is disabled."
+					}),
+					uncertain && (0, react_jsx_runtime.jsx)("p", {
+						role: "alert",
+						"data-memory-pilot-uncertain": true,
+						children: "An attempted operation remains unresolved. New memory proposals are disabled; read recovery without repeating the effect."
+					}),
+					(0, react_jsx_runtime.jsx)("p", {
+						role: "status",
+						"aria-live": "polite",
+						"data-memory-pilot-status": true,
+						children: pending ? `Reading or preparing ${pending}.` : reason
+					}),
+					(0, react_jsx_runtime.jsx)(MemoryFacts, { snapshot: memory }),
+					(0, react_jsx_runtime.jsx)(ForgetFacts, { snapshot: forget })
+				]
+			});
+		}
+		const booleanFact = (value) => value === null ? "Unconfirmed" : value ? "Yes" : "No";
+		function MemoryFacts({ snapshot }) {
+			const record = snapshot.saved === true ? snapshot.record : null;
+			const evidence = record && Array.isArray(record.evidence) ? record.evidence : [];
+			return (0, react_jsx_runtime.jsxs)("div", {
+				"data-memory-pilot-facts": true,
+				children: [
+					(0, react_jsx_runtime.jsx)("h3", { children: "Memory workflow and retained save facts" }),
+					(0, react_jsx_runtime.jsxs)("dl", {
+						className: OwnerSurface_module_css_default.fields,
+						children: [
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Workflow" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.phase })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Approval" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.approval })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Save" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.save })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Saved" }), (0, react_jsx_runtime.jsx)("dd", { children: booleanFact(snapshot.saved) })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Storage" }), (0, react_jsx_runtime.jsx)("dd", { children: typeof record?.storage_status === "string" ? record.storage_status : "Unconfirmed" })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Index" }), (0, react_jsx_runtime.jsxs)("dd", { children: [
+								snapshot.index.status,
+								"; indexed: ",
+								booleanFact(snapshot.index.indexed),
+								"; searchable: ",
+								booleanFact(snapshot.index.searchable)
+							] })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Citation" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.citation_status })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Authority settlement" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.authority_settlement ?? "Unconfirmed" })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Operation digest" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("pre", { children: snapshot.operation_digest ?? "Unavailable" }) })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Receipt digest" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("pre", { children: snapshot.receipt_digest ?? "Unavailable" }) })] })
+						]
+					}),
+					snapshot.error_code && (0, react_jsx_runtime.jsxs)("p", {
+						role: "status",
+						children: ["Memory request status: ", snapshot.error_code]
+					}),
+					snapshot.read_error_code && (0, react_jsx_runtime.jsxs)("p", {
+						role: "status",
+						children: ["Index or citation read unavailable: ", snapshot.read_error_code]
+					}),
+					record && (0, react_jsx_runtime.jsxs)("div", {
+						"data-memory-pilot-saved-content": true,
+						children: [
+							(0, react_jsx_runtime.jsx)("h3", { children: "Exact saved canonical bytes" }),
+							(0, react_jsx_runtime.jsx)("pre", { children: typeof record.canonical_bytes === "string" ? record.canonical_bytes : "Unavailable" }),
+							(0, react_jsx_runtime.jsx)("h3", { children: "Exact saved source evidence" }),
+							evidence.map((entry, index) => {
+								const quote = entry && typeof entry === "object" && "quote" in entry ? entry.quote : null;
+								return (0, react_jsx_runtime.jsxs)("div", { children: [typeof quote === "string" && (0, react_jsx_runtime.jsx)("pre", {
+									"data-memory-pilot-evidence-quote": true,
+									children: quote
+								}), (0, react_jsx_runtime.jsx)("pre", { children: JSON.stringify(entry, null, 2) })] }, index);
+							}),
+							evidence.length === 0 && (0, react_jsx_runtime.jsx)("p", { children: "No source evidence was supplied in this record." })
+						]
+					}),
+					snapshot.receipt && (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact retained save receipt" }), (0, react_jsx_runtime.jsx)("pre", { children: JSON.stringify(snapshot.receipt, null, 2) })] }),
+					snapshot.citation && (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact retained citation" }), (0, react_jsx_runtime.jsx)("pre", { children: JSON.stringify(snapshot.citation, null, 2) })] })
+				]
+			});
+		}
+		function ForgetFacts({ snapshot }) {
+			return (0, react_jsx_runtime.jsxs)("div", {
+				"data-memory-pilot-forget-facts": true,
+				children: [
+					(0, react_jsx_runtime.jsx)("h3", { children: "Logical-forget recovery facts" }),
+					(0, react_jsx_runtime.jsxs)("dl", {
+						className: OwnerSurface_module_css_default.fields,
+						children: [
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Workflow" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.phase })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Recovery" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.recovery_status })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Approval" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.approval })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Logical forget" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.forget })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Forgotten" }), (0, react_jsx_runtime.jsx)("dd", { children: booleanFact(snapshot.forgotten) })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Authority settlement" }), (0, react_jsx_runtime.jsx)("dd", { children: snapshot.authority_settlement ?? "Unconfirmed" })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Recovery operation" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("pre", { children: snapshot.recovery_operation_id ?? "Unavailable" }) })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Receipt digest" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("pre", { children: snapshot.receipt_digest ?? "Unavailable" }) })] })
+						]
+					}),
+					snapshot.error_code && (0, react_jsx_runtime.jsxs)("p", {
+						role: "status",
+						children: ["Forget request status: ", snapshot.error_code]
+					}),
+					snapshot.forgotten === true && (0, react_jsx_runtime.jsx)("p", { children: "Logical forget removed visibility. Canonical payloads, authority history, backups, WAL and physical media remain retained." }),
+					snapshot.result && (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact logical-forget result" }), (0, react_jsx_runtime.jsx)("pre", { children: JSON.stringify(snapshot.result, null, 2) })] }),
+					snapshot.receipt && (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact retained forget receipt" }), (0, react_jsx_runtime.jsx)("pre", { children: JSON.stringify(snapshot.receipt, null, 2) })] })
+				]
+			});
+		}
+		//#endregion
+		//#region lib/types/client/AumaReplyView.js
+		function AumaReplyView({ result }) {
+			if (!result) return (0, react_jsx_runtime.jsx)("p", {
+				"data-auma-reply-unavailable": true,
+				children: "No Auma reply has been supplied by the owner-bound provider flow."
+			});
+			if (result.outcome === "outcome_unknown") return result.reservation_retained === true ? (0, react_jsx_runtime.jsxs)("div", {
+				role: "alert",
+				"data-auma-reply-unknown": true,
+				children: [(0, react_jsx_runtime.jsx)("p", { children: "The provider result is unconfirmed. The request reservation remains held; do not retry it." }), (0, react_jsx_runtime.jsxs)("p", { children: ["Request: ", (0, react_jsx_runtime.jsx)("code", { children: result.request_uuid })] })]
+			}) : (0, react_jsx_runtime.jsx)("p", {
+				role: "alert",
+				"data-auma-reply-invalid": true,
+				children: "The provider outcome and reservation status are unconfirmed. Do not retry it."
+			});
+			if (result.outcome !== "completed" || result.route_id !== "externalDeepSeek" || !["mock", "production"].includes(result.mode ?? "") || result.proposal?.grantsAuthority !== false || typeof result.proposal.text !== "string" || !result.usage || ![
+				result.usage.input_tokens,
+				result.usage.output_tokens,
+				result.usage.cost_microusd
+			].every((value) => Number.isSafeInteger(value) && value >= 0) || !result.receipt || typeof result.receipt !== "object" || Array.isArray(result.receipt)) return (0, react_jsx_runtime.jsx)("p", {
+				role: "alert",
+				"data-auma-reply-invalid": true,
+				children: "The provider result cannot be presented as a completed Auma reply."
+			});
+			return (0, react_jsx_runtime.jsxs)("div", {
+				"data-auma-reply": true,
+				"data-provider-mode": result.mode,
+				children: [
+					(0, react_jsx_runtime.jsx)("h3", { children: result.mode === "mock" ? "Auma reply · synthetic provider" : "Auma reply · provider result" }),
+					(0, react_jsx_runtime.jsx)("p", { children: "Model output is a proposal. It grants no authority and has not been saved as memory." }),
+					(0, react_jsx_runtime.jsx)("pre", {
+						"data-auma-reply-text": true,
+						children: result.proposal.text
+					}),
+					(0, react_jsx_runtime.jsxs)("dl", { children: [
+						(0, react_jsx_runtime.jsx)("dt", { children: "Request" }),
+						(0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("code", { children: result.request_uuid }) }),
+						(0, react_jsx_runtime.jsx)("dt", { children: "Route" }),
+						(0, react_jsx_runtime.jsx)("dd", { children: result.route_id }),
+						(0, react_jsx_runtime.jsx)("dt", { children: "Reported input tokens" }),
+						(0, react_jsx_runtime.jsx)("dd", { children: result.usage.input_tokens }),
+						(0, react_jsx_runtime.jsx)("dt", { children: "Reported output tokens" }),
+						(0, react_jsx_runtime.jsx)("dd", { children: result.usage.output_tokens }),
+						(0, react_jsx_runtime.jsx)("dt", { children: "Reported cost · micro USD" }),
+						(0, react_jsx_runtime.jsx)("dd", { children: result.usage.cost_microusd })
+					] }),
+					(0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact provider receipt" }), (0, react_jsx_runtime.jsx)("pre", { children: JSON.stringify(result.receipt, null, 2) })] })
+				]
+			});
+		}
+		//#endregion
 		//#region lib/types/client/OwnerSurface.js
-		function OwnerSurface({ activeSurface, controller }) {
+		function OwnerSurface({ activeSurface, openSurface, controller, memoryPilot }) {
 			const state = (0, react.useSyncExternalStore)(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 			const busy = state.phase.endsWith("_pending") || state.approval_action_pending || state.logout_status === "pending";
 			const locked = busy || state.phase === "outcome_unknown";
@@ -2350,8 +2778,34 @@ window.__ModuleLoader__.load({
 					}),
 					(0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
 						className: OwnerSurface_module_css_default.card,
+						"data-prime-pilot-path": true,
+						children: [
+							(0, react_jsx_runtime.jsx)("h2", { children: "Auma in Prime · pilot path" }),
+							(0, react_jsx_runtime.jsxs)("ol", { children: [
+								(0, react_jsx_runtime.jsx)("li", { children: "Sign in below with an existing owner credential. A preview connection is not owner access." }),
+								(0, react_jsx_runtime.jsx)("li", { children: "Open Models, inspect the route and task limits, then use the separately approved provider key-entry flow." }),
+								(0, react_jsx_runtime.jsx)("li", { children: "Request one Auma reply when the owner-bound provider route is available. Model output grants no authority." }),
+								(0, react_jsx_runtime.jsx)("li", { children: "Prepare a memory proposal, inspect its exact statement and source quotation, then approve that operation explicitly." }),
+								(0, react_jsx_runtime.jsx)("li", { children: "Read memory recovery to inspect existing host receipts and storage state. Recovery does not retry a save." })
+							] }),
+							(0, react_jsx_runtime.jsx)("div", {
+								className: OwnerSurface_module_css_default.actions,
+								children: (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+									onClick: () => openSurface("settings", "models", "contained"),
+									children: "Open Models settings"
+								})
+							}),
+							(0, react_jsx_runtime.jsx)("p", { children: "The current source release keeps provider calls and protected owner effects unavailable until their runtime joins are qualified." })
+						]
+					}),
+					(0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
+						className: OwnerSurface_module_css_default.card,
 						children: [
 							(0, react_jsx_runtime.jsx)("h2", { children: "Owner session" }),
+							!state.authority_available && (0, react_jsx_runtime.jsx)("p", {
+								"data-owner-login-unavailable": true,
+								children: "Sign-in is unavailable until the configured owner verifier and exact browser origin are confirmed by the host."
+							}),
 							state.owner ? (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsxs)("p", {
 								"data-owner-confirmed": true,
 								children: ["Host-confirmed owner: ", (0, react_jsx_runtime.jsx)("code", { children: state.owner.owner_id })]
@@ -2387,6 +2841,26 @@ window.__ModuleLoader__.load({
 								children: state.logout_status === "confirmed" ? "The host confirmed server logout." : state.logout_status === "pending" ? "Local access removed. Server logout is pending." : "Local access removed. Server logout is unconfirmed."
 							})
 						]
+					}),
+					(0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
+						className: OwnerSurface_module_css_default.card,
+						"data-auma-pilot": true,
+						children: [
+							(0, react_jsx_runtime.jsx)("h2", { children: "One Auma reply" }),
+							(0, react_jsx_runtime.jsx)(AumaReplyView, { result: null }),
+							(0, react_jsx_runtime.jsx)("div", {
+								className: OwnerSurface_module_css_default.actions,
+								children: (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+									disabled: true,
+									children: "Request one Auma reply"
+								})
+							}),
+							(0, react_jsx_runtime.jsx)("p", { children: "The owner-bound reply method is not supplied in this source preview. Model choice and a configured key alone do not enable a provider call." })
+						]
+					}),
+					(0, react_jsx_runtime.jsx)(PilotMemoryPanel, {
+						controller,
+						...memoryPilot ? { binding: memoryPilot } : {}
 					}),
 					(0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
 						className: OwnerSurface_module_css_default.card,
@@ -2710,7 +3184,10 @@ window.__ModuleLoader__.load({
 							children: [
 								label,
 								": ",
-								(0, react_jsx_runtime.jsx)("strong", { children: value?.unavailable_capabilities.includes(id) ? "Unavailable" : "Not qualified" })
+								(0, react_jsx_runtime.jsx)("strong", { children: value?.unavailable_capabilities.includes(id) ? "Unavailable" : "Not qualified" }),
+								id === "owner-passkey" && (0, react_jsx_runtime.jsx)("span", { children: " · needs the configured owner verifier, enrolled credential and exact origin." }),
+								id === "model-inference" && (0, react_jsx_runtime.jsx)("span", { children: " · needs separate key storage, an approved provider route and numeric task limits." }),
+								id === "durable-memory" && (0, react_jsx_runtime.jsx)("span", { children: " · needs the protected owner-memory runtime and verified host receipts; source metadata alone is insufficient." })
 							]
 						}, id))
 					})
@@ -2738,8 +3215,8 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/PrimeProviderEditor.module.css.mjs
-		const css = ".OtlLjG_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}.OtlLjG_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}.OtlLjG_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}.OtlLjG_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}.OtlLjG_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}.OtlLjG_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}.OtlLjG_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}.OtlLjG_rowHead{align-items:center;gap:10px;display:flex}.OtlLjG_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}.OtlLjG_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.OtlLjG_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}.OtlLjG_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}.OtlLjG_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}.OtlLjG_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}.OtlLjG_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}.OtlLjG_primaryButton,.OtlLjG_secondaryButton,.OtlLjG_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.OtlLjG_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.OtlLjG_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.OtlLjG_secondaryButton,.OtlLjG_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}.OtlLjG_secondaryButton:hover:not(:disabled),.OtlLjG_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.OtlLjG_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}.OtlLjG_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.OtlLjG_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.OtlLjG_rowActions .OtlLjG_secondaryButton,.OtlLjG_rowActions .OtlLjG_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.OtlLjG_primaryButton:disabled,.OtlLjG_secondaryButton:disabled,.OtlLjG_dangerButton:disabled,.OtlLjG_addButton:disabled,.OtlLjG_linkButton:disabled,.OtlLjG_addModelButton:disabled{opacity:.4;cursor:default}.OtlLjG_primaryButton:focus-visible,.OtlLjG_secondaryButton:focus-visible,.OtlLjG_dangerButton:focus-visible,.OtlLjG_addButton:focus-visible,.OtlLjG_linkButton:focus-visible,.OtlLjG_addModelButton:focus-visible,.OtlLjG_iconButton:focus-visible,.OtlLjG_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.OtlLjG_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}.OtlLjG_editorHeader{align-items:baseline;gap:8px;display:flex}.OtlLjG_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.OtlLjG_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.OtlLjG_field{flex-direction:column;gap:6px;display:flex}.OtlLjG_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}.OtlLjG_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.OtlLjG_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.OtlLjG_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.OtlLjG_editorActions{justify-content:flex-end;gap:8px;display:flex}.OtlLjG_addBlock{flex-direction:column;gap:12px;display:flex}.OtlLjG_addActions{flex-wrap:wrap;gap:10px;display:flex}.OtlLjG_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}.OtlLjG_addCard,.OtlLjG_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}.OtlLjG_addCard .OtlLjG_editor,.OtlLjG_setupCard .OtlLjG_editor{background:0 0;padding:0}.OtlLjG_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}.OtlLjG_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}.OtlLjG_customizedSummary::-webkit-details-marker{display:none}.OtlLjG_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}.OtlLjG_customized[open]>.OtlLjG_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}.OtlLjG_customizedSummary:hover{color:var(--dsw-alias-label-primary)}.OtlLjG_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}.OtlLjG_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}.OtlLjG_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}.OtlLjG_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}.OtlLjG_modelCatalogMeta,.OtlLjG_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.OtlLjG_modelList{flex-direction:column;gap:8px;display:flex}.OtlLjG_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.OtlLjG_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}.OtlLjG_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}.OtlLjG_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}.OtlLjG_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.OtlLjG_iconButton:disabled{cursor:default;opacity:.4}.OtlLjG_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.OtlLjG_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}.OtlLjG_modelField{flex-direction:column;gap:4px;display:flex}.OtlLjG_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.OtlLjG_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}.OtlLjG_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.OtlLjG_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.OtlLjG_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select.OtlLjG_input{cursor:pointer;max-width:240px}.OtlLjG_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}.OtlLjG_input::placeholder{color:var(--dsw-alias-label-dimmed)}.OtlLjG_input:disabled{opacity:.6;cursor:default}.OtlLjG_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}.OtlLjG_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}.OtlLjG_deleteDialog{width:min(480px,100%)}.OtlLjG_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.OtlLjG_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.OtlLjG_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){.OtlLjG_customizedSummary:before,.OtlLjG_switchThumb{transition:none}}.OtlLjG_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}.OtlLjG_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}.OtlLjG_candidateSearch{flex:240px;min-width:0}.OtlLjG_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}.OtlLjG_candidate{border-radius:6px}.OtlLjG_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}.OtlLjG_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}.OtlLjG_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
+		//#region \0dsh-css:/private/tmp/prime-next-owner-corrected/work/ui-build-MWbOAR/dsh/packages/client/aukora-prime-authority/src/client/PrimeProviderEditor.module.css.mjs
+		const css = ".xaPmNq_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}.xaPmNq_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}.xaPmNq_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}.xaPmNq_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}.xaPmNq_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}.xaPmNq_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}.xaPmNq_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}.xaPmNq_rowHead{align-items:center;gap:10px;display:flex}.xaPmNq_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}.xaPmNq_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.xaPmNq_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}.xaPmNq_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}.xaPmNq_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}.xaPmNq_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}.xaPmNq_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}.xaPmNq_primaryButton,.xaPmNq_secondaryButton,.xaPmNq_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.xaPmNq_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.xaPmNq_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.xaPmNq_secondaryButton,.xaPmNq_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}.xaPmNq_secondaryButton:hover:not(:disabled),.xaPmNq_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.xaPmNq_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}.xaPmNq_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.xaPmNq_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.xaPmNq_rowActions .xaPmNq_secondaryButton,.xaPmNq_rowActions .xaPmNq_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.xaPmNq_primaryButton:disabled,.xaPmNq_secondaryButton:disabled,.xaPmNq_dangerButton:disabled,.xaPmNq_addButton:disabled,.xaPmNq_linkButton:disabled,.xaPmNq_addModelButton:disabled{opacity:.4;cursor:default}.xaPmNq_primaryButton:focus-visible,.xaPmNq_secondaryButton:focus-visible,.xaPmNq_dangerButton:focus-visible,.xaPmNq_addButton:focus-visible,.xaPmNq_linkButton:focus-visible,.xaPmNq_addModelButton:focus-visible,.xaPmNq_iconButton:focus-visible,.xaPmNq_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.xaPmNq_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}.xaPmNq_editorHeader{align-items:baseline;gap:8px;display:flex}.xaPmNq_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.xaPmNq_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.xaPmNq_field{flex-direction:column;gap:6px;display:flex}.xaPmNq_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}.xaPmNq_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.xaPmNq_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.xaPmNq_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.xaPmNq_editorActions{justify-content:flex-end;gap:8px;display:flex}.xaPmNq_addBlock{flex-direction:column;gap:12px;display:flex}.xaPmNq_addActions{flex-wrap:wrap;gap:10px;display:flex}.xaPmNq_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}.xaPmNq_addCard,.xaPmNq_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}.xaPmNq_addCard .xaPmNq_editor,.xaPmNq_setupCard .xaPmNq_editor{background:0 0;padding:0}.xaPmNq_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}.xaPmNq_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}.xaPmNq_customizedSummary::-webkit-details-marker{display:none}.xaPmNq_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}.xaPmNq_customized[open]>.xaPmNq_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}.xaPmNq_customizedSummary:hover{color:var(--dsw-alias-label-primary)}.xaPmNq_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}.xaPmNq_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}.xaPmNq_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}.xaPmNq_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}.xaPmNq_modelCatalogMeta,.xaPmNq_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.xaPmNq_modelList{flex-direction:column;gap:8px;display:flex}.xaPmNq_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.xaPmNq_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}.xaPmNq_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}.xaPmNq_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}.xaPmNq_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.xaPmNq_iconButton:disabled{cursor:default;opacity:.4}.xaPmNq_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.xaPmNq_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}.xaPmNq_modelField{flex-direction:column;gap:4px;display:flex}.xaPmNq_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.xaPmNq_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}.xaPmNq_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.xaPmNq_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.xaPmNq_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select.xaPmNq_input{cursor:pointer;max-width:240px}.xaPmNq_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}.xaPmNq_input::placeholder{color:var(--dsw-alias-label-dimmed)}.xaPmNq_input:disabled{opacity:.6;cursor:default}.xaPmNq_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}.xaPmNq_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}.xaPmNq_deleteDialog{width:min(480px,100%)}.xaPmNq_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.xaPmNq_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.xaPmNq_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){.xaPmNq_customizedSummary:before,.xaPmNq_switchThumb{transition:none}}.xaPmNq_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}.xaPmNq_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}.xaPmNq_candidateSearch{flex:240px;min-width:0}.xaPmNq_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}.xaPmNq_candidate{border-radius:6px}.xaPmNq_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}.xaPmNq_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}.xaPmNq_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
 		const tagId = "@aukora/prime-authority-ui/PrimeProviderEditor.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -2749,71 +3226,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var PrimeProviderEditor_module_css_default = {
-			"addActions": "OtlLjG_addActions",
-			"addBlock": "OtlLjG_addBlock",
-			"addButton": "OtlLjG_addButton",
-			"addCard": "OtlLjG_addCard",
-			"addModelButton": "OtlLjG_addModelButton",
-			"advancedHint": "OtlLjG_advancedHint",
-			"candidate": "OtlLjG_candidate",
-			"candidateEmpty": "OtlLjG_candidateEmpty",
-			"candidateId": "OtlLjG_candidateId",
-			"candidateLabel": "OtlLjG_candidateLabel",
-			"candidateList": "OtlLjG_candidateList",
-			"candidateSearch": "OtlLjG_candidateSearch",
-			"candidateToolbar": "OtlLjG_candidateToolbar",
-			"credentialDot": "OtlLjG_credentialDot",
-			"credentialDotConfigured": "OtlLjG_credentialDotConfigured",
-			"credentialDotMissing": "OtlLjG_credentialDotMissing",
-			"customized": "OtlLjG_customized",
-			"customizedBody": "OtlLjG_customizedBody",
-			"customizedSummary": "OtlLjG_customizedSummary",
-			"dangerButton": "OtlLjG_dangerButton",
-			"deleteConfirm": "OtlLjG_deleteConfirm",
-			"deleteDialog": "OtlLjG_deleteDialog",
-			"editor": "OtlLjG_editor",
-			"editorActions": "OtlLjG_editorActions",
-			"editorHeader": "OtlLjG_editorHeader",
-			"editorRoute": "OtlLjG_editorRoute",
-			"editorTitle": "OtlLjG_editorTitle",
-			"error": "OtlLjG_error",
-			"fetchDialog": "OtlLjG_fetchDialog",
-			"field": "OtlLjG_field",
-			"fieldLabel": "OtlLjG_fieldLabel",
-			"hiddenLabel": "OtlLjG_hiddenLabel",
-			"iconButton": "OtlLjG_iconButton",
-			"iconButtonDanger": "OtlLjG_iconButtonDanger",
-			"input": "OtlLjG_input",
-			"intro": "OtlLjG_intro",
-			"linkButton": "OtlLjG_linkButton",
-			"modelAdvanced": "OtlLjG_modelAdvanced",
-			"modelCatalog": "OtlLjG_modelCatalog",
-			"modelCatalogHeading": "OtlLjG_modelCatalogHeading",
-			"modelCatalogMeta": "OtlLjG_modelCatalogMeta",
-			"modelCatalogTitle": "OtlLjG_modelCatalogTitle",
-			"modelEmpty": "OtlLjG_modelEmpty",
-			"modelEntry": "OtlLjG_modelEntry",
-			"modelField": "OtlLjG_modelField",
-			"modelFieldLabel": "OtlLjG_modelFieldLabel",
-			"modelList": "OtlLjG_modelList",
-			"modelListHead": "OtlLjG_modelListHead",
-			"modelRow": "OtlLjG_modelRow",
-			"notice": "OtlLjG_notice",
-			"primaryButton": "OtlLjG_primaryButton",
-			"rowActions": "OtlLjG_rowActions",
-			"rowCard": "OtlLjG_rowCard",
-			"rowHead": "OtlLjG_rowHead",
-			"rowIdentity": "OtlLjG_rowIdentity",
-			"rowName": "OtlLjG_rowName",
-			"rowTag": "OtlLjG_rowTag",
-			"rows": "OtlLjG_rows",
-			"savedNotice": "OtlLjG_savedNotice",
-			"secondaryButton": "OtlLjG_secondaryButton",
-			"section": "OtlLjG_section",
-			"selectInput": "OtlLjG_selectInput",
-			"setupCard": "OtlLjG_setupCard",
-			"switchThumb": "OtlLjG_switchThumb",
-			"title": "OtlLjG_title"
+			"addActions": "xaPmNq_addActions",
+			"addBlock": "xaPmNq_addBlock",
+			"addButton": "xaPmNq_addButton",
+			"addCard": "xaPmNq_addCard",
+			"addModelButton": "xaPmNq_addModelButton",
+			"advancedHint": "xaPmNq_advancedHint",
+			"candidate": "xaPmNq_candidate",
+			"candidateEmpty": "xaPmNq_candidateEmpty",
+			"candidateId": "xaPmNq_candidateId",
+			"candidateLabel": "xaPmNq_candidateLabel",
+			"candidateList": "xaPmNq_candidateList",
+			"candidateSearch": "xaPmNq_candidateSearch",
+			"candidateToolbar": "xaPmNq_candidateToolbar",
+			"credentialDot": "xaPmNq_credentialDot",
+			"credentialDotConfigured": "xaPmNq_credentialDotConfigured",
+			"credentialDotMissing": "xaPmNq_credentialDotMissing",
+			"customized": "xaPmNq_customized",
+			"customizedBody": "xaPmNq_customizedBody",
+			"customizedSummary": "xaPmNq_customizedSummary",
+			"dangerButton": "xaPmNq_dangerButton",
+			"deleteConfirm": "xaPmNq_deleteConfirm",
+			"deleteDialog": "xaPmNq_deleteDialog",
+			"editor": "xaPmNq_editor",
+			"editorActions": "xaPmNq_editorActions",
+			"editorHeader": "xaPmNq_editorHeader",
+			"editorRoute": "xaPmNq_editorRoute",
+			"editorTitle": "xaPmNq_editorTitle",
+			"error": "xaPmNq_error",
+			"fetchDialog": "xaPmNq_fetchDialog",
+			"field": "xaPmNq_field",
+			"fieldLabel": "xaPmNq_fieldLabel",
+			"hiddenLabel": "xaPmNq_hiddenLabel",
+			"iconButton": "xaPmNq_iconButton",
+			"iconButtonDanger": "xaPmNq_iconButtonDanger",
+			"input": "xaPmNq_input",
+			"intro": "xaPmNq_intro",
+			"linkButton": "xaPmNq_linkButton",
+			"modelAdvanced": "xaPmNq_modelAdvanced",
+			"modelCatalog": "xaPmNq_modelCatalog",
+			"modelCatalogHeading": "xaPmNq_modelCatalogHeading",
+			"modelCatalogMeta": "xaPmNq_modelCatalogMeta",
+			"modelCatalogTitle": "xaPmNq_modelCatalogTitle",
+			"modelEmpty": "xaPmNq_modelEmpty",
+			"modelEntry": "xaPmNq_modelEntry",
+			"modelField": "xaPmNq_modelField",
+			"modelFieldLabel": "xaPmNq_modelFieldLabel",
+			"modelList": "xaPmNq_modelList",
+			"modelListHead": "xaPmNq_modelListHead",
+			"modelRow": "xaPmNq_modelRow",
+			"notice": "xaPmNq_notice",
+			"primaryButton": "xaPmNq_primaryButton",
+			"rowActions": "xaPmNq_rowActions",
+			"rowCard": "xaPmNq_rowCard",
+			"rowHead": "xaPmNq_rowHead",
+			"rowIdentity": "xaPmNq_rowIdentity",
+			"rowName": "xaPmNq_rowName",
+			"rowTag": "xaPmNq_rowTag",
+			"rows": "xaPmNq_rows",
+			"savedNotice": "xaPmNq_savedNotice",
+			"secondaryButton": "xaPmNq_secondaryButton",
+			"section": "xaPmNq_section",
+			"selectInput": "xaPmNq_selectInput",
+			"setupCard": "xaPmNq_setupCard",
+			"switchThumb": "xaPmNq_switchThumb",
+			"title": "xaPmNq_title"
 		};
 		//#endregion
 		//#region lib/types/client/PrimeProviderEditor.js
@@ -2996,6 +3473,11 @@ window.__ModuleLoader__.load({
 								children: "Store key with approved handoff"
 							})]
 						})]
+					}),
+					!entryReady && (0, react_jsx_runtime.jsx)("p", {
+						className: PrimeProviderEditor_module_css_default["advancedHint"],
+						"data-prime-provider-entry-help": true,
+						children: "Sign in through Owner access and refresh owner status. Secure key-entry approval must be supplied by the owner/provider flow; its approval control is not mounted in this source preview. The key field stays disabled until a fresh single-use handoff to separate credential storage is supplied. This flow requires its qualified HTTPS origin; the localhost passkey profile does not enable key entry."
 					}),
 					(0, react_jsx_runtime.jsx)("p", {
 						className: PrimeProviderEditor_module_css_default["advancedHint"],
@@ -3379,7 +3861,10 @@ window.__ModuleLoader__.load({
 						secureEntry();
 						if (state.entry_status !== "ready" || !descriptor || Date.parse(descriptor.expires_at) <= now() || typeof input?.value !== "string") refusal();
 						secret = input.value;
-						if (!secret || secret.length > 4096) refusal();
+						if (secret.length < 8 || secret.length > 4096 || !/^[\x21-\x7e]+$/u.test(secret)) {
+							notify({ reason: "Enter an 8–4096 character key using non-space printable ASCII. No key was sent." });
+							return null;
+						}
 						ticket = null;
 						stopExpiry();
 						input.value = "";
@@ -3480,7 +3965,33 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			const controller = createPrimeOwnerController();
 			const providers = createPrimeProviderController();
+			let memoryPilot;
+			const memoryListeners = /* @__PURE__ */ new Set();
+			const memorySnapshot = () => memoryPilot;
+			const memorySubscribe = (listener) => {
+				memoryListeners.add(listener);
+				return () => {
+					memoryListeners.delete(listener);
+				};
+			};
+			const setMemoryPilot = (value) => {
+				memoryPilot = value;
+				for (const listener of memoryListeners) listener();
+			};
+			function PilotOwnerSurface(props) {
+				const current = (0, react.useSyncExternalStore)(memorySubscribe, memorySnapshot, memorySnapshot);
+				return (0, react.createElement)(OwnerSurface, {
+					...props,
+					...current ? { memoryPilot: current } : {}
+				});
+			}
 			let supplied = false;
+			let nativeDisposed = false;
+			let nativeConnection;
+			const nativeAcknowledgement = Object.freeze({
+				controller,
+				isConnected: (expected) => !nativeDisposed && nativeConnection?.active === true && nativeConnection.binding === expected && nativeConnection.witness?.isCurrent() === true
+			});
 			let providerSupplied = false;
 			let providerContracts;
 			const connectPublicProvider = () => {
@@ -3501,12 +4012,28 @@ window.__ModuleLoader__.load({
 				};
 			}, "prime owner UI controller");
 			ctx.effect(() => {
+				const off = ctx.reflect.provide("primeOwnerNativeConnection", nativeAcknowledgement);
+				return () => {
+					nativeDisposed = true;
+					if (nativeConnection) nativeConnection.active = false;
+					nativeConnection = void 0;
+					off();
+				};
+			}, "prime native binding acknowledgement");
+			ctx.effect(() => {
 				const off = ctx.reflect.provide("primeProviderUi", providers);
 				return () => {
 					providers.dispose();
 					off();
 				};
 			}, "prime Models card controller");
+			ctx.inject(["primePilotMemory"], (binding) => {
+				const selected = binding.primePilotMemory;
+				setMemoryPilot(selected);
+				binding.effect(() => () => {
+					if (memoryPilot === selected) setMemoryPilot(void 0);
+				}, "prime pilot memory view binding");
+			});
 			ctx.inject(["primeProviderSettings"], (binding) => {
 				providerSupplied = true;
 				providers.connect({
@@ -3521,12 +4048,29 @@ window.__ModuleLoader__.load({
 				}, "prime owner provider binding");
 			});
 			ctx.inject(["primeAuthority"], (binding) => {
+				if (nativeDisposed) return;
+				const selected = binding.primeAuthority;
+				const owned = {
+					binding: selected,
+					active: true,
+					witness: null
+				};
+				nativeConnection = owned;
 				supplied = true;
-				controller.connect(binding.primeAuthority);
 				binding.effect(() => () => {
+					owned.active = false;
+					const witness = owned.witness;
+					owned.witness = null;
+					if (nativeConnection !== owned) return;
+					nativeConnection = void 0;
 					supplied = false;
-					controller.disconnect();
+					if (witness) controller.disconnect(witness);
 				}, "prime authority UI binding");
+				if (!owned.active || nativeDisposed || nativeConnection !== owned) return;
+				const witness = controller.connect(selected, { onConnection: (current) => {
+					if (owned.active && !nativeDisposed && nativeConnection === owned) owned.witness = current;
+				} });
+				if (owned.active && !nativeDisposed && nativeConnection === owned && witness?.isCurrent() === true) owned.witness = witness;
 			});
 			ctx.effect(() => {
 				let disposed = false;
@@ -3561,7 +4105,7 @@ window.__ModuleLoader__.load({
 				id: "prime-owner",
 				order: 70,
 				inject: () => ({ controller })
-			}, OwnerSurface));
+			}, PilotOwnerSurface));
 			ctx.slots.inject("shell.menu.system", () => ctx.slots.register({
 				name: "shell.menu.system",
 				id: "prime-owner",
@@ -3580,8 +4124,10 @@ window.__ModuleLoader__.load({
 			}, PrimeProviderEditor));
 		}
 		//#endregion
+		exports.AumaReplyView = AumaReplyView;
 		exports.CapabilityBadge = CapabilityBadge;
 		exports.OwnerSurface = OwnerSurface;
+		exports.PilotMemoryPanel = PilotMemoryPanel;
 		exports.apply = apply;
 		exports.createHttpAuthority = createHttpAuthority;
 		exports.createPrimeOwnerController = createPrimeOwnerController;

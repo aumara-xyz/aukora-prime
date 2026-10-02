@@ -2,3 +2,6 @@ export { createAuthorityService, provisionNewAuthorityStore, loginSigningBytes, 
 export { operationBytes, operationDigest } from './operation.mjs'
 export { executorRequestDigest, executionReceiptDigest } from './execution.mjs'
 export { memoryResultDigest, memoryEffectReceiptDigest } from './memory-effect.mjs'
+export { createInferenceAuthorityJoin, parseInferenceBinding, parseInferenceOperation,
+  parseInferenceAdmission, inferenceRequestDigest } from './inference-admission.mjs'
+export { inferenceEffectReceipt, inferenceEffectReceiptDigest } from './inference-effect.mjs'

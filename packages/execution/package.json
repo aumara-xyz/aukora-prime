@@ -13,6 +13,10 @@
       "import": "./src/index.mjs"
     },
     "./sdk-transport": "./src/sdk-transport.ts",
-    "./bash": "./src/bash.mjs"
+    "./bash": "./src/bash.mjs",
+    "./guardian": {
+      "types": "./src/guardian/index.d.mts",
+      "import": "./src/guardian/index.mjs"
+    }
   }
 }

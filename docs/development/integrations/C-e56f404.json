@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "lane": "C",
+  "status": "IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "c66634acdef7220fc0274ab56587d563d99b28b3",
+  "source_commit": "e56f404b42c9d6e252e5e3f5ef3a44cf4a33ca51",
+  "production_source_commit": "aa719a7a321416a8668d299efc47cafdd72523dd",
+  "patch_base": "aa719a7a321416a8668d299efc47cafdd72523dd",
+  "patch": "authority-next-inference-checks.patch",
+  "patch_sha256": "935af02ef693680e511632a56ce0dc8655b208ddde3868e9beee3d55d2de758c",
+  "files": [
+    {
+      "path": "packages/authority/README.md",
+      "sha256": "6bbee4b47ba17bdad41b097ad12f70e01ed2147999189ea2c620311e031fa262"
+    },
+    {
+      "path": "packages/authority/check-inference-evidence.mjs",
+      "sha256": "28be7d79009fda86fdc9ff72f4447c36a1ed8db9c13c6a8fb9fa2d4ccb1c0db3"
+    },
+    {
+      "path": "packages/authority/check-inference-mapper.mjs",
+      "sha256": "f60558f8b3c45b9c7c20ee82ff5b2fe7c39c4cd04f491de1e4cf64a39dd106f2"
+    },
+    {
+      "path": "packages/authority/check-inference-service.mjs",
+      "sha256": "269bb0daeac9ab91aaf140468391a2cccbeb44c6929ebbbe377fdd6fefea743e"
+    },
+    {
+      "path": "packages/authority/docs/inference-authority-source.md",
+      "sha256": "e21a1739498078fba9312b94c06ac3cafad27d16171eecf272ccadddf04a573b"
+    },
+    {
+      "path": "packages/authority/docs/next-inference-interface-proposal.md",
+      "sha256": "6a4cdfdc97a7089db49aed6cd7f17d23522979426bc836af2914042e2f556b81"
+    },
+    {
+      "path": "packages/authority/package.json",
+      "sha256": "f9d829e1ec1031d102a9030c2770868e19005ef2904b2d829a9a12e0e5a0ee6f"
+    },
+    {
+      "path": "packages/authority/provenance/CHANGES.md",
+      "sha256": "5deca1f7d4a435cdb4e7c386d09869c342e3b7d025b739835f257120af882ae6"
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "production_delta": [],
+  "lane_evidence_sha256": "41beb95a5786de8abfa676d85b70af0d482b9ec80ed74c30337336ae2707921b",
+  "lane_checks": [
+    {
+      "command": "node packages/authority/check-inference-mapper.mjs",
+      "result": "PASS",
+      "cases": 20,
+      "assertions": 127,
+      "runs": 1
+    },
+    {
+      "command": "node packages/authority/check-inference-evidence.mjs",
+      "result": "PASS",
+      "cases": 10,
+      "checks": 143,
+      "runs": 1
+    },
+    {
+      "command": "node packages/authority/check-inference-service.mjs",
+      "result": "PASS",
+      "cases": 5,
+      "assertions": 59,
+      "runs": 3,
+      "initial_failures": [
+        {
+          "error": "CONTRACT_RECEIPT_STATE at $.status",
+          "cause": "Executor fixture declared completed with not_created cleanup, before the intended C cross-kind guard."
+        },
+        {
+          "error": "CONTRACT_FORMAT at $.sandbox.identity",
+          "cause": "Corrected sandbox fixture initially lacked the frozen UUID identity suffix."
+        }
+      ],
+      "correction": "Fixture now satisfies frozen executor receipt state/UUID identity and reaches actual C cross-kind refusal; only this affected check reran. Production code unchanged."
+    }
+  ],
+  "total_component_cases": 35,
+  "total_component_assertions_or_checks": 329,
+  "peer_resolution": "Lane verified disposable owned helper closure and missing-peer refusal; integrated peer closure remains a separate boundary.",
+  "tests_repeated_by_integrator": [],
+  "limits": "No signing/private/API keys or real credentials. Public key syntax fixtures only. Mapper callbacks and evidence-only history modeled; post-dispatch C check models owner review/dispatch, but actually uses unchanged kernel/journal/witness and actual factual settlement. No authentic signed C reserve/claim, private IPC, E atomic allowance/outbox, provider, live service/runtime or physical power-loss proof.",
+  "runtime_activation": false,
+  "runtime_qualified": false
+}

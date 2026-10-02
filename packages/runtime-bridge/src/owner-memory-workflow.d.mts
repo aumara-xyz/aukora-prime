@@ -16,6 +16,16 @@ export interface MemoryCapture {
 export interface MemoryDraft {readonly extraction_json:string;readonly idempotency_key:string}
 /** Exact private callback and cancellation signal for one B-owned hook flight. */
 export interface OwnerMemoryApprovalInvocation {readonly signal:AbortSignal;readonly approve:()=>Promise<unknown>}
+export interface MemoryRecallInput {readonly query:string;readonly limit:number}
+export interface MemoryRecallSnapshot {
+  readonly status:'not_requested'|'pending'|'ready'|'unavailable'
+  readonly query:string|null
+  readonly availability:'found'|'undetermined'|null
+  readonly records:readonly Readonly<{record:Readonly<Record<string,unknown>>;citation:Readonly<Record<string,unknown>>}>[]|null
+  readonly ceilings:readonly string[]
+  readonly reason:string|null
+  readonly error_code:string|null
+}
 export interface MemoryWorkflowSnapshot {
   readonly phase:'idle'|'proposal_pending'|'proposed'|'approval_pending'|'save_pending'|'saved'|'refused'|'outcome_unknown'|'unavailable'
   readonly operation:Readonly<Record<string,unknown>>|null
@@ -44,6 +54,8 @@ export interface OwnerMemoryController {
 }
 export interface OwnerMemoryWorkflow {
   getSnapshot():MemoryWorkflowSnapshot
+  /** Separate from B's closed approval/save result snapshot. */
+  getRecallSnapshot():MemoryRecallSnapshot
   /** Fixed metadata retained from the independently validated capture draft. */
   getCaptureMetadata():CaptureMetadata|null
   subscribe(listener:()=>void):()=>void
@@ -52,6 +64,8 @@ export interface OwnerMemoryWorkflow {
   approveAndSave(options?:OwnerMemoryApprovalInvocation):Promise<MemoryWorkflowSnapshot>
   /** Read only: refreshes known record status and retained-head citation. */
   refresh():Promise<MemoryWorkflowSnapshot>
+  /** Owner-authenticated lexical reads; never clears an unresolved effect. */
+  recall(input:MemoryRecallInput):Promise<MemoryRecallSnapshot>
   /** Reads durable C/D facts and resends retained settlement receipts only. */
   recover(input?:{operation_id:string|null}):Promise<MemoryWorkflowSnapshot>
   /** Revokes the adapter's actual C session after removing local owner access. */
@@ -59,4 +73,4 @@ export interface OwnerMemoryWorkflow {
   /** Disposes this helper only, without cancelling or replaying any mutation. */
   dispose():void
 }
-export function createOwnerMemoryWorkflow(options:{controller:OwnerMemoryController;memory:{proposeSave(input:unknown):Promise<unknown>;save(input:unknown):Promise<unknown>;status(input:unknown):Promise<unknown>;cite(input:unknown):Promise<unknown>;recover?(input:unknown):Promise<unknown>;logout?():Promise<unknown>};contracts:{operationDigest(operation:unknown):string|Promise<string>}}):OwnerMemoryWorkflow
+export function createOwnerMemoryWorkflow(options:{controller:OwnerMemoryController;memory:{proposeSave(input:unknown):Promise<unknown>;save(input:unknown):Promise<unknown>;status(input:unknown):Promise<unknown>;cite(input:unknown):Promise<unknown>;recall?(input:unknown):Promise<unknown>;recover?(input:unknown):Promise<unknown>;logout?():Promise<unknown>};contracts:{operationDigest(operation:unknown):string|Promise<string>}}):OwnerMemoryWorkflow

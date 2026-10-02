@@ -37,7 +37,8 @@
     }
   ],
   "runtime_dependencies": [
-    "Node.js >=24.11.1 built-ins"
+    "Node.js >=24.11.1 built-ins",
+    "Prime sibling contracts/src/json.mjs strict parser; integration-owned source, no other user repository"
   ],
   "paid_calls": 0,
   "continuation_base": "40e08bb467d594731629b5c005b2d07320269689",
@@ -83,5 +84,36 @@
         "corresponding_sanitized_commit": "d65494b0cbf5581b79ff9a57ebfb08250d59961c"
       }
     ]
+  },
+  "total_budget_implementation": {
+    "status": "SOURCE-ONLY",
+    "production_configuration": "Explicit positive immutable total descriptor required; no preset amount or universal USD 10 product policy",
+    "binding": "owner/provider/route/budget ID and nonsecret verified approval reference; production route/admission/private envelope bind total_budget_id",
+    "durability": "All task reservations retained across restart; uncertainty held pending evidence; one database atomicity only",
+    "candidate_profile": {
+      "total_testing_ceiling": {
+        "currency": "USD",
+        "amount": "10.000000"
+      },
+      "first_task_route_ceiling": {
+        "currency": "USD",
+        "amount": "0.010000"
+      },
+      "max_requests": 1,
+      "data_classes": [
+        "conversation"
+      ],
+      "production_enabled": false
+    },
+    "qualification_limits": "No real key, paid call, owner enrollment, runtime boundary or anti-rollback witness qualified"
+  },
+  "next_development": {
+    "status": "SOURCE-ONLY",
+    "seed": "coherent sanitized source package snapshot",
+    "saved_patch": "158a458f38498ab22918844974619435f7108bd9ee88e7fba7da6ce368460884",
+    "current_testing": "UNPERFORMED; focused keyless approval pending",
+    "retention": "Original plaintext request JSONL/raw receipts/reply result storage retained; no retention policy changed",
+    "runtime": "No live key, API call, host/security change, activation or publication",
+    "provider_response_parser": "Existing Prime parseStrictJson with bounded depth/bytes plus fatal UTF-8 decode; both wire response and note payload; source only, no new fixture execution"
   }
 }

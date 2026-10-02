@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Adapted from Genesis 1cde243 plugins/aukora-openshell/lib/runner.mjs.
 import { resolve } from "node:path"
-const GUEST_WORKDIR = "/sandbox"
-const MAX_OUTPUT = 1_048_576
+import { CREATE_BOUNDS, GUEST_WORKDIR, IMAGE_WORKDIR } from './create-profile.mjs'
+const MAX_OUTPUT = CREATE_BOUNDS.max_output_bytes
 const ENV = Object.freeze({ PATH: "/usr/bin:/bin", NO_COLOR: "1", TERM: "dumb", PAGER: "cat", GIT_PAGER: "cat" })
 const READS = ["/usr", "/lib", "/lib64", "/bin", "/etc", "/proc", "/dev/urandom"]
 
@@ -21,12 +21,12 @@ export function validateSpec(spec, settings) {
     throw refused('read-only or workspace-write with one absolute logical workspaceRoot required', 'AUKORA_CONFINEMENT_POLICY')
   }
   if (spec.workdir !== policy.workspaceRoot || (settings && spec.workdir !== settings.workspaceRoot)) {
-    throw refused('workdir and approved logical workspaceRoot must agree; host subdirectory and mount joins are unavailable', 'AUKORA_OPENSHELL_WORKDIR')
+    throw refused('workdir and approved logical workspaceRoot must agree; only the fixed guest mapping is available', 'AUKORA_OPENSHELL_WORKDIR')
   }
   if (typeof spec.command !== 'string' || spec.command.includes('\0') || Buffer.byteLength(spec.command) > 262_144) {
     throw refused('Bash command must be a bounded string without NUL', 'AUKORA_CONFINEMENT_ARGV')
   }
-  for (const [key, max] of [['timeoutMs', 600_000], ['stdoutMaxBytes', MAX_OUTPUT]]) {
+  for (const [key, max] of [['timeoutMs', CREATE_BOUNDS.wall_time_ms], ['stdoutMaxBytes', MAX_OUTPUT]]) {
     if (!Number.isSafeInteger(spec[key]) || spec[key] <= 0 || spec[key] > max) throw refused(`invalid ${key}`)
   }
   if (spec.stdin !== undefined && (typeof spec.stdin !== 'string' || Buffer.byteLength(spec.stdin) > 4_194_304)) {
@@ -52,9 +52,9 @@ export function guestPolicy(mode) {
   if (!['read-only', 'workspace-write'].includes(mode)) throw refused('unconfined mode is unavailable', 'AUKORA_CONFINEMENT_POLICY')
   return {
     version: 1,
-    filesystem_policy: { include_workdir: mode === 'workspace-write',
-      read_only: mode === 'read-only' ? [...READS, GUEST_WORKDIR, '/tmp'] : [...READS],
-      read_write: mode === 'workspace-write' ? ['/tmp', '/dev/null'] : ['/dev/null'] },
+    filesystem_policy: { include_workdir: false,
+      read_only: [...READS, IMAGE_WORKDIR, '/tmp'],
+      read_write: mode === 'workspace-write' ? [GUEST_WORKDIR, '/sandbox/.dsh', '/tmp', '/dev/null'] : ['/dev/null'] },
     landlock: { compatibility: 'hard_requirement' }, process: { run_as_user: '1000', run_as_group: '1000' },
     network_policies: {},
   }

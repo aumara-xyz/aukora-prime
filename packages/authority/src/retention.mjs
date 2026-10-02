@@ -5,6 +5,7 @@ import {canonicalJson} from '../../contracts/src/runtime.mjs'
 import {assertData,detachContract,operationDigest} from './operation.mjs'
 import {DIGEST,UUID,executionReceiptDigest,validatedReceipt,settlementStatus} from './execution.mjs'
 import {memoryEffectReceipt,memoryEffectReceiptDigest} from './memory-effect.mjs'
+import {inferenceEffectReceiptDigest,validateInferenceReceiptBinding} from './inference-effect.mjs'
 import {retainedMemoryLineage,validateRetainedMemoryLineage} from './retained-memory.mjs'
 
 export const TERMINAL_SCHEMA='prime-terminal-operation-v1'
@@ -31,8 +32,8 @@ export function validateTerminalRecord(row) {
     !stringMatch(d.request_id,UUID)||!stringMatch(d.request_digest,DIGEST)||!stringMatch(d.receipt_digest,DIGEST)||
     !Array.isArray(d.settlement_digests)||d.settlement_digests.length<1||d.settlement_digests.length>32||
     d.settlement_digests.some(x=>!stringMatch(x,DIGEST))||new Set(d.settlement_digests).size!==d.settlement_digests.length||
-    !d.settlement_digests.includes(d.receipt_digest)||!['memory','execution'].includes(d.evidence_kind)||
-    (d.evidence_kind==='memory'?(row.status!=='COMPLETED'||!stringMatch(d.result_digest,DIGEST)):d.result_digest!==null)||
+    !d.settlement_digests.includes(d.receipt_digest)||!['memory','execution','inference'].includes(d.evidence_kind)||
+    (['memory','inference'].includes(d.evidence_kind)?(row.status!=='COMPLETED'||!stringMatch(d.result_digest,DIGEST)):d.result_digest!==null)||
     Buffer.byteLength(canonicalJson(row))>4096)invalid()
  if(retained) {
   if(d.evidence_kind!=='memory'||row.status!=='COMPLETED')invalid()
@@ -54,13 +55,21 @@ export function compactTerminalRow(key,row,record,owners) {
     proof.operation_id!==op.operation_id||proof.owner_id!==op.owner_id||proof.audience!==op.audience||proof.authorization_epoch!==op.authorization_epoch||
     grant.operation_id!==op.operation_id||grant.owner_id!==op.owner_id||grant.audience!==op.audience||grant.authorization_epoch!==op.authorization_epoch||
     grant.grant_id!=='grant:'+nonce||!kernelPreparationMatches(record,op,grant,nonce)||!d||!d.receipt)invalid()
+ const inferenceOperation=op.audience==='aukora-prime.inference'||op.action_type==='inference.generate'||op.target_identity?.kind==='prime-inference-route/v1'
  let receipt,evidence_kind,result_digest
- if(d.receipt.kind==='prime-memory-effect/v1') {
+ if(d.receipt.kind==='prime-inference-effect/v1') {
+  receipt=validateInferenceReceiptBinding(d.receipt,{operation:op,consumed_grant:grant,request_id:d.request_id,request_digest:d.request_digest,
+   owner_subject:owners[ownerKey(op.owner_id)]?.subject,rates:row.inference_context?.rates})
+  evidence_kind='inference';result_digest=receipt.result_digest
+  if(row.status!=='COMPLETED'||receipt.outcome!=='completed'||inferenceEffectReceiptDigest(receipt)!==d.receipt_digest)invalid()
+ } else if(d.receipt.kind==='prime-memory-effect/v1') {
+  if(inferenceOperation)invalid()
   receipt=memoryEffectReceipt(d.receipt);evidence_kind='memory';result_digest=receipt.result_digest
   if(row.status!=='COMPLETED'||op.target_identity?.kind!=='prime-memory'||!op.action_type.startsWith('memory.')||
      receipt.owner_subject!==op.target_identity.owner_subject||receipt.owner_subject!==owners[ownerKey(op.owner_id)]?.subject||
      receipt.action_type!==op.action_type||receipt.request_digest!==d.request_digest||memoryEffectReceiptDigest(receipt)!==d.receipt_digest)invalid()
  } else {
+  if(inferenceOperation)invalid()
   receipt=validatedReceipt(d.receipt);evidence_kind='execution';result_digest=null
   if(settlementStatus(receipt,d.cancel_requested)!==row.status||executionReceiptDigest(receipt)!==d.receipt_digest||receipt.owner_id!==op.owner_id||receipt.task_id!==op.task_id)invalid()
   if(receipt.sandbox&&op.target_identity&&typeof op.target_identity==='object') {

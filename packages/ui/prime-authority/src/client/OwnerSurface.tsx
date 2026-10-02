@@ -7,9 +7,12 @@ import { CAPTURE_METADATA_FIELDS, validateCaptureReview } from '../../../adapter
 import { validateCaptureMetadata } from '../../../adapters/capture-metadata.mjs'
 import { validateForgetReview } from '../../../adapters/forget-review.mjs'
 import { MemoryCaptureHints } from './MemoryCaptureHints'
+import { PilotMemoryPanel } from './PilotMemoryPanel'
+import type { MemoryPilotBinding } from './PilotMemoryPanel'
+import { AumaReplyView } from './AumaReplyView'
 import css from './OwnerSurface.module.css'
 
-export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.surface'> & {controller:Controller}) {
+export function OwnerSurface({ activeSurface, openSurface, controller, memoryPilot }: PropsRuntime<'shell.surface'> & {controller:Controller;memoryPilot?:MemoryPilotBinding}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const busy = state.phase.endsWith('_pending') || state.approval_action_pending || state.logout_status === 'pending'
   const locked = busy || state.phase === 'outcome_unknown'
@@ -39,8 +42,21 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
       <p>Use an existing credential. Enrollment is unavailable here.</p></SectionHeader>
     {state.fixture && <p role="alert" data-disposable-fixture>Disposable UI fixture. Authentication and approvals below are synthetic; no effect is executed.</p>}
     <Panel className={css.card}><CapabilityDetails controller={controller} /></Panel>
+    <Panel className={css.card} data-prime-pilot-path>
+      <h2>Auma in Prime · pilot path</h2>
+      <ol>
+        <li>Sign in below with an existing owner credential. A preview connection is not owner access.</li>
+        <li>Open Models, inspect the route and task limits, then use the separately approved provider key-entry flow.</li>
+        <li>Request one Auma reply when the owner-bound provider route is available. Model output grants no authority.</li>
+        <li>Prepare a memory proposal, inspect its exact statement and source quotation, then approve that operation explicitly.</li>
+        <li>Read memory recovery to inspect existing host receipts and storage state. Recovery does not retry a save.</li>
+      </ol>
+      <div className={css.actions}><ActionButton onClick={() => openSurface('settings','models','contained')}>Open Models settings</ActionButton></div>
+      <p>The current source release keeps provider calls and protected owner effects unavailable until their runtime joins are qualified.</p>
+    </Panel>
     <Panel className={css.card}>
       <h2>Owner session</h2>
+      {!state.authority_available && <p data-owner-login-unavailable>Sign-in is unavailable until the configured owner verifier and exact browser origin are confirmed by the host.</p>}
       {state.owner ? <><p data-owner-confirmed>Host-confirmed owner: <code>{state.owner.owner_id}</code></p>
         <p>Session expires: <time>{state.owner.expiry}</time></p></>
         : <label className={css.owner}>Owner ID<input autoComplete="off" value={state.owner_id} disabled={busy}
@@ -55,6 +71,13 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
           : state.logout_status === 'pending' ? 'Local access removed. Server logout is pending.' : 'Local access removed. Server logout is unconfirmed.'}
       </p>}
     </Panel>
+    <Panel className={css.card} data-auma-pilot>
+      <h2>One Auma reply</h2>
+      <AumaReplyView result={null} />
+      <div className={css.actions}><ActionButton disabled>Request one Auma reply</ActionButton></div>
+      <p>The owner-bound reply method is not supplied in this source preview. Model choice and a configured key alone do not enable a provider call.</p>
+    </Panel>
+    <PilotMemoryPanel controller={controller} {...(memoryPilot ? {binding:memoryPilot} : {})} />
     <Panel className={css.card}>
       <h2>Exact operation</h2>
       {!state.operation_available && <p>No operation has been supplied by the host.</p>}
@@ -174,6 +197,9 @@ function CapabilityDetails({controller}:{controller:Controller}) {
     </dl>}
     <ul className={css.capabilities}>{Object.entries(CAPABILITY_LABELS).map(([id,label]) => <li key={id} data-capability={id}>
       {label}: <strong>{value?.unavailable_capabilities.includes(id) ? 'Unavailable' : 'Not qualified'}</strong>
+      {id === 'owner-passkey' && <span> · needs the configured owner verifier, enrolled credential and exact origin.</span>}
+      {id === 'model-inference' && <span> · needs separate key storage, an approved provider route and numeric task limits.</span>}
+      {id === 'durable-memory' && <span> · needs the protected owner-memory runtime and verified host receipts; source metadata alone is insufficient.</span>}
     </li>)}</ul>
   </div>
 }

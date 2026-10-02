@@ -192,7 +192,7 @@ function ownerReceipt(receipt){
   // The reviewed publication recipe rebases only the known adapter import seat.
   // Compose rederives these bytes from source below; boot checks their sealed
   // snapshot and the independently retained full deployment release digest.
-  if(publication.sha256!=='c65a2fe44940d9d9f68337b2943b44ce8f4ca4b568f841f4c55408943faab0c1')fail('owner-type-publication-profile')
+  if(publication.sha256!=='56388dee0becca5c75a95b1374325db505c7adf0b0517c6c9721fb6ad0734a1e')fail('owner-type-publication-profile')
   for(const source of sources.filter(x=>/^prime-authority\/src\/client\/[^/]+\.(?:mjs|d\.mts)$/.test(x.path))){
    const path=source.path.replace('prime-authority/src/client/','prime-authority/lib/types/client/')
    if(!outputs.some(x=>x.path===path))fail('owner-type-publication-output',path)
@@ -223,7 +223,7 @@ export async function verifyUiSource({sourceRoot}){
  for(const entry of ownerOutputs)await pinned(ui,entry)
  if(ownerSources.some(x=>x.path==='scripts/publish-owner-types.mjs')){
   const copySources=ownerSources.filter(x=>/^prime-authority\/src\/client\/[^/]+\.(?:mjs|d\.mts)$/.test(x.path)
-   || /^adapters\/(?:capture-metadata|capture-presentation|capture-review|forget-result|forget-review|passkey|provider-settings|transport)\.(?:mjs|d\.mts)$/.test(x.path))
+   || /^adapters\/(?:capture-metadata|capture-presentation|capture-review|forget-result|forget-review|passkey|provider-settings|save-recovery|transport)\.(?:mjs|d\.mts)$/.test(x.path))
   for(const entry of copySources){
    const client=entry.path.startsWith('prime-authority/src/client/')
    const path=client?entry.path.replace('prime-authority/src/client/','prime-authority/lib/types/client/'):'prime-authority/lib/types/'+entry.path

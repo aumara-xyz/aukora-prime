@@ -1,0 +1,96 @@
+{
+  "source_commit": "baef86251af101c417d51fe666d0dc17da24a98d",
+  "release_digest": "5f12c4d8da27c8db4afbcba0e29389f889ea5c2e939e89a4d3080591f69af04a",
+  "ui_integrity_sha256": "f9f9a9fcc9cd82e7408c6c97762891ec7079b0a26d761115c4d8e47e1721152b",
+  "files": 87005,
+  "qualification": "PENDING",
+  "booted": false,
+  "version": 1,
+  "status": "RAN_SCOPED_ASSEMBLY_AND_SYNTHETIC_UI",
+  "release_relative_path": ".runtime/next-preview-3f71aab",
+  "commands": [
+    "python3 scripts/compose.py .runtime/next-preview-3f71aab",
+    "node scripts/check-next-composition.mjs .runtime/next-preview-3f71aab",
+    "node harness/check-release-integrity.mjs"
+  ],
+  "composition": {
+    "pinned_built_artifacts_verified": 8389,
+    "pinned_patches": 4,
+    "frozen_faces": 9,
+    "served_face_diff": 0,
+    "ui_snapshot_files": 152,
+    "plugin_entries": 83,
+    "owner_source_inputs": 87,
+    "owner_outputs": 46,
+    "default_effects": "unavailable",
+    "new_package_peer": "release-local C to exact E helper",
+    "cordis_provider": "copied, unmounted"
+  },
+  "import_check": {
+    "status": "PASS",
+    "workers_started": 0,
+    "provider_calls": 0
+  },
+  "focused_regression": {
+    "status": "PASS",
+    "assertions": 30,
+    "source_file": "harness/check-release-integrity.mjs",
+    "source_sha256": "af55890dbea7d685a907992106ad54ba1fc07f9c6440c8ab1b24ae1d9b13e5ae",
+    "includes": [
+      "actual publication helper and complete adapter closure",
+      "rebased controller import",
+      "rehashed altered save-recovery output refused",
+      "omitted save-recovery output refused"
+    ]
+  },
+  "initial_failures": [
+    {
+      "step": "compose",
+      "result": "owner-type-publication-profile refusal",
+      "repair": "Pinned exact reviewed current publication recipe and independently included save-recovery adapter in root verifier. No UI source/output changed."
+    },
+    {
+      "step": "focused release fixture",
+      "result": "Missing adjacent publish-owner-types.mjs before assertions",
+      "repair": "Copied/invoked actual helper with synthetic complete adapter closure; repaired focused check passed once."
+    },
+    {
+      "step": "synthetic static fixture server",
+      "result": "Sandbox loopback listen EPERM",
+      "repair": "Same static fixture served with approved temporary loopback access; closed after inspection."
+    }
+  ],
+  "browser_fixture": {
+    "browser": "Safari through native UI automation",
+    "source": "existing render-fixture.mjs and serve-fixture.mjs",
+    "state": "synthetic in-memory authority; no real authenticator or durable owner state",
+    "observed": [
+      "Actual compiled owner surface rendered with explicit synthetic fixture notice.",
+      "Inference and memory unavailable; Request one Auma reply and memory controls disabled.",
+      "Synthetic sign-in produced host-confirmed fixture owner and enabled fresh review.",
+      "Fresh review displayed operation fields, digest, exact canonical parameters with script-like text rendered literally.",
+      "Fixture expiry disabled Approve exact operation and Decline and displayed expiry refusal.",
+      "Synthetic sign-out removed access and disabled fresh review."
+    ],
+    "limits": [
+      "No native mock conversation producer; no actual Prime host or authenticated production routes.",
+      "No real owner presence, credential custody, provider HTTP, installed runtime or full browser acceptance.",
+      "Browser screenshot was observed but not saved; fixture toolbar overlays part of heading and is not product UI."
+    ],
+    "tool_interruption": "One click observation returned screen-capture error; next accessibility state confirmed the synthetic login had completed.",
+    "cleanup": {
+      "fixture_tab_closed": true,
+      "temporary_listener_exited": true
+    },
+    "files_sha256": {
+      "owner.js": "72a859bacb32e0d202f8b2074bf2bd9cf5261b5054a1359739afd59c88091154",
+      "layout.js": "a4c9dfcb0bf3e5db90afd4dc5fb19173fc31d5e523a37e0e42a4cb94bea500a1",
+      "fixture.mjs": "9de910efeb78e9c19d823ced453eafc8217838a00337f7df36b84d9e68e62822",
+      "index.html": "cdf81135d68964ac8da9369d795c6435dc5642b606ab8c73bc13932b34d625bb",
+      "fixture-build.json": "194c6e1da32f8c7bb2425ee70c3e9b037eaa7931d292a311ef172244d86b298e"
+    }
+  },
+  "protected_boot": "UNPERFORMED: protected external manifest and separately approved host staging required",
+  "installed_program_changed": false,
+  "public_push": false
+}

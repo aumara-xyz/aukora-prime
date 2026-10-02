@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "status": "RAN_SCOPED_PASS",
+  "B_source_commit": "2c50585663c15ca8fdc933d2f19e5935f3bd9c5d",
+  "H_source_patch_sha256": "34b1a09976b73d412cb5a1ceb43bb64f39750a4e3da49984e1a56b5143dc9f21",
+  "source_digest": "347190e624cb5711ecdd5ecb0823fd28769c138d000c0658e51932834e9abe1f",
+  "build_input_digest": "c4682822e27bd0cef00722dab4bf2c33c865204efddc8dcb9aea29c0aed9a3cd",
+  "compiled_client_sha256": "72a859bacb32e0d202f8b2074bf2bd9cf5261b5054a1359739afd59c88091154",
+  "build_receipt_sha256": "05be5c1d82bf923eff2dd23cb9a50d7e5bff6cf46d501ee5cabf1c6f3fd395a9",
+  "reason_for_rebuild": "Lane B output retained account paths in CSS virtual-module comments. Rebuilt identical source under owned temporary work/output with the original verified pinned harness. No source/compiler patch or post-build editing.",
+  "build_result": {
+    "result": "PASS",
+    "source_inputs": 87,
+    "output_artifacts": 46,
+    "faces_rebuilt": 0,
+    "separate_plugins_built": 1,
+    "account_paths_in_outputs": 0,
+    "source_output_binding": "MATCH",
+    "pinned_build_inputs": "MATCH"
+  },
+  "checks": [
+    {
+      "command": "node packages/ui/scripts/build-client.mjs --dsh <verified-pinned-harness> --prime-root <NEXT> --only prime-authority --work <owned-temporary-work> --output <owned-temporary-output>",
+      "result": "PASS"
+    },
+    {
+      "command": "node packages/ui/scripts/verify-owner-build.mjs --ui packages/ui --dsh <verified-pinned-harness> --prime-root <NEXT>",
+      "result": "PASS",
+      "source_inputs": 87,
+      "output_artifacts": 46
+    },
+    {
+      "command": "node packages/ui/prime-authority/checks/native-join.mjs <verified-pinned-harness> packages/contracts/src/browser.mjs <absolute-NEXT-client.js> <absolute-NEXT-owner-memory-native.mjs>",
+      "result": "PASS",
+      "groups": 11,
+      "cordis": "4.0.2",
+      "react": "18.3.1",
+      "http_requests": 0,
+      "credential_assertions": 0,
+      "H_attachment_join": "PASS"
+    }
+  ],
+  "setup_failures": [
+    "First build stopped before overlay creation: this isolated NEXT checkout lacked the pinned source archive. Verified its declared SHA-256 and copied the exact local archive into ignored vendor input; reran build.",
+    "First native-join invocation rejected a relative client path before assertions. Supplied the required absolute generated path and ran the check."
+  ],
+  "runtime_activation": false,
+  "served_bytes": "UNPERFORMED",
+  "browser_events": "UNPERFORMED",
+  "limits": [
+    "Native Cordis fixture uses synthetic service data and registration-only slot stubs; it is not installed browser or owner/effect acceptance.",
+    "No listener, provider/network call, real credential, dependency installation or public release modification."
+  ]
+}

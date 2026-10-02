@@ -4,7 +4,18 @@ import assert from 'node:assert/strict'
 import {pathToFileURL} from 'node:url'
 import {createPrimeProviderController,createPublicProviderApi} from '../src/client/provider-controller.mjs'
 
-const contracts=await import(process.argv[2]?pathToFileURL(process.argv[2]).href:new URL('../../../contracts/src/browser.mjs',import.meta.url))
+let contractPath=null
+const selectedNames=new Set(),arguments_=process.argv.slice(2)
+for(let index=0;index<arguments_.length;index++){
+  const argument=arguments_[index]
+  if(argument==='--case'){
+    const name=arguments_[++index]
+    if(!name||name.startsWith('--'))throw new TypeError('provider-controller: --case requires an exact case name')
+    selectedNames.add(name)
+  }else if(argument.startsWith('--')||contractPath!==null)throw new TypeError('provider-controller: unexpected argument')
+  else contractPath=argument
+}
+const contracts=await import(contractPath?pathToFileURL(contractPath).href:new URL('../../../contracts/src/browser.mjs',import.meta.url))
 const START=Date.parse('2030-01-01T00:00:00.000Z'),ORIGIN='https://prime.example',ENTRY='/api/prime/inference/credential-entry'
 const KEY='synthetic-key-provider-check-only',TICKET='T'.repeat(42)+'A'
 const clone=value=>JSON.parse(JSON.stringify(value))
@@ -81,6 +92,32 @@ test('owner metadata maps null generation to zero and key goes once to fixed wor
   eq(contracts.parseStrictJson(request.init.body),{ticket:TICKET,secret:KEY});eq(f.controller.getSnapshot().entry_status,'pending');noPrivateState(f)
   pending.resolve(response());eq(await submitted,{configured:true,generation:1});eq(f.controller.getSnapshot().entry_status,'configured');eq(f.controller.getSnapshot().row.credentialConfigured,true);eq(f.controller.getSnapshot().row.enabled,false)
   eq(await f.controller.submitCredential({value:KEY}),null);eq(f.calls.fetch.length,1);noPrivateState(f);f.clean()
+})
+test('invalid credential input preserves unused ticket for corrected single dispatch',async()=>{
+  const invalid=[['short','A'.repeat(7)],['long','A'.repeat(4097)],['space','synthetic key rejected'],
+    ['control','synthetic\u0000key-rejected'],['non-ASCII','synthetic-\u00e9-key-rejected']]
+  for(const [kind,secret]of invalid){
+    const f=fixture();await f.ready();const rejected={value:secret}
+    eq(await f.controller.submitCredential(rejected),null,kind+' input refused')
+    eq(rejected.value,'',kind+' input cleared');eq(f.calls.fetch.length,0,kind+' refusal sends nothing')
+    eq(f.calls.handoff.length,1,kind+' refusal mints no new ticket');eq(f.controller.getSnapshot().entry_status,'ready',kind+' refusal preserves unused ready ticket')
+    ok(!JSON.stringify(f.controller.getSnapshot()).includes(secret),kind+' input stays out of public state');noPrivateState(f)
+    const corrected={value:KEY}
+    eq(await f.controller.submitCredential(corrected),{configured:true,generation:1},kind+' correction uses retained unexpired ticket')
+    eq(corrected.value,'');eq(f.calls.fetch.length,1);eq(f.calls.handoff.length,1)
+    eq(contracts.parseStrictJson(f.calls.fetch[0].init.body),{ticket:TICKET,secret:KEY},kind+' correction retains exact original ticket and literal synthetic key')
+    const repeat={value:KEY};eq(await f.controller.submitCredential(repeat),null);eq(repeat.value,'');eq(f.calls.fetch.length,1,kind+' correction dispatched once')
+    noPrivateState(f);f.clean()
+  }
+})
+test('ticket expiry after invalid input prevents corrected dispatch before timer notification',async()=>{
+  const f=fixture();await f.ready();const rejected={value:'short'}
+  eq(await f.controller.submitCredential(rejected),null);eq(rejected.value,'');eq(f.controller.getSnapshot().entry_status,'ready');eq(f.calls.fetch.length,0)
+  f.advance(59001,{fire:false})
+  eq(f.controller.getSnapshot().entry_status,'ready','expiry notification has deliberately not fired')
+  const corrected={value:KEY};eq(await f.controller.submitCredential(corrected),null);eq(corrected.value,'')
+  eq(f.calls.fetch.length,0,'expired retained ticket sends no corrected key');eq(f.calls.handoff.length,1,'no replacement handoff requested')
+  eq(f.controller.getSnapshot().entry_status,'unavailable');noPrivateState(f);f.clean()
 })
 test('existing credential generation requires exact next acknowledgement',async()=>{
   const f=fixture();f.setStatus(()=>status(2));await f.ready(2);f.setFetch(()=>response('{"configured":true,"generation":3}'))
@@ -218,7 +255,10 @@ test('public reload retains owner metadata and used approval cannot mint again',
   f.setFetch(()=>response('{"configured":true,"generation":3}'));eq(await f.controller.submitCredential({value:KEY}),{configured:true,generation:3});eq(await f.controller.prepareCredentialEntry({...input,expected_generation:3}),null);eq(f.calls.handoff.length,1);f.clean()
 })
 
-for(const {name,run}of cases){try{await run()}catch(error){failures.push({name,error:error?.message??String(error)})}}
+for(const name of selectedNames)if(!cases.some(test=>test.name===name))throw new TypeError('provider-controller: unknown selected case '+name)
+const selected=selectedNames.size?cases.filter(test=>selectedNames.has(test.name)):cases
+for(const {name,run}of selected){try{await run()}catch(error){failures.push({name,error:error?.message??String(error)})}}
 console.log(JSON.stringify({check:'provider-controller',source_only:true,network_calls:0,cryptographic_verification_claimed:false,
-  cases:cases.length,assertions,passed:cases.length-failures.length,failures},null,2))
+  cases:selected.length,available_cases:cases.length,excluded_cases:cases.length-selected.length,case_names:selected.map(test=>test.name),
+  assertions,passed:selected.length-failures.length,failures},null,2))
 if(failures.length)process.exitCode=1

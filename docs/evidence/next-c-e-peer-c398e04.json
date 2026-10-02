@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "status": "RAN_SCOPED_PASS",
+  "source_commit": "c398e048e76e32d7ba468d7d1b38cc9c052192c0",
+  "command": "node packages/authority/check-inference-mapper.mjs",
+  "execution": "Disposable git archive of exact committed C/E/contracts packages with peer link resolving only within that archive; no external checkout or package install.",
+  "result": {
+    "status": "PASS",
+    "cases": 20,
+    "assertions": 127,
+    "groups": [
+      "default join and missing reviewed resolver remain unavailable",
+      "binding rejects UUID array/coercion and unsafe or hidden fields",
+      "request and total-policy digests use accepted canonical domains",
+      "original reserve receives exact detached envelope once and returns frozen copied reply",
+      "reserve refuses Boolean/malformed replies without a second call",
+      "reserve refuses altered grant, status or success fields",
+      "flat twelve-field resolver returns closed fifteen-field admission after one reserve",
+      "reviewed binding mismatch refuses before reserve",
+      "lost reserve reply is surfaced without retry or admission",
+      "claim maps exact operation/grant/UUID/digest once",
+      "claim refuses mismatched admission before authority call",
+      "claim refuses Boolean, wrong grant, UUID, digest and extra reply fields",
+      "lost claim reply is fenced without a repeated call",
+      "factual settlement forwards exact envelope and enforces submitted outcome",
+      "historical unknown acknowledgement stays unknown without modelling a current-row rollback",
+      "settlement refuses primitive/malformed and changed digest acknowledgements",
+      "profile binds public pinned owner, registered Task and exact original config bytes",
+      "profile refuses absent owner, duplicate contexts and non-normalized signed budget",
+      "profile rejects promoted original bytes and wrong config digest/rates",
+      "policy context refuses registered conversation, owner, cap or state changes"
+    ],
+    "scope": "Keyless local mapper/profile + exact owned E pure helper. Public synthetic data and constant non-verifying proof syntax; modelled authority replies only, NOT kernel approval, durable state, IPC, worker ledger, owner enrollment or runtime/provider qualification. No keys, services, credentials, network or provider calls."
+  },
+  "peer_source_sha256": {
+    "packages/inference/package.json": "64be6690c524511d14805a0190b2d3af8aa17ec037fee368aac259cc6a49fb9f",
+    "packages/inference/src/budget-binding.mjs": "5a8fd69a4ae5bc25a6bbfc27752bd19754e9f71496f411328264f9595cb4986e",
+    "packages/inference/src/policy.mjs": "419a873eab3e1a5f724e8b03fdb5619e2999350530de9337839626f3f75be610"
+  },
+  "exit_code": 0,
+  "scope": "C configured helper/profile/admission mapping against integrated E377da04 policy/helper. The lane C run used an older helper closure.",
+  "setup_correction": "First staging setup stopped before Node execution because macOS temporary-directory aliases differed; resolved the temporary directory before comparing owned paths.",
+  "limits": [
+    "Modeled authority replies, no authentic proof/reserve/claim or IPC.",
+    "No listener, credentials, provider call, build, UI probe or runtime changes.",
+    "This mapper check does not exercise the combined production conversation; the separate C/Bridge/E ledger smoke is recorded in next-inference-join-6895137.json."
+  ]
+}

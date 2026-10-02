@@ -25,7 +25,9 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
     created_at: '2026-10-01T00:00:00Z', status: 'running', route_id: 'externalDeepSeek', allowed_data_classes: ['conversation','public_source'],
     max_input_tokens: 10000, max_output_tokens: 200, max_requests: 3, task_spend_ceiling: { currency: 'USD', amount: '0.030000' } };
   const task = fromPrimeTask(envelope,route);
-  let ledger = new SpendLedger(dbPath);
+  const totalBudget = { version:1,budget_id:'synthetic-total-testing',owner_id:task.owner_id,
+    provider:'deepseek',route_id:'externalDeepSeek',ceiling:{currency:'USD',amount:'10.000000'},approval_reference:'synthetic-total-approval' };
+  let ledger = new SpendLedger(dbPath,{ total_budget:totalBudget });
   const scoped = { owner_id: task.owner_id, task_id: task.task_id, conversation_id: task.conversation_id };
   const text = 'Synthetic public documentation span.';
   const request = () => ({ ...scoped, request_uuid: randomUUID(), max_output_tokens: 200, fragments: [
@@ -180,7 +182,7 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
     assert.throws(() => assertSeparatedCredentialProcess(process.getuid?.() ?? 1000),{code:'SEPARATE_CREDENTIAL_UID_REQUIRED'});
     const prodRoute = fromQualifiedPrimeRoute({ ...routeEnvelope, status:'approved' },{ ...route, pricing_evidence_id:'synthetic-pricing-proof',
       terms_evidence_id:'synthetic-terms-proof', served_version:'synthetic-served-version', credential_generation:1,
-      config_digest:'sha256:'+hash('synthetic-approved-route') });
+      config_digest:'sha256:'+hash('synthetic-approved-route'),total_budget_id:totalBudget.budget_id });
     assert.throws(()=>fromQualifiedPrimeRoute(routeEnvelope,{}),{code:'PRODUCTION_ROUTE_NOT_QUALIFIED'});
     const prodTask = { ...task, task_id:'production-fixture' }; ledger.register(prodTask,prodRoute);
     const prodRequest = () => { const r=request(); r.task_id=prodTask.task_id; r.fragments=r.fragments.map(f=>({...f,task_id:prodTask.task_id}));return r; };
@@ -202,7 +204,9 @@ test('Lane E disposable mock acceptance: exact body, scope, durable caps, uncert
       return http.generate({...envelope,served_version:prodRoute.served_version,signal});
     }});
     const paidGateway = new ExternalDeepSeekGateway({route:prodRoute,ledger,request_home:join(dir,'requests'),provider:proxy,
-      authorize_dispatch:async admission => ({...admission,operation_id:'synthetic-consumed-admission'})});
+      authorize_dispatch:async admission => { assert.equal(admission.total_budget_id,totalBudget.budget_id);
+        // App/wire fixture only; full closed authority admission is covered in check-dispatch.mjs.
+        return {...admission,operation_id:'synthetic-consumed-admission',operation:{expiry:'2099-01-01T00:00:00.000Z'}}; }});
     const wired = await paidGateway.generate(prodRequest());
     assert.equal(wired.outcome,'completed'); assert.equal(wired.mode,'production'); assert.equal(wireCalls,1);
     assert.equal(JSON.stringify(wired).includes(fixtureSecret),false);

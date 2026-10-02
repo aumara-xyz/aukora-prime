@@ -33,17 +33,20 @@ export class ExternalDeepSeekGateway {
     if (signal?.aborted) refuse('CANCELLED_BEFORE_DISPATCH');
     let admission;
     if (production) {
+      this.ledger.requireTotalBudget(task.owner_id,this.route.total_budget_id);
       // This is a trusted C-backed host hook, never model-authored policy or a frontend boolean.
       admission = await this.authorize_dispatch({ owner_id: task.owner_id, task_id: task.task_id,
         conversation_id: task.conversation_id, request_uuid: request.request_uuid, body_sha256: prepared.body_hash,
         binding_hash: prepared.binding_hash, citations_sha256: hash(canonical(prepared.citations)),
         config_digest: this.route.config_digest, reserved_tokens: prepared.token_reservation,
-        reserved_cost_microusd: prepared.cost_reservation, credential_generation: this.route.credential_generation });
+        reserved_cost_microusd: prepared.cost_reservation, credential_generation: this.route.credential_generation,
+        total_budget_id: this.route.total_budget_id });
       if (!admission || admission.request_uuid !== request.request_uuid || admission.body_sha256 !== prepared.body_hash
           || admission.owner_id !== task.owner_id || admission.task_id !== task.task_id || admission.conversation_id !== task.conversation_id
           || admission.config_digest !== this.route.config_digest || admission.binding_hash !== prepared.binding_hash
           || admission.citations_sha256 !== hash(canonical(prepared.citations))
           || admission.credential_generation !== this.route.credential_generation
+          || admission.total_budget_id !== this.route.total_budget_id
           || admission.reserved_tokens !== prepared.token_reservation
           || admission.reserved_cost_microusd !== prepared.cost_reservation) refuse('DISPATCH_APPROVAL_REQUIRED');
     }
@@ -57,7 +60,8 @@ export class ExternalDeepSeekGateway {
         source_citation: { sessionId, turn: receipt.turn, sha256: hash(receipt.line), requestId: JSON.parse(receipt.line).requestId },
         citations: prepared.citations };
     });
-    // Freeze the exact JSON bytes before the external call. No request body or provider error is logged.
+    // Freeze exact wire bytes. The private JSONL/ledger receipt above retains plaintext request content.
+    // Console/planner errors remain fixed codes; completed ledger results also retain the reply text.
     const body = JSON.parse(JSON.stringify(prepared.body));
     if (hash(JSON.stringify(body)) !== receipt.body_sha256) refuse('BODY_RECEIPT_MISMATCH');
     this.ledger.transition(task.owner_id,task.task_id,request.request_uuid,'reserved','dispatched');
@@ -77,6 +81,7 @@ export class ExternalDeepSeekGateway {
         headers: { ...attribution_headers },
         owner_id: task.owner_id, task_id: task.task_id, conversation_id: task.conversation_id,
         config_digest: this.route.config_digest ?? null, credential_generation: this.route.credential_generation ?? null,
+        total_budget_id: this.route.total_budget_id ?? null,
         admission, reserved_tokens: prepared.token_reservation, reserved_cost_microusd: prepared.cost_reservation,
         binding_hash: prepared.binding_hash, citations_sha256: hash(canonical(prepared.citations)),
       }))]);

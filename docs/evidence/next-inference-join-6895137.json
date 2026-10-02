@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "status": "RAN_SCOPED_PASS",
+  "source_commit": "68951372ff9757d7dfcf043d0e4090e70ec6c2cc",
+  "smoke": "harness/check-next-inference-join.mjs",
+  "smoke_sha256": "2bde9fd278cdfe54f77166fe5a3c4241ec9187ab991f8f673ca0bc833ad5957c",
+  "package_tree_ids": {
+    "authority": "60951b46c0523fa8a9cb22ef8326e623fde72330",
+    "contracts": "ab890e3046a6bff557f8502643b3268d595c10f1",
+    "inference": "edfb4c1315ffb55324c22303345d1fbd16f36840",
+    "runtime-bridge": "c7ed9076a3e2506808a809533fee024042bcdd90"
+  },
+  "command": "node --test --test-reporter=tap harness/check-next-inference-join.mjs",
+  "execution": "Owned disposable git archive of the four exact packages plus this smoke; local inference peer link resolves entirely inside archive. Approved temporary Unix socket; same UID. No external install or provider call.",
+  "result": {
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0
+  },
+  "observed": [
+    "Genuine synthetic passkey login and approval verified by actual C; exactly one consumed approval and preparation.",
+    "Bridge qualified-state observation stays held through actual E intent claim and mock reply accounting.",
+    "E replaces worst allowance with bounded actual mock usage under original rates, retaining one spent request slot.",
+    "Original E factual receipt/outbox survives deliberate omission of the acknowledgement commit after C settlement reply.",
+    "After logout and graceful worker close/database reopen in the same process, exact settlement redelivery is idempotent without a live owner session.",
+    "C state and witness and completed E accounting row are unchanged by repeated settlement; fresh Bridge connection cannot replay the durable E intent."
+  ],
+  "limits": [
+    "MockDeepSeekProvider only; no provider HTTP transport or private credential-service continuation.",
+    "Acknowledgement loss is simulated after receiving C reply; no IPC transport-loss injection.",
+    "Graceful close/reopen in the same process, not process-crash recovery.",
+    "No durable pre-C-reserve attempt guard is supplied by these test adapters.",
+    "No real owner enrollment, credential custody, independent UID/store qualification, browser/product mount, gateway, guest or installed runtime verification."
+  ],
+  "initial_execution": {
+    "result": "BLOCKED",
+    "reason": "Sandbox denied temporary Unix socket with listen EPERM before approval/dispatch test assertions.",
+    "raw_output_sha256": "c7aa8532960ae5041862317fb7b1cff46746a58f9c1fa808be674a9e8bc97dcb",
+    "resolution": "Same source and command passed with approved temporary Unix-socket access; no test assertion or production fence changed."
+  },
+  "setup_corrections": [
+    "Python 3.9 staging helper rejected unsupported tar filter before Node execution.",
+    "Archive staging was adjusted to verify and retain only repository-relative internal vendored symlinks before Node execution."
+  ],
+  "passing_output_sha256": "83c6b36da70b14058811da5b46d9aa7c782d9cccf823ad62ae6bc5779eb18c2b",
+  "passing_tap_output": "TAP version 13\n# (node:<pid>) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: NEXT keyless C approval, Bridge dispatch and durable E outbox survive lost acknowledgement and restart\nok 1 - NEXT keyless C approval, Bridge dispatch and durable E outbox survive lost acknowledgement and restart\n  ---\n  duration_ms: 771.136583\n  type: 'test'\n  ...\n# Actual C synthetic approval/IPC and E durable accounting/outbox; mock provider only. No separated-service, pre-reserve durable guard, enrollment, custody or runtime qualification.\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 943.123542\n"
+}

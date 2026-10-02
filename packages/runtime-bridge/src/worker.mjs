@@ -91,11 +91,20 @@ export async function startPublicMemoryWorker(config) {
 }
 
 async function startConfiguredMemoryWorker(config,publicDispatch) {
-  configRecord(config,['kind','ipc','authorityChannel','registryEntries','resolveHostContext','createPgPool',...(publicDispatch?['verifyHostQualification']:[])],['initializeSchema','indexTarget','indexGeneration'])
+  configRecord(config,['kind','ipc','authorityChannel','registryEntries','resolveHostContext','createPgPool',...(publicDispatch?['verifyHostQualification']:[])],['initializeSchema','indexTarget','indexGeneration','indexProjection'])
   if(config.kind!==(publicDispatch?'public-memory':'memory')||typeof config.resolveHostContext!=='function'||typeof config.createPgPool!=='function'
     ||publicDispatch&&typeof config.verifyHostQualification!=='function'||(config.initializeSchema!==undefined&&typeof config.initializeSchema!=='boolean'))throw new TypeError('INVALID: memory worker config')
+  let projectionLimit=null
+  if(config.indexProjection!==undefined){
+    closed(config.indexProjection,['profile','batch_limit'])
+    if(config.indexProjection.profile!=='prime-memory-outbox-projector/v1'||!Number.isSafeInteger(config.indexProjection.batch_limit)
+      ||config.indexProjection.batch_limit<1||config.indexProjection.batch_limit>100)throw new TypeError('INVALID: memory index projection config')
+    projectionLimit=config.indexProjection.batch_limit
+  }
   const registry=createTrustedTaskRegistry(config.registryEntries)
   const reviews=new Map()
+  const projectionQueue=new Map()
+  let projectionFlight=null,projectionScheduled=null,projectionStopping=false
   let memory,pool,server
   const proxy=Object.freeze(Object.fromEntries(Object.entries(METHODS).map(([name,method])=>[name,async input=>{
     const detached=copy(input)
@@ -121,8 +130,33 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
     memory=createPostgresMemory({pool,authority:proxy,contracts,indexTarget:config.indexTarget,indexGeneration:config.indexGeneration})
     const workflowStore=createPostgresWorkflowStore({pool})
     if(config.initializeSchema===true){await memory.migrate();await workflowStore.migrate()}
-    const localMemory=Object.freeze({prepareCaptureBinding:memory.prepareCaptureBinding,captureAuthorizedRemembered:memory.captureAuthorizedRemembered,
-      prepareRecordMutationBinding:memory.prepareRecordMutationBinding,forgetRecord:memory.forgetRecord,reconcileEffect:memory.reconcileEffect,
+    function rememberCommitted(host,effect){
+      // Keep projection off the completed receipt's return path. Coalesce by
+      // owner, bound this private queue, and retain pending outbox work if full.
+      if(!projectionStopping&&projectionLimit!==null&&effect?.authority_settlement==='completed'&&effect.reconciliation_required===false
+        &&effect.receipt?.action_type==='memory.save'&&effect.receipt.status==='applied'){
+        if(projectionQueue.has(host.owner_subject)||projectionQueue.size<32)projectionQueue.set(host.owner_subject,
+          Object.freeze({owner_id:host.owner_id,owner_subject:host.owner_subject,task_id:host.task_id}))
+      }
+      return effect
+    }
+    function scheduleProjection(){
+      if(projectionStopping||projectionFlight||projectionScheduled||!projectionQueue.size)return
+      // IPC's fulfilled-handler continuation writes its bounded response before
+      // this check-phase callback starts D's separate owner-locked projection.
+      projectionScheduled=setImmediate(()=>{
+        projectionScheduled=null
+        if(projectionStopping||!projectionQueue.size)return
+        const [owner,host]=projectionQueue.entries().next().value;projectionQueue.delete(owner)
+        projectionFlight=Promise.resolve().then(()=>memory.drainOutbox(host,projectionLimit))
+          .catch(()=>{/* D's pending/failed index state remains independently readable. */})
+          .finally(()=>{projectionFlight=null;scheduleProjection()})
+      })
+    }
+    const localMemory=Object.freeze({prepareCaptureBinding:memory.prepareCaptureBinding,
+      async captureAuthorizedRemembered(host,...args){return rememberCommitted(host,await memory.captureAuthorizedRemembered(host,...args))},
+      prepareRecordMutationBinding:memory.prepareRecordMutationBinding,forgetRecord:memory.forgetRecord,
+      async reconcileEffect(host,...args){return rememberCommitted(host,await memory.reconcileEffect(host,...args))},
       status:memory.status,cite:memory.cite,recall:memory.recall,async withAuthorityTargetObservation(host,operation,fn){
       const op=copy(operation),key=op.owner_id+'\0'+op.operation_id+'\0'+contracts.operationDigest(op)
       return memory.withAuthorityTargetObservation(host,op,async()=>{
@@ -135,12 +169,13 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
       ...(publicDispatch?{verifyHostQualification:config.verifyHostQualification}:{})})
     // Internal IPC uses the trusted service seam. Public composition rechecks
     // qualification on every call; capability preflight grants no authority.
-    const handler=publicDispatch?async(method,input,context)=>{
-      const result=await bridge.handlePublic(method,input,context)
-      return method==='capability.status'&&result?.ok===true?{...result,public_dispatch:'qualified-owner-memory/v1'}:result
-    }:bridge.handleTrusted
+    const handler=async(method,input,context)=>{
+      const result=await (publicDispatch?bridge.handlePublic:bridge.handleTrusted)(method,input,context)
+      scheduleProjection()
+      return publicDispatch&&method==='capability.status'&&result?.ok===true?{...result,public_dispatch:'qualified-owner-memory/v1'}:result
+    }
     server=await createIpcServer({...config.ipc,handlePublic:handler})
-    return Object.freeze({async close(){await server.close();await pool.end?.()},status:()=>({kind:config.kind,qualification:publicDispatch?'per-request':'unqualified',socket:server.address,
+    return Object.freeze({async close(){projectionStopping=true;if(projectionScheduled)clearImmediate(projectionScheduled);projectionQueue.clear();await server.close();await projectionFlight;await pool.end?.()},status:()=>({kind:config.kind,qualification:publicDispatch?'per-request':'unqualified',socket:server.address,
       ...(publicDispatch?{public_dispatch:'qualified-owner-memory/v1'}:{})}),bridge})
   } catch(error){await server?.close();await pool?.end?.();throw error}
 }

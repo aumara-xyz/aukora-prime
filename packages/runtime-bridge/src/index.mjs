@@ -282,7 +282,11 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
     }
     closed(input,['session_token','query','limit']);text(input.query,4096)
     if(!Number.isSafeInteger(input.limit)||input.limit<1||input.limit>100)fail('INVALID','BRIDGE_RECALL_LIMIT')
-    requireMethod(memory,'recall');return {ok:true,...await memory.recall(host,{query:input.query,limit:input.limit,scope:host.scope??'owner',permittedPrivacy:host.permittedPrivacy??['local']})}
+    requireMethod(memory,'recall')
+    const recalled=await memory.recall(host,{query:input.query,limit:input.limit,scope:host.scope??'owner',permittedPrivacy:host.permittedPrivacy??['local']})
+    // Bind read results to C's current owner and the registry-selected Task.
+    // Individual records may belong to older Tasks within D's allowed scope.
+    return {ok:true,...recalled,owner_id:identity.owner_id,owner_subject:identity.subject,task_id:entry.task.task_id}
   }
   async function handleTrusted(method,input,contextValue={}) {
     try {

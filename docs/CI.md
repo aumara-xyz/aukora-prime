@@ -38,6 +38,18 @@ contract require explicit review of the helper as well as the source profile;
 CI never repins from the result being evaluated. The small validator checks run
 with synthetic summaries and do not duplicate the product suite.
 
+The reviewed NEXT refresh keeps the same 66 jobs and exact PostgreSQL exclusion.
+It updates 19 pin references across 13 selected paths, requires 275 TAP titles
+plus the external title, and raises the H client and transport counters to 95 and
+61. Previous source pins or assertion counts cannot satisfy this contract. The
+current manifest SHA256 is
+`c9491a181d601580c306501bf7734b758777149f11ef227118c9fb3450a98173`;
+the evaluator engine remains
+`da653d511ebf30c821e07d4bf63c0731ce5f046a2eacaf694f66710fc3006535`.
+New NEXT checks outside the selected inventory require separately identified
+evidence. In particular, the total-budget gate is source-present, while its live
+qualification remains UNPERFORMED; the 66-job result does not qualify it.
+
 ## Activation and permissions
 
 The publisher must land these files on the public repository and inspect the first

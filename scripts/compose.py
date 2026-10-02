@@ -39,8 +39,15 @@ for module in ['ui-adapter.mjs','owner-memory-workflow.mjs','owner-forget-workfl
  if client_text.count(old)!=1:raise SystemExit('owner-memory-import-mismatch: '+module)
  client_text=client_text.replace(old,"'../prime-packages/runtime-bridge/src/"+module+"'")
 client_binding.write_text(client_text)
-for package in ['contracts','execution','authority','memory','inference','ops','runtime-bridge']:
+for package in ['contracts','execution','authority','memory','inference','ops','runtime-bridge','cordis-tool-provider']:
  shutil.copytree(root/'packages'/package,release/'prime-packages'/package,symlinks=True,ignore=lambda directory,names:[n for n in names if n in ['test','tests','checks'] or n in ['check.mjs','build-sdk.py']])
+# C deliberately resolves E's optional public helper as a package peer. Bind it
+# only to this release's exact copied package, without install/home fallbacks.
+# Presence supplies no protected profile, worker configuration or runtime mount.
+inference_peer=release/'prime-packages/node_modules/@aukora-prime/inference'
+inference_peer.parent.mkdir(parents=True)
+inference_peer.symlink_to('../../inference',target_is_directory=True)
+if inference_peer.resolve()!=(release/'prime-packages/inference').resolve():raise SystemExit('inference-peer-escape')
 ui=release/'prime-packages/ui';ui.mkdir(parents=True)
 shutil.copytree(root/'packages/ui/adapters',ui/'adapters')
 shutil.copy2(root/'packages/ui/baseline-manifest.json',ui/'baseline-manifest.json')

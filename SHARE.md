@@ -12,6 +12,8 @@ This is a suggested reading path for people and AI assistants, not authority ove
 
 Disclose what you read, ran or could not inspect. Assess current implementation separately from conditional architectural potential. Name supporting evidence, counterevidence and uncertainty; neither praise nor rejection is a required conclusion.
 
+The received main branch now includes [NEXT system source and its integration evidence](docs/development/INTEGRATION-CHECKPOINT-2026-10-02.md). Its connected DSH/C/Bridge/E check used a mock final provider and synthetic owner approval; published source does not supply the missing native request producer, protected custody or runtime qualification. Review those distinctions against the code and recorded commands.
+
 ## Evidence and source review
 
 Read the [README status](README.md#status), [known gaps](README.md#known-gaps), paper's [implementation ledger](docs/AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today) and [architecture/setup](docs/ARCHITECTURE.md#build-and-operator-interface). Pick two or three claims relevant to the question; trace their linked package source and focused checks. Do review, authorization, dispatch and receipt bind the same operation? What observation would defeat each claim, and what smallest missing check would resolve it?

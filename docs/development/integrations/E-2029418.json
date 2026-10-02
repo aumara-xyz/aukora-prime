@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "lane": "E",
+  "status": "SOURCE_ONLY_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "d3267d6f5ce92f39bdd9a01eb9d2105de4bc9e89",
+  "source_commit": "2029418cf529f81acba5504832d26ea68dc1e1db",
+  "patch": "prime-inference-budget-binding.patch",
+  "patch_sha256": "5c294386638db3fd93013adfde77c0796376d5ca2677b26acda77782a27de0b2",
+  "files": [
+    {
+      "path": "packages/inference/README.md",
+      "sha256": "a236fb321db58aa98d99d5eea1a72d20e98b82e9e944f5ba498dd6f8d29d1c23",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/inference-contract-request.md",
+      "sha256": "212c13ecbd1386e58a918ad8f2197ed0a5120e83d0d118aa7a72bf5bdc5ee3e5",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/next-development-handoff.md",
+      "sha256": "03392a0e82cc1be8f8fda2e9e21e26c3b4bd8d3e442ed228941ac7143ea325d9",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/package.json",
+      "sha256": "1f118dc45495af80acbb4e56e2fefcb1d38c6ee73b85ab851014b1784502b7c3",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/budget-binding.d.mts",
+      "sha256": "9dc98ccf482d9ef9e1f18579f2d701983740f2c5e0f4f4fce33eca9162e005f5",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/budget-binding.mjs",
+      "sha256": "5a8fd69a4ae5bc25a6bbfc27752bd19754e9f71496f411328264f9595cb4986e",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/index.d.mts",
+      "sha256": "8739586be269afee9308fec4564665942526767353a5cd6aa4875774f9f32544",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/index.mjs",
+      "sha256": "952e1f9cc6fa8b22e95f8a4b63027c435146c5389486e55ee26ec81578bbe27f",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/ledger.mjs",
+      "sha256": "93f619e8231bcae887641ed1c64df13a4aa37e1459ecdd9a501bc41dcae9a82f",
+      "matches_source_commit": true
+    }
+  ],
+  "package_adaptations": [],
+  "source_identity_inspection": {
+    "patch_matches_commit_delta": true,
+    "all_preimages_match": true,
+    "all_postimages_match": true
+  },
+  "integration_note": "Package patch is independent of held 8a94ea6 request-decoder change: every listed preimage matches NEXT and provider-http.mjs is excluded. No lane ancestry imported.",
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "contracts_changed": false,
+  "limits": [
+    "Pure budget/state derivation does not authenticate owner, verify qualified config, observe a vault, reserve spend or implement a claim.",
+    "Current permissive admission, claim-before-reserve ordering, missing durable intent/outbox and C receipt lifecycle remain pending.",
+    "Held request-parser patch and imported response decoder both need explicit leading-BOM rejection."
+  ]
+}

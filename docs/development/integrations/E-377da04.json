@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "lane": "E",
+  "status": "IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "5c3e0ed825ee8ef79f9d8a95cfa848cd01e905d4",
+  "source_commit": "377da04d279bf2a2a569e2c47d65352cc433b0e6",
+  "patch_base": "23b0723706e90ab54911509acc8a78c87d860d53",
+  "patch": "prime-inference-worker-outbox-corrected.patch",
+  "patch_sha256": "17166dbfb4e34fb24f7df1ede121bd75e1b18987bcefbd5da253688f891ab6d0",
+  "files": [
+    {
+      "path": "packages/inference/README.md",
+      "sha256": "8a21d31b895f1fa320d1e9830b818050f95c2227d8048aab669fa290d3b61105",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/check-dispatch-expiry.mjs",
+      "sha256": "cceb3fa520f6d223c88ba795243acd148abb1f73694faca9c65ac2d9c5ef5dba",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/check-dispatch.mjs",
+      "sha256": "a74bf335f4c0d8c4775858f04d8b91a7051de835f8128018e8f750250083c5f5",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/check-worker-outbox.mjs",
+      "sha256": "42c6d249d7912c1eae397527c557b2ecb66eb3f50b6cb4adae8f8818eeeca7a5",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/check-worker-types.mts",
+      "sha256": "dd03ae740a111d0287ae4702bd90242568426dcc0c444b46e0a8c5cfc2bc8f54",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/check.mjs",
+      "sha256": "8fddd2cd2ba053dbed9ff1481c3801b92047161592c352f1e4a5db6533373a6a",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/fixtures/worker-fixture.mjs",
+      "sha256": "856cc675240c527ec62a7c43a84432e8716a3faca8cdace89a0d32a9b190e09e",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/inference-contract-request.md",
+      "sha256": "cf0e5329015cd1266a613e92ebe5ab5a021ef02ca7c924d38114f28f70866257",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/next-development-handoff.md",
+      "sha256": "d5ca97f762c3fc530dae8d51e49b0991e9c189409d442118c6817adf7444cc6b",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/package.json",
+      "sha256": "64be6690c524511d14805a0190b2d3af8aa17ec037fee368aac259cc6a49fb9f",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/credential-http.mjs",
+      "sha256": "0dce52048da24f99f51df105e659071740f47c1676df834c742d46c3f0a05986",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/credential-service.d.mts",
+      "sha256": "faa29b8cfce5635aad1eaeb9be468903d309348e398b76660d90eae31b3feb5a",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/credential-service.mjs",
+      "sha256": "51f02aa3ab1249793d7842e1b040550649d9ad40e621487f568be138ba5d6508",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/dispatch-policy.mjs",
+      "sha256": "29ccca6be849db9b5a072a49a4a2a8e3696e5a6bb9030d18094730efab3429cf",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/index.d.mts",
+      "sha256": "67e4e64db24be0c9c2adc77d9f872401020870e653601b4cb45483757fb79202",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/ledger.mjs",
+      "sha256": "2c170d7f7d96bdfd783b49f7aec494f4907d68bf43b6cec1327317bd7c36d9e0",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/policy.mjs",
+      "sha256": "419a873eab3e1a5f724e8b03fdb5619e2999350530de9337839626f3f75be610",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/worker-evidence.d.mts",
+      "sha256": "2b10b7d925fc27b8434a2cb0ec9ca6f536874f8a24c2b49ae47a30491b5f0439",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/src/worker-evidence.mjs",
+      "sha256": "a89186309110077db42ab31c8e10f2ccbfbec1f111ac9cf4d94fbcfd0fb79d01",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/inference/worker-intent-outbox.md",
+      "sha256": "a7a9c5ba985f064f391308ec2fab95c6fb9aadf0ec6dbc6aed92617edd0fd68f",
+      "matches_source_commit": true
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "package_adaptations": [],
+  "supersedes": "Held 6eedca63 patch; that patch was never imported. Existing strict request/response BOM behavior retained.",
+  "source_review": "Independent read cleared prior expiry blocker: post-claim observation and final credential-callback checks precede transport; no post-send expiry gate rejects valid factual completion. Unknown retains original identity/slot/worst-case allowance.",
+  "lane_checks": [
+    {
+      "name": "admission",
+      "command": "node --test packages/inference/check-dispatch.mjs",
+      "exit_code": 0,
+      "passed_groups": 3,
+      "duration_ms": 116.931375,
+      "scope": "Closed admission and independently reconstructed operation/intent bindings."
+    },
+    {
+      "name": "total_budget",
+      "command": "node --test packages/inference/check-total-budget.mjs",
+      "exit_code": 0,
+      "passed_groups": 5,
+      "duration_ms": 237.414666,
+      "scope": "Total ceiling, immutable policy, restart and owned two-process contention."
+    },
+    {
+      "name": "worker_outbox",
+      "command": "node --test packages/inference/check-worker-outbox.mjs",
+      "exit_code": 0,
+      "passed_groups": 7,
+      "duration_ms": 249.669,
+      "scope": "Atomic rollback, immutable phases, exact claim, original-rate evidence, pending outbox, reconciliation and stale acknowledgement fences."
+    },
+    {
+      "name": "async_expiry",
+      "command": "node --test packages/inference/check-dispatch-expiry.mjs",
+      "exit_code": 0,
+      "passed_groups": 2,
+      "duration_ms": 98.40875,
+      "scope": "Delayed post-claim observation and delayed credential custody; zero transport calls and original reservation/identity retained."
+    },
+    {
+      "name": "affected_mock_wire",
+      "command": "node --test --test-name-pattern='^Lane E disposable mock acceptance:' packages/inference/check.mjs",
+      "exit_code": 0,
+      "passed_groups": 1,
+      "duration_ms": 274.712791,
+      "scope": "Unexpired mock scope/caps/restart/DSH and synthetic HTTPS/proxy/vault/settings/entry; external API calls=0."
+    }
+  ],
+  "lane_passed_groups": 18,
+  "lane_strict_typecheck": {
+    "result": "PASS",
+    "node": "24.11.1",
+    "typescript": "6.0.3",
+    "diagnostics": 0,
+    "settings": {
+      "target": "ES2022",
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext",
+      "strict": true,
+      "noEmit": true,
+      "skipLibCheck": false,
+      "exactOptionalPropertyTypes": true,
+      "noUncheckedIndexedAccess": true,
+      "types": [
+        "node"
+      ]
+    },
+    "external_non_toolchain_inputs": 0,
+    "log_sha256": "0916c4e78e13d0463744d68727746b1bfbd33f645f9792a4c8a5d0c0a3aa2f33"
+  },
+  "integrator_repeated_lane_checks": [],
+  "source_manifest_matches_acceptance": true,
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "limits": [
+    "Combined C/Bridge/E mock conversation remains pending.",
+    "In-process fencing and keyless fixtures do not qualify separate-UID custody, anti-rollback, runtime configuration or paid calls."
+  ]
+}

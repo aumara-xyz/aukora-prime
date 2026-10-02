@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto'
 import { canonicalJson } from '../../contracts/src/runtime.mjs'
 import { SDK_SOURCE_COMMIT,SDK_PACKAGE_VERSION } from './sdk-transport.ts'
+import { matchesCreateResourceBounds } from './create-profile.mjs'
 
 const DIGEST=/^sha256:[a-f0-9]{64}$/
 const hash=(domain,value)=>'sha256:'+createHash('sha256').update(domain+'\0'+canonicalJson(value)).digest('hex')
@@ -36,6 +37,7 @@ export function inspectQualification(input,settings,policyDigest=null,bounds=nul
       ||!Number.isSafeInteger(host.landlock_abi)||host.landlock_abi<3||host.seccomp_notify!==true||host.cgroup_version!==2||typeof host.docker_version!=='string'||!host.docker_version||hostProfileDigest(host)!==expected.binding.host_profile_digest)return null
     if(!closed(record.bounds,['cpu_millicores','memory_bytes','scratch_bytes','pids','wall_time_ms','max_output_bytes'])
       ||Object.values(record.bounds).some(n=>!Number.isSafeInteger(n)||n<=0)
+      ||!matchesCreateResourceBounds(record.bounds)
       ||(bounds&&(bounds.wall_time_ms>record.bounds.wall_time_ms||bounds.max_output_bytes>record.bounds.max_output_bytes)))return null
     const scope=hash('aukora-prime.runtime-scope.v1',{workspace:record.workspace,logical_workspace_root:record.logical_workspace_root,image_digest:record.image_digest,policy_digest:record.policy_digest,sdk_source_commit:record.sdk_source_commit,sdk_package_version:record.sdk_package_version,host_profile:host,gateway_identity:record.gateway_identity,ledger_id:record.ledger_id,bounds:record.bounds})
     if(!Array.isArray(evidence)||evidence.length!==required.length||evidence.some(v=>!closed(v,['check','artifact_digest','observed_at','scope_digest','status'])||!required.includes(v.check)||v.status!=='passed'||!DIGEST.test(v.artifact_digest)||v.scope_digest!==scope||!Number.isFinite(Date.parse(v.observed_at))||Date.parse(v.observed_at)>Date.parse(record.accepted_at))

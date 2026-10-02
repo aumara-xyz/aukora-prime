@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Closed required-source union: whole files, literal reviewed titles/counters.
-// Frozen selected b336 source bytes; revision attribution is not checkout or runtime attestation.
+// Initial b336 source basis with reviewed NEXT successor pins; attribution is not checkout or runtime attestation.
 // No runtime repinning, selectors, candidate PASS inputs or external activation.
 export const NODE_VERSION = 'v24.11.1'
 export const SOURCE_REVIEW_COMMIT = 'b336753488a2a70adcefd82a95909263dbe26c5a'
@@ -59,7 +59,7 @@ export const CASES = freeze([
     "id": "inference-mock-accounting",
     "property": "Mock-only body, data scope and durable accounting",
     "entry": "packages/inference/check.mjs",
-    "expectedSha256": "d20bb25f5152137431575ba96049f31d721669968ad20528e3fe5f66fc22d1b2",
+    "expectedSha256": "8fddd2cd2ba053dbed9ff1481c3801b92047161592c352f1e4a5db6533373a6a",
     "protocol": "tap",
     "timeoutMs": 20000,
     "nodeArgs": [
@@ -295,7 +295,7 @@ export const CASES = freeze([
     "externalSkips": [],
     "hookController": {
       "path": "packages/ui/prime-authority/src/client/controller.mjs",
-      "sha256": "b0204bc9068c90bc94dc53dc9d75560c2c7ad52547ccd8ccbd64ea1f27668733"
+      "sha256": "f90664f23662004c3b86da421786497c97b49251df74e328bdeb9b77b7e4aa58"
     },
     "pins": [
       {
@@ -375,7 +375,7 @@ export const CASES = freeze([
       },
       {
         "path": "harness/owner-memory-ipc.mjs",
-        "sha256": "2871743e788b6ef840e30f8139ba9a6d70dd681d314f12c0c0dc4edb00a9cbc8"
+        "sha256": "fca90cabaecf4723f8bf6f91ad51e35241d3500a5327078f04b5bc54564cfa29"
       },
       {
         "path": "harness/owner-memory-context.mjs",
@@ -392,7 +392,7 @@ export const CASES = freeze([
     "id": "full-owner-memory-facade",
     "property": "Full source owner-memory suite: owner-memory-facade",
     "entry": "packages/runtime-bridge/test/owner-memory-facade.test.mjs",
-    "expectedSha256": "8a5e95407487fbd7ad68cede170f14bc135b921d7db770e675e78605370502ba",
+    "expectedSha256": "1abbdf3d701d0b44133c232176d294f3c8c9c12c800e3c6c25a31971070227a2",
     "protocol": "tap",
     "timeoutMs": 120000,
     "args": [],
@@ -403,11 +403,11 @@ export const CASES = freeze([
       },
       {
         "path": "packages/ui/prime-authority/src/client/controller.mjs",
-        "sha256": "b0204bc9068c90bc94dc53dc9d75560c2c7ad52547ccd8ccbd64ea1f27668733"
+        "sha256": "f90664f23662004c3b86da421786497c97b49251df74e328bdeb9b77b7e4aa58"
       },
       {
         "path": "harness/owner-memory-client.mjs",
-        "sha256": "5e0d315a02a888f12ca15680d7d1625fff0657c69566c45d61f81ec5b2cafb81"
+        "sha256": "3ae35c6d5a82b88bfec033aa46a911dc13fc178860f7ff7b3379fdcf2e1f8521"
       },
       {
         "path": "harness/owner-memory-transport.mjs",
@@ -415,7 +415,7 @@ export const CASES = freeze([
       },
       {
         "path": "harness/owner-memory-host.mjs",
-        "sha256": "a20d847458ee2311faaa925f90be77cd63308b1f07463539f995878287eaf900"
+        "sha256": "362acba8750fb2253ffb16088e2921b4feae485419e9f030611df8541cfe7d33"
       },
       {
         "path": "packages/runtime-bridge/test/owner-memory-fixture.mjs",
@@ -433,12 +433,14 @@ export const CASES = freeze([
       "--test-reporter=tap"
     ],
     "requiredTitles": [
+      "H stale native witness refuses access after same-owner different binding",
+      "H stale native witness refuses access after same-object reconnect",
       "H client generic hooks save, read, forget and save again with actual C/D",
       "H client logs out durably, signs in again, and saves through the same binding",
       "H same-controller recovered receipt is displayed and permits a new unrelated approved save without repeating the old effect",
       "H new binding recovers an actual lost-save receipt after cold C/D objects without another signature or save",
       "H host without a qualified channel remains unavailable before actual C/D",
-      "H new binding recovers a reviewed unsent proposal and requires a fresh review",
+      "H new binding retains a reviewed unsent proposal and refuses a fresh save",
       "H pending settlement recovery sends only the actual retained receipt after new login and cold objects",
       "H lost forget reply recovers the genuine tombstone receipt on a new binding without another effect",
       "H lost logout reply ends local access, does not redispatch, and permits an ordinary fresh login"
@@ -610,7 +612,7 @@ export const CASES = freeze([
       },
       {
         "path": "packages/ui/prime-authority/src/client/controller.mjs",
-        "sha256": "b0204bc9068c90bc94dc53dc9d75560c2c7ad52547ccd8ccbd64ea1f27668733"
+        "sha256": "f90664f23662004c3b86da421786497c97b49251df74e328bdeb9b77b7e4aa58"
       },
       {
         "path": "packages/ui/prime-authority/checks/fixture.mjs",
@@ -696,7 +698,7 @@ export const CASES = freeze([
     "pins": [
       {
         "path": "packages/ui/prime-authority/src/client/controller.mjs",
-        "sha256": "b0204bc9068c90bc94dc53dc9d75560c2c7ad52547ccd8ccbd64ea1f27668733"
+        "sha256": "f90664f23662004c3b86da421786497c97b49251df74e328bdeb9b77b7e4aa58"
       },
       {
         "path": "packages/ui/prime-authority/checks/fixture.mjs",
@@ -734,11 +736,11 @@ export const CASES = freeze([
       },
       {
         "path": "packages/ui/prime-authority/src/client/controller.mjs",
-        "sha256": "b0204bc9068c90bc94dc53dc9d75560c2c7ad52547ccd8ccbd64ea1f27668733"
+        "sha256": "f90664f23662004c3b86da421786497c97b49251df74e328bdeb9b77b7e4aa58"
       },
       {
         "path": "packages/runtime-bridge/src/owner-forget-workflow.mjs",
-        "sha256": "34120f7e8af0a46781f897de5d4f49355836f23a0e5a04da6505cd001cd1c823"
+        "sha256": "fd2d5e52bbb0a6ece85235cfd53b49c89c70d4db1632e2d7379472eaa827e61a"
       }
     ],
     "nodeArgs": [
@@ -759,13 +761,13 @@ export const CASES = freeze([
     "id": "full-h-owner-memory-client",
     "property": "Full H owner-memory assembly: client",
     "entry": "harness/check-owner-memory-client.mjs",
-    "expectedSha256": "78352d5adaa942a154a316379911050770c9d6e610ce70b07de4d57d310953a3",
+    "expectedSha256": "f89e358104adb8e37c31b994de259f23b4001aa258f2fd1dc3467093b1c00f36",
     "protocol": "assert-json",
     "timeoutMs": 30000,
     "args": [],
     "counter": {
       "key": "checks",
-      "value": 55
+      "value": 95
     },
     "pins": [
       {
@@ -803,13 +805,13 @@ export const CASES = freeze([
     "id": "full-h-owner-memory-transport",
     "property": "Full H owner-memory assembly: transport",
     "entry": "harness/check-owner-memory-transport.mjs",
-    "expectedSha256": "0d8dba27a780c0044258f08e2565eefcfb360be4c169982b51614b519e97cc38",
+    "expectedSha256": "b8b1c0acba7b880b7c3a891ac6ef5acffbf6423bb3c3cf158b0d1e5d3fefd286",
     "protocol": "assert-json",
     "timeoutMs": 30000,
     "args": [],
     "counter": {
       "key": "checks",
-      "value": 52
+      "value": 61
     },
     "pins": [
       {
@@ -825,7 +827,7 @@ export const CASES = freeze([
     "id": "full-h-owner-memory-recovery",
     "property": "Full H owner-memory assembly: recovery",
     "entry": "harness/check-owner-memory-recovery.mjs",
-    "expectedSha256": "9658be3a547b94bfb3687d236185d15f969a1351bbe03e793ddbe65dc9bebc69",
+    "expectedSha256": "ccbb1eda9773915fec390bf7635efe37fe9167e11974c510fdc96978d8b2ad9c",
     "protocol": "tap",
     "timeoutMs": 120000,
     "args": [],
@@ -836,11 +838,11 @@ export const CASES = freeze([
       },
       {
         "path": "packages/ui/prime-authority/src/client/controller.mjs",
-        "sha256": "b0204bc9068c90bc94dc53dc9d75560c2c7ad52547ccd8ccbd64ea1f27668733"
+        "sha256": "f90664f23662004c3b86da421786497c97b49251df74e328bdeb9b77b7e4aa58"
       },
       {
         "path": "harness/owner-memory-client.mjs",
-        "sha256": "5e0d315a02a888f12ca15680d7d1625fff0657c69566c45d61f81ec5b2cafb81"
+        "sha256": "3ae35c6d5a82b88bfec033aa46a911dc13fc178860f7ff7b3379fdcf2e1f8521"
       },
       {
         "path": "harness/owner-memory-transport.mjs",
@@ -1614,7 +1616,7 @@ export const CASES = freeze([
     "id": "execution-controls",
     "property": "Whole mocked executor source assertions: controls",
     "entry": "packages/execution/checks/controls.mjs",
-    "expectedSha256": "f13d0777911cd35c03a73b8955dac7958c8d2d6bf8e4c4d8fce186582fabe38e",
+    "expectedSha256": "b6d7dbb7358252d91a0fc4082fca89bd2fe552db0303ae349d0ef793542bb916",
     "protocol": "pass-lines",
     "timeoutMs": 30000,
     "requiredLabels": [
@@ -1887,11 +1889,11 @@ export const CASES = freeze([
       },
       {
         "path": "packages/runtime-bridge/src/ipc.mjs",
-        "sha256": "43a81557f127f4402e40c27193f5f5aa3bdc11fec76974de474901e17823c0b7"
+        "sha256": "6413922a450452124883a8a3ee17c2aa9d24a79fe48d5bac04101619ae92a7c9"
       },
       {
         "path": "packages/runtime-bridge/src/worker.mjs",
-        "sha256": "709e3374d433e2fcf59d4657891b71613b20ffdd22176a3accb02389a1632a3d"
+        "sha256": "406fae4e98709e8b6d7c466ef1cafbc833e3c38bbfd96f399c8436692de93e88"
       }
     ]
   }
@@ -1974,6 +1976,6 @@ export const UNPERFORMED = freeze([
   {
     "id": "inference-total-budget-delivery",
     "status": "UNPERFORMED",
-    "reason": "CURRENT_NAMED_GATE_ABSENT_DEFERRAL_INTENT_NOT_CONFIRMED"
+    "reason": "SOURCE_GATE_PRESENT_LIVE_QUALIFICATION_UNPERFORMED"
   }
 ])

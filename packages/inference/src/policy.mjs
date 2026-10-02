@@ -7,6 +7,11 @@ export const refuse = code => { throw new InferenceRefusal(code); };
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export const integer = (value, min = 0) => Number.isSafeInteger(value) && value >= min;
 export const id = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
+/** Local effect gate. C validation earlier in the flow does not extend an operation's expiry. */
+export function assertDispatchExpiry(expiry) {
+  const deadline = typeof expiry === 'string' ? Date.parse(expiry) : NaN;
+  if (!Number.isFinite(deadline) || deadline <= Date.now()) refuse('DISPATCH_APPROVAL_EXPIRED');
+}
 export function canonical(value) {
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
   if (value !== null && typeof value === 'object') return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}';
@@ -24,12 +29,14 @@ export function validateRoute(route) {
       || !integer(route.max_requests,1) || !integer(route.spend_cap_microusd) || !id(route.region)
       || !integer(route.max_request_ms, 1) || route.max_request_ms > 60000
       || !['mock', 'unavailable','production'].includes(route.mode)
-      || !integer(route.input_microusd_per_token) || !integer(route.output_microusd_per_token)) refuse('INVALID_ROUTE');
+      || !integer(route.input_microusd_per_token) || !integer(route.output_microusd_per_token)
+      || (route.total_budget_id !== undefined && !id(route.total_budget_id))) refuse('INVALID_ROUTE');
   if (route.mode === 'production' && (route.transport_status !== 'approved'
       || !integer(route.spend_cap_microusd,1)
       || !integer(route.input_microusd_per_token,1) || !integer(route.output_microusd_per_token,1)
       || !id(route.pricing_evidence_id) || !id(route.terms_evidence_id) || !id(route.served_version)
-      || !integer(route.credential_generation,1) || !/^sha256:[a-f0-9]{64}$/u.test(route.config_digest))) refuse('PRODUCTION_ROUTE_NOT_QUALIFIED');
+      || !integer(route.credential_generation,1) || !id(route.total_budget_id)
+      || !/^sha256:[a-f0-9]{64}$/u.test(route.config_digest))) refuse('PRODUCTION_ROUTE_NOT_QUALIFIED');
   // Mock rates are synthetic. Production rates require separately qualified evidence and owner approval.
   return structuredClone(route);
 }

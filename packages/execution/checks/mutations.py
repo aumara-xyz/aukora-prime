@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Remove one binding guard in disposable copies, then require its control to fail.
+# Remove one semantic binding rule in disposable copies, then require its control to fail.
 import pathlib, shutil, subprocess, tempfile
 root=pathlib.Path(__file__).resolve().parents[3]
 mutants=[
@@ -16,7 +16,9 @@ mutants=[
  ('bash_parameters','src/bash.mjs',"if(canonicalJson(request?.operation?.canonical_parameters)!==canonicalJson(expected))throw refused('broker operation differs from resolved Bash spec','TARGET_MISMATCH')",'', 'bash_parameters','mechanisms.mjs'),
  ('pre_exec_qualification','src/owned-executor.mjs',"if(!this.admission(snap.r)||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired or runtime evidence revoked before exec','UNAVAILABLE')","if(Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired or runtime evidence revoked before exec','UNAVAILABLE')",'pre_exec_qualification','mechanisms.mjs'),
  ('pre_exec_expiry','src/owned-executor.mjs',"if(!this.admission(snap.r)||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired or runtime evidence revoked before exec','UNAVAILABLE')","if(!this.admission(snap.r))throw refused('operation expired or runtime evidence revoked before exec','UNAVAILABLE')",'pre_exec_expiry','mechanisms.mjs'),
- ('admitted_image','src/owned-executor.mjs','s.spec.template?.image!==settings.image_digest','false','admitted_image','mechanisms.mjs'),
+ # Image admission has redundant checks; remove both sites for this one rule.
+ ('admitted_image','src/create-profile.mjs','value.image!==image||','','admitted_image','mechanisms.mjs',
+  [('src/owned-executor.mjs','||s.spec.template?.image!==settings.image_digest','')]),
  ('claim_grant_reply','src/owned-executor.mjs','||canonicalJson(reply.consumed_grant)!==canonicalJson(job.request.consumed_grant)','', 'claim_grant_reply','mechanisms.mjs'),
  ('claim_digest_reply','src/owned-executor.mjs',"if(reply.ok!==true||reply.status!=='DISPATCHED'||reply.request_id!==job.request_id||reply.request_digest!==job.request_digest","if(reply.ok!==true||reply.status!=='DISPATCHED'||reply.request_id!==job.request_id",'claim_digest_reply','mechanisms.mjs'),
  ('settlement_status_reply','src/owned-executor.mjs','reply.status!==expected||','','settlement_status_reply','mechanisms.mjs'),
@@ -38,10 +40,12 @@ with tempfile.TemporaryDirectory(prefix='prime-executor-guard-') as directory:
   tree=dest/name
   shutil.copytree(root/'packages'/'execution',tree/'packages'/'execution')
   shutil.copytree(root/'packages'/'contracts',tree/'packages'/'contracts')
-  target=tree/'packages'/'execution'/path
-  text=target.read_text()
-  assert text.count(before)==1,(name,text.count(before))
-  target.write_text(text.replace(before,after,1))
+  edits=[(path,before,after)]+(mutant[6] if len(mutant)>6 else [])
+  for path,before,after in edits:
+   target=tree/'packages'/'execution'/path
+   text=target.read_text()
+   assert text.count(before)==1,(name,path,text.count(before))
+   target.write_text(text.replace(before,after,1))
   for selected in control if isinstance(control,list) else [control]:
    command=['node','packages/execution/checks/'+script]
    if selected is not None: command.append(selected)
@@ -49,4 +53,4 @@ with tempfile.TemporaryDirectory(prefix='prime-executor-guard-') as directory:
    assert result.returncode!=0,('SURVIVED',name,selected,result.stdout)
    assert 'AssertionError' in result.stderr,(name,selected,result.stderr)
    print('KILLED '+name+' via '+(selected if selected is not None else '<all>'),flush=True)
-print('PASS 25 single-guard mutation variants / 26 controls; disposable trees removed')
+print('PASS 25 semantic binding rule mutation variants / 26 controls; disposable trees removed')

@@ -39,20 +39,26 @@ async function http(routes,url,options){
 async function assembled(t){
   const mounts=[],fetches=[];let signatures=0
   // End the assembled client sessions before the underlying fixture closes.
-  t.after(async()=>{for(const m of mounts)if(!m.disposed){await m.client.logout();m.dispose()}})
+  t.after(async()=>{for(const m of mounts)if(!m.disposed){
+    try{if(m.connectionWitness.isCurrent())await m.client.logout()}finally{m.dispose()}
+  }})
   const f=await fixtures.fixture(t,{actions:['memory.save','memory.forget']})
   // This is an explicit test-only boundary, not handlePublic qualification.
   const routes=createOwnerMemoryHttpRoutes({contracts,connection,guardRequest,
     publicBoundary:{handlePublic:(method,input)=>f.bridgeCall(method,input)}})
   const mount=()=>{
     const controller=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}})
+    let connectionWitness
     const client=createOwnerMemoryClient({controller,contracts,
       ownerBinding:{owner_id:fixtures.ownerId,passkeyProfile:profile},
+      isCurrentConnection:binding=>binding===client.binding&&connectionWitness?.isCurrent()===true,
       passkeySigner:({public_key})=>{signatures++;return f.auth.assertion(public_key.challenge)},
       fetcher:async(url,options)=>{fetches.push(url);return http(routes,url,options)},
     })
-    controller.connect(client.binding);client.attach();client.setCapabilities(caps)
-    const m={client,controller,async login(){assert(await controller.login());assert.equal(controller.getSnapshot().phase,'authenticated')},
+    connectionWitness=controller.connect(client.binding)
+    assert.equal(connectionWitness?.isCurrent(),true)
+    client.attach();client.setCapabilities(caps)
+    const m={client,controller,connectionWitness,async login(){assert(await controller.login());assert.equal(controller.getSnapshot().phase,'authenticated')},
       disposed:false,dispose(){if(this.disposed)return;this.disposed=true;client.dispose();controller.dispose()}}
     mounts.push(m);return m
   }
@@ -65,6 +71,27 @@ async function save(m,key){
   assert.equal(first,second)
   return first
 }
+
+for(const [label,replacementBinding,sameBinding] of [
+  ['same-owner different binding',binding=>({...binding}),false],
+  ['same-object reconnect',binding=>binding,true],
+])test(`H stale native witness refuses access after ${label}`,async t=>{
+  const a=await assembled(t),m=a.mount(),prior=m.connectionWitness
+  const calls=a.f.calls.length,fetches=a.fetches.length,signatures=a.signatures()
+  const replacement=replacementBinding(m.client.binding)
+  assert.equal(replacement===m.client.binding,sameBinding)
+  assert.equal(replacement.owner_id,m.client.binding.owner_id)
+  const current=m.controller.connect(replacement)
+  assert.equal(current?.isCurrent(),true);assert.equal(prior.isCurrent(),false)
+  assert.equal(m.controller.getSnapshot().owner_id,m.client.binding.owner_id)
+  const staleClient=/owner client disposed|owner client is not attached|exact native connection/
+  assert.throws(()=>m.client.attach(),staleClient)
+  assert.throws(()=>m.client.proposeSave(fixtures.draft('facade-stale-witness')),staleClient)
+  await assert.rejects(m.client.recover(),staleClient)
+  m.client.dispose();assert.equal(current.isCurrent(),true)
+  assert.equal(a.f.calls.length,calls);assert.equal(a.fetches.length,fetches)
+  assert.equal(a.signatures(),signatures);assert.equal(a.f.tableCount('prime_memory_effects'),0)
+})
 
 test('H client generic hooks save, read, forget and save again with actual C/D',async t=>{
   const a=await assembled(t),m=a.mount();await m.login()
@@ -120,19 +147,24 @@ test('H host without a qualified channel remains unavailable before actual C/D',
   assert.equal(a.f.calls.length,before);assert.equal(a.f.tableCount('prime_memory_effects'),0)
 })
 
-test('H new binding recovers a reviewed unsent proposal and requires a fresh review',async t=>{
+test('H new binding retains a reviewed unsent proposal and refuses a fresh save',async t=>{
   const a=await assembled(t),m=a.mount();await m.login()
   const proposed=await m.client.proposeSave(fixtures.draft('facade-unsent'))
   assert.equal(proposed.phase,'proposed');assert(await m.controller.prepare())
   await m.client.logout();m.dispose();await a.f.restartServer()
   const fresh=a.mount();await fresh.login();const signatures=a.signatures()
   const recovered=await fresh.client.recover({operation_id:proposed.operation.operation_id})
-  assert.equal(recovered.phase,'idle');assert.equal(recovered.saved,false)
-  assert.equal(a.signatures(),signatures);assert.equal(a.f.count('memory.save'),0)
+  assert.equal(recovered.phase,'outcome_unknown');assert.equal(recovered.saved,false)
+  assert.equal(recovered.reconciliation_required,true);assert.equal(recovered.error_code,'RECONCILIATION_REQUIRED')
+  const calls=a.f.calls.length,fetches=a.fetches.length
   const next=await fresh.client.proposeSave(fixtures.draft('facade-unsent-fresh'))
-  assert.equal(next.phase,'proposed');assert.notEqual(next.operation.operation_id,proposed.operation.operation_id)
-  assert(await fresh.controller.prepare());fixtures.assertSaved(await fresh.controller.submitApproval())
-  assert.equal(a.f.count('memory.save'),1);assert.equal(a.f.count('owner.approvalComplete'),1)
+  assert.equal(next.phase,'outcome_unknown');assert.equal(next.reconciliation_required,true)
+  assert.equal(next.error_code,'RECONCILIATION_REQUIRED')
+  assert.equal(await fresh.controller.prepare(),null);assert.equal(await fresh.controller.submitApproval(),null)
+  assert.equal(a.signatures(),signatures);assert.equal(a.f.calls.length,calls);assert.equal(a.fetches.length,fetches)
+  assert.equal(a.f.count('memory.proposeSave'),1);assert.equal(a.f.count('owner.approvalChallenge'),1)
+  assert.equal(a.f.count('memory.save'),0);assert.equal(a.f.count('owner.approvalComplete'),0)
+  assert.equal(a.f.tableCount('prime_memory_records'),0);assert.equal(a.f.tableCount('prime_memory_effects'),0)
 })
 
 test('H pending settlement recovery sends only the actual retained receipt after new login and cold objects',async t=>{

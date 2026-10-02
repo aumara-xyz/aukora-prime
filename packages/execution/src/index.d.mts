@@ -1,6 +1,9 @@
 import type { OwnedExecutor, OwnedExecutorRequest, ExecutionReceipt, OperationProposal, ConsumedGrant } from '../../contracts/src/index.ts'
 import type { SdkTransport } from './sdk-transport.ts'
 export { SdkTransport, SDK_SOURCE_COMMIT, SDK_PACKAGE_VERSION } from './sdk-transport.ts'
+export { createTemplate,createProfileDigest,CREATE_PROFILE_ID,CREATE_BOUNDS,DOCKER_REQUIREMENTS,GUEST_WORKDIR,IMAGE_WORKDIR } from './create-profile.mjs'
+export { PINNED_EXECUTION_SAFETY,createLocalLifetime,localLifetimeDigest,inspectLocalLifetime } from './lifetime-safety.mjs'
+export type { LocalLifetime,LocalLifetimeJob } from './lifetime-safety.mjs'
 export interface ExecutorSettings {
   workspace: string; logical_workspace_root: string; image_digest: string;
   control_timeout_ms: number; cleanup_timeout_ms: number; poll_ms: number;

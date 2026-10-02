@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "lane": "F",
+  "status": "IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "c398e048e76e32d7ba468d7d1b38cc9c052192c0",
+  "source_commit": "e3ea48828524604c5ebd0008b031bceda76d0d70",
+  "patch_base": "6a99b14d259b54c9e09a6b089b6781f0ea24943d",
+  "patch": "execution-lifetime-safeguard.patch",
+  "patch_sha256": "80c894525d533ca5d2124ab705841699dc3f1acdc9f90de9df9e63116927794d",
+  "files": [
+    {
+      "path": "packages/execution/README.md",
+      "sha256": "a9732979764b73544ae520b3e8e1742fb1e1435fc6edd7c44277d02171ff77b4",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/checks/harness.mjs",
+      "sha256": "bb5acb156dfaafb2cecc4f5dd83d720a74fb55d82594cd788ba5257f9721f89c",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/checks/lifetime-safety.mjs",
+      "sha256": "d847f0eac9858d6d9555a6274e158a1ce7b994bc4c160c443e87aa8125471ff1",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/provenance.json",
+      "sha256": "897cb1ba0e5ef12b30fe355200f1ed589371a525c0163461b9039ab3848204ff",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/runtime/LIFETIME_SAFEGUARD.md",
+      "sha256": "0c78d3ce9e604b5a07a09e7cf9013ed230e762ccf97a2a97d3e351beb5fa421b",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/src/index.d.mts",
+      "sha256": "7dc8858c29da8273907ba026d6904ee13407af7cd0226730fa88a599713fb801",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/src/index.mjs",
+      "sha256": "11ae8f00f113071d7957c9d0d213f36b875dafbd7c4a9359b28385daf2d4161a",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/src/lifetime-safety.d.mts",
+      "sha256": "f9f2566a3a7d5906f0b7c0c530b3d4073a55674240faf1fb43580a90935fe433",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/src/lifetime-safety.mjs",
+      "sha256": "c6b21976c5dd4a9e9561271cce3f820961be35cbd20f1b53988f78a50d01cdfd",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/execution/src/owned-executor.mjs",
+      "sha256": "ee3d75bddd62f1b648d8e6f50e66e98e1c80040c106d4a02f33246ae753fc54e",
+      "matches_source_commit": true
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "source_review": "No import blocker; original wall deadline persists before claim and restart cannot renew it. Unsupported expiry/configuration/cleanup remain refused.",
+  "lane_check_evidence_sha256": "19293459909feb7b8e5f39128ac5b604bd9168eee64dc099b8c0c2e2facb0002",
+  "lane_checks": [
+    {
+      "command": "node packages/execution/checks/lifetime-safety.mjs",
+      "result": "PASS",
+      "cases": 9,
+      "phase": "initial source",
+      "question": "Private deadline binding and production refusal; did not cover the existing approval-expiry regression."
+    },
+    {
+      "command": "node packages/execution/checks/controls.mjs accepted_proof",
+      "result": "PASS",
+      "phase": "initial source",
+      "question": "Boolean acceptance still refuses and valid synthetic records cannot supply missing production mechanisms."
+    },
+    {
+      "command": "node packages/execution/checks/controls.mjs expiry_after_claim",
+      "result": "FAIL",
+      "phase": "initial source",
+      "observed": "cancelled",
+      "expected": "outcome_unknown",
+      "question": "Does approval expiry after C claim preserve existing non-launch factual semantics?",
+      "repair": "Separated approval admission expiry from accepted_at + wall_time_ms; retained the existing assertion."
+    },
+    {
+      "command": "node packages/execution/checks/controls.mjs lost_settlement",
+      "result": "PASS",
+      "phase": "initial source",
+      "question": "The durable original deadline/cleanup-observation changes preserve known typed result and idempotent settlement recovery."
+    },
+    {
+      "command": "node packages/execution/checks/lifetime-safety.mjs",
+      "result": "PASS",
+      "cases": 9,
+      "phase": "approval-expiry correction"
+    },
+    {
+      "command": "node packages/execution/checks/controls.mjs expiry_after_claim",
+      "result": "PASS",
+      "phase": "approval-expiry correction"
+    },
+    {
+      "command": "node packages/execution/checks/lifetime-safety.mjs",
+      "result": "PASS",
+      "cases": 12,
+      "phase": "durable join and clock-uncertainty refusal",
+      "question": "Deadline saved before C claim, claim wait spends original budget, restart preserves typed uncertainty and deadline, and clock rollback never becomes timeout intent."
+    },
+    {
+      "command": "node <existing-task-sdk-build>/sdk/typescript/node_modules/typescript/bin/tsc --noEmit --strict --allowImportingTsExtensions --module NodeNext --moduleResolution NodeNext --target ES2022 packages/execution/src/lifetime-safety.d.mts",
+      "result": "PASS",
+      "phase": "new declaration",
+      "question": "Do new local-lifetime declarations typecheck against the frozen request closure?",
+      "limit": "Only the new declaration closure; no SDK rebuild or full package build."
+    },
+    {
+      "command": "node packages/execution/checks/controls.mjs expiry_after_claim",
+      "result": "PASS",
+      "phase": "pre-C clock-refusal change"
+    },
+    {
+      "command": "node packages/execution/checks/lifetime-safety.mjs claim_wait_spends_original_wall_budget",
+      "result": "PASS",
+      "cases": 1,
+      "phase": "final no-launch corroboration",
+      "question": "Original deadline still bounds a pending claim; contradictory launch facts cannot be promoted to not_created."
+    },
+    {
+      "command": "node packages/execution/checks/controls.mjs expiry_after_claim",
+      "result": "PASS",
+      "phase": "final no-launch corroboration"
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS",
+      "phase": "working changes"
+    },
+    {
+      "command": "git diff --cached --check",
+      "result": "PASS",
+      "phase": "committed source input"
+    },
+    {
+      "command": "git apply --check --whitespace=error <handoff>/execution-lifetime-safeguard.patch",
+      "result": "PASS",
+      "phase": "read-only patch handoff",
+      "NEXT_HEAD": "c398e048e76e32d7ba468d7d1b38cc9c052192c0",
+      "question": "Does the execution-only delta still apply after unrelated NEXT integration advances?",
+      "limit": "Read-only apply check and exact existing preimage/new-path corroboration; no working tree or index mutation."
+    }
+  ],
+  "lane_evidence_limits": "Twelve authored cases actually ran, with only affected selectors rerun after source fixes. Earlier accepted-proof/lost-settlement controls are retained at their incremental phase, not presented as fresh whole-suite evidence. Mocked SDK/broker and real disposable local SQLite do not establish actual C owner enrollment, backend containment or external expiry/cleanup.",
+  "integrator_repeated_checks": [],
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "remaining": [
+    "Implement and review actual independent expiry owner, terminal late-create/exec fence and complete immutable artifact reclamation/evidence; fixed production guards stay refused until then.",
+    "Implement/review atomic exact sandbox/configuration generation admission or qualified freeze; pinned ExecSandbox has no guessed expected-revision option.",
+    "Build/inspect separately approved immutable workload outputs; config ID and OCI manifest pins are currently null.",
+    "H concrete approved deployment manifest and actual kernel/driver/resource/control placement observations; host/credential/security setup needs explicit approval.",
+    "Actual authenticated C ordinary owner review/reserve and one-use trusted dispatch/settlement for a fresh exact no-provider/no-host-mount operation.",
+    "Separately authorized one inert foreground probe with genuine exit1, RPC drain, exact configuration and complete owned cleanup/C receipt; one seam does not qualify deadline/crash/egress/general execution."
+  ]
+}

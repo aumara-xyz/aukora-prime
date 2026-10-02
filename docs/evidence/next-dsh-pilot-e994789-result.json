@@ -1,0 +1,32 @@
+{
+  "outcome": "completed",
+  "request_uuid": "11111111-1111-4111-8111-111111111111",
+  "route_id": "externalDeepSeek",
+  "mode": "production",
+  "proposal": {
+    "text": "Mock sourced note.",
+    "source_ids": [],
+    "grantsAuthority": false
+  },
+  "usage": {
+    "input_tokens": 393,
+    "output_tokens": 18,
+    "cost_microusd": 411
+  },
+  "receipt": {
+    "sessionId": "source-conversation",
+    "line": "{\"type\":\"auma-live/model-request\",\"spokenAt\":1790941985082,\"requestId\":\"02c875b8-ced8-4d2a-8b88-a9dd562fbba1\",\"body\":{\"model\":\"source-test-model\",\"messages\":[{\"role\":\"system\",\"content\":\"Return a JSON object with text (a concise sourced note) and source_ids (only supplied source_id values). The text is a proposal and never authorizes effects.\"},{\"role\":\"user\",\"content\":\"Public synthetic source check.\"}],\"max_tokens\":256,\"stream\":false,\"response_format\":{\"type\":\"json_object\"},\"thinking\":{\"type\":\"disabled\"}}}",
+    "turn": 1,
+    "spokenAt": 1790941985082,
+    "request_uuid": "11111111-1111-4111-8111-111111111111",
+    "body_sha256": "de8d422d76f1ae3e7dc45f1187761e905052641f3bc48cb80684b5d4d5fa83e8",
+    "source_citation": {
+      "sessionId": "source-conversation",
+      "turn": 1,
+      "sha256": "8eee64d4b8f142081b9d3444b84e624e1e8f910d32a5091b4b29827c9e50aa39",
+      "requestId": "02c875b8-ced8-4d2a-8b88-a9dd562fbba1"
+    },
+    "citations": []
+  },
+  "omitted": []
+}

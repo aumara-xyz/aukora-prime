@@ -36,18 +36,12 @@ export function createRecovery({authority,memory,workflowStore,inFlight}) {
     const status=await authority.status({session_token,operation_id:row.operation_id})
     const absent=status?.ok===false&&status.error_code==='UNAUTHORIZED'&&status.reason==='OWNER_OPERATION_REQUIRED'
     if(status?.ok!==true&&!absent||status?.ok===true&&status.operation_digest!==row.operation_digest)return empty(host,row,'unknown')
-    if(row.phase==='known_unsent')return absent||['PROPOSED','APPROVED','DENIED'].includes(status.status)&&status.reconciliation_required===false?empty(host,row,'known_unsent'):empty(host,row,'unknown')
+    // W1 closure is OFF: a legacy read-time label is not a durable C/D writer
+    // fence. Keep it unresolved until the separate closure contract exists.
+    if(row.phase==='known_unsent')return empty(host,row,'unknown')
     let effect
     try {effect=await memory.reconcileEffect(host,row.operation_id)}
-    catch(error) {
-      // A proposed row precedes any call to D. Exact unconsumed C state plus
-      // D's absent intent can close that never-dispatched proposal safely.
-      if(row.phase==='proposed'&&(absent||['PROPOSED','APPROVED','DENIED'].includes(status.status)&&status.reconciliation_required===false)
-        &&error.code==='memory:effect-missing-outcome-unknown') {
-        await workflowStore.mark(host,row.operation_id,'known_unsent');return empty(host,row,'known_unsent')
-      }
-      return empty(host,row,'unknown')
-    }
+    catch {return empty(host,row,'unknown')}
     if(effect?.status==='unresolved'||effect?.authority_settlement!=='completed')return empty(host,row,'unknown')
     try {
       const factual=verifiedEffect(host,row,effect)
@@ -83,7 +77,7 @@ export function createRecovery({authority,memory,workflowStore,inFlight}) {
     if(operation_id!==null)return rowState(host,session_token,await workflowStore.get(host,operation_id))
     const latest=(await workflowStore.list(host,{active:false,limit:1})).items[0]
     if(!latest)return empty(host,null,'idle')
-    if(latest.phase==='known_unsent')return empty(host,latest,'known_unsent')
+    if(latest.phase==='known_unsent')return empty(host,latest,'unknown')
     return rowState(host,session_token,latest)
   }
   return Object.freeze({pending,recover,verifiedEffect})

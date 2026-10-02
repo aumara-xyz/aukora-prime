@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "lane": "B",
+  "status": "IMPORTED_WITH_LANE_FOCUSED_EVIDENCE",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "c398e048e76e32d7ba468d7d1b38cc9c052192c0",
+  "source_commit": "2c50585663c15ca8fdc933d2f19e5935f3bd9c5d",
+  "patch_base": "3071ac1a8a309dd14a9aee82e7548ff9998d70fb",
+  "patch": "prime-ui-native-corrected-2c505856.patch",
+  "patch_sha256": "226372a1327342785104679a030c062e9f8b2da90b3cc6e015c3fb9527501b1a",
+  "files": [
+    {
+      "path": "packages/ui/prime-authority/PILOT-NEXT.md",
+      "sha256": "6e20c365be4a2367de8349cdbe08f3a5fb648f7f271f1659014d942b4fdb238f",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/checks/native-connection.mjs",
+      "sha256": "d564c16238b6e735dd296a9f43269d79b44bdf338343f079ad1c2a98258d0c94",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/checks/native-join.mjs",
+      "sha256": "482c301f445987aaccaf7a9ff3eaf11ce78b7ebca949f15504ff5f6923ed5a88",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/checks/pilot-render.mjs",
+      "sha256": "7852173c170ff48f1f36831cd856a3993997415d9211f5fb867fcc356699a109",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/checks/provider-controller.mjs",
+      "sha256": "805903e05359c3bc3bf9225178e015f7e4ddeb1c9867c51aca09c7d62e519a58",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/OwnerSurface.tsx",
+      "sha256": "e97f2dceaca82bd141bcfd25566a73c01b5370f95eca9269aef99345f4596981",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/controller.d.mts",
+      "sha256": "41e0c4a7d310145c42381d3c0f102bb8be94e97747ac966beda026b226d4abbb",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/controller.mjs",
+      "sha256": "f90664f23662004c3b86da421786497c97b49251df74e328bdeb9b77b7e4aa58",
+      "matches_source_commit": true
+    },
+    {
+      "path": "packages/ui/prime-authority/src/client/index.ts",
+      "sha256": "54981d178c43a0629cd9571be6e97a78c5628ce001ada4d2b270349d0ddc0b5f",
+      "matches_source_commit": true
+    }
+  ],
+  "all_preimages_match": true,
+  "all_postimages_match": true,
+  "supersedes": "Held01c8e727 source; never committed here. Corrected source plus exact H consumer guards now integrated.",
+  "lane_evidence": {
+    "compiled_native_cordis_H_groups": 11,
+    "http_requests": 0,
+    "credential_assertions": 0,
+    "cleanup_regressions": 6,
+    "provider_cases": 6,
+    "provider_assertions": 345,
+    "SSR_groups": 4,
+    "owner_build_source_inputs": 87,
+    "owner_build_outputs": 46,
+    "compiled_client_sha256": "9472a620b6d9a6cb4186f1307161b52363937c49ee814cfd3e17662d3acc948a",
+    "build_receipt_sha256": "16414d33591508bb9677a47a31760572fc4bb78424b7d6960090e0463f6498a0"
+  },
+  "H_consumer_patch_sha256": "34b1a09976b73d412cb5a1ceb43bb64f39750a4e3da49984e1a56b5143dc9f21",
+  "runtime_activation": false,
+  "runtime_qualified": false,
+  "limits": [
+    "No browser event or owner ceremony acceptance.",
+    "Controls require actual configured owner/capability inputs; reply producer remains absent.",
+    "Compiled output publication and source/output binding are tracked separately."
+  ]
+}

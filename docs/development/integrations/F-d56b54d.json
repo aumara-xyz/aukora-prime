@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "lane": "F",
+  "status": "SOURCE_ONLY_IMPORTED_UNTESTED",
+  "reviewed_base": "fbbb1ae43026cb1567afd3f02a28b8bec69f2351",
+  "integration_parent": "991c1dbc81cfd11a7cd2ebe927fc3f331e9fae1b",
+  "source_commit": "d56b54d530ce2c472a39896cd4a4ea71eeec29c8",
+  "source_base": "ee3e9577ccfc93d694e9ba358d8ef774dad43845",
+  "patch": "execution-next-create-profile.patch",
+  "patch_sha256": "e40c049bd951235ab797516278e3274baac73f1b340c89b1617291724702fb66",
+  "import": "Execution-only patch; no lane ancestry or archive history imported",
+  "source_identity_inspection": {
+    "patch_matches_commit_delta": true,
+    "all_source_file_digests_match_handoff": true,
+    "all_preimages_except_readme_match": true,
+    "retained_image_metadata_and_context_digests_match": true
+  },
+  "adaptations": {
+    "packages/execution/README.md": "Preserve current C truthful-unknown and earlier preview/deployment disclosures while merging F source increment description",
+    "packages/execution/runtime/DEADLINE_OWNERSHIP.md": "Replace two absolute machine-local handoff links with portable commit references"
+  },
+  "files": [
+    {
+      "path": "packages/execution/README.md",
+      "handoff_sha256": "2bd82292172acafe8b645037e589a6406aa817e2fdc0e143832b1c1645794014",
+      "integrated_sha256": "83037fb4aacd469d0912e6e150b9eadae388f1be84e0e265a5642acc47e43875",
+      "adapted": true
+    },
+    {
+      "path": "packages/execution/runtime/DEADLINE_OWNERSHIP.md",
+      "handoff_sha256": "f11b62a1c2fd89108bd9bd3bb9d54357b7f8e5c2b7f066e673358c049d287218",
+      "integrated_sha256": "1107bb7fd779e8d56495e26f890d106443fc6ce864ca741c8d546a366234801b",
+      "adapted": true
+    },
+    {
+      "path": "packages/execution/runtime/NEXT_INCREMENT.md",
+      "handoff_sha256": "b948af3495d96a501d2daf291ed4b3632fcca340c5b5a1361ddb7580ca3d2301",
+      "integrated_sha256": "b948af3495d96a501d2daf291ed4b3632fcca340c5b5a1361ddb7580ca3d2301",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/runtime/image-manifest.mjs",
+      "handoff_sha256": "90d3ab012f99f7483effcbbf6850ba48b70d0e24c80e2544c8a18e15dc4c930d",
+      "integrated_sha256": "90d3ab012f99f7483effcbbf6850ba48b70d0e24c80e2544c8a18e15dc4c930d",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/runtime/image/Dockerfile",
+      "handoff_sha256": "0959ba515cbd84e7f067f6e902931916669e62a7c4ee62f0707d1b15e69e9d4c",
+      "integrated_sha256": "0959ba515cbd84e7f067f6e902931916669e62a7c4ee62f0707d1b15e69e9d4c",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/runtime/image/README.md",
+      "handoff_sha256": "8ae82394972ae7bdf755959f89be4b7332335649dbd4d64db0d2d45aa9e0f3d0",
+      "integrated_sha256": "8ae82394972ae7bdf755959f89be4b7332335649dbd4d64db0d2d45aa9e0f3d0",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/runtime/image/source-inputs.json",
+      "handoff_sha256": "3566d0dfc473b7736000924e6f4f575d375fb3d1f8cf266d4a87de63a7d352f3",
+      "integrated_sha256": "3566d0dfc473b7736000924e6f4f575d375fb3d1f8cf266d4a87de63a7d352f3",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/runtime/pilot-profile.mjs",
+      "handoff_sha256": "65ce69b160e45a4921f6e0c3600ca91b84b115c74af95c85343577bc45b4a05f",
+      "integrated_sha256": "65ce69b160e45a4921f6e0c3600ca91b84b115c74af95c85343577bc45b4a05f",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/create-profile.d.mts",
+      "handoff_sha256": "6ec5b9e82feeaa9d09c4d931c4bf28ee121946f89b6252305c39cb3e9b6947d2",
+      "integrated_sha256": "6ec5b9e82feeaa9d09c4d931c4bf28ee121946f89b6252305c39cb3e9b6947d2",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/create-profile.mjs",
+      "handoff_sha256": "870d981f5caad4db0997b6180a6691182074d816687ad2a1bc6a7160b288d9bf",
+      "integrated_sha256": "870d981f5caad4db0997b6180a6691182074d816687ad2a1bc6a7160b288d9bf",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/index.d.mts",
+      "handoff_sha256": "3545e0d7b151f1a4192fa749ffd0a216360bde06fcd3d1e6431adaf03313d92c",
+      "integrated_sha256": "3545e0d7b151f1a4192fa749ffd0a216360bde06fcd3d1e6431adaf03313d92c",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/index.mjs",
+      "handoff_sha256": "5f4e89bcffae19f2140a62b6d7fed64a79e5fdcf2e506ffc6653bef35040a4dc",
+      "integrated_sha256": "5f4e89bcffae19f2140a62b6d7fed64a79e5fdcf2e506ffc6653bef35040a4dc",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/owned-executor.mjs",
+      "handoff_sha256": "3554b0f9cd3cd8c9db006d32a64e2aabd6362c57649b40504b62600beda3ab4a",
+      "integrated_sha256": "3554b0f9cd3cd8c9db006d32a64e2aabd6362c57649b40504b62600beda3ab4a",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/policy.mjs",
+      "handoff_sha256": "591422ad53d2c2477d5e2367ffa2b3669adebe747dda77281e2967f2dbf88c7e",
+      "integrated_sha256": "591422ad53d2c2477d5e2367ffa2b3669adebe747dda77281e2967f2dbf88c7e",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/qualification.mjs",
+      "handoff_sha256": "6d7a2c2107d72d9afafd7344a8f53a55e3738317ddd5d9b13bbd356cbbe2ff37",
+      "integrated_sha256": "6d7a2c2107d72d9afafd7344a8f53a55e3738317ddd5d9b13bbd356cbbe2ff37",
+      "adapted": false
+    },
+    {
+      "path": "packages/execution/src/sdk-transport.ts",
+      "handoff_sha256": "5ab1bd118a64201d771bbb81fb8e97be4d62e16c2aa26b94c151028789d0c27f",
+      "integrated_sha256": "5ab1bd118a64201d771bbb81fb8e97be4d62e16c2aa26b94c151028789d0c27f",
+      "adapted": false
+    }
+  ],
+  "source_review_findings": [
+    "checks/controls.mjs syntheticQualification retains scratch_bytes 67108864; the new fixed profile requires 134217728. Lane F fixture alignment is pending before focused checks; no test was run.",
+    "checks/mutations.py image removal targets only the old image comparison; assertCreateTemplate now rejects the same mismatch. The mutation needs F alignment before use; no mutation or test was run.",
+    "Qualification evidence does not bind the new private create-profile digest. Existing proof scope already had this limit; fresh profile-specific acceptance/invalidation needs C/F/H review before activation. No closed fields were changed."
+  ],
+  "tests_run": [],
+  "builds_run": [],
+  "runtime_qualified": false,
+  "runtime_activation": false,
+  "image_output_digests": {
+    "workload_image_config_digest": null,
+    "workload_oci_manifest_digest": null
+  },
+  "remaining_obligations": [
+    "independent durable deadline/late-create cleanup owner",
+    "reviewed atomic configuration generation/freeze mechanism",
+    "trusted complete owned auxiliary/volume cleanup evidence adapter"
+  ]
+}
