@@ -163,16 +163,20 @@ for the required closed 66-job / 65-file profile, inventories, literal pins, exi
 and historical-only records. The union retains all 29 required whole owner-memory
 files from H's 37-job profile, including eight files absent from the earlier G53
 profile. Four missing whole files and H's bounded ordinary `bash_parameters`
-selection are now required. The earlier 61-job source review at
-`b336753488a2a70adcefd82a95909263dbe26c5a` is historical; the expanded target
-`a6aa7fea122417bade9d284481d20a46bfdb57cf` awaits root closure and counter freeze.
+selection are now required. Source review is complete for 140 references across
+99 selected paths. The frozen literal review basis remains
+`b336753488a2a70adcefd82a95909263dbe26c5a`; the current integration base is
+`739bab5176f78c5b7333a8350c69cc75544709e5`. The final manifest SHA256 is
+`618fdac6f1ca1d62a797ee7461c40ef7b06011c9a95bdc6488e58d65d1f1accb`.
 The 66-job product suite remains UNPERFORMED and the current target is NOTQUALIFIED.
 Both older H37 37-PASS and newer 36-PASS/1-host-FAIL observations remain separately
-attributed; H owns diagnosis. The
+attributed. The existing temporary Unix-socket bind EPERM is separately
+classified BLOCKED_ENVIRONMENT; the evaluator retains its nonzero FAIL outcome.
+The required case is included, and H owns diagnosis. The
 600000 ms suite, 120000 ms maximum full-TAP and 60000 ms maximum non-TAP budgets
 retain the existing shorter per-case bounds; output is capped at 65536 bytes and
-the direct Node heap at 512 MiB. The inference mock retains 20000 ms; the expanded
-full-TAP count awaits review. Full-union duration is UNMEASURED and the wall target is null.
+the direct Node heap at 512 MiB. The 42 full TAP jobs use 120000 ms and the inference
+mock retains 20000 ms. Full-union duration is UNMEASURED and the wall target is null.
 The E total-budget gate is absent from this source profile: UNPERFORMED, deferral
 intent UNKNOWN pending its owner. Archive verification is unchanged; qualification
 stays UNPERFORMED and G1 stays PENDING.

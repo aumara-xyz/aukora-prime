@@ -77,20 +77,26 @@
   },
   "ordinary_verify_profile_attribution": "HISTORICAL_ONLY; preceding ordinary_verify_profile fields retained verbatim; its missing_short_checks and review metadata are not the current66 union disposition",
   "ordinary_verify_union": {
-    "status": "PENDING_SOURCE_FREEZE_AND_INVENTORY_REVIEW",
+    "status": "COMPLETE_SOURCE_REVIEW",
     "product_status": "PRODUCT_UNPERFORMED",
     "scope": "Parent-Astra-required closed66 ordinary source profile; whole required files plus inherited bounded bash_parameters selection; no runtime qualification",
     "source_review_commit": null,
     "source_review_basis": "b336753488a2a70adcefd82a95909263dbe26c5a",
-    "source_review_attribution": "PRIOR_B336_LITERAL_BASIS_RETAINED; expanded current target closure and counters pending root review; no checkout/runtime attestation",
-    "source_closure_status": "PENDING_EXPANDED_SOURCE_FREEZE",
-    "source_closure_receipt": null,
-    "inventory_status": "PENDING_ROOT_LITERAL_INVENTORY",
-    "manifest_sha256": null,
+    "source_review_attribution": "ROOT_VERIFIED_ADJUDICATED66_FROZEN_CLOSURE_AND_COMPLETED_LITERAL_INVENTORY; b336 source declaration basis, current739 integration base; no checkout/runtime attestation",
+    "source_closure_status": "ROOT_VERIFIED_FROZEN_140_REFERENCES_99_PATHS",
+    "source_closure_receipt": {
+      "file": "adjudicated-66-closure-b336-739bab5.json",
+      "sha256": "86fb544afda717beec45c53305fa43dd4dc7612e63f569828d5f109a18d3181c",
+      "source_reference_occurrences": 140,
+      "selected_entry_and_support_files": 99,
+      "provenance": "ROOT_CAPTURED_AND_SOURCE_VERIFIED; named b336/current739 source snapshots and current disk match; no runtime qualification"
+    },
+    "inventory_status": "COMPLETE_SOURCE_REVIEW",
+    "manifest_sha256": "618fdac6f1ca1d62a797ee7461c40ef7b06011c9a95bdc6488e58d65d1f1accb",
     "required_jobs": 66,
     "distinct_entry_files": 65,
-    "later_selected_closure_observation": "Prior85-path unchanged observations concern the superseded61 profile; current expanded closure with four additional files and inherited mechanisms selection is pending",
-    "composition": "Preserve H37 selection, upgrade memory-original to whole codecs file, add29 files/modes; earlier61 union plus four missing whole files and retained H bash_parameters invocation",
+    "later_selected_closure_observation": "ROOT_READ_ONLY_VERIFIED; all140 reference occurrences/99paths matched named b336 and current739 source snapshots plus disk; b336 literal reader remains unchanged",
+    "composition": "Astra confirmed H37 IDs/default argv preserved; memory-original-bytes upgraded to whole codecs without filter;29 absent files/modes added; bindings adapt existing rows and add no extra jobs",
     "historical_H37_declarations": {
       "jobs": 37,
       "selected_ordinary_jobs": 8,
@@ -122,7 +128,7 @@
     ],
     "mandatory_selection": "Literal required whole files and reviewed exact titles/PASS labels/counters; one inherited fixed bash_parameters selection retained; no caller selector, wildcard or launch-time repinning",
     "required_inventory_totals": {
-      "status": "PRELIMINARY_ROOT_REVIEW_COUNTS_PENDING_FINAL_FREEZE",
+      "status": "COMPLETE_SOURCE_REVIEW",
       "TAP_jobs": 43,
       "full_TAP_jobs": 42,
       "required_TAP_titles": 273,
@@ -131,12 +137,12 @@
       "required_PASS_labels": 71,
       "JSON_assertion_jobs": 12,
       "assertion_script_jobs": 3,
-      "source_reference_occurrences": null,
-      "distinct_source_paths": null,
-      "scope": "Different accounting units; expanded pins, references and final manifest hash await root normalization"
+      "source_reference_occurrences": 140,
+      "distinct_source_paths": 99,
+      "scope": "Frozen reviewed accounting; units differ and no combined independent-test count inferred"
     },
-    "source_counter_adjustment": "Prior61 H-client adjustment53to55 is historical reviewed metadata; expanded66 counters pending root inventory",
-    "recommended_product_check": "One closed66 full run by H after root source/pin/counter freeze; no new subset selector or CLI",
+    "source_counter_adjustment": "H client exact counter55 retained; expanded66 literal titles/labels/counters reviewed in final root inventory",
+    "recommended_product_check": "One closed66 full run by H. Required host case stays included; preserve any nonzero outcome and report known bind EPERM separately as BLOCKED_ENVIRONMENT.",
     "required_skips": "FAIL; required SKIP or TODO never passes",
     "external_skips": "One declared external PostgreSQL title; exact title/reason produces UNPERFORMED/exit2 unless failure takes precedence",
     "closed_API": "runFastVerify({root,evidenceDir,json?:boolean,signal?:AbortSignal}); no command, selector, callback or environment override",
@@ -145,7 +151,7 @@
       "suite_ms": 600000,
       "full_TAP_case_max_ms": 120000,
       "full_TAP_jobs": 42,
-      "full_TAP_job_count_status": "PRELIMINARY_ROOT_REVIEW_PENDING_FINAL_FREEZE",
+      "full_TAP_job_count_status": "COMPLETE_SOURCE_REVIEW",
       "inference_mock_case_ms": 20000,
       "non_TAP_case_max_ms": 60000,
       "authority_core_case_ms": 60000,
@@ -157,7 +163,7 @@
       "output_bytes": 65536,
       "direct_Node_heap_MiB": 512,
       "wall_target_ms": null,
-      "scope": "Existing cooperative budgets retained; expanded counts pending final root freeze; no kernel or descendant enforcement"
+      "scope": "Frozen cooperative budgets; existing shorter cases retained; no kernel or descendant enforcement"
     },
     "runtime_measurement": "UNMEASURED",
     "completed_product_suite": "UNPERFORMED",
@@ -216,7 +222,7 @@
       },
       "product_status": "PRODUCT_UNPERFORMED"
     },
-    "current_target_head": "a6aa7fea122417bade9d284481d20a46bfdb57cf",
+    "current_target_head": "739bab5176f78c5b7333a8350c69cc75544709e5",
     "current_target_status": "NOTQUALIFIED",
     "new_required_whole_entries": [
       "packages/memory/test/control-retention-coordinator.test.mjs",
@@ -229,10 +235,14 @@
       "entry": "packages/execution/checks/mechanisms.mjs",
       "entry_sha256": "fcd2a75fd42995da24f040b0ec0838dd129e793e0373aaff9202dd5f6f1228de",
       "id": "execution-ordinary-binding",
-      "args": ["bash_parameters"],
+      "args": [
+        "bash_parameters"
+      ],
       "property": "Ordinary executor qualification/binding regression",
       "protocol": "pass-lines",
-      "required_PASS_labels": ["bash_parameters"],
+      "required_PASS_labels": [
+        "bash_parameters"
+      ],
       "timeout_ms": 15000,
       "source_assertion_scope": "Changed command requires TARGET_MISMATCH before executor; declaration asserts zero executor/broker/calls/ledger effects; not observed run evidence",
       "status": "REQUIRED_IN_CLOSED66_PROFILE; PRODUCT_UNPERFORMED",
@@ -245,7 +255,49 @@
       "artifact_sha256": null,
       "provenance": "PARENT_RELAY_ONLY; independent H37 reader observation reported by parent; original receipt not opened by this lane",
       "relationship": "Contradicts the older retained37PASS result; both preserved separately, no resolution inferred",
-      "disposition": "CURRENT_NOTQUALIFIED; H owns host diagnosis"
+      "disposition": "CURRENT_NOTQUALIFIED; retained nonzero runner outcome; diagnostic BLOCKED_ENVIRONMENT for bind EPERM, no code-failure cause inferred; H owns diagnosis.",
+      "reported_required_host_failure": "EPERM"
+    },
+    "profile_receipt": {
+      "file": "required-adjudicated-66-profile-739bab5.json",
+      "sha256": "0356f6ab3eccd583c6baa949861b00a051d59f153720b392edc02d07fefeeaa6",
+      "provenance": "ROOT_FINAL_ADJUDICATED_SOURCE_INVENTORY; not product execution evidence"
+    },
+    "current_integration_base": "739bab5176f78c5b7333a8350c69cc75544709e5",
+    "binding_application": {
+      "source_adaptations": [
+        "browser transport",
+        "hook byte preflight",
+        "explicit current host root",
+        "explicit synthetic facade zero marker"
+      ],
+      "application": "Existing required rows only; zero additional binding jobs"
+    },
+    "orchestration_observation": {
+      "reported_result": "PASS40",
+      "duration_ms": 8269,
+      "preaborted_profile": "66 jobs accepted; CANCELLED; no child spawned",
+      "provenance": "ROOT_DISPOSABLE_ENGINE_CHECKS; orchestration only, not66-job product completion or runtime qualification"
+    },
+    "host_environment_requirement": {
+      "classification": "BLOCKED_ENVIRONMENT",
+      "reported_error_code": "EPERM",
+      "reported_action": "bind the existing temporary private Unix socket in the required host fixture",
+      "runner_result": "Nonzero outcome retained; current evaluator reports FAIL before protocol accounting. No PASS or code-failure cause inferred from this environmental diagnostic.",
+      "scope": "Retained independent H37 reader report; no G rerun.",
+      "required_environment": "Explicitly approved fixture environment permitting the existing private Unix-socket bind.",
+      "restrictions": "Do not omit/skip this required case, change socket transport/address, reroute or retry the denied action to obtain green; H owns diagnosis and any environment approval.",
+      "automatic_classification": "Not added: text matching child errors could mask product failures."
+    },
+    "independent_H37_environment_report": {
+      "classification": "BLOCKED_ENVIRONMENT",
+      "reported_error_code": "EPERM",
+      "reported_action": "bind the existing temporary private Unix socket in the required host fixture",
+      "runner_result": "Nonzero outcome retained; current evaluator reports FAIL before protocol accounting. No PASS or code-failure cause inferred from this environmental diagnostic.",
+      "scope": "Retained independent H37 reader report; no G rerun.",
+      "required_environment": "Explicitly approved fixture environment permitting the existing private Unix-socket bind.",
+      "restrictions": "Do not omit/skip this required case, change socket transport/address, reroute or retry the denied action to obtain green; H owns diagnosis and any environment approval.",
+      "automatic_classification": "Not added: text matching child errors could mask product failures."
     }
   },
   "contract_base_original_private": "f502d539a01e5efae4fc688ad4759162205aa0f4",

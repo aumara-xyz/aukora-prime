@@ -7,14 +7,19 @@ files and all eight H-only additions remain mandatory. The earlier 61-job propos
 omitted four whole files and H's bounded ordinary `bash_parameters` selection;
 all five are now required.
 
-The prior b336 literal source-review basis remains
-`b336753488a2a70adcefd82a95909263dbe26c5a`. The expanded current target is
-`a6aa7fea122417bade9d284481d20a46bfdb57cf`. Its closure, literal pins and full
-title/label/counter inventory await root freeze. The earlier 85-path closure and
-61-job manifest SHA256
-`e667e778db37325cb60de5fb6ba761d5866d46ed05a62496f435144281f8a595`
-are superseded source-review records, not current 66-job identity or coverage.
-The profile remains PRODUCT_UNPERFORMED and the current target NOTQUALIFIED.
+The frozen literal source-review basis remains
+`b336753488a2a70adcefd82a95909263dbe26c5a`; the current integration base is
+`739bab5176f78c5b7333a8350c69cc75544709e5`. Root verified all 140 source-reference
+occurrences across 99 distinct paths against those named source snapshots and disk.
+The final manifest SHA256 is
+`618fdac6f1ca1d62a797ee7461c40ef7b06011c9a95bdc6488e58d65d1f1accb`.
+The closure artifact `adjudicated-66-closure-b336-739bab5.json` has SHA256
+`86fb544afda717beec45c53305fa43dd4dc7612e63f569828d5f109a18d3181c`; the exact profile
+artifact `required-adjudicated-66-profile-739bab5.json` has SHA256
+`0356f6ab3eccd583c6baa949861b00a051d59f153720b392edc02d07fefeeaa6`.
+This is COMPLETE_SOURCE_REVIEW with PRODUCT_UNPERFORMED. The current target remains
+NOTQUALIFIED. The earlier 61-job source-review records are superseded history,
+not current 66-job identity, completed product evidence or runtime attestation.
 
 H owns the root `./prime verify` dispatch. Snapshot verification remains the separate
 `./prime verify SNAPSHOT OWNER [HEADS]` interface. The standalone interface and
@@ -81,11 +86,11 @@ is the explicit compiled exception. Entry and support SHA256 pins bind reviewed 
 are never refreshed from candidate output at launch. Required inventories include
 dynamic registrations, exact titles, PASS labels and terminal counters; custom
 assertion scripts run directly rather than counting a Node wrapper as an assertion.
-Preliminary root review counts are 43 TAP jobs with 273 required titles plus one
+Final reviewed counts are 43 TAP jobs with 273 required titles plus one
 declared external title, eight pass-line jobs with 71 required labels, 12 JSON jobs
 and three assertion scripts. The 42 full TAP jobs have 120000 ms bounds; inference
-retains 20000 ms. These counts await final root manifest/pin normalization, with
-source-reference and expanded closure totals still pending. The previous 61-job review recorded
+retains 20000 ms. All 140 source references and 99 selected paths are frozen.
+The previous 61-job review recorded
 39 TAP jobs, 247 required titles plus one external title, 70 PASS labels, 12 JSON
 jobs and 118 references across 85 paths; those are superseded declaration counts.
 Its H client adjustment from 53 to 55 is also historical review metadata.
@@ -142,13 +147,22 @@ That retained result remains OWNER_RELAY_ONLY. Parent subsequently relayed an
 independent H37 reader result of 36 PASS / 1 host FAIL in 154599 ms. Its exact
 run source and receipt hash were not supplied to this lane. Both contradictory
 observations remain separately attributed; no resolution or current qualification
-is inferred. H owns host diagnosis. Neither record establishes the unrun 66-job profile.
+is inferred. The known bind EPERM is classified BLOCKED_ENVIRONMENT separately
+from the retained nonzero evaluator FAIL outcome; this diagnostic does not
+establish a product code failure. The required host case is never skipped or
+omitted. It requires an approved fixture environment permitting its existing
+temporary private Unix-socket bind. No transport/address change, reroute or retry
+of a denied action is authorized by this source profile. Automatic error-text
+classification is absent because it could mask product failures; H owns diagnosis.
+H owns host diagnosis. Neither record establishes the unrun 66-job profile.
 
 The required coverage is H37 with whole codecs coverage plus 29 added files/modes.
-The four explicit source bindings remain required: browser transport, hook byte
-preflight, explicit host root and explicit synthetic facade zero marker. Main job
+The source bindings adapt existing required rows: browser transport, hook byte
+preflight, explicit host root and explicit synthetic facade zero marker. They add
+no separate binding jobs. Astra confirmed H37 IDs and default arguments are retained;
+`memory-original-bytes` now runs the whole codecs file without a filter. Main job
 entry files are unique except the purposeful second joined mode. The recommended
-next product check is one closed 66-job full run by H after root freeze. No new
+next product check is one closed 66-job full run by H against the frozen profile. No new
 subset selector, framework or CLI option is introduced.
 
 The pre-reservation-unknown file checks the existing fail-closed unresolved fence;
@@ -182,8 +196,8 @@ that approval. Python checks use existing `/usr/bin/python3` >=3.9. Nothing inst
 packages or depends on another user repository or DSH checkout. Native memory and
 descendants have no independently enforced resource boundary in this profile.
 
-The union retains H's cooperative 600000 ms suite budget. Required full TAP jobs
-have a 120000 ms maximum; their expanded count awaits root inventory.
+The union retains H's cooperative 600000 ms suite budget. Its 42 full TAP jobs
+have a 120000 ms bound.
 The inference mock retains its existing 20000 ms bound.
 Non-TAP jobs have a maximum 60000 ms, including G's existing 60000 ms authority-core
 bound. Existing 15000/20000/30000 ms
@@ -211,4 +225,7 @@ do not qualify them.
 `node packages/ops/fast-verify/engine-check.mjs` checks only orchestration in a
 private disposable engine fixture using tiny closed synthetic manifests. It
 covers coverage-accounting and summary refusals, not the 66-job product source
-union or runtime qualification. This integration performed no product suite.
+union or runtime qualification. Root reported 40 orchestration checks PASS in
+8269 ms, plus a pre-aborted 66-job invocation returning CANCELLED without children.
+Those disposable runner results establish no 66-job product completion. This
+documentation lane performed no product suite.
