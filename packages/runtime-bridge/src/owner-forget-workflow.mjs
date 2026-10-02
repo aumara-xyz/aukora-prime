@@ -22,6 +22,16 @@ function closed(value,required,optional=[]){
 function immutable(value){if(value&&typeof value==='object'){for(const child of Object.values(value))immutable(child);Object.freeze(value)}return value}
 const text=(value,max)=>typeof value==='string'&&value.length>0&&new TextEncoder().encode(value).length<=max
 const errorCode=value=>codes.has(value?.error_code)?value.error_code:codes.has(value?.code)?value.code:value instanceof TypeError?'INVALID':'UNAVAILABLE'
+function approvalInvocation(options){
+  if(options===undefined)return null
+  requireValue(options&&typeof options==='object'&&!Array.isArray(options)
+    &&Reflect.ownKeys(options).length===2,'OWNER_FORGET_APPROVAL_INVOCATION_REQUIRED')
+  const signal=Object.getOwnPropertyDescriptor(options,'signal'),approve=Object.getOwnPropertyDescriptor(options,'approve')
+  requireValue(signal&&Object.hasOwn(signal,'value')&&approve&&Object.hasOwn(approve,'value')
+    &&typeof approve.value==='function'&&typeof globalThis.AbortSignal==='function'
+    &&signal.value instanceof globalThis.AbortSignal,'OWNER_FORGET_APPROVAL_INVOCATION_REQUIRED')
+  return Object.freeze({signal:signal.value,approve:approve.value})
+}
 const initial=()=>({phase:'idle',operation:null,record_summary:null,operation_digest:null,approval:'not_requested',forget:'not_attempted',forgotten:false,
   result:null,receipt:null,receipt_digest:null,authority_settlement:null,reconciliation_required:false,error_code:null,
   recovery_status:'not_requested',recovery_operation_id:null,recovery_operation_digest:null})
@@ -124,7 +134,8 @@ async function recoveryReply(value,entry,stillCurrent,retained){
 }
 
 /** The same adapter's authority belongs to the injected controller. H prepares
- * its exact review after proposeForget; this helper calls raw approve once.
+ * its exact review after proposeForget; its owned hook supplies the private
+ * invocation callback. Explicit calls without options use raw approve once.
  * Local fences supplement C/D authorization and durable server recovery APIs;
  * they do not persist recovery state or qualify a transport or host. */
 export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
@@ -134,6 +145,13 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
   let state=immutable(initial()),active=null,proposalFlight=null,actionFlight=null,recoveryFlight=null,disposed=false,blocked=false,blockedReference=null,generation=0,owner=controller.getSnapshot().owner
   const publish=patch=>{if(disposed)return;state=immutable({...state,...patch});for(const listener of listeners){try{listener()}catch{/* Presentation does not control dispatch. */}}}
   const current=entry=>!disposed&&entry.generation===generation&&controller.getSnapshot().owner===entry.owner
+  const releaseInvocation=flight=>{
+    if(!flight)return
+    flight.invocation=null
+    if(flight.abortListener){flight.signal.removeEventListener('abort',flight.abortListener);flight.abortListener=null}
+  }
+  const actionCurrent=flight=>current(flight.entry)&&!flight.signal?.aborted&&(!flight.ownedInvocation||flight.invocation!==null)
+  const requireAction=flight=>{if(!actionCurrent(flight))throw fault('UNAVAILABLE','OWNER_FORGET_APPROVAL_INVOCATION_ENDED');ownerReady()}
   const ownerReady=()=>{
     const snapshot=controller.getSnapshot()
     if(!snapshot.owner||!text(snapshot.owner.owner_id,1024)||snapshot.authority_available!==true||snapshot.expired===true
@@ -154,7 +172,7 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
   }
   function cleared(phase){
     const entry=actionFlight?.entry??active,confirmed=entry?.confirmed??(state.forgotten===true?{authority_settlement:state.authority_settlement}:null)
-    if(entry?.approvalUncertain||entry?.proofReceived||entry?.invoked||state.reconciliation_required){
+    if(entry?.approvalUncertain||entry?.proofReceived&&!entry?.proofConfirmed||entry?.invoked||state.reconciliation_required){
       if(!confirmed||state.reconciliation_required)blocked=true
       if(blocked)blockedReference??=reference(entry)
     }
@@ -165,6 +183,7 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
   const off=controller.subscribe(()=>{
     const next=controller.getSnapshot().owner
     if(next===owner)return
+    releaseInvocation(actionFlight)
     const reset=cleared('idle');owner=next;generation++;active=null;publish(reset)
   })
 
@@ -202,9 +221,13 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
       })
       return flight.promise
     },
-    approveAndForget(){
+    approveAndForget(options){
       if(disposed)return Promise.resolve(state)
-      if(actionFlight)return actionFlight.promise
+      let invocation
+      try{invocation=approvalInvocation(options)}catch(error){return actionFlight?Promise.resolve(immutable({...state,error_code:errorCode(error)})):refuse(errorCode(error))}
+      if(actionFlight)return actionCurrent(actionFlight)&&actionFlight.ownedInvocation===(invocation!==null)
+        &&(!invocation||actionFlight.invocation?.approve===invocation.approve&&actionFlight.signal===invocation.signal)?actionFlight.promise:Promise.resolve(immutable({...state,error_code:'UNAVAILABLE'}))
+      if(invocation?.signal.aborted)return refuse()
       if(blocked)return refuse('RECONCILIATION_REQUIRED')
       if(proposalFlight||recoveryFlight||!active)return refuse()
       const entry=active
@@ -214,15 +237,17 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
         requireValue(current(entry)&&snapshot.phase==='review_ready'&&view&&canonicalJson(view.operation)===entry.operation_json
           &&view.operation_digest===entry.digest&&Date.parse(entry.operation.expiry)>Date.now(),'OWNER_FORGET_EXACT_REVIEW_REQUIRED')
       }catch(error){publish({phase:'refused',error_code:errorCode(error)});return Promise.resolve(state)}
-      const flight={entry,promise:null};actionFlight=flight
+      const flight={entry,promise:null,invocation,ownedInvocation:invocation!==null,signal:invocation?.signal??null,abortListener:null};actionFlight=flight
+      if(flight.signal){flight.abortListener=()=>releaseInvocation(flight);flight.signal.addEventListener('abort',flight.abortListener,{once:true})}
       flight.promise=Promise.resolve().then(async()=>{
         try{
-          if(!current(entry))return state
+          requireAction(flight)
           ownerReady();publish({phase:'approval_pending',approval:'pending',error_code:null})
-          if(!current(entry))return state
-          ownerReady();entry.approvalUncertain=true;const approved=await controller.approve()
+          requireAction(flight)
+          entry.approvalUncertain=true
+          const approved=await (flight.ownedInvocation?flight.invocation.approve():controller.approve())
           if(approved)entry.proofReceived=true
-          if(!current(entry))return unknown(entry)
+          requireAction(flight)
           if(!approved){
             const snapshot=controller.getSnapshot(),code=errorCode(snapshot)
             if(snapshot.phase==='outcome_unknown'||uncertainCodes.has(code))return unknown(entry)
@@ -236,17 +261,17 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
             &&proof.owner_id===entry.operation.owner_id&&proof.owner_id===entry.owner.owner_id&&proof.audience===entry.operation.audience
             &&proof.authorization_epoch===entry.operation.authorization_epoch&&Date.parse(proof.expiry)>Date.now()
             &&Date.parse(proof.expiry)<=Date.parse(entry.operation.expiry)&&Date.parse(entry.operation.expiry)>Date.now(),'OWNER_FORGET_EXACT_APPROVAL_REQUIRED')
-          entry.approvalUncertain=false;entry.grant_id='grant:'+proof.nonce;usedOperations.add(entry.operation.operation_id)
+          entry.proofConfirmed=true;entry.approvalUncertain=false;entry.grant_id='grant:'+proof.nonce;usedOperations.add(entry.operation.operation_id)
           publish({approval:'approved'})
-          if(!current(entry))return state
+          requireAction(flight)
           ownerReady();publish({phase:'forget_pending',forget:'pending',forgotten:null})
-          if(!current(entry))return state
+          requireAction(flight)
           ownerReady();entry.invoked=true
           const value=await memory.forget({operation:entry.operation,approval_proof:immutable(proof)})
-          if(!current(entry))return unknown(entry)
+          requireAction(flight)
           if(value?.ok!==true)return unknown(entry)
-          const confirmed=await forgottenReply(value,entry,current)
-          if(!current(entry))return unknown(entry)
+          const confirmed=await forgottenReply(value,entry,candidate=>current(candidate)&&actionCurrent(flight))
+          requireAction(flight)
           entry.confirmed=confirmed
           if(confirmed.reconciliation_required){blocked=true;blockedReference??=reference(entry)}
           publish({phase:'forgotten',forget:'forgotten',forgotten:true,result:confirmed.result,receipt:confirmed.receipt,
@@ -254,9 +279,16 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
             reconciliation_required:confirmed.reconciliation_required,error_code:confirmed.reconciliation_required?'RECONCILIATION_REQUIRED':null})
           return state
         }catch(error){
+          // A confirmed proof cancelled before the local effect call is known
+          // never invoked here. No durable attempted outcome is cleared.
+          if(entry.proofConfirmed&&!entry.invoked&&!actionCurrent(flight)){
+            if(current(entry))publish({phase:'refused',approval:'approved',forget:'not_attempted',forgotten:false,
+              reconciliation_required:blocked,error_code:blocked?'RECONCILIATION_REQUIRED':'UNAVAILABLE'})
+            return state
+          }
           if(entry.proofReceived||entry.invoked||entry.approvalUncertain&&uncertainCodes.has(errorCode(error)))return unknown(entry)
           entry.approvalUncertain=false;if(current(entry))publish({phase:'refused',approval:'refused',error_code:errorCode(error)});return state
-        }finally{if(actionFlight===flight)actionFlight=null}
+        }finally{releaseInvocation(flight);if(actionFlight===flight)actionFlight=null}
       })
       return flight.promise
     },
@@ -325,6 +357,7 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
     },
     dispose(){
       if(disposed)return
+      releaseInvocation(actionFlight)
       const reset=cleared('unavailable');disposed=true;generation++;active=null;off()
       state=immutable({...reset,error_code:reset.error_code??'UNAVAILABLE'})
       for(const listener of listeners){try{listener()}catch{}}

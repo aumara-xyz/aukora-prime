@@ -12,7 +12,7 @@ import {once} from 'node:events'
 import {createIpcServer,createIpcClient,createAuthorityIpcServer,createAuthorityIpcClient,
   PUBLIC_METHODS,PRIVATE_AUTHORITY_METHODS} from '../src/ipc.mjs'
 
-const expected=['authority.propose','authority.loginChallenge','authority.loginComplete','authority.authenticateSession',
+const expected=['authority.propose','authority.loginChallenge','authority.loginComplete','authority.authenticateSession','authority.logoutSession',
   'authority.approvalChallenge','authority.approvalComplete','authority.declineApproval','authority.status','authority.reserve',
   'authority.claimDispatch','authority.settleMemory','authority.markOutcomeUnknown']
 const ownFile=fileURLToPath(import.meta.url)

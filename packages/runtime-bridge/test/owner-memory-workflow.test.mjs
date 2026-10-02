@@ -160,7 +160,8 @@ test('logout while the real approval reply is held prevents a stale-session save
   const gate=f.gate('owner.approvalComplete'),pending=attempt(()=>f.workflow.approveAndSave())
   await gate.entered(1);assert.equal(ok(gate.entries[0].result).status,'APPROVED')
   assert.equal(f.operationState(operation.operation_id).status,'APPROVED')
-  f.controller.logout();gate.release();await pending
+  const logout=f.controller.logout();gate.release();await pending
+  assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
   assert.equal(f.controller.getSnapshot().phase,'logged_out')
   assert.equal(f.count('memory.save'),0)
   assert.equal(f.tableCount('prime_memory_records'),0);assert.equal(f.tableCount('prime_memory_effects'),0)
@@ -187,15 +188,20 @@ test('a real source change after review cannot apply the approved draft or autho
   f.host.events=[changed];f.host.source={...f.host.source,sha256:sha256(changed)}
   await attempt(()=>f.workflow.approveAndSave())
   const snapshot=f.workflow.getSnapshot()
-  // The real bridge wraps D's pre-dispatch refusal as UNAVAILABLE. A caller
-  // without receipt must conservatively preserve uncertainty and not replay.
-  assertUnknown(snapshot)
+  // The bridge refuses the changed trusted source before recording an attempt.
+  // The local action remains spent; this known refusal does not permit replay.
+  assert.equal(snapshot.phase,'refused');assert.equal(snapshot.save,'refused');assert.equal(snapshot.saved,false)
+  assert.equal(snapshot.error_code,'TARGET_MISMATCH');assert.equal(snapshot.receipt,null)
+  assert.equal(snapshot.reconciliation_required,false)
   const refusal=f.replies.find(reply=>reply.method==='memory.save').result
-  assert.equal(refusal.ok,false);assert.equal(refusal.reason,'memory:capture-operation-mismatch')
+  assert.equal(refusal.ok,false);assert.equal(refusal.error_code,'TARGET_MISMATCH')
+  assert.equal(refusal.reason,'EXACT_SAVE_PREFLIGHT_REQUIRED')
   assert.equal(f.count('memory.save'),1);assert.equal(f.tableCount('prime_memory_records'),0)
-  assert.equal(f.tableCount('prime_memory_effects'),0)
+  assert.equal(f.tableCount('prime_memory_effects'),0);assert.equal(f.tableCount('prime_memory_intents'),0)
+  assert.equal((await f.workflowStore.get(f.boundHost(),operation.operation_id)).phase,'proposed')
   assert.equal(f.operationState(operation.operation_id).status,'APPROVED')
   await attempt(()=>f.workflow.approveAndSave());assert.equal(f.count('memory.save'),1)
+  assert.equal(f.count('owner.approvalComplete'),1);assert.equal(f.workflow.getSnapshot().error_code,'REPLAYED')
 })
 
 for(const field of ['operation_id','grant_id']) {
@@ -257,7 +263,8 @@ function assertOwnerContentCleared(snapshot) {
 test('logout before the scheduled proposal microtask makes no old call and releases the proposal flight',async t=>{
   const f=await fixture(t);await f.login()
   const pending=f.workflow.proposeSave(draft('logout-before-proposal-call'))
-  f.controller.logout();await pending
+  const logout=f.controller.logout();await pending
+  assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
   assert.equal(f.count('memory.proposeSave'),0)
   assert.equal(Object.keys(f.state().broker.operations).length,0)
   assertOwnerContentCleared(f.workflow.getSnapshot())
@@ -271,12 +278,13 @@ test('logout before the scheduled proposal microtask makes no old call and relea
 test('logout before the scheduled approval microtask makes no old decision and releases the action flight',async t=>{
   const f=await fixture(t);await f.login();const oldOperation=await f.prepare(draft('logout-before-approval-call'))
   const pending=f.workflow.approveAndSave()
-  f.controller.logout();await pending
+  const logout=f.controller.logout();await pending
+  assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
   assert.equal(f.count('owner.approvalComplete'),0);assert.equal(f.count('memory.save'),0)
-  assert.equal(f.operationState(oldOperation.operation_id).status,'PROPOSED')
   assertOwnerContentCleared(f.workflow.getSnapshot())
   assert.equal(f.workflow.getSnapshot().saved,false)
-  await f.login();const freshOperation=await f.prepare(draft('fresh-proposal-after-scheduled-approval-logout'))
+  await f.login();assert.equal(f.operationState(oldOperation.operation_id).status,'PROPOSED')
+  const freshOperation=await f.prepare(draft('fresh-proposal-after-scheduled-approval-logout'))
   assert.notEqual(freshOperation.operation_id,oldOperation.operation_id)
   assert.equal(f.count('memory.proposeSave'),2)
   await f.workflow.approveAndSave();assertSaved(f.workflow.getSnapshot())
@@ -286,18 +294,20 @@ test('logout before the scheduled approval microtask makes no old decision and r
 for(const lifecycle of ['logout','dispose']) {
   test('a workflow observer '+lifecycle+' during save_pending prevents the real save invocation without inventing uncertainty',async t=>{
     const f=await fixture(t);await f.login();const operation=await f.prepare(draft('observer-'+lifecycle+'-before-save-call'))
-    let changed=false
+    let changed=false,logout,authorityStatus
     const unsubscribe=f.workflow.subscribe(()=>{
       if(f.workflow.getSnapshot().phase==='save_pending'&&!changed) {
+        authorityStatus=f.operationState(operation.operation_id)
         changed=true
-        if(lifecycle==='logout')f.controller.logout()
+        if(lifecycle==='logout')logout=f.controller.logout()
         else f.workflow.dispose()
       }
     })
     await f.workflow.approveAndSave();unsubscribe()
+    if(lifecycle==='logout')assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
     assert.equal(changed,true)
     assert.equal(f.count('owner.approvalComplete'),1)
-    assert.equal(f.operationState(operation.operation_id).status,'APPROVED')
+    assert.equal(authorityStatus.status,'APPROVED')
     assert.equal(f.count('memory.save'),0)
     assert.equal(f.tableCount('prime_memory_records'),0);assert.equal(f.tableCount('prime_memory_effects'),0)
     const snapshot=f.workflow.getSnapshot();assertOwnerContentCleared(snapshot)
@@ -319,13 +329,15 @@ for(const lifecycle of ['logout','dispose']) {
       assert.equal(confirmed.authority_settlement,pendingSettlement?'pending':'completed')
       assert.equal(confirmed.reconciliation_required,pendingSettlement)
       assert.equal(f.operationState(operation.operation_id).status,pendingSettlement?'DISPATCHED':'COMPLETED')
-      if(lifecycle==='logout')f.controller.logout()
+      let logout
+      if(lifecycle==='logout')logout=f.controller.logout()
       else f.workflow.dispose()
       const cleared=f.workflow.getSnapshot();assertOwnerContentCleared(cleared)
       assert.equal(cleared.save,'saved');assert.equal(cleared.saved,true)
       assert.equal(cleared.authority_settlement,confirmed.authority_settlement)
       assert.equal(cleared.reconciliation_required,pendingSettlement)
       status.release();cite.release();await pending
+      if(lifecycle==='logout')assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
       const released=f.workflow.getSnapshot();assertOwnerContentCleared(released)
       assert.equal(released.save,'saved');assert.equal(released.saved,true)
       assert.equal(released.authority_settlement,confirmed.authority_settlement)
@@ -338,23 +350,25 @@ for(const lifecycle of ['logout','dispose']) {
 
 test('logout from the index update observer cannot publish the old citation into a cleared owner snapshot',async t=>{
   const f=await fixture(t);await f.login();const operation=await f.prepare(draft('logout-from-read-index-observer'))
-  let loggedOut=false
+  let loggedOut=false,logout,authorityStatus
   const afterLogout=[]
   const unsubscribe=f.workflow.subscribe(()=>{
     const snapshot=f.workflow.getSnapshot()
     if(loggedOut)afterLogout.push(snapshot)
     if(!loggedOut&&snapshot.index.indexed!==null) {
-      loggedOut=true;f.controller.logout()
+      authorityStatus=f.operationState(operation.operation_id)
+      loggedOut=true;logout=f.controller.logout()
     }
   })
   await f.workflow.approveAndSave();unsubscribe()
+  assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
   assert.equal(loggedOut,true);assert.ok(afterLogout.length>0)
   for(const snapshot of afterLogout)assertOwnerContentCleared(snapshot)
   const snapshot=f.workflow.getSnapshot();assertOwnerContentCleared(snapshot)
   assert.equal(snapshot.save,'saved');assert.equal(snapshot.saved,true)
   assert.equal(snapshot.authority_settlement,'completed');assert.equal(snapshot.reconciliation_required,false)
   assert.equal(f.count('memory.status'),1);assert.equal(f.count('memory.cite'),1)
-  assert.equal(f.operationState(operation.operation_id).status,'COMPLETED')
+  assert.equal(authorityStatus.status,'COMPLETED')
   assert.equal(f.tableCount('prime_memory_records'),1)
 })
 
@@ -385,13 +399,14 @@ test('a finished unknown save retains content-free uncertainty through logout an
   await f.workflow.approveAndSave();assertUnknown(f.workflow.getSnapshot())
   assert.equal(f.operationState(operation.operation_id).status,'COMPLETED')
   assert.equal(f.tableCount('prime_memory_records'),1);assert.equal(f.tableCount('prime_memory_effects'),1)
-  f.controller.logout()
+  const logout=f.controller.logout()
   const loggedOut=f.workflow.getSnapshot();assertUnknown(loggedOut)
   for(const field of ['operation','memory_capture','operation_digest','record','receipt','citation'])assert.equal(loggedOut[field],null)
   f.workflow.dispose()
   const disposed=f.workflow.getSnapshot();assertUnknown(disposed)
   for(const field of ['operation','memory_capture','operation_digest','record','receipt','citation'])assert.equal(disposed[field],null)
   assert.equal(f.count('memory.save'),1);assert.equal(f.count('owner.approvalComplete'),1)
+  assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
 })
 
 test('a finished confirmed save with pending settlement retains its content-free facts through logout and subsequent disposal',async t=>{
@@ -400,7 +415,7 @@ test('a finished confirmed save with pending settlement retains its content-free
   await f.workflow.approveAndSave();assertSaved(f.workflow.getSnapshot())
   assert.equal(f.workflow.getSnapshot().authority_settlement,'pending')
   assert.equal(f.operationState(operation.operation_id).status,'DISPATCHED')
-  f.controller.logout()
+  const logout=f.controller.logout()
   const loggedOut=f.workflow.getSnapshot();assertOwnerContentCleared(loggedOut)
   assert.equal(loggedOut.save,'saved');assert.equal(loggedOut.saved,true)
   assert.equal(loggedOut.authority_settlement,'pending');assert.equal(loggedOut.reconciliation_required,true)
@@ -410,17 +425,19 @@ test('a finished confirmed save with pending settlement retains its content-free
   assert.equal(disposed.authority_settlement,'pending');assert.equal(disposed.reconciliation_required,true)
   assert.equal(f.count('memory.save'),1);assert.equal(f.count('owner.approvalComplete'),1)
   assert.equal(f.tableCount('prime_memory_records'),1);assert.equal(f.tableCount('prime_memory_effects'),1)
+  assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
 })
 
 test('logout from the controller operation notification cannot resurrect the proposed owner capture and permits a fresh proposal',async t=>{
   const f=await fixture(t);await f.login()
-  let loggedOut=false
+  let loggedOut=false,logout
   const unsubscribe=f.controller.subscribe(()=>{
     if(f.controller.getSnapshot().operation_available&&!loggedOut) {
-      loggedOut=true;f.controller.logout()
+      loggedOut=true;logout=f.controller.logout()
     }
   })
   await f.workflow.proposeSave(draft('controller-notification-logout'))
+  assert.deepEqual(await logout,{ok:true,status:'LOGGED_OUT'})
   assert.equal(loggedOut,true)
   assert.equal(f.controller.getSnapshot().phase,'logged_out')
   assertOwnerContentCleared(f.workflow.getSnapshot())
@@ -428,9 +445,9 @@ test('logout from the controller operation notification cannot resurrect the pro
   assert.equal(f.count('memory.proposeSave'),1);assert.equal(f.count('memory.save'),0)
   assert.equal(f.count('owner.approvalChallenge'),0);assert.equal(f.count('owner.approvalComplete'),0)
   const oldOperation=ok(f.replies.find(reply=>reply.method==='memory.proposeSave').result).operation
-  assert.equal(f.operationState(oldOperation.operation_id).status,'PROPOSED')
   const freshLiteral='Fresh owner draft after the controller listener logout.'
   await f.login()
+  assert.equal(f.operationState(oldOperation.operation_id).status,'PROPOSED')
   await f.workflow.proposeSave({extraction_json:JSON.stringify({...extraction,statement:freshLiteral}),idempotency_key:'fresh-after-controller-notification-logout'})
   unsubscribe()
   const fresh=f.workflow.getSnapshot()

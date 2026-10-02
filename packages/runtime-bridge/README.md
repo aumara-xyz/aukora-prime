@@ -87,9 +87,13 @@ v1 digest profile is unchanged.
 New pilot capture input is statement-only. Older callers may supply category,
 validFrom, observedAt, confidence and sensitivity only at the fixed values:
 fact, trusted source date/time, 0.7 and none. Links and metadata overrides refuse.
-The proposal has a separate `capture_metadata` sibling for H/B display; it does
-not claim a new capture hash profile or change the exact literal. The source join
-requires C `eb90fc7`, D `4e6d033`, and B `d9f94f` (full pins are in the runner).
+The proposal retains the six fixed metadata fields inside the independently
+prepared capture draft and also returns an identical `capture_metadata` sibling
+for H/B display. This changes no capture hash profile or historical bytes.
+The current joined source targets H `48638b9013f67d41abf5c9627f4ab89bb0c5893e`,
+D `6326a4c928a7d14ab7e9ef7a7da626a6a6322d22`, and B
+`a20812e72eed05b2981c8a799d4c7d6155f0de49`; the handoff records exact patch
+and assembled file hashes.
 
 `memory.proposeSave` obtains D's exact capture binding and builds the operation
 from C's verified owner plus host-owned task/route/policy. C proposal admission
@@ -100,10 +104,13 @@ to `captureAuthorizedRemembered`; it never claims dispatch itself. D reserves,
 commits an intent, rechecks live state under the owner lock, claims once, saves
 record/events/chain/outbox/effect ledger, commits, then settles C using the genuine
 memory receipt. Save parameters contain exactly `capture_sha256`,
-`idempotency_key_sha256`, `heads`, `statement` and `attributed_to`. Literal statement
-and attribution come from the captured extraction and trusted host. They accompany
-the proposed operation as the independent `memory_capture` draft; expected review
-text is never reconstructed from operation parameters or their hash. D verifies
+`idempotency_key_sha256`, `heads`, `statement`, `attributed_to`,
+`capture_metadata` and `evidence_quote`. The independent `memory_capture` draft
+contains the last four fields. Statement and attribution come from the captured
+extraction and trusted host; metadata comes from the fixed pilot profile and
+trusted source timestamp. The quote is the full parsed text of the trusted
+event whose original bytes match the selected source digest. Expected review
+content is never reconstructed from operation parameters or their hash. D verifies
 all parameters again under its database lock before reserve and dispatch. A save
 can be `saved/pending` or `saved/failed` before indexing.
 Only D's later ACK makes the record searchable. Citation verifies original bytes,
@@ -201,8 +208,8 @@ controller.connect({...ownerBinding, authority: adapters.authority, contracts})
 const workflow = createOwnerMemoryWorkflow({
   controller, memory: adapters.memory, contracts,
 })
-controller.setApprovalAction(() => workflow.approveAndSave())
-// B's button calls submitApproval(); the helper calls approve() directly.
+controller.setApprovalAction((_view, options) => workflow.approveAndSave(options))
+// B's button calls submitApproval(); the helper uses this invocation's approve().
 await workflow.proposeSave({extraction_json, idempotency_key})
 // B's existing prepare() obtains the fresh exact review for owner display.
 ```
@@ -412,9 +419,9 @@ node packages/runtime-bridge/test/verify-owner-memory-source-join.mjs \
   --output /absolute/fresh-private-check-directory
 ```
 
-Hook tests explicitly skip when `PRIME_OWNER_HOOK_CONTROLLER` is absent; the
-pinned runner supplies the exact copied B controller and treats any failed
-joined guard as a failed checkpoint. Host tests likewise require the exact
+Hook tests run against the assembled local B controller by default and require
+its real hook; `PRIME_OWNER_HOOK_CONTROLLER` may select an exact copied controller
+from a pinned source snapshot. No required hook test skips. Host tests require the exact
 copied H helpers via `PRIME_OWNER_MEMORY_HOST_ROOT`. C uses disposable synthetic
 P256 credentials and its real verification/kernel/stores. D uses its actual
 effect code with the test-only SQLite dialect fixture. Public IPC/HTTP checks
@@ -427,7 +434,48 @@ hook. During teardown, fence the workflow before disposing the controller:
 `workflow.dispose(); controller.setApprovalAction(null); controller.dispose()`.
 No stale UI action may dispatch merely because a disposed controller retained
 an owner snapshot. Cancellation before the handler starts must release its
-flight; cancellation after dispatch must retain an unknown outcome, while a
+flight. A confirmed approval followed by cancellation before the memory method
+is invoked sends no effect and permits a fresh proposal. An unresolved approval
+or attempted effect retains an unknown outcome, while a
 confirmed save remains a saved fact when only citation/index reads are pending.
 These states are checked through the real hook, in addition to the direct
 workflow lifecycle checks.
+
+Owned hooks forward B's per-invocation options:
+`controller.setApprovalAction((_view,options)=>workflow.approveAndSave(options))`
+and `controller.setForgetAction((_view,options)=>forgetWorkflow.approveAndForget(options))`.
+The exact `{signal,approve}` callback belongs only to that live flight and is
+released at cancellation and lifecycle boundaries; an owned hook never falls
+back to raw approval. Explicit direct workflow calls may omit these options.
+After factual recovery H must await `controller.reconcileApprovalAction(snapshot)`
+before returning the unchanged workflow snapshot.
+
+New capture review retains D's full independent draft: exact statement,
+attribution, six fixed metadata fields, and the full selected source-event quote.
+The bridge derives it from trusted original event bytes before waiting on D,
+then compares D's returned draft and seven operation parameters. It never
+normalizes new text or rewrites historical bytes. D's new helper and B's matching
+committed helper/types/rendering must be composed together. B's cumulative
+`a20812e7` patch includes the invocation change and the expanded helper; it
+supersedes the earlier invocation-only patch. H must forward the exact invocation
+options and rebuild its genuine owner assets before its full release gate.
+
+An exact completed-save retry checks its durable owner/task/operation reference,
+immutable capture and key, genuine D receipt, and C completed settlement before
+returning the original saved result. It does not compare the already advanced
+heads to the old approval or call reserve/dispatch again. The adapter releases
+verified completed captures from its 16 pending slots and retains at most 16
+completed review contexts for factual retries; C/D and the workflow journal
+keep their durable replay evidence. Unknown attempts retain their pending context.
+
+An attempted save that D refuses before reservation still requires reconciliation.
+The current C status and D missing-effect exception do not prove durable kernel
+non-consumption, absence of every D intent/effect/replay fence, or that an old
+writer cannot later proceed. W1 remains unresolved until private C/D evidence
+and cross-process closure guarantees are provided. Exception flags cannot turn
+an attempted operation into `known_unsent`. The focused
+`pre-reservation-unknown.test.mjs` shows this limitation with a genuine approved
+proof whose changed expiry C refuses before consumption, leaving the attempted
+journal blocked through cold service reopen. The adapter's existing 16 retained
+forget contexts also remain a separate session-capacity limitation; this save
+quota repair does not remove them.

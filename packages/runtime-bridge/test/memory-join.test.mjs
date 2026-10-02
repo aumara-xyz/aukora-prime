@@ -29,6 +29,12 @@ test('real C passkey + D save/index/cite/restart via existing injected B transpo
   let authority=auth.service
   const event=Buffer.from(JSON.stringify({type:'turn',text:'Synthetic owner likes banana.',seq:0,at})+'\n')
   const host={privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(event)},events:[event]}
+  const expectedMetadata={profile:'prime-pilot-memory-capture/v1',category:'fact',valid_from:at.slice(0,10),
+    observed_at:at,confidence_percent:70,sensitivity:'none'}
+  // Derive the independent draft from the actual extraction and original
+  // fixture event, before any proposed operation or review is returned.
+  const expectedCapture={statement:input.statement,attributed_to:host.attributedTo,capture_metadata:expectedMetadata,
+    evidence_quote:JSON.parse(event.toString('utf8')).text}
   const resolveHostContext=({request,session})=>{
     if(request?.route!=='trusted-test')throw new Error('synthetic trusted request association missing')
     return session?{task_id:task.task_id,memory_host:host}:{login_owner_id:ownerId}
@@ -69,31 +75,48 @@ test('real C passkey + D save/index/cite/restart via existing injected B transpo
       return {profile:'prime-separated-runtime-host/v1',environment:'production',accepted:true,app_uid:101,broker_uid:102,transport:'authenticated-ipc',owner_enrollment:'qualified',postgres_runtime:'qualified',source_commit:'0'.repeat(40),release_digest:'sha256:'+'0'.repeat(64)}
     }})
     assert.equal(ok(await ingress.handlePublic('owner.status',callInput,callContext)).status,'PROPOSED')
-    assert.deepEqual(proposed.memory_capture,{statement:input.statement,attributed_to:'owner'})
+    assert.deepEqual(Object.keys(proposed.memory_capture).sort(),['attributed_to','capture_metadata','evidence_quote','statement'])
+    assert.deepEqual(Object.keys(operation.canonical_parameters).sort(),['attributed_to','capture_metadata','capture_sha256','evidence_quote','heads','idempotency_key_sha256','statement'])
+    assert.deepEqual(Object.keys(proposed.capture_metadata).sort(),['category','confidence_percent','observed_at','profile','sensitivity','valid_from'])
+    assert.deepEqual(proposed.memory_capture,expectedCapture);assert.deepEqual(proposed.capture_metadata,expectedMetadata)
     assert.equal(operation.canonical_parameters.statement,input.statement)
     assert.equal(operation.canonical_parameters.attributed_to,'owner')
+    assert.deepEqual(operation.canonical_parameters.capture_metadata,expectedMetadata)
+    assert.equal(operation.canonical_parameters.evidence_quote,expectedCapture.evidence_quote)
+    assert.notEqual(expectedCapture.evidence_quote,expectedCapture.statement)
     await assert.rejects(ui.prepareApproval(operation),error=>error.code==='TARGET_MISMATCH')
-    await assert.rejects(ui.prepareApproval(operation,{memoryCapture:{statement:'changed display',attributed_to:'owner'}}),error=>error.code==='TARGET_MISMATCH')
-    await assert.rejects(ui.prepareApproval(operation,{memoryCapture:{statement:input.statement,attributed_to:'agent'}}),error=>error.code==='TARGET_MISMATCH')
+    for(const changed of [{statement:'changed display'},{attributed_to:'agent'},
+      {evidence_quote:'Changed selected source quote.'},
+      {capture_metadata:{...expectedMetadata,observed_at:'2026-10-02T11:03:00Z',valid_from:'2026-10-02'}}])
+      await assert.rejects(ui.prepareApproval(operation,{memoryCapture:{...expectedCapture,...changed}}),error=>error.code==='TARGET_MISMATCH')
     assert.equal(signerCalls,1,'missing/altered review draft must never reach the signer after login')
     const review=await ui.prepareApproval(operation,{memoryCapture:proposed.memory_capture}),approved=await ui.approve(review)
     assert.equal(signerCalls,2)
-    assert.deepEqual({statement:review.memory_review.statement,attributed_to:review.memory_review.attributed_to},proposed.memory_capture)
+    assert.deepEqual({statement:review.memory_review.statement,attributed_to:review.memory_review.attributed_to,
+      capture_metadata:review.memory_review.capture_metadata,evidence_quote:review.memory_review.evidence_quote},expectedCapture)
     assert.notEqual(approved.approval_proof.nonce,operation.nonce)
     const modified=await adapters.memory.save({...draft,operation:{...operation,canonical_parameters:{...operation.canonical_parameters,capture_sha256:'f'.repeat(64)}},approval_proof:approved.approval_proof})
     refused(modified)
     refused(await adapters.memory.save({...draft,extraction_json:JSON.stringify({...input,statement:'changed'}),operation,approval_proof:approved.approval_proof}))
-    // Bypass the browser adapter to exercise real D's under-lock literal checks.
+    // Direct bridge calls also refuse altered review literals before recording
+    // an attempted effect; D repeats exact binding checks for admitted saves.
     for(const changed of [{statement:'changed displayed text'},{attributed_to:'agent'}]) {
       refused(await bridge.handleTrusted('memory.save',{session_token:sessionToken,...draft,
         operation:{...operation,canonical_parameters:{...operation.canonical_parameters,...changed}},approval_proof:approved.approval_proof},trusted))
       assert.equal(ok(authority.status({session_token:sessionToken,operation_id:operation.operation_id})).status,'APPROVED')
+      const reference=await workflowStore.get({...host,owner_id:ownerId,owner_subject:auth.identity.subject,task_id:task.task_id},operation.operation_id)
+      assert.equal(reference.phase,'proposed');assert.equal(reference.operation_digest,contracts.operationDigest(operation))
+      assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents').get().n,0)
+      assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_effects').get().n,0)
       assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_records').get().n,0)
     }
     const saved=ok(await adapters.memory.save({...draft,operation,approval_proof:approved.approval_proof}))
     const exactSaved=JSON.parse(saved.record.canonical_bytes)
     assert.equal(exactSaved.statement,review.memory_review.statement)
     assert.equal(exactSaved.attributedTo,review.memory_review.attributed_to)
+    assert.equal(exactSaved.evidence[0].quote,expectedCapture.evidence_quote)
+    assert.deepEqual({profile:expectedMetadata.profile,category:exactSaved.category,valid_from:exactSaved.validFrom,
+      observed_at:exactSaved.observedAt,confidence_percent:exactSaved.confidence*100,sensitivity:exactSaved.sensitivity},expectedMetadata)
     assert.equal(saved.record.storage_status,'saved');assert.equal(saved.record.index_status,'pending')
     assert.equal(saved.authority_settlement,'completed');assert.equal(saved.reconciliation_required,false)
     const statusInput={record_id:saved.record.record_id,revision:null}

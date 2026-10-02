@@ -5,6 +5,8 @@ export interface ForgetRecordSummary {
   readonly statement:string
   readonly attributed_to:string|null
 }
+/** Exact private callback and cancellation signal for one B-owned hook flight. */
+export interface OwnerForgetApprovalInvocation {readonly signal:AbortSignal;readonly approve:()=>Promise<unknown>}
 export interface LogicalForgetResult {
   readonly record_id:string
   readonly state:'tombstoned'
@@ -57,14 +59,15 @@ export interface OwnerForgetController {
   subscribe(listener:()=>void):()=>void
   /** H prepares the controller's review after this exact operation is set. */
   setOperation(operation:unknown,options:{readonly recordSummary:ForgetRecordSummary}):void
-  /** Raw approval API; B's submitApproval selects its separate forget hook. */
+  /** Used only by explicit workflow calls without a hook invocation. */
   approve():Promise<unknown>
 }
 export interface OwnerForgetWorkflow {
   getSnapshot():ForgetWorkflowSnapshot
   subscribe(listener:()=>void):()=>void
   proposeForget(input:{readonly record_id:string}):Promise<ForgetWorkflowSnapshot>
-  approveAndForget():Promise<ForgetWorkflowSnapshot>
+  /** Owned hooks must supply their invocation; no-options calls use raw approval. */
+  approveAndForget(options?:OwnerForgetApprovalInvocation):Promise<ForgetWorkflowSnapshot>
   /** Reads C/D durable facts and may deliver the retained settlement receipt;
    * never reconstructs an approval or repeats the forget effect. */
   recover(input?:{readonly operation_id:string|null}):Promise<ForgetWorkflowSnapshot>

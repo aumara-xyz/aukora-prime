@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID,randomBytes} from 'node:crypto'
 import {canonicalJson,parseStrictJson,validateContract,operationDigest} from '../../contracts/src/runtime.mjs'
-import {parseOriginal} from '../../memory/src/codecs.mjs'
+import {parseOriginal,sha256} from '../../memory/src/codecs.mjs'
 import {validateCaptureDraft,validateCaptureReview} from '../../memory/src/capture-review.mjs'
 import {closed,copy,freeze,createTrustedTaskRegistry} from './registry.mjs'
 import {IPC_METHOD_ROLES,PUBLIC_METHODS} from './ipc.mjs'
@@ -20,6 +20,16 @@ const text=(value,max=1024)=>{if(typeof value!=='string'||!value.length||Buffer.
 const errorResult=error=>({ok:false,error_code:error.error_code??(error.reconciliation_required?'OUTCOME_UNKNOWN':error instanceof TypeError?'INVALID':'UNAVAILABLE'),reason:error instanceof BridgeRefusal?error.message:typeof error.code==='string'&&error.code.startsWith('memory:')?error.code:'BRIDGE_SERVICE_REFUSED',...(error.reconciliation_required?{reconciliation_required:true,operation_id:error.operation_id,request_id:error.request_id,request_digest:error.request_digest}:{})})
 const unwrap=result=>{if(result?.ok!==true)fail(result?.error_code??'UNAVAILABLE',result?.reason??'BRIDGE_SERVICE_REFUSED');return result}
 function extraction(textValue){text(textValue,16_384);return freeze(parseOriginal(Buffer.from(textValue,'utf8')))}
+function captureDraft(host,captured,metadata) {
+  // Select independently from the trusted, detached original event bytes.
+  // The expected quote is never recovered from a proposed operation or hash.
+  if(!Array.isArray(host.events))fail('INVALID','EXACT_CAPTURE_SOURCE_REQUIRED')
+  const selected=host.events.map(bytes=>Buffer.from(bytes)).find(bytes=>sha256(bytes)===host.source?.sha256)
+  if(!selected)fail('INVALID','EXACT_CAPTURE_SOURCE_REQUIRED')
+  const event=parseOriginal(selected)
+  return validateCaptureDraft({statement:captured.statement,attributed_to:host.attributedTo,
+    capture_metadata:metadata,evidence_quote:event.text})
+}
 function trustedContext(value) {
   // Trusted source events are byte arrays; they are not transport JSON. Check
   // only the outer host record before cloning D's byte-bearing context.
@@ -140,11 +150,11 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
     if(method==='memory.proposeSave') {
       closed(input,['session_token','extraction_json','idempotency_key']);text(input.idempotency_key)
       requireMethod(memory,'prepareCaptureBinding');requireMethod(authority,'propose')
-      await requireRecovered(host,input.session_token)
       const {capture:captured,metadata}=preparePilotCapture(extraction(input.extraction_json),host.source?.at)
       // Expected review text comes from the detached actual extraction and the
       // trusted host attribution, independently of any proposed parameters.
-      const memoryCapture=validateCaptureDraft({statement:captured.statement,attributed_to:host.attributedTo})
+      const memoryCapture=captureDraft(host,captured,metadata)
+      await requireRecovered(host,input.session_token)
       const binding=await memory.prepareCaptureBinding(host,captured,input.idempotency_key)
       closed(binding,['target_identity','state_version','canonical_parameters','memory_capture'])
       if(canonicalJson(validateCaptureDraft(binding.memory_capture))!==canonicalJson(memoryCapture))fail('INVALID','EXACT_HOST_CAPTURE_DRAFT_REQUIRED')
@@ -203,13 +213,35 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
       validateContract('ApprovalProof',input.approval_proof);text(input.idempotency_key)
       requireMethod(memory,'captureAuthorizedRemembered')
       const {capture:captured}=preparePilotCapture(extraction(input.extraction_json),host.source?.at)
+      const digest=operationDigest(operation),proof=input.approval_proof
+      if(proof.operation_id!==operation.operation_id||proof.operation_digest!==digest
+        ||proof.owner_id!==operation.owner_id||proof.audience!==operation.audience
+        ||proof.authorization_epoch!==operation.authorization_epoch||Date.parse(proof.expiry)>Date.parse(operation.expiry))fail('INVALID','EXACT_SAVE_PROOF_REQUIRED')
+      const reference=await workflowStore.get(host,operation.operation_id)
+      if(reference.action_type!=='memory.save'||reference.operation_digest!==digest)fail('REPLAYED','DURABLE_MEMORY_OPERATION_CHANGED')
       await requireRecovered(host,input.session_token,operation.operation_id)
       // Refuse known input/state mismatches before recording an attempted
       // effect. D repeats this exact check under its dispatch/effect lock.
       const binding=await memory.prepareCaptureBinding(host,captured,input.idempotency_key)
+      if(reference.phase==='saved') {
+        // A completed effect advances the heads in its approved operation.
+        // Recheck the immutable capture/key/target, then read its actual D
+        // receipt and C terminal state; never enter reserve/dispatch again.
+        const savedParameters=operation.canonical_parameters,current=binding.canonical_parameters
+        for(const field of ['capture_sha256','idempotency_key_sha256','statement','attributed_to','capture_metadata','evidence_quote'])
+          if(canonicalJson(current[field])!==canonicalJson(savedParameters[field]))fail('TARGET_MISMATCH','EXACT_SAVED_CAPTURE_REQUIRED')
+        if(reference.idempotency_key_sha256!==current.idempotency_key_sha256
+          ||canonicalJson(binding.target_identity)!==canonicalJson(operation.target_identity))fail('TARGET_MISMATCH','EXACT_SAVED_CAPTURE_REQUIRED')
+        const recovered=await recovery.recover(host,input.session_token,operation.operation_id)
+        if(recovered.state!=='saved'||recovered.operation_digest!==digest
+          ||recovered.result?.record_id!==reference.record_id||recovered.receipt?.grant_id!=='grant:'+proof.nonce
+          ||recovered.authority_settlement!=='completed'||recovered.reconciliation_required!==false)fail('OUTCOME_UNKNOWN','DURABLE_SAVED_RECEIPT_REQUIRED')
+        return {ok:true,record:recovered.result,receipt:recovered.receipt,receipt_digest:recovered.receipt_digest,
+          authority_settlement:'completed',reconciliation_required:false}
+      }
       if(canonicalJson(binding.canonical_parameters)!==canonicalJson(operation.canonical_parameters)
         ||binding.state_version!==operation.expected_state_version||canonicalJson(binding.target_identity)!==canonicalJson(operation.target_identity))fail('TARGET_MISMATCH','EXACT_SAVE_PREFLIGHT_REQUIRED')
-      await workflowStore.attempt(host,operation.operation_id,operationDigest(operation))
+      await workflowStore.attempt(host,operation.operation_id,digest)
       const ref=host.owner_subject+'\0'+operation.operation_id;inFlight.add(ref)
       try {
         const result=await memory.captureAuthorizedRemembered(host,captured,input.idempotency_key,{operation,approval_proof:input.approval_proof})

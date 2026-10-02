@@ -2,8 +2,7 @@
 // Browser-safe owner action seam. H injects the existing authenticated adapter;
 // B owns the controller, signer, review display and approval-action hook.
 import {canonicalJson,validateContract,ERROR_CODES} from '../../contracts/src/shared.mjs'
-import {validateCaptureDraft,validateCaptureReview} from '../../memory/src/capture-review.mjs'
-import {validatePilotMetadata} from './pilot-capture.mjs'
+import {validateCaptureDraft,validateCaptureMetadata,validateCaptureReview} from '../../memory/src/capture-review.mjs'
 
 const DIGEST=/^sha256:[a-f0-9]{64}$/, HEX=/^[a-f0-9]{64}$/
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
@@ -15,6 +14,16 @@ const copy=value=>JSON.parse(canonicalJson(value))
 function immutable(value){if(value&&typeof value==='object'){for(const child of Object.values(value))immutable(child);Object.freeze(value)}return value}
 const boundedString=(value,max)=>typeof value==='string'&&value.length>0&&new TextEncoder().encode(value).length<=max
 const errorCode=value=>codes.has(value?.error_code)?value.error_code:codes.has(value?.code)?value.code:'UNAVAILABLE'
+function approvalInvocation(options){
+  if(options===undefined)return null
+  requireValue(options&&typeof options==='object'&&!Array.isArray(options)
+    &&Reflect.ownKeys(options).length===2,'OWNER_MEMORY_APPROVAL_INVOCATION_REQUIRED')
+  const signal=Object.getOwnPropertyDescriptor(options,'signal'),approve=Object.getOwnPropertyDescriptor(options,'approve')
+  requireValue(signal&&Object.hasOwn(signal,'value')&&approve&&Object.hasOwn(approve,'value')
+    &&typeof approve.value==='function'&&typeof globalThis.AbortSignal==='function'
+    &&signal.value instanceof globalThis.AbortSignal,'OWNER_MEMORY_APPROVAL_INVOCATION_REQUIRED')
+  return Object.freeze({signal:signal.value,approve:approve.value})
+}
 async function recoveryReply(value,owner){
   const reply=copy(closed(value,['ok','owner_id','owner_subject','task_id','operation_id','operation_digest','action_type','state','reconciliation_required','result','receipt','receipt_digest','authority_settlement','citation','index']))
   requireValue(reply.ok===true&&['idle','known_unsent','saved','forgotten','unknown'].includes(reply.state)
@@ -104,6 +113,13 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
   let state=immutable(initial()),active=null,proposalFlight=null,actionFlight=null,readFlight=null,disposed=false,blocked=false,blockedRef=null,generation=0,owner=controller.getSnapshot().owner
   const publish=patch=>{if(disposed)return;state=immutable({...state,...patch});for(const listener of listeners){try{listener()}catch{ /* Presentation listeners cannot change dispatch. */ }} }
   const current=entry=>!disposed&&entry.generation===generation&&controller.getSnapshot().owner===entry.owner
+  const releaseInvocation=flight=>{
+    if(!flight)return
+    flight.invocation=null
+    if(flight.abortListener){flight.signal.removeEventListener('abort',flight.abortListener);flight.abortListener=null}
+  }
+  const actionCurrent=flight=>current(flight.entry)&&!flight.signal?.aborted&&(!flight.ownedInvocation||flight.invocation!==null)
+  const requireAction=flight=>{if(!actionCurrent(flight))throw fault('UNAVAILABLE','OWNER_MEMORY_APPROVAL_INVOCATION_ENDED');ownerReady()}
   const ownerReady=()=>{const snapshot=controller.getSnapshot();if(!snapshot.owner||snapshot.authority_available!==true||snapshot.expired===true||Date.parse(snapshot.owner.expiry)<=Date.now())throw fault('UNAUTHORIZED','OWNER_MEMORY_CURRENT_OWNER_REQUIRED');return snapshot}
   const unavailable=()=>{publish({error_code:'UNAVAILABLE'});return Promise.resolve(state)}
   const refuse=(code='INVALID')=>{publish({error_code:code});return Promise.resolve(state)}
@@ -112,7 +128,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
   function cleared(phase){
     const confirmed=actionFlight?.entry.saved??active?.saved??(state.save==='saved'&&state.saved===true?{authority_settlement:state.authority_settlement}:null)
     const uncertain=(actionFlight?.entry.attempted===true&&!confirmed)||(state.save==='unknown'&&state.saved===null)
-    if(uncertain)blocked=true
+    if(uncertain||actionFlight?.entry.approvalUncertain&&!confirmed)blocked=true
     if(blocked&&!blockedRef){const entry=actionFlight?.entry??active;if(entry?.operation)blockedRef={operation_id:entry.operation.operation_id,digest:entry.digest,owner_id:entry.owner.owner_id}}
     // Hide the previous owner's record/receipt while retaining content-free
     // facts. Ending a session during reads cannot undo a confirmed save.
@@ -123,19 +139,23 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
   const off=controller.subscribe(()=>{
     const next=controller.getSnapshot().owner
     if(next===owner)return
+    releaseInvocation(actionFlight)
     const reset=cleared('idle');owner=next;generation++;active=null;publish(reset)
   })
 
-  async function readSaved(entry){
-    if(!current(entry))return state
+  async function readSaved(entry,flight=null){
+    const readable=()=>current(entry)&&(!flight||actionCurrent(flight))
+    const stopped=()=>{if(current(entry))publish({citation_status:entry.citation?.verdict.toLowerCase()??'unavailable',read_error_code:'UNAVAILABLE'});return state}
+    const readCurrent=action=>{if(!readable())throw fault('UNAVAILABLE','OWNER_MEMORY_READ_INVOCATION_ENDED');return action()}
+    if(!readable())return stopped()
     const read={record_id:entry.saved.record.record_id,revision:entry.saved.record.revision}
     publish({citation_status:'pending',read_error_code:null})
-    if(!current(entry))return state
-    const answers=await Promise.allSettled([Promise.resolve().then(()=>memory.status(read)),Promise.resolve().then(()=>memory.cite({...read,retained_head:entry.citation?.verified_head??null}))])
-    if(!current(entry))return state
+    if(!readable())return stopped()
+    const answers=await Promise.allSettled([Promise.resolve().then(()=>readCurrent(()=>memory.status(read))),Promise.resolve().then(()=>readCurrent(()=>memory.cite({...read,retained_head:entry.citation?.verified_head??null})))])
+    if(!readable())return stopped()
     let failed=null
     for(const [index,answer] of answers.entries()){
-      if(!current(entry))return state
+      if(!readable())return stopped()
       try{
         if(answer.status==='rejected')throw answer.reason
         if(answer.value?.ok!==true)throw fault(errorCode(answer.value),'OWNER_MEMORY_READ_UNAVAILABLE')
@@ -143,7 +163,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
         else{entry.citation=citeReply(answer.value,entry);publish({citation:entry.citation,citation_status:entry.citation.verdict.toLowerCase()})}
       }catch(error){failed=errorCode(error);if(index===1)publish({citation_status:'unavailable'})}
     }
-    if(!current(entry))return state
+    if(!readable())return stopped()
     publish({read_error_code:failed});return state
   }
 
@@ -176,9 +196,10 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
           const digest=await contracts.operationDigest(operation)
           if(!current(entry))return state
           requireValue(DIGEST.test(digest),'OWNER_MEMORY_OPERATION_DIGEST_REQUIRED')
-          const metadata=proposed.capture_metadata?validatePilotMetadata(copy(proposed.capture_metadata)):null
+          const metadata=immutable(validateCaptureMetadata(copy(capture.capture_metadata)))
+          if(Object.hasOwn(proposed,'capture_metadata'))requireValue(canonicalJson(validateCaptureMetadata(copy(proposed.capture_metadata)))===canonicalJson(metadata),'OWNER_MEMORY_CAPTURE_METADATA_REQUIRED')
           Object.assign(entry,{operation,memory_capture:capture,digest,operation_json:canonicalJson(operation),metadata})
-          controller.setOperation(operation,{memoryCapture:capture,...(metadata?{captureMetadata:metadata}:{})})
+          controller.setOperation(operation,{memoryCapture:capture,captureMetadata:metadata})
           if(!current(entry))return state
           active=entry
           publish({phase:'proposed',operation,memory_capture:capture,operation_digest:digest,error_code:null});return state
@@ -186,30 +207,40 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
         finally{if(proposalFlight===flight)proposalFlight=null}
       });return flight.promise
     },
-    approveAndSave(){
+    approveAndSave(options){
       if(disposed)return unavailable()
-      if(actionFlight)return actionFlight.promise
+      let invocation
+      try{invocation=approvalInvocation(options)}catch(error){return actionFlight?Promise.resolve(immutable({...state,error_code:errorCode(error)})):refuse(errorCode(error))}
+      if(actionFlight)return actionCurrent(actionFlight)&&actionFlight.ownedInvocation===(invocation!==null)
+        &&(!invocation||actionFlight.invocation?.approve===invocation.approve&&actionFlight.signal===invocation.signal)?actionFlight.promise:Promise.resolve(immutable({...state,error_code:'UNAVAILABLE'}))
+      if(invocation?.signal.aborted)return refuse('UNAVAILABLE')
       if(blocked)return refuse('RECONCILIATION_REQUIRED')
       if(proposalFlight||readFlight||!active)return refuse('UNAVAILABLE')
       const entry=active
-      if(entry.attempted)return refuse('REPLAYED')
+      if(entry.attempted||entry.proofConfirmed)return refuse('REPLAYED')
       try{
         const snapshot=ownerReady(),view=snapshot.presentation
         requireValue(current(entry)&&snapshot.phase==='review_ready'&&view&&canonicalJson(view.operation)===entry.operation_json&&view.operation_digest===entry.digest,'OWNER_MEMORY_EXACT_REVIEW_REQUIRED')
-        validateCaptureReview(entry.operation.canonical_parameters,{statement:view.memory_review?.statement,attributed_to:view.memory_review?.attributed_to})
-        requireValue(view.memory_review.capture_sha256===entry.operation.canonical_parameters.capture_sha256,'OWNER_MEMORY_EXACT_REVIEW_CAPTURE_REQUIRED')
+        validateCaptureReview(entry.operation.canonical_parameters,entry.memory_capture)
+        requireValue(view.memory_review?.statement===entry.memory_capture.statement&&view.memory_review?.attributed_to===entry.memory_capture.attributed_to
+          &&view.memory_review?.evidence_quote===entry.memory_capture.evidence_quote
+          &&canonicalJson(view.memory_review?.capture_metadata)===canonicalJson(entry.memory_capture.capture_metadata)
+          &&view.memory_review?.capture_sha256===entry.operation.canonical_parameters.capture_sha256,'OWNER_MEMORY_EXACT_REVIEW_CAPTURE_REQUIRED')
       }catch(error){publish({phase:'refused',error_code:errorCode(error)});return Promise.resolve(state)}
-      const flight={entry,promise:null};actionFlight=flight
+      const flight={entry,promise:null,invocation,ownedInvocation:invocation!==null,signal:invocation?.signal??null,abortListener:null};actionFlight=flight
+      if(flight.signal){flight.abortListener=()=>releaseInvocation(flight);flight.signal.addEventListener('abort',flight.abortListener,{once:true})}
       flight.promise=Promise.resolve().then(async()=>{
         try{
-          if(!current(entry))return state
+          requireAction(flight)
           publish({phase:'approval_pending',approval:'pending',error_code:null})
-          if(!current(entry))return state
-          // Direct controller API: calling B's submitApproval hook here recurses.
-          const approved=await controller.approve()
-          if(!current(entry))return state
-          if(!approved){const snapshot=controller.getSnapshot();if(snapshot.phase==='outcome_unknown')return unknown(entry);publish({phase:'refused',approval:'refused',error_code:codes.has(snapshot.error_code)?snapshot.error_code:'UNAVAILABLE'});return state}
-          entry.approvalReturned=true
+          requireAction(flight)
+          // B's owned hook supplies its private invocation. Only an explicit
+          // direct workflow call without options uses the native raw API.
+          entry.approvalUncertain=true
+          const approved=await (flight.ownedInvocation?flight.invocation.approve():controller.approve())
+          if(approved)entry.approvalReturned=true
+          requireAction(flight)
+          if(!approved){entry.approvalUncertain=false;const snapshot=controller.getSnapshot();if(snapshot.phase==='outcome_unknown')return unknown(entry);publish({phase:'refused',approval:'refused',error_code:codes.has(snapshot.error_code)?snapshot.error_code:'UNAVAILABLE'});return state}
           const result=copy(closed(approved,['status','approval_proof'])),proof=result.approval_proof
           validateContract('ApprovalProof',proof)
           const snapshot=ownerReady()
@@ -217,22 +248,35 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
             &&proof.operation_id===entry.operation.operation_id&&proof.operation_digest===entry.digest&&proof.owner_id===entry.operation.owner_id
             &&proof.audience===entry.operation.audience&&proof.authorization_epoch===entry.operation.authorization_epoch
             &&Date.parse(proof.expiry)>Date.now()&&Date.parse(proof.expiry)<=Date.parse(entry.operation.expiry),'OWNER_MEMORY_EXACT_APPROVAL_REQUIRED')
+          entry.proofConfirmed=true;entry.approvalUncertain=false
           publish({approval:'approved'})
-          if(!current(entry))return state
+          requireAction(flight)
           entry.grant_id='grant:'+proof.nonce
           publish({phase:'save_pending',save:'pending',saved:null})
-          if(!current(entry))return state
+          requireAction(flight)
           entry.attempted=true;usedKeys.add(entry.draft.idempotency_key)
           const reply=await memory.save({...entry.draft,operation:entry.operation,approval_proof:proof})
-          if(!current(entry))return state
+          requireAction(flight)
           if(reply?.ok!==true){const code=errorCode(reply);if(['UNAVAILABLE','OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(code)||reply?.reconciliation_required===true)return unknown(entry);publish({phase:'refused',save:'refused',saved:false,error_code:code});return state}
           entry.saved=savedReply(reply,entry)
           if(entry.saved.reconciliation_required){blocked=true;blockedRef={operation_id:entry.operation.operation_id,digest:entry.digest,owner_id:entry.owner.owner_id}}
           publish({phase:'saved',save:'saved',saved:true,record:entry.saved.record,receipt:entry.saved.receipt,receipt_digest:entry.saved.receipt_digest??null,index:{status:entry.saved.record.index_status,indexed:null,searchable:null},
             authority_settlement:entry.saved.authority_settlement,reconciliation_required:entry.saved.reconciliation_required,error_code:entry.saved.reconciliation_required?'RECONCILIATION_REQUIRED':null})
-          return await readSaved(entry)
-        }catch(error){if(entry.attempted||entry.approvalReturned||['OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(errorCode(error)))return unknown(entry);if(current(entry))publish({phase:'refused',approval:'refused',error_code:errorCode(error)});return state}
-        finally{if(actionFlight===flight)actionFlight=null}
+          return await readSaved(entry,flight)
+        }catch(error){
+          // The local guard can end a confirmed approval before this helper
+          // ever invokes the effect. That fact grants no retry of this entry
+          // and says nothing about an attempted bridge journal row.
+          if(entry.proofConfirmed&&!entry.attempted&&!actionCurrent(flight)){
+            if(current(entry))publish({phase:'refused',approval:'approved',save:'not_attempted',saved:false,
+              reconciliation_required:blocked,error_code:blocked?'RECONCILIATION_REQUIRED':'UNAVAILABLE'})
+            return state
+          }
+          if(entry.attempted||entry.approvalReturned||entry.approvalUncertain||['OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(errorCode(error)))return unknown(entry)
+          if(current(entry))publish({phase:'refused',approval:'refused',error_code:errorCode(error)})
+          return state
+        }
+        finally{releaseInvocation(flight);if(actionFlight===flight)actionFlight=null}
       });return flight.promise
     },
     refresh(){
@@ -285,6 +329,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
     async logout(){
       // The controller removes local owner state before the existing adapter
       // revokes C's durable token. Ending access never cancels a dispatched save.
+      releaseInvocation(actionFlight)
       const ownerLogout=controller.logout?.()
       // B also owns a completion flight around this same adapter revocation.
       // Waiting for it lets the next ordinary login start after both flights
@@ -293,7 +338,7 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
       if(typeof memory.logout!=='function')return {ok:false,error_code:'UNAVAILABLE',reason:'OWNER_LOGOUT_UNMOUNTED'}
       return memory.logout()
     },
-    dispose(){if(disposed)return;const reset=cleared('unavailable');generation++;active=null;off();state=immutable({...reset,error_code:reset.error_code??'UNAVAILABLE'});disposed=true;for(const listener of listeners){try{listener()}catch{}}listeners.clear()},
+    dispose(){if(disposed)return;releaseInvocation(actionFlight);const reset=cleared('unavailable');generation++;active=null;off();state=immutable({...reset,error_code:reset.error_code??'UNAVAILABLE'});disposed=true;for(const listener of listeners){try{listener()}catch{}}listeners.clear()},
   }
   return Object.freeze(api)
 }

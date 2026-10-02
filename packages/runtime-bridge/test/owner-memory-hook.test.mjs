@@ -24,7 +24,7 @@ async function hookedFixture(t) {
   assert.equal(typeof f.controller.setApprovalAction,'function','the external B controller must provide the approved hook seam')
   assert.equal(typeof f.controller.submitApproval,'function','the external B controller must provide the owner submission method')
   let hookCalls=0
-  const attach=()=>f.controller.setApprovalAction(()=>{hookCalls++;return f.workflow.approveAndSave()})
+  const attach=()=>f.controller.setApprovalAction((_view,options)=>{hookCalls++;return f.workflow.approveAndSave(options)})
   attach()
   return {...f,attach,detach:()=>f.controller.setApprovalAction(null),hookCalls:()=>hookCalls}
 }

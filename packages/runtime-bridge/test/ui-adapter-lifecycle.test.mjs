@@ -26,6 +26,10 @@ function refused(outcome) {
   else assert.equal(outcome.value?.ok,false,JSON.stringify(outcome.value))
 }
 async function expectRefusal(action){refused(await observe(Promise.resolve().then(action)))}
+function deniedSession(authority,session_token){
+  const result=authority.authenticateSession({session_token})
+  assert.equal(result.ok,false);assert.equal(result.error_code,'UNAUTHORIZED')
+}
 
 function deliveryGate() {
   const entries=[],waiters=[]
@@ -108,7 +112,7 @@ test('a real successful login reply arriving after logout cannot restore the ada
   const pending=observe(f.complete(challenge));await gate.entered(1)
   const completed=ok(gate.entries[0].result)
   ok(f.auth.service.authenticateSession({session_token:completed.session_token}))
-  f.adapters.logout();f.unhold('owner.loginComplete',gate)
+  await f.adapters.logout();f.unhold('owner.loginComplete',gate)
   refused(await pending)
   await expectRefusal(()=>f.adapters.memory.proposeSave(draft('after-logout')))
   assert.equal(f.count('memory.proposeSave'),0);assert.equal(f.operations().length,0);f.noMemoryEffects()
@@ -131,23 +135,31 @@ test('an older real login reply cannot replace the token from a newer completed 
 for(const nextLogin of [false,true]) {
   test('an old decline token cannot mutate a real proposal after '+(nextLogin?'a new login':'logout'),async t=>{
     const f=await fixture(t),session=await f.login(),proposed=ok(await f.adapters.memory.proposeSave(draft('stale-decline')))
-    f.adapters.logout();if(nextLogin)await f.login()
+    assert.equal(ok(await f.adapters.logout()).status,'LOGGED_OUT')
+    deniedSession(f.auth.service,session.session_token)
+    if(nextLogin)await f.login()
+    const persisted=structuredClone(f.operations())
     await expectRefusal(()=>f.adapters.authority.declineApproval({session_token:session.session_token,operation_id:proposed.operation.operation_id}))
     assert.equal(f.count('owner.declineApproval'),0)
-    assert.equal(ok(f.auth.service.status({session_token:session.session_token,operation_id:proposed.operation.operation_id})).status,'PROPOSED')
-    assert.equal(f.operations().length,1);assert.equal(f.operations()[0].status,'PROPOSED');f.noMemoryEffects()
+    deniedSession(f.auth.service,session.session_token)
+    assert.deepEqual(f.operations(),persisted,'the rejected old decline changes no actual persisted C operation')
+    assert.equal(f.operations().length,1);f.noMemoryEffects()
   })
 
   test('a delayed real proposal cannot retain a capture after '+(nextLogin?'a new login':'logout'),async t=>{
     const f=await fixture(t),session=await f.login(),gate=f.gate('memory.proposeSave'),input=draft('stale-proposal')
     const pending=observe(f.adapters.memory.proposeSave(input));await gate.entered(1)
     const proposed=ok(gate.entries[0].result)
-    f.adapters.logout();if(nextLogin)await f.login()
+    assert.equal(ok(await f.adapters.logout()).status,'LOGGED_OUT')
+    deniedSession(f.auth.service,session.session_token)
+    const current=nextLogin?await f.login():null,persisted=structuredClone(f.operations())
     f.unhold('memory.proposeSave',gate);refused(await pending)
-    await expectRefusal(()=>f.adapters.authority.approvalChallenge({session_token:session.session_token,operation:proposed.operation}))
-    await expectRefusal(()=>f.adapters.memory.save({...input,operation:proposed.operation}))
+    const refusedReview=await f.adapters.authority.approvalChallenge({session_token:current?.session_token??session.session_token,operation:proposed.operation})
+    assert.equal(refusedReview.ok,false)
+    assert.equal(refusedReview.reason,nextLogin?'UI_EXACT_CAPTURE_REQUIRED':'UI_SESSION_CHANGED')
     assert.equal(f.count('owner.approvalChallenge'),0);assert.equal(f.count('memory.save'),0)
-    assert.equal(f.operations().length,1);assert.equal(f.operations()[0].status,'PROPOSED');f.noMemoryEffects()
+    assert.deepEqual(f.operations(),persisted,'late proposal delivery changes no actual persisted C operation')
+    assert.equal(f.operations().length,1);f.noMemoryEffects()
   })
 
   test('a delayed real review cannot be completed after '+(nextLogin?'a new login':'logout'),async t=>{
@@ -155,17 +167,21 @@ for(const nextLogin of [false,true]) {
     const gate=f.gate('owner.approvalChallenge')
     const pending=observe(f.adapters.authority.approvalChallenge({session_token:session.session_token,operation:proposed.operation}))
     await gate.entered(1);const review=ok(gate.entries[0].result)
-    f.adapters.logout();if(nextLogin)await f.login()
+    assert.equal(ok(await f.adapters.logout()).status,'LOGGED_OUT')
+    deniedSession(f.auth.service,session.session_token)
+    if(nextLogin)await f.login()
+    const persisted=structuredClone(f.operations())
     const proof={...review.proof_template,material:f.auth.assertion(review.public_key.challenge)}
     contracts.validateContract('ApprovalProof',proof)
     f.unhold('owner.approvalChallenge',gate);refused(await pending)
     await expectRefusal(()=>f.adapters.authority.approvalComplete({session_token:session.session_token,proof}))
-    assert.equal(f.count('owner.approvalComplete'),0);assert.equal(f.operations()[0].approval,null)
-    assert.equal(f.operations()[0].grant,null);f.noMemoryEffects()
+    assert.equal(f.count('owner.approvalComplete'),0)
+    assert.deepEqual(f.operations(),persisted,'the rejected old review changes no actual persisted C operation')
+    f.noMemoryEffects()
   })
 }
 
-test('16 pending real proposals reserve adapter capacity before awaiting their replies',async t=>{
+test('16 pending real proposal replies reserve adapter capacity and a decline releases a slot',async t=>{
   const f=await fixture(t),session=await f.login(),gate=f.gate('memory.proposeSave')
   const pending=Promise.allSettled(Array.from({length:40},(_,index)=>f.adapters.memory.proposeSave(draft('parallel-'+index))))
   await gate.entered(16)
@@ -182,28 +198,32 @@ test('16 pending real proposals reserve adapter capacity before awaiting their r
   assert.equal(denied.ok,false);assert.equal(f.count('memory.proposeSave'),16)
   const first=gate.entries[0].result.operation
   ok(await f.adapters.authority.declineApproval({session_token:session.session_token,operation_id:first.operation_id}))
-  ok(await f.adapters.memory.proposeSave(draft('released-capacity')))
+  assert.equal(ok(f.auth.service.status({session_token:session.session_token,operation_id:first.operation_id})).status,'DENIED')
+  const fresh=ok(await f.adapters.memory.proposeSave(draft('released-capacity')))
   assert.equal(f.count('memory.proposeSave'),17)
-  assert.equal(f.operations().filter(row=>row.status==='PROPOSED').length,16);f.noMemoryEffects()
+  assert.equal(ok(f.auth.service.status({session_token:session.session_token,operation_id:fresh.operation.operation_id})).status,'PROPOSED')
+  f.noMemoryEffects()
 })
 
-test('16 pending real review challenges reserve adapter capacity before awaiting their replies',async t=>{
-  const f=await fixture(t),session=await f.login(),proposals=[]
-  for(let index=0;index<16;index++)proposals.push(ok(await f.adapters.memory.proposeSave(draft('review-'+index))).operation)
+test('16 pending real reviews of one live proposal reserve capacity and delivery releases their reservations',async t=>{
+  const f=await fixture(t),session=await f.login()
+  const proposal=ok(await f.adapters.memory.proposeSave(draft('review-live-proposal'))).operation
   const gate=f.gate('owner.approvalChallenge')
-  const pending=Promise.allSettled(Array.from({length:40},(_,index)=>f.adapters.authority.approvalChallenge({
-    session_token:session.session_token,operation:proposals[index%proposals.length]})))
+  const input={session_token:session.session_token,operation:proposal}
+  const pending=Promise.allSettled(Array.from({length:40},()=>f.adapters.authority.approvalChallenge(input)))
   await gate.entered(16)
   assert.equal(f.count('owner.approvalChallenge'),16,'only reserved calls create actual C challenges')
-  for(const entry of gate.entries)ok(entry.result)
-  assert.equal(f.operations().filter(row=>row.review!==null).length,16);f.noMemoryEffects()
+  for(const entry of gate.entries)assert.deepEqual(ok(entry.result).operation,proposal)
+  assert.equal(f.operations().length,1);f.noMemoryEffects()
   f.unhold('owner.approvalChallenge',gate)
   const replies=await pending
   assert.equal(replies.filter(reply=>reply.status==='fulfilled'&&reply.value.ok===true).length,16)
-  for(const reply of replies.filter(reply=>reply.status!=='fulfilled'||reply.value.ok!==true)) {
-    assert.equal(reply.status,'fulfilled');assert.equal(reply.value.error_code,'UNAVAILABLE');assert.match(reply.value.reason,/UI_REVIEW_(QUOTA|PENDING)/)
+  const denied=replies.filter(reply=>reply.status!=='fulfilled'||reply.value.ok!==true)
+  assert.equal(denied.length,24)
+  for(const reply of denied) {
+    assert.equal(reply.status,'fulfilled');assert.equal(reply.value.error_code,'UNAVAILABLE');assert.equal(reply.value.reason,'UI_REVIEW_QUOTA')
   }
-  const denied=await f.adapters.authority.approvalChallenge({session_token:session.session_token,operation:proposals[0]})
-  assert.equal(denied.ok,false);assert.equal(f.count('owner.approvalChallenge'),16)
-  assert.equal(f.operations().length,16);f.noMemoryEffects()
+  assert.deepEqual(ok(await f.adapters.authority.approvalChallenge(input)).operation,proposal)
+  assert.equal(f.count('owner.approvalChallenge'),17,'completed delivery releases the pending reservations')
+  assert.equal(f.operations().length,1);f.noMemoryEffects()
 })
