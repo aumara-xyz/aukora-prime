@@ -8,13 +8,13 @@ node packages/ui/scripts/build-client.mjs --dsh vendor/dsh --only prime-authorit
 
 The compiler runs in a fresh disposable overlay. The recipe clears only the overlay's owner `lib/types` and incremental cache, copies adapters and their declarations into both source-typecheck and compiled-bundle resolution seats, then typechecks and bundles. It performs no install and never writes donor faces or the input harness.
 
-The generated `.runtime/owner-client/build.json` is receipt version 2. `source_commit` retains its historical meaning as the pinned DSH upstream commit. `upstream_commit` repeats that pin and `source_commit_attribution` explicitly excludes a Prime/UI commit claim. Source identity is the actual input path, byte count, and SHA256 closure under `owner_build`.
+The generated `.runtime/owner-client/build.json` is receipt version 3. `source_commit` retains its historical meaning as the pinned DSH upstream commit. `upstream_commit` repeats that pin and `source_commit_attribution` explicitly excludes a Prime/UI commit claim. Source identity is the actual input path, byte count, and SHA256 closure under `owner_build`.
 
-`owner_build` version 1 records:
+`owner_build` version 2 records:
 
 - `source_inputs`: independently discovered owner `src`, package/config, all top-level adapter `.mjs` and `.d.mts` files, build recipe/verifier, compatibility/baseline pins, available capture-review provenance, and frozen Layout source/config/bundle dependency. Paths are relative to `packages/ui`.
 - `source_inputs_before_sha256` and `source_inputs_after_sha256`: equal hashes of that ordered record array before and after compilation. Both actual overlay adapter seats must match the local UI closure. A changed input refuses the build receipt.
-- `build_inputs`: hashes of the actual overlay's shared DSH `clientBundle` helper and its runtime helper imports, compiler configuration, lock and pinned harness receipt; the generated owner config; and separate declared dependency/build tool package metadata and versions. Paths are relative to their stated Prime UI or pinned-harness origin.
+- `build_inputs`: hashes of the actual overlay's shared DSH `clientBundle` helper and its runtime helper imports, compiler configuration, lock and verified stable pinned-harness identity; the generated owner config; and separate declared dependency/build tool package metadata and versions. Paths are relative to their stated Prime UI or pinned-harness origin.
 - `build_inputs_before_sha256` and `build_inputs_after_sha256`: equal hashes before and after compilation.
 - `output_artifacts`: client JavaScript, sourcemap, every regular file in the generated `lib/types` (including declarations, JavaScript/maps, and source-copied controller files), and the copied Prime no-op host. `path` is the canonical package path, such as `prime-authority/lib/client.js`; `output_path` is its location relative to the recipe output, such as `prime-authority/client.js`. Copied controller runtime and declaration bytes must exactly match their source inputs.
 

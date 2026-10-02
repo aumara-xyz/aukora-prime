@@ -10,7 +10,7 @@ AUKORA is an open, AGPL personal-AI foundation where the human holds identity, m
 
 ## Check it yourself
 
-Use Node 24.11.1 and an existing Python 3.9 or later at `/usr/bin/python3`, the verifier’s fixed Python path. In a checkout of this repository, run:
+Use Node 24.11.1, an existing Python 3.9 or later at `/usr/bin/python3`, and an environment that permits disposable private Unix-domain sockets. Restricted sandboxes can reject the IPC fixtures with `EPERM`; retain that failed/blocked result rather than treating it as PASS. In a checkout of this repository, run:
 
 ```sh
 ./prime verify
@@ -27,6 +27,8 @@ cd aukora-prime
 For a standalone sanitized source bundle, use `git clone --branch main aukora-prime-sanitized.bundle aukora-prime`, then run the same command. A bundle’s default branch can otherwise differ from its contained `main` ref.
 
 **RAN at source checkpoint `e9908aa39a24fc57970662e94882fdc63f5087a0`:** the mandatory 37-check source profile passed in a fresh source-only clone, exit 0, in 106.158 seconds. The [sanitized result](docs/evidence/source-profile-e9908aa.json) reports every job and the explicit UNPERFORMED list. Broader requested repaired-core coverage is still being reconciled; this is not a whole-core PASS. [The profile description](packages/ops/fast-verify/README.md) records the earlier ordinary scope and its exclusions. The separate snapshot interface remains `./prime verify SNAPSHOT OWNER [RETAINED_HEADS_JSON]`.
+
+An independent cold run at `b336753` returned 36 PASS / 1 FAIL in 154.599 seconds. Its host-check diagnostic found `listen EPERM` before the Unix-socket protocol assertions, so independent cold acceptance remains environment-blocked. The recorded root runs do not replace that result or justify weakening the required assertion.
 
 **HISTORICAL RAN at source checkpoint `0d3d8f3c27e86b08798d032b75b7f32d05e0424d`:** all eight ordinary checks completed PASS with exit 0. This predates the widened full profile and later P0 repairs; it does not close all current requirements. The earlier frozen review checkpoint `1b7bd3d7909996c8d515a5c588059e5b2257e39a` also passed, including cold source-archive verification without a harness build or dependency installation. Run the command at the revision you actually received and report that revision and output. The [earlier recorded source output](docs/evidence/publication-source-verification.json) identifies its own checkpoint and is historical evidence.
 

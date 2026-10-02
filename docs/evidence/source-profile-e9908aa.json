@@ -433,5 +433,20 @@
     "assertions": 88,
     "guard_mutation": "KILLED in disposable copy",
     "scope": "Source-handler refusal before donor callback; no browser or deployed behavior claim."
+  },
+  "independent_cold_observation": {
+    "source_commit": "b336753488a2a70adcefd82a95909263dbe26c5a",
+    "status": "FAIL",
+    "counts": {
+      "pass": 36,
+      "fail": 1,
+      "unperformed": 0
+    },
+    "exit_code": 1,
+    "duration_ms": 154599,
+    "failed_job": "full-owner-memory-host",
+    "diagnostic": "Same host-check diagnostic:5 PASS/1 FAIL, listen EPERM before private Unix-socket protocol assertions.",
+    "classification": "ENVIRONMENT_BLOCKED_INDEPENDENT_VERIFICATION",
+    "policy": "Retain failure; do not skip assertions, label as PASS, or reroute the denied action. Existing authorized gate workflows remain separate observations."
   }
 }

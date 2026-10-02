@@ -1165,7 +1165,7 @@
     "OpenShell gateway image, OS/native libraries, optional provider executables and frozen browser-asset correspondence require an exact binary release inventory."
   ],
   "publication_metadata_observation": {
-    "scope": "Current source-only metadata after approved publication adaptation; original baseline rows and exact upstream notice hashes above remain historical.",
+    "scope": "Historical publication-adaptation metadata snapshot. Package byte hashes describe that observation, not the current evolving checkout; original baseline rows and exact upstream notice hashes remain historical.",
     "owned_package_count": 22,
     "owned_license_variant": "AGPL-3.0-or-later",
     "owned_packages": [

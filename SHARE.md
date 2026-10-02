@@ -6,7 +6,7 @@ You are reviewing AUKORA, an open-source (AGPL-3.0-or-later) foundation for pers
 
 Read [the README verification instructions](README.md#check-it-yourself), its [status](README.md#status) and [known gaps](README.md#known-gaps). Use [the architecture and setup instructions](docs/ARCHITECTURE.md#build-and-operator-interface) to distinguish a cold source review from a configured deployment. The public review needs the source-check prerequisites; it does not need owner enrollment, provider credentials, a database or an OpenShell guest.
 
-This is a suggested checklist; the reviewer’s request and governing instructions take precedence. Record the received revision and run the configured full source profile with Node 24.11.1 and an existing Python 3.9 or later at `/usr/bin/python3`:
+This is a suggested checklist; the reviewer’s request and governing instructions take precedence. Record the received revision and run the configured full source profile with Node 24.11.1 and an existing Python 3.9 or later at `/usr/bin/python3`, in an environment permitting disposable private Unix-domain socket fixtures:
 
 ```sh
 git rev-parse HEAD
