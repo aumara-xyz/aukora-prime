@@ -95,8 +95,12 @@ jobs and 118 references across 85 paths; those are superseded declaration counts
 Its H client adjustment from 53 to 55 is also historical review metadata.
 Counters have different units, so their sum does not count independent tests. A changed
 required entry is UNPERFORMED until its new bytes and literal pin are reviewed.
-`source_review_commit: null` remains the absence of checkout attestation; the
-checkpoint and closure receipt attribute source declarations separately.
+`source_review_commit` names the historical literal pin-review base and is
+explicitly labelled `LITERAL_PIN_REVIEW_BASE_NOT_INVOCATION`. The separate
+`source_invocation_commit` records Git HEAD only when bounded before/after
+observations match; otherwise it is null. Mutable same-UID Git metadata does not
+attest source bytes, worktree cleanliness, loaded code or runtime. The outer
+reader must bind the frozen source revision, evaluator hashes and both results.
 
 A required missing, duplicate or unexpected title, SKIP, TODO, missing label or
 counter mismatch is FAIL. The reviewed TAP profile is flat; unsupported nesting
@@ -164,7 +168,10 @@ entry files are unique except the purposeful second joined mode. Final acceptanc
 by the integrator and an independent clean-copy reader. Any source correction
 requires refreezing and rerunning both. No subset selector, framework or caller
 CLI option is introduced. The planned `prime-v1.2-research-review` reference and an
-external immutable receipt bind exact source identity and both results. The
+external immutable receipt bind exact source identity and both results. The latest [8bd failed record](../../../docs/evidence/source-profile-8bd7dbb.json)
+retains 63 PASS / 2 FAIL / 1 UNPERFORMED: both required counters completed but
+existing live qualification annotations were rejected by the decoder. Worker and
+authority jobs passed. The
 [54c failed record](../../../docs/evidence/source-profile-54c4a306.json) retains
 63 PASS / 2 FAIL / 1 UNPERFORMED; the [earlier 9c8 record](../../../docs/evidence/source-profile-9c8f5c1.json)
 retains 58 PASS / 2 FAIL / 6 UNPERFORMED. Final paired verification remains pending.
@@ -210,7 +217,7 @@ The initial source-budget declaration remains historical in PROVENANCE.json.
 Existing 15000/20000/30000 ms
 ordinary bounds remain unchanged. Prerequisite probing and execution share each
 case deadline. Output is capped at 65536 bytes. These are budgets, not a completion
-promise or kernel-enforced deadline. The retained failed runs took 209966 ms and 242303 ms; corrected final-pair
+promise or kernel-enforced deadline. The retained failed runs took 209966 ms, 242303 ms and 341689 ms; corrected final-pair
 duration is UNMEASURED and the wall target is null. Each full result must record
 actual duration.
 
@@ -235,8 +242,9 @@ private disposable engine fixture using tiny closed synthetic manifests. It
 covers coverage-accounting and summary refusals, not the 66-job product source
 union or runtime qualification. The original root observation of 40 orchestration checks PASS in 8269 ms and
 pre-aborted66 CANCELLED result remain historical. The corrected runner passed
-43 disposable orchestration checks, including nested JSON group labels and the
-closed worker socket binding. Those engine checks establish no product completion
+46 disposable orchestration checks, including nested JSON group labels and the
+closed worker socket binding, exact source qualification annotations, all12
+producer schemas and invocation metadata. Those engine checks establish no product completion
 or runtime qualification.
 
 The current literal inventory contains 142 references across 101 source paths,
@@ -252,3 +260,23 @@ private evidence directory. Fixture socket paths are bounded before creation,
 while config/state retain their original case TMPDIR. The binding is absent from
 probes, other jobs and inherited caller environment. No alternate root is
 discovered, no refused bind is retried, and production IPC validation is unchanged.
+
+Only two existing pinned JSON jobs may annotate the selected root summary with
+scalar `UNPERFORMED` in their exact live-qualification field. They still require
+source PASS and exact counters. The same scalar in required status/result, nested
+results or another field/job remains a failure; counts, failure lists and required
+SKIP/TODO markers stay strict. This narrow distinction reports the source checks
+without pretending that live authentication or public qualification ran.
+
+Source-check wrappers use the documented `umask 0022`; private fixture state
+retains explicit restrictive modes. The first independent8bd wrapper accidentally
+set childumask0077, which is recorded separately from the integrator environment.
+Its failed outcome remains retained; environment correction is not a product
+assertion relaxation. An external PostgreSQL SKIP remains UNPERFORMED even when a
+required failure makes its whole job FAIL and aggregate UNPERFORMED-job count zero.
+
+Invocation metadata is observed read-only through bounded `/usr/bin/git`
+`rev-parse` calls with fixed arguments and no inherited credentials/global config.
+Unobserved or changed metadata records no invocation commit; it never turns a
+required failure into PASS. The pin-review basis remains separately historical.
+No future invocation SHA is embedded in the manifest or supplied by a caller.

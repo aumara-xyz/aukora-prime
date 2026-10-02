@@ -173,7 +173,9 @@ The initial review basis and its original manifest remain historical in PROVENAN
 The corrected final profile awaits two complete runs at the same frozen revision:
 integrator and independent clean-copy reader. The planned `prime-v1.2-research-review`
 reference and external immutable receipt must identify that exact source and both
-results. The retained [54c failed run](../../docs/evidence/source-profile-54c4a306.json)
+results. The most recent [8bd failed run](../../docs/evidence/source-profile-8bd7dbb.json)
+returned 63 PASS / 2 FAIL / 1 UNPERFORMED after the decoder rejected honest live
+qualification annotations; worker and authority jobs passed. The retained [54c failed run](../../docs/evidence/source-profile-54c4a306.json)
 returned 63 PASS / 2 FAIL / 1 UNPERFORMED; the prior 9c8 failed run returned
 58 PASS / 2 FAIL / 6 UNPERFORMED. Older H37 results and its independent
 36-PASS/1-host-FAIL observation remain separately attributed. The previous denied
@@ -189,8 +191,20 @@ The 600000 ms suite and 120000 ms full-TAP limits remain. The exact pinned
 `authority-core-only` job has a 180000 ms exception; other non-TAP jobs retain
 60000 ms maximum and existing shorter bounds. Output is capped at 65536 bytes
 and the direct Node heap at 512 MiB. The inference mock retains 20000 ms.
-These are cooperative budgets, not containment. The two historical failed66
-runs took 209966 ms and 242303 ms; final-pair duration remains unmeasured.
+These are cooperative budgets, not containment. The three historical failed66
+runs took 209966 ms, 242303 ms and 341689 ms; final-pair duration remains unmeasured.
 The E total-budget gate is absent from this source profile: UNPERFORMED, deferral
 intent UNKNOWN pending its owner. Archive verification is unchanged; qualification
 stays UNPERFORMED and G1 stays PENDING.
+
+The decoder distinguishes required-test incompletion from the two existing root
+qualification annotations in exact pinned jobs: `live_auth: UNPERFORMED` and
+`public_qualification: UNPERFORMED`. Required counters stay exact and numeric;
+changed jobs, nested fields, unknown annotations, required skips/TODOs and failed
+results still refuse. No source test output or assertion was changed.
+
+The historical `source_review_commit` is explicitly a literal pin-review basis.
+Separate before/after invocation HEAD observations identify mutable Git metadata;
+they are not checkout, worktree, loaded-code or runtime attestation. The outer
+review receipt must bind the frozen source and both complete results. The final
+46-check engine observation covers all12 selected JSON schemas and this distinction.

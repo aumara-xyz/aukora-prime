@@ -18,6 +18,8 @@ const focusedChecks = new Set([
   'hook-prerequisite-and-main-execution-share-case-deadline', 'tap-summary-cannot-hide-failure-cancellation-skip-or-todo',
   'json-summary-must-be-unambiguous-pass-with-no-required-incomplete-counts',
   'json-ancillary-group-labels-preserve-counts-and-incomplete-refusals',
+  'two-pinned-source-qualification-annotations-never-hide-required-incompletion',
+  'all-selected-json-producer-schemas-preserve-required-counts-and-failures', 'invocation-git-metadata-is-distinct-from-pin-review-and-functional-results',
   'only-compiled-hook-and-host-bindings-propagate-and-provider-env-is-scrubbed',
   'worker-socket-binding-is-one-reviewed-job-and-never-caller-environment',
   'closed-protocol-schemas-and-reviewed-case-caps-refuse-before-spawn',
@@ -460,6 +462,89 @@ try {
     assert.equal(rootLabels.cases[0].reason, 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE')
     const ambiguous = await assertJson(JSON.stringify({groups: ['named group']}) + '\n' + JSON.stringify({status: 'PASS', checks: 2}))
     assert.equal(ambiguous.cases[0].reason, 'ASSERT_JSON_SUMMARY_AMBIGUOUS')
+  })
+  await check('two-pinned-source-qualification-annotations-never-hide-required-incompletion', async () => {
+    const own = await fixture([], ({base}) => {
+      const path = join(base, 'engine/runner.mjs')
+      writeFileSync(path, readFileSync(path, 'utf8') + '\nexport {jsonResult}\n', {mode: 0o600})
+    })
+    const {jsonResult: decode} = await import(pathToFileURL(join(own.base, 'engine/runner.mjs')).href)
+    const fixtures = [
+      {id: 'ui-owner-presentation', key: 'live_auth', output: {result: 'PASS', cases: 12,
+        scope: 'disposable injected transport regression', live_auth: 'UNPERFORMED', private_keys: 'none', enrollments: 'none', effects: 'none'}},
+      {id: 'full-h-owner-memory-context', key: 'public_qualification', output: {status: 'PASS', checks: 35,
+        scope: 'immutable host capture/task/IPC identity binding, synthetic local data only', public_qualification: 'UNPERFORMED'}}]
+    for (const f of fixtures) {
+      const selected = structuredClone(CASES.find(row => row.id === f.id))
+      const result = decode(JSON.stringify(f.output), selected)
+      assert.equal(result.status, 'PASS'); assert.equal(result.counter.observed, selected.counter.value)
+      for (const patch of [{nested: {status: 'UNPERFORMED'}}, {nested: {result: 'TODO'}}, {nested: {skip: 1}},
+        {nested: {groups: ['SKIP fixture']}}, {extra: 'UNPERFORMED'}, {extra: 'FAIL'}, {failures: ['failure']},
+        {[f.key]: 'SKIP'}, {[f.key]: 'TODO'}, {[f.key]: {status: 'UNPERFORMED'}},
+        {[selected.counter.key]: selected.counter.value - 1}, {status: 'UNPERFORMED'}, {result: 'FAIL'}]) {
+        assert.equal(decode(JSON.stringify({...f.output, ...patch}), selected).status, 'FAIL')
+      }
+      const nested = {...f.output}; delete nested[f.key]; nested.nested = {[f.key]: 'UNPERFORMED'}
+      assert.equal(decode(JSON.stringify(nested), selected).status, 'FAIL')
+      for (const change of [row => {row.id = 'other'}, row => {row.entry = 'checks/other.mjs'},
+        row => {row.expectedSha256 = '0'.repeat(64)}, row => {row.nodeArgs = []}, row => {row.args = ['other']}]) {
+        const altered = structuredClone(selected); change(altered)
+        assert.equal(decode(JSON.stringify(f.output), altered).status, 'FAIL')
+      }
+      const otherKey = f.key === 'live_auth' ? 'public_qualification' : 'live_auth'
+      assert.equal(decode(JSON.stringify({...f.output, [otherKey]: 'UNPERFORMED'}), selected).status, 'FAIL')
+    }
+  })
+  await check('all-selected-json-producer-schemas-preserve-required-counts-and-failures', async () => {
+    // Source-grounded schemas, not product results. Listed ancillary values are representative integers.
+    const schemas = [{"id":"ui-owner-presentation","entry":"packages/ui/scripts/check-transport.mjs","entry_sha256":"aa1083486c53fc3bb87e7bfeadc866cf6eaf89d51f1e48ed5a1b35c36e80d801","counter":{"key":"cases","value":12},"output":{"result":"PASS","cases":12,"scope":"disposable injected transport regression","live_auth":"UNPERFORMED","private_keys":"none","enrollments":"none","effects":"none"},"representative_fields":[]},{"id":"ops-release-metadata","entry":"packages/ops/check-digest-controls.mjs","entry_sha256":"f7b8fe1f6b1e80301f3f8a9c52113ea91c04b1c9bb85ee7486adaf9c478e6b5d","counter":{"key":"checks","value":14},"output":{"status":"PASS","checks":14,"archive_pilot_assertions":1,"control_characters":33,"physical_control_characters":32,"nul":"OS_FILENAME_AND_SYMLINK_TARGET_NOT_REPRESENTABLE; ROOT_AND_WIRE_VALIDATORS_TESTED","scope":"owned disposable digest/archive controls only","prime_acceptance":"PENDING","historical_reference_commit":"8356623","artifact_digest":"bf2d8df866abc475b4c2f77bc89306bec9ad3ae910c21a0c66edaf5ad3c65192","archive_sha256":"847d92e5fdf69d754b384ed8223ddf666f5606b60208f7fd41d7174f1c107588","ordinary_archive_unchanged":true,"review_candidate_executed":false,"network":"NOT_USED","activation":"NOT_PERFORMED"},"representative_fields":["archive_pilot_assertions"]},{"id":"full-ui-controller","entry":"packages/ui/prime-authority/checks/controller.mjs","entry_sha256":"04649ae9cd3514e8623e765a95c9d56d422b66fe96f7290f91007f2c630ef8f0","counter":{"key":"cases","value":11},"output":{"result":"PASS","cases":11,"real_enrollment":false,"real_authentication":false,"effects":false},"representative_fields":[]},{"id":"full-ui-approval-action","entry":"packages/ui/prime-authority/checks/approval-action.mjs","entry_sha256":"f73c758ceb9f03a3e8931e9aada132d919a11f55fdc97c5df9ea7dbb011d3a20","counter":{"key":"cases","value":20},"output":{"result":"PASS","cases":20,"passed":20,"failed":0,"skipped":0,"actual_ui_controller":true,"actual_bridge_adapter":true,"actual_bridge_workflow":true,"synthetic_replies":true,"real_C_crypto":false,"actual_postgres":false,"real_enrollment":false,"real_authentication":false,"effects":false},"representative_fields":[]},{"id":"full-ui-logout","entry":"packages/ui/prime-authority/checks/logout.mjs","entry_sha256":"6dfcb646d2e3c493c4d9c39a81b70dc9cf38d68d0be0ad05c0b3a409b36e30c5","counter":{"key":"cases","value":35},"output":{"result":"PASS","cases":35,"assertions":1,"scope":"SOURCE synthetic logout seam","actual_authority_audit":false,"actual_memory_audit":false,"real_credentials":false,"real_enrollment":false,"real_authentication":false,"effects":false,"network":false,"runtime":false},"representative_fields":["assertions"]},{"id":"full-ui-forget-review","entry":"packages/ui/prime-authority/checks/forget-review.mjs","entry_sha256":"01d735fe0f29b7ff6c1300dc2da938a8a57a0dade8e57bae9a28099401770149","counter":{"key":"assertions","value":95},"output":{"result":"PASS","assertions":95,"browser_safe":true,"private_original_hash_audited":false,"private_heads_audited":false,"real_record_reads":false,"effects":false},"representative_fields":[]},{"id":"full-ui-forget-result","entry":"packages/ui/prime-authority/checks/forget-result.mjs","entry_sha256":"007bc67d92df011c32781b8287ce2a31270f38c3c74a31f592caa96b59d45ddb","counter":{"key":"cases","value":102},"output":{"result":"PASS","cases":102,"assertions":1,"scope":"SOURCE synthetic forget result consistency","bridge_tests":false,"authority_tests":false,"memory_tests":false,"real_authority_claim":false,"real_credentials":false,"effects":false,"network":false,"runtime":false,"build":false},"representative_fields":["assertions"]},{"id":"full-ui-forget-controller","entry":"packages/ui/prime-authority/checks/forget-controller.mjs","entry_sha256":"f112bb6fc58bb6e42c326b05ab5c2eda073a718e63410dc0e7296b149b09cdad","counter":{"key":"groups","value":12},"output":{"result":"PASS","groups":12,"scope":"B source synthetic forget controller join","C_verification":false,"D_worker":false,"runtime":false,"network":false,"storage":false,"real_credentials":false,"compiled_client":false},"representative_fields":[]},{"id":"full-h-owner-memory-client","entry":"harness/check-owner-memory-client.mjs","entry_sha256":"78352d5adaa942a154a316379911050770c9d6e610ce70b07de4d57d310953a3","counter":{"key":"checks","value":55},"output":{"result":"PASS","checks":55,"scope":"actual B controller + bridge workflow + H root/browser/HTTP assembly","synthetic_replies":true,"listener_started":false,"actual_C_crypto":false,"actual_postgres":false,"production_acceptance":false,"runtime_changes":false},"representative_fields":[]},{"id":"full-h-owner-memory-context","entry":"harness/check-owner-memory-context.mjs","entry_sha256":"f5fbd6f877ae4eeed31a1cb02e2982150407a83d067c1fe318326a912c63a516","counter":{"key":"checks","value":35},"output":{"status":"PASS","checks":35,"scope":"immutable host capture/task/IPC identity binding, synthetic local data only","public_qualification":"UNPERFORMED"},"representative_fields":[]},{"id":"full-h-owner-memory-transport","entry":"harness/check-owner-memory-transport.mjs","entry_sha256":"0d8dba27a780c0044258f08e2565eefcfb360be4c169982b51614b519e97cc38","counter":{"key":"checks","value":52},"output":{"status":"PASS","checks":52,"scope":"source-only HTTP/browser adapters and guards","actual_authority_or_PG":false,"listener_started":false,"production_qualification":false},"representative_fields":[]},{"id":"authority-core-only","entry":"packages/authority/check.mjs","entry_sha256":"a745a3b8ab6b8ebb182a6322577b10ec845f0af027120cc7dbd15d41a7666cfe","counter":{"key":"checks","value":125},"output":{"status":"PASS","checks":125,"scope":"synthetic owner-key + ES256 passkey assertions; copied durable stores/kernel; replay/denial/epoch/restore; no external effects","limits":["no real enrollment","same UID can rewrite state and witness","no deployed broker IPC/UID separation","assertion does not prove comprehension","no OpenShell execution or signing keys in guest"]},"representative_fields":[]}]
+    const selected = CASES.filter(row => row.protocol === 'assert-json')
+    assert.equal(schemas.length, 12); assert.deepEqual(schemas.map(row => row.id).sort(), selected.map(row => row.id).sort())
+    const own = await fixture([], ({base}) => {
+      const path = join(base, 'engine/runner.mjs'); writeFileSync(path, readFileSync(path, 'utf8') + '\nexport {jsonResult}\n', {mode: 0o600})
+    })
+    const {jsonResult: decode} = await import(pathToFileURL(join(own.base, 'engine/runner.mjs')).href)
+    for (const f of schemas) {
+      const row = selected.find(row => row.id === f.id)
+      assert.equal(row.entry, f.entry); assert.equal(row.expectedSha256, f.entry_sha256); assert.deepEqual(row.counter, f.counter)
+      const accepted = decode(JSON.stringify(f.output), row)
+      assert.equal(accepted.status, 'PASS'); assert.equal(accepted.counter.observed, row.counter.value)
+      for (const count of [0, -1, row.counter.value - 1, row.counter.value + 1, String(row.counter.value), [row.counter.value], null]) {
+        assert.equal(decode(JSON.stringify({...f.output, [row.counter.key]: count}), row).status, 'FAIL')
+      }
+      for (const patch of [{status: 'FAIL'}, {result: 'TODO'}, {skip: 1}, {skipped: 1}, {todo: 1}, {failed: 1}, {cancelled: 1},
+        {nested: {status: 'UNPERFORMED'}}, {nested: {result: 'FAIL'}}, {nested: {groups: ['SKIP fixture']}}, {failures: ['failure']}]) {
+        assert.equal(decode(JSON.stringify({...f.output, ...patch}), row).status, 'FAIL')
+      }
+      assert.equal(decode(JSON.stringify(f.output) + '\n' + JSON.stringify(f.output), row).status, 'FAIL')
+    }
+  })
+  await check('invocation-git-metadata-is-distinct-from-pin-review-and-functional-results', async () => {
+    const missing = await fixture([row('pass')]), absent = await missing.run(); cleanSummary(absent)
+    assert.equal(absent.status, 'PASS'); assert.equal(absent.source_invocation_commit, null)
+    assert.equal(absent.source_invocation.status, 'UNOBSERVED'); assert.equal(absent.source_review_commit_scope, 'LITERAL_PIN_REVIEW_BASE_NOT_INVOCATION')
+    for (const changed of [false, true]) {
+      const first = '1'.repeat(40), second = changed ? '2'.repeat(40) : first
+      const own = await fixture([row('pass')], ({base}) => {
+        const path = join(base, 'engine/runner.mjs'); let bytes = readFileSync(path, 'utf8')
+        assert.equal(bytes.split('function observeInvocation(root) {').length - 1, 1)
+        bytes = bytes.replace('function observeInvocation(root) {', 'function unusedOriginalInvocation(root) {')
+        bytes += '\nlet observationCalls=0;function observeInvocation(root){return {status:"OBSERVED_GIT_METADATA",commit:++observationCalls===1?"' + first + '":"' + second + '",working_tree:"NOT_OBSERVED"}}\n'
+        writeFileSync(path, bytes, {mode: 0o600})
+      }), result = await own.run(); cleanSummary(result)
+      assert.equal(result.status, 'PASS'); assert.equal(result.qualification, 'UNPERFORMED')
+      assert.equal(result.source_review_commit, '0'.repeat(40)); assert.equal(result.source_invocation.before.commit, first)
+      assert.equal(result.source_invocation.after.commit, second); assert.equal(result.source_invocation.before.working_tree, 'NOT_OBSERVED')
+      assert.equal(result.source_invocation.status, changed ? 'CHANGED' : 'MATCHED_BEFORE_AFTER')
+      assert.equal(result.source_invocation_commit, changed ? null : first)
+    }
+    const actual = await fixture([], ({base}) => {
+      const path = join(base, 'engine/runner.mjs'); writeFileSync(path, readFileSync(path, 'utf8') + '\nexport {observeInvocation}\n', {mode: 0o600})
+    })
+    const {observeInvocation} = await import(pathToFileURL(join(actual.base, 'engine/runner.mjs')).href)
+    const observed = observeInvocation(realpathSync(join(here, '../../..')))
+    assert.equal(observed.status, 'OBSERVED_GIT_METADATA'); assert.match(observed.commit, /^[0-9a-f]{40}$/)
+    assert.equal(observed.working_tree, 'NOT_OBSERVED')
   })
   await check('compiled-hook-pin-export-interface-and-disposal-precede-main-child', async () => {
     const own = await fixture([hookRow()]), result = await own.run(); cleanSummary(result)

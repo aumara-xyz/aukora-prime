@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Ordinary source assertions only. This runner establishes no OS isolation.
-import {spawn} from 'node:child_process'
+import {spawn, spawnSync} from 'node:child_process'
 import {createHash, randomUUID} from 'node:crypto'
 import {constants, lstatSync, realpathSync, mkdirSync, writeFileSync} from 'node:fs'
 import {open} from 'node:fs/promises'
@@ -75,6 +75,22 @@ const workerSocketBinding = row => row.id === 'bridge-worker' &&
     'actual separate C/D worker processes preserve real passkey + locked observation + save/settle/cited restart; no PG or UID proof']) &&
   row.pins?.length === 1 && row.pins[0].path === 'packages/runtime-bridge/test/worker-fixture-paths.mjs' &&
   row.pins[0].sha256 === '1ae49843e6a11de817ba3100a2a152081332f6a2c07c67d81aa77d0d25a4b105'
+
+// Read-only bounded checkout metadata, distinct from byte pins and qualification.
+// No shell, inherited credentials, hooks or working-tree filters are executed.
+function observeInvocation(root) {
+  const unknown = {status: 'UNOBSERVED', commit: null, working_tree: 'NOT_OBSERVED'}
+  try {
+    if (lstatSync(join(root, '.git')).isSymbolicLink()) return unknown
+    const probe = spawnSync('/usr/bin/git', ['--no-optional-locks', '-C', root,
+      'rev-parse', '--show-toplevel', '--verify', 'HEAD^{commit}'], {
+      env: {PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0'},
+      encoding: 'utf8', timeout: 1000, maxBuffer: 4096, stdio: ['ignore', 'pipe', 'pipe']})
+    const lines = probe.stdout?.trimEnd().split('\n')
+    if (probe.error || probe.status !== 0 || lines?.length !== 2 || lines[0] !== root || !/^[0-9a-f]{40}$/.test(lines[1])) return unknown
+    return {status: 'OBSERVED_GIT_METADATA', commit: lines[1], working_tree: 'NOT_OBSERVED'}
+  } catch {return unknown}
+}
 
 function compiledCases(root) {
   if (!Array.isArray(CASES) || CASES.length < 1 || CASES.length > 66) reject('INVALID_COMPILED_MANIFEST')
@@ -311,6 +327,17 @@ function passLinesResult(text, row) {
   return {...report, status: 'PASS', functional_status: 'PASS', reason: 'ASSERTIONS_COMPLETED'}
 }
 
+// These two pinned source summaries explicitly disclaim live qualification.
+// They are root annotations, never required test status/counts or nested results.
+const sourceQualificationAnnotation = (row, key) => row.protocol === 'assert-json' &&
+  row.args?.length === 0 && row.nodeArgs?.length === 1 && row.nodeArgs[0] === '--max-old-space-size=512' && (
+    (row.id === 'ui-owner-presentation' && row.entry === 'packages/ui/scripts/check-transport.mjs' &&
+      row.expectedSha256 === 'aa1083486c53fc3bb87e7bfeadc866cf6eaf89d51f1e48ed5a1b35c36e80d801' &&
+      row.counter?.key === 'cases' && row.counter.value === 12 && key === 'live_auth') ||
+    (row.id === 'full-h-owner-memory-context' && row.entry === 'harness/check-owner-memory-context.mjs' &&
+      row.expectedSha256 === 'f5fbd6f877ae4eeed31a1cb02e2982150407a83d067c1fe318326a912c63a516' &&
+      row.counter?.key === 'checks' && row.counter.value === 35 && key === 'public_qualification'))
+
 function jsonResult(text, row) {
   let values
   try {values = [JSON.parse(text)]} catch {
@@ -345,7 +372,8 @@ function jsonResult(text, row) {
         (!Number.isSafeInteger(item[key]) || item[key] < 0 || item[key] > 10_000)) ||
         negativeCounts.some(key => Object.hasOwn(item, key) && item[key] !== 0) ||
         (Object.hasOwn(item, 'failures') && (!Array.isArray(item.failures) || item.failures.length)))) return {...report, reason: 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE'}
-    pending.push(...Object.values(item))
+    pending.push(...Object.entries(item).filter(([key, child]) =>
+      !(item === value && child === 'UNPERFORMED' && sourceQualificationAnnotation(row, key))).map(([, child]) => child))
   }
   return {...report, status: 'PASS', functional_status: 'PASS', reason: 'ASSERTIONS_COMPLETED'}
 }
@@ -376,6 +404,8 @@ export async function runFastVerify(options) {
   const result = {schema: 'prime-fast-verify/v1', status: 'UNPERFORMED', exit_code: 2, cases: records,
     qualification: 'UNPERFORMED', g1: 'PENDING', historical: HISTORY, unperformed: UNPERFORMED,
     source_review_commit: SOURCE_REVIEW_COMMIT,
+    source_review_commit_scope: 'LITERAL_PIN_REVIEW_BASE_NOT_INVOCATION',
+    source_invocation_commit: null, source_invocation: {status: 'UNOBSERVED', attribution: 'GIT_METADATA_NOT_SOURCE_OR_RUNTIME_ATTESTATION'},
     source_review_attribution: 'LITERAL_ENTRY_PINS_NOT_CHECKOUT_ATTESTATION',
     node: {version: process.version, executable: process.execPath, pin_verification: 'OBSERVED_ONLY'},
     budget: {suite_ms: SUITE_MS, case_max_ms: AUTHORITY_CORE_MS, tap_case_max_ms: CASE_MS,
@@ -385,13 +415,14 @@ export async function runFastVerify(options) {
     descendant_cleanup: 'UNPERFORMED', source_pin_scope: 'COMPILED_ENTRYPOINTS_LITERAL_SUPPORT_AND_HOOK_CONTROLLER_PINS',
     duration_scope: 'ENGINE_START_TO_SUMMARY_PREPARATION_EXCLUDES_FINAL_EVIDENCE_WRITE',
     scratch_retention: 'PRIVATE_DISPOSABLE_DIRECTORIES_RETAINED'}
-  let evidence, evidenceBinding, codeBefore, plan = []
+  let evidence, evidenceBinding, codeBefore, invocationRoot, invocationBefore, plan = []
   try {
     if (!options || Object.keys(options).some(key => !['root', 'evidenceDir', 'json', 'signal'].includes(key)) ||
         (options.json !== undefined && typeof options.json !== 'boolean') ||
         (options.signal !== undefined && !(options.signal instanceof AbortSignal))) reject('CLOSED_ENGINE_OPTIONS_REQUIRED')
     if (version !== '24.11.1' || process.version !== 'v' + version) reject('PINNED_NODE_VERSION_REQUIRED')
     const root = sourceRoot(options.root), cases = compiledCases(root)
+    invocationRoot = root; invocationBefore = observeInvocation(root)
     plan = cases
     result.configured_case_count = cases.length
     const enginePath = fileURLToPath(import.meta.url), manifestPath = join(dirname(enginePath), 'manifest.mjs')
@@ -546,6 +577,13 @@ export async function runFastVerify(options) {
         status: 'UNPERFORMED', functional_status: 'UNPERFORMED', reason: row.unsupportedReason ?? 'EARLIER_EXECUTION_INCOMPLETE', descendant_cleanup: 'UNPERFORMED'})
     }
     if (error.message !== 'EVIDENCE_CHANGED' && records.some(row => row.status === 'FAIL')) {result.status = 'FAIL'; result.functional_status = 'FAIL'; result.exit_code = 1}
+  }
+  if (invocationRoot) {
+    const after = observeInvocation(invocationRoot)
+    const sameCommit = invocationBefore.status === 'OBSERVED_GIT_METADATA' && after.status === 'OBSERVED_GIT_METADATA' && invocationBefore.commit === after.commit
+    result.source_invocation_commit = sameCommit ? after.commit : null
+    result.source_invocation = {status: sameCommit ? 'MATCHED_BEFORE_AFTER' : invocationBefore.commit && after.commit ? 'CHANGED' : 'UNOBSERVED',
+      before: invocationBefore, after, attribution: 'GIT_METADATA_NOT_SOURCE_OR_RUNTIME_ATTESTATION'}
   }
   result.duration_ms = Math.round(performance.now() - started)
   result.case_count = records.length

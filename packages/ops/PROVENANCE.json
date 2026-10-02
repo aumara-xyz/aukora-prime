@@ -78,11 +78,11 @@
   "ordinary_verify_profile_attribution": "HISTORICAL_ONLY; preceding ordinary_verify_profile fields retained verbatim; its missing_short_checks and review metadata are not the current66 union disposition",
   "ordinary_verify_union": {
     "status": "COMPLETE_SOURCE_REVIEW",
-    "product_status": "FINAL_SAME_COMMIT_PAIR_PENDING; latest retained54c runFAIL63/2/1",
+    "product_status": "FINAL_SAME_COMMIT_PAIR_PENDING; latest retained8bd runFAIL63/2/1",
     "scope": "Parent-Astra-required closed66 ordinary source profile; whole required files plus inherited bounded bash_parameters selection; no runtime qualification",
     "source_review_commit": null,
     "source_review_basis": "b336753488a2a70adcefd82a95909263dbe26c5a",
-    "source_review_attribution": "ADJUDICATED66_D1C9545_PLUS_REVIEWED_G_NESTED_JSON_AND_TASK40_WORKER_PATH_REPAIRS_AND_H_CLOSED_BINDING; exact source-byte inventory verified before freeze; no runtime attestation",
+    "source_review_attribution": "ADJUDICATED66_D1C9545_PLUS_REVIEWED_G_NESTED_JSON_AND_TASK40_WORKER_PATH_REPAIRS_AND_H_CLOSED_BINDING; exact source-byte inventory verified before freeze; no runtime attestation; H exact-job/root-field source qualification annotations distinguished from required test incompletion; finalG cfafd5de reconciledH patch and all12 selected JSON schemas",
     "source_closure_status": "ROOT_VERIFIED_142_REFERENCES_101_PATHS",
     "source_closure_receipt": {
       "scope": "Current selected literal closure; final exact source revision and both runs require external immutable receipt at planned prime-v1.2-research-review reference",
@@ -166,8 +166,8 @@
       "scope": "Frozen cooperative budgets; existing shorter cases retained; no kernel or descendant enforcement",
       "authority_core_exception": "Only exact reviewed authority-core-only id/entry/entrySHA/args/nodeArgs/counter permits180s; other non-TAP maxima60s unchanged"
     },
-    "runtime_measurement": "HISTORICAL_FAILED66_RUNS:9c8 209966ms;54c242303ms; final same-commit pair pending",
-    "completed_product_suite": "HISTORICAL_FAIL_54C:63PASS/2FAIL/1UNPERFORMED; corrected final pairPENDING",
+    "runtime_measurement": "HISTORICAL_FAILED66_RUNS:9c8 209966ms;54c242303ms;8bd341689ms; corrected final same-commit pair pending",
+    "completed_product_suite": "HISTORICAL_FAIL_8BD:63PASS/2FAIL/1UNPERFORMED; corrected final pairPENDING",
     "qualification": "UNPERFORMED",
     "g1": "PENDING",
     "E_total_budget_gate": {
@@ -264,7 +264,7 @@
       "sha256": "0356f6ab3eccd583c6baa949861b00a051d59f153720b392edc02d07fefeeaa6",
       "provenance": "HISTORICAL_INITIAL_ADJUDICATED_SOURCE_INVENTORY; current manifest corrections tracked separately; not product execution evidence"
     },
-    "current_integration_base": "54c4a306b1e46c9e2db4e9f2a164e7cd2b7ce671",
+    "current_integration_base": "8bd7dbbcbe78f5a059a991dc0a3903232c3a5100",
     "binding_application": {
       "source_adaptations": [
         "browser transport",
@@ -337,8 +337,8 @@
       "scope": "HISTORICAL_SOURCE_ACCEPTANCE_D1C9545; preserved initial140-reference/99-path accounting and then-configured60s core budget; not corrected final profile evidence",
       "integration_base": "739bab5176f78c5b7333a8350c69cc75544709e5"
     },
-    "runner_sha256": "9cd02d5bc74fa7192b473c68baf4eafc1a23338051784786659df52c1855a17a",
-    "engine_check_sha256": "5469eaf89f1875b73da2ebf4e9bff6084cbd4c422b7a3c09b563eec5f6d5d70f",
+    "runner_sha256": "da653d511ebf30c821e07d4bf63c0731ce5f046a2eacaf694f66710fc3006535",
+    "engine_check_sha256": "ae10b871335a06a01f728783083e6869b72c1f607619bbccc2fb92284e41d4b7",
     "fixture_socket_binding": {
       "case": "bridge-worker",
       "source_entry_sha256": "5618b402ba9abdfbbc7389d512997f3d7efef5d13220994a3b5717dd66ec3289",
@@ -354,10 +354,57 @@
     },
     "final_engine_observation": {
       "status": "PASS",
-      "checks": 43,
-      "configured_checks": 43,
+      "checks": 46,
+      "configured_checks": 46,
       "unperformed_checks": 0,
-      "scope": "Root disposable engine orchestration only; no product suite/runtime/network"
+      "scope": "G disposable engine orchestration; exact two final code postimages matchedH; all12 producer schemas + invocation metadata covered; no product suite/runtime/network"
+    },
+    "source_qualification_annotations": {
+      "scope": "Only exact pinned source jobs and selected root summary fields; no generic metadata exception",
+      "ui-owner-presentation": {
+        "field": "live_auth",
+        "value": "UNPERFORMED",
+        "entry_sha256": "aa1083486c53fc3bb87e7bfeadc866cf6eaf89d51f1e48ed5a1b35c36e80d801",
+        "required_counter": "cases12"
+      },
+      "full-h-owner-memory-context": {
+        "field": "public_qualification",
+        "value": "UNPERFORMED",
+        "entry_sha256": "f5fbd6f877ae4eeed31a1cb02e2982150407a83d067c1fe318326a912c63a516",
+        "required_counter": "checks35"
+      },
+      "refusals": "status/result/nested fields/unknown qualification fields/negative counters/required SKIP/TODO/failure retain strict rejection; outputs and product assertions unchanged"
+    },
+    "source_check_environment": {
+      "documented_child_umask": "0022",
+      "private_fixture_modes": "explicitly restrictive; unchanged",
+      "independent_first8bd": "D reproduced0077 requested0640 becoming0600:3PASS10FAIL; normal0022:13PASS0FAIL; no memory edits warranted. First62PASS4FAIL and exactexternalPG skip retained.",
+      "no_assertion_relaxation": true
+    },
+    "source_invocation_metadata": {
+      "source_review_commit_scope": "LITERAL_PIN_REVIEW_BASE_NOT_INVOCATION",
+      "source_invocation_commit": "Observed Git HEAD if before/after match; otherwise null",
+      "source_invocation": "Before/after bounded /usr/bin/git metadata with clean inherited environment; working tree NOT_OBSERVED",
+      "limits": "GIT_METADATA_NOT_SOURCE_OR_RUNTIME_ATTESTATION; sameUID mutable; outer reader binds exact frozen commit and selected/evaluator bytes; no embedded future ownSHA"
+    },
+    "independent_first8bd": {
+      "reported_result": {
+        "pass": 62,
+        "fail": 4,
+        "unperformed_jobs": 0,
+        "duration_ms": 322163
+      },
+      "attribution": "Parentrelay plus D reviewed original wrapper/signatures; full original raw report retained by independentowner",
+      "shared_codec_failures": [
+        "ui-owner-presentation",
+        "full-h-owner-memory-context"
+      ],
+      "wrapper_failures": [
+        "memory-control-retention",
+        "memory-memory"
+      ],
+      "external_pg": "StillUNPERFORMED exactSKIP within failedmemoryjob; jobFAIL precedence does not establishPG qualification",
+      "memory_change": "NONE_WARRANTED"
     }
   },
   "contract_base_original_private": "f502d539a01e5efae4fc688ad4759162205aa0f4",
