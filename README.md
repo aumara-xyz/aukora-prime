@@ -1,12 +1,16 @@
-![AUKORA's intended human-first architecture](docs/assets/aukora-human-first.png)
+# AUKORA Prime
 
 *Human first. AI next.*
 
 The software that proposes an act should not be the authority that permits it.
 
-AUKORA Prime is a research release of an open, AGPL governed personal-AI core. It has measured source mechanisms and a pinned UI preview; real owner effects, product memory, paid inference and live execution remain disabled. The intended architecture puts identity, memory and authority with the human while models and apps remain replaceable. The image describes that intended architecture; measured results and gaps follow below.
+AUKORA's Golden Boundary vision is a personal AI workspace that can help build tools and propose improvements to itself, while the human retains identity, memory, relationships and authority. Models and applications could change; people and their agents could cooperate without handing control to one platform. **“The person is the platform”** is the proposed destination.
 
-**Reviewing the project? Start with [the verification-first review guide](SHARE.md).** It leads through the checks, setup requirements and scoped source questions before the optional architectural discussion. [The Golden Boundary paper](docs/AUKORA-GOLDEN-BOUNDARY.md) separates that vision from the implementation ledger in [§17](docs/AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today).
+**Start here: [the short overview and reading map](docs/READING-GUIDE.md).** It covers the whole system, then points into [the complete Golden Boundary paper](docs/AUKORA-GOLDEN-BOUNDARY.md), including its network, philosophy and continuation. For assessment, follow [the review guide](SHARE.md) to evidence and source, or choose its optional deep-review track.
+
+Prime is an open, AGPL governed research release with measured source mechanisms and a pinned UI preview. Real owner effects, product memory, paid inference and live execution remain disabled. The vision and image describe intended architecture; the [status](#status), [known gaps](#known-gaps) and paper's [implementation ledger](docs/AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today) delimit present claims.
+
+![AUKORA's intended human-first architecture](docs/assets/aukora-human-first.png)
 
 ## Check it yourself
 
@@ -83,10 +87,10 @@ The live agent is not yet fully contained. Root and identity design still need h
 
 ## Read and contribute
 
-- [Review prompt](SHARE.md) and [Golden Boundary paper](docs/AUKORA-GOLDEN-BOUNDARY.md)
+- [Short overview and reading map](docs/READING-GUIDE.md), [complete Golden Boundary paper](docs/AUKORA-GOLDEN-BOUNDARY.md) and [review guide](SHARE.md)
 - [Architecture and build instructions](docs/ARCHITECTURE.md)
 - [License inventory](licenses/README.md), [AGPL v3 text](LICENSE), [donor provenance](provenance/donors.json) and [component ledger](provenance/core-ledger.json)
 - [Vulnerability reporting — private contact pending](SECURITY.md)
-- [Contributor rules](AGENTS.md), [Claude instructions](CLAUDE.md) and [verification-first review](SHARE.md)
+- [Contributor rules](AGENTS.md), [Claude instructions](CLAUDE.md) and [optional deep-review questions](docs/VISION-QUESTIONS.md)
 
 First-party source declares **AGPL-3.0-or-later**. Third-party code retains its own licenses: DSH is MIT, OpenShell is Apache-2.0, and vendored dependencies keep their notices. See the inventory for the selected closure and its gaps.

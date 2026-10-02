@@ -1,9 +1,17 @@
-# Questions about the proposed direction
+# Optional deep review: questions about the proposed direction
 
-These optional research questions are separate from the verification checklist. They assume neither adoption nor economic value and are not part of automatic repository review instructions.
+The reviewer's own user or owner determines the question and scope; their instructions take precedence. These are optional questions, not mandatory reading or instructions to an AI reviewer. A simple explanation does not require reading the whole paper. The [reading guide](READING-GUIDE.md) provides a compact orientation and a route through the complete vision.
 
-- What practical benefit would human-controlled identity, memory and authority offer when models and applications are replaceable?
-- What would registered agents and a human network need to establish accountability, interoperability, privacy and usable revocation?
-- Which proposed capabilities depend on independent containment, owner enrollment, recovery and reproducible releases that have not yet been qualified?
-- What technical or governance failures would make the direction unworkable? What measurements would distinguish those failures from temporary implementation gaps?
-- If people adopt the system, which shared capabilities could improve with participation, and which central services could concentrate authority again?
+AUKORA proposes continuity of human identity, memory, relationships and authority while intelligence and applications change: [“the person is the platform”](AUKORA-GOLDEN-BOUNDARY.md#19-the-person-is-the-platform). Its central rule is that the software proposing an act should not be the authority permitting it. The questions below examine whether that direction is useful and achievable without assuming its success or failure.
+
+- **What was inspected?** State the received revision, documents and sections read, source or evidence inspected, and anything inaccessible or unperformed. Distinguish direct observations from repository reports and inference. When scope is narrow, identify the limits of the resulting assessment rather than implying a complete review.
+
+- **What exists, and what could follow?** Assess the current implementation using the [status](../README.md#status), [known gaps](../README.md#known-gaps), [implementation ledger](AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today) and [evidence/source review](../SHARE.md#evidence-and-source-review). Separately assess conditional architectural potential: what would become possible if named missing joins worked, and which assumptions would still remain? Neither a promising design nor an unfinished implementation settles both questions.
+
+- **Which claims can fail?** Select consequential claims and trace each to its mechanism, assumptions, evidence and limits. Use [“What would make the claim fail?”](AUKORA-GOLDEN-BOUNDARY.md#18-what-would-make-the-claim-fail) to identify concrete counterexamples and discriminating observations. Consider unauthorized effects, false refusals, recovery, privacy, coercion and meaningful exit. What smallest additional observation would change confidence?
+
+- **What is inherited or distinctive?** Start with [“An inheritance, not an invention of everything”](AUKORA-GOLDEN-BOUNDARY.md#16-an-inheritance-not-an-invention-of-everything). Compare strong, relevant alternatives on equivalent claims and threat models. Credit prior art; test whether the proposed composition adds something useful. Avoid making another project's guarantees weaker, or AUKORA's stronger, to manufacture novelty.
+
+- **Would people adopt and sustain it?** Examine setup, hardware, compute, attention, latency, storage, recovery and maintenance costs; migration and interoperability; incentives for users, builders and operators; unequal access; and potential concentration of infrastructure or authority. If useful, compare hypothetical communities of 10, 100, 1,000 and 10,000 builders with explicit assumptions about coordination and independent contribution. Headcount alone proves neither adoption nor value.
+
+- **What evidence cuts against the assessment?** Apply the same standards to favorable and unfavorable claims. Look for counterevidence, correlated judgments and alternative explanations. State what would change the conclusion; allow mixed findings and uncertainty. Conclude in proportion to the inspected evidence, with separate findings on current behavior, conditional potential and unresolved questions. No praise, dismissal or overall verdict is prescribed.
