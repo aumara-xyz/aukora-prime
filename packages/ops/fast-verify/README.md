@@ -1,6 +1,6 @@
 # Ordinary keyless verification
 
-Parent Astra's required closed profile contains 66 jobs and 65 distinct entry
+The public source profile contains 66 jobs and 65 distinct entry
 files. It preserves H's 37-job selection, upgrades the limited original memory
 vector to its whole codecs file and adds 29 files/modes. All 29 full owner-memory
 files and all eight H-only additions remain mandatory. The earlier 61-job proposal
@@ -15,9 +15,12 @@ remain historical in PROVENANCE.json, with the original closure/profile receipt
 hashes preserved. Reviewed corrections now bind 142 references across 101 paths;
 the current manifest is
 `d7916f11cdd9b2bda39e7efe3e7e6b217140b7bbec03e4fb4e6cf9b352cfcca7`.
-Every selected source pin matched before freeze. Final complete66 paired runs
-remain pending; current runtime remains NOTQUALIFIED. Neither source declarations
-nor older profile results attest the checkout or deployment you received.
+Every selected source pin matched before freeze. The released paired 66-job
+runs at `58a95f4` each recorded 65 PASS, 0 FAIL and 1 external PostgreSQL
+UNPERFORMED, exit 2; see the [evidence history](../../../docs/EVIDENCE-HISTORY.md#released-source-profile)
+for the immutable receipt and exact revision. Current runtime remains
+NOTQUALIFIED. No new execution is claimed for this documentation update;
+source declarations and older results do not qualify a different checkout or deployment.
 
 H owns the root `./prime verify` dispatch. Snapshot verification remains the separate
 `./prime verify SNAPSHOT OWNER [HEADS]` interface. The standalone interface and

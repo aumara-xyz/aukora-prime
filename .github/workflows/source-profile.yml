@@ -1,0 +1,49 @@
+name: Source profile (qualification UNPERFORMED)
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-profile:
+    name: Functional source checks (qualification UNPERFORMED)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the event commit without retained credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install the exact approved Node version
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: '24.11.1'
+          package-manager-cache: false
+      - name: Check the CI result validator
+        run: node --test scripts/ci/source-profile.test.mjs
+      - name: Run the closed profile and validate its evidence
+        env:
+          PRIME_CI_EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          umask 0022
+          node scripts/ci/source-profile.mjs "$RUNNER_TEMP/prime-ci-artifacts"
+      - name: Publish the result with qualification limits
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/prime-ci-artifacts/ci-summary.md"; then
+            cat "$RUNNER_TEMP/prime-ci-artifacts/ci-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '## INCOMPLETE — source profile evidence unavailable' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Setup, validator checks or execution did not finish. Functional success is not established. Overall/runtime qualification UNPERFORMED; G1 PENDING.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain stdout, stderr, machine summary and invocation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-profile-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prime-ci-artifacts/
+          if-no-files-found: error
+          retention-days: 7

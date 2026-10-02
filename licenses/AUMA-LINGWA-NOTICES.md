@@ -1,6 +1,6 @@
 # Auma Lingwa source and content-license distinction
 
-This notice records the retained Auma Lingwa source and the limits of the available license evidence. It does not grant new rights or relicense language content as software.
+This notice records the retained Auma Lingwa source, the matching public language-content publication and their license declarations. It does not grant new rights or relicense language content as software.
 
 ## Included files and source
 
@@ -22,14 +22,22 @@ The historical canonical and tooling directories are not included in this select
 
 The [pinned donor repository README](https://github.com/aumara-xyz/aukora-genesis/blob/645d3213b8aede3b544269b4224ae09df06b0a42/README.md#license) declares `AGPL-3.0-or-later` and records: “Copyright (c) 2026 Aumara and Peter Viviani (the named owner).” It also states that third-party components retain their own licenses and notices. The full AGPL text is retained in Prime's [root LICENSE](../LICENSE).
 
-The pinned donor vendor README also explicitly states: “The package and these sources are distributed under `AGPL-3.0-or-later`.” Its Auma Lingwa row names the language runtime, canon and readers. This is positive retained source-license wording for that included material. This inspection found no competing Auma-specific CC declaration, third-party licensor or separately licensed input in the inspected source records. It does not independently prove authorship or copyright ownership.
+The pinned donor vendor README also explicitly states: “The package and these sources are distributed under `AGPL-3.0-or-later`.” Its Auma Lingwa row names the language runtime, canon and readers. This is positive retained source-license wording for that included material. The retained canonical README contains no CC declaration; the separate public language repository below supplies that declaration for the matching content. Source declarations do not independently prove authorship or copyright ownership.
 
-Those retained declarations are preserved. They do not establish a separate or alternate Creative Commons grant for the Auma language canon, lesson content or reader corpus.
+Those retained AGPL declarations are preserved as source-license evidence. The matching public CC publication does not establish cancellation of an earlier grant.
+
+## Matching public language-content publication
+
+[AUMA Language](https://github.com/aumara-xyz/auma-language/tree/823a422ba59e0971d17d954a677454f134a66d04), published by `aumara-xyz`, separately declares **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)**. The inspected `main` revision is `823a422ba59e0971d17d954a677454f134a66d04` (2026-07-16), tree `abe4e1feb60145cac2a7f9aa34c50d2033ed1901`. Its [README](https://github.com/aumara-xyz/auma-language/blob/823a422ba59e0971d17d954a677454f134a66d04/README.md#license) identifies the v16 language canon, curriculum and six-reader corpus and requests attribution to **AUMA Language** with a link to that repository.
+
+The published [`v16.0/auma-canon-v16.json`](https://github.com/aumara-xyz/auma-language/blob/823a422ba59e0971d17d954a677454f134a66d04/v16.0/auma-canon-v16.json) and [`v16.0/auma-readers-v1.json`](https://github.com/aumara-xyz/auma-language/blob/823a422ba59e0971d17d954a677454f134a66d04/v16.0/auma-readers-v1.json) are byte-identical to Prime's `canon-v16.json` and `readers-v1.json` above. Their respective Git blob identifiers are `9b3db522cf2bc3bf2bc0522554abad620133427f` and `e75b6a89f5c372d4b40a290fe6266779be6e1250`; their byte counts and SHA256 values are the same as the included-file table. Prime retains these content files without changes.
+
+The [public LICENSE](https://github.com/aumara-xyz/auma-language/blob/823a422ba59e0971d17d954a677454f134a66d04/LICENSE) records **Copyright (c) 2026 Aumara / Peter Viviani** and links the [CC BY-SA 4.0 legal code](https://creativecommons.org/licenses/by-sa/4.0/legalcode). Its exact notice is preserved in [`upstream/auma-lingwa/AUMA-LANGUAGE-LICENSE.txt`](upstream/auma-lingwa/AUMA-LANGUAGE-LICENSE.txt): 718 bytes; SHA256 `f26f600fafa8f1bcb2c08e332ef1fb443e24e5c94486cbefc220c54e4466478a`; Git blob `ea37868c6784e7d6ab3378ad03c38047dc583152`. Preserve that attribution, the repository and license links, and an indication of any changes; adaptations remain subject to the published ShareAlike terms.
 
 ## Current license scope
 
-The retained donor declares the package and its bundled sources under `AGPL-3.0-or-later`, including the named Auma Lingwa source. The project owner has confirmed Auma as first-party material and directed preservation of the existing licenses. This notice records that existing source declaration; it assigns no new Creative Commons grant.
+The matching language canon, embedded curriculum and reader corpus have a published `CC-BY-SA-4.0` content declaration, preserved and attributed above. The retained donor's `AGPL-3.0-or-later` declarations remain recorded. Prime's software license and package declarations remain `AGPL-3.0-or-later`.
 
-No separate CC license/version or competing third-party terms were identified in the inspected canon, readers, browser source or retained canonical documentation. A review description without an original license declaration does not replace the retained AGPL source terms. Third-party components retain their own licenses and attribution. This is a bounded source record, not an independent legal ownership guarantee.
+The inspected public language repository contains no `auma.js` browser implementation; the matching content publication does not establish a CC grant for that software or other runtime assets. This notice records both published source declarations without selecting an exclusive license or independently establishing copyright ownership. Third-party components retain their own licenses and attribution.
 
 No canon, reader, executable source, runtime asset, donor manifest or security pin was changed to prepare this notice. It does not claim a new build, complete legal clearance or runtime qualification.
