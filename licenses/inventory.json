@@ -1307,5 +1307,7 @@
     "foundation_adaptation": "packages/ui/foundation/prime-import-manifest.json"
   },
   "original_source_commit_scope": "Historical private pre-rewrite source. Original inventory rows and exact notices retained; corresponding sanitized source is separately identified.",
-  "corresponding_sanitized_source_commit": "9d63c6f7c2a96a61ac50b9f5d82ae4da54881856"
+  "corresponding_sanitized_source_commit": "9d63c6f7c2a96a61ac50b9f5d82ae4da54881856",
+  "evidence_status": "HISTORICAL_SOURCE_BASELINE_WITH_SEPARATE_METADATA_OBSERVATIONS",
+  "current_candidate_package_hash_attestation": "UNPERFORMED"
 }

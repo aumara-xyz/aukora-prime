@@ -4,7 +4,7 @@ AUKORA Prime's existing package declaration is **AGPL-3.0-or-later**. The full G
 
 Recorded AUKORA attribution: Aumara and Peter Viviani (2026). Per-file and imported-component copyright and license notices remain authoritative. Current Prime-owned package declarations and SPDX identifiers use `AGPL-3.0-or-later`.
 
-This directory is an additive source-license index. Original notices remain beside imported source. The exact copies under [`upstream/`](upstream/) carry the same bytes; their source paths, hashes, archive integrity and selected versions are recorded in [`inventory.json`](inventory.json). That inventory describes its named source commit, not a future release.
+This directory is an additive source-license index. Original notices remain beside imported source. The exact copies under [`upstream/`](upstream/) carry the same bytes; their source paths, hashes, archive integrity and selected versions are recorded in [`inventory.json`](inventory.json). Package declarations and file hashes describe the named source baseline and separately recorded metadata observations. They are not a current candidate package-hash attestation or a binary release SBOM; verify current source and build receipts separately.
 
 ## Owned package declarations
 
