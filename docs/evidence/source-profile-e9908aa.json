@@ -1,0 +1,437 @@
+{
+  "schema": "prime-source-review-record/v1",
+  "label": "RAN_SOURCE_CHECKS",
+  "reviewed_source_commit": "e9908aa39a24fc57970662e94882fdc63f5087a0",
+  "source_binding": "Fresh bundle clone, observed clean checkout; evaluator binds literal entry/support file hashes, not cryptographic checkout attestation.",
+  "command": "./prime verify",
+  "exit_code": 0,
+  "status": "PASS",
+  "duration_ms": 106158,
+  "counts": {
+    "pass": 37,
+    "fail": 0,
+    "unperformed": 0
+  },
+  "configured_case_count": 37,
+  "case_count": 37,
+  "node": {
+    "version": "v24.11.1",
+    "pin_verification": "OBSERVED_ONLY",
+    "observed_sha256": "ab216ce39827553e745d59a6be97da745660525336c7f39ed5e0a27647acaa83"
+  },
+  "budget": {
+    "suite_ms": 600000,
+    "wall_target_ms": null,
+    "expected_full_profile_duration_ms": null,
+    "expected_full_profile_duration_status": "UNMEASURED",
+    "wall_limit_enforcement": "COOPERATIVE_NOT_KERNEL_ENFORCED",
+    "cleanup_guarantee": "COOPERATIVE_DIRECT_CHILD_ONLY"
+  },
+  "evaluator": {
+    "engine_sha256": "6ee89956283a7b296bae0239381f82f2531205d7a61704040ec0d6b56e1aca52",
+    "manifest_sha256": "3411dbfb47d7041c6544b1e7e2786e916989baf430cba25a1987147324dd9d84",
+    "identity_scope": "OBSERVED_DISK_BYTES",
+    "os_independence": "NOT_ESTABLISHED"
+  },
+  "preparation": "Fresh source-only clone; no harness build or dependency installation in this run. Approved disposable Unix-socket fixtures ran with scoped sandbox escalation.",
+  "cases": [
+    {
+      "id": "contracts-v1",
+      "property": "Frozen operation vectors and transport envelopes",
+      "status": "PASS",
+      "entry_sha256": "75f3b3119b8e55000986cf59da9e98e09c37a35d7b4f4f56d198727b162c00f2",
+      "duration_ms": 98,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "memory-original-bytes",
+      "property": "Historical record bytes and IDs survive original byte forms",
+      "status": "PASS",
+      "entry_sha256": "f11e4592b33f80112ceed7b091292d1f513c2577cd38c0102c9cc0c2ea456737",
+      "duration_ms": 88,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "inference-mock-accounting",
+      "property": "Mock-only body, data scope and durable accounting",
+      "status": "PASS",
+      "entry_sha256": "d20bb25f5152137431575ba96049f31d721669968ad20528e3fe5f66fc22d1b2",
+      "duration_ms": 385,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "ui-static-boundary",
+      "property": "Local native assets and static route boundaries",
+      "status": "PASS",
+      "entry_sha256": "bd7797da793dfafc352250e445f06b8be4c9e17f6fc52005b6a721dc3c0858cf",
+      "duration_ms": 89,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "ui-owner-presentation",
+      "property": "Injected owner review and signing presentation boundaries",
+      "status": "PASS",
+      "entry_sha256": "aa1083486c53fc3bb87e7bfeadc866cf6eaf89d51f1e48ed5a1b35c36e80d801",
+      "duration_ms": 68,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "ops-release-metadata",
+      "property": "Release digest, ordinary archive bytes and metadata refusal",
+      "status": "PASS",
+      "entry_sha256": "f7b8fe1f6b1e80301f3f8a9c52113ea91c04b1c9bb85ee7486adaf9c478e6b5d",
+      "duration_ms": 575,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "authority-review-renewal",
+      "property": "Ordinary authenticated review TTL renewal",
+      "status": "PASS",
+      "entry_sha256": "54b51ea7401e4c4e01674edec553c0738731a58500b10366dbe27e73ece8a35c",
+      "duration_ms": 1503,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "execution-ordinary-binding",
+      "property": "Ordinary executor qualification/binding regression",
+      "status": "PASS",
+      "entry_sha256": "fcd2a75fd42995da24f040b0ec0838dd129e793e0373aaff9202dd5f6f1228de",
+      "duration_ms": 122,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-pilot-capture",
+      "property": "Full source owner-memory suite: pilot-capture",
+      "status": "PASS",
+      "entry_sha256": "ff8be761ea81bc0b0b2787d1535bc77bb58371fe5737e050907a075e462d338d",
+      "duration_ms": 65,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-workflow-store",
+      "property": "Full source owner-memory suite: workflow-store",
+      "status": "PASS",
+      "entry_sha256": "27d83a5731e7d2c26a892d3359c3c1603072657b6df350e5120e27705af00cd8",
+      "duration_ms": 1239,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-memory-workflow",
+      "property": "Full source owner-memory suite: owner-memory-workflow",
+      "status": "PASS",
+      "entry_sha256": "f47516004d3433b0f6d2428e5d030c583e78ca4d66dd1857dc2739fbc2c3464f",
+      "duration_ms": 21584,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-memory-hook",
+      "property": "Full source owner-memory suite: owner-memory-hook",
+      "status": "PASS",
+      "entry_sha256": "72a2e74dca0cfef62b3e59db6b4f07fee0fa45f3e86588c0ceee74595eed5aa0",
+      "duration_ms": 8685,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-memory-host",
+      "property": "Full source owner-memory suite: owner-memory-host",
+      "status": "PASS",
+      "entry_sha256": "3a05ed078a9c9ecd03625f2af55c8bbdd280c91ecf1e666b9ea4d8a80703c451",
+      "duration_ms": 1572,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-memory-facade",
+      "property": "Full source owner-memory suite: owner-memory-facade",
+      "status": "PASS",
+      "entry_sha256": "8a5e95407487fbd7ad68cede170f14bc135b921d7db770e675e78605370502ba",
+      "duration_ms": 14501,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-recovery",
+      "property": "Full source owner-memory suite: owner-recovery",
+      "status": "PASS",
+      "entry_sha256": "7c7b1c90c46572f423ed04e80fa95b5e792af4d744a4b1a9ad4958bcaf40d854",
+      "duration_ms": 5271,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-logout",
+      "property": "Full source owner-memory suite: owner-logout",
+      "status": "PASS",
+      "entry_sha256": "be6b01b578ae241c6543c78732e44f3496f5d56c272ae7bfc6c797b67b691083",
+      "duration_ms": 3463,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-forget",
+      "property": "Full source owner-memory suite: owner-forget",
+      "status": "PASS",
+      "entry_sha256": "2a4cfa61cb68301bd72100a54d3544d71385a967820213c16d41f126cdda8a79",
+      "duration_ms": 4769,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-forget-workflow",
+      "property": "Full source owner-memory suite: owner-forget-workflow",
+      "status": "PASS",
+      "entry_sha256": "7ab96f36a83e934a582434b279adf4cfd1fb950d74b7f66944424f996468d0be",
+      "duration_ms": 5419,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-controller",
+      "property": "Full B source owner suite: controller",
+      "status": "PASS",
+      "entry_sha256": "04649ae9cd3514e8623e765a95c9d56d422b66fe96f7290f91007f2c630ef8f0",
+      "duration_ms": 51,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-approval-action",
+      "property": "Full B source owner suite: approval-action",
+      "status": "PASS",
+      "entry_sha256": "f73c758ceb9f03a3e8931e9aada132d919a11f55fdc97c5df9ea7dbb011d3a20",
+      "duration_ms": 79,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-logout",
+      "property": "Full B source owner suite: logout",
+      "status": "PASS",
+      "entry_sha256": "6dfcb646d2e3c493c4d9c39a81b70dc9cf38d68d0be0ad05c0b3a409b36e30c5",
+      "duration_ms": 45,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-forget-review",
+      "property": "Full B source owner suite: forget-review",
+      "status": "PASS",
+      "entry_sha256": "01d735fe0f29b7ff6c1300dc2da938a8a57a0dade8e57bae9a28099401770149",
+      "duration_ms": 35,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-forget-result",
+      "property": "Full B source owner suite: forget-result",
+      "status": "PASS",
+      "entry_sha256": "007bc67d92df011c32781b8287ce2a31270f38c3c74a31f592caa96b59d45ddb",
+      "duration_ms": 79,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-forget-controller",
+      "property": "Full B source owner suite: forget-controller",
+      "status": "PASS",
+      "entry_sha256": "f112bb6fc58bb6e42c326b05ab5c2eda073a718e63410dc0e7296b149b09cdad",
+      "duration_ms": 57,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-owner-recovery",
+      "property": "Full B genuine receipt-bound controller recovery",
+      "status": "PASS",
+      "entry_sha256": "52f03aa475cba8bbb9b9d2c6bdf6d0ccdc9702e8a55945878bbd09d70cc35a37",
+      "duration_ms": 8116,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-h-owner-memory-client",
+      "property": "Full H owner-memory assembly: client",
+      "status": "PASS",
+      "entry_sha256": "78352d5adaa942a154a316379911050770c9d6e610ce70b07de4d57d310953a3",
+      "duration_ms": 120,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-h-owner-memory-context",
+      "property": "Full H owner-memory assembly: context",
+      "status": "PASS",
+      "entry_sha256": "f5fbd6f877ae4eeed31a1cb02e2982150407a83d067c1fe318326a912c63a516",
+      "duration_ms": 75,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-h-owner-memory-transport",
+      "property": "Full H owner-memory assembly: transport",
+      "status": "PASS",
+      "entry_sha256": "0d8dba27a780c0044258f08e2565eefcfb360be4c169982b51614b519e97cc38",
+      "duration_ms": 71,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-h-owner-memory-recovery",
+      "property": "Full H owner-memory assembly: recovery",
+      "status": "PASS",
+      "entry_sha256": "9658be3a547b94bfb3687d236185d15f969a1351bbe03e793ddbe65dc9bebc69",
+      "duration_ms": 7154,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-expanded-review-join",
+      "property": "Full raw Bridge expanded capture, genuine approval/save and refused input",
+      "status": "PASS",
+      "entry_sha256": "2aee95c3112fce3af80139c501023d672794001c834a4ed7dbadb2a24160ccd4",
+      "duration_ms": 1559,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-invocation-forget-join",
+      "property": "Full native B scoped forget invocation through actual C/D",
+      "status": "PASS",
+      "entry_sha256": "425877cab8c300fc9c053f05b93524c15887269fc4ee5eec65aa43f680ab1b96",
+      "duration_ms": 1775,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-capacity",
+      "property": "Full actual owner-session save capacity above sixteen",
+      "status": "PASS",
+      "entry_sha256": "7267aee211374fbfd70957222cb3881beb8fe21ee139b6ee48d53292da6db86e",
+      "duration_ms": 11622,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-owner-save-retry",
+      "property": "Full exact saved receipt retry and pending settlement refusal",
+      "status": "PASS",
+      "entry_sha256": "0d279027325222de6d47f6fa5bd7a5368e216a4e15d1ec111772fc0f2ceb12ba",
+      "duration_ms": 2595,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-pre-reservation-unknown",
+      "property": "Full factual unresolved pre-reservation refusal fence (W1 still blocked)",
+      "status": "PASS",
+      "entry_sha256": "bb7f3974352e61ea5364c63458e238a088c7c80c000e2ea99abe3f3638f214bb",
+      "duration_ms": 906,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-capture-review",
+      "property": "Full B expanded capture policy and exact independent review",
+      "status": "PASS",
+      "entry_sha256": "4116df5b7e4a2d582a02de44cfb30ba56f0f1b6773b420fe322eb78a3789d193",
+      "duration_ms": 70,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-expanded-transport",
+      "property": "Full B expanded transport and saved-content consistency",
+      "status": "PASS",
+      "entry_sha256": "6dd0bb3c72d63b53be39c7d7222a9d37fa9d6ddc20ea24774c9e23d4d5c9d816",
+      "duration_ms": 61,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    },
+    {
+      "id": "full-ui-ordinary-hook",
+      "property": "Full B native approval invocation race through actual C/D",
+      "status": "PASS",
+      "entry_sha256": "8432e1dd0b9ea365fc6b18f0183d8a52c0e4e363f6ba99dce289b15076274fd3",
+      "duration_ms": 1858,
+      "completion": "DIRECT_CHILD_CLOSED",
+      "reason": "ASSERTIONS_COMPLETED"
+    }
+  ],
+  "qualification": "UNPERFORMED",
+  "g1": "PENDING",
+  "unperformed": [
+    {
+      "id": "owner-ceremony",
+      "status": "UNPERFORMED",
+      "reason": "KEYLESS_SOURCE_PROFILE"
+    },
+    {
+      "id": "live-pg",
+      "status": "UNPERFORMED",
+      "reason": "HISTORICAL_RECORD_ONLY_NO_CONNECTION"
+    },
+    {
+      "id": "current-cross-uid",
+      "status": "UNPERFORMED",
+      "reason": "NO_HOST_PERMISSION_OBSERVATION"
+    },
+    {
+      "id": "qualified-guest",
+      "status": "UNPERFORMED",
+      "reason": "NO_GUEST_OR_HELD_OPENSHELL_FIXTURE"
+    },
+    {
+      "id": "paid-inference",
+      "status": "UNPERFORMED",
+      "reason": "NO_CREDENTIALS_OR_EXTERNAL_REQUEST"
+    },
+    {
+      "id": "composed-pixels",
+      "status": "UNPERFORMED",
+      "reason": "NO_GUI_OR_RUNNING_APP_TARGET"
+    },
+    {
+      "id": "built-owner-react-render",
+      "status": "UNPERFORMED",
+      "reason": "REQUIRES_SEPARATE_PINNED_DSH_REACT_BUILD_CLOSURE"
+    },
+    {
+      "id": "extended-authority-save",
+      "status": "UNPERFORMED",
+      "reason": "EXTENDED_SUITE_ONLY_NO_265_SAVE_RUN"
+    }
+  ],
+  "cleanup": {
+    "descendant_cleanup": "UNPERFORMED",
+    "scope": "Per-job direct-child closure; cooperative limits do not prove remote or arbitrary descendant cleanup."
+  },
+  "prior_run": {
+    "source_commit": "ffd68df5abbb61175e2f20cc085cf430de042014",
+    "status": "FAIL",
+    "pass": 31,
+    "fail": 6,
+    "duration_ms": 109860,
+    "retained": true,
+    "repairs": "Four stale UI fixtures, private hook forwarding in host fixture and existing H logical-forget approval entry; no required case removed."
+  },
+  "scope": "Mandatory37 ordinary owner/memory source jobs. Broader requested repaired-core coverage reconciliation remains pending; no whole-core or runtime qualification.",
+  "adjacent_scoped_check": {
+    "command": "node harness/check-static-csp.mjs",
+    "status": "PASS",
+    "assertions": 88,
+    "guard_mutation": "KILLED in disposable copy",
+    "scope": "Source-handler refusal before donor callback; no browser or deployed behavior claim."
+  }
+}
