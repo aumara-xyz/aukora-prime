@@ -5,7 +5,7 @@ import { dirname, resolve, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { faces } from '../adapters/mount-plan.mjs'
 import { snapshotOwnerSources, snapshotOwnerBuildInputs, inputDigest, createOwnerReceipt,
-  verifyStableHarness, discoverPinnedWorkspace, compilerCommand, validateBuildDirectories, HARNESS_IDENTITY_PATH } from './verify-owner-build.mjs'
+  verifyStableHarness, discoverPinnedWorkspace, compilerCommand, validateBuildDirectories, HARNESS_IDENTITY_PATH, OWNER_CONFIG } from './verify-owner-build.mjs'
 import {publishOwnerTypeSources} from './publish-owner-types.mjs'
 
 // Prime's already materialized pinned third-party harness is the sole build input.
@@ -87,7 +87,8 @@ for (const face of entries) {
   await cp(fileURLToPath(face.directory), target, { recursive: true })
   // An overlay-only adapter invokes the original upstream preset with host output disabled.
   await writeFile(join(target, '.prime-client.config.ts'),
-    `import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(face.id)}, [], { hostPhase: true })\n`)
+    face.face === 'prime-authority' ? OWNER_CONFIG :
+      `import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(face.id)}, [], { hostPhase: true })\n`)
 }
 console.log('UI build linking existing pinned workspace dependencies, without install')
 const workspace = new Map([...originalWorkspace].map(([name,directory]) => [name,join(overlay,relative(dsh,directory))]))
