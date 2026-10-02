@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { PILOT_CAPTURE_POLICY, validatePilotCaptureMetadata } from '../src/pilot-capture.mjs'
 import { capturePresentationWarnings } from '../src/capture-presentation.mjs'
+import { CAPTURE_PARAMETER_FIELDS, validateCaptureLiterals, validateCaptureMetadata,
+  validateCaptureDraft, validateCaptureReview } from '../src/capture-review.mjs'
 
 const at = '2026-10-01T11:03:00Z'
 const host = () => ({ owner_id: 'synthetic-owner', owner_subject: 'synthetic-owner-subject', task_id: 'synthetic-task',
@@ -13,6 +15,13 @@ const input = () => ({ category: 'fact', statement: 'Exact synthetic banana < & 
   observedAt: at, confidence: 0.7, sensitivity: 'none' })
 const refused = (h, extraction) => assert.throws(() => validatePilotCaptureMetadata(h, extraction),
   { code: 'memory:pilot-capture-profile-refused' })
+const metadata = () => ({ profile: 'prime-pilot-memory-capture/v1', category: 'fact',
+  valid_from: '2026-10-01', observed_at: at, confidence_percent: 70, sensitivity: 'none' })
+const draft = () => ({ statement: input().statement, attributed_to: 'owner',
+  capture_metadata: metadata(), evidence_quote: 'Exact synthetic source event < & >.' })
+const parameters = capture => ({ capture_sha256: 'a'.repeat(64), idempotency_key_sha256: 'b'.repeat(64),
+  heads: {}, ...structuredClone(capture) })
+const reviewRefused = fn => assert.throws(fn, { message: 'memory:capture-review-invalid' })
 
 test('new pilot metadata uses documented fixed defaults and does not rewrite input or host', () => {
   const h = host(), extraction = input(), before = structuredClone({ h, extraction })
@@ -57,14 +66,112 @@ test('pilot host cannot override scope, evidence, body, origin, or source proven
   }
 })
 
-test('reviewed attribution stays explicit and Unicode spelling remains exact', () => {
+test('reviewed attribution stays explicit and new NFC Unicode spelling remains exact', () => {
   for (const attribution of ['owner', 'owner-voice', 'owner-edit', 'backfill', 'lane-requester', 'dream', 'agent']) {
     assert.equal(validatePilotCaptureMetadata({ ...host(), attributedTo: attribution }, input()).statement, input().statement)
   }
   const decomposed = { ...input(), statement: 'Exact cafe\u0301 p\u0430ypal statement.' }
-  assert.equal(validatePilotCaptureMetadata(host(), decomposed), decomposed)
+  refused(host(), decomposed)
   assert.equal(decomposed.statement.includes('e\u0301'), true)
   assert.notEqual(decomposed.statement, decomposed.statement.normalize('NFC'))
+  const composed = { ...input(), statement: 'Exact caf\u00e9 p\u0430ypal statement.' }
+  assert.equal(validatePilotCaptureMetadata(host(), composed), composed)
+})
+
+test('capture review binds the exact six metadata fields and evidence quote to a retained draft', () => {
+  const capture = draft(), before = structuredClone(capture), operationParameters = parameters(capture)
+  assert.deepEqual(CAPTURE_PARAMETER_FIELDS, ['capture_sha256', 'idempotency_key_sha256', 'heads',
+    'statement', 'attributed_to', 'capture_metadata', 'evidence_quote'])
+  const retained = validateCaptureDraft(capture)
+  assert.deepEqual(retained, capture)
+  assert.equal(Object.isFrozen(retained), true)
+  assert.equal(Object.isFrozen(retained.capture_metadata), true)
+  assert.deepEqual(capture, before)
+  assert.deepEqual(validateCaptureReview(operationParameters, retained), retained)
+  capture.capture_metadata.valid_from = '2026-10-02'
+  assert.equal(retained.capture_metadata.valid_from, '2026-10-01')
+  for (const changes of [{ statement: 'Changed literal.' }, { attributed_to: 'agent' },
+    { evidence_quote: 'Changed source quote.' }, { capture_metadata: { ...metadata(), observed_at: '2026-10-02T11:03:00Z', valid_from: '2026-10-02' } }]) {
+    reviewRefused(() => validateCaptureReview({ ...operationParameters, ...changes }, retained))
+  }
+  const oldDraft = { statement: retained.statement, attributed_to: retained.attributed_to }
+  reviewRefused(() => validateCaptureDraft(oldDraft))
+  for (const field of ['capture_metadata', 'evidence_quote']) {
+    const incomplete = { ...retained }; delete incomplete[field]
+    reviewRefused(() => validateCaptureDraft(incomplete))
+  }
+  reviewRefused(() => validateCaptureDraft({ ...retained, hidden: 'unreviewed' }))
+  const oldParameters = { capture_sha256: 'a'.repeat(64), idempotency_key_sha256: 'b'.repeat(64), heads: {}, ...oldDraft }
+  reviewRefused(() => validateCaptureReview(oldParameters, retained))
+  assert.deepEqual(validateCaptureLiterals(oldDraft), oldDraft)
+  reviewRefused(() => validateCaptureLiterals(retained))
+})
+
+test('capture metadata is a closed literal profile with canonical date and UTC seconds', () => {
+  assert.deepEqual(validateCaptureMetadata(metadata()), metadata())
+  for (const change of [{ profile: 'other' }, { category: 'preference' }, { confidence_percent: 0.7 },
+    { confidence_percent: '70' }, { confidence_percent: 71 }, { sensitivity: 'private' },
+    { valid_from: '2026-02-30' }, { valid_from: '2026-10-1' }, { valid_from: '2026-10-02' },
+    { observed_at: '2026-10-01T11:03:00.000Z' }, { observed_at: '2026-10-01T11:03:00+00:00' },
+    { observed_at: '2026-02-30T11:03:00Z' }, { observed_at: 1790852580 }, { hidden: true }]) {
+    reviewRefused(() => validateCaptureMetadata({ ...metadata(), ...change }))
+  }
+  const missing = metadata(); delete missing.sensitivity
+  reviewRefused(() => validateCaptureMetadata(missing))
+  const symbolic = metadata(); symbolic[Symbol('hidden')] = true
+  reviewRefused(() => validateCaptureMetadata(symbolic))
+  const hidden = metadata(); Object.defineProperty(hidden, 'category', { value: 'fact', enumerable: false })
+  reviewRefused(() => validateCaptureMetadata(hidden))
+  let getterReads = 0
+  const getter = metadata(); Object.defineProperty(getter, 'profile', { enumerable: true, get: () => {
+    getterReads++; return 'prime-pilot-memory-capture/v1'
+  } })
+  reviewRefused(() => validateCaptureMetadata(getter))
+  assert.equal(getterReads, 0)
+})
+
+test('review refuses hidden draft getters and non-string digest or head values without coercion', () => {
+  const capture = draft()
+  let getterReads = 0
+  const hiddenQuote = draft(); Object.defineProperty(hiddenQuote, 'evidence_quote', { enumerable: true, get: () => {
+    getterReads++; return capture.evidence_quote
+  } })
+  reviewRefused(() => validateCaptureDraft(hiddenQuote))
+  assert.equal(getterReads, 0)
+  for (const change of [{ capture_sha256: ['a'.repeat(64)] }, { idempotency_key_sha256: ['b'.repeat(64)] },
+    { heads: { remembered: ['c'.repeat(64)] } }, { heads: { other: 'c'.repeat(64) } }, { evidence_quote: [capture.evidence_quote] }]) {
+    reviewRefused(() => validateCaptureReview({ ...parameters(capture), ...change }, capture))
+  }
+  const hiddenParameters = parameters(capture)
+  Object.defineProperty(hiddenParameters, 'capture_metadata', { enumerable: true, get: () => {
+    getterReads++; return metadata()
+  } })
+  reviewRefused(() => validateCaptureReview(hiddenParameters, capture))
+  assert.equal(getterReads, 0)
+})
+
+test('new statement and evidence quote refuse unsafe formatting, filler, separators, and malformed Unicode without rewriting', () => {
+  const refusedTexts = ['Exact cafe\u0301.', '\u0301', '\u200c\u200d', '\t\n ', '\u00a0\u3000',
+    'x\u0000y', 'x\u000by', 'x\r\ny', 'x\u001fy', 'x\u007fy', 'x\u0080y', 'x\u0085y', 'x\u009fy',
+    'x\u061cy', 'x\u200ey', 'x\u200fy', 'x\u202ay', 'x\u2066y', 'x\ufeffy', 'x\u00ady',
+    'x\u2060y', 'x\u{e0001}y', 'x\u2028y', 'x\u2029y', 'x\u034fy', 'x\u115fy', 'x\u1160y', 'x\u17b4y', 'x\u17b5y',
+    'x\u3164y', 'x\uffa0y', 'x\u2800y', 'x\ud800y', 'x\udc00y']
+  for (const text of refusedTexts) {
+    for (const field of ['statement', 'evidence_quote']) {
+      const capture = { ...draft(), [field]: text }, before = structuredClone(capture)
+      reviewRefused(() => validateCaptureDraft(capture))
+      assert.deepEqual(capture, before)
+    }
+  }
+  for (const text of ['Exact caf\u00e9 p\u0430ypal.', '\u65e5\u672c\u8a9e', '\u0627\u0644\u0639\u0631\u0628\u064a\u0629',
+    '\u05e2\u05d1\u05e8\u05d9\u05ea', '\u0627\u200c\u0644', '\ud83d\udc69\u200d\ud83d\udcbb', 'Exact\tline\nnext < & >.']) {
+    const capture = { ...draft(), statement: text, evidence_quote: text }
+    assert.deepEqual(validateCaptureDraft(capture), capture)
+  }
+  const boundary = { ...draft(), statement: 'a'.repeat(4096), evidence_quote: 'b'.repeat(4096) }
+  assert.deepEqual(validateCaptureDraft(boundary), boundary)
+  reviewRefused(() => validateCaptureDraft({ ...boundary, statement: `${boundary.statement}a` }))
+  reviewRefused(() => validateCaptureDraft({ ...boundary, evidence_quote: `${boundary.evidence_quote}b` }))
 })
 
 test('presentation warnings identify exact UTF-16 positions and code points without altering text', () => {
@@ -79,12 +186,16 @@ test('presentation warnings identify exact UTF-16 positions and code points with
   assert.equal(capturePresentationWarnings('\u0430')[0].code, 'ascii-lookalikes')
 })
 
-test('presentation hints do not block languages, rely on normalization, or claim exhaustive detection', () => {
-  for (const text of ['Exact cafe\u0301', '\u65e5\u672c\u8a9e', '\u0627\u0644\u0639\u0631\u0628\u064a\u0629', '\u05e2\u05d1\u05e8\u05d9\u05ea']) {
+test('presentation hints remain exact for historical text while new capture enforces NFC without blocking languages', () => {
+  for (const text of ['Exact caf\u00e9', '\u65e5\u672c\u8a9e', '\u0627\u0644\u0639\u0631\u0628\u064a\u0629', '\u05e2\u05d1\u05e8\u05d9\u05ea']) {
     assert.deepEqual(capturePresentationWarnings(text), [])
     assert.equal(validatePilotCaptureMetadata(host(), { ...input(), statement: text }).statement, text)
   }
-  // Cf characters are flagged for presentation, including legitimate shaping; they are never removed.
+  const historicalNfd = 'Exact cafe\u0301'
+  assert.deepEqual(capturePresentationWarnings(historicalNfd), [])
+  refused(host(), { ...input(), statement: historicalNfd })
+  assert.equal(historicalNfd, 'Exact cafe\u0301')
+  // Permitted joiners remain exact and are still flagged for owner presentation.
   const shaping = '\u0627\u200c\u0644'
   assert.equal(capturePresentationWarnings(shaping)[0].code, 'format-controls')
   assert.equal(validatePilotCaptureMetadata(host(), { ...input(), statement: shaping }).statement, shaping)

@@ -3,16 +3,17 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { resolve, join } from 'node:path'
+import { resolve, join, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createOwnerUiFixture } from './fixture.mjs'
 import { providerCatalog, providerNamespace, mountDshCatalog } from '../../../inference/src/provider-settings.mjs'
 import { providerNamespaceView } from '../../adapters/provider-settings.mjs'
 
-// Ordinary SSR acceptance only. Uses the committed built native UI and pinned
-// React; no compilation, malformed inputs, authority/memory service or browser.
-const [harness, contractFile] = process.argv.slice(2)
-if (!harness || !contractFile) throw new Error('ordinary-render.mjs <pinned Prime DSH> <browser contracts>')
+// Ordinary SSR acceptance only. Uses the tracked or explicitly supplied owned
+// native UI build and pinned React; no compilation, service or browser.
+const [harness, contractFile, clientFile] = process.argv.slice(2)
+if (!harness || !contractFile) throw new Error('ordinary-render.mjs <pinned Prime DSH> <browser contracts> [owned built client.js]')
+if (clientFile && !isAbsolute(clientFile)) throw new Error('ordinary-render.mjs owned client must be an absolute local file path')
 const require = createRequire(join(resolve(harness), 'node_modules/.pnpm/node_modules/prime-ordinary-render.cjs'))
 const React = require('react'), server = require('react-dom/server')
 assert.equal(require('react/package.json').version, '18.3.1')
@@ -22,7 +23,7 @@ const modules = { react:React,'react/jsx-runtime':require('react/jsx-runtime'),'
 const factories = {}, bundleHashes = {}
 const loaderWindow = { __ModuleLoader__:{ load:({id,factory}) => { factories[id] = factory } } }
 for (const [name, relative] of [['layout','../../faces/layout/lib/client.js'],['prime_owner','../lib/client.js']]) {
-  const bytes = await readFile(new URL(relative, import.meta.url))
+  const bytes = await readFile(name === 'prime_owner' && clientFile ? resolve(clientFile) : new URL(relative, import.meta.url))
   bundleHashes[name] = createHash('sha256').update(bytes).digest('hex')
   new Function('window', bytes.toString('utf8'))(loaderWindow)
 }
@@ -148,7 +149,7 @@ try {
   // Independently chosen ordinary original-record summary, never derived from
   // operation parameters. The original synthetic bytes remain unchanged.
   const recordSummary = {record_id:'ordinary-ssr-record',revision:'ordinary-ssr-revision',
-    statement:'  Keep café & tea\nLine two 😀  ',attributed_to:'owner-edit'}
+    statement:'  Keep cafe\u0301 & tea\nLine two 😀 Русский  ',attributed_to:'owner-edit'}
   const originalBytes = contracts.canonicalJson({statement:recordSummary.statement,attributedTo:recordSummary.attributed_to})
   const canonicalHash = createHash('sha256').update(originalBytes).digest('hex')
   const ownerSubject = 'aukora:1:' + '1'.repeat(64)
@@ -160,9 +161,9 @@ try {
   controller.setOperation(operation, {recordSummary})
   const operationDigest = await contracts.operationDigest(operation)
   let handlerCalls = 0
-  controller.setForgetAction(async () => {
+  controller.setForgetAction(async (_presentation, options) => {
     handlerCalls++
-    const approved = await controller.approve()
+    const approved = await options.approve()
     assert.equal(approved.status, 'APPROVED')
     const result = {record_id:recordSummary.record_id,state:'tombstoned',canonical_payload_retained:true,physical_media_erasure:false,
       authority_approval_history_erased:false,backups_erased:false,wal_erased:false,grants_authority:false}
@@ -207,12 +208,129 @@ try {
   assert(!completed.includes('synthetic-in-memory-only')); assert(!completed.includes('client_data_json'))
   assert.equal(preText(completed, 'data-forget-statement'), escaped(recordSummary.statement))
   assert.equal(originalBytes, contracts.canonicalJson({statement:recordSummary.statement,attributedTo:recordSummary.attributed_to}))
+  assert.notEqual(recordSummary.statement.normalize('NFC'),recordSummary.statement)
   groups++
 } finally { controller.dispose() }
+
+// A paired ordinary capture passes through the actual built controller. The
+// fixed metadata and saved record below are explicitly synthetic host reports.
+const captureBinding = createOwnerUiFixture(contracts, {now:() => clock})
+const captureController = ui.createPrimeOwnerController({now:() => clock,schedule:() => 1,unschedule() {}})
+captureController.connect(captureBinding)
+try {
+  await captureController.login()
+  const statement = '  Original <b>café & tea</b>\nLine two 😀 аa  '
+  const captureMetadata = Object.freeze({profile:'prime-pilot-memory-capture/v1',category:'fact',
+    valid_from:'2030-01-01',observed_at:'2030-01-01T00:00:00Z',confidence_percent:70,sensitivity:'none'})
+  const quote = 'Selected source: <mark>café & tea</mark>\n"Original" source 😀 а'
+  const memoryCapture = Object.freeze({statement,attributed_to:'owner-edit',capture_metadata:captureMetadata,evidence_quote:quote})
+  const ownerSubject = 'aukora:1:' + '1'.repeat(64)
+  const captureOperation = {...captureBinding.operation,operation_id:'ordinary-ssr-capture',action_type:'memory.save',audience:'aukora-prime.memory',
+    target_identity:{kind:'prime-memory',owner_subject:ownerSubject},
+    canonical_parameters:{capture_sha256:'a'.repeat(64),idempotency_key_sha256:'b'.repeat(64),
+      heads:{remembered:'aukora:aura-record:v1'},...memoryCapture}}
+  const operationDigest = await contracts.operationDigest(captureOperation)
+  const source = {sessionId:'ordinary-source-session',seq:3,sha256:'e'.repeat(64)}
+  const evidence = [{log:source.sessionId,turn:source.seq,turnDigest:source.sha256,quote}]
+  const canonicalBytes = JSON.stringify({statement,attributedTo:memoryCapture.attributed_to,
+    category:captureMetadata.category,validFrom:captureMetadata.valid_from,observedAt:captureMetadata.observed_at,
+    confidence:0.7,sensitivity:captureMetadata.sensitivity,source,evidence}, null, 2)
+  let saveReports = 0
+  captureController.setApprovalAction(async (_presentation, options) => {
+    const approved = await options.approve()
+    assert.equal(approved.status, 'APPROVED')
+    saveReports++
+    const record = {version:1,record_id:'ordinary-saved-record',owner_subject:ownerSubject,task_id:captureOperation.task_id,
+      scope:'owner',privacy:'local',record_format:'ordinary-synthetic-original',canonicalizer:'fixture-original-json',
+      canonical_bytes:canonicalBytes,revision:'ordinary-saved-revision',grants_authority:false,
+      source_event_digest:'sha256:' + source.sha256,evidence,chain_domain:'remembered',
+      source_span:{event_id:'ordinary-source-event',start:0,end:quote.length},storage_status:'saved',index_status:'pending'}
+    contracts.validateContract('MemoryRecord', record)
+    const request = {version:1,action_type:'memory.save',owner_subject:ownerSubject,operation_id:captureOperation.operation_id,
+      operation_digest:operationDigest,parameters:captureOperation.canonical_parameters}
+    const receipt = {version:1,kind:'prime-memory-effect/v1',operation_id:captureOperation.operation_id,operation_digest:operationDigest,
+      grant_id:'grant:' + approved.approval_proof.nonce,request_id:'12345678-1234-4123-8123-123456789abd',
+      request_digest:nodeDigest('aukora-prime.memory.effect.v1', request),owner_subject:ownerSubject,action_type:'memory.save',status:'applied',
+      result_digest:nodeDigest('aukora-prime.memory-result.v1', record),result:record}
+    return {phase:'saved',operation:captureOperation,memory_capture:memoryCapture,operation_digest:operationDigest,approval:'approved',
+      save:'saved',saved:true,record,receipt,receipt_digest:nodeDigest('aukora-prime.memory-receipt.v1', receipt),citation:null,
+      citation_status:'unavailable',index:{status:'pending',indexed:false,searchable:false},authority_settlement:'completed',
+      reconciliation_required:false,error_code:null,read_error_code:'UNAVAILABLE'}
+  })
+  captureController.setOperation(captureOperation, {memoryCapture,captureMetadata})
+  await captureController.prepare()
+  const review = captureController.getSnapshot().presentation
+  const html = render(captureController)
+  assert.equal(preText(html, 'data-memory-statement'), escaped(statement))
+  assert.equal(preText(html, 'data-memory-attribution'), memoryCapture.attributed_to)
+  assert.equal(preText(html, 'data-memory-evidence-quote'), escaped(quote))
+  assert.equal(review.memory_review.evidence_quote, quote)
+  assert.deepEqual(review.memory_review.capture_metadata, captureMetadata)
+  assert.deepEqual(review.capture_metadata, captureMetadata)
+  assert(html.includes('data-memory-fixed-capture-policy="true"'))
+  for (const [label, value] of [['Profile',captureMetadata.profile],['Category',captureMetadata.category],
+    ['Confidence percent',String(captureMetadata.confidence_percent)],['Sensitivity',captureMetadata.sensitivity],
+    ['Observed at',captureMetadata.observed_at],['Valid from',captureMetadata.valid_from]]) {
+    assert(html.includes(`<dt>${escaped(label)}</dt><dd>${escaped(value)}</dd>`))
+  }
+  // The independently chosen values were compared above. The retained draft is
+  // detached through canonical JSON, so its display has canonical key order.
+  assert.equal(preText(html, 'data-fixed-capture-metadata'), escaped(JSON.stringify(review.capture_metadata, null, 2)))
+  assert(html.includes(`<time>${captureMetadata.observed_at}</time>`)); assert(html.includes(`<time>${captureMetadata.valid_from}</time>`))
+  assert(html.includes('data-memory-unicode-hint="ascii-lookalikes"'))
+  assert(html.includes('data-memory-unicode-hint="mixed-scripts"'))
+  assert(html.includes(`<code>UTF-16 index ${statement.indexOf('а')}: U+0430, Cyrillic letter resembling a</code>`))
+  assert(html.includes('Hints aid review and preserve the exact text.'))
+  assert(!html.includes('data-capture-source-evidence-unavailable="true"'))
+  assert(!html.includes('<mark>café & tea</mark>'))
+  assert(!html.includes('<b>café & tea</b>'))
+  assert.equal(review.memory_review.statement, statement)
+  assert.equal(saveReports, 0); assert.equal(captureBinding.counts.approve, 0)
+  groups++
+
+  const reported = await captureController.submitApproval()
+  assert(reported); assert.equal(saveReports, 1); assert.equal(captureBinding.counts.approve, 1)
+  assert.equal(reported.record.canonical_bytes, canonicalBytes)
+  assert.deepEqual(reported.record.evidence, evidence)
+  const saved = render(captureController)
+  assert(saved.includes('data-memory-saved-capture-content="true"'))
+  assert.equal(preText(saved, 'data-memory-saved-canonical-bytes'), escaped(canonicalBytes))
+  assert.equal(preText(saved, 'data-memory-saved-evidence-quote'), escaped(quote))
+  assert.equal(preText(saved, 'data-memory-saved-evidence-fields'), escaped(JSON.stringify(reported.record.evidence[0], null, 2)))
+  assert(saved.includes('Source quotations describe the selected source event and can differ from the captured statement.'))
+  assert(/data-memory-save-status="true">saved<\/dd>/.test(saved))
+  assert(/data-memory-index-status="true">pending<\/dd>/.test(saved))
+  assert(/data-memory-citation-status="true">unavailable<\/dd>/.test(saved))
+  assert(/data-memory-settlement-status="true">completed<\/dd>/.test(saved))
+  assert.equal(preText(saved, 'data-memory-effect-receipt'), escaped(JSON.stringify(reported.receipt, null, 2)))
+  assert(!saved.includes('<mark>café & tea</mark>'))
+  assert(!saved.includes('synthetic-in-memory-only')); assert(!saved.includes('client_data_json'))
+  assert.notEqual(quote, statement)
+  groups++
+
+  // A fresh NEW-capture proposal without independently prepared metadata is
+  // refused; it cannot retain a ready review or expose an approval path.
+  const withoutMetadata = {...captureOperation,operation_id:'ordinary-ssr-capture-no-metadata'}
+  const missingMetadata = {statement,attributed_to:memoryCapture.attributed_to,evidence_quote:quote}
+  assert.throws(() => captureController.setOperation(withoutMetadata, {memoryCapture:missingMetadata}),error => error.code==='TARGET_MISMATCH')
+  const absent = render(captureController)
+  assert.equal(captureController.getSnapshot().presentation, null)
+  assert.equal(captureController.getSnapshot().operation_available, false)
+  assert(absent.includes('No operation has been supplied by the host.'))
+  assert(!absent.includes('data-memory-statement'))
+  assert(!absent.includes('data-memory-evidence-quote'))
+  assert(!absent.includes('>Approve exact operation'))
+  assert(!absent.includes('data-memory-fixed-capture-policy'))
+  assert(!absent.includes('data-fixed-capture-metadata="true"'))
+  assert(!absent.includes('The host supplied this exact fixed-pilot metadata.'))
+  assert(!absent.includes('Confidence percent'))
+  assert.equal(saveReports, 1); assert.equal(captureBinding.counts.approve, 1)
+  groups++
+} finally { captureController.dispose() }
 
 console.log(JSON.stringify({result:'PASS',evidence:'RAN',scope:'ordinary native SSR and nonsecret provider protocol',
   ordinary_acceptance_groups:groups,native_render_groups:groups-protocolGroups,provider_protocol_groups:protocolGroups,
   base_checkpoint:'1b7bd3d7909996c8d515a5c588059e5b2257e39a',react:'18.3.1',react_dom:'18.3.1',schemastery:'3.18.2',
-  catalog_reads:catalogReads,bundle_sha256:bundleHashes,
+  catalog_reads:catalogReads,bundle_sha256:bundleHashes,owner_build_input:clientFile ? 'explicit-owned-build' : 'tracked-lib',
   browser_observation:'UNPERFORMED',runtime:false,network:false,real_authentication:false,real_credentials:false,
   real_memory_effects:false,real_provider_effects:false,compile:false,adversarial_cases:false}))

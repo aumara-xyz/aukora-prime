@@ -13,9 +13,9 @@
   "owned_component": "packages/ui/prime-authority/src/client/MemoryCaptureHints.tsx",
   "policy_reference": {
     "source_path": "packages/memory/src/pilot-capture.mjs",
-    "source_commit": "4e6d0336a286aa84e53479f0200d20d480ada5f8",
-    "bytes": 4183,
-    "sha256": "2816e9e7a0e104e2336baeccb70a174ae066fc6b84684b76393578406e3d7532",
-    "usage": "Documented fixed new-capture policy displayed read-only; main gates mounting on independent host metadata checks. No private host validation or dynamic policy override is implemented in this component."
+    "source_commit": "6326a4c928a7d14ab7e9ef7a7da626a6a6322d22",
+    "bytes": 4216,
+    "sha256": "6732384c59ebcbdba5dbe7ff8e677873aa8893931195f0fdba1106ce2c0198e9",
+    "usage": "Fixed NEW capture policy displayed after independent four-field draft/metadata/source quotation checks; exact copied capture-review helper owns admission. Historical saved bytes are never normalized."
   }
 }

@@ -3,7 +3,7 @@ import { ActionButton, Panel, SectionHeader } from '@aukora/face-layout/client'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { Controller } from './controller.mjs'
 import { CAPABILITY_LABELS } from './controller.mjs'
-import { validateCaptureReview } from '../../../adapters/capture-review.mjs'
+import { CAPTURE_METADATA_FIELDS, validateCaptureReview } from '../../../adapters/capture-review.mjs'
 import { validateCaptureMetadata } from '../../../adapters/capture-metadata.mjs'
 import { validateForgetReview } from '../../../adapters/forget-review.mjs'
 import { MemoryCaptureHints } from './MemoryCaptureHints'
@@ -20,9 +20,11 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
     try {
       validateCaptureReview(view.operation.canonical_parameters, {
         statement: view.memory_review.statement, attributed_to: view.memory_review.attributed_to,
+        capture_metadata:view.memory_review.capture_metadata, evidence_quote:view.memory_review.evidence_quote,
       })
       memoryReady = view.memory_review.capture_sha256 === (view.operation.canonical_parameters as {capture_sha256:string}).capture_sha256
-      if (view.capture_metadata) validateCaptureMetadata(view.capture_metadata)
+      const metadata = validateCaptureMetadata(view.capture_metadata)
+      memoryReady = memoryReady && CAPTURE_METADATA_FIELDS.every(key => metadata[key] === view.memory_review!.capture_metadata[key])
     } catch { memoryReady = false }
   }
   if (!memoryReady && view?.operation.action_type === 'memory.forget' && view.forget_review) {
@@ -64,14 +66,16 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
           {memoryReady ? <><pre data-memory-statement>{view.memory_review!.statement}</pre>
             <p>Attribution</p><pre data-memory-attribution>{view.memory_review!.attributed_to}</pre>
             <p>Capture hash</p><pre data-memory-capture-hash>{view.memory_review!.capture_sha256}</pre>
-            <p>The operation digest below binds this exact statement and attribution. The host verifies the private capture.</p>
-            <MemoryCaptureHints statement={view.memory_review!.statement} />
+            <h3>Exact selected source quotation</h3>
+            <pre data-memory-evidence-quote>{view.memory_review!.evidence_quote}</pre>
+            <p>The source quotation can differ from the captured statement. The operation digest binds the exact statement, attribution, metadata and quotation. The host verifies the private capture and source.</p>
+            <MemoryCaptureHints statement={view.memory_review!.statement} evidenceQuote={view.memory_review!.evidence_quote} metadata={view.capture_metadata} />
             {view.capture_metadata ? <dl data-fixed-capture-dates>
               <dt>Source observed at</dt><dd><time>{view.capture_metadata.observed_at}</time></dd>
               <dt>Valid from</dt><dd><time>{view.capture_metadata.valid_from}</time></dd>
             </dl> : <p data-fixed-capture-dates-unavailable>The host has not supplied the capture dates.</p>}
           </>
-            : <p role="alert" data-memory-review-refused>The exact memory statement and attribution are missing or do not match the capture draft. Approval is unavailable.</p>}
+            : <p role="alert" data-memory-review-refused>The exact statement, attribution, metadata or source quotation is missing or does not match the independent capture draft. Approval is unavailable.</p>}
         </div>}
         {view.operation.action_type === 'memory.forget' && <div data-memory-forget-review>
           <h3>Exact original record for logical forget</h3>
@@ -112,6 +116,8 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
       </dl>
       {state.approval_action_result.reconciliation_required && <p role="alert">Reconciliation is required. Do not retry this save.</p>}
       {state.approval_action_result.read_error_code && <p role="status">Index or citation read unavailable: {state.approval_action_result.read_error_code}</p>}
+      {state.approval_action_result.saved === true && state.approval_action_result.record &&
+        <SavedCaptureContent record={state.approval_action_result.record} />}
       {state.approval_action_result.receipt && <details><summary>Exact host receipt</summary>
         <pre data-memory-effect-receipt>{JSON.stringify(state.approval_action_result.receipt, null, 2)}</pre></details>}
       {state.approval_action_result.citation && <details><summary>Exact citation</summary>
@@ -134,6 +140,23 @@ export function OwnerSurface({ activeSurface, controller }: PropsRuntime<'shell.
     {state.error_code && <p role="alert" className={css.error} data-authority-error={state.error_code}>{state.error_code}</p>}
     {state.expired && <p role="alert">This session or review has expired.</p>}
   </section>
+}
+
+function SavedCaptureContent({record}:{record:Readonly<Record<string,unknown>>}) {
+  const evidence = Array.isArray(record.evidence) ? record.evidence : []
+  return <div data-memory-saved-capture-content>
+    <h3>Exact saved memory and source evidence</h3>
+    <p>The original saved bytes remain unchanged. Source quotations describe the selected source event and can differ from the captured statement.</p>
+    <pre data-memory-saved-canonical-bytes>{typeof record.canonical_bytes === 'string' ? record.canonical_bytes : 'Unavailable'}</pre>
+    {evidence.map((entry:unknown,index:number) => {
+      const quote = entry && typeof entry === 'object' && 'quote' in entry ? entry.quote : null
+      return <div key={index} data-memory-saved-evidence>
+        {typeof quote === 'string' && <pre data-memory-saved-evidence-quote>{quote}</pre>}
+        <pre data-memory-saved-evidence-fields>{JSON.stringify(entry,null,2)}</pre>
+      </div>
+    })}
+    {evidence.length === 0 && <p data-memory-saved-evidence-unavailable>No source evidence was supplied in the saved record.</p>}
+  </div>
 }
 
 function CapabilityDetails({controller}:{controller:Controller}) {

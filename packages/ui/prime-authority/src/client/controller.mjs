@@ -1,10 +1,10 @@
 import { createPrimeTransport, PrimeTransportError } from '../../../adapters/transport.mjs'
 import { createBrowserPasskeySigner } from '../../../adapters/passkey.mjs'
-import { validateCaptureReview } from '../../../adapters/capture-review.mjs'
+import { CAPTURE_METADATA_FIELDS, validateCaptureReview } from '../../../adapters/capture-review.mjs'
 import { validateCaptureMetadata } from '../../../adapters/capture-metadata.mjs'
 import { validateForgetReview } from '../../../adapters/forget-review.mjs'
 import { validateForgetWorkflowResult, validateCancelledForgetWorkflow } from '../../../adapters/forget-result.mjs'
-import { validateSaveRecovery } from '../../../adapters/save-recovery.mjs'
+import { validateSaveRecovery, validateSavedCaptureContent } from '../../../adapters/save-recovery.mjs'
 
 async function readJson(response, contracts) {
   if (typeof contracts?.parseStrictJson !== 'function') throw new PrimeTransportError('UNAVAILABLE', 'ui:strict-json-helper-unavailable')
@@ -209,6 +209,7 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
     }
     if (result.saved === true || result.save === 'saved') {
       contracts.validateContract('MemoryRecord', result.record)
+      validateSavedCaptureContent(result.record, result.memory_capture)
       const original = JSON.parse(result.record.canonical_bytes)
       const view = flight.presentation, receipt = result.receipt
       if (!flight.approved || result.saved !== true || result.save !== 'saved' || result.approval !== 'approved' ||
@@ -225,6 +226,36 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       }
     }
     return result
+  }
+  const liveApprovalFlight = flight => approvalFlight === flight && revision === flight.revision &&
+    binding === flight.binding && state.owner === flight.owner && state.presentation === flight.presentation &&
+    actionGeneration === flight.actionGeneration && configuredAction() === flight.handler &&
+    !flight.abort.signal.aborted && state.authority_available === true && state.expired === false &&
+    Date.parse(state.owner?.expiry) > now()
+  function requestApproval(flight = null) {
+    if (state.phase !== 'review_ready' || state.expired || !state.authority_available) return Promise.resolve(null)
+    const presentation = state.presentation
+    return action('approval_pending', signal => transport.approve(presentation, { kind: ownerKind ?? 'passkey', signal }), result => {
+      // A raw approval never attributes its proof to an owned workflow flight.
+      if (flight && liveApprovalFlight(flight)) {
+        flight.approved = true; flight.proofNonce = result.approval_proof.nonce
+      }
+      notify({ phase: 'approved', error_code: null, reason: result.status === 'APPROVED'
+        ? 'The host confirmed approval of this exact operation. Execution has not been confirmed.' : 'The result is unknown.' })
+    })
+  }
+  function hookApproval(flight) {
+    if (!liveApprovalFlight(flight)) return Promise.resolve(null)
+    if (flight.approvalPromise) return flight.approvalPromise
+    if (pending || state.phase !== 'review_ready') return Promise.resolve(null)
+    // Reserve before requestApproval publishes approval_pending. Reentrant
+    // calls receive this same private promise, never another pending action.
+    flight.approvalPromise = Promise.resolve().then(async () => {
+      if (!liveApprovalFlight(flight) || pending) return null
+      const result = await requestApproval(flight)
+      return liveApprovalFlight(flight) ? result : null
+    })
+    return flight.approvalPromise
   }
   const api = {
     getSnapshot: () => state,
@@ -269,18 +300,23 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       try {
         binding.contracts.validateContract('OperationProposal', proposal)
         const proposed = immutable(JSON.parse(binding.contracts.canonicalJson(proposal)))
+        let captureDraft
         if (proposed.action_type === 'memory.save') {
-          try { validateCaptureReview(proposed.canonical_parameters, options.memoryCapture) }
-          catch { throw new PrimeTransportError('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
-          if (options.captureMetadata !== undefined) validateCaptureMetadata(options.captureMetadata)
+          try {
+            captureDraft = validateCaptureReview(proposed.canonical_parameters, options.memoryCapture)
+            if (options.captureMetadata !== undefined) {
+              const metadata = validateCaptureMetadata(options.captureMetadata)
+              if (CAPTURE_METADATA_FIELDS.some(key => metadata[key] !== captureDraft.capture_metadata[key])) {
+                throw new TypeError('ui:fixed-capture-metadata-mismatched')
+              }
+            }
+          } catch { throw new PrimeTransportError('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
         } else if (proposed.action_type === 'memory.forget') {
           try { validateForgetReview(proposed, options.recordSummary) }
           catch { throw new PrimeTransportError('TARGET_MISMATCH', 'ui:forget-record-review-missing-or-mismatched') }
         }
-        memoryCapture = proposed.action_type === 'memory.save'
-          ? immutable(JSON.parse(binding.contracts.canonicalJson(options.memoryCapture))) : undefined
-        captureMetadata = proposed.action_type === 'memory.save' && options.captureMetadata !== undefined
-          ? validateCaptureMetadata(options.captureMetadata) : undefined
+        memoryCapture = captureDraft
+        captureMetadata = memoryCapture?.capture_metadata
         recordSummary = proposed.action_type === 'memory.forget' ? validateForgetReview(proposed, options.recordSummary) : undefined
         operation = proposed
       } catch (error) {
@@ -313,15 +349,8 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       })
     },
     approve() {
-      if (state.phase !== 'review_ready' || state.expired || !state.authority_available) return Promise.resolve(null)
-      const presentation = state.presentation
-      return action('approval_pending', signal => transport.approve(presentation, { kind: ownerKind ?? 'passkey', signal }), result => {
-        if (approvalFlight?.revision === revision && approvalFlight.presentation === presentation) {
-          approvalFlight.approved = true; approvalFlight.proofNonce = result.approval_proof.nonce
-        }
-        notify({ phase: 'approved', error_code: null, reason: result.status === 'APPROVED'
-          ? 'The host confirmed approval of this exact operation. Execution has not been confirmed.' : 'The result is unknown.' })
-      })
+      if (approvalFlight || approvalActionBlocked) return Promise.resolve(null)
+      return requestApproval()
     },
     setApprovalAction(handler) {
       if (handler !== null && typeof handler !== 'function') throw new PrimeTransportError('INVALID', 'ui:invalid-approval-action')
@@ -406,7 +435,9 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         try {
           if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null
           flight.started = true
-          const value = await flight.handler(flight.presentation, { signal: flight.abort.signal })
+          const value = await flight.handler(flight.presentation, Object.freeze({
+            signal:flight.abort.signal, approve:() => hookApproval(flight),
+          }))
           const stale = revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted
           if (stale) {
             if (forgetting) validateCancelledForgetWorkflow(value, flight.contracts)

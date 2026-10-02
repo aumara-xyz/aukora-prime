@@ -91,6 +91,11 @@ function host(subject = owner, text = 'Synthetic owner likes banana.') {
     source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(bytes)},events:[bytes] }
 }
 const input = {category:'fact',statement:'banana',validFrom:'2026-10-01',observedAt:at,confidence:0.7,sensitivity:'none'}
+const captureMetadata = extraction => ({profile:'prime-pilot-memory-capture/v1',category:extraction.category,
+  valid_from:extraction.validFrom,observed_at:extraction.observedAt,
+  confidence_percent:extraction.confidence*100,sensitivity:extraction.sensitivity})
+const captureDraft = (h,extraction=input) => ({statement:extraction.statement,attributed_to:h.attributedTo,
+  capture_metadata:captureMetadata(extraction),evidence_quote:parseOriginal(h.events.find(bytes=>sha256(bytes)===h.source.sha256)).text})
 // Private test-only authority. Only explicitly registered toy operation digests can reach the SQL fixture.
 // It is not exported by the package and does not verify production proofs; C owns that integration check.
 let operationNumber=0
@@ -357,7 +362,9 @@ test('preserved decimal v0, safe-integer v1, UNLINKED, pre-split chains and quar
   try {
     const memory = service(pool); await memory.migrate()
     const sourceHost = host(),data = event('Synthetic owner likes banana.'),digest = sha256(data)
-    const note = buildRememberedNote({...input,subject:owner,privacy:'local',attributedTo:'owner',source:{state:'UNLINKED',cited:true,sessionId:'missing-synthetic',citedTurn:0,because:'Synthetic event absent'},evidence:[{log:'missing-synthetic',turn:0,turnDigest:digest,quote:'banana'}]})
+    const historicalStatement='Historical cafe\u0301 remains byte exact.'
+    assert.notEqual(historicalStatement.normalize('NFC'),historicalStatement)
+    const note = buildRememberedNote({...input,statement:historicalStatement,subject:owner,privacy:'local',attributedTo:'owner',source:{state:'UNLINKED',cited:true,sessionId:'missing-synthetic',citedTurn:0,because:'Synthetic event absent'},evidence:[{log:'missing-synthetic',turn:0,turnDigest:digest,quote:historicalStatement}]})
     const marker = sha256(Buffer.from(`${note.id}\0${sha256(Buffer.from(note.statement))}`))
     const stored = {...note,aura:{index:0,entryHash:marker}},body={op:'remember',id:note.id,entryHash:marker,sequence:1,at}
     const entry = {...body,prev:AURA_RECORD_DOMAIN,hash:auraEntryHash(AURA_RECORD_DOMAIN,body)}
@@ -368,6 +375,8 @@ test('preserved decimal v0, safe-integer v1, UNLINKED, pre-split chains and quar
     const restored = await memory.status(sourceHost,note.id)
     assert.equal(restored.record.canonical_bytes,bytes.toString('utf8'))
     assert.equal(parseOriginal(Buffer.from(restored.record.canonical_bytes)).salt,note.salt)
+    assert.equal(parseOriginal(Buffer.from(restored.record.canonical_bytes)).statement,historicalStatement)
+    assert.equal(parseOriginal(Buffer.from(restored.record.canonical_bytes)).evidence[0].quote,historicalStatement)
     assert.equal((await memory.cite(sourceHost,note.id)).verdict,'MISSING')
     const invalid = {...stored,statement:'tampered'}
     const bad = makeSnapshot(owner,[{...snapshot.files.find(f=>f.role==='record'),path:'invalid.json',bytes:Buffer.from(JSON.stringify(invalid))},
@@ -539,16 +548,36 @@ test('authorized save settlement/restart, omission mutations, redacted restore a
 })
 
 test('literal capture review refuses coercion and invisible controls without changing the independent draft',()=>{
-  const draft={statement:'Exact <banana>\n\t🙂',attributed_to:'owner'}
+  const draft={statement:'Exact <banana>\n\t🙂',attributed_to:'owner',capture_metadata:captureMetadata(input),
+    evidence_quote:'The exact selected event can differ from the note.'}
   const params={capture_sha256:'a'.repeat(64),idempotency_key_sha256:'b'.repeat(64),heads:{remembered:'c'.repeat(64)},...draft}
   assert.deepEqual(validateCaptureReview(params,draft),draft)
-  for(const unit of ['\u061c','\u200e','\u200f','\u202a','\u202e','\u2066','\u2069','\r','\u0000','\ud800'])
+  for(const unit of ['\u061c','\u200e','\u200f','\u202a','\u202e','\u2066','\u2069','\u200b','\u00ad','\u2028','\u2029',
+    '\u034f','\u115f','\u1160','\u17b4','\u17b5','\u3164','\uffa0','\u2800','\r','\u0000','\u0085','\ud800']) {
     assert.throws(()=>validateCaptureDraft({...draft,statement:'banana'+unit}),/memory:capture-review-invalid/)
+    assert.throws(()=>validateCaptureDraft({...draft,evidence_quote:'selected event'+unit}),/memory:capture-review-invalid/)
+  }
+  for(const text of ['\t\n ','cafe\u0301','\u200c','\u200d']) {
+    assert.throws(()=>validateCaptureDraft({...draft,statement:text}),/memory:capture-review-invalid/)
+    assert.throws(()=>validateCaptureDraft({...draft,evidence_quote:text}),/memory:capture-review-invalid/)
+  }
+  for(const text of ['می\u200cروم','क्\u200dष','café','Exact Cyrillic а and Latin a']) {
+    assert.equal(validateCaptureDraft({...draft,statement:text}).statement,text)
+    assert.equal(validateCaptureDraft({...draft,evidence_quote:text}).evidence_quote,text)
+  }
   for(const key of ['capture_sha256','idempotency_key_sha256'])
     assert.throws(()=>validateCaptureReview({...params,[key]:[params[key]]},draft),/memory:capture-review-invalid/)
   assert.throws(()=>validateCaptureReview({...params,heads:{remembered:['c'.repeat(64)]}},draft),/memory:capture-review-invalid/)
   assert.throws(()=>validateCaptureReview({...params,statement:'different'},draft),/memory:capture-review-invalid/)
   assert.throws(()=>validateCaptureReview({...params,attributed_to:'agent'},draft),/memory:capture-review-invalid/)
+  assert.throws(()=>validateCaptureReview({...params,evidence_quote:'different selected event'},draft),/memory:capture-review-invalid/)
+  assert.throws(()=>validateCaptureDraft({statement:draft.statement,attributed_to:draft.attributed_to}),/memory:capture-review-invalid/)
+  assert.throws(()=>validateCaptureReview({capture_sha256:params.capture_sha256,idempotency_key_sha256:params.idempotency_key_sha256,
+    heads:params.heads,statement:params.statement,attributed_to:params.attributed_to},draft),/memory:capture-review-invalid/)
+  assert.throws(()=>validateCaptureReview({...params,capture_metadata:{...draft.capture_metadata,valid_from:'2026-09-30'}},draft),/memory:capture-review-invalid/)
+  assert.throws(()=>validateCaptureReview({...params,capture_metadata:{...draft.capture_metadata,confidence_percent:69}},draft),/memory:capture-review-invalid/)
+  assert.throws(()=>validateCaptureDraft({...draft,capture_metadata:{...draft.capture_metadata,confidence_percent:'70'}}),/memory:capture-review-invalid/)
+  assert.throws(()=>validateCaptureDraft({...draft,capture_metadata:{...draft.capture_metadata,extra:true}}),/memory:capture-review-invalid/)
   assert.throws(()=>validateCaptureDraft({...draft,statement:'x'.repeat(4097)}),/memory:capture-review-invalid/)
 })
 
@@ -561,18 +590,54 @@ test('three concurrent identical approved saves coalesce exactly once; signed li
     assert.equal(memory.captureRemembered,undefined);assert.equal(memory.tombstoneRecord,undefined)
     const h=host(),binding=await memory.prepareCaptureBinding(h,input,'concurrent-approved')
     assert.deepEqual(Object.keys(binding).sort(),['canonical_parameters','memory_capture','state_version','target_identity'])
-    assert.deepEqual(binding.memory_capture,{statement:input.statement,attributed_to:h.attributedTo})
-    for(const changed of [{statement:'forged literal'},{attributed_to:'agent'}]) {
+    assert.deepEqual(binding.memory_capture,captureDraft(h))
+    assert.notEqual(binding.memory_capture.evidence_quote,binding.memory_capture.statement)
+    for(const changed of [{statement:'forged literal'},{attributed_to:'agent'},
+      {evidence_quote:'forged selected source quote'},
+      {capture_metadata:{...binding.memory_capture.capture_metadata,profile:'forged-profile'}},
+      {capture_metadata:{...binding.memory_capture.capture_metadata,category:'preference'}},
+      {capture_metadata:{...binding.memory_capture.capture_metadata,valid_from:'2026-09-30'}},
+      {capture_metadata:{...binding.memory_capture.capture_metadata,observed_at:'2026-10-01T11:02:00Z'}},
+      {capture_metadata:{...binding.memory_capture.capture_metadata,confidence_percent:69}},
+      {capture_metadata:{...binding.memory_capture.capture_metadata,sensitivity:'private'}}]) {
       const rejected=toyBoundOperation(h,'memory.save',{...binding.canonical_parameters,...changed})
       await assert.rejects(memory.captureAuthorizedRemembered(h,input,'concurrent-approved',rejected),{code:'memory:capture-review-invalid'})
       assert.equal(reserves,0)
+      assert.equal(dispatches,0)
+      assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents').get().n,0)
     }
     const options=toyBoundOperation(h,'memory.save',binding.canonical_parameters)
     const saved=await Promise.all(Array.from({length:3},()=>memory.captureAuthorizedRemembered(h,input,'concurrent-approved',options)))
     assert.equal(new Set(saved.map(r=>r.receipt.request_id)).size,1)
     assert.equal(new Set(saved.map(r=>r.record.record_id)).size,1)
     assert.equal(reserves,1);assert.equal(dispatches,1)
+    const stored=parseOriginal(Buffer.from(saved[0].record.canonical_bytes))
+    assert.equal(stored.statement,binding.memory_capture.statement)
+    assert.equal(stored.attributedTo,binding.memory_capture.attributed_to)
+    assert.equal(stored.evidence[0].quote,binding.memory_capture.evidence_quote)
+    assert.deepEqual(captureMetadata(stored),binding.memory_capture.capture_metadata)
     for(const table of ['records','requests','outbox','intents','effects']) assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_'+table).get().n,1)
+  } finally {pool.close();rmSync(dir,{recursive:true,force:true})}
+})
+
+test('unsafe or non-NFC new statement and selected quote refuse before SQL or authority consumption',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'prime-memory-new-text-policy-')),pool=new FixturePool(join(dir,'storage.sqlite'))
+  let reserves=0,dispatches=0,queries=0
+  const authority={...toyAuthority,reserve(args){reserves++;return toyAuthority.reserve(args)},claimDispatch(args){dispatches++;return toyAuthority.claimDispatch(args)}}
+  try {
+    const memory=service(pool,{authority});await memory.migrate()
+    const h=host(),key='new-text-approved',binding=await memory.prepareCaptureBinding(h,input,key)
+    const options=toyBoundOperation(h,'memory.save',binding.canonical_parameters)
+    const query=pool.query.bind(pool);pool.query=(...args)=>{queries++;return query(...args)}
+    for(const literal of ['cafe\u0301','unsafe\u200btext','unsafe\u2028text','unsafe\u2029text','unsafe\u034ftext']) {
+      await assert.rejects(memory.prepareCaptureBinding(h,{...input,statement:literal},'unsafe-draft'),{code:'memory:pilot-capture-profile-refused'})
+      await assert.rejects(memory.prepareCaptureBinding(host(owner,literal),input,'unsafe-quote'),{code:'memory:capture-review-invalid'})
+      await assert.rejects(memory.captureAuthorizedRemembered(h,{...input,statement:literal},key,options),{code:'memory:pilot-capture-profile-refused'})
+      await assert.rejects(memory.captureAuthorizedRemembered(host(owner,literal),input,key,options),{code:'memory:capture-review-invalid'})
+    }
+    assert.equal(queries,0);assert.equal(reserves,0);assert.equal(dispatches,0)
+    assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents').get().n,0)
+    assert.equal(pool.db.prepare('SELECT count(*) AS n FROM prime_memory_records').get().n,0)
   } finally {pool.close();rmSync(dir,{recursive:true,force:true})}
 })
 

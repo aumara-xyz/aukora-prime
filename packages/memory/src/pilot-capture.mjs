@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { validateCaptureDraft } from './capture-review.mjs'
+import { validateCaptureLiterals } from './capture-review.mjs'
 
 // New pilot captures only. Import codecs retain historical metadata and exact original bytes.
 // Omitted links and explicit [] are both permitted fixed empty values; their request hashes remain distinct.
@@ -72,6 +72,7 @@ export function validatePilotCaptureMetadata(host, input) {
     if (origin.value.by !== 'prime.capture/v1') fail()
   }
   // Attribution is shown and bound by the existing exact statement review helper.
-  validateCaptureDraft({ statement: input.statement, attributed_to: attribution.value })
+  try { validateCaptureLiterals({ statement: input.statement, attributed_to: attribution.value }) }
+  catch { fail() }
   return input
 }

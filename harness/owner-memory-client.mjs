@@ -48,8 +48,8 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
     // Also fences a logout before a pending login has established an owner.
     if(!state.owner&&['logged_out','unavailable','expired'].includes(state.phase))revoke();
    });
-   controller.setApprovalAction(()=>workflow.approveAndSave());
-   controller.setForgetAction(()=>forgetWorkflow.approveAndForget());return workflow;
+   controller.setApprovalAction((_view,options)=>workflow.approveAndSave(options));
+   controller.setForgetAction((_view,options)=>forgetWorkflow.approveAndForget(options));return workflow;
   },
   get workflow(){return workflow;},
   get forgetWorkflow(){return forgetWorkflow;},

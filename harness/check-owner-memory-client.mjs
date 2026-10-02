@@ -16,7 +16,16 @@ import {createOwnerMemoryHost} from './owner-memory-host.mjs';
 import {createOwnerMemoryHttpRoutes} from './owner-memory-transport.mjs';
 import {createLocalhostPilotGuard} from '../packages/runtime-bridge/src/pilot-origin.mjs';
 let checks=0;
-const literal='  <tag>&\n\t🍌 e\u0301  ',capture={statement:literal,attributed_to:'owner-edit'};
+const literal='  <tag>&\n\t🍌 \u00e9  ';
+// Synthetic trusted source bytes and independent review data. The full selected
+// quote deliberately differs from the extracted statement; neither is rewritten.
+const selectedEventBytes=Buffer.from(JSON.stringify({text:'  Selected source <quote>&\n\t🍌 \u00e9 remains exact.  '}));
+const selectedEvent=JSON.parse(selectedEventBytes.toString('utf8'));
+const source=Object.freeze({sessionId:'source-fixture-session',seq:0,at:'2026-10-01T11:02:03Z',
+ sha256:createHash('sha256').update(selectedEventBytes).digest('hex')});
+const captureMetadata=Object.freeze({profile:'prime-pilot-memory-capture/v1',category:'fact',valid_from:source.at.slice(0,10),
+ observed_at:source.at,confidence_percent:70,sensitivity:'none'});
+const capture=Object.freeze({statement:literal,attributed_to:'owner-edit',capture_metadata:captureMetadata,evidence_quote:selectedEvent.text});
 const ownerBinding={owner_id:'ui-fixture-owner',passkeyProfile:{profile:'localhost-pilot-v1',origin:'http://localhost:18731',rp_id:'localhost'}};
 const caps={version:1,source_commit:'a'.repeat(40),runtime_pid:1,release_digest:'sha256:'+'b'.repeat(64),
  unavailable_capabilities:[],phase:'disposable-preview',qualification:'PENDING'};
@@ -26,7 +35,7 @@ const digest=(domain,value)=>'sha256:'+createHash('sha256').update(domain+'\0'+c
 
 function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=false,onClearHook}={}){
  const base=createOwnerUiFixture(contracts),calls=[];
- let saved,forgotten,proposed,holdLogin,releaseLogin,approvalAction;
+ let saved,forgotten,proposed,holdLogin,releaseLogin;
  const entered=new Promise(resolve=>{holdLogin=resolve;});
  const wait=new Promise(resolve=>{releaseLogin=resolve;});
  const boundary={async handlePublic(method,input){
@@ -48,15 +57,18 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
    const operation={...base.operation,operation_id:'source-host-forget',action_type:'memory.forget',audience:'aukora-prime.memory',
     target_identity:{kind:'prime-memory',owner_subject:'aukora:1:'+'1'.repeat(64)},expected_state_version:'sha256:'+'a'.repeat(64),
     canonical_parameters:{profile:'prime-logical-forget/v1',record_id:input.record_id,revision:'source-fixture-revision',canonical_sha256:'a'.repeat(64),
-     at:new Date().toISOString().slice(0,19)+'Z',heads:{remembered:'aukora:aura-record:v1'},...capture}};
+     at:new Date().toISOString().slice(0,19)+'Z',heads:{remembered:'aukora:aura-record:v1'},statement:literal,attributed_to:capture.attributed_to}};
    proposed=operation;
    return {ok:true,operation,operation_digest:await contracts.operationDigest(operation),record_summary:{record_id:input.record_id,
-    revision:operation.canonical_parameters.revision,...capture}};
+    revision:operation.canonical_parameters.revision,statement:literal,attributed_to:capture.attributed_to}};
   }
   if(method==='memory.save'){
-   const op=input.operation,record={version:1,record_id:'source-fixture-record',owner_subject:op.target_identity.owner_subject,task_id:op.task_id,
-    scope:'owner',privacy:'local',record_format:'source-fixture',canonicalizer:'source-fixture',canonical_bytes:JSON.stringify({statement:literal,attributedTo:capture.attributed_to}),
-    revision:'source-fixture-revision',grants_authority:false,source_event_digest:'sha256:'+'c'.repeat(64),evidence:[],chain_domain:'remembered',
+   const op=input.operation,evidence=[{log:source.sessionId,turn:source.seq,turnDigest:source.sha256,quote:capture.evidence_quote}];
+   const original={statement:literal,attributedTo:capture.attributed_to,category:captureMetadata.category,validFrom:captureMetadata.valid_from,
+    observedAt:captureMetadata.observed_at,confidence:captureMetadata.confidence_percent/100,sensitivity:captureMetadata.sensitivity,source,evidence};
+   const record={version:1,record_id:'source-fixture-record',owner_subject:op.target_identity.owner_subject,task_id:op.task_id,
+    scope:'owner',privacy:'local',record_format:'source-fixture',canonicalizer:'source-fixture',canonical_bytes:JSON.stringify(original),
+    revision:'source-fixture-revision',grants_authority:false,source_event_digest:'sha256:'+source.sha256,evidence,chain_domain:'remembered',
     source_span:{fixture:true},storage_status:'saved',index_status:'pending'};
    const receipt={version:1,kind:'prime-memory-effect/v1',operation_id:op.operation_id,operation_digest:input.approval_proof.operation_digest,
     grant_id:'grant:'+input.approval_proof.nonce,request_id:'11111111-1111-4111-8111-111111111111',request_digest:digest('aukora-prime.memory.effect.v1',
@@ -104,14 +116,15 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   return new Response(body,{status,headers});
  };
  const controller=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}});
- const joinedController={...controller,setApprovalAction(handler){approvalAction=handler;if(handler===null)onClearHook?.();return controller.setApprovalAction(handler);}};
+ const joinedController={...controller,setApprovalAction(handler){if(handler===null)onClearHook?.();return controller.setApprovalAction(handler);}};
  const client=createOwnerMemoryClient({controller:joinedController,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner});
  // Source simulation of native primeAuthority injection. No Cordis mount or
  // default-browser effect is claimed by this check.
  assert.throws(()=>client.proposeSave({}),/not attached/);checks++;
  controller.connect(client.binding);client.attach();assert.equal(client.attach(),client.workflow);checks++;
  return {client,controller,calls,entered,releaseLogin,
-  approvalAction:()=>approvalAction(),
+  // Invoke through B so the handler receives B's actual captured options.
+  approvalAction:()=>controller.submitApproval(),
   freshClient(){
    const freshController=createPrimeOwnerController({schedule:()=>null,unschedule:()=>{}});
    const fresh=createOwnerMemoryClient({controller:freshController,contracts,ownerBinding,fetcher,passkeySigner:base.passkeySigner});
@@ -127,11 +140,21 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
 {
  const f=fixture();try{
   assert.equal(await f.controller.login(),null);assert.equal(f.calls.length,0);checks++;
-  await f.prepare();const one=f.controller.submitApproval(),two=f.controller.submitApproval();assert.equal(one,two);
+  await f.prepare();
+  const view=f.controller.getSnapshot().presentation,params=view.operation.canonical_parameters;
+  assert.deepEqual(Object.keys(params).sort(),['capture_sha256','idempotency_key_sha256','heads','statement','attributed_to','capture_metadata','evidence_quote'].sort());
+  assert.deepEqual(f.client.workflow.getSnapshot().memory_capture,capture);
+  assert.deepEqual(view.memory_review,{...capture,capture_sha256:params.capture_sha256});
+  assert.deepEqual(view.capture_metadata,captureMetadata);assert.notEqual(capture.evidence_quote,literal);checks++;
+  const one=f.approvalAction(),two=f.controller.submitApproval();assert.equal(one,two);
   const result=await one;assert.equal(result.saved,true);assert.equal(result.index.searchable,false);assert.equal(result.citation_status,'unverified');
   assert.equal(result.authority_settlement,'completed');assert.equal(f.count('memory.save'),1);checks++;
   const save=f.calls.find(value=>value.method==='memory.save').input;
   assert.equal(save.operation.canonical_parameters.statement,literal);assert.equal(save.operation.canonical_parameters.attributed_to,capture.attributed_to);
+  assert.deepEqual(save.operation.canonical_parameters.capture_metadata,captureMetadata);assert.equal(save.operation.canonical_parameters.evidence_quote,selectedEvent.text);
+  const original=JSON.parse(result.record.canonical_bytes);
+  assert.equal(original.confidence,0.7);assert.deepEqual(original.source,source);assert.deepEqual(original.evidence,result.record.evidence);
+  assert.equal(result.record.evidence[0].quote,selectedEvent.text);
   assert.equal(save.approval_proof.operation_digest,await contracts.operationDigest(save.operation));checks++;
   f.controller.logout();assert.equal((await f.client.logout()).status,'LOGGED_OUT');assert.equal(f.count('owner.logout'),1);checks++;
   const before=f.calls.length;await f.client.refresh();assert.equal(f.calls.length,before);checks++;
@@ -190,7 +213,7 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   const one=f.controller.submitApproval(),two=f.controller.submitApproval();assert.equal(one,two);
   const uncertain=await one;assert.equal(uncertain.forgotten,null);assert.equal(uncertain.reconciliation_required,true);
   assert.equal(f.count('memory.forget'),1);assert.equal(f.count('memory.save'),0);checks++;
-  await f.client.approveAndForget();assert.equal(f.count('memory.forget'),1);checks++;
+  await f.controller.submitApproval();assert.equal(f.count('memory.forget'),1);checks++;
   const recovered=await f.client.recoverForget();assert.equal(recovered.forgotten,true);
   assert.equal(recovered.result.physical_media_erasure,false);assert.equal(recovered.authority_settlement,'completed');
   assert.equal(f.count('memory.forget'),1);assert.equal(f.count('owner.approvalComplete'),1);
@@ -218,7 +241,7 @@ function fixture({lostSave=false,lostLogin=false,lostLogout=false,lostForget=fal
   assert.equal((await f.client.proposeForget({record_id:'source-fixture-record'})).phase,'proposed');assert(await f.controller.prepare());
   let detached=false;
   const off=f.client.forgetWorkflow.subscribe(()=>{if(!detached&&f.client.forgetWorkflow.getSnapshot().phase==='forget_pending'){detached=true;f.client.dispose();}});
-  await f.client.approveAndForget();off();
+  await f.controller.submitApproval();off();
   assert.equal(detached,true);assert.equal(f.count('owner.approvalComplete'),1);assert.equal(f.count('memory.forget'),0);checks++;
   assert.equal(f.controller.getSnapshot().owner,null);assert.equal(f.client.forgetWorkflow.getSnapshot().record_summary,null);
   assert.equal(f.client.forgetWorkflow.getSnapshot().forgotten,false);assert.equal(f.client.forgetWorkflow.getSnapshot().reconciliation_required,true);checks++;

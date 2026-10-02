@@ -3,8 +3,7 @@
  * The composition injects browser-safe frozen contract helpers and transport methods; no URLs
  * or signing keys live here. Session tokens remain in memory, outside presentation objects.
  */
-import { validateCaptureReview } from './capture-review.mjs'
-import { validateCaptureMetadata } from './capture-metadata.mjs'
+import { validateCaptureReview, validateCaptureMetadata } from './capture-review.mjs'
 import { validateForgetReview } from './forget-review.mjs'
 
 export class PrimeTransportError extends Error {
@@ -230,13 +229,17 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     let forgetDraft = null
     let metadata = null
     if (operation.action_type === 'memory.save') {
-      try { validateCaptureReview(operation.canonical_parameters, memoryCapture) }
+      try { memoryDraft = copy(validateCaptureReview(operation.canonical_parameters, memoryCapture), 'memory-capture-draft') }
       catch { fail('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
-      memoryDraft = copy(memoryCapture, 'memory-capture-draft')
       if (captureMetadata !== undefined) {
-        try { metadata = validateCaptureMetadata(captureMetadata) }
-        catch { fail('TARGET_MISMATCH', 'ui:fixed-capture-metadata-required') }
+        try {
+          const sibling = validateCaptureMetadata(captureMetadata)
+          if (exact(sibling) !== exact(memoryDraft.capture_metadata)) throw new TypeError('metadata-mismatch')
+        } catch { fail('TARGET_MISMATCH', 'ui:fixed-capture-metadata-required-or-mismatched') }
       }
+      // The legacy presentation sibling is a view of the independently supplied
+      // validated draft, never inferred from operation parameters or defaults.
+      metadata = memoryDraft.capture_metadata
     } else if (operation.action_type === 'memory.forget') {
       try { forgetDraft = validateForgetReview(operation, recordSummary) }
       catch { fail('TARGET_MISMATCH', 'ui:forget-record-review-missing-or-mismatched') }
@@ -246,6 +249,10 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     const digest = await operationDigest(operation)
     const answer = await call('approvalChallenge', { session_token: current.session_token, operation }, signal)
     sameSession(current)
+    if (memoryDraft) {
+      try { validateCaptureReview(operation.canonical_parameters, memoryDraft) }
+      catch { fail('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
+    }
     validateContract('OperationProposal', answer.operation)
     if (canonicalJson(answer.operation) !== canonicalJson(operation) || answer.operation_digest !== digest) {
       fail('TARGET_MISMATCH', 'ui:approval-operation-changed')
@@ -266,7 +273,7 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       // This is the complete exact operation, suitable for the existing approval seat.
       canonical_operation: canonicalJson(operation),
       rows: Object.keys(labels).map(key => ({ key, label: labels[key], value: operation[key], exact: canonicalJson(operation[key]) })),
-      memory_review: memoryDraft ? { statement: memoryDraft.statement, attributed_to: memoryDraft.attributed_to,
+      memory_review: memoryDraft ? { ...memoryDraft,
         capture_sha256: operation.canonical_parameters.capture_sha256 } : null,
       capture_metadata: metadata,
       forget_review: forgetDraft ? { ...forgetDraft, canonical_sha256: operation.canonical_parameters.canonical_sha256 } : null,
@@ -303,6 +310,10 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
     const pending = (async () => {
       const material = await sign(kind, 'approval', record.request, signal, record.public_key)
       sameSession(current)
+      if (record.memoryDraft) {
+        try { validateCaptureReview(record.operation.canonical_parameters, record.memoryDraft) }
+        catch { fail('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
+      }
       checkExpiry(record.operation.expiry)
       checkSignal(signal)
       const proof = copy({ ...record.proofTemplate, material })
@@ -318,6 +329,7 @@ export function createPrimeTransport({ authority, contracts, ownerSigner, passke
       }
       if (answer.status !== 'APPROVED') fail('OUTCOME_UNKNOWN', 'ui:approval-result-unknown')
       try {
+        if (record.memoryDraft) validateCaptureReview(record.operation.canonical_parameters, record.memoryDraft)
         validateContract('ApprovalProof', answer.approval_proof)
         proofMatches(answer.approval_proof, record.operation, record.digest, record.request)
         if (exact(answer.approval_proof) !== exact(proof)) fail('TARGET_MISMATCH', 'ui:approval-proof-changed')

@@ -8,12 +8,17 @@ const make = options => {const binding=createOwnerUiFixture(contracts,{now:()=>c
 let cases=0
 {
   const f=make();await f.controller.login()
-  const memoryCapture={statement:'  Exact memory\nstatement 😀  ',attributed_to:'owner-edit'}
+  const captureMetadata={profile:'prime-pilot-memory-capture/v1',category:'fact',valid_from:'2030-01-01',
+    observed_at:'2030-01-01T00:00:00Z',confidence_percent:70,sensitivity:'none'}
+  const memoryCapture={statement:'  Exact memory\nstatement 😀  ',attributed_to:'owner-edit',
+    capture_metadata:captureMetadata,evidence_quote:'Selected source: exact quotation differs from captured statement 😀'}
   const operation={...f.binding.operation,action_type:'memory.save',canonical_parameters:{capture_sha256:'a'.repeat(64),
     idempotency_key_sha256:'b'.repeat(64),heads:{},...memoryCapture}}
   f.controller.setOperation(operation,{memoryCapture});memoryCapture.statement='Changed caller draft'
   await f.controller.prepare();assert.equal(f.controller.getSnapshot().phase,'review_ready')
   assert.equal(f.controller.getSnapshot().presentation.memory_review.statement,operation.canonical_parameters.statement)
+  assert.deepEqual(f.controller.getSnapshot().presentation.capture_metadata,captureMetadata)
+  assert.equal(f.controller.getSnapshot().presentation.memory_review.evidence_quote,operation.canonical_parameters.evidence_quote)
   assert.throws(()=>f.controller.setOperation(operation),e=>e.code==='TARGET_MISMATCH')
   assert.equal(f.controller.getSnapshot().presentation,null);assert.equal(f.controller.getSnapshot().operation_available,false)
   await f.controller.approve();assert.equal(f.binding.counts.approve,0);f.controller.dispose();cases++

@@ -164,12 +164,19 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     requireMemory(host.offTheRecord!==true && host.paused!==true && host.privacy==='local'
       && !Object.entries(CONTROLS).some(([key,value])=>value.stopsCapture && host.controls?.[key]),'memory:capture-policy-blocked')
     requireMemory(['owner','owner-voice','owner-edit','backfill','lane-requester','dream','agent'].includes(host.attributedTo),'memory:host-attribution-required')
-    try {validateCaptureDraft({statement:input.statement,attributed_to:host.attributedTo})}
+    const events=eventEntries(host),selected=events.find(event=>event.sha256===host.source.sha256)
+    requireMemory(selected,'memory:capture-source-missing')
+    const event=parseOriginal(selected.bytes)
+    requireMemory(typeof event.text==='string' && event.text.length>0,'memory:capture-source-text-missing')
+    let reviewDraft
+    try {reviewDraft=validateCaptureDraft({statement:input.statement,attributed_to:host.attributedTo,
+      capture_metadata:{profile:'prime-pilot-memory-capture/v1',category:input.category,valid_from:input.validFrom,
+        observed_at:input.observedAt,confidence_percent:70,sensitivity:input.sensitivity},evidence_quote:event.text})}
     catch {requireMemory(false,'memory:capture-review-invalid')}
-    const events=eventEntries(host),capture={input,subject:owner,task:host.task_id,source:host.source,
+    const capture={input,subject:owner,task:host.task_id,source:host.source,
       evidence:host.evidence ?? null,attribution:host.attributedTo,scope:host.scope ?? 'owner',privacy:host.privacy,
       origin:host.origin ?? {by:'prime.capture/v1'},bodyAtCapture:host.bodyAtCapture ?? null,events:events.map(e=>e.sha256)}
-    return {host,input,owner,events,idempotencyKey,requestDigest:sha256(Buffer.from(canonicalJSON(capture)))}
+    return {host,input,owner,events,idempotencyKey,reviewDraft,requestDigest:sha256(Buffer.from(canonicalJSON(capture)))}
   }
   async function currentHeads(db,owner) {
     const heads={}
@@ -208,6 +215,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     requireMemory(sourceEvent,'memory:capture-source-missing')
     const event=parseOriginal(sourceEvent.bytes)
     requireMemory(typeof event.text==='string' && event.text.length>0,'memory:capture-source-text-missing')
+    requireMemory(event.text===context.reviewDraft.evidence_quote,'memory:capture-review-invalid')
     requireMemory(!SECRET_PATTERNS.some(pattern=>pattern.test(event.text)||pattern.test(input.statement)),'memory:capture-secret-shape')
     requireMemory(host.attributedTo==='agent' || ownerControlIn(event.text)===null,'memory:capture-owner-control')
     const note=buildRememberedNote({...input,attributedTo:host.attributedTo,subject:owner,scope:host.scope ?? 'owner',
@@ -237,8 +245,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       const heads=await currentHeads(db,context.owner)
       return {target_identity:memoryTarget(context.owner),state_version:memoryStateVersion(heads),
         canonical_parameters:{capture_sha256:context.requestDigest,idempotency_key_sha256:sha256(Buffer.from(key)),heads,
-          statement:context.input.statement,attributed_to:context.host.attributedTo},
-        memory_capture:{statement:context.input.statement,attributed_to:context.host.attributedTo}}
+          ...context.reviewDraft},
+        memory_capture:context.reviewDraft}
     },{readOnly:true})
   }
   async function captureAuthorizedRemembered(host,input,key,options={}) {
@@ -247,11 +255,11 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     const parameters=options.operation?.canonical_parameters
     requireMemory(parameters?.capture_sha256===context.requestDigest
       && parameters.idempotency_key_sha256===sha256(Buffer.from(key)) && parameters.heads,'memory:capture-operation-mismatch')
-    try {validateCaptureReview(parameters,{statement:context.input.statement,attributed_to:context.host.attributedTo})}
+    try {validateCaptureReview(parameters,context.reviewDraft)}
     catch {requireMemory(false,'memory:capture-review-invalid')}
     return authorizedEffect(context.host,'memory.save',{capture_sha256:context.requestDigest,
       idempotency_key_sha256:sha256(Buffer.from(key)),heads:parameters.heads,
-      statement:context.input.statement,attributed_to:context.host.attributedTo},options,
+      ...context.reviewDraft},options,
       async db=>{
         const actual=await currentHeads(db,context.owner)
         requireMemory(canonicalJSON(actual)===canonicalJSON(parameters.heads),'memory:target-state-changed')

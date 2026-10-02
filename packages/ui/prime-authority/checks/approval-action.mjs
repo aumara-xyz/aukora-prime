@@ -6,12 +6,10 @@ import {pathToFileURL} from 'node:url'
 import {resolve} from 'node:path'
 import {createPrimeOwnerController} from '../src/client/controller.mjs'
 import {createOwnerUiFixture} from './fixture.mjs'
+import {createApprovalHookPort} from './approval-hook-fixture.mjs'
 
-if (!process.argv[2] || !process.argv[3]) {
-  throw new Error('Usage: node approval-action.mjs <contracts browser.mjs> <runtime-bridge src directory>')
-}
-const contracts = await import(pathToFileURL(resolve(process.argv[2])).href)
-const bridgeSource = pathToFileURL(resolve(process.argv[3]) + '/').href
+const contracts = await import(process.argv[2] ? pathToFileURL(resolve(process.argv[2])).href : new URL('../../../contracts/src/browser.mjs',import.meta.url).href)
+const bridgeSource = process.argv[3] ? pathToFileURL(resolve(process.argv[3]) + '/').href : new URL('../../../runtime-bridge/src/',import.meta.url).href
 const {createUiAdapters} = await import(new URL('ui-adapter.mjs', bridgeSource))
 const {createOwnerMemoryWorkflow} = await import(new URL('owner-memory-workflow.mjs', bridgeSource))
 const copy = value => JSON.parse(contracts.canonicalJson(value))
@@ -76,7 +74,7 @@ function make({saveUnknown=false,approvalGate,saveGate,approvalDelivery}={}) {
       chain_domain:'remembered',chain_sequence:1,aura_entry_hash:'1'.repeat(64),verified_head:'2'.repeat(64),verdict:'UNVERIFIED',grants_authority:false}}
     throw new Error('Unexpected synthetic method '+method)
   }})
-  const controller = createPrimeOwnerController({now:()=>now,schedule:()=>null,unschedule:()=>{}})
+  const controller = createApprovalHookPort(createPrimeOwnerController({now:()=>now,schedule:()=>null,unschedule:()=>{}}))
   controller.connect({...base,operation:undefined,authority:adapters.authority,
     passkeySigner:async input=>{signerCalls++;return base.passkeySigner(input)}})
   const workflow = createOwnerMemoryWorkflow({controller,memory:adapters.memory,contracts})
@@ -341,5 +339,5 @@ await staleHookFence(()=>null,'rejected stale action',{reject:true})
     assert.equal(f.controller.getSnapshot().approval_action_result.saved,true)
   } finally {held.release();f.dispose()} cases++
 }
-console.log(JSON.stringify({result:'PASS',cases,actual_ui_controller:true,actual_bridge_adapter:true,actual_bridge_workflow:true,
+console.log(JSON.stringify({result:'PASS',cases,passed:cases,failed:0,skipped:0,actual_ui_controller:true,actual_bridge_adapter:true,actual_bridge_workflow:true,
   synthetic_replies:true,real_C_crypto:false,actual_postgres:false,real_enrollment:false,real_authentication:false,effects:false}))

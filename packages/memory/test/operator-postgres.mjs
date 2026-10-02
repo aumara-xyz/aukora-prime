@@ -9,7 +9,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createPostgresMemory } from '../src/index.mjs'
 import { inspectSnapshot } from '../src/snapshot.mjs'
-import { sha256 } from '../src/codecs.mjs'
+import { sha256, parseOriginal } from '../src/codecs.mjs'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { MEMORY_AUDIENCE, memoryReceiptDigest, memoryStateVersion, memoryTarget } from '../src/authorization.mjs'
 
@@ -261,11 +261,21 @@ async function prepare(config, statePath, Pool, driverManifest) {
     assert.equal(typeof memory.captureRemembered, 'undefined'); assert.equal(typeof memory.tombstoneRecord, 'undefined')
     const host = syntheticHost(state), extraction = extractionOf(state), key = 'synthetic-capture:' + run_id
     const binding = await memory.prepareCaptureBinding(host, extraction, key)
-    assert.deepEqual(binding.memory_capture, { statement: extraction.statement, attributed_to: host.attributedTo })
+    const expectedCapture = { statement: extraction.statement, attributed_to: host.attributedTo,
+      capture_metadata: { profile: 'prime-pilot-memory-capture/v1', category: 'fact',
+        valid_from: extraction.validFrom, observed_at: extraction.observedAt, confidence_percent: 70, sensitivity: 'none' },
+      evidence_quote: parseOriginal(host.events.find(bytes => sha256(bytes) === host.source.sha256)).text }
+    assert.deepEqual(binding.memory_capture, expectedCapture)
     const authorization = toy.authorization(host, 'memory.save', binding.canonical_parameters, binding.canonical_parameters.heads)
     const saved = await Promise.all([0, 1, 2].map(() => memory.captureAuthorizedRemembered(host, extraction, key, authorization)))
     assert.deepEqual(saved[1], saved[0]); assert.deepEqual(saved[2], saved[0]); assert.deepEqual(toy.calls, { reserve: 1, dispatch: 1, settle: 1 })
     const result = saved[0]; assert.equal(result.authority_settlement, 'completed')
+    const savedNote = parseOriginal(Buffer.from(result.record.canonical_bytes))
+    assert.equal(savedNote.statement, expectedCapture.statement); assert.equal(savedNote.attributedTo, expectedCapture.attributed_to)
+    assert.equal(savedNote.evidence[0].quote, expectedCapture.evidence_quote)
+    assert.deepEqual({ profile: 'prime-pilot-memory-capture/v1', category: savedNote.category,
+      valid_from: savedNote.validFrom, observed_at: savedNote.observedAt,
+      confidence_percent: savedNote.confidence * 100, sensitivity: savedNote.sensitivity }, expectedCapture.capture_metadata)
     assert.equal(result.record.storage_status, 'saved'); assert.equal(result.record.index_status, 'pending')
     assert.equal((await memory.status(host, result.record.record_id)).searchable, false)
     assert.equal((await memory.cite(host, result.record.record_id)).verdict, 'VERIFIED')

@@ -2,7 +2,7 @@
 // Browser-safe consistency checks for a retained, already approved save.
 // This presents host recovery facts; it grants no authority and sends no effect.
 import { PrimeTransportError } from './transport.mjs'
-import { validateCaptureReview } from './capture-review.mjs'
+import { validateCaptureReview, validateCaptureDraft } from './capture-review.mjs'
 
 const RECEIPT = ['version','kind','operation_id','operation_digest','grant_id','request_id',
   'request_digest','owner_subject','action_type','status','result_digest','result']
@@ -11,6 +11,45 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{1
 const requireValue = (condition, reason) => {
   if (!condition) throw new PrimeTransportError('TARGET_MISMATCH', reason)
 }
+const EVIDENCE = ['log','turn','turnDigest','quote']
+const evidenceEntry = value => value && typeof value === 'object' && !Array.isArray(value) &&
+  Object.keys(value).sort().join(',') === [...EVIDENCE].sort().join(',') &&
+  typeof value.log === 'string' && value.log.length > 0 && Number.isSafeInteger(value.turn) && value.turn >= 0 &&
+  typeof value.turnDigest === 'string' && /^[a-f0-9]{64}$/.test(value.turnDigest) && typeof value.quote === 'string'
+
+/**
+ * Compare a retained NEW-capture review with the exact saved donor content.
+ * The legacy original byte string is only read for equality; its text is never
+ * admitted as a new capture, normalized, trimmed, or reserialized here.
+ * The caller validates the frozen outer MemoryRecord before calling this helper.
+ */
+export function validateSavedCaptureContent(record, memoryDraft) {
+  let draft, original
+  try {
+    draft = validateCaptureDraft(memoryDraft)
+    original = JSON.parse(record.canonical_bytes)
+  } catch { requireValue(false, 'ui:save-recovery-record-mismatch') }
+  const metadata = draft.capture_metadata
+  requireValue(original && typeof original === 'object' && !Array.isArray(original) &&
+    original.statement === draft.statement && original.attributedTo === draft.attributed_to &&
+    original.category === metadata.category && original.validFrom === metadata.valid_from &&
+    original.observedAt === metadata.observed_at && original.confidence === metadata.confidence_percent / 100 &&
+    original.sensitivity === metadata.sensitivity, 'ui:save-recovery-record-mismatch')
+  // D's fixed pilot derives one evidence entry from the selected source event;
+  // it refuses custom host evidence. Bind both its original and outer views.
+  const source = original.source
+  requireValue(Array.isArray(original.evidence) && original.evidence.length === 1 &&
+    Array.isArray(record.evidence) && record.evidence.length === 1 &&
+    evidenceEntry(original.evidence[0]) && evidenceEntry(record.evidence[0]) &&
+    source && typeof source === 'object' && !Array.isArray(source) &&
+    original.evidence[0].log === source.sessionId && original.evidence[0].turn === source.seq &&
+    original.evidence[0].turnDigest === source.sha256 && record.source_event_digest === 'sha256:' + source.sha256 &&
+    original.evidence[0].quote === draft.evidence_quote &&
+    EVIDENCE.every(key => record.evidence[0][key] === original.evidence[0][key]),
+    'ui:save-recovery-evidence-mismatch')
+  return record
+}
+
 async function digest(domain, value, contracts) {
   if (typeof globalThis.crypto?.subtle?.digest !== 'function') {
     throw new PrimeTransportError('UNAVAILABLE', 'ui:save-recovery-digest-unavailable')
@@ -29,23 +68,23 @@ export async function validateSaveRecovery(result, { presentation:view, approved
     result.authority_settlement === 'completed' && result.reconciliation_required === false && result.error_code === null &&
     result.operation_digest === view.operation_digest, 'ui:save-recovery-not-completed-or-bound')
   contracts.validateContract('OperationProposal', operation)
-  validateCaptureReview(operation.canonical_parameters, view.memory_review && {
+  const memoryDraft = validateCaptureReview(operation.canonical_parameters, view.memory_review && {
     statement:view.memory_review.statement, attributed_to:view.memory_review.attributed_to,
+    capture_metadata:view.memory_review.capture_metadata, evidence_quote:view.memory_review.evidence_quote,
   })
+  requireValue(view.memory_review.capture_sha256 === operation.canonical_parameters.capture_sha256 &&
+    contracts.canonicalJson(view.capture_metadata) === contracts.canonicalJson(memoryDraft.capture_metadata),
+    'ui:save-recovery-review-mismatch')
   requireValue(view.canonical_operation === contracts.canonicalJson(operation) &&
     view.operation_digest === await contracts.operationDigest(operation), 'ui:save-recovery-review-mismatch')
   requireValue((result.operation === null && result.memory_capture === null) ||
     (contracts.canonicalJson(result.operation) === view.canonical_operation &&
-      contracts.canonicalJson(result.memory_capture) === contracts.canonicalJson({
-        statement:view.memory_review.statement, attributed_to:view.memory_review.attributed_to,
-      })), 'ui:save-recovery-operation-changed')
+      contracts.canonicalJson(result.memory_capture) === contracts.canonicalJson(memoryDraft)),
+    'ui:save-recovery-operation-changed')
   contracts.validateContract('MemoryRecord', result.record)
-  // Original donor-format bytes may contain decimals such as confidence. They
-  // remain an opaque string in the strict outer transport, never reserialized.
-  const original = JSON.parse(result.record.canonical_bytes)
+  validateSavedCaptureContent(result.record, memoryDraft)
   requireValue(result.record.storage_status === 'saved' && result.record.grants_authority === false &&
-    result.record.owner_subject === operation.target_identity.owner_subject && result.record.task_id === operation.task_id &&
-    original.statement === view.memory_review.statement && original.attributedTo === view.memory_review.attributed_to,
+    result.record.owner_subject === operation.target_identity.owner_subject && result.record.task_id === operation.task_id,
     'ui:save-recovery-record-mismatch')
   requireValue(receipt && Object.keys(receipt).sort().join(',') === [...RECEIPT].sort().join(',') &&
     receipt.version === 1 && receipt.kind === 'prime-memory-effect/v1' && receipt.action_type === 'memory.save' &&

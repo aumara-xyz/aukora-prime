@@ -3,47 +3,34 @@
 // No real owner, PostgreSQL, deployment, browser or process-isolation claim.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {readFile} from 'node:fs/promises'
-import {createRequire} from 'node:module'
-import {join,resolve,isAbsolute} from 'node:path'
 import * as contracts from '../../../contracts/src/browser.mjs'
-import {fixture,draft,ok,assertSaved,assertUnknown} from '../../../runtime-bridge/test/owner-memory-fixture.mjs'
-import {createPrimeOwnerController} from '../src/client/controller.mjs'
-import {createOwnerForgetWorkflow} from '../../../runtime-bridge/src/owner-forget-workflow.mjs'
+import {loadOwnerJoinFixture,loadApprovalHookController,assertExpandedCapture,assertExpandedSaved} from './approval-hook-fixture.mjs'
+
+const {fixture,draft,ok,assertSaved,assertUnknown,createOwnerForgetWorkflow}=await loadOwnerJoinFixture(process.env.PRIME_OWNER_JOIN_ROOT)
 
 const harness=process.env.PRIME_RECOVERY_DSH
-let controllerFactory=createPrimeOwnerController
-if(harness){
-  if(!isAbsolute(harness))throw Error('PRIME_RECOVERY_DSH must name the absolute read-only pinned DSH witness')
-  const require=createRequire(join(resolve(harness),'node_modules/.pnpm/node_modules/prime-owner-recovery.cjs'))
-  assert.equal(require('react/package.json').version,'18.3.1','compiled recovery fixture uses pinned React')
-  const modules={react:require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@deepseek-ai/dsh-client-store':{}}
-  const factories={},loaderWindow={__ModuleLoader__:{load:({id,factory})=>{factories[id]=factory}}}
-  // Existing ordinary/render factory loader: exact owned bundles in the same
-  // JSON realm, with no global browser, native hook or credential API installed.
-  for(const name of ['../../faces/layout/lib/client.js','../lib/client.js'])new Function('window',await readFile(new URL(name,import.meta.url),'utf8'))(loaderWindow)
-  const get=name=>{if(name in modules)return modules[name];return modules[name]=factories[name.replace(/\/client$/,'')](get)}
-  get('@aukora/face-layout/client')
-  controllerFactory=get('@aukora/prime-authority-ui/client').createPrimeOwnerController
-  assert.equal(typeof controllerFactory,'function')
-}
+const nativeFactory=await loadApprovalHookController(harness,process.env.PRIME_RECOVERY_CLIENT)
+const controllerFactory=nativeFactory
 const implementation=harness?'built':'source'
 
 async function hooked(t,options={}){
   const f=await fixture(t,{uiContracts:contracts,controllerFactory,...options})
   assert.equal(typeof f.controller.reconcileApprovalAction,'function','the same-controller verified recovery seam must exist')
   let hookCalls=0
-  f.controller.setApprovalAction(()=>{hookCalls++;return f.workflow.approveAndSave()})
+  f.controller.setApprovalAction((_view,options)=>{hookCalls++;assert.equal(typeof options?.approve,'function');return f.workflow.approveAndSave(options)})
   await f.login()
   return{...f,hookCalls:()=>hookCalls}
 }
 async function save(f,key){
-  const proposed=await f.workflow.proposeSave(draft(key))
+  const input=draft(key),proposed=await f.workflow.proposeSave(input)
   assert.equal(proposed.phase,'proposed')
   assert.notEqual(await f.controller.prepare(),null)
+  const capture=assertExpandedCapture(f,input)
   const first=f.controller.submitApproval(),second=f.controller.submitApproval()
   assert.equal(first,second,'ordinary repeated clicks share one mutation flight')
-  return first
+  const result=await first
+  if(result.saved===true)assertExpandedSaved(result,capture)
+  return result
 }
 function unchangedEffects(f,before){
   assert.equal(f.signerCalls(),before.signatures,'recovery requests no new signature')
@@ -193,7 +180,7 @@ test('same controller ingests a genuine lost logical-forget receipt and resumes 
   const forgetting=createOwnerForgetWorkflow({controller:f.controller,memory:f.adapters.memory,contracts})
   t.after(()=>forgetting.dispose())
   let forgetHooks=0
-  f.controller.setForgetAction(()=>{forgetHooks++;return forgetting.approveAndForget()})
+  f.controller.setForgetAction((_view,options)=>{forgetHooks++;assert.equal(typeof options?.approve,'function');return forgetting.approveAndForget(options)})
   const saved=await save(f,'ordinary-recovery-before-forget');assertSaved(saved)
   assert.equal((await forgetting.proposeForget({record_id:saved.record.record_id})).phase,'proposed')
   assert.notEqual(await f.controller.prepare(),null)

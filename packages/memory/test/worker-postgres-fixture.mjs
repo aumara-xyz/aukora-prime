@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { createPostgresMemory } from '../src/index.mjs'
 import { parseOriginal, sha256, validateOriginal } from '../src/codecs.mjs'
-import { validateCaptureDraft, validateCaptureReview } from '../src/capture-review.mjs'
+import { validateCaptureLiterals, validateCaptureReview } from '../src/capture-review.mjs'
 import { SENSITIVITIES } from '../genesis/plugins/aukora-kira/lib/memory-tiers.mjs'
 import { MEMORY_AUDIENCE, memoryEffectDigest, memoryReceiptDigest, memoryResultDigest,
   memoryTarget } from '../src/authorization.mjs'
@@ -154,7 +154,7 @@ export function expectedWorkerCaptureDigests(arguments_) {
   check(selected && selected.event.seq === host.source.seq && selected.event.at === host.source.at, 'worker-pg:capture-source-event-mismatch')
   boundedObject(extraction, ['category', 'statement', 'validFrom', 'observedAt', 'confidence', 'sensitivity'],
     ['links'], 'worker-pg:closed-capture-extraction-required')
-  const draft = validateCaptureDraft({ statement: extraction.statement, attributed_to: 'owner' })
+  const draft = validateCaptureLiterals({ statement: extraction.statement, attributed_to: 'owner' })
   check(boundedString(extraction.category, 128) && typeof extraction.validFrom === 'string'
     && /^\d{4}-\d{2}-\d{2}$/.test(extraction.validFrom) && typeof extraction.observedAt === 'string'
     && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(extraction.observedAt)
@@ -369,7 +369,11 @@ export async function verifyWorkerPostgresSave({ pool, fixture, expected, projec
   const original = validateOriginal(Buffer.from(result.canonical_bytes), owner.owner_subject)
   check(original.id === expectation.record_id && original.digest === expectation.canonical_sha256, 'worker-pg:save-record-id-changed')
   const reviewedDraft = validateCaptureReview(operation.canonical_parameters,
-    { statement: original.record.statement, attributed_to: original.record.attributedTo })
+    { statement: original.record.statement, attributed_to: original.record.attributedTo,
+      capture_metadata: { profile: 'prime-pilot-memory-capture/v1', category: original.record.category,
+        valid_from: original.record.validFrom, observed_at: original.record.observedAt,
+        confidence_percent: original.record.confidence * 100, sensitivity: original.record.sensitivity },
+      evidence_quote: original.record.evidence?.[0]?.quote })
   check(reviewedDraft.attributed_to === 'owner', 'worker-pg:save-record-attribution-changed')
   const { rows: intents } = await pool.query('SELECT * FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',
     [owner.owner_subject, expectation.operation_id])

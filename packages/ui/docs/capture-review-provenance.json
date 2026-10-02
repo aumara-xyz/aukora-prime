@@ -2,10 +2,13 @@
   "version": 1,
   "source_package": "@aukora-prime/memory",
   "source_path": "packages/memory/src/capture-review.mjs",
-  "source_status": "D owned helper checkpoint pending",
+  "source_status": "D owned frozen new-capture review checkpoint",
   "copied_path": "packages/ui/adapters/capture-review.mjs",
-  "bytes": 2635,
-  "sha256": "89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96c0",
+  "bytes": 5195,
+  "sha256": "d82eda5f8ae0fefa02f182fac80480d82a7c88fd6148beadabde5cd8480472d7",
   "license": "AGPL-3.0-or-later",
-  "purpose": "Exact literal display/draft comparison only; private full capture digest stays verified by D under lock."
+  "purpose": "Exact independent four-field draft and seven-field operation comparison for NEW captures. Six metadata fields and full selected source quotation are operation-digest-bound; private full capture digest stays verified by D under lock.",
+  "source_commit": "6326a4c928a7d14ab7e9ef7a7da626a6a6322d22",
+  "copy": "exact bytes",
+  "text_policy_scope": "NEW statement and source quotation only; refuse non-NFC and declared unsafe characters without replacement. Historical canonical bytes are preserved."
 }
