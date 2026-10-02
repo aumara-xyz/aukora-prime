@@ -6,12 +6,15 @@ import {canonicalJson} from '../../contracts/src/runtime.mjs'
 import {assertData,deepFreeze,operationDigest} from './operation.mjs'
 import {consumedGrantDigest} from './retention.mjs'
 import {memoryEffectReceiptDigest} from './memory-effect.mjs'
+import {validateClosureProfile} from './closure-retention.mjs'
 
 // Default authority use remains independent of the optional D retained profile.
 // The path is source-owned and fixed; no caller chooses a module or brand predicate.
 const participantSource=new URL('../../memory/src/retained-memory-participant.mjs',import.meta.url)
-const isRetainedMemoryParticipant=existsSync(participantSource)
- ? (await import(participantSource.href)).isRetainedMemoryParticipant : ()=>false
+const participantModule=existsSync(participantSource)?await import(participantSource.href):null
+const isRetainedMemoryParticipant=participantModule?.isRetainedMemoryParticipant??(()=>false)
+const privateV2ParticipantProfile=participantModule?.privateV2RetainedMemoryParticipantProfile??(()=>null)
+const configuredProfiles=new WeakMap()
 
 const HEX=/^[a-f0-9]{64}$/, DIGEST=/^sha256:[a-f0-9]{64}$/
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
@@ -19,24 +22,55 @@ const PERMIT=['version','kind','phase','owner_id','owner_subject','authorization
  'request_id','request_digest','owner_session','predecessor_checkpoint_sha256','checkpoint_sha256','control_sha256',
  'marker_sha256','grant_digest','receipt_digest','result_digest']
 const SESSION=['kind','owner_id','owner_subject','authorization_epoch','session_id','backend_pid','lock_key_sha256']
+const PROFILE=['version','kind','expected_authority_store_id','expected_memory_store_id','retention_profile']
 const match=(value,pattern)=>typeof value==='string'&&pattern.test(value)
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b)
 const fail=reason=>{throw Object.assign(new TypeError(reason),{error_code:'INVALID'})}
 const need=(value,reason)=>{if(!value)fail(reason)}
-function closed(input,keys) {
+function closed(input,keys,reason='RETAINED_MEMORY_PERMIT_FIELDS') {
  assertData(input)
  need(input&&typeof input==='object'&&!Array.isArray(input)&&Reflect.ownKeys(input).length===keys.length
-  &&keys.every(key=>Object.hasOwn(input,key)),'RETAINED_MEMORY_PERMIT_FIELDS')
+  &&keys.every(key=>Object.hasOwn(input,key)),reason)
  return input
 }
-export function configureRetainedMemoryParticipant(input) {
+export function validateRetainedMemoryProfile(input,{expectedAuthorityStoreId}={}) {
+ const p=closed(input,PROFILE,'RETAINED_MEMORY_PROFILE_FIELDS')
+ need(p.version===2&&p.kind==='prime-private-unsent-closure/v2'
+  &&match(p.expected_authority_store_id,HEX)&&match(p.expected_memory_store_id,HEX)
+  &&p.retention_profile==='required-retained/v2','RETAINED_MEMORY_PROFILE_INVALID')
+ if(expectedAuthorityStoreId!==undefined)need(match(expectedAuthorityStoreId,HEX)
+  &&p.expected_authority_store_id===expectedAuthorityStoreId,'RETAINED_MEMORY_AUTHORITY_STORE_MISMATCH')
+ return deepFreeze(JSON.parse(canonicalJson(p)))
+}
+export function configureRetainedMemoryParticipant(input,{closureProfile}={}) {
  if(input===undefined)return null
  need(isRetainedMemoryParticipant(input),'D_OWNED_RETAINED_MEMORY_PARTICIPANT_REQUIRED')
+ // Read D's captured profile on the original branded object, before binding its
+ // methods. A caller-supplied property or remote proxy is never a profile source.
+ const supplied=privateV2ParticipantProfile(input)
+ const profile=supplied===null?null:validateRetainedMemoryProfile(supplied)
+ if(profile!==null) {
+  need(closureProfile!==undefined,'RETAINED_MEMORY_CLOSURE_PROFILE_REQUIRED')
+  need(validateClosureProfile(closureProfile).expected_store_id===profile.expected_authority_store_id,
+   'RETAINED_MEMORY_CLOSURE_PROFILE_REQUIRED')
+ }
  // D's branded object is frozen. Capture its own methods, never a caller predicate.
  const ds=Object.getOwnPropertyDescriptors(input)
  need(['prepare','dispatch','settle'].every(key=>ds[key]&&typeof ds[key].value==='function'),
   'D_OWNED_RETAINED_MEMORY_PARTICIPANT_REQUIRED')
- return Object.freeze(Object.fromEntries(['prepare','dispatch','settle'].map(key=>[key,ds[key].value.bind(input)])))
+ const configured=Object.freeze(Object.fromEntries(['prepare','dispatch','settle'].map(key=>[key,ds[key].value.bind(input)])))
+ configuredProfiles.set(configured,profile)
+ return configured
+}
+export function retainedMemoryParticipantProfile(participant) {
+ return configuredProfiles.get(participant)??null
+}
+export function assertRetainedMemoryProfileBinding(row,profile,{expectedAuthorityStoreId}={}) {
+ const present=Object.hasOwn(row,'retained_memory_profile')
+ const stored=present?validateRetainedMemoryProfile(row.retained_memory_profile,{expectedAuthorityStoreId}):null
+ if((stored===null)!==(profile===null)||(stored!==null&&!same(stored,profile)))
+  throw Object.assign(new TypeError('RETAINED_MEMORY_PROFILE_CHANGED'),{error_code:'RECONCILIATION_REQUIRED'})
+ return stored
 }
 export function validateRetainedMemoryPermit(input,{phase,operation,ownerSubject,request_id,request_digest,grant,receipt,
  prepare,dispatch}={}) {
@@ -94,8 +128,19 @@ export function validateRetainedMemoryLineage(input) {
  'RETAINED_MEMORY_TERMINAL_LINEAGE')
  return value
 }
-export function validateRetainedMemoryRows(operations) {
+export function validateRetainedMemoryRows(operations,{expectedAuthorityStoreId}={}) {
  for(const row of Object.values(operations)) {
+  if(Object.hasOwn(row,'retained_memory_profile')) {
+   need(match(expectedAuthorityStoreId,HEX),'RETAINED_MEMORY_AUTHORITY_STORE_ID_REQUIRED')
+   validateRetainedMemoryProfile(row.retained_memory_profile,{expectedAuthorityStoreId})
+   need(!Object.hasOwn(row,'schema')&&Object.hasOwn(row,'retained_memory')
+    &&['memory.save','memory.forget'].includes(row.operation?.action_type)
+    &&row.operation?.audience==='aukora-prime.memory','RETAINED_MEMORY_PROFILE_ROW_REQUIRED')
+   need(['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN','COMPLETED'].includes(row.status)
+    &&((row.status==='PREPARED')===(row.retained_memory?.dispatch===null))
+    &&(row.status!=='COMPLETED'||row.retained_memory?.settle!==null),
+   'RETAINED_MEMORY_PROFILE_EVIDENCE_REQUIRED')
+  }
   if(!Object.hasOwn(row,'retained_memory')||Object.hasOwn(row,'schema'))continue
   const b=closed(row.retained_memory,['prepare','dispatch','settle']),op=row.operation
   need(op?.target_identity?.kind==='prime-memory'&&op.action_type?.startsWith('memory.'),

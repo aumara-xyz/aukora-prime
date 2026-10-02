@@ -26,8 +26,9 @@ function approvalInvocation(options){
 }
 async function recoveryReply(value,owner){
   const reply=copy(closed(value,['ok','owner_id','owner_subject','task_id','operation_id','operation_digest','action_type','state','reconciliation_required','result','receipt','receipt_digest','authority_settlement','citation','index']))
-  if(reply.state==='known_unsent')throw fault('RECONCILIATION_REQUIRED','OWNER_MEMORY_UNSENT_CLOSURE_UNAVAILABLE')
-  requireValue(reply.ok===true&&['idle','saved','forgotten','unknown'].includes(reply.state)
+  // Only the injected authenticated Bridge emits this no-effect result after
+  // its private C/D closure join. It never permits retrying the old operation.
+  requireValue(reply.ok===true&&['idle','known_unsent','saved','forgotten','unknown'].includes(reply.state)
     &&reply.reconciliation_required===(reply.state==='unknown')&&reply.owner_id===owner.owner_id
     &&/^aukora:1:[a-f0-9]{64}$/.test(reply.owner_subject)&&boundedString(reply.task_id,1024),'OWNER_MEMORY_RECOVERY_REQUIRED')
   requireValue(reply.state==='idle'?[reply.operation_id,reply.operation_digest,reply.action_type].every(value=>value===null)

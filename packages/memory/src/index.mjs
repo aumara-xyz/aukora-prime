@@ -13,11 +13,19 @@ import { memoryAuthorization, memoryTarget, memoryStateVersion, memoryEffectDige
 import { requireRedactableChain } from './codecs.mjs'
 import { validateCaptureDraft, validateCaptureReview } from './capture-review.mjs'
 import { validatePilotCaptureMetadata } from './pilot-capture.mjs'
-import { makeMemoryControlState, inspectMemoryControlState, MEMORY_CONTROL_TABLES } from './control-state.mjs'
+import { makeMemoryControlState, inspectMemoryControlState, MEMORY_CONTROL_TABLES, MEMORY_WRITER_CLOSURE_TABLE } from './control-state.mjs'
 import { createUnavailableControlRetention, isControlRetentionReader, MEMORY_RETENTION_SCHEMA } from './control-retention.mjs'
 import { isControlRetentionCoordinator } from './control-retention-coordinator.mjs'
 import { createMemoryOwnerSerializer } from './owner-serialization.mjs'
-import { createRetainedMemoryParticipant } from './retained-memory-participant.mjs'
+import { createRetainedMemoryParticipant, createPrivateV2RetainedMemoryParticipant } from './retained-memory-participant.mjs'
+import { isMemoryOwnerSerializer } from './owner-serialization.mjs'
+import { isPrivateV2Coordinator } from './private-v2-coordinator.mjs'
+import { assertPrivateHost, assertPrivateProfile, readControlV3 } from './private-v2-control.mjs'
+import { requirePrivateV2Guards } from './private-v2-guards.mjs'
+import { writerClosureBinding, makeWriterClosureRow, inspectWriterClosureRow } from './writer-closure.mjs'
+import { installWriterClosureGuards, requireWriterClosureGuards } from './writer-closure-guards.mjs'
+
+const ALL_CONTROL_TABLES = {...MEMORY_CONTROL_TABLES, unsent_closures: MEMORY_WRITER_CLOSURE_TABLE}
 
 const rows = async (db, sql, values = []) => (await db.query(sql, values)).rows
 const ownerOf = host => {
@@ -34,7 +42,7 @@ const chainBytes = entries => Buffer.concat(entries.map(e => bytesOf(e.bytes)))
 
 /** Caller supplies a Prime-owned PostgreSQL Pool. This module never discovers credentials or a sibling repository. */
 export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:v1', indexGeneration = '1',
-  verifyApprovedEvidence, authority, contracts, restoreAnchorProvider, controlRetention, controlRetentionCoordinator } = {}) {
+  verifyApprovedEvidence, authority, contracts, restoreAnchorProvider, controlRetention, controlRetentionCoordinator, privateV2 } = {}) {
   requireMemory(typeof pool?.connect === 'function' && typeof pool?.query === 'function', 'memory:postgres-pool-required')
   requireMemory(typeof indexTarget === 'string' && indexTarget && typeof indexGeneration === 'string'
     && indexGeneration, 'memory:index-target-required')
@@ -43,31 +51,50 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     'memory:owned-control-retention-coordinator-required')
   requireMemory(restoreAnchorProvider===undefined || (controlRetention===undefined && controlRetentionCoordinator===undefined),
     'memory:restore-provider-ambiguous')
-  const retainedReader=controlRetention ?? controlRetentionCoordinator?.reader ?? createUnavailableControlRetention()
-  requireMemory(isControlRetentionReader(retainedReader),'memory:owned-control-retention-reader-required')
+  const v3=privateV2!==undefined
+  requireMemory(!v3 || (isPrivateV2Coordinator(privateV2.coordinator) && isMemoryOwnerSerializer(privateV2.serializer)
+    && canonicalJSON(assertPrivateProfile(privateV2.profile))===canonicalJSON(privateV2.coordinator.profile)
+    && controlRetention===undefined && controlRetentionCoordinator===undefined && restoreAnchorProvider===undefined),
+  'memory:private-v2-configuration-required')
+  const retainedReader=v3?privateV2.coordinator.reader:controlRetention ?? controlRetentionCoordinator?.reader ?? createUnavailableControlRetention()
+  requireMemory(v3 || isControlRetentionReader(retainedReader),'memory:owned-control-retention-reader-required')
   requireMemory(controlRetentionCoordinator===undefined || controlRetentionCoordinator.reader===retainedReader,
     'memory:control-retention-reader-mismatch')
   const retentionContexts=new Map(),retentionHost=host=>({owner_id:host.owner_id,owner_subject:host.owner_subject,
     authorization_epoch:host.authorization_epoch})
-  const ownerSerializer=controlRetentionCoordinator?createMemoryOwnerSerializer({pool}):null
-  const participantController=controlRetentionCoordinator?createRetainedMemoryParticipant({coordinator:controlRetentionCoordinator,
+  // Retained writers and closures hold the owner session. Legacy writers take the same
+  // key in their SQL transactions; installed database guards also fence old client code.
+  const ownerSerializer=v3?privateV2.serializer:createMemoryOwnerSerializer({pool})
+  const v3Hosts=new WeakMap()
+  const participantController=v3?createPrivateV2RetainedMemoryParticipant({coordinator:privateV2.coordinator,
+    serializer:ownerSerializer,contracts,profile:privateV2.profile}):controlRetentionCoordinator?createRetainedMemoryParticipant({coordinator:controlRetentionCoordinator,
     serializer:ownerSerializer,contracts}):null
   const legacyAnchorProvider=typeof restoreAnchorProvider==='function'
   const loadRestoreAnchor=restoreAnchorProvider ?? (host=>retainedReader.restoreAnchorProvider({
     owner_id:host.owner_id,owner_subject:host.owner_subject,authorization_epoch:host.authorization_epoch}))
 
-  async function transaction(owner, work, { readOnly = false } = {}) {
+  async function transaction(owner, work, { readOnly = false, privateV2Phase = null } = {}) {
     const ownedScope=ownerSerializer?.current()
     requireMemory(!ownedScope || ownedScope.host.owner_subject===owner,'memory:owner-session-mismatch')
     const client = ownedScope?.client ?? await pool.connect()
     try {
-      await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
-      if (!readOnly) {
+      requireMemory(!v3 || (ownedScope && v3Hosts.has(ownedScope)), 'memory:private-v2-trusted-host-required')
+      await client.query(v3?'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE':readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
+      if (!readOnly || v3) {
         await client.query('SET LOCAL synchronous_commit = on')
         // Serialize per owner without global locks; capture, forget, import and rebuild share this lock.
         await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [owner])
       }
+      if(v3) {
+        const host=v3Hosts.get(ownedScope)
+        await requirePrivateV2Guards(client,{owner_subject:host.owner_subject,owner_id:host.owner_id,
+          expected_store_id:privateV2.profile.expected_memory_store_id,profile:privateV2.profile})
+        if(privateV2Phase===null || privateV2Phase==='intent') await participantController.assertCurrent(client,host)
+      }
       const result = await work(client)
+      if(v3 && privateV2Phase==='intent' && result===null) await participantController.prepareIntent(client)
+      if(v3 && privateV2Phase==='effect') await participantController.prepareEffect(client,result)
+      if(v3 && privateV2Phase===null) await participantController.assertCurrent(client,v3Hosts.get(ownedScope))
       await client.query('COMMIT')
       return result
     } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error }
@@ -77,6 +104,13 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     const [settings] = await rows(pool,"SELECT current_setting('fsync') AS fsync, current_setting('full_page_writes') AS full_page_writes")
     requireMemory(settings?.fsync === 'on' && settings.full_page_writes === 'on', 'memory:postgres-durability-unavailable')
     await pool.query(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'))
+  }
+  // Explicit schema migration, supplied pool only. Missing genuine PostgreSQL remains unavailable.
+  async function migrateWriterClosureGuards() { return installWriterClosureGuards(pool) }
+  async function assertWriterOpen(db,owner,operation_id) {
+    const [closure]=await rows(db,'SELECT operation_id FROM prime_memory_unsent_closures WHERE owner_subject=$1 AND operation_id=$2',
+      [owner,operation_id])
+    requireMemory(!closure,'memory:operation-writer-closed')
   }
 
   async function storeEvents(db, owner, events) {
@@ -603,7 +637,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   }
   async function controlTables(db,owner) {
     const tables={}
-    for(const [name,definition] of Object.entries(MEMORY_CONTROL_TABLES))
+    for(const [name,definition] of Object.entries(ALL_CONTROL_TABLES))
       tables[name]=await rows(db,'SELECT * FROM '+definition.table+' WHERE owner_subject=$1',[owner])
     return tables
   }
@@ -655,14 +689,17 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     return effect
   }
   async function reconcileEffect(host,operation_id) {
-    requireMemory(retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
+    requireMemory(v3 || retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
       'memory:control-retention-coordinator-required')
     host=structuredClone(host);const owner=ownerOf(host)
-    const [fenced]=await rows(pool,'SELECT operation_id FROM prime_memory_replay_fences WHERE owner_subject=$1 AND operation_id=$2',[owner,operation_id])
-    requireMemory(!fenced,'memory:effect-payload-purged-replay-forbidden')
-    const effect=await transaction(owner,db=>readEffect(db,owner,operation_id),{readOnly:true})
+    const effect=await transaction(owner,async db=>{
+      const [fenced]=await rows(db,'SELECT operation_id FROM prime_memory_replay_fences WHERE owner_subject=$1 AND operation_id=$2',[owner,operation_id])
+      requireMemory(!fenced,'memory:effect-payload-purged-replay-forbidden')
+      return readEffect(db,owner,operation_id)
+    },{readOnly:true,privateV2Phase:v3?'recovery':null})
     if(!effect) {
-      const [intent]=await rows(pool,'SELECT * FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',[owner,operation_id])
+      const [intent]=await transaction(owner,db=>rows(db,'SELECT * FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',
+        [owner,operation_id]),{readOnly:true,privateV2Phase:v3?'recovery':null})
       requireMemory(intent,'memory:effect-missing-outcome-unknown')
       const op=parseOriginal(intent.operation_bytes)
       requireMemory(op.owner_id===host.owner_id && op.task_id===host.task_id,'memory:effect-owner-mismatch')
@@ -672,11 +709,114 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     requireMemory(effect.operation.owner_id===host.owner_id && effect.operation.task_id===host.task_id,'memory:effect-owner-mismatch')
     const finish=async()=>{
       await finalizeRetainedEffect(host,effect)
-      const settlement=await settleCommitted(effect)
+      const settlement=v3?await transaction(owner,()=>settleCommitted(effect)):await settleCommitted(effect)
       return {result:effect.result,receipt:effect.receipt,...settlement}
     }
-    return participantController?participantController.runOperation({host:retentionHost(host),operation:effect.operation,
+    return participantController?participantController.runOperation({host:v3?assertPrivateHost({ ...retentionHost(host),task_id:host.task_id }):retentionHost(host),operation:effect.operation,
       request_id:effect.receipt.request_id,request_digest:effect.receipt.request_digest},finish):finish()
+  }
+  // Trusted worker-only recovery primitive. This closes the exact D writer; it grants no
+  // permission, consumes no proof and cannot establish C's independently durable non-consumption.
+  async function closeUnsentOperation(host,inputReference) {
+    requireMemory(retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
+      'memory:control-retention-coordinator-required')
+    const binding=writerClosureBinding(host,inputReference),owner=binding.host.owner_subject
+    const retentionOwner={owner_id:binding.host.owner_id,owner_subject:owner,authorization_epoch:binding.host.authorization_epoch}
+    let closureAttempted=false
+    try {
+      // Await the complete owner session, including its final inspection and cleanup.
+      // A committed closure cannot become an ordinary retryable error during unlock.
+      return await ownerSerializer.run(retentionOwner,async()=>{
+        let prior,closureRow,context
+        const absent=async db=>{
+          for(const table of ['intents','effects','replay_fences']) {
+            const [existing]=await rows(db,'SELECT operation_id FROM '+MEMORY_CONTROL_TABLES[table].table
+              +' WHERE owner_subject=$1 AND operation_id=$2',[owner,binding.reference.operation_id])
+            requireMemory(!existing,'memory:writer-closure-durable-operation-present')
+          }
+        }
+        await transaction(owner,async db=>{
+          await requireWriterClosureGuards(db)
+          await absent(db)
+          const [row]=await rows(db,'SELECT * FROM prime_memory_unsent_closures WHERE owner_subject=$1 AND operation_id=$2',
+            [owner,binding.reference.operation_id])
+          if(row) {inspectWriterClosureRow(row,binding);prior=row;closureAttempted=true}
+          closureRow=prior ?? makeWriterClosureRow(binding,randomUUID())
+        })
+        closureAttempted=Boolean(prior)
+        let checked=inspectWriterClosureRow(closureRow,binding)
+        if(controlRetentionCoordinator) {
+          let pending
+          try {pending=await controlRetentionCoordinator.inspect(retentionOwner)}
+          catch(error) {if(error.code!=='memory:control-retention-pending-missing')throw error}
+          if(pending) {
+            requireMemory(pending.marker.operation_id===binding.reference.operation_id
+              && pending.marker.operation_digest===binding.digest,'memory:writer-closure-retention-unresolved')
+            // A lost begin reply can leave the exact closing marker with no SQL row.
+            // Recover only its original negative-fence identity; never replace it with
+            // a fresh request or treat a prepared checkpoint as a database restore.
+            if(!prior) {
+              requireMemory(pending.prepared===null,'memory:writer-closure-retention-unresolved')
+              closureRow=makeWriterClosureRow(binding,pending.marker.request_id)
+              checked=inspectWriterClosureRow(closureRow,binding)
+            }
+            requireMemory(pending.marker.request_id===checked.closure.closure_id
+              && pending.marker.request_digest===checked.closure_digest,'memory:writer-closure-retention-unresolved')
+            closureAttempted=true
+            context=await controlRetentionCoordinator.recoverClosure({host:retentionOwner,
+              operation_id:binding.reference.operation_id,operation_digest:binding.digest,
+              request_id:checked.closure.closure_id,request_digest:checked.closure_digest})
+          } else if(!prior) {
+            const current=await retainedReader.readCurrent(retentionOwner)
+            const live=await transaction(owner,async db=>makeMemoryControlState(binding.host,
+              {heads:await currentHeads(db,owner),tables:await controlTables(db,owner)},{contracts:await controlContracts()}))
+            requireMemory(current.control_state.control_sha256===live.control_sha256,'memory:retention-current-state-mismatch')
+            closureAttempted=true
+            context=await controlRetentionCoordinator.beginClosure({host:retentionOwner,
+              operation_id:binding.reference.operation_id,operation_digest:binding.digest,
+              request_id:checked.closure.closure_id,request_digest:checked.closure_digest})
+          }
+        }
+        if(!prior) await transaction(owner,async db=>{
+          await requireWriterClosureGuards(db)
+          await absent(db)
+          closureAttempted=true
+          const columns=MEMORY_WRITER_CLOSURE_TABLE.columns
+          await db.query('INSERT INTO prime_memory_unsent_closures('+columns.join(',')+') VALUES('
+            +columns.map((_,i)=>'$'+(i+1)).join(',')+')',columns.map(key=>closureRow[key]))
+        })
+        let retained=null
+        await transaction(owner,async db=>{
+          await requireWriterClosureGuards(db)
+          await absent(db)
+          const [stored]=await rows(db,'SELECT * FROM prime_memory_unsent_closures WHERE owner_subject=$1 AND operation_id=$2',
+            [owner,binding.reference.operation_id])
+          inspectWriterClosureRow(stored,binding)
+          if(controlRetentionCoordinator) {
+            const control=makeMemoryControlState(binding.host,{heads:await currentHeads(db,owner),
+              tables:await controlTables(db,owner)},{contracts:await controlContracts()})
+            if(context) {
+              const pending=await controlRetentionCoordinator.inspect(retentionOwner)
+              if(!pending.prepared) await controlRetentionCoordinator.prepared(context,control)
+              await controlRetentionCoordinator.complete(context,control)
+            }
+            const current=await retainedReader.readCurrent(retentionOwner)
+            requireMemory(current.control_state.control_sha256===control.control_sha256,'memory:writer-closure-retention-unresolved')
+            retained={checkpoint_sha256:current.checkpoint_sha256,control_sha256:control.control_sha256,
+              authorization_epoch:current.authorization_epoch}
+          }
+        })
+        await ownerSerializer.inspect()
+        return {status:'closed-unsent',...checked,retention:retained,idempotent:Boolean(prior),grants_authority:false}
+      })
+    } catch(error) {
+      if(!closureAttempted)throw error
+      const unknown=new MemoryRefusal('memory:writer-closure-outcome-unknown')
+      unknown.cause=error;unknown.cause_code=error.cause_code ?? error.code ?? 'memory:store-unavailable'
+      unknown.reconciliation_required=true;unknown.automatic_retry=false
+      unknown.operation_id=binding.reference.operation_id;unknown.operation_digest=binding.digest
+      throw unknown
+    }
   }
   const inFlightEffects=new Map()
   async function retentionControlState(db,host,context,{restorePrepared=false}={}) {
@@ -687,6 +827,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     return makeMemoryControlState(host,{heads,tables},{contracts:await controlContracts()})
   }
   async function finalizeRetainedEffect(host,effect,context) {
+    if(v3) return transaction(ownerOf(host),db=>participantController.completeEffect(db),{privateV2Phase:'completion'})
     if(!controlRetentionCoordinator) return
     await transaction(ownerOf(host),async db=>{
       const [intent]=await rows(db,'SELECT * FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',
@@ -716,7 +857,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     })
   }
   async function authorizedEffect(host,action,parameters,options,work,{includeReceipt=false,receiptResultKey='record'}={}) {
-    requireMemory(retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
+    requireMemory(!v3 || ['memory.save','memory.forget'].includes(action),'memory:private-v2-action-unavailable')
+    requireMemory(v3 || retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
       'memory:control-retention-coordinator-required')
     const owner=ownerOf(host),binding=await memoryAuthorization({authority,contracts,retainedMemory:!!participantController},host,action,parameters,options)
     const key=owner+'\0'+binding.operation.operation_id,proof_json=canonicalJSON(options.approval_proof)
@@ -726,14 +868,15 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       return running.promise
     }
     const promise=(async()=>{
-      const committed=participantController?await transaction(owner,db=>readEffect(db,owner,binding.operation.operation_id),{readOnly:true}):null
+      const committed=participantController?await transaction(owner,db=>readEffect(db,owner,binding.operation.operation_id),
+        {readOnly:true,privateV2Phase:v3?'recovery':null}):null
       if(committed) requireMemory(committed.receipt.operation_digest===binding.digest,'memory:operation-replay-conflict')
       const request_id=committed?.receipt.request_id ?? randomUUID(),request={version:1,action_type:action,owner_subject:owner,
         operation_id:binding.operation.operation_id,operation_digest:binding.digest,parameters}
       const effectPlan={request_id,request,request_digest:memoryEffectDigest(request)}
       requireMemory(!committed || committed.receipt.request_digest===effectPlan.request_digest,'memory:request-replay-conflict')
       const execute=()=>executeAuthorizedEffect(host,action,parameters,options,work,{includeReceipt,receiptResultKey},binding,effectPlan)
-      return (participantController?participantController.runOperation({host:retentionHost(host),operation:binding.operation,
+      return (participantController?participantController.runOperation({host:v3?assertPrivateHost({ ...retentionHost(host),task_id:host.task_id }):retentionHost(host),operation:binding.operation,
         request_id,request_digest:effectPlan.request_digest},execute):execute())
 
     })().finally(()=>inFlightEffects.delete(key))
@@ -753,6 +896,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     }
     try {
       effect=await transaction(owner,async db=>{
+        await assertWriterOpen(db,owner,binding.operation.operation_id)
         const [fenced]=await rows(db,'SELECT operation_id FROM prime_memory_replay_fences WHERE owner_subject=$1 AND operation_id=$2',[owner,binding.operation.operation_id])
         requireMemory(!fenced,'memory:effect-payload-purged-replay-forbidden')
         const prior=await readEffect(db,owner,binding.operation.operation_id)
@@ -763,9 +907,10 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
         const [intent]=await rows(db,'SELECT request_id FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',[owner,binding.operation.operation_id])
         requireMemory(!intent,'memory:effect-unresolved-reconciliation-required')
         await work(db,{preflight:true})
-        if(controlRetentionCoordinator) {
+        if(controlRetentionCoordinator || v3) {
           requireMemory(host.authorization_epoch===binding.operation.authorization_epoch,'memory:retention-epoch-binding-mismatch')
-          if(action!=='memory.restore') {
+          if(v3) await participantController.assertCurrent(db,assertPrivateHost({...retentionHost(host),task_id:host.task_id}))
+          else if(action!=='memory.restore') {
             const current=await retainedReader.readCurrent(retentionHost(host))
             const live=makeMemoryControlState(host,{heads:await currentHeads(db,owner),tables:await controlTables(db,owner)},
               {contracts:await controlContracts()})
@@ -786,16 +931,18 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
           [owner,binding.operation.operation_id,binding.digest,Buffer.from(canonicalJSON(preparedGrant)),
             Buffer.from(canonicalJSON(binding.operation)),request_id,request_digest,Buffer.from(canonicalJSON(request))])
         return null
-      })
-      if(!effect && retentionContext) await transaction(owner,async db=>{
+      },{privateV2Phase:v3?'intent':null})
+      if(!effect && v3) await transaction(owner,db=>participantController.completeIntent(db),{privateV2Phase:'completion'})
+      if(!effect && retentionContext && !v3) await transaction(owner,async db=>{
         // Actual committed intent is retained; current stays predecessor and marker stays held.
         await controlRetentionCoordinator.prepared(retentionContext,await retentionControlState(db,host,retentionContext,
           {restorePrepared:action==='memory.restore'}))
       })
       if(!effect) effect=await transaction(owner,async db=>{
+        await assertWriterOpen(db,owner,binding.operation.operation_id)
         // Any race after PREPARED is refused under the reacquired owner lock; no grant is unconsumed.
         const execute=await work(db,{preflight:true}),grant=preparedGrant
-        if(retentionContext) await controlRetentionCoordinator.observe(retentionContext)
+        if(retentionContext && !v3) await controlRetentionCoordinator.observe(retentionContext)
         await targetScope(db,async()=>{dispatchAttempted=true;await binding.dispatch({grant,request_id,request_digest});dispatched=true})
         const result=await execute(),result_digest=memoryResultDigest(result)
         const receipt={version:1,kind:'prime-memory-effect/v1',operation_id:binding.operation.operation_id,
@@ -807,24 +954,28 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
             request_id,request_digest,Buffer.from(canonicalJSON(request)),Buffer.from(canonicalJSON(receipt)),
             Buffer.from(canonicalJSON(binding.operation)),Buffer.from(canonicalJSON(grant))])
         return {result,receipt,operation:binding.operation,grant}
-      })
+      },{privateV2Phase:v3?'effect':null})
       // Independent final checkpoint commits before C receives an applied settlement.
       await finalizeRetainedEffect(host,effect,retentionContext)
     } catch(error) {
-      if(participantController && retentionAttempted && !preparedGrant && !participantController.context()) {
+      if(!v3 && participantController && retentionAttempted && !preparedGrant && !participantController.context()) {
         try {await controlRetentionCoordinator.inspect(retentionHost(host))}
         catch(observationError) {if(observationError.code==='memory:control-retention-pending-missing') throw error}
       }
       if(!preparedGrant && !dispatched && !retentionAttempted) throw error
       if(dispatchAttempted && preparedGrant && typeof authority?.markOutcomeUnknown==='function')
         await Promise.resolve(authority.markOutcomeUnknown({operation:binding.operation,consumed_grant:preparedGrant,request_id,request_digest})).catch(()=>{})
+      const held=participantController?.context()?.request
       const unknown=new MemoryRefusal('memory:authority-effect-outcome-unknown')
+      unknown.cause=error
       unknown.cause_code=error.code ?? 'memory:store-unavailable';unknown.reconciliation_required=true
       unknown.automatic_retry=false
-      unknown.operation_id=binding.operation.operation_id;unknown.request_id=request_id;unknown.request_digest=request_digest;throw unknown
+      unknown.operation_id=binding.operation.operation_id;unknown.request_id=request_id;unknown.request_digest=request_digest
+      if(v3 && held) {unknown.transition_id=held.transition_id;unknown.transition_digest=held.transition_digest}
+      throw unknown
     } finally {retentionContexts.delete(binding.operation.operation_id)}
     // Only the committed, locally derived receipt can settle C. No guest receipt is accepted.
-    const settlement=await settleCommitted(effect)
+    const settlement=v3?await transaction(owner,()=>settleCommitted(effect)):await settleCommitted(effect)
     return includeReceipt?{[receiptResultKey]:effect.result,receipt:effect.receipt,...settlement}:effect.result
   }
   async function exportBackup(host,options) {
@@ -861,7 +1012,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       retentionBinding={retention_checkpoint_sha256:retained.checkpoint_sha256,retention_epoch:retained.authorization_epoch}
       retained=retained.control_state
     }
-    requireMemory(retained?.schema==='aukora-prime-memory-control-state/v1','memory:trusted-control-anchor-required')
+    requireMemory(['aukora-prime-memory-control-state/v1','aukora-prime-memory-control-state/v2'].includes(retained?.schema),
+      'memory:trusted-control-anchor-required')
     const checked=inspectMemoryControlState(retained,host,{contracts:await controlContracts()})
     requireMemory(Object.keys(checked.heads).length>0 && Object.values(checked.heads).some(h=>/^[0-9a-f]{64}$/.test(h)),
       'memory:trusted-restore-anchor-invalid')
@@ -871,7 +1023,13 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     retention_checkpoint_sha256:retained.retention_checkpoint_sha256,retention_epoch:retained.retention_epoch}
   async function mergeRestoreControl(db,host,retained,{write=false}={}) {
     const owner=ownerOf(host),local=await controlTables(db,owner),merged={}
-    for(const [name,definition] of Object.entries(MEMORY_CONTROL_TABLES)) {
+    // Closures are permanent writer fences, not inert snapshot rows. Qualify their
+    // actual writable PostgreSQL transaction before preflight or importing them.
+    // Read-only preparation fails closed for this profile; historical v1 without
+    // any local or retained closure continues through the original path.
+    if(local.unsent_closures.length || retained.tables.unsent_closures.length)
+      await requireWriterClosureGuards(db)
+    for(const [name,definition] of Object.entries(ALL_CONTROL_TABLES)) {
       const keyed=new Map(),key=row=>canonicalJSON(definition.key.map(field=>row[field]))
       for(const row of [...local[name],...retained.tables[name]]) {
         const prior=keyed.get(key(row))
@@ -897,7 +1055,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
         }
       }
     }
-    if(write) for(const [name,definition] of Object.entries(MEMORY_CONTROL_TABLES)) for(const row of retained.tables[name]) {
+    if(write) for(const [name,definition] of Object.entries(ALL_CONTROL_TABLES)) for(const row of retained.tables[name]) {
       const columns=definition.columns
       await db.query('INSERT INTO '+definition.table+'('+columns.join(',')+') VALUES('
         +columns.map((_,i)=>'$'+(i+1)).join(',')+') ON CONFLICT DO NOTHING',columns.map(field=>row[field]))
@@ -1113,7 +1271,28 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     requireMemory(options?.mode===undefined || options.mode==='prime-restore','memory:restore-mode-invalid')
     return importSnapshot(host,snapshot,{...options,mode:'prime-restore'})
   }
-  return Object.freeze({ retainedMemoryParticipant:participantController?.participant, migrate,captureAuthorizedRemembered,prepareCaptureBinding,authorityTargetObservation,withAuthorityTargetObservation,reconcileEffect,drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,purgeRecordPayload,eraseOwnerPayloads,exportSnapshot,exportControlState,exportBackup,prepareBackupBinding,prepareRestoreBinding,importSnapshot,restoreSnapshot,
+  if(v3) {
+    // Source-owned private composition only. Every async call derives the full owner
+    // context before acquiring its genuine held session; unsigned writers/setup are absent.
+    const allowed={captureAuthorizedRemembered,prepareCaptureBinding,withAuthorityTargetObservation,reconcileEffect,
+      drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,
+      exportControlState:host=>transaction(ownerOf(host),db=>readControlV3(db,
+        {owner_subject:host.owner_subject,owner_id:host.owner_id,profile:privateV2.profile},{contracts}))}
+    const wrapped=Object.fromEntries(Object.entries(allowed).map(([name,fn])=>[name,async(host,...args)=>{
+      host=structuredClone(host)
+      const bound=assertPrivateHost({owner_id:host.owner_id,owner_subject:host.owner_subject,
+        task_id:host.task_id,authorization_epoch:host.authorization_epoch})
+      return participantController.withOwnerLifetime(bound,async scope=>{
+        const previous=v3Hosts.get(scope)
+        requireMemory(!previous || canonicalJSON(previous)===canonicalJSON(bound),'memory:private-v2-owner-context-conflict')
+        v3Hosts.set(scope,bound)
+        try {return await fn(host,...args)} finally {if(previous)v3Hosts.set(scope,previous);else v3Hosts.delete(scope)}
+      })
+    }]))
+    return Object.freeze({...wrapped,authorityTargetObservation,retainedMemoryParticipant:participantController.participant,
+      controlRetentionStatus:()=>Object.freeze({configured:true,kind:'private-v2-retained-effects-source',qualified_runtime:false})})
+  }
+  return Object.freeze({ retainedMemoryParticipant:participantController?.participant, migrate,migrateWriterClosureGuards,closeUnsentOperation,captureAuthorizedRemembered,prepareCaptureBinding,authorityTargetObservation,withAuthorityTargetObservation,reconcileEffect,drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,purgeRecordPayload,eraseOwnerPayloads,exportSnapshot,exportControlState,exportBackup,prepareBackupBinding,prepareRestoreBinding,importSnapshot,restoreSnapshot,
     controlRetentionStatus:()=>legacyAnchorProvider?{configured:true,kind:'explicit-host-control-provider',file_backed:false}:retainedReader.status })
 }
 
@@ -1123,3 +1302,5 @@ export { verifyDiamondEvidence } from './diamond.mjs'
 export { snapshotReadOnlyKiraFiles } from './read-only-snapshot.mjs'
 
 export { memoryStateVersion, memoryEffectDigest, memoryTarget, MEMORY_AUDIENCE } from './authorization.mjs'
+// Private successor source is explicitly unavailable without the reviewed host qualification join.
+export { createPrivateV2Memory } from './private-v2-memory.mjs'

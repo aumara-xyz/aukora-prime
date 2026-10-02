@@ -9,16 +9,19 @@ import { createApprovalReceipt } from '../upstream/plugins/aukora-aumlok/lib/app
 import { ed25519PublicKeyFromDidKey, didKeyFromEd25519PublicKey } from '../upstream/plugins/aukora-aumlok/lib/did-key.mjs'
 import { readClosedDataRecord } from '../upstream/plugins/aukora-aumlok/lib/validation.mjs'
 import { PrimeApprovalStateStore, EMPTY_KERNEL_STATE } from './state-store.mjs'
-import { RollbackRefusedError } from '../upstream/scripts/aukora/trusted-state-store.mjs'
+import { RollbackRefusedError,TrustedStoreCorruptError,TrustedStoreUnsafePathError,WriterLockedError } from '../upstream/scripts/aukora/trusted-state-store.mjs'
 import { detachContract, operationDigest, dollars, deepFreeze, assertData } from './operation.mjs'
 import { prepareWebauthnConfig, webauthnChallenge, webauthnOptions, verifyWebauthnAssertion } from './webauthn.mjs'
 import { DIGEST, UUID, executionReceiptDigest, validatedReceipt, settlementStatus } from './execution.mjs'
 import { memoryEffectReceipt, memoryEffectReceiptDigest } from './memory-effect.mjs'
 import {isTerminalRecord,ownerKey,consumedGrantDigest,kernelPreparationMatches,RETAINED_TERMINAL_SCHEMA} from './retention.mjs'
-import {configureRetainedMemoryParticipant,validateRetainedMemoryPermit} from './retained-memory.mjs'
+import {configureRetainedMemoryParticipant,retainedMemoryParticipantProfile,assertRetainedMemoryProfileBinding,validateRetainedMemoryPermit} from './retained-memory.mjs'
 import {configureInferenceProfile,inferenceOperation,inferencePolicyContext} from './inference-profile.mjs'
 import {parseInferenceOperation} from './inference-admission.mjs'
 import {inferenceEffectReceipt,inferenceEffectReceiptDigest,validateInferenceReceiptBinding} from './inference-effect.mjs'
+import {assertOperationUnconsumed} from './preparation-history.mjs'
+import {closureDigest,validateClosureRow} from './unconsumed-closure.mjs'
+import {validateClosureProfile} from './closure-retention.mjs'
 
 const hex = /^[a-f0-9]{64}$/
 const sha = value => createHash('sha256').update(value).digest('hex')
@@ -55,7 +58,9 @@ export function createAuthorityService(options) { return authorityService(option
 export function provisionNewAuthorityStore(options) { return authorityService(options,true) }
 function authorityService(options, provisionNew) {
   const c = { ...options }
-  const retainedParticipant=configureRetainedMemoryParticipant(c.retainedMemoryParticipant)
+  if(c.closureProfile!==undefined)c.closureProfile=validateClosureProfile(c.closureProfile)
+  const retainedParticipant=configureRetainedMemoryParticipant(c.retainedMemoryParticipant,{closureProfile:c.closureProfile})
+  const retainedProfile=retainedMemoryParticipantProfile(retainedParticipant)
   const defaults={logins_per_owner:32,sessions_per_owner:16,operations_per_owner:128,operations_total:256,pending_ttl_ms:300000,denied_per_owner:32,denied_total:64,operation_bytes:65536,state_bytes:16*1024*1024}
   assertData(c.limits??{})
   if(Object.keys(c.limits??{}).some(k=>!Object.hasOwn(defaults,k))) throw new TypeError('INVALID: authority quota config')
@@ -85,11 +90,12 @@ function authorityService(options, provisionNew) {
   }
   const inferenceProfile=configureInferenceProfile(c.inferenceProfile,pinned)
   const now = () => Date.now() // wire callers can never select an audit clock
-  class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes,retainedMemoryProfile:!!retainedParticipant})}}
+  class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes,retainedMemoryProfile:!!retainedParticipant,closureProfile:c.closureProfile})}}
   if(provisionNew) return attempt(()=>{
     if(c.provisionTrustedState!==true) refuse('UNAVAILABLE','EXPLICIT_NEW_STORE_PROVISIONING_REQUIRED')
     if(!identities.length) refuse('UNAVAILABLE','OWNER_PUBLIC_CONFIGURATION_REQUIRED')
-    const store=new PrimeApprovalStateStore({statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:true,maxStateBytes:c.limits.state_bytes})
+    const store=new PrimeApprovalStateStore({statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:true,maxStateBytes:c.limits.state_bytes,
+      closureProfile:c.closureProfile,closureProvisioning:!!c.closureProfile})
     try {
       store.open()
       if(store.protectedRead(store.stateFile)!==null) refuse('REPLAYED','STORE_ALREADY_PROVISIONED')
@@ -145,6 +151,18 @@ function authorityService(options, provisionNew) {
       return await fn(store)
     } finally {store.close()}
   }
+  async function txClosure(mode,fn) {
+    // Absence selects the adopted v1 worker behavior. A supplied v2 profile was
+    // validated/frozen at construction and never falls back after any refusal.
+    if(c.closureProfile===undefined)return txAsync(fn)
+    const store=new ConfiguredStore({statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:false})
+    try {
+      store.open()
+      if(mode==='close')store.loadClosureForCommand(structuredClone(EMPTY_KERNEL_STATE))
+      else store.loadClosureForRead(structuredClone(EMPTY_KERNEL_STATE))
+      return await fn(store)
+    } finally {store.close()}
+  }
   const memoryOperation=op=>op.target_identity?.kind==='prime-memory'||op.action_type.startsWith('memory.')||op.audience==='aukora-prime.memory'
   function legacyMemoryGate(op) {
     if(memoryOperation(op)&&(retainedParticipant||operationRequiresRetention(op))) refuse('UNAVAILABLE','RETAINED_MEMORY_PATH_REQUIRED')
@@ -158,6 +176,10 @@ function authorityService(options, provisionNew) {
     if(!retainedParticipant)refuse('UNAVAILABLE','RETAINED_MEMORY_PARTICIPANT_UNAVAILABLE')
     if(op.target_identity?.kind!=='prime-memory'||!op.action_type.startsWith('memory.'))refuse('INVALID','RETAINED_MEMORY_TARGET_REQUIRED')
     if(op.action_type==='memory.restore'||op.canonical_parameters?.mode==='prime-restore')refuse('UNAVAILABLE','RETAINED_RESTORE_LINEAGE_UNQUALIFIED')
+    if(retainedProfile&&!['memory.save','memory.forget'].includes(op.action_type))refuse('UNAVAILABLE','RETAINED_MEMORY_ACTION_UNQUALIFIED')
+  }
+  function retainedProfileBinding(store,row) {
+    assertRetainedMemoryProfileBinding(row,retainedProfile,{expectedAuthorityStoreId:store.store_id})
   }
   function retainedRow(row) {
     if(isTerminalRecord(row)||!row.retained_memory?.prepare)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_PREPARATION_REQUIRED')
@@ -216,6 +238,7 @@ function authorityService(options, provisionNew) {
       return row
     }
     if(row.operation_digest!==operationDigest(op)||!equal(row.operation,op)) refuse('INVALID','EXACT_OPERATION_CHANGED')
+    if(row.status==='CLOSED_UNCONSUMED')refuse('REPLAYED','OPERATION_PERMANENTLY_CLOSED_UNCONSUMED')
     if(row.approval && !row.grant && store.currentRecord.state.consumedIds.includes('approval:'+row.approval.proof.nonce)) refuse('RECONCILIATION_REQUIRED','CONSUMED_AUTHORITY_WITHOUT_MATCHING_RESERVATION')
     return row
   }
@@ -228,6 +251,16 @@ function authorityService(options, provisionNew) {
   }
   function attempt(fn) { try {return fn()} catch(error) {return resultError(error)} }
   async function attemptAsync(fn) {try {return await fn()} catch(error) {return resultError(error)}}
+  async function attemptClosure(fn) {
+    try {return await fn()} catch(error) {
+      if(error instanceof RollbackRefusedError||error instanceof TrustedStoreCorruptError||
+         error instanceof TrustedStoreUnsafePathError||error instanceof WriterLockedError||
+         (typeof error.code==='string'&&!error.error_code&&!(error instanceof TypeError))) {
+        return {ok:false,error_code:'RECONCILIATION_REQUIRED',reason:error.message}
+      }
+      return resultError(error)
+    }
+  }
   function boundedOperation(input) {
     const op=detachContract('OperationProposal',input)
     if(Buffer.byteLength(canonicalJson(op))>c.limits.operation_bytes) refuse('INVALID','OPERATION_BYTE_QUOTA')
@@ -391,17 +424,22 @@ function authorityService(options, provisionNew) {
       try {
         const row=verifiedApproval(store,op,proof)
         if(retained&&!preparePermit)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_MARKER_REQUIRED')
+        if(retained&&retainedProfile&&retainedProfile.expected_authority_store_id!==store.store_id)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_AUTHORITY_STORE_MISMATCH')
         grant={version:1,grant_id:'grant:'+proof.nonce,operation_id:op.operation_id,operation_digest:proof.operation_digest,
           owner_id:op.owner_id,audience:op.audience,authorization_epoch:op.authorization_epoch,prepared_at:iso(now()),
           reservation_id:'prepared:'+(receipt?.signedBytesDigest??sha(canonicalJson(proof)))}
         validateContract('ConsumedGrant',grant)
         row.status='PREPARED';row.grant=grant
-        if(retained)row.retained_memory={prepare:structuredClone(preparePermit),dispatch:null,settle:null}
+        if(retained) {
+          row.retained_memory={prepare:structuredClone(preparePermit),dispatch:null,settle:null}
+          if(retainedProfile)row.retained_memory_profile=structuredClone(retainedProfile)
+        }
       } catch(error) {return {decision:'DENY',reason:error.error_code??'UNAVAILABLE',detail:error.message}}
     }
     const beforeRetainedPrepare=async({store})=>{
       try {
         originalLocks(store);verifiedApproval(store,op,proof)
+        if(retainedProfile&&retainedProfile.expected_authority_store_id!==store.store_id)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_AUTHORITY_STORE_MISMATCH')
         preparePermit=validateRetainedMemoryPermit(await retainedParticipant.prepare({operation:deepFreeze(structuredClone(op))}),
           {phase:'prepare',operation:op,ownerSubject:id.subject})
       } catch(error) {throw Object.assign(new Error(error.message),{primeRefusal:true,code:error.error_code??'RECONCILIATION_REQUIRED'})}
@@ -467,7 +505,8 @@ function authorityService(options, provisionNew) {
     if(typeof v.request_id!=='string'||!UUID.test(v.request_id)||typeof v.request_digest!=='string'||!DIGEST.test(v.request_digest))refuse('INVALID','EXACT_EXECUTOR_REQUEST_BINDING_REQUIRED')
     return txAsync(async store=>{
       const verify=()=>{
-        originalLocks(store);policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant),binding=retainedRow(row)
+        originalLocks(store);policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant)
+        retainedProfileBinding(store,row);const binding=retainedRow(row)
         if(row.status!=='PREPARED'||binding.dispatch!==null)refuse('REPLAYED','RESERVATION_NOT_DISPATCHABLE')
         approvalSession(store,row)
         if(Date.parse(row.approval.proof.expiry)<=now())refuse('EXPIRED','APPROVAL_EXPIRED')
@@ -610,6 +649,7 @@ function authorityService(options, provisionNew) {
       const verify=()=>{
         originalLocks(store)
         const row=dispatchedRow(store,op,grant,v.request_id,v.request_digest)
+        retainedProfileBinding(store,row)
         for(const [field,expected]of Object.entries({operation_id:op.operation_id,operation_digest:grant.operation_digest,
           grant_id:grant.grant_id,request_id:v.request_id,request_digest:v.request_digest,
           owner_subject:op.target_identity.owner_subject,action_type:op.action_type}))if(receipt[field]!==expected)refuse('INVALID','MEMORY_RECEIPT_BINDING_MISMATCH')
@@ -644,6 +684,89 @@ function authorityService(options, provisionNew) {
       return {ok:true,owner_id:id.owner_id,subject:id.subject,authorization_epoch:id.authorization_epoch,expiry:s.expiry}
     })
   })}
+  function ownedClosureOperation(store,v) {
+    originalLocks(store)
+    const op=boundedOperation(v.operation),id=session(store,v.session_token)
+    if(op.owner_id!==id.owner_id)refuse('UNAUTHORIZED','CROSS_OWNER_CLOSURE')
+    closed(op.target_identity,['kind','owner_subject'])
+    if(c.audience!=='aukora-prime.memory'||op.audience!==c.audience||
+       !['memory.save','memory.forget'].includes(op.action_type)||op.target_identity.kind!=='prime-memory'||
+       op.target_identity.owner_subject!==id.subject)refuse('SCOPE_MISMATCH','MEMORY_WORKFLOW_CLOSURE_REQUIRED')
+    if(op.authorization_epoch>id.authorization_epoch)refuse('UNAUTHORIZED','FUTURE_OPERATION_EPOCH_REFUSED')
+    if(typeof c.authorizeTask!=='function')refuse('UNAUTHORIZED','TASK_SCOPE_NOT_AUTHENTICATED')
+    const authenticated=c.authorizeTask(deepFreeze(structuredClone(op)))
+    if(!authenticated||authenticated.authenticated!==true)refuse('UNAUTHORIZED','TASK_SCOPE_NOT_AUTHENTICATED')
+    closed(authenticated,['authenticated','task'])
+    const task=detachContract('Task',authenticated.task)
+    if(task.owner_id!==id.owner_id||task.task_id!==op.task_id||task.agent_id!==op.agent_id)refuse('UNAUTHORIZED','OWNED_TASK_BINDING_MISMATCH')
+    // No fresh effect permission is requested: old expiry, target state and Task
+    // status cannot revive approval. They also cannot invalidate factual closure.
+    return {op,id}
+  }
+  function closureResult(store,row,idempotent) {
+    try {validateClosureRow(row,store.currentRecord)} catch(error) {refuse('RECONCILIATION_REQUIRED',error.message)}
+    return {ok:true,status:'CLOSED_UNCONSUMED',operation:deepFreeze(structuredClone(row.operation)),closure:deepFreeze(structuredClone(row.closure)),
+      closure_digest:row.closure_digest,idempotent}
+  }
+  function ownedReferenceOperation(store,v) {
+    originalLocks(store)
+    const reference=JSON.parse(canonicalJson(closed(v.reference,['owner_id','owner_subject','task_id','operation_id','operation_digest','action_type'])))
+    if(['owner_id','task_id','operation_id','action_type'].some(field=>typeof reference[field]!=='string'||!reference[field])||
+       typeof reference.owner_subject!=='string'||!/^aukora:1:[a-f0-9]{64}$/.test(reference.owner_subject)||
+       typeof reference.operation_digest!=='string'||!DIGEST.test(reference.operation_digest))refuse('INVALID','EXACT_OPERATION_REFERENCE_REQUIRED')
+    const id=session(store,v.session_token)
+    if(reference.owner_id!==id.owner_id||reference.owner_subject!==id.subject)refuse('UNAUTHORIZED','CROSS_OWNER_CLOSURE_REFERENCE')
+    const row=store.broker.operations[operationKey(id.owner_id,reference.operation_id)]
+    // Never invent full bytes from a cold reference or replace pruned history.
+    if(!row?.operation)refuse('RECONCILIATION_REQUIRED','AUTHENTICATED_FULL_OPERATION_UNAVAILABLE')
+    let resolved
+    try {resolved=ownedClosureOperation(store,{session_token:v.session_token,operation:row.operation})}
+    catch(error) {if(error instanceof TypeError)refuse('RECONCILIATION_REQUIRED','TRUSTED_OPERATION_HISTORY_INCOHERENT');throw error}
+    const {op}=resolved
+    if(op.task_id!==reference.task_id||op.operation_id!==reference.operation_id||op.action_type!==reference.action_type||
+       row.operation_digest!==reference.operation_digest||operationDigest(op)!==reference.operation_digest)refuse('INVALID','EXACT_OPERATION_REFERENCE_CHANGED')
+    return {op,id,row,reference:deepFreeze(reference)}
+  }
+  // Private owner-authenticated C evidence only. No worker/HTTP route mounts
+  // either method. D absence and actual old-writer closure are separate duties.
+  function closeUnconsumedOperation(input) {return attemptClosure(()=>{
+    const v=closed(input,['session_token','reference'])
+    return txClosure('close',store=>{
+      const {op,id,row:existing}=ownedReferenceOperation(store,v),key=operationKey(op.owner_id,op.operation_id)
+      if(store.closureRetentionProfile&&store.closurePending!==null) {
+        const pending=store.closurePending
+        if(pending.operation_key!==key||!equal(pending.closure_row.operation,op))refuse('RECONCILIATION_REQUIRED','IDENTICAL_PENDING_CLOSURE_REFERENCE_REQUIRED')
+        const retained=store.retireClosure(key,pending.closure_row)
+        return closureResult(store,retained,true)
+      }
+      if(existing?.status==='CLOSED_UNCONSUMED') {
+        if(existing.operation_digest!==operationDigest(op)||!equal(existing.operation,op))refuse('INVALID','EXACT_OPERATION_CHANGED')
+        if(store.closureRetentionProfile)store.finishClosedRetirement(key,existing)
+        return closureResult(store,existing,true)
+      }
+      try {assertOperationUnconsumed(store.currentRecord,op)} catch(error) {refuse('RECONCILIATION_REQUIRED',error.message)}
+      const closure={version:1,kind:'prime-authority-never-consumed/v1',store_id:store.store_id,
+        owner_id:id.owner_id,owner_subject:id.subject,task_id:op.task_id,operation_id:op.operation_id,
+        operation_digest:operationDigest(op),authorization_epoch:op.authorization_epoch,closed_at:iso(now()),
+        broker_revision:store.broker.revision+1,kernel_receipt_count:store.currentRecord.state.receiptHead.count,
+        kernel_receipt_head:store.currentRecord.state.receiptHead.headHash}
+      const candidate={operation:op,operation_digest:closure.operation_digest,status:'CLOSED_UNCONSUMED',
+        review:null,approval:null,grant:null,pending_until:null,closure,closure_digest:closureDigest(closure)}
+      if(store.closureRetentionProfile)return closureResult(store,store.retireClosure(key,candidate),false)
+      store.broker.operations[key]=candidate
+      store.commitBroker() // Original journal and both witnesses durable before evidence is returned.
+      return closureResult(store,store.broker.operations[key],false)
+    })
+  })}
+  function readUnconsumedClosure(input) {return attemptClosure(()=>{
+    const v=closed(input,['session_token','reference'])
+    return txClosure('factual',store=>{
+      const {op,row}=ownedReferenceOperation(store,v)
+      if(!row||row.status!=='CLOSED_UNCONSUMED')refuse('RECONCILIATION_REQUIRED','DURABLE_UNCONSUMED_CLOSURE_REQUIRED')
+      if(row.operation_digest!==operationDigest(op)||!equal(row.operation,op))refuse('INVALID','EXACT_OPERATION_CHANGED')
+      return closureResult(store,row,true)
+    })
+  })}
   function logoutSession(input) {return attempt(()=>{
     const v=closed(input,['session_token'])
     return tx(store=>{
@@ -662,8 +785,8 @@ function authorityService(options, provisionNew) {
     return tx(store=>{
       const id=session(store,v.session_token),row=store.broker.operations[operationKey(id.owner_id,v.operation_id)]
       if(!row||(isTerminalRecord(row)?row.owner_key!==ownerKey(id.owner_id):row.operation.owner_id!==id.owner_id)) refuse('UNAUTHORIZED','OWNER_OPERATION_REQUIRED')
-      return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN'].includes(row.status)}
+      return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN','CLOSED_UNCONSUMED'].includes(row.status)}
     })
   }) }
-  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,logoutSession,approvalChallenge,approvalComplete,declineApproval,reserve,reserveRetained,claimDispatch,claimDispatchRetained,requestCancel,settle,reconcileSettlement,settleInference,reconcileInferenceSettlement,markOutcomeUnknown,settleMemory,settleMemoryRetained,advanceAuthorizationEpoch,status})
+  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,logoutSession,closeUnconsumedOperation,readUnconsumedClosure,approvalChallenge,approvalComplete,declineApproval,reserve,reserveRetained,claimDispatch,claimDispatchRetained,requestCancel,settle,reconcileSettlement,settleInference,reconcileInferenceSettlement,markOutcomeUnknown,settleMemory,settleMemoryRetained,advanceAuthorizationEpoch,status})
 }

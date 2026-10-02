@@ -8,10 +8,14 @@ import {createAuthorityService} from '../../authority/src/index.mjs'
 import {createPostgresMemory} from '../../memory/src/index.mjs'
 import {createRuntimeBridge,createTrustedTaskRegistry} from './index.mjs'
 import {closed,copy} from './registry.mjs'
+import {validateAuthorityUnconsumedClosure} from './unsent-closure.mjs'
 import {createPostgresWorkflowStore} from './workflow-store.mjs'
-import {createIpcServer,createAuthorityIpcServer,createAuthorityIpcClient,PRIVATE_AUTHORITY_METHODS} from './ipc.mjs'
+import {createIpcServer,createAuthorityClosureIpcServer as createAuthorityIpcServer,
+  createAuthorityClosureIpcClient as createAuthorityIpcClient,PRIVATE_AUTHORITY_CLOSURE_METHODS as PRIVATE_AUTHORITY_METHODS,
+  PRIVATE_AUTHORITY_CLOSURE_VERSION,PRIVATE_AUTHORITY_CLOSURE_PROFILE} from './ipc.mjs'
 
-const METHODS=Object.freeze({propose:'authority.propose',loginChallenge:'authority.loginChallenge',loginComplete:'authority.loginComplete',authenticateSession:'authority.authenticateSession',logoutSession:'authority.logoutSession',approvalChallenge:'authority.approvalChallenge',approvalComplete:'authority.approvalComplete',declineApproval:'authority.declineApproval',status:'authority.status',reserve:'authority.reserve',claimDispatch:'authority.claimDispatch',settleMemory:'authority.settleMemory',markOutcomeUnknown:'authority.markOutcomeUnknown'})
+const METHODS=Object.freeze({propose:'authority.propose',loginChallenge:'authority.loginChallenge',loginComplete:'authority.loginComplete',authenticateSession:'authority.authenticateSession',logoutSession:'authority.logoutSession',approvalChallenge:'authority.approvalChallenge',approvalComplete:'authority.approvalComplete',declineApproval:'authority.declineApproval',status:'authority.status',reserve:'authority.reserve',claimDispatch:'authority.claimDispatch',settleMemory:'authority.settleMemory',markOutcomeUnknown:'authority.markOutcomeUnknown',closeUnconsumedOperation:'authority.closeUnconsumedOperation',readUnconsumedClosure:'authority.readUnconsumedClosure'})
+const closures=new Set(['closeUnconsumedOperation','readUnconsumedClosure'])
 const live=new Set(['approvalChallenge','approvalComplete','reserve','claimDispatch'])
 const factual=new Set(['settleMemory','markOutcomeUnknown'])
 const refuse=(reason)=>Object.assign(new Error(reason),{error_code:'UNAUTHORIZED'})
@@ -24,6 +28,28 @@ function requireMemoryOperation(operation,registry,identities,{factualOnly=false
   const identity=identities.get(operation.owner_id)
   if(operation.audience!=='aukora-prime.memory'||!['memory.save','memory.forget'].includes(operation.action_type)||operation.target_identity.kind!=='prime-memory'||operation.target_identity.owner_subject!==identity?.subject||(!factualOnly&&registry.authorizeTask(operation)?.authenticated!==true))throw refuse('WORKER_EXACT_MEMORY_TASK_REQUIRED')
   return operation
+}
+function requireClosureRequest(input) {
+  closed(input,['session_token','reference'])
+  const reference=closed(input.reference,['owner_id','owner_subject','task_id','operation_id','operation_digest','action_type'])
+  if(typeof input.session_token!=='string'||!/^[a-f0-9]{64}$/.test(input.session_token)
+    ||['owner_id','owner_subject','task_id','operation_id'].some(key=>typeof reference[key]!=='string'||!reference[key].length
+      ||Buffer.byteLength(reference[key],'utf8')>1024||/[\x00-\x1f\x7f]/u.test(reference[key]))
+    ||typeof reference.owner_subject!=='string'||!/^aukora:1:[a-f0-9]{64}$/.test(reference.owner_subject)
+    ||typeof reference.operation_digest!=='string'||!/^sha256:[a-f0-9]{64}$/.test(reference.operation_digest)
+    ||!['memory.save','memory.forget'].includes(reference.action_type))throw refuse('WORKER_EXACT_CLOSURE_REFERENCE_REQUIRED')
+  return reference
+}
+function requireClosureOwner(reference,registry,identities) {
+  const identity=identities.get(reference.owner_id),entry=registry.getOwned(reference.task_id,reference.owner_id)
+  if(!identity||identity.subject!==reference.owner_subject||!entry||entry.audience!=='aukora-prime.memory')
+    throw refuse('WORKER_EXACT_MEMORY_TASK_REQUIRED')
+}
+function requireClosureReply(reply,reference,registry,identities) {
+  if(reply?.ok!==true)return reply
+  const validated=validateAuthorityUnconsumedClosure(reference,reply)
+  requireMemoryOperation(validated.operation,registry,identities)
+  return validated
 }
 
 export async function startAuthorityWorker(config) {
@@ -43,8 +69,23 @@ export async function startAuthorityWorker(config) {
     // Refuse overlapping calls; neither timeout nor disconnection clears it.
     if(authorityCallActive)throw refuse('WORKER_TARGET_SCOPE_REENTRANT')
     // IPC has already performed strict textual parsing, MAC and exact method ACL.
-    const wrapper=copy(closed(input,['input','operation','operation_digest','observation']))
     const name=Object.keys(METHODS).find(key=>METHODS[key]===method)
+    if(closures.has(name)) {
+      const wrapper=copy(closed(input,['version','profile','input','operation','operation_digest','observation']))
+      if(wrapper.version!==PRIVATE_AUTHORITY_CLOSURE_VERSION||wrapper.profile!==PRIVATE_AUTHORITY_CLOSURE_PROFILE
+        ||wrapper.operation!==null||wrapper.operation_digest!==null||wrapper.observation!==null)
+        throw refuse('WORKER_PRIVATE_CLOSURE_PROFILE_REQUIRED')
+      const reference=requireClosureRequest(wrapper.input)
+      requireClosureOwner(reference,registry,identities)
+      if(typeof authority[name]!=='function')return {ok:false,error_code:'UNAVAILABLE',reason:'WORKER_AUTHORITY_SERVICE_UNMOUNTED:'+name}
+      // C authenticates this session while loading its original retained record.
+      // A separate ordinary session read could prune that record before closure.
+      // No live target observation, caller operation, or review cache is involved.
+      authorityCallActive=true
+      try {return requireClosureReply(copy(await authority[name](wrapper.input)),reference,registry,identities)}
+      finally {authorityCallActive=false}
+    }
+    const wrapper=copy(closed(input,['input','operation','operation_digest','observation']))
     const operation=wrapper.operation
     if(name==='logoutSession') {
       closed(wrapper.input,['session_token'])
@@ -109,6 +150,7 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
   const proxy=Object.freeze(Object.fromEntries(Object.entries(METHODS).map(([name,method])=>[name,async input=>{
     const detached=copy(input)
     if(name==='logoutSession')closed(detached,['session_token'])
+    if(closures.has(name))requireClosureRequest(detached)
     let operation=detached.operation??null
     if(name==='approvalComplete') {
       const proof=detached.proof
@@ -121,8 +163,10 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
     // A fresh channel is opened only for this unsent call. A closed/idle/bounded
     // channel never poisons subsequent independent calls, including C restart.
     // There is one request and no replay after an uncertain response.
+    const wrapper={input:detached,operation,operation_digest:operation?contracts.operationDigest(operation):null,observation,
+      ...(closures.has(name)?{version:PRIVATE_AUTHORITY_CLOSURE_VERSION,profile:PRIVATE_AUTHORITY_CLOSURE_PROFILE}:{})}
     const channel=await createAuthorityIpcClient(config.authorityChannel)
-    try {return await channel.request(method,{input:detached,operation,operation_digest:operation?contracts.operationDigest(operation):null,observation})}
+    try {return await channel.request(method,wrapper)}
     finally {await channel.close()}
   }])))
   try {
@@ -154,6 +198,7 @@ async function startConfiguredMemoryWorker(config,publicDispatch) {
       })
     }
     const localMemory=Object.freeze({prepareCaptureBinding:memory.prepareCaptureBinding,
+      ...(typeof memory.closeUnsentOperation==='function'?{closeUnsentOperation:(host,reference)=>memory.closeUnsentOperation(host,reference)}:{}),
       async captureAuthorizedRemembered(host,...args){return rememberCommitted(host,await memory.captureAuthorizedRemembered(host,...args))},
       prepareRecordMutationBinding:memory.prepareRecordMutationBinding,forgetRecord:memory.forgetRecord,
       async reconcileEffect(host,...args){return rememberCommitted(host,await memory.reconcileEffect(host,...args))},

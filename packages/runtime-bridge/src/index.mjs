@@ -8,7 +8,20 @@ import {IPC_METHOD_ROLES,PUBLIC_METHODS} from './ipc.mjs'
 import {preparePilotCapture} from './pilot-capture.mjs'
 import {isWorkflowStore} from './workflow-store.mjs'
 import {createRecovery} from './recovery.mjs'
+import {isRetainedWorkflowStore,createRetainedWorkflowStore} from './retained-workflow-store.mjs'
+import {createRetainedRecovery} from './retained-recovery.mjs'
+import {retainedUnknown} from './retained-pending.mjs'
 export {createTrustedTaskRegistry,PUBLIC_METHODS}
+export {createRetainedWorkflowStore} from './retained-workflow-store.mjs'
+export {RETAINED_JOURNAL_SCHEMA,RETAINED_JOURNAL_STATEMENTS,RETAINED_JOURNAL_DESCRIPTORS,mutateRetainedWorkflow,mutateRetainedClosure} from './retained-journal-sql.mjs'
+export {restoreRetainedJournal} from './retained-journal-restore.mjs'
+
+/** Protected local composition only. Explicit v2 profile and actual D retained
+ * participant required; no independent pool, baseline or migration fallback. */
+export function createRetainedRuntimeBridge({authority,memory,closureProfile,taskRegistry,resolveHostContext}={}) {
+  const workflowStore=createRetainedWorkflowStore({memory,closureProfile,taskRegistry})
+  return createRuntimeBridge({authority,memory,workflowStore,taskRegistry,resolveHostContext})
+}
 
 class BridgeRefusal extends Error {
   constructor(error_code,reason){super(reason);this.error_code=error_code}
@@ -17,7 +30,7 @@ const fail=(code,reason)=>{throw new BridgeRefusal(code,reason)}
 const requireMethod=(service,name)=>{if(typeof service?.[name]!=='function')fail('UNAVAILABLE','BRIDGE_SERVICE_UNMOUNTED:'+name)}
 const token=value=>{if(typeof value!=='string'||!/^[a-f0-9]{64}$/.test(value))fail('UNAUTHORIZED','OWNER_SESSION_REQUIRED')}
 const text=(value,max=1024)=>{if(typeof value!=='string'||!value.length||Buffer.byteLength(value)>max)fail('INVALID','BRIDGE_STRING_BOUND')}
-const errorResult=error=>({ok:false,error_code:error.error_code??(error.reconciliation_required?'OUTCOME_UNKNOWN':error instanceof TypeError?'INVALID':'UNAVAILABLE'),reason:error instanceof BridgeRefusal?error.message:typeof error.code==='string'&&error.code.startsWith('memory:')?error.code:'BRIDGE_SERVICE_REFUSED',...(error.reconciliation_required?{reconciliation_required:true,operation_id:error.operation_id,request_id:error.request_id,request_digest:error.request_digest}:{})})
+const errorResult=error=>({ok:false,error_code:error.error_code??(error.reconciliation_required?'OUTCOME_UNKNOWN':error instanceof TypeError?'INVALID':'UNAVAILABLE'),reason:error instanceof BridgeRefusal?error.message:typeof error.code==='string'&&error.code.startsWith('memory:')?error.code:'BRIDGE_SERVICE_REFUSED',...(error.reconciliation_required?{reconciliation_required:true,operation_id:error.operation_id??null,request_id:error.request_id??null,request_digest:error.request_digest??null}:{}),...(error.automatic_retry===false?{automatic_retry:false}:{})})
 const unwrap=result=>{if(result?.ok!==true)fail(result?.error_code??'UNAVAILABLE',result?.reason??'BRIDGE_SERVICE_REFUSED');return result}
 function extraction(textValue){text(textValue,16_384);return freeze(parseOriginal(Buffer.from(textValue,'utf8')))}
 function captureDraft(host,captured,metadata) {
@@ -39,17 +52,27 @@ function trustedContext(value) {
 
 /** All services, registry and context resolver are host inputs. This creates no
  * listener, credentials, state, database, owner identity or authorization kernel. */
-export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry,resolveHostContext,verifyHostQualification}={}) {
-  const authorityMethods=['authenticateSession','logoutSession','propose','loginChallenge','loginComplete','approvalChallenge','approvalComplete','declineApproval','status','reserve','claimDispatch','settleMemory','markOutcomeUnknown']
-  const memoryMethods=['prepareCaptureBinding','captureAuthorizedRemembered','withAuthorityTargetObservation','status','cite','recall','prepareRecordMutationBinding','forgetRecord','reconcileEffect']
-  const mounted=authorityMethods.every(k=>typeof authority?.[k]==='function')&&memoryMethods.every(k=>typeof memory?.[k]==='function')&&isWorkflowStore(workflowStore)&&typeof taskRegistry?.getOwned==='function'&&typeof taskRegistry?.authorizeTask==='function'&&typeof resolveHostContext==='function'
+export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry,resolveHostContext,verifyHostQualification,knownUnsentProfile}={}) {
+  const retained=isRetainedWorkflowStore(workflowStore)
+  if(retained&&knownUnsentProfile!==undefined)fail('INVALID','RETAINED_PROFILE_DOWNGRADE_REFUSED')
+  // Null D retention is permissible only in an explicitly selected source
+  // profile. This cannot qualify production routes or replace storage guards.
+  if(knownUnsentProfile!==undefined) {
+    closed(knownUnsentProfile,['version','environment','retention'])
+    if(knownUnsentProfile.version!==1||knownUnsentProfile.environment!=='source-only'||knownUnsentProfile.retention!=='non-retained')fail('INVALID','UNSENT_SOURCE_PROFILE_REQUIRED')
+    knownUnsentProfile=copy(knownUnsentProfile)
+  }
+  const authorityMethods=['authenticateSession','logoutSession','propose','loginChallenge','loginComplete','approvalChallenge','approvalComplete','declineApproval','status','reserve','claimDispatch','settleMemory','markOutcomeUnknown',...(retained?['closeUnconsumedOperation','readUnconsumedClosure']:[])]
+  const memoryMethods=['prepareCaptureBinding','captureAuthorizedRemembered','withAuthorityTargetObservation','status','cite','recall','prepareRecordMutationBinding','forgetRecord','reconcileEffect',...(retained?['closeUnsentOperation','readUnsentClosure']:[])]
+  const mounted=authorityMethods.every(k=>typeof authority?.[k]==='function')&&memoryMethods.every(k=>typeof memory?.[k]==='function')&&(isWorkflowStore(workflowStore)||retained)&&typeof taskRegistry?.getOwned==='function'&&typeof taskRegistry?.authorizeTask==='function'&&typeof resolveHostContext==='function'
   // Only exact approved save/forget, factual receipt reconciliation and reads
   // are retained. Raw writers, purge, import and restore remain outside dispatch.
-  memory=Object.freeze(Object.fromEntries(memoryMethods.filter(name=>typeof memory?.[name]==='function').map(name=>[name,memory[name].bind(memory)])))
-  const inFlight=new Set(),recovery=createRecovery({authority,memory,workflowStore,inFlight})
+  memory=Object.freeze(Object.fromEntries([...memoryMethods,'closeUnsentOperation',...(retained?['readUnsentClosure']:[])].filter(name=>typeof memory?.[name]==='function').map(name=>[name,memory[name].bind(memory)])))
+  const inFlight=new Set(),recovery=(retained?createRetainedRecovery:createRecovery)({authority,memory,workflowStore,inFlight,authorizeTask:taskRegistry?.authorizeTask,retentionRequired:knownUnsentProfile===undefined})
   async function requireRecovered(host,session_token,exclude=null) {
-    const blocked=await recovery.pending(host,session_token,{exclude})
-    if(blocked)fail('RECONCILIATION_REQUIRED','DURABLE_MEMORY_OUTCOME_UNRESOLVED')
+    const checked=await recovery.pending(host,session_token,{exclude,allowLiveProposals:true})
+    if(checked.blocked)fail('RECONCILIATION_REQUIRED','DURABLE_MEMORY_OUTCOME_UNRESOLVED')
+    return checked.closures
   }
   async function requireLiveProposal(host,operation) {
     const reference=await workflowStore.get(host,operation.operation_id)
@@ -62,13 +85,19 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
     const status=await authority.status({session_token,operation_id:operation.operation_id})
     // Logout/expiry can end read access after D's factual settlement. Preserve
     // the genuine result; a fresh session will reconcile its pending reference.
-    if(status?.ok!==true)return
+    if(status?.ok!==true) {
+      if(retained)fail('OUTCOME_UNKNOWN','RETAINED_C_SETTLEMENT_READ_UNAVAILABLE')
+      return
+    }
     if(status.status!=='COMPLETED'||status.operation_digest!==row.operation_digest||status.reconciliation_required!==false)fail('OUTCOME_UNKNOWN','DURABLE_MEMORY_SETTLEMENT_REQUIRED')
     await workflowStore.mark(host,operation.operation_id,operation.action_type==='memory.save'?'saved':'forgotten',{
-      record_id:fact.result.record_id,request_id:fact.receipt.request_id,request_digest:fact.receipt.request_digest,receipt_digest:fact.receiptDigest})
+      record_id:fact.result.record_id,request_id:fact.receipt.request_id,request_digest:fact.receipt.request_digest,receipt_digest:fact.receiptDigest},
+      ...(retained?[{effect,authority_status:status}]:[]))
   }
   async function accepted() {
-    if(!mounted || typeof verifyHostQualification!=='function')return null
+    // The v2 source contract provides no runtime acceptance profile. A legacy
+    // v1 host record cannot qualify the new retained path by itself.
+    if(!mounted || retained || knownUnsentProfile!==undefined || typeof verifyHostQualification!=='function')return null
     // H owns acceptance. A boolean or a synthetic profile cannot qualify public routes.
     const value=await verifyHostQualification()
     if(!value || typeof value!=='object')return null
@@ -102,7 +131,9 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
     const host=structuredClone(resolved.memory_host)
     if(!host || typeof host!=='object'||Array.isArray(host))fail('UNAVAILABLE','TRUSTED_MEMORY_CONTEXT_REQUIRED')
     if(host.owner_subject!==undefined&&host.owner_subject!==identity.subject || host.owner_id!==undefined&&host.owner_id!==identity.owner_id || host.task_id!==undefined&&host.task_id!==entry.task.task_id)fail('UNAUTHORIZED','TRUSTED_CONTEXT_OWNER_MISMATCH')
+    if(host.authorization_epoch!==undefined&&host.authorization_epoch!==identity.authorization_epoch)fail('UNAUTHORIZED','TRUSTED_CONTEXT_EPOCH_MISMATCH')
     host.owner_id=identity.owner_id;host.owner_subject=identity.subject;host.task_id=entry.task.task_id
+    host.authorization_epoch=identity.authorization_epoch
     return {entry,host}
   }
   function operationForContext(operation,identity,entry) {
@@ -154,7 +185,7 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
       // Expected review text comes from the detached actual extraction and the
       // trusted host attribution, independently of any proposed parameters.
       const memoryCapture=captureDraft(host,captured,metadata)
-      await requireRecovered(host,input.session_token)
+      const closures=await requireRecovered(host,input.session_token)
       const binding=await memory.prepareCaptureBinding(host,captured,input.idempotency_key)
       closed(binding,['target_identity','state_version','canonical_parameters','memory_capture'])
       if(canonicalJson(validateCaptureDraft(binding.memory_capture))!==canonicalJson(memoryCapture))fail('INVALID','EXACT_HOST_CAPTURE_DRAFT_REQUIRED')
@@ -164,14 +195,15 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
         data_scope:entry.data_scope,expected_state_version:binding.state_version,provider_and_region:entry.provider_and_region,
         maximum_cost:{currency:'USD',amount:'0'},expiry:new Date(Math.min(Date.now()+120_000,Date.parse(identity.expiry))).toISOString(),nonce:randomBytes(32).toString('hex'),policy_version:entry.policy_version,authorization_epoch:identity.authorization_epoch})
       validateContract('OperationProposal',operation)
-      await workflowStore.insert(host,{operation,idempotency_key_sha256:binding.canonical_parameters.idempotency_key_sha256,record_id:null})
+      if(!retained)await workflowStore.insertForAdmission(host,{operation,idempotency_key_sha256:binding.canonical_parameters.idempotency_key_sha256,record_id:null},{closures})
       const proposed=await authority.propose({session_token:input.session_token,operation})
+      if(retained&&proposed?.ok===true)await workflowStore.insertForAdmission(host,{operation,idempotency_key_sha256:binding.canonical_parameters.idempotency_key_sha256,record_id:null},{closures,authority_reply:proposed})
       return proposed?.ok===true?{...proposed,memory_capture:memoryCapture,capture_metadata:metadata}:proposed
     }
     if(method==='memory.proposeForget') {
       closed(input,['session_token','record_id']);text(input.record_id)
       requireMethod(memory,'prepareRecordMutationBinding')
-      await requireRecovered(host,input.session_token)
+      const closures=await requireRecovered(host,input.session_token)
       // The host chooses the second-resolution effect time. The guest names
       // only a record reference; D checks its owner/scope and exact byte digest.
       const at=new Date().toISOString().slice(0,19)+'Z'
@@ -188,8 +220,9 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
         data_scope:entry.data_scope,expected_state_version:binding.state_version,provider_and_region:entry.provider_and_region,
         maximum_cost:{currency:'USD',amount:'0'},expiry:new Date(Math.min(Date.now()+120_000,Date.parse(identity.expiry))).toISOString(),nonce:randomBytes(32).toString('hex'),policy_version:entry.policy_version,authorization_epoch:identity.authorization_epoch})
       validateContract('OperationProposal',operation)
-      await workflowStore.insert(host,{operation,idempotency_key_sha256:null,record_id:input.record_id})
+      if(!retained)await workflowStore.insertForAdmission(host,{operation,idempotency_key_sha256:null,record_id:input.record_id},{closures})
       const proposed=await authority.propose({session_token:input.session_token,operation})
+      if(retained&&proposed?.ok===true)await workflowStore.insertForAdmission(host,{operation,idempotency_key_sha256:null,record_id:input.record_id},{closures,authority_reply:proposed})
       return proposed?.ok===true?{...proposed,record_summary:binding.record_summary}:proposed
     }
     if(method==='owner.approvalChallenge') {
@@ -219,7 +252,7 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
         ||proof.authorization_epoch!==operation.authorization_epoch||Date.parse(proof.expiry)>Date.parse(operation.expiry))fail('INVALID','EXACT_SAVE_PROOF_REQUIRED')
       const reference=await workflowStore.get(host,operation.operation_id)
       if(reference.action_type!=='memory.save'||reference.operation_digest!==digest)fail('REPLAYED','DURABLE_MEMORY_OPERATION_CHANGED')
-      await requireRecovered(host,input.session_token,operation.operation_id)
+      const closures=await requireRecovered(host,input.session_token,operation.operation_id)
       // Refuse known input/state mismatches before recording an attempted
       // effect. D repeats this exact check under its dispatch/effect lock.
       const binding=await memory.prepareCaptureBinding(host,captured,input.idempotency_key)
@@ -241,13 +274,18 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
       }
       if(canonicalJson(binding.canonical_parameters)!==canonicalJson(operation.canonical_parameters)
         ||binding.state_version!==operation.expected_state_version||canonicalJson(binding.target_identity)!==canonicalJson(operation.target_identity))fail('TARGET_MISMATCH','EXACT_SAVE_PREFLIGHT_REQUIRED')
-      await workflowStore.attempt(host,operation.operation_id,digest)
+      await workflowStore.attemptForAdmission(host,operation.operation_id,digest,{closures})
       const ref=host.owner_subject+'\0'+operation.operation_id;inFlight.add(ref)
       try {
         const result=await memory.captureAuthorizedRemembered(host,captured,input.idempotency_key,{operation,approval_proof:input.approval_proof})
         validateContract('MemoryRecord',result.record)
         await completed(host,input.session_token,operation,{...result,result:result.record})
         return {ok:true,...result}
+      } catch(error) {
+        if(retained)throw Object.assign(new BridgeRefusal('OUTCOME_UNKNOWN','RETAINED_SAVE_OUTCOME_UNRESOLVED'),retainedUnknown(error),{
+          reconciliation_required:true,automatic_retry:false,operation_id:operation.operation_id,
+          request_id:error.request_id??null,request_digest:error.request_digest??null})
+        throw error
       } finally {inFlight.delete(ref)}
     }
     if(method==='memory.forget') {
@@ -259,17 +297,22 @@ export function createRuntimeBridge({authority,memory,workflowStore,taskRegistry
       if(operation.canonical_parameters.profile!=='prime-logical-forget/v1')fail('INVALID','EXACT_FORGET_PROFILE_REQUIRED')
       const id=operation.canonical_parameters.record_id;text(id)
       requireMethod(memory,'forgetRecord');requireMethod(memory,'reconcileEffect')
-      await requireRecovered(host,input.session_token,operation.operation_id)
+      const closures=await requireRecovered(host,input.session_token,operation.operation_id)
       const binding=await memory.prepareRecordMutationBinding(host,id,{action:'memory.forget',at:operation.canonical_parameters.at})
       if(canonicalJson(binding.canonical_parameters)!==canonicalJson(operation.canonical_parameters)
         ||binding.state_version!==operation.expected_state_version||canonicalJson(binding.target_identity)!==canonicalJson(operation.target_identity))fail('TARGET_MISMATCH','EXACT_FORGET_PREFLIGHT_REQUIRED')
-      await workflowStore.attempt(host,operation.operation_id,operationDigest(operation))
+      await workflowStore.attemptForAdmission(host,operation.operation_id,operationDigest(operation),{closures})
       const ref=host.owner_subject+'\0'+operation.operation_id;inFlight.add(ref)
       try {
         const result=await memory.forgetRecord(host,id,{operation,approval_proof:input.approval_proof,include_receipt:true})
         if(!result.receipt||!result.result)fail('OUTCOME_UNKNOWN','FORGET_COMMITTED_RECEIPT_REQUIRED')
         await completed(host,input.session_token,operation,result)
         return {ok:true,...result}
+      } catch(error) {
+        if(retained)throw Object.assign(new BridgeRefusal('OUTCOME_UNKNOWN','RETAINED_FORGET_OUTCOME_UNRESOLVED'),retainedUnknown(error),{
+          reconciliation_required:true,automatic_retry:false,operation_id:operation.operation_id,
+          request_id:error.request_id??null,request_digest:error.request_digest??null})
+        throw error
       } finally {inFlight.delete(ref)}
     }
     if(method==='memory.status') {

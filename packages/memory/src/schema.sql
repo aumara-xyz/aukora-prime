@@ -83,3 +83,11 @@ CREATE TABLE IF NOT EXISTS prime_memory_replay_fences (
   request_digest text NOT NULL, status text NOT NULL CHECK (status='payload-purged'),
   PRIMARY KEY(owner_subject,operation_id)
 );
+-- A closed writer is distinct from a purged effect. Never reuse either as an effect receipt.
+CREATE TABLE IF NOT EXISTS prime_memory_unsent_closures (
+  owner_subject text NOT NULL, owner_id text NOT NULL, task_id text NOT NULL,
+  operation_id text NOT NULL, operation_digest text NOT NULL, action_type text NOT NULL,
+  authorization_epoch integer NOT NULL CHECK (authorization_epoch >= 0),
+  reference_bytes bytea NOT NULL, closure_bytes bytea NOT NULL, closure_digest text NOT NULL,
+  PRIMARY KEY(owner_subject,operation_id)
+);

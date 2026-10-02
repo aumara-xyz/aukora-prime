@@ -122,6 +122,17 @@ function requestBinding(input, contracts) {
   return {host, operation, operation_id: operation.operation_id, operation_digest: digest,
     request_id: request.request_id, request_digest: request.request_digest}
 }
+// A negative writer fence retains an exact cold reference. It cannot reconstruct
+// the original operation or establish the authority kernel's non-consumption.
+function closureRequestBinding(input) {
+  const request = dataFields(input, ['host', 'operation_id', 'operation_digest', 'request_id', 'request_digest'],
+    'closure-request-fields-invalid')
+  const host = hostBinding(request.host)
+  check(nonempty(request.operation_id) && typeof request.operation_digest === 'string' && DIGEST.test(request.operation_digest)
+    && typeof request.request_id === 'string' && UUID.test(request.request_id)
+    && typeof request.request_digest === 'string' && DIGEST.test(request.request_digest), 'closure-request-binding-invalid')
+  return {...request, host}
+}
 function markerBinding(input, tuple) {
   const marker = detached(input)
   dataFields(marker, MARKER_KEYS, 'marker-fields-invalid')
@@ -185,8 +196,7 @@ export function createControlRetentionCoordinator(input) {
   const tupleFor = (request, checkpoint) => ({host: request.host, expected_checkpoint_sha256: checkpoint,
     operation_id: request.operation_id, operation_digest: request.operation_digest,
     request_id: request.request_id, request_digest: request.request_digest})
-  const begin = async inputRequest => {
-    const request = requestBinding(inputRequest, contracts)
+  const beginRequest = async request => {
     const predecessor = envelopeBinding(await read.readCurrent(request.host), request.host, contracts)
     const tuple = tupleFor(request, predecessor.checkpoint_sha256)
     await publish.beginMutation(frozen(detached(tuple)))
@@ -194,6 +204,8 @@ export function createControlRetentionCoordinator(input) {
     check(observed.prepared === null, 'begin-already-prepared')
     return contextFor(tuple, predecessor)
   }
+  const begin = async inputRequest => beginRequest(requestBinding(inputRequest, contracts))
+  const beginClosure = async inputRequest => beginRequest(closureRequestBinding(inputRequest))
   const prepared = async (inputContext, inputState) => {
     const context = owned(inputContext), control_state = detached(inputState)
     inspectMemoryControlState(control_state, context.tuple.host, {contracts})
@@ -230,14 +242,15 @@ export function createControlRetentionCoordinator(input) {
     const predecessor = envelopeBinding(fields.predecessor, host, contracts, {pastEpoch: true})
     return frozen(pendingBinding(value, tuple, predecessor, contracts, {withCurrent: true}))
   }
-  const recover = async inputRequest => {
-    const request = requestBinding(inputRequest, contracts)
+  const recoverRequest = async request => {
     const inspected = await inspect(request.host)
     const tuple = tupleFor(request, inspected.marker.expected_checkpoint_sha256)
     markerBinding(inspected.marker, tuple)
     return contextFor(tuple, inspected.predecessor)
   }
-  const coordinator = Object.freeze({reader, begin, prepared, complete, observe, inspect, recover, isContext:context=>contexts.has(context),
+  const recover = async inputRequest => recoverRequest(requestBinding(inputRequest, contracts))
+  const recoverClosure = async inputRequest => recoverRequest(closureRequestBinding(inputRequest))
+  const coordinator = Object.freeze({reader, begin, beginClosure, prepared, complete, observe, inspect, recover, recoverClosure, isContext:context=>contexts.has(context),
     status: Object.freeze({configured: true, kind: 'control-retention-coordinator', schema: MEMORY_RETENTION_SCHEMA})})
   coordinators.add(coordinator)
   return coordinator

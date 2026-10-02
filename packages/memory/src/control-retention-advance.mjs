@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { requireMemory } from './codecs.mjs'
-import { MEMORY_CONTROL_TABLES, inspectMemoryControlState } from './control-state.mjs'
+import { MEMORY_CONTROL_TABLES, MEMORY_WRITER_CLOSURE_TABLE, inspectMemoryControlState } from './control-state.mjs'
 
-const RETAINED_TABLES = ['purges', 'requests', 'tombstones', 'redactions', 'replay_fences']
+const RETAINED_TABLES = ['purges', 'requests', 'tombstones', 'redactions', 'replay_fences', 'unsent_closures']
+const TABLES = {...MEMORY_CONTROL_TABLES, unsent_closures: MEMORY_WRITER_CLOSURE_TABLE}
 const FENCE_BINDING = ['owner_subject', 'operation_id', 'operation_digest', 'grant_id', 'action', 'request_id', 'request_digest']
-const rowKey = (row, name) => canonicalJSON(MEMORY_CONTROL_TABLES[name].key.map(column => row[column]))
+const rowKey = (row, name) => canonicalJSON(TABLES[name].key.map(column => row[column]))
 const rowsByKey = (rows, name) => new Map(rows.map(row => [rowKey(row, name), row]))
-const sameRow = (left, right, name) => right !== undefined && MEMORY_CONTROL_TABLES[name].columns.every(column =>
-  MEMORY_CONTROL_TABLES[name].byteColumns.includes(column) ? left[column].equals(right[column]) : left[column] === right[column])
+const sameRow = (left, right, name) => right !== undefined && TABLES[name].columns.every(column =>
+  TABLES[name].byteColumns.includes(column) ? left[column].equals(right[column]) : left[column] === right[column])
 const matchingFence = (effect, fence) => fence !== undefined && FENCE_BINDING.every(column => effect[column] === fence[column])
 
 /**
  * Check retained-control continuity only; return no authority, grant or restore permission.
- * Both bundles must already be complete owner-bound control-state/v1 representations.
+ * Both bundles must be complete owner-bound versioned control states. A v1 predecessor
+ * can add writer closures in v2; every retained closure then remains byte-identical.
  * Changed head hashes are allowed for the trusted publisher of live D source state. This
  * check does not prove a chain prefix, authenticate that publisher or permit bootstrap.
  */
