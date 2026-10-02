@@ -187,7 +187,17 @@ function ownerReceipt(receipt){
  ownerDependencies(owner.build_inputs)
  for(const output of owner.output_artifacts){if(!output.path.startsWith('prime-authority/lib/')||output.output_path!==output.path.replace('prime-authority/lib/','prime-authority/'))fail('owner-output-path')}
  for(const path of ['prime-authority/lib/client.js','prime-authority/lib/client.js.map','prime-authority/lib/index.js','prime-authority/lib/types/client/index.d.ts','prime-authority/lib/types/client/controller.d.mts','prime-authority/lib/types/client/controller.mjs'])if(!outputs.some(x=>x.path===path))fail('owner-output-missing',path)
- for(const extension of ['mjs','d.mts']){const source=sources.find(x=>x.path==='prime-authority/src/client/controller.'+extension),output=outputs.find(x=>x.path==='prime-authority/lib/types/client/controller.'+extension);if(!source||source.bytes!==output.bytes||source.sha256!==output.sha256)fail('owner-copied-controller-binding')}
+ const publication=sources.find(x=>x.path==='scripts/publish-owner-types.mjs')
+ if(publication){
+  // The reviewed publication recipe rebases only the known adapter import seat.
+  // Compose rederives these bytes from source below; boot checks their sealed
+  // snapshot and the independently retained full deployment release digest.
+  if(publication.sha256!=='c65a2fe44940d9d9f68337b2943b44ce8f4ca4b568f841f4c55408943faab0c1')fail('owner-type-publication-profile')
+  for(const source of sources.filter(x=>/^prime-authority\/src\/client\/[^/]+\.(?:mjs|d\.mts)$/.test(x.path))){
+   const path=source.path.replace('prime-authority/src/client/','prime-authority/lib/types/client/')
+   if(!outputs.some(x=>x.path===path))fail('owner-type-publication-output',path)
+  }
+ }else for(const extension of ['mjs','d.mts']){const source=sources.find(x=>x.path==='prime-authority/src/client/controller.'+extension),output=outputs.find(x=>x.path==='prime-authority/lib/types/client/controller.'+extension);if(!source||source.bytes!==output.bytes||source.sha256!==output.sha256)fail('owner-copied-controller-binding')}
  for(const output of owner.output_artifacts.filter(x=>/\/client\.js(?:\.map)?$/.test(x.path))){const compiled=receipt.artifacts?.find(x=>x.id===OWNER_ID&&x.path===output.output_path);if(!compiled||compiled.bytes!==output.bytes||compiled.sha256!==output.sha256)fail('owner-output-artifact-binding',output.path)}
  return {sources,outputs,buildInputs:owner.build_inputs,harnessIdentity:identity}
 }
@@ -211,6 +221,17 @@ export async function verifyUiSource({sourceRoot}){
  await ownerDependencyMetadata(binding.buildInputs,{ui,dsh:await subRoot(root,'vendor/dsh')})
  for(const entry of ownerSources)await pinned(ui,entry)
  for(const entry of ownerOutputs)await pinned(ui,entry)
+ if(ownerSources.some(x=>x.path==='scripts/publish-owner-types.mjs')){
+  const copySources=ownerSources.filter(x=>/^prime-authority\/src\/client\/[^/]+\.(?:mjs|d\.mts)$/.test(x.path)
+   || /^adapters\/(?:capture-metadata|capture-presentation|capture-review|forget-result|forget-review|passkey|provider-settings|transport)\.(?:mjs|d\.mts)$/.test(x.path))
+  for(const entry of copySources){
+   const client=entry.path.startsWith('prime-authority/src/client/')
+   const path=client?entry.path.replace('prime-authority/src/client/','prime-authority/lib/types/client/'):'prime-authority/lib/types/'+entry.path
+   const copied=ownerOutputs.find(x=>x.path===path);if(!copied)fail('owner-type-publication-output',path)
+   const original=await pinned(ui,entry),expected=client?Buffer.from(original.toString('utf8').replaceAll('../../../adapters/','../adapters/')):original
+   if(expected.length!==copied.bytes||sha(expected)!==copied.sha256)fail('owner-type-publication-binding',path)
+  }
+ }
  // Use B's actual verifier for the complete current source/dependency/output closure.
  // Dynamic import is compose-only. verifyReleaseUi has no B/runtime source dependency.
  await bytesAt(ui,'scripts/verify-owner-build.mjs')

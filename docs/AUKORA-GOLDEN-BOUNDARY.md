@@ -729,3 +729,7 @@ The intelligence may evolve.
 **The person remains free.**
 
 The publication privacy record is in [PRIVACY-REWRITE.md](PRIVACY-REWRITE.md). The final public source-suite observation is [recorded separately](evidence/publication-source-verification.json), with its exact source commit, tree and excluded qualification.
+
+### Proposed execution composition
+
+A future composition may propose exact policy, image, target and resource bounds for independent owner approval. The approved gateway path would enforce those bounds, while separate expiry, cleanup and drift observations determine what can be reported. This is a proposed join, not an implemented bridge or a confinement qualification. Cordis lifecycle disposal must not be treated as guaranteed remote teardown; logical composition must not be treated as kernel isolation; an event format alone must not be treated as an immutable record.

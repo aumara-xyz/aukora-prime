@@ -1,6 +1,9 @@
-import { createPrimeTransport, PrimeTransportError } from '../../../adapters/transport.mjs'
-import { createBrowserPasskeySigner } from '../../../adapters/passkey.mjs'
-import { validateCaptureReview } from '../../../adapters/capture-review.mjs'
+import { createPrimeTransport, PrimeTransportError } from '../adapters/transport.mjs'
+import { createBrowserPasskeySigner } from '../adapters/passkey.mjs'
+import { validateCaptureReview } from '../adapters/capture-review.mjs'
+import { validateCaptureMetadata } from '../adapters/capture-metadata.mjs'
+import { validateForgetReview } from '../adapters/forget-review.mjs'
+import { validateForgetWorkflowResult, validateCancelledForgetWorkflow } from '../adapters/forget-result.mjs'
 
 async function readJson(response, contracts) {
   if (typeof contracts?.parseStrictJson !== 'function') throw new PrimeTransportError('UNAVAILABLE', 'ui:strict-json-helper-unavailable')
@@ -9,20 +12,23 @@ async function readJson(response, contracts) {
 }
 
 export function createHttpAuthority(fetcher = globalThis.fetch, contracts) {
-  return Object.freeze(Object.fromEntries(['loginChallenge', 'loginComplete', 'approvalChallenge', 'approvalComplete', 'declineApproval'].map(method => [method,
+  return Object.freeze(Object.fromEntries(['loginChallenge', 'loginComplete', 'approvalChallenge', 'approvalComplete', 'declineApproval', 'logout'].map(method => [method,
     async (input, { signal } = {}) => {
+      if (method === 'logout' && (typeof input?.session_token !== 'string' || !input.session_token)) {
+        return { ok:false, error_code:'UNAUTHORIZED', reason:'ui:no-known-server-session' }
+      }
       if (typeof contracts?.parseStrictJson !== 'function' || typeof contracts?.canonicalJson !== 'function') {
         throw new PrimeTransportError('UNAVAILABLE', 'ui:strict-json-helper-unavailable')
       }
       let body
       try { body = contracts.canonicalJson(input) }
       catch { throw new PrimeTransportError('INVALID', 'ui:invalid-request-json') }
-      const response = await fetcher('/api/prime/authority/' + method, { method: 'POST', credentials: 'same-origin',
+      const response = await fetcher('/api/prime/authority/' + (method === 'logout' ? 'logoutSession' : method), { method: 'POST', credentials: 'same-origin',
         redirect: 'error', cache: 'no-store', headers: { 'content-type': 'application/json' }, body, signal })
       let answer
       try { answer = await readJson(response, contracts) }
       catch (error) {
-        if (method === 'approvalComplete' || method === 'declineApproval') {
+        if (method === 'approvalComplete' || method === 'declineApproval' || method === 'logout') {
           throw new PrimeTransportError('OUTCOME_UNKNOWN', 'ui:decision-response-invalid-needs-reconciliation')
         }
         throw error
@@ -63,12 +69,15 @@ const immutable = value => {
 /** Observable presentation owner; only the injected host can authenticate or approve. */
 export function createPrimeOwnerController({ now = Date.now, schedule = setTimeout, unschedule = clearTimeout } = {}) {
   const listeners = new Set()
-  let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture
-  let approvalAction = null, approvalFlight = null, approvalActionBlocked = false
+  let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture, captureMetadata, recordSummary
+  let logoutFlight = null
+  let approvalAction = null, forgetAction = null, approvalFlight = null, approvalActionBlocked = false
+  const configuredAction = () => operation?.action_type === 'memory.forget' ? forgetAction : approvalAction
   let state = Object.freeze({ phase: 'unavailable', owner: null, owner_id: '', presentation: null,
     operation_available: false, login_kinds: ['passkey'], fixture: false, expired: false, reason: 'Authority transport is unavailable.', error_code: 'UNAVAILABLE',
     capabilities:null, capability_status:'pending', authority_available:false,
-    approval_action_available:false, approval_action_pending:false, approval_action_result:null })
+    approval_action_available:false, approval_action_pending:false, approval_action_result:null, forget_action_result:null,
+    logout_status:'idle', logout_error_code:null })
   const notify = patch => { state = Object.freeze({ ...state, ...patch }); for (const listen of listeners) listen() }
   const stopTimer = () => { if (timer) unschedule(timer); timer = undefined }
   const checkExpiry = () => {
@@ -96,19 +105,54 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
     if (pending) return pending.promise
     const current = revision
     const abort = new AbortController()
+    const flight = { abort, promise:null }
+    pending = flight
+    const promise = Promise.resolve().then(async () => {
+      try {
+        if (current !== revision || abort.signal.aborted) return null
+        const result = await work(abort.signal); if (current === revision) finish(result); return result
+      }
+      catch (error) { if (current === revision) fail(error); return null }
+      finally { if (pending === flight) { pending = undefined; if (current === revision) checkExpiry() } }
+    })
+    flight.promise = promise
     notify({ phase, error_code: null, reason: phase === 'login_pending' ? 'Waiting for the authenticator and host confirmation.'
       : phase === 'review_pending' ? 'Requesting a fresh review challenge.' : 'Waiting for host confirmation.' })
-    pending = { abort, promise: null }
-    const promise = (async () => {
-      try { const result = await work(abort.signal); if (current === revision) finish(result); return result }
-      catch (error) { if (current === revision) fail(error); return null }
-      finally { if (current === revision) { pending = undefined; checkExpiry() } }
-    })()
-    pending.promise = promise
     return promise
   }
   const cancelApprovalAction = () => {
     approvalFlight?.abort.abort()
+  }
+  function revokeTransport(selected, patch, showReason) {
+    if (logoutFlight) {
+      logoutFlight.revision = revision; logoutFlight.showReason = showReason
+      notify({ ...patch, logout_status:'pending', logout_error_code:null })
+      return logoutFlight.promise
+    }
+    let resolveAnswer
+    const answer = new Promise(resolve => { resolveAnswer = resolve })
+    const flight = { revision, showReason, promise:null }
+    logoutFlight = flight
+    flight.promise = answer.catch(() => ({ok:false,error_code:'OUTCOME_UNKNOWN'})).then(result => {
+      const confirmed = result?.ok === true && result.status === 'LOGGED_OUT' &&
+        Object.keys(result).sort().join(',') === 'ok,status'
+      const code = confirmed ? null : ['UNAVAILABLE','UNAUTHORIZED'].includes(result?.error_code) ? result.error_code : 'OUTCOME_UNKNOWN'
+      const status = confirmed ? 'confirmed' : code === 'UNAVAILABLE' ? 'unavailable' : code === 'UNAUTHORIZED' ? 'refused' : 'unknown'
+      const outcome = confirmed ? Object.freeze({ok:true,status:'LOGGED_OUT'})
+        : Object.freeze({ok:false,error_code:code,reason:'ui:server-logout-not-confirmed'})
+      if (logoutFlight === flight) logoutFlight = null
+      if (flight.revision === revision) notify({ logout_status:status, logout_error_code:code,
+        ...(flight.showReason ? { reason:confirmed
+          ? 'Local access was removed. The host confirmed server logout.'
+          : 'Local access was removed. Server logout is unconfirmed; no retry was sent.' } : {}) })
+      return outcome
+    })
+    // Publish owner loss before the server call and before any workflow can
+    // receive a late proof. A logout never cancels a dispatched factual effect.
+    notify({ ...patch, logout_status:'pending', logout_error_code:null })
+    try { resolveAnswer(selected ? selected.logout() : {ok:false,error_code:'UNAVAILABLE'}) }
+    catch { resolveAnswer({ok:false,error_code:'OUTCOME_UNKNOWN'}) }
+    return flight.promise
   }
   function workflowSnapshot(value, flight) {
     const result = immutable(JSON.parse(flight.contracts.canonicalJson(value)))
@@ -181,8 +225,13 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
     getSnapshot: () => state,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
     connect(next) {
-      cancelApprovalAction(); approvalAction = null
-      ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); stopTimer(); operation = undefined; ownerKind = undefined; memoryCapture = undefined
+      cancelApprovalAction(); approvalAction = null; forgetAction = null
+      const previous = transport
+      const hadPending = !!pending
+      ++revision; pending?.abort.abort(); pending = undefined; transport = undefined; stopTimer(); operation = undefined; ownerKind = undefined; memoryCapture = undefined; captureMetadata = undefined; recordSummary = undefined
+      if (previous && (previous.owner() || hadPending || logoutFlight)) {
+        revokeTransport(previous, { owner:null, presentation:null, operation_available:false, approval_action_pending:false, approval_action_result:null, forget_action_result:null }, false)
+      } else if (previous) { void previous.logout() }
       binding = next
       try {
         transport = createPrimeTransport({ authority: next.authority, contracts: next.contracts,
@@ -191,10 +240,11 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         notify({ phase: available ? 'logged_out' : 'unavailable', owner: null, owner_id: next.owner_id ?? '', presentation: null, operation_available: false,
           login_kinds: Object.freeze((next.loginKinds ?? ['passkey']).filter(kind => kind === 'passkey' || kind === 'owner_key')),
           fixture: next.fixture === true, capabilities:null, capability_status:next.fixture === true ? 'fixture' : 'pending', authority_available:available,
-          approval_action_available:false, approval_action_pending:false, approval_action_result:null,
+          approval_action_available:false, approval_action_pending:false, approval_action_result:null, forget_action_result:null,
+          ...(!logoutFlight ? {logout_status:'idle',logout_error_code:null} : {}),
           expired: false, error_code: available ? null : 'UNAVAILABLE', reason: available
             ? 'Sign in with an existing credential. The host must confirm your identity.' : 'Owner access is unavailable until the host supplies its capability status.' })
-        if (next.operation) api.setOperation(next.operation, { memoryCapture: next.memoryCapture })
+        if (next.operation) api.setOperation(next.operation, { memoryCapture: next.memoryCapture, captureMetadata: next.captureMetadata, recordSummary: next.recordSummary })
       } catch (error) { transport = undefined; fail(error) }
     },
     setCapabilities(value) {
@@ -216,32 +266,41 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         if (proposed.action_type === 'memory.save') {
           try { validateCaptureReview(proposed.canonical_parameters, options.memoryCapture) }
           catch { throw new PrimeTransportError('TARGET_MISMATCH', 'ui:memory-capture-review-missing-or-mismatched') }
+          if (options.captureMetadata !== undefined) validateCaptureMetadata(options.captureMetadata)
+        } else if (proposed.action_type === 'memory.forget') {
+          try { validateForgetReview(proposed, options.recordSummary) }
+          catch { throw new PrimeTransportError('TARGET_MISMATCH', 'ui:forget-record-review-missing-or-mismatched') }
         }
         memoryCapture = proposed.action_type === 'memory.save'
           ? immutable(JSON.parse(binding.contracts.canonicalJson(options.memoryCapture))) : undefined
+        captureMetadata = proposed.action_type === 'memory.save' && options.captureMetadata !== undefined
+          ? validateCaptureMetadata(options.captureMetadata) : undefined
+        recordSummary = proposed.action_type === 'memory.forget' ? validateForgetReview(proposed, options.recordSummary) : undefined
         operation = proposed
       } catch (error) {
-        operation = undefined; memoryCapture = undefined
+        operation = undefined; memoryCapture = undefined; captureMetadata = undefined; recordSummary = undefined
         notify({ operation_available: false, presentation: null })
         fail(error)
         throw error
       }
-      notify({ operation_available: true, presentation: null, expired: false, approval_action_result:null,
+      notify({ operation_available: true, presentation: null, expired: false, approval_action_result:null, forget_action_result:null,
+        approval_action_available:!!configuredAction() && !approvalActionBlocked,
         phase: state.owner ? 'authenticated' : state.phase, reason: 'The host supplied an operation. Request a fresh review before deciding.' })
       checkExpiry()
     },
     login(kind = 'passkey') {
+      if (logoutFlight) { notify({reason:'Local access was removed. Waiting for the server logout response.'}); return Promise.resolve(null) }
       if (!transport || !state.authority_available || !state.login_kinds.includes(kind)) { fail(new PrimeTransportError('UNAVAILABLE', 'This credential method is unavailable.')); return Promise.resolve(null) }
       return action('login_pending', signal => transport.login({ owner_id: state.owner_id, kind, signal }), owner => {
         ownerKind = kind
         notify({ phase: 'authenticated', owner, presentation: null, expired: false, error_code: null,
-          reason: 'The host confirmed this owner session.' })
+          reason: 'The host confirmed this owner session.', logout_status:'idle', logout_error_code:null })
       })
     },
     prepare() {
       if (approvalFlight || approvalActionBlocked) { fail(new PrimeTransportError('RECONCILIATION_REQUIRED', 'A memory action is pending or needs reconciliation.')); return Promise.resolve(null) }
       if (!transport || !state.authority_available || !operation) { fail(new PrimeTransportError('UNAVAILABLE', 'An available authority and a host operation are required.')); return Promise.resolve(null) }
-      return action('review_pending', signal => transport.prepareApproval(operation, { signal, memoryCapture }), presentation => {
+      return action('review_pending', signal => transport.prepareApproval(operation, { signal, memoryCapture, captureMetadata, recordSummary }), presentation => {
         notify({ phase: 'review_ready', presentation, expired: false, error_code: null,
           reason: 'Review every field below. Approval requests a fresh assertion and requires host confirmation.' })
       })
@@ -265,7 +324,15 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       if (handler === null && approvalFlight) api.logout()
       else if (handler === null) cancelApprovalAction()
       approvalAction = handler
-      notify({ approval_action_available: handler !== null && !approvalActionBlocked })
+      notify({ approval_action_available: !!configuredAction() && !approvalActionBlocked })
+    },
+    setForgetAction(handler) {
+      if (handler !== null && typeof handler !== 'function') throw new PrimeTransportError('INVALID', 'ui:invalid-forget-action')
+      if (approvalFlight && handler !== null) throw new PrimeTransportError('RECONCILIATION_REQUIRED', 'A memory action is still pending.')
+      if (handler === null && approvalFlight) void api.logout()
+      else if (handler === null) cancelApprovalAction()
+      forgetAction = handler
+      notify({ approval_action_available:!!configuredAction() && !approvalActionBlocked })
     },
     submitApproval() {
       if (approvalActionBlocked) { fail(new PrimeTransportError('RECONCILIATION_REQUIRED', 'The memory action needs reconciliation; do not retry.')); return Promise.resolve(null) }
@@ -274,9 +341,11 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
         fail(new PrimeTransportError('RECONCILIATION_REQUIRED', 'A previous memory action is unresolved.')); return Promise.resolve(null)
       }
       if (state.phase !== 'review_ready' || state.expired || !state.authority_available) return Promise.resolve(null)
-      if (state.presentation.operation.action_type !== 'memory.save') return api.approve()
-      if (!approvalAction) { fail(new PrimeTransportError('UNAVAILABLE', 'ui:memory-approval-action-unavailable')); return Promise.resolve(null) }
-      const flight = { revision, presentation: state.presentation, owner: state.owner, handler: approvalAction,
+      const forgetting = state.presentation.operation.action_type === 'memory.forget'
+      if (!forgetting && state.presentation.operation.action_type !== 'memory.save') return api.approve()
+      const handler = configuredAction()
+      if (!handler) { fail(new PrimeTransportError('UNAVAILABLE', forgetting ? 'ui:forget-approval-action-unavailable' : 'ui:memory-approval-action-unavailable')); return Promise.resolve(null) }
+      const flight = { revision, presentation: state.presentation, owner: state.owner, handler,
         contracts: binding.contracts, started: false, approved: false, abort: new AbortController(), promise: null }
       approvalFlight = flight
       // Publish only after the shared promise exists; listener-triggered clicks coalesce too.
@@ -287,16 +356,29 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
           const value = await flight.handler(flight.presentation, { signal: flight.abort.signal })
           const stale = revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted
           if (stale) {
-            cancelledWorkflowResult(value, flight)
+            if (forgetting) validateCancelledForgetWorkflow(value, flight.contracts)
+            else cancelledWorkflowResult(value, flight)
             return null
           }
-          const result = workflowResult(value, flight)
-          const unresolved = result.reconciliation_required || result.save === 'unknown' || result.phase === 'outcome_unknown'
+          const result = forgetting ? await validateForgetWorkflowResult(value, flight) : workflowResult(value, flight)
+          if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) {
+            if (!(forgetting && result.forgotten === true && result.authority_settlement === 'completed' && !result.reconciliation_required)) {
+              if (forgetting) validateCancelledForgetWorkflow(result, flight.contracts)
+              else cancelledWorkflowResult(result, flight)
+            }
+            return null
+          }
+          const unresolved = result.reconciliation_required || (forgetting ? result.forget : result.save) === 'unknown' || result.phase === 'outcome_unknown'
           if (unresolved) approvalActionBlocked = true
-          notify({ approval_action_result: result, approval_action_available: !!approvalAction && !approvalActionBlocked,
-            phase: unresolved ? 'outcome_unknown' : result.save === 'saved' ? 'approved' : result.phase === 'refused' ? 'refused' : state.phase,
+          const completed = forgetting ? result.forget === 'forgotten' : result.save === 'saved'
+          notify({ ...(forgetting ? {forget_action_result:result,approval_action_result:null} : {approval_action_result:result,forget_action_result:null}), approval_action_available: !!configuredAction() && !approvalActionBlocked,
+            phase: unresolved ? 'outcome_unknown' : completed ? 'approved' : result.phase === 'refused' ? 'refused' : state.phase,
             error_code: unresolved ? 'RECONCILIATION_REQUIRED' : result.error_code,
-            reason: result.save === 'saved' ? (unresolved
+            reason: forgetting ? (completed ? (unresolved
+              ? 'The host confirmed logical forget; authority settlement needs reconciliation.'
+              : 'The host confirmed logical forget with its receipt. Canonical payloads and external copies remain retained.')
+              : unresolved ? 'The host has not confirmed the forget outcome. Reconciliation is required; do not retry.'
+              : 'The host workflow did not confirm logical forget.') : result.save === 'saved' ? (unresolved
               ? 'The host workflow confirmed the save; authority settlement needs reconciliation.'
               : 'The host workflow confirmed the save with its receipt. Index and citation status are shown separately.')
               : unresolved ? 'The host has not confirmed the memory save outcome. Reconciliation is required; do not retry.'
@@ -307,16 +389,16 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
               ['OUTCOME_UNKNOWN','RECONCILIATION_REQUIRED'].includes(error?.code)) approvalActionBlocked = true
           if (revision === flight.revision && state.owner === flight.owner) {
             fail(approvalActionBlocked ? new PrimeTransportError('OUTCOME_UNKNOWN', 'ui:memory-action-outcome-unknown') : error)
-            notify({ approval_action_available: !!approvalAction && !approvalActionBlocked })
+            notify({ approval_action_available: !!configuredAction() && !approvalActionBlocked })
           }
           return null
         } finally {
           if (approvalFlight === flight) approvalFlight = null
-          notify({ approval_action_available: !!approvalAction && !approvalActionBlocked,
+          notify({ approval_action_available: !!configuredAction() && !approvalActionBlocked,
             ...(revision === flight.revision ? { approval_action_pending:false } : {}) })
         }
       })
-      notify({ approval_action_pending:true, approval_action_result:null })
+      notify({ approval_action_pending:true, approval_action_result:null, forget_action_result:null })
       return flight.promise
     },
     decline() {
@@ -328,20 +410,22 @@ export function createPrimeOwnerController({ now = Date.now, schedule = setTimeo
       })
     },
     logout() {
+      if (logoutFlight?.revision === revision) return logoutFlight.promise
       cancelApprovalAction()
-      ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); stopTimer()
+      ++revision; pending?.abort.abort(); pending = undefined; stopTimer()
       ownerKind = undefined
-      notify({ phase: transport && state.authority_available ? 'logged_out' : 'unavailable', owner: null, presentation: null, expired: false,
-        approval_action_pending:false, approval_action_result:null, approval_action_available:!!approvalAction && !approvalActionBlocked,
-        reason: 'Signed out. A new host-confirmed session is required.', error_code: null })
+      return revokeTransport(transport, { phase: transport && state.authority_available ? 'logged_out' : 'unavailable', owner: null, presentation: null, expired: false,
+        approval_action_pending:false, approval_action_result:null, forget_action_result:null, approval_action_available:!!configuredAction() && !approvalActionBlocked,
+        reason:'Local access was removed. Waiting for the server logout response.', error_code:null }, true)
     },
     disconnect() {
-      cancelApprovalAction(); approvalAction = null
-      ++revision; pending?.abort.abort(); pending = undefined; transport?.logout(); transport = undefined; ownerKind = undefined; operation = undefined; memoryCapture = undefined; stopTimer()
-      notify({ phase:'unavailable',owner:null,presentation:null,operation_available:false,expired:false,error_code:'UNAVAILABLE',reason:'Authority transport is unavailable.',authority_available:false,
-        approval_action_available:false,approval_action_pending:false,approval_action_result:null })
+      cancelApprovalAction(); approvalAction = null; forgetAction = null
+      const previous = transport
+      ++revision; pending?.abort.abort(); pending = undefined; transport = undefined; ownerKind = undefined; operation = undefined; memoryCapture = undefined; captureMetadata = undefined; recordSummary = undefined; stopTimer()
+      return revokeTransport(previous, { phase:'unavailable',owner:null,presentation:null,operation_available:false,expired:false,error_code:'UNAVAILABLE',reason:'Authority transport is unavailable.',authority_available:false,
+        approval_action_available:false,approval_action_pending:false,approval_action_result:null,forget_action_result:null }, false)
     },
-    dispose() { api.disconnect(); listeners.clear() },
+    dispose() { void api.disconnect(); listeners.clear() },
   }
   return Object.freeze(api)
 }

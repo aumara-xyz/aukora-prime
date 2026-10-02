@@ -183,8 +183,9 @@
       "Validation gap": "Node embedder is unconfined; cell presence is not proof it ran in a historical settlement; automatic capture does not require this cell. WAT source and embedded binary are separately pinned artifacts",
       "License / notice": "Deep closure AGPL-3.0-or-later; preserve manifest",
       "prime_ledger_id": "core-13",
-      "prime_status": "source integrated; runtime qualification pending",
-      "prime_destination": "packages/authority/upstream/vendor/authority/kernel"
+      "prime_status": "selected optional memory.put proposal closure absent in bounded pre-sanitation comparison; restore/defer disposition pending",
+      "prime_destination": null,
+      "carryover_review_scope": "Bounded inventory-backed source comparison only; original named inventory conversations remain unresolved. No exhaustive historical claim, code import or current runtime qualification."
     },
     {
       "Component": "Aura memory/effect/code chains",
@@ -197,8 +198,9 @@
       "Validation gap": "Same-authority rewritten log plus rewritten head can evade checking. Hash chain proves covered byte continuity, not truth, human presence, execution completeness or universal one-use",
       "License / notice": "Genesis AGPL-3.0-or-later",
       "prime_ledger_id": "core-14",
-      "prime_status": "deferred or excluded per original disposition; not imported/activated",
-      "prime_destination": null
+      "prime_status": "selected Aura memory-chain hashing subset copied and source-wired in bounded pre-sanitation comparison; full action/code-chain retention and current qualification unresolved",
+      "prime_destination": "packages/memory/src/codecs.mjs; packages/memory/src/index.mjs; packages/memory/src/snapshot.mjs",
+      "carryover_review_scope": "Bounded inventory-backed source comparison only; original named inventory conversations remain unresolved. No exhaustive historical claim, code import or current runtime qualification."
     },
     {
       "Component": "Minimal append-only verifier",
@@ -211,8 +213,9 @@
       "Validation gap": "Trusted head and correct covered domain required. Aura bridge does not check receipt signatures or consumed-authority state; no claim that the old broker is repaired by this verifier",
       "License / notice": "AGPL-3.0-only; preserve full root license and selected-tree notice",
       "prime_ledger_id": "core-15",
-      "prime_status": "deferred or excluded per original disposition; not imported/activated",
-      "prime_destination": null
+      "prime_status": "selected keep decision; minimal consumer and Aura bridge absent in bounded pre-sanitation comparison; restore/defer disposition pending",
+      "prime_destination": null,
+      "carryover_review_scope": "Bounded inventory-backed source comparison only; original named inventory conversations remain unresolved. No exhaustive historical claim, code import or current runtime qualification."
     },
     {
       "Component": "Diamond cold Kira export verifier",
@@ -239,8 +242,9 @@
       "Validation gap": "Genesis v3-genesis fields differ from upstream toy kinds; exact final producer/consumer parity needed",
       "License / notice": "Selected version AGPL-3.0, not older upstream MIT",
       "prime_ledger_id": "core-17",
-      "prime_status": "deferred or excluded per original disposition; not imported/activated",
-      "prime_destination": null
+      "prime_status": "selected historical v3-genesis consumer absent in bounded pre-sanitation comparison; retention or archival disposition pending",
+      "prime_destination": null,
+      "carryover_review_scope": "Bounded inventory-backed source comparison only; original named inventory conversations remain unresolved. No exhaustive historical claim, code import or current runtime qualification."
     },
     {
       "Component": "Kira citations and recall proof",

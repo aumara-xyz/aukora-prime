@@ -48,6 +48,8 @@ The original documentation checks used historical source `9d6c2205`. The sanitiz
 
 Real PostgreSQL and separate Linux users are not wholly unperformed: the bounded synthetic experiment above ran. Qualification of the current complete product and current source under those conditions remains UNPERFORMED.
 
+The sanitized integration adds source for exact logout, literal logical-forget review and a native Models companion. A genuine owner build now binds 83 source inputs and 36 published outputs. Source/output verification passes; new composition, Linux boot and browser observation remain separate pending checks.
+
 ## Known gaps
 
 At this integration checkpoint:
