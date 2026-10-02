@@ -296,9 +296,9 @@ window.__ModuleLoader__.load({
 			policy_version: "Policy version",
 			authorization_epoch: "Authorization epoch"
 		});
-		function freeze$1(value) {
+		function freeze$2(value) {
 			if (value && typeof value === "object") {
-				for (const child of Object.values(value)) freeze$1(child);
+				for (const child of Object.values(value)) freeze$2(child);
 				Object.freeze(value);
 			}
 			return value;
@@ -325,7 +325,7 @@ window.__ModuleLoader__.load({
 					fail("INVALID", `ui:invalid-${label}`);
 				}
 			};
-			const copy = (value, label) => freeze$1(JSON.parse(exact(value, label)));
+			const copy = (value, label) => freeze$2(JSON.parse(exact(value, label)));
 			const object = (value, label) => {
 				if (!value || typeof value !== "object" || Array.isArray(value)) fail("INVALID", `ui:invalid-${label}`);
 				return value;
@@ -463,7 +463,7 @@ window.__ModuleLoader__.load({
 						session_token: complete.session_token,
 						expiry: complete.expiry
 					};
-					return freeze$1({
+					return freeze$2({
 						owner_id,
 						expiry: complete.expiry
 					});
@@ -486,7 +486,7 @@ window.__ModuleLoader__.load({
 				authRevision++;
 				loginPending = null;
 				loginOwner = null;
-				const unconfirmed = (code) => freeze$1({
+				const unconfirmed = (code) => freeze$2({
 					ok: false,
 					error_code: code,
 					reason: code === "UNAVAILABLE" ? "ui:server-logout-unavailable" : code === "UNAUTHORIZED" ? "ui:server-logout-refused" : "ui:server-logout-not-confirmed"
@@ -495,7 +495,7 @@ window.__ModuleLoader__.load({
 				const flight = new Promise((resolve) => {
 					resolveAnswer = resolve;
 				}).then((result) => {
-					if (result && !Array.isArray(result) && Object.keys(result).sort().join(",") === "ok,status" && result.ok === true && result.status === "LOGGED_OUT") return freeze$1({
+					if (result && !Array.isArray(result) && Object.keys(result).sort().join(",") === "ok,status" && result.ok === true && result.status === "LOGGED_OUT") return freeze$2({
 						ok: true,
 						status: "LOGGED_OUT"
 					});
@@ -564,7 +564,7 @@ window.__ModuleLoader__.load({
 				proofMatches(proofTemplate, operation, digest, request);
 				checkSignal(signal);
 				checkExpiry(operation.expiry);
-				const presentation = freeze$1({
+				const presentation = freeze$2({
 					operation,
 					operation_digest: digest,
 					approval_expiry: proofTemplate.expiry,
@@ -674,7 +674,7 @@ window.__ModuleLoader__.load({
 						code: "REPLAYED",
 						reason: "ui:approval-already-submitted"
 					});
-					return freeze$1({
+					return freeze$2({
 						status: "APPROVED",
 						approval_proof: copy(answer.approval_proof)
 					});
@@ -714,7 +714,7 @@ window.__ModuleLoader__.load({
 							code: "REPLAYED",
 							reason: "ui:approval-denied"
 						});
-						return freeze$1({ status: "DENIED" });
+						return freeze$2({ status: "DENIED" });
 					} catch (error) {
 						submissions.set(record.digest, {
 							code: error.code ?? "OUTCOME_UNKNOWN",
@@ -736,7 +736,7 @@ window.__ModuleLoader__.load({
 				decline,
 				logout,
 				owner() {
-					return session ? freeze$1({
+					return session ? freeze$2({
 						owner_id: session.owner_id,
 						expiry: session.expiry
 					}) : null;
@@ -2156,8 +2156,8 @@ window.__ModuleLoader__.load({
 		const LIMIT = 16;
 		const codePoint = (character) => "U+" + character.codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
 		const script = (character) => LATIN.test(character) ? "Latin" : GREEK.test(character) ? "Greek" : CYRILLIC.test(character) ? "Cyrillic" : null;
-		const freeze = (value) => {
-			for (const child of Object.values(value)) if (child && typeof child === "object") freeze(child);
+		const freeze$1 = (value) => {
+			for (const child of Object.values(value)) if (child && typeof child === "object") freeze$1(child);
 			return Object.freeze(value);
 		};
 		/** UTF-16 indexes address the unchanged JavaScript string; code points make invisible characters reviewable. */
@@ -2213,7 +2213,7 @@ window.__ModuleLoader__.load({
 				examples: mixed,
 				text: "Some words mix Latin, Greek, or Cyrillic scripts. Script mixing can be legitimate; inspect the exact characters."
 			});
-			return freeze(warnings);
+			return freeze$1(warnings);
 		}
 		//#endregion
 		//#region lib/types/client/MemoryCaptureHints.js
@@ -2312,8 +2312,8 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region \0dsh-css:/private/tmp/prime-next-owner-corrected/work/ui-build-MWbOAR/dsh/packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css$1 = "._0-LBXW_surface[hidden]{display:none!important}._0-LBXW_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}._0-LBXW_header{flex-direction:column;align-items:flex-start;gap:4px}._0-LBXW_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}._0-LBXW_header p{color:var(--aukora-text-secondary);margin:0}._0-LBXW_card{min-width:0;padding:16px}._0-LBXW_card h2{margin-top:0;font-size:16px;font-weight:600}._0-LBXW_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}._0-LBXW_fields{flex-direction:column;gap:12px;display:flex}._0-LBXW_fields dd{margin:0}._0-LBXW_fields dt{color:var(--aukora-text-secondary);font-size:13px}._0-LBXW_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}._0-LBXW_owner{flex-direction:column;gap:8px;display:flex}._0-LBXW_owner input,._0-LBXW_owner textarea{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}._0-LBXW_owner input:focus-visible,._0-LBXW_owner textarea:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}._0-LBXW_error{color:var(--aukora-red-warning)}._0-LBXW_menu{width:100%}._0-LBXW_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}._0-LBXW_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}._0-LBXW_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}._0-LBXW_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}._0-LBXW_badgePanel h2{font-size:14px}";
+		//#region \0dsh-css:packages/ui/prime-authority/src/client/OwnerSurface.module.css.mjs
+		const css$1 = ".grLeXW_surface[hidden]{display:none!important}.grLeXW_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.grLeXW_header{flex-direction:column;align-items:flex-start;gap:4px}.grLeXW_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.grLeXW_header p{color:var(--aukora-text-secondary);margin:0}.grLeXW_card{min-width:0;padding:16px}.grLeXW_card h2{margin-top:0;font-size:16px;font-weight:600}.grLeXW_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.grLeXW_fields{flex-direction:column;gap:12px;display:flex}.grLeXW_fields dd{margin:0}.grLeXW_fields dt{color:var(--aukora-text-secondary);font-size:13px}.grLeXW_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.grLeXW_owner{flex-direction:column;gap:8px;display:flex}.grLeXW_owner input,.grLeXW_owner textarea{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.grLeXW_owner input:focus-visible,.grLeXW_owner textarea:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.grLeXW_error{color:var(--aukora-red-warning)}.grLeXW_menu{width:100%}.grLeXW_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.grLeXW_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.grLeXW_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.grLeXW_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.grLeXW_badgePanel h2{font-size:14px}";
 		const tagId$1 = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
@@ -2323,17 +2323,17 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "_0-LBXW_actions",
-			"badge": "_0-LBXW_badge",
-			"badgePanel": "_0-LBXW_badgePanel",
-			"capabilities": "_0-LBXW_capabilities",
-			"card": "_0-LBXW_card",
-			"error": "_0-LBXW_error",
-			"fields": "_0-LBXW_fields",
-			"header": "_0-LBXW_header",
-			"menu": "_0-LBXW_menu",
-			"owner": "_0-LBXW_owner",
-			"surface": "_0-LBXW_surface"
+			"actions": "grLeXW_actions",
+			"badge": "grLeXW_badge",
+			"badgePanel": "grLeXW_badgePanel",
+			"capabilities": "grLeXW_capabilities",
+			"card": "grLeXW_card",
+			"error": "grLeXW_error",
+			"fields": "grLeXW_fields",
+			"header": "grLeXW_header",
+			"menu": "grLeXW_menu",
+			"owner": "grLeXW_owner",
+			"surface": "grLeXW_surface"
 		};
 		//#endregion
 		//#region lib/types/client/PilotMemoryPanel.js
@@ -2724,8 +2724,88 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region lib/types/client/PilotInferencePanel.js
+		function PilotInferencePanel({ controller }) {
+			if (!controller) return (0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
+				className: OwnerSurface_module_css_default.card,
+				"data-auma-pilot": true,
+				"data-auma-pilot-unavailable": true,
+				children: [
+					(0, react_jsx_runtime.jsx)("h2", { children: "One Auma reply" }),
+					(0, react_jsx_runtime.jsx)(AumaReplyView, { result: null }),
+					(0, react_jsx_runtime.jsx)("div", {
+						className: OwnerSurface_module_css_default.actions,
+						children: (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+							disabled: true,
+							children: "Request one Auma reply"
+						})
+					}),
+					(0, react_jsx_runtime.jsx)("p", { children: "The host has not supplied an owner-bound reply client. Model choice and a configured key alone do not enable a provider call." })
+				]
+			});
+			return (0, react_jsx_runtime.jsx)(ConnectedInferencePanel, { controller });
+		}
+		function ConnectedInferencePanel({ controller }) {
+			const state = (0, react.useSyncExternalStore)(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+			const draft = (0, react.useRef)(null);
+			return (0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
+				className: OwnerSurface_module_css_default.card,
+				"data-auma-pilot": true,
+				"data-auma-pilot-phase": state.phase,
+				children: [
+					(0, react_jsx_runtime.jsx)("h2", { children: "One Auma reply" }),
+					(0, react_jsx_runtime.jsx)("p", {
+						role: "status",
+						children: state.reason
+					}),
+					state.mode === "mock" && (0, react_jsx_runtime.jsx)("p", {
+						role: "alert",
+						"data-auma-synthetic": true,
+						children: "Explicit synthetic provider flow. This is not live inference."
+					}),
+					state.context && (0, react_jsx_runtime.jsxs)("dl", {
+						className: OwnerSurface_module_css_default.fields,
+						children: [
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Owner" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("code", { children: state.context.owner_id }) })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Task" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("code", { children: state.context.task_id }) })] }),
+							(0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: "Conversation" }), (0, react_jsx_runtime.jsx)("dd", { children: (0, react_jsx_runtime.jsx)("code", { children: state.context.conversation_id }) })] })
+						]
+					}),
+					(0, react_jsx_runtime.jsxs)("label", {
+						className: OwnerSurface_module_css_default.owner,
+						children: ["Message to Auma", (0, react_jsx_runtime.jsx)("textarea", {
+							ref: draft,
+							rows: 4,
+							autoComplete: "off",
+							"aria-label": "Message to Auma",
+							disabled: !state.available
+						}, state.generation)]
+					}),
+					(0, react_jsx_runtime.jsx)("div", {
+						className: OwnerSurface_module_css_default.actions,
+						children: (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
+							disabled: !state.available,
+							onClick: () => {
+								const text = draft.current?.value;
+								if (text !== void 0) controller.request(text);
+							},
+							children: "Request one Auma reply"
+						})
+					}),
+					state.request_uuid && (0, react_jsx_runtime.jsxs)("p", { children: ["Request: ", (0, react_jsx_runtime.jsx)("code", { children: state.request_uuid })] }),
+					state.phase === "outcome_unknown" && !state.result && (0, react_jsx_runtime.jsx)("p", {
+						role: "alert",
+						"data-auma-request-unconfirmed": true,
+						children: "The reply is unconfirmed. No reservation or cancellation outcome has been supplied. Do not retry this request."
+					}),
+					(0, react_jsx_runtime.jsx)(AumaReplyView, { result: state.result }),
+					(0, react_jsx_runtime.jsx)("p", { children: "This request uses the host's existing exact-operation approval flow. It does not sign or approve automatically." })
+				]
+			});
+		}
+		//#endregion
 		//#region lib/types/client/OwnerSurface.js
-		function OwnerSurface({ activeSurface, openSurface, controller, memoryPilot }) {
+		function OwnerSurface({ activeSurface, openSurface, controller, memoryPilot, inference }) {
 			const state = (0, react.useSyncExternalStore)(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 			const busy = state.phase.endsWith("_pending") || state.approval_action_pending || state.logout_status === "pending";
 			const locked = busy || state.phase === "outcome_unknown";
@@ -2842,22 +2922,7 @@ window.__ModuleLoader__.load({
 							})
 						]
 					}),
-					(0, react_jsx_runtime.jsxs)(_aukora_face_layout_client.Panel, {
-						className: OwnerSurface_module_css_default.card,
-						"data-auma-pilot": true,
-						children: [
-							(0, react_jsx_runtime.jsx)("h2", { children: "One Auma reply" }),
-							(0, react_jsx_runtime.jsx)(AumaReplyView, { result: null }),
-							(0, react_jsx_runtime.jsx)("div", {
-								className: OwnerSurface_module_css_default.actions,
-								children: (0, react_jsx_runtime.jsx)(_aukora_face_layout_client.ActionButton, {
-									disabled: true,
-									children: "Request one Auma reply"
-								})
-							}),
-							(0, react_jsx_runtime.jsx)("p", { children: "The owner-bound reply method is not supplied in this source preview. Model choice and a configured key alone do not enable a provider call." })
-						]
-					}),
+					(0, react_jsx_runtime.jsx)(PilotInferencePanel, { ...inference ? { controller: inference } : {} }),
 					(0, react_jsx_runtime.jsx)(PilotMemoryPanel, {
 						controller,
 						...memoryPilot ? { binding: memoryPilot } : {}
@@ -3215,8 +3280,8 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region \0dsh-css:/private/tmp/prime-next-owner-corrected/work/ui-build-MWbOAR/dsh/packages/client/aukora-prime-authority/src/client/PrimeProviderEditor.module.css.mjs
-		const css = ".xaPmNq_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}.xaPmNq_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}.xaPmNq_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}.xaPmNq_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}.xaPmNq_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}.xaPmNq_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}.xaPmNq_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}.xaPmNq_rowHead{align-items:center;gap:10px;display:flex}.xaPmNq_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}.xaPmNq_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.xaPmNq_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}.xaPmNq_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}.xaPmNq_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}.xaPmNq_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}.xaPmNq_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}.xaPmNq_primaryButton,.xaPmNq_secondaryButton,.xaPmNq_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.xaPmNq_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.xaPmNq_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.xaPmNq_secondaryButton,.xaPmNq_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}.xaPmNq_secondaryButton:hover:not(:disabled),.xaPmNq_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.xaPmNq_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}.xaPmNq_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.xaPmNq_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.xaPmNq_rowActions .xaPmNq_secondaryButton,.xaPmNq_rowActions .xaPmNq_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.xaPmNq_primaryButton:disabled,.xaPmNq_secondaryButton:disabled,.xaPmNq_dangerButton:disabled,.xaPmNq_addButton:disabled,.xaPmNq_linkButton:disabled,.xaPmNq_addModelButton:disabled{opacity:.4;cursor:default}.xaPmNq_primaryButton:focus-visible,.xaPmNq_secondaryButton:focus-visible,.xaPmNq_dangerButton:focus-visible,.xaPmNq_addButton:focus-visible,.xaPmNq_linkButton:focus-visible,.xaPmNq_addModelButton:focus-visible,.xaPmNq_iconButton:focus-visible,.xaPmNq_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.xaPmNq_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}.xaPmNq_editorHeader{align-items:baseline;gap:8px;display:flex}.xaPmNq_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.xaPmNq_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.xaPmNq_field{flex-direction:column;gap:6px;display:flex}.xaPmNq_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}.xaPmNq_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.xaPmNq_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.xaPmNq_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.xaPmNq_editorActions{justify-content:flex-end;gap:8px;display:flex}.xaPmNq_addBlock{flex-direction:column;gap:12px;display:flex}.xaPmNq_addActions{flex-wrap:wrap;gap:10px;display:flex}.xaPmNq_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}.xaPmNq_addCard,.xaPmNq_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}.xaPmNq_addCard .xaPmNq_editor,.xaPmNq_setupCard .xaPmNq_editor{background:0 0;padding:0}.xaPmNq_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}.xaPmNq_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}.xaPmNq_customizedSummary::-webkit-details-marker{display:none}.xaPmNq_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}.xaPmNq_customized[open]>.xaPmNq_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}.xaPmNq_customizedSummary:hover{color:var(--dsw-alias-label-primary)}.xaPmNq_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}.xaPmNq_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}.xaPmNq_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}.xaPmNq_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}.xaPmNq_modelCatalogMeta,.xaPmNq_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.xaPmNq_modelList{flex-direction:column;gap:8px;display:flex}.xaPmNq_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.xaPmNq_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}.xaPmNq_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}.xaPmNq_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}.xaPmNq_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.xaPmNq_iconButton:disabled{cursor:default;opacity:.4}.xaPmNq_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.xaPmNq_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}.xaPmNq_modelField{flex-direction:column;gap:4px;display:flex}.xaPmNq_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.xaPmNq_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}.xaPmNq_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.xaPmNq_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.xaPmNq_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select.xaPmNq_input{cursor:pointer;max-width:240px}.xaPmNq_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}.xaPmNq_input::placeholder{color:var(--dsw-alias-label-dimmed)}.xaPmNq_input:disabled{opacity:.6;cursor:default}.xaPmNq_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}.xaPmNq_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}.xaPmNq_deleteDialog{width:min(480px,100%)}.xaPmNq_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.xaPmNq_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.xaPmNq_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){.xaPmNq_customizedSummary:before,.xaPmNq_switchThumb{transition:none}}.xaPmNq_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}.xaPmNq_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}.xaPmNq_candidateSearch{flex:240px;min-width:0}.xaPmNq_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}.xaPmNq_candidate{border-radius:6px}.xaPmNq_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}.xaPmNq_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}.xaPmNq_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
+		//#region \0dsh-css:packages/ui/prime-authority/src/client/PrimeProviderEditor.module.css.mjs
+		const css = ".kEVepa_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}.kEVepa_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}.kEVepa_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}.kEVepa_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}.kEVepa_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}.kEVepa_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}.kEVepa_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}.kEVepa_rowHead{align-items:center;gap:10px;display:flex}.kEVepa_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}.kEVepa_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.kEVepa_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}.kEVepa_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}.kEVepa_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}.kEVepa_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}.kEVepa_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}.kEVepa_primaryButton,.kEVepa_secondaryButton,.kEVepa_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.kEVepa_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.kEVepa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.kEVepa_secondaryButton,.kEVepa_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}.kEVepa_secondaryButton:hover:not(:disabled),.kEVepa_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.kEVepa_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}.kEVepa_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.kEVepa_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.kEVepa_rowActions .kEVepa_secondaryButton,.kEVepa_rowActions .kEVepa_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.kEVepa_primaryButton:disabled,.kEVepa_secondaryButton:disabled,.kEVepa_dangerButton:disabled,.kEVepa_addButton:disabled,.kEVepa_linkButton:disabled,.kEVepa_addModelButton:disabled{opacity:.4;cursor:default}.kEVepa_primaryButton:focus-visible,.kEVepa_secondaryButton:focus-visible,.kEVepa_dangerButton:focus-visible,.kEVepa_addButton:focus-visible,.kEVepa_linkButton:focus-visible,.kEVepa_addModelButton:focus-visible,.kEVepa_iconButton:focus-visible,.kEVepa_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.kEVepa_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}.kEVepa_editorHeader{align-items:baseline;gap:8px;display:flex}.kEVepa_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.kEVepa_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.kEVepa_field{flex-direction:column;gap:6px;display:flex}.kEVepa_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}.kEVepa_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.kEVepa_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.kEVepa_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.kEVepa_editorActions{justify-content:flex-end;gap:8px;display:flex}.kEVepa_addBlock{flex-direction:column;gap:12px;display:flex}.kEVepa_addActions{flex-wrap:wrap;gap:10px;display:flex}.kEVepa_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}.kEVepa_addCard,.kEVepa_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}.kEVepa_addCard .kEVepa_editor,.kEVepa_setupCard .kEVepa_editor{background:0 0;padding:0}.kEVepa_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}.kEVepa_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}.kEVepa_customizedSummary::-webkit-details-marker{display:none}.kEVepa_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}.kEVepa_customized[open]>.kEVepa_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}.kEVepa_customizedSummary:hover{color:var(--dsw-alias-label-primary)}.kEVepa_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}.kEVepa_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}.kEVepa_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}.kEVepa_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}.kEVepa_modelCatalogMeta,.kEVepa_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.kEVepa_modelList{flex-direction:column;gap:8px;display:flex}.kEVepa_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.kEVepa_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}.kEVepa_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}.kEVepa_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}.kEVepa_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.kEVepa_iconButton:disabled{cursor:default;opacity:.4}.kEVepa_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.kEVepa_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}.kEVepa_modelField{flex-direction:column;gap:4px;display:flex}.kEVepa_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.kEVepa_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}.kEVepa_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.kEVepa_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.kEVepa_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select.kEVepa_input{cursor:pointer;max-width:240px}.kEVepa_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}.kEVepa_input::placeholder{color:var(--dsw-alias-label-dimmed)}.kEVepa_input:disabled{opacity:.6;cursor:default}.kEVepa_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}.kEVepa_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}.kEVepa_deleteDialog{width:min(480px,100%)}.kEVepa_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.kEVepa_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.kEVepa_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){.kEVepa_customizedSummary:before,.kEVepa_switchThumb{transition:none}}.kEVepa_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}.kEVepa_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}.kEVepa_candidateSearch{flex:240px;min-width:0}.kEVepa_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}.kEVepa_candidate{border-radius:6px}.kEVepa_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}.kEVepa_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}.kEVepa_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
 		const tagId = "@aukora/prime-authority-ui/PrimeProviderEditor.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -3226,71 +3291,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var PrimeProviderEditor_module_css_default = {
-			"addActions": "xaPmNq_addActions",
-			"addBlock": "xaPmNq_addBlock",
-			"addButton": "xaPmNq_addButton",
-			"addCard": "xaPmNq_addCard",
-			"addModelButton": "xaPmNq_addModelButton",
-			"advancedHint": "xaPmNq_advancedHint",
-			"candidate": "xaPmNq_candidate",
-			"candidateEmpty": "xaPmNq_candidateEmpty",
-			"candidateId": "xaPmNq_candidateId",
-			"candidateLabel": "xaPmNq_candidateLabel",
-			"candidateList": "xaPmNq_candidateList",
-			"candidateSearch": "xaPmNq_candidateSearch",
-			"candidateToolbar": "xaPmNq_candidateToolbar",
-			"credentialDot": "xaPmNq_credentialDot",
-			"credentialDotConfigured": "xaPmNq_credentialDotConfigured",
-			"credentialDotMissing": "xaPmNq_credentialDotMissing",
-			"customized": "xaPmNq_customized",
-			"customizedBody": "xaPmNq_customizedBody",
-			"customizedSummary": "xaPmNq_customizedSummary",
-			"dangerButton": "xaPmNq_dangerButton",
-			"deleteConfirm": "xaPmNq_deleteConfirm",
-			"deleteDialog": "xaPmNq_deleteDialog",
-			"editor": "xaPmNq_editor",
-			"editorActions": "xaPmNq_editorActions",
-			"editorHeader": "xaPmNq_editorHeader",
-			"editorRoute": "xaPmNq_editorRoute",
-			"editorTitle": "xaPmNq_editorTitle",
-			"error": "xaPmNq_error",
-			"fetchDialog": "xaPmNq_fetchDialog",
-			"field": "xaPmNq_field",
-			"fieldLabel": "xaPmNq_fieldLabel",
-			"hiddenLabel": "xaPmNq_hiddenLabel",
-			"iconButton": "xaPmNq_iconButton",
-			"iconButtonDanger": "xaPmNq_iconButtonDanger",
-			"input": "xaPmNq_input",
-			"intro": "xaPmNq_intro",
-			"linkButton": "xaPmNq_linkButton",
-			"modelAdvanced": "xaPmNq_modelAdvanced",
-			"modelCatalog": "xaPmNq_modelCatalog",
-			"modelCatalogHeading": "xaPmNq_modelCatalogHeading",
-			"modelCatalogMeta": "xaPmNq_modelCatalogMeta",
-			"modelCatalogTitle": "xaPmNq_modelCatalogTitle",
-			"modelEmpty": "xaPmNq_modelEmpty",
-			"modelEntry": "xaPmNq_modelEntry",
-			"modelField": "xaPmNq_modelField",
-			"modelFieldLabel": "xaPmNq_modelFieldLabel",
-			"modelList": "xaPmNq_modelList",
-			"modelListHead": "xaPmNq_modelListHead",
-			"modelRow": "xaPmNq_modelRow",
-			"notice": "xaPmNq_notice",
-			"primaryButton": "xaPmNq_primaryButton",
-			"rowActions": "xaPmNq_rowActions",
-			"rowCard": "xaPmNq_rowCard",
-			"rowHead": "xaPmNq_rowHead",
-			"rowIdentity": "xaPmNq_rowIdentity",
-			"rowName": "xaPmNq_rowName",
-			"rowTag": "xaPmNq_rowTag",
-			"rows": "xaPmNq_rows",
-			"savedNotice": "xaPmNq_savedNotice",
-			"secondaryButton": "xaPmNq_secondaryButton",
-			"section": "xaPmNq_section",
-			"selectInput": "xaPmNq_selectInput",
-			"setupCard": "xaPmNq_setupCard",
-			"switchThumb": "xaPmNq_switchThumb",
-			"title": "xaPmNq_title"
+			"addActions": "kEVepa_addActions",
+			"addBlock": "kEVepa_addBlock",
+			"addButton": "kEVepa_addButton",
+			"addCard": "kEVepa_addCard",
+			"addModelButton": "kEVepa_addModelButton",
+			"advancedHint": "kEVepa_advancedHint",
+			"candidate": "kEVepa_candidate",
+			"candidateEmpty": "kEVepa_candidateEmpty",
+			"candidateId": "kEVepa_candidateId",
+			"candidateLabel": "kEVepa_candidateLabel",
+			"candidateList": "kEVepa_candidateList",
+			"candidateSearch": "kEVepa_candidateSearch",
+			"candidateToolbar": "kEVepa_candidateToolbar",
+			"credentialDot": "kEVepa_credentialDot",
+			"credentialDotConfigured": "kEVepa_credentialDotConfigured",
+			"credentialDotMissing": "kEVepa_credentialDotMissing",
+			"customized": "kEVepa_customized",
+			"customizedBody": "kEVepa_customizedBody",
+			"customizedSummary": "kEVepa_customizedSummary",
+			"dangerButton": "kEVepa_dangerButton",
+			"deleteConfirm": "kEVepa_deleteConfirm",
+			"deleteDialog": "kEVepa_deleteDialog",
+			"editor": "kEVepa_editor",
+			"editorActions": "kEVepa_editorActions",
+			"editorHeader": "kEVepa_editorHeader",
+			"editorRoute": "kEVepa_editorRoute",
+			"editorTitle": "kEVepa_editorTitle",
+			"error": "kEVepa_error",
+			"fetchDialog": "kEVepa_fetchDialog",
+			"field": "kEVepa_field",
+			"fieldLabel": "kEVepa_fieldLabel",
+			"hiddenLabel": "kEVepa_hiddenLabel",
+			"iconButton": "kEVepa_iconButton",
+			"iconButtonDanger": "kEVepa_iconButtonDanger",
+			"input": "kEVepa_input",
+			"intro": "kEVepa_intro",
+			"linkButton": "kEVepa_linkButton",
+			"modelAdvanced": "kEVepa_modelAdvanced",
+			"modelCatalog": "kEVepa_modelCatalog",
+			"modelCatalogHeading": "kEVepa_modelCatalogHeading",
+			"modelCatalogMeta": "kEVepa_modelCatalogMeta",
+			"modelCatalogTitle": "kEVepa_modelCatalogTitle",
+			"modelEmpty": "kEVepa_modelEmpty",
+			"modelEntry": "kEVepa_modelEntry",
+			"modelField": "kEVepa_modelField",
+			"modelFieldLabel": "kEVepa_modelFieldLabel",
+			"modelList": "kEVepa_modelList",
+			"modelListHead": "kEVepa_modelListHead",
+			"modelRow": "kEVepa_modelRow",
+			"notice": "kEVepa_notice",
+			"primaryButton": "kEVepa_primaryButton",
+			"rowActions": "kEVepa_rowActions",
+			"rowCard": "kEVepa_rowCard",
+			"rowHead": "kEVepa_rowHead",
+			"rowIdentity": "kEVepa_rowIdentity",
+			"rowName": "kEVepa_rowName",
+			"rowTag": "kEVepa_rowTag",
+			"rows": "kEVepa_rows",
+			"savedNotice": "kEVepa_savedNotice",
+			"secondaryButton": "kEVepa_secondaryButton",
+			"section": "kEVepa_section",
+			"selectInput": "kEVepa_selectInput",
+			"setupCard": "kEVepa_setupCard",
+			"switchThumb": "kEVepa_switchThumb",
+			"title": "kEVepa_title"
 		};
 		//#endregion
 		//#region lib/types/client/PrimeProviderEditor.js
@@ -3950,6 +4015,324 @@ window.__ModuleLoader__.load({
 			return Object.freeze(api);
 		}
 		//#endregion
+		//#region lib/types/client/inference-controller.mjs
+		const uuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+		const id = (value) => typeof value === "string" && value.length > 0;
+		const keyOf = (context) => JSON.stringify([
+			context.owner_id,
+			context.task_id,
+			context.conversation_id
+		]);
+		const freeze = (value) => {
+			if (value && typeof value === "object") {
+				for (const child of Object.values(value)) freeze(child);
+				Object.freeze(value);
+			}
+			return value;
+		};
+		const initial = () => Object.freeze({
+			phase: "unavailable",
+			available: false,
+			mode: null,
+			generation: 0,
+			reason: "The host has not supplied an owner-bound reply client.",
+			context: null,
+			request_uuid: null,
+			result: null
+		});
+		function displayResult(value, flight) {
+			const { request_uuid, context, mode } = flight;
+			if (!value || value.request_uuid !== request_uuid || value.receipt?.request_uuid !== request_uuid || value.receipt.sessionId !== context.conversation_id || value.receipt.source_citation?.sessionId !== context.conversation_id) return false;
+			if (value.outcome === "outcome_unknown") return value.reservation_retained === true && typeof value.error === "string";
+			return value.outcome === "completed" && value.mode === mode && value.route_id === "externalDeepSeek" && typeof value.proposal?.text === "string" && value.proposal.grantsAuthority === false && Array.isArray(value.proposal.source_ids) && value.proposal.source_ids.every(id) && [
+				value.usage?.input_tokens,
+				value.usage?.output_tokens,
+				value.usage?.cost_microusd
+			].every((number) => Number.isSafeInteger(number) && number >= 0) && Array.isArray(value.omitted);
+		}
+		function createPilotInferenceController({ ownerController, isConnected, now = Date.now, requestId = () => globalThis.crypto?.randomUUID() } = {}) {
+			if (!ownerController || typeof ownerController.getSnapshot !== "function" || typeof ownerController.subscribe !== "function" || typeof isConnected !== "function") throw new TypeError("An existing native owner controller and connection predicate are required.");
+			let state = initial(), frame, flight, disposed = false, generation = 0;
+			const listeners = /* @__PURE__ */ new Set();
+			const usedRequests = /* @__PURE__ */ new Set();
+			const unresolved = /* @__PURE__ */ new Map();
+			const emit = (next) => {
+				state = Object.freeze({
+					...next,
+					generation
+				});
+				for (const listener of [...listeners]) listener();
+			};
+			const currentOwner = (selected) => {
+				try {
+					const value = ownerController.getSnapshot(), owner = value.owner;
+					if (disposed || frame !== selected || selected.binding.ownerController !== ownerController || selected.client.binding !== selected.authority || !isConnected(selected.authority) || !owner || owner.owner_id !== selected.context.owner_id || value.owner_id !== selected.context.owner_id || !value.authority_available || value.expired || value.logout_status === "pending" || !Number.isFinite(Date.parse(owner.expiry)) || Date.parse(owner.expiry) <= now() || selected.client.context?.owner_id !== selected.context.owner_id || selected.client.context?.task_id !== selected.context.task_id || selected.client.context?.conversation_id !== selected.context.conversation_id || selected.client.availability !== selected.store || selected.client.requestOne !== selected.method) return null;
+					return owner;
+				} catch {
+					return null;
+				}
+			};
+			const availability = (selected) => {
+				try {
+					const value = selected.store.getSnapshot();
+					return value && typeof value.reason === "string" && (value.state === "ready" && ["mock", "production"].includes(value.mode) || value.state === "unavailable" && value.mode === null) ? value : null;
+				} catch {
+					return null;
+				}
+			};
+			const invalidate = () => {
+				const previous = flight;
+				if (!previous) return;
+				flight = void 0;
+				if (previous.entered) unresolved.set(keyOf(previous.context), previous.request_uuid);
+				previous.abort.abort();
+				previous.resolve(null);
+			};
+			const live = (candidate) => !disposed && flight === candidate && frame === candidate.frame && currentOwner(candidate.frame) === candidate.owner && availability(candidate.frame) === candidate.availability && !candidate.abort.signal.aborted;
+			function refresh() {
+				const selected = frame;
+				const owner = selected && currentOwner(selected);
+				const ready = owner && availability(selected);
+				if (flight && (flight.frame !== selected || flight.owner !== owner || flight.availability !== ready)) {
+					invalidate();
+					refresh();
+					return;
+				}
+				if (frame !== selected || disposed) return;
+				if (!selected || !owner) {
+					if (selected?.owner) {
+						selected.owner = null;
+						generation++;
+					}
+					emit({
+						...initial(),
+						reason: selected ? "Sign in with the current configured owner and native connection before requesting a reply." : initial().reason
+					});
+					return;
+				}
+				if (selected.owner !== owner) {
+					generation++;
+					selected.owner = owner;
+					state = initial();
+				}
+				const blocked = unresolved.get(keyOf(selected.context));
+				if (blocked) {
+					emit({
+						phase: "outcome_unknown",
+						available: false,
+						mode: ready?.mode ?? null,
+						context: selected.context,
+						request_uuid: blocked,
+						result: state.result?.request_uuid === blocked ? state.result : null,
+						reason: "The previous request is unconfirmed. Do not retry it; the host must reconcile its existing request."
+					});
+					return;
+				}
+				if (flight) return;
+				if (!ready || ready.state !== "ready") {
+					emit({
+						phase: "unavailable",
+						available: false,
+						mode: null,
+						context: selected.context,
+						request_uuid: null,
+						result: null,
+						reason: ready?.reason || "The host has not made the owner-bound provider and approval flow available."
+					});
+					return;
+				}
+				const ownerState = ownerController.getSnapshot();
+				const ownerBusy = ownerState.approval_action_pending || ownerState.phase?.endsWith("_pending") || ownerState.phase === "outcome_unknown";
+				emit({
+					phase: state.result?.outcome === "completed" ? "completed" : ownerBusy ? "unavailable" : "idle",
+					available: !ownerBusy,
+					mode: ready.mode,
+					context: selected.context,
+					request_uuid: state.result?.request_uuid ?? null,
+					result: state.result,
+					reason: ownerBusy ? "Complete or reconcile the current owner operation before requesting another reply." : ready.reason
+				});
+			}
+			const offOwner = ownerController.subscribe(refresh);
+			const detach = () => {
+				const old = frame;
+				frame = void 0;
+				const detachedGeneration = ++generation;
+				invalidate();
+				old?.off?.();
+				return detachedGeneration;
+			};
+			return Object.freeze({
+				getSnapshot: () => state,
+				subscribe(listener) {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+				connect(binding) {
+					if (disposed) return () => {};
+					const detachedGeneration = detach();
+					if (disposed || generation !== detachedGeneration) return () => {};
+					const client = binding?.client, context = client?.context;
+					if (binding?.ownerController !== ownerController || !client?.binding || ![
+						context?.owner_id,
+						context?.task_id,
+						context?.conversation_id
+					].every(id) || client.binding.owner_id !== context.owner_id || typeof client.requestOne !== "function" || typeof client.availability?.getSnapshot !== "function" || typeof client.availability?.subscribe !== "function") {
+						emit({
+							...initial(),
+							reason: "The supplied reply client does not match this native owner and task context."
+						});
+						return () => {};
+					}
+					const selected = {
+						binding,
+						client,
+						authority: client.binding,
+						context: Object.freeze({
+							owner_id: context.owner_id,
+							task_id: context.task_id,
+							conversation_id: context.conversation_id
+						}),
+						store: client.availability,
+						method: client.requestOne,
+						owner: null,
+						off: null
+					};
+					frame = selected;
+					state = initial();
+					try {
+						const off = selected.store.subscribe(refresh);
+						if (typeof off !== "function") throw new TypeError("Availability subscription is unavailable.");
+						if (frame !== selected || disposed) {
+							off();
+							return () => {};
+						}
+						selected.off = off;
+						refresh();
+					} catch {
+						if (frame === selected) {
+							const detachedGeneration = detach();
+							if (generation === detachedGeneration && !disposed) emit({
+								...initial(),
+								reason: "The host reply availability could not be observed."
+							});
+						}
+					}
+					return () => {
+						if (frame === selected) {
+							const detachedGeneration = detach();
+							if (generation === detachedGeneration && !disposed) emit(initial());
+						}
+					};
+				},
+				disconnect() {
+					if (disposed) return;
+					const detachedGeneration = detach();
+					if (generation === detachedGeneration) emit(initial());
+				},
+				request(text) {
+					if (flight) return flight.promise;
+					refresh();
+					const selected = frame, owner = selected && currentOwner(selected), ready = owner && availability(selected);
+					if (!selected || !owner || !state.available || ready?.state !== "ready" || typeof text !== "string" || !text.trim()) return Promise.resolve(null);
+					let request_uuid;
+					try {
+						request_uuid = requestId();
+					} catch {
+						request_uuid = null;
+					}
+					if (!uuid(request_uuid) || usedRequests.has(request_uuid)) {
+						emit({
+							...state,
+							reason: "A fresh request identity could not be created. No request was sent."
+						});
+						return Promise.resolve(null);
+					}
+					usedRequests.add(request_uuid);
+					let resolve;
+					const promise = new Promise((done) => {
+						resolve = done;
+					});
+					const draft = Object.freeze({
+						request_uuid,
+						text
+					});
+					const attempt = {
+						frame: selected,
+						owner,
+						availability: ready,
+						context: selected.context,
+						mode: ready.mode,
+						request_uuid,
+						draft,
+						abort: new AbortController(),
+						entered: false,
+						promise,
+						resolve
+					};
+					flight = attempt;
+					emit({
+						phase: "pending",
+						available: false,
+						mode: ready.mode,
+						context: selected.context,
+						request_uuid,
+						result: null,
+						reason: "One request is pending. Complete its existing exact-operation review when the host presents it."
+					});
+					Promise.resolve().then(async () => {
+						if (!live(attempt)) {
+							if (flight === attempt) {
+								invalidate();
+								refresh();
+							}
+							return;
+						}
+						attempt.entered = true;
+						try {
+							const reply = await selected.method.call(selected.client, draft, { signal: attempt.abort.signal });
+							if (!live(attempt)) {
+								if (flight === attempt) {
+									invalidate();
+									refresh();
+								}
+								return;
+							}
+							const result = structuredClone(reply);
+							if (!displayResult(result, attempt)) throw new TypeError("Unconfirmed reply projection.");
+							freeze(result);
+							flight = void 0;
+							if (result.outcome === "outcome_unknown") unresolved.set(keyOf(attempt.context), request_uuid);
+							emit({
+								phase: result.outcome === "completed" ? "completed" : "outcome_unknown",
+								available: result.outcome === "completed",
+								mode: attempt.mode,
+								context: attempt.context,
+								request_uuid,
+								result,
+								reason: result.outcome === "completed" ? ready.reason : "The host reports an unknown outcome. Do not retry this request."
+							});
+							attempt.resolve(frame === selected && currentOwner(selected) === attempt.owner && availability(selected) === attempt.availability ? result : null);
+						} catch {
+							if (flight === attempt) {
+								invalidate();
+								refresh();
+							}
+						}
+					});
+					return promise;
+				},
+				dispose() {
+					if (disposed) return;
+					disposed = true;
+					detach();
+					offOwner();
+					emit(initial());
+					listeners.clear();
+				}
+			});
+		}
+		//#endregion
 		//#region lib/types/client/index.js
 		var __rewriteRelativeImportExtension = function(path, preserveJsx) {
 			if (typeof path === "string" && /^\.\.?\//.test(path)) return path.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
@@ -3978,10 +4361,12 @@ window.__ModuleLoader__.load({
 				memoryPilot = value;
 				for (const listener of memoryListeners) listener();
 			};
+			let inference;
 			function PilotOwnerSurface(props) {
 				const current = (0, react.useSyncExternalStore)(memorySubscribe, memorySnapshot, memorySnapshot);
 				return (0, react.createElement)(OwnerSurface, {
 					...props,
+					inference,
 					...current ? { memoryPilot: current } : {}
 				});
 			}
@@ -3992,6 +4377,13 @@ window.__ModuleLoader__.load({
 				controller,
 				isConnected: (expected) => !nativeDisposed && nativeConnection?.active === true && nativeConnection.binding === expected && nativeConnection.witness?.isCurrent() === true
 			});
+			inference = createPilotInferenceController({
+				ownerController: controller,
+				isConnected: (expected) => nativeAcknowledgement.isConnected(expected)
+			});
+			ctx.effect(() => () => {
+				inference.dispose();
+			}, "prime transient reply presentation");
 			let providerSupplied = false;
 			let providerContracts;
 			const connectPublicProvider = () => {
@@ -4033,6 +4425,17 @@ window.__ModuleLoader__.load({
 				binding.effect(() => () => {
 					if (memoryPilot === selected) setMemoryPilot(void 0);
 				}, "prime pilot memory view binding");
+			});
+			ctx.inject(["primePilotInference"], (binding) => {
+				let active = true;
+				let disconnect;
+				binding.effect(() => () => {
+					active = false;
+					disconnect?.();
+				}, "prime pilot reply view binding");
+				if (!active) return;
+				disconnect = inference.connect(binding.primePilotInference);
+				if (!active) disconnect();
 			});
 			ctx.inject(["primeProviderSettings"], (binding) => {
 				providerSupplied = true;
@@ -4127,9 +4530,11 @@ window.__ModuleLoader__.load({
 		exports.AumaReplyView = AumaReplyView;
 		exports.CapabilityBadge = CapabilityBadge;
 		exports.OwnerSurface = OwnerSurface;
+		exports.PilotInferencePanel = PilotInferencePanel;
 		exports.PilotMemoryPanel = PilotMemoryPanel;
 		exports.apply = apply;
 		exports.createHttpAuthority = createHttpAuthority;
+		exports.createPilotInferenceController = createPilotInferenceController;
 		exports.createPrimeOwnerController = createPrimeOwnerController;
 		exports.createPrimeProviderController = createPrimeProviderController;
 		exports.createPublicProviderApi = createPublicProviderApi;

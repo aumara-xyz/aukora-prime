@@ -135,10 +135,12 @@ finish metadata as a gateway result. It adds no browser request or owner/task
 validation. The owner/task-bound producer must validate and fence its result
 before passing it to this view.
 
-There is no agreed browser one-reply method in the frozen bridge allowlist.
-Accordingly the native surface presently supplies `result={null}` and leaves
-Request one Auma reply disabled. E/H/bridge must provide the exact request/result
-and session replacement rules before a send control can be connected.
+The optional ordinary native one-reply presentation seam is now specified in
+[INFERENCE-NEXT.md](INFERENCE-NEXT.md). It connects a transient message field and
+result to H's injected owner/task/conversation-bound client, using the existing
+exact native acknowledgement and explicit availability. An absent host client
+keeps Request one Auma reply disabled. No browser method is added to the frozen
+bridge HTTP allowlist; H retains the existing exact approval/admission flow.
 
 ## Focused validation
 

@@ -12,11 +12,16 @@ import type { ProviderCardExtrasOwnerProps } from './PrimeProviderEditor.tsx'
 import { createPrimeProviderController, createPublicProviderApi } from './provider-controller.mjs'
 import type { Controller as ProviderController, ProviderBinding } from './provider-controller.mjs'
 import type { MemoryPilotBinding } from './PilotMemoryPanel'
+import { createPilotInferenceController } from './inference-controller.mjs'
+import type { InferencePilotBinding, PilotInferenceController } from './inference-controller.mjs'
 
 export { createPrimeOwnerController, createHttpAuthority } from './controller.mjs'
 export { OwnerSurface, CapabilityBadge } from './OwnerSurface.tsx'
 export { AumaReplyView } from './AumaReplyView.tsx'
 export type { PilotInferenceResult } from './AumaReplyView.tsx'
+export { PilotInferencePanel } from './PilotInferencePanel'
+export { createPilotInferenceController } from './inference-controller.mjs'
+export type { InferencePilotBinding, PilotInferenceController, PilotInferenceContext, PilotInferenceAvailability, PilotInferenceSnapshot } from './inference-controller.mjs'
 export { PilotMemoryPanel } from './PilotMemoryPanel'
 export type { MemoryPilotBinding } from './PilotMemoryPanel'
 export type { Binding, ConnectionWitness, Controller } from './controller.mjs'
@@ -27,7 +32,7 @@ export interface NativeOwnerConnection {
   readonly controller:Controller
   readonly isConnected:(binding:Binding)=>boolean
 }
-declare module '@deepseek-ai/cordis' { interface Context { primeOwnerUi:Controller; primeAuthority:Binding; primeProviderUi:ProviderController; primeProviderSettings:Omit<ProviderBinding,'ownerController'>;primePilotMemory:MemoryPilotBinding;primeOwnerNativeConnection:NativeOwnerConnection } }
+declare module '@deepseek-ai/cordis' { interface Context { primeOwnerUi:Controller; primeAuthority:Binding; primeProviderUi:ProviderController; primeProviderSettings:Omit<ProviderBinding,'ownerController'>;primePilotMemory:MemoryPilotBinding;primePilotInference:InferencePilotBinding;primeOwnerNativeConnection:NativeOwnerConnection } }
 // Exact keyed slot subset from pinned MIT ui-settings-models/slot-contract.ts.
 // The stock Models client remains its runtime declarer. No Models dependency,
 // alternate settings namespace or backend controller is introduced.
@@ -46,9 +51,10 @@ export function apply(ctx:Context):void {
   const memorySnapshot = () => memoryPilot
   const memorySubscribe = (listener:() => void) => {memoryListeners.add(listener);return () => {memoryListeners.delete(listener)}}
   const setMemoryPilot = (value:MemoryPilotBinding|undefined) => {memoryPilot=value;for(const listener of memoryListeners)listener()}
+  let inference: PilotInferenceController
   function PilotOwnerSurface(props:PropsRuntime<'shell.surface'> & {controller:Controller}) {
     const current = useSyncExternalStore(memorySubscribe,memorySnapshot,memorySnapshot)
-    return createElement(OwnerSurface,{...props,...(current ? {memoryPilot:current} : {})})
+    return createElement(OwnerSurface,{...props,inference,...(current ? {memoryPilot:current} : {})})
   }
   let supplied = false
   let nativeDisposed = false
@@ -57,6 +63,9 @@ export function apply(ctx:Context):void {
     isConnected:(expected:Binding) => !nativeDisposed && nativeConnection?.active === true
       && nativeConnection.binding === expected && nativeConnection.witness?.isCurrent() === true,
   })
+  inference=createPilotInferenceController({ownerController:controller,
+    isConnected:expected => nativeAcknowledgement.isConnected(expected)})
+  ctx.effect(() => () => {inference.dispose()},'prime transient reply presentation')
   let providerSupplied = false
   let providerContracts:Binding['contracts']|undefined
   const connectPublicProvider = () => {
@@ -75,6 +84,14 @@ export function apply(ctx:Context):void {
     const selected = binding.primePilotMemory
     setMemoryPilot(selected)
     binding.effect(() => () => {if(memoryPilot===selected)setMemoryPilot(undefined)},'prime pilot memory view binding')
+  })
+  ctx.inject(['primePilotInference'], binding => {
+    let active = true
+    let disconnect:(() => void)|undefined
+    binding.effect(() => () => {active=false;disconnect?.()},'prime pilot reply view binding')
+    if (!active) return
+    disconnect = inference.connect(binding.primePilotInference)
+    if (!active) disconnect()
   })
   ctx.inject(['primeProviderSettings'], binding => {
     providerSupplied = true
