@@ -2,6 +2,8 @@
 
 AUKORA Prime's existing package declaration is **AGPL-3.0-or-later**. The full GNU Affero General Public License v3 is in the root [LICENSE](../LICENSE). Third-party source retains its original licenses, copyright lines, notices and provenance.
 
+Recorded AUKORA attribution: Aumara and Peter Viviani (2026). Per-file and imported-component copyright and license notices remain authoritative. Current Prime-owned package declarations and SPDX identifiers use `AGPL-3.0-or-later`.
+
 This directory is an additive source-license index. Original notices remain beside imported source. The exact copies under [`upstream/`](upstream/) carry the same bytes; their source paths, hashes, archive integrity and selected versions are recorded in [`inventory.json`](inventory.json). That inventory describes its named source commit, not a future release.
 
 ## Owned package declarations

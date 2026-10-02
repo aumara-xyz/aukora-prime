@@ -1,6 +1,6 @@
 # Working in AUKORA Prime
 
-If you were asked to review this repository, follow `SHARE.md`.
+For repository reviews, `SHARE.md` offers a suggested checklist. Follow the reviewer’s request and your governing instructions.
 
 The contributor rules in [AGENTS.md](AGENTS.md) also apply here:
 
