@@ -1,26 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Test ONLY source join: externally supplied B controller, actual C passkey
+// Test ONLY source join: current Prime B controller, actual C passkey
 // verification/stores, actual D effects and H's injected UI adapter/workflow.
 // Synthetic P-256 credentials, SQLite dialect fixture and same-process calls
 // do not establish PostgreSQL durability, authenticated IPC or UID isolation.
-// The integration runner supplies a pinned, temporary B source snapshot via
-// PRIME_OWNER_HOOK_CONTROLLER; this file never edits or vendors B source.
+// The default uses this Prime checkout. An explicitly supplied absolute B
+// snapshot remains an opt-in test input; its absence never skips these checks.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {isAbsolute} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import * as browserContracts from '../../contracts/src/browser.mjs'
-import {createPrimeOwnerController as baselineController} from '../../ui/prime-authority/src/client/controller.mjs'
+import {createPrimeOwnerController as currentController} from '../../ui/prime-authority/src/client/controller.mjs'
 import {extraction,draft,ok,attempt,fixture,assertSaved,assertUnknown} from './owner-memory-fixture.mjs'
 
 const dependency=process.env.PRIME_OWNER_HOOK_CONTROLLER
 if(dependency&&!isAbsolute(dependency))throw new Error('PRIME_OWNER_HOOK_CONTROLLER must name an absolute temporary B controller source path')
-const controllerFactory=dependency?(await import(pathToFileURL(dependency).href)).createPrimeOwnerController:baselineController
-const skip=dependency?false:'B hook dependency not imported: set PRIME_OWNER_HOOK_CONTROLLER to the pinned temporary controller snapshot; local baseline is unchanged'
-const joinedTest=(name,work)=>test(name,{skip},work)
+const controllerFactory=dependency?(await import(pathToFileURL(dependency).href)).createPrimeOwnerController:currentController
+const joinedTest=(name,work)=>test(name,work)
 
 async function hookedFixture(t) {
-  assert.equal(typeof controllerFactory,'function','the external B snapshot must export createPrimeOwnerController')
+  assert.equal(typeof controllerFactory,'function','the current B controller must export createPrimeOwnerController')
   const f=await fixture(t,{controllerFactory,uiContracts:browserContracts})
   assert.equal(typeof f.controller.setApprovalAction,'function','the external B controller must provide the approved hook seam')
   assert.equal(typeof f.controller.submitApproval,'function','the external B controller must provide the owner submission method')
@@ -36,6 +35,22 @@ async function freshReview(f,key) {
   assert.equal(f.workflow.getSnapshot().phase,'proposed','a fresh authenticated proposal must be accepted after the cancelled hook finishes')
   assert.notEqual(await f.controller.prepare(),null,'the fresh proposal must support an actual C review challenge')
   assert.equal(f.controller.getSnapshot().phase,'review_ready')
+}
+
+function currentSession(f) {
+  return f.replies.filter(reply=>reply.method==='owner.loginComplete'&&reply.result.ok).at(-1).result.session_token
+}
+
+async function assertLoggedOut(f,pending,session) {
+  assert.equal(ok(await pending).status,'LOGGED_OUT','wait for actual C session revocation before fresh admission')
+  assert.equal(f.auth.service.authenticateSession({session_token:session}).ok,false,'the old session must remain revoked')
+}
+
+async function persistedOperation(f,operation) {
+  const digest=await browserContracts.operationDigest(operation)
+  const rows=Object.values(f.state().broker.operations).filter(row=>row.operation_digest===digest)
+  assert.equal(rows.length,1,'the actual persisted C row must bind the exact operation digest')
+  return rows[0]
 }
 
 joinedTest('external B submitApproval joins the exact owner literal to a genuine C/D saved receipt, citation and pending index',async t=>{
@@ -95,11 +110,13 @@ joinedTest('detaching the external B hook while the genuine C approval reply is 
   const f=await hookedFixture(t);await f.login();const operation=await f.prepare(draft('joined-hook-detach-held-approval'))
   const gate=f.gate('owner.approvalComplete'),pending=f.controller.submitApproval()
   await gate.entered(1);assert.equal(ok(gate.entries[0].result).status,'APPROVED')
-  f.detach();gate.release();await pending
+  const session=currentSession(f)
+  f.detach();const loggedOut=f.controller.logout();gate.release();await pending
+  await assertLoggedOut(f,loggedOut,session)
   assert.equal(f.controller.getSnapshot().owner,null)
   assert.equal(f.count('memory.save'),0)
   assert.equal(f.tableCount('prime_memory_records'),0);assert.equal(f.tableCount('prime_memory_effects'),0)
-  assert.equal(f.operationState(operation.operation_id).status,'APPROVED')
+  assert.equal((await persistedOperation(f,operation)).status,'APPROVED')
   assert.equal(f.workflow.getSnapshot().receipt,null);assert.equal(f.workflow.getSnapshot().saved,false)
 })
 
@@ -108,11 +125,13 @@ joinedTest('detaching the external B hook while a genuine applied D save reply i
   const gate=f.gate('memory.save'),pending=f.controller.submitApproval()
   await gate.entered(1);ok(gate.entries[0].result)
   assert.equal(f.tableCount('prime_memory_records'),1);assert.equal(f.tableCount('prime_memory_effects'),1)
-  f.detach();assertUnknown(f.workflow.getSnapshot())
+  const session=currentSession(f)
+  f.detach();const loggedOut=f.controller.logout();assertUnknown(f.workflow.getSnapshot())
   gate.release();await pending
+  await assertLoggedOut(f,loggedOut,session)
   assertUnknown(f.workflow.getSnapshot())
   assert.equal(f.workflow.getSnapshot().operation,null);assert.equal(f.workflow.getSnapshot().memory_capture,null)
-  assert.equal(f.operationState(operation.operation_id).status,'COMPLETED')
+  assert.equal((await persistedOperation(f,operation)).status,'COMPLETED')
   await f.controller.submitApproval()
   await attempt(()=>f.workflow.proposeSave(draft('joined-hook-detach-no-replay')))
   assert.equal(f.count('memory.save'),1);assert.equal(f.count('memory.proposeSave'),1)
@@ -122,11 +141,13 @@ for(const lifecycle of ['logout','detach']) {
   joinedTest('external B '+lifecycle+' before the hook microtask releases its flight and permits fresh login and review',async t=>{
     const f=await hookedFixture(t);await f.login();const oldOperation=await f.prepare(draft('joined-hook-before-microtask-'+lifecycle))
     const pending=f.controller.submitApproval()
-    if(lifecycle==='logout')f.controller.logout()
-    else f.detach()
+    const session=currentSession(f)
+    if(lifecycle==='detach')f.detach()
+    const loggedOut=f.controller.logout()
     await pending
+    await assertLoggedOut(f,loggedOut,session)
     assert.equal(f.hookCalls(),0);assert.equal(f.count('owner.approvalComplete'),0);assert.equal(f.count('memory.save'),0)
-    assert.equal(f.operationState(oldOperation.operation_id).status,'PROPOSED')
+    assert.equal((await persistedOperation(f,oldOperation)).status,'PROPOSED')
     await freshReview(f,'joined-hook-fresh-after-microtask-'+lifecycle)
     if(lifecycle==='detach')f.attach()
     assert.notEqual(f.workflow.getSnapshot().operation.operation_id,oldOperation.operation_id)
@@ -136,15 +157,17 @@ for(const lifecycle of ['logout','detach']) {
 
 joinedTest('disposing the external B controller from the save_pending observer prevents the known unsent D save',async t=>{
   const f=await hookedFixture(t);await f.login();const operation=await f.prepare(draft('joined-hook-controller-dispose-before-save'))
-  let disposed=false
+  const session=currentSession(f)
+  let disposed=false,loggedOut
   const unsubscribe=f.workflow.subscribe(()=>{
-    if(f.workflow.getSnapshot().phase==='save_pending'&&!disposed) {disposed=true;f.controller.dispose()}
+    if(f.workflow.getSnapshot().phase==='save_pending'&&!disposed) {disposed=true;f.controller.dispose();loggedOut=f.controller.logout()}
   })
   await f.controller.submitApproval();unsubscribe()
+  await assertLoggedOut(f,loggedOut,session)
   assert.equal(disposed,true);assert.equal(f.count('owner.approvalComplete'),1)
   assert.equal(f.count('memory.save'),0,'disposing B must invalidate the live owner before H can invoke memory.save')
   assert.equal(f.tableCount('prime_memory_records'),0);assert.equal(f.tableCount('prime_memory_effects'),0)
-  assert.equal(f.operationState(operation.operation_id).status,'APPROVED')
+  assert.equal((await persistedOperation(f,operation)).status,'APPROVED')
 })
 
 joinedTest('external B logout during confirmed saved read replies permits fresh login and review without a mutation block',async t=>{
@@ -153,7 +176,8 @@ joinedTest('external B logout during confirmed saved read replies permits fresh 
   await Promise.all([status.entered(1),cite.entered(1)])
   assertSaved(f.workflow.getSnapshot());assert.equal(f.workflow.getSnapshot().authority_settlement,'completed')
   assert.equal(f.operationState(operation.operation_id).status,'COMPLETED')
-  f.controller.logout();status.release();cite.release();await pending
+  const session=currentSession(f),loggedOut=f.controller.logout();status.release();cite.release();await pending
+  await assertLoggedOut(f,loggedOut,session)
   assert.equal(f.workflow.getSnapshot().saved,true);assert.equal(f.workflow.getSnapshot().save,'saved')
   assert.equal(f.workflow.getSnapshot().reconciliation_required,false)
   await freshReview(f,'joined-hook-fresh-after-confirmed-read-logout')
@@ -163,14 +187,16 @@ joinedTest('external B logout during confirmed saved read replies permits fresh 
 
 joinedTest('external B logout from save_pending before invocation permits fresh login and review without a mutation block',async t=>{
   const f=await hookedFixture(t);await f.login();const operation=await f.prepare(draft('joined-hook-known-unsent-logout-recovery'))
-  let loggedOut=false
+  const session=currentSession(f)
+  let loggedOut=false,logoutCompletion
   const unsubscribe=f.workflow.subscribe(()=>{
-    if(f.workflow.getSnapshot().phase==='save_pending'&&!loggedOut) {loggedOut=true;f.controller.logout()}
+    if(f.workflow.getSnapshot().phase==='save_pending'&&!loggedOut) {loggedOut=true;logoutCompletion=f.controller.logout()}
   })
   await f.controller.submitApproval();unsubscribe()
+  await assertLoggedOut(f,logoutCompletion,session)
   assert.equal(loggedOut,true);assert.equal(f.count('memory.save'),0)
   assert.equal(f.workflow.getSnapshot().saved,false);assert.equal(f.workflow.getSnapshot().reconciliation_required,false)
-  assert.equal(f.operationState(operation.operation_id).status,'APPROVED')
+  assert.equal((await persistedOperation(f,operation)).status,'APPROVED')
   await freshReview(f,'joined-hook-fresh-after-known-unsent-logout')
   assert.equal(f.tableCount('prime_memory_records'),0);assert.equal(f.tableCount('prime_memory_effects'),0)
 })

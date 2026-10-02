@@ -25,7 +25,7 @@ export interface OwnerMemoryController {
   subscribe(listener:()=>void):()=>void
   setOperation(operation:unknown,options:{memoryCapture:MemoryCapture}):void
   approve():Promise<unknown>
-  logout?():void
+  logout?():void|Promise<unknown>
 }
 export interface OwnerMemoryWorkflow {
   getSnapshot():MemoryWorkflowSnapshot

@@ -15,6 +15,9 @@ import { validateCaptureDraft, validateCaptureReview } from './capture-review.mj
 import { validatePilotCaptureMetadata } from './pilot-capture.mjs'
 import { makeMemoryControlState, inspectMemoryControlState, MEMORY_CONTROL_TABLES } from './control-state.mjs'
 import { createUnavailableControlRetention, isControlRetentionReader, MEMORY_RETENTION_SCHEMA } from './control-retention.mjs'
+import { isControlRetentionCoordinator } from './control-retention-coordinator.mjs'
+import { createMemoryOwnerSerializer } from './owner-serialization.mjs'
+import { createRetainedMemoryParticipant } from './retained-memory-participant.mjs'
 
 const rows = async (db, sql, values = []) => (await db.query(sql, values)).rows
 const ownerOf = host => {
@@ -31,20 +34,32 @@ const chainBytes = entries => Buffer.concat(entries.map(e => bytesOf(e.bytes)))
 
 /** Caller supplies a Prime-owned PostgreSQL Pool. This module never discovers credentials or a sibling repository. */
 export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:v1', indexGeneration = '1',
-  verifyApprovedEvidence, authority, contracts, restoreAnchorProvider, controlRetention } = {}) {
+  verifyApprovedEvidence, authority, contracts, restoreAnchorProvider, controlRetention, controlRetentionCoordinator } = {}) {
   requireMemory(typeof pool?.connect === 'function' && typeof pool?.query === 'function', 'memory:postgres-pool-required')
   requireMemory(typeof indexTarget === 'string' && indexTarget && typeof indexGeneration === 'string'
     && indexGeneration, 'memory:index-target-required')
   requireMemory(restoreAnchorProvider===undefined || typeof restoreAnchorProvider==='function','memory:restore-anchor-provider-invalid')
-  requireMemory(restoreAnchorProvider===undefined || controlRetention===undefined,'memory:restore-provider-ambiguous')
-  const retainedReader=controlRetention ?? createUnavailableControlRetention()
+  requireMemory(controlRetentionCoordinator===undefined || isControlRetentionCoordinator(controlRetentionCoordinator),
+    'memory:owned-control-retention-coordinator-required')
+  requireMemory(restoreAnchorProvider===undefined || (controlRetention===undefined && controlRetentionCoordinator===undefined),
+    'memory:restore-provider-ambiguous')
+  const retainedReader=controlRetention ?? controlRetentionCoordinator?.reader ?? createUnavailableControlRetention()
   requireMemory(isControlRetentionReader(retainedReader),'memory:owned-control-retention-reader-required')
+  requireMemory(controlRetentionCoordinator===undefined || controlRetentionCoordinator.reader===retainedReader,
+    'memory:control-retention-reader-mismatch')
+  const retentionContexts=new Map(),retentionHost=host=>({owner_id:host.owner_id,owner_subject:host.owner_subject,
+    authorization_epoch:host.authorization_epoch})
+  const ownerSerializer=controlRetentionCoordinator?createMemoryOwnerSerializer({pool}):null
+  const participantController=controlRetentionCoordinator?createRetainedMemoryParticipant({coordinator:controlRetentionCoordinator,
+    serializer:ownerSerializer,contracts}):null
   const legacyAnchorProvider=typeof restoreAnchorProvider==='function'
   const loadRestoreAnchor=restoreAnchorProvider ?? (host=>retainedReader.restoreAnchorProvider({
     owner_id:host.owner_id,owner_subject:host.owner_subject,authorization_epoch:host.authorization_epoch}))
 
   async function transaction(owner, work, { readOnly = false } = {}) {
-    const client = await pool.connect()
+    const ownedScope=ownerSerializer?.current()
+    requireMemory(!ownedScope || ownedScope.host.owner_subject===owner,'memory:owner-session-mismatch')
+    const client = ownedScope?.client ?? await pool.connect()
     try {
       await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
       if (!readOnly) {
@@ -56,7 +71,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       await client.query('COMMIT')
       return result
     } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error }
-    finally { client.release() }
+    finally { if(!ownedScope) client.release() }
   }
   async function migrate() {
     const [settings] = await rows(pool,"SELECT current_setting('fsync') AS fsync, current_setting('full_page_writes') AS full_page_writes")
@@ -601,9 +616,11 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   }
   async function settleCommitted(effect) {
     const {operation,grant,receipt}=effect
-    if(typeof authority?.settleMemory!=='function') return {authority_settlement:'pending',reconciliation_required:true}
+    const settleMethod=participantController?'settleMemoryRetained':'settleMemory'
+    if(typeof authority?.[settleMethod]!=='function') return {authority_settlement:'pending',reconciliation_required:true,
+      settlement_reason:participantController?'memory:retained-authority-unavailable':'memory:authority-unavailable'}
     try {
-      const settled=await authority.settleMemory({operation,consumed_grant:grant,request_id:receipt.request_id,
+      const settled=await authority[settleMethod]({operation,consumed_grant:grant,request_id:receipt.request_id,
         request_digest:receipt.request_digest,receipt})
       requireMemory(settled?.ok===true && settled.status==='COMPLETED' && settled.request_id===receipt.request_id
         && settled.request_digest===receipt.request_digest && settled.receipt_digest===memoryReceiptDigest(receipt)
@@ -630,6 +647,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     return effect
   }
   async function reconcileEffect(host,operation_id) {
+    requireMemory(retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
+      'memory:control-retention-coordinator-required')
     host=structuredClone(host);const owner=ownerOf(host)
     const [fenced]=await rows(pool,'SELECT operation_id FROM prime_memory_replay_fences WHERE owner_subject=$1 AND operation_id=$2',[owner,operation_id])
     requireMemory(!fenced,'memory:effect-payload-purged-replay-forbidden')
@@ -643,29 +662,79 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
         reconciliation_required:true,automatic_retry:false,grants_authority:false}
     }
     requireMemory(effect.operation.owner_id===host.owner_id && effect.operation.task_id===host.task_id,'memory:effect-owner-mismatch')
-    const settlement=await settleCommitted(effect)
-    return {result:effect.result,receipt:effect.receipt,...settlement}
+    const finish=async()=>{
+      await finalizeRetainedEffect(host,effect)
+      const settlement=await settleCommitted(effect)
+      return {result:effect.result,receipt:effect.receipt,...settlement}
+    }
+    return participantController?participantController.runOperation({host:retentionHost(host),operation:effect.operation,
+      request_id:effect.receipt.request_id,request_digest:effect.receipt.request_digest},finish):finish()
   }
   const inFlightEffects=new Map()
+  async function retentionControlState(db,host,context,{restorePrepared=false}={}) {
+    const owner=ownerOf(host),retained=inspectMemoryControlState(context.predecessor.control_state,host,
+      {contracts:await controlContracts()})
+    const tables=restorePrepared?await mergeRestoreControl(db,host,retained):await controlTables(db,owner)
+    const heads=restorePrepared?retained.heads:await currentHeads(db,owner)
+    return makeMemoryControlState(host,{heads,tables},{contracts:await controlContracts()})
+  }
+  async function finalizeRetainedEffect(host,effect,context) {
+    if(!controlRetentionCoordinator) return
+    await transaction(ownerOf(host),async db=>{
+      const [intent]=await rows(db,'SELECT * FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',
+        [ownerOf(host),effect.operation.operation_id])
+      requireMemory(intent && intent.operation_digest===effect.receipt.operation_digest
+        && intent.request_id===effect.receipt.request_id && intent.request_digest===effect.receipt.request_digest,
+        'memory:retention-durable-intent-required')
+      if(!context) {
+        let pending
+        try {pending=await controlRetentionCoordinator.inspect(retentionHost(host))}
+        catch(error) {
+          if(error.code!=='memory:control-retention-pending-missing') throw error
+          const current=await retainedReader.readCurrent(retentionHost(host))
+          const live=makeMemoryControlState(host,{heads:await currentHeads(db,ownerOf(host)),
+            tables:await controlTables(db,ownerOf(host))},{contracts:await controlContracts()})
+          requireMemory(live.control_sha256===current.control_state.control_sha256,'memory:retention-current-state-mismatch')
+          return
+        }
+        requireMemory(pending.marker.operation_id===effect.operation.operation_id,'memory:retention-other-operation-held')
+        context=await controlRetentionCoordinator.recover({host:retentionHost(host),operation:effect.operation,
+          request_id:intent.request_id,request_digest:intent.request_digest})
+        await participantController.bindRecovered(context)
+        if(!pending.prepared) await controlRetentionCoordinator.prepared(context,
+          await retentionControlState(db,host,context))
+      }
+      await controlRetentionCoordinator.complete(context,await retentionControlState(db,host,context))
+    })
+  }
   async function authorizedEffect(host,action,parameters,options,work,{includeReceipt=false,receiptResultKey='record'}={}) {
-    const owner=ownerOf(host),binding=await memoryAuthorization({authority,contracts},host,action,parameters,options)
+    requireMemory(retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
+      'memory:control-retention-coordinator-required')
+    const owner=ownerOf(host),binding=await memoryAuthorization({authority,contracts,retainedMemory:!!participantController},host,action,parameters,options)
     const key=owner+'\0'+binding.operation.operation_id,proof_json=canonicalJSON(options.approval_proof)
     const running=inFlightEffects.get(key)
     if(running) {
       requireMemory(running.digest===binding.digest && running.proof_json===proof_json,'memory:concurrent-operation-conflict')
       return running.promise
     }
-    const promise=executeAuthorizedEffect(host,action,parameters,options,work,{includeReceipt,receiptResultKey},binding)
-      .finally(()=>inFlightEffects.delete(key))
+    const promise=(async()=>{
+      const committed=participantController?await transaction(owner,db=>readEffect(db,owner,binding.operation.operation_id),{readOnly:true}):null
+      if(committed) requireMemory(committed.receipt.operation_digest===binding.digest,'memory:operation-replay-conflict')
+      const request_id=committed?.receipt.request_id ?? randomUUID(),request={version:1,action_type:action,owner_subject:owner,
+        operation_id:binding.operation.operation_id,operation_digest:binding.digest,parameters}
+      const effectPlan={request_id,request,request_digest:memoryEffectDigest(request)}
+      requireMemory(!committed || committed.receipt.request_digest===effectPlan.request_digest,'memory:request-replay-conflict')
+      const execute=()=>executeAuthorizedEffect(host,action,parameters,options,work,{includeReceipt,receiptResultKey},binding,effectPlan)
+      return (participantController?participantController.runOperation({host:retentionHost(host),operation:binding.operation,
+        request_id,request_digest:effectPlan.request_digest},execute):execute())
+
+    })().finally(()=>inFlightEffects.delete(key))
     inFlightEffects.set(key,{digest:binding.digest,proof_json,promise})
     return promise
   }
-  async function executeAuthorizedEffect(host,action,parameters,options,work,{includeReceipt,receiptResultKey},binding) {
-    const owner=ownerOf(host)
-    const request_id=randomUUID(),request={version:1,action_type:action,owner_subject:owner,
-      operation_id:binding.operation.operation_id,operation_digest:binding.digest,parameters}
-    const request_digest=memoryEffectDigest(request)
-    let preparedGrant,dispatched=false,effect
+  async function executeAuthorizedEffect(host,action,parameters,options,work,{includeReceipt,receiptResultKey},binding,effectPlan) {
+    const owner=ownerOf(host),{request_id,request,request_digest}=effectPlan
+    let preparedGrant,dispatched=false,dispatchAttempted=false,effect,retentionContext,retentionAttempted=false
     const targetScope=async(db,fn)=>{
       const heads=await currentHeads(db,owner)
       requireMemory(binding.operation.expected_state_version===memoryStateVersion(heads),'memory:target-state-changed')
@@ -686,7 +755,23 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
         const [intent]=await rows(db,'SELECT request_id FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',[owner,binding.operation.operation_id])
         requireMemory(!intent,'memory:effect-unresolved-reconciliation-required')
         await work(db,{preflight:true})
+        if(controlRetentionCoordinator) {
+          requireMemory(host.authorization_epoch===binding.operation.authorization_epoch,'memory:retention-epoch-binding-mismatch')
+          if(action!=='memory.restore') {
+            const current=await retainedReader.readCurrent(retentionHost(host))
+            const live=makeMemoryControlState(host,{heads:await currentHeads(db,owner),tables:await controlTables(db,owner)},
+              {contracts:await controlContracts()})
+            requireMemory(live.control_sha256===current.control_state.control_sha256,'memory:retention-current-state-mismatch')
+          }
+          // C validates approval first, then calls the private participant before kernel consumption.
+          retentionAttempted=true
+        }
         preparedGrant=await targetScope(db,()=>binding.reserve())
+        if(participantController) {
+          retentionContext=participantController.context()
+          requireMemory(retentionContext,'memory:retained-prepare-participant-required')
+          retentionContexts.set(binding.operation.operation_id,retentionContext)
+        }
         // Durable intent precedes dispatch; its opaque request survives rollback or restart.
         await db.query(`INSERT INTO prime_memory_intents(owner_subject,operation_id,operation_digest,grant_bytes,operation_bytes,
           request_id,request_digest,request_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -694,10 +779,16 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
             Buffer.from(canonicalJSON(binding.operation)),request_id,request_digest,Buffer.from(canonicalJSON(request))])
         return null
       })
+      if(!effect && retentionContext) await transaction(owner,async db=>{
+        // Actual committed intent is retained; current stays predecessor and marker stays held.
+        await controlRetentionCoordinator.prepared(retentionContext,await retentionControlState(db,host,retentionContext,
+          {restorePrepared:action==='memory.restore'}))
+      })
       if(!effect) effect=await transaction(owner,async db=>{
         // Any race after PREPARED is refused under the reacquired owner lock; no grant is unconsumed.
         const execute=await work(db,{preflight:true}),grant=preparedGrant
-        await targetScope(db,async()=>{await binding.dispatch({grant,request_id,request_digest});dispatched=true})
+        if(retentionContext) await controlRetentionCoordinator.observe(retentionContext)
+        await targetScope(db,async()=>{dispatchAttempted=true;await binding.dispatch({grant,request_id,request_digest});dispatched=true})
         const result=await execute(),result_digest=memoryResultDigest(result)
         const receipt={version:1,kind:'prime-memory-effect/v1',operation_id:binding.operation.operation_id,
           operation_digest:binding.digest,grant_id:grant.grant_id,request_id,request_digest,owner_subject:owner,
@@ -709,14 +800,21 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
             Buffer.from(canonicalJSON(binding.operation)),Buffer.from(canonicalJSON(grant))])
         return {result,receipt,operation:binding.operation,grant}
       })
+      // Independent final checkpoint commits before C receives an applied settlement.
+      await finalizeRetainedEffect(host,effect,retentionContext)
     } catch(error) {
-      if(!preparedGrant && !dispatched) throw error
-      if(dispatched && typeof authority?.markOutcomeUnknown==='function')
+      if(participantController && retentionAttempted && !preparedGrant && !participantController.context()) {
+        try {await controlRetentionCoordinator.inspect(retentionHost(host))}
+        catch(observationError) {if(observationError.code==='memory:control-retention-pending-missing') throw error}
+      }
+      if(!preparedGrant && !dispatched && !retentionAttempted) throw error
+      if(dispatchAttempted && preparedGrant && typeof authority?.markOutcomeUnknown==='function')
         await Promise.resolve(authority.markOutcomeUnknown({operation:binding.operation,consumed_grant:preparedGrant,request_id,request_digest})).catch(()=>{})
       const unknown=new MemoryRefusal('memory:authority-effect-outcome-unknown')
       unknown.cause_code=error.code ?? 'memory:store-unavailable';unknown.reconciliation_required=true
+      unknown.automatic_retry=false
       unknown.operation_id=binding.operation.operation_id;unknown.request_id=request_id;unknown.request_digest=request_digest;throw unknown
-    }
+    } finally {retentionContexts.delete(binding.operation.operation_id)}
     // Only the committed, locally derived receipt can settle C. No guest receipt is accepted.
     const settlement=await settleCommitted(effect)
     return includeReceipt?{[receiptResultKey]:effect.result,receipt:effect.receipt,...settlement}:effect.result
@@ -740,9 +838,12 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     },{readOnly:true})
   }
 
-  async function trustedRestoreControl(host) {
+  async function trustedRestoreControl(host,operation) {
     let retained
-    try {retained=structuredClone(await loadRestoreAnchor(structuredClone(host)))}
+    const context=operation && retentionContexts.get(operation.operation_id)
+    try {retained=structuredClone(context
+      ? await controlRetentionCoordinator.observe(context)
+      : await loadRestoreAnchor(structuredClone(host)))}
     catch {requireMemory(false,'memory:trusted-restore-anchor-unavailable')}
     let retentionBinding={}
     if(!legacyAnchorProvider) {
@@ -801,6 +902,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     return merged
   }
   async function prepareRestoreBinding(host,snapshot) {
+    requireMemory(!participantController,'memory:retained-restore-lineage-unqualified')
     host=structuredClone(host);const retained=await trustedRestoreControl(host),owner=ownerOf(host)
     const frozen=JSON.parse(JSON.stringify(snapshot)),checked=inspectSnapshot(frozen,owner,{expectedHeads:retained.heads,quarantineInvalid:true})
     requireMemory(checked.anchored,'memory:restore-unanchored')
@@ -871,11 +973,12 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     if(mode==='prime-restore') requireMemory(checked.anchored,'memory:restore-unanchored')
     requireMemory(mode!=='prime-restore' || !checked.records.some(r=>checked.tombstones.some(t=>t.id===r.meta.id)),
       'memory:restore-forgotten-payload-forbidden')
+    requireMemory(!participantController || mode!=='prime-restore','memory:retained-restore-lineage-unqualified')
     return authorizedEffect(host,mode==='prime-restore'?'memory.restore':'memory.import',
       {manifest_sha256:checked.digest,mode,heads:frozen.heads,retained_heads:expectedHeads ?? null,
         ...(retained?{control_anchor_sha256:retained.digest,...retentionParameters(retained)}:{})},options,async db=>{
       if(retained) {
-        const current=await trustedRestoreControl(host)
+        const current=await trustedRestoreControl(host,options.operation)
         requireMemory(current.digest===retained.digest && canonicalJSON(retentionParameters(current))===canonicalJSON(retentionParameters(retained)),
           'memory:restore-anchor-changed')
       }
@@ -998,10 +1101,11 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       })
   }
   async function restoreSnapshot(host,snapshot,options) {
+    requireMemory(!participantController,'memory:retained-restore-lineage-unqualified')
     requireMemory(options?.mode===undefined || options.mode==='prime-restore','memory:restore-mode-invalid')
     return importSnapshot(host,snapshot,{...options,mode:'prime-restore'})
   }
-  return Object.freeze({ migrate,captureAuthorizedRemembered,prepareCaptureBinding,authorityTargetObservation,withAuthorityTargetObservation,reconcileEffect,drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,purgeRecordPayload,eraseOwnerPayloads,exportSnapshot,exportControlState,exportBackup,prepareBackupBinding,prepareRestoreBinding,importSnapshot,restoreSnapshot,
+  return Object.freeze({ retainedMemoryParticipant:participantController?.participant, migrate,captureAuthorizedRemembered,prepareCaptureBinding,authorityTargetObservation,withAuthorityTargetObservation,reconcileEffect,drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,purgeRecordPayload,eraseOwnerPayloads,exportSnapshot,exportControlState,exportBackup,prepareBackupBinding,prepareRestoreBinding,importSnapshot,restoreSnapshot,
     controlRetentionStatus:()=>legacyAnchorProvider?{configured:true,kind:'explicit-host-control-provider',file_backed:false}:retainedReader.status })
 }
 

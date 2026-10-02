@@ -769,8 +769,8 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region lib/types/adapters/forget-result.mjs
-		const DIGEST = /^sha256:[a-f0-9]{64}$/, HEX = /^[a-f0-9]{64}$/;
-		const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+		const DIGEST$1 = /^sha256:[a-f0-9]{64}$/, HEX = /^[a-f0-9]{64}$/;
+		const UUID$1 = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 		const FIELDS = [
 			"phase",
 			"operation",
@@ -806,7 +806,7 @@ window.__ModuleLoader__.load({
 			"wal_erased",
 			"grants_authority"
 		];
-		const RECEIPT = [
+		const RECEIPT$1 = [
 			"version",
 			"kind",
 			"operation_id",
@@ -840,16 +840,16 @@ window.__ModuleLoader__.load({
 				error_code: code
 			});
 		};
-		const requireValue = (condition, reason = "ui:invalid-forget-workflow-snapshot", code = "INVALID") => {
+		const requireValue$1 = (condition, reason = "ui:invalid-forget-workflow-snapshot", code = "INVALID") => {
 			if (!condition) fault(code, reason);
 		};
 		function closed$2(value, fields) {
-			requireValue(value && [Object.prototype, null].includes(Object.getPrototypeOf(value)));
+			requireValue$1(value && [Object.prototype, null].includes(Object.getPrototypeOf(value)));
 			const keys = Reflect.ownKeys(value);
-			requireValue(keys.length === fields.length && keys.every((key) => typeof key === "string" && fields.includes(key)));
+			requireValue$1(keys.length === fields.length && keys.every((key) => typeof key === "string" && fields.includes(key)));
 			for (const key of keys) {
 				const descriptor = Object.getOwnPropertyDescriptor(value, key);
-				requireValue(descriptor?.enumerable === true && Object.hasOwn(descriptor, "value"));
+				requireValue$1(descriptor?.enumerable === true && Object.hasOwn(descriptor, "value"));
 			}
 			return value;
 		}
@@ -861,7 +861,7 @@ window.__ModuleLoader__.load({
 			return value;
 		}
 		function copied(value, contracts) {
-			requireValue(typeof contracts?.canonicalJson === "function" && typeof contracts?.parseStrictJson === "function", "ui:forget-contract-helper-unavailable", "UNAVAILABLE");
+			requireValue$1(typeof contracts?.canonicalJson === "function" && typeof contracts?.parseStrictJson === "function", "ui:forget-contract-helper-unavailable", "UNAVAILABLE");
 			try {
 				return contracts.parseStrictJson(contracts.canonicalJson(value), {
 					maxBytes: 65536,
@@ -872,21 +872,21 @@ window.__ModuleLoader__.load({
 			}
 		}
 		const text = (value, max) => typeof value === "string" && value.length > 0 && new TextEncoder().encode(value).length <= max;
-		const digestValue = (value) => typeof value === "string" && DIGEST.test(value);
+		const digestValue = (value) => typeof value === "string" && DIGEST$1.test(value);
 		function logicalResult(value) {
 			closed$2(value, RESULT);
-			requireValue(text(value.record_id, 1024) && value.state === "tombstoned" && value.canonical_payload_retained === true && value.physical_media_erasure === false && value.authority_approval_history_erased === false && value.backups_erased === false && value.wal_erased === false && value.grants_authority === false);
+			requireValue$1(text(value.record_id, 1024) && value.state === "tombstoned" && value.canonical_payload_retained === true && value.physical_media_erasure === false && value.authority_approval_history_erased === false && value.backups_erased === false && value.wal_erased === false && value.grants_authority === false);
 		}
 		function receiptShape(value) {
-			closed$2(value, RECEIPT);
-			requireValue(value.version === 1 && value.kind === "prime-memory-effect/v1" && text(value.operation_id, 1024) && digestValue(value.operation_digest) && typeof value.grant_id === "string" && /^grant:[a-f0-9]{64}$/.test(value.grant_id) && typeof value.request_id === "string" && UUID.test(value.request_id) && digestValue(value.request_digest) && typeof value.owner_subject === "string" && /^aukora:1:[a-f0-9]{64}$/.test(value.owner_subject) && value.action_type === "memory.forget" && value.status === "applied" && digestValue(value.result_digest));
+			closed$2(value, RECEIPT$1);
+			requireValue$1(value.version === 1 && value.kind === "prime-memory-effect/v1" && text(value.operation_id, 1024) && digestValue(value.operation_digest) && typeof value.grant_id === "string" && /^grant:[a-f0-9]{64}$/.test(value.grant_id) && typeof value.request_id === "string" && UUID$1.test(value.request_id) && digestValue(value.request_digest) && typeof value.owner_subject === "string" && /^aukora:1:[a-f0-9]{64}$/.test(value.owner_subject) && value.action_type === "memory.forget" && value.status === "applied" && digestValue(value.result_digest));
 			logicalResult(value.result);
 		}
 		/** Detached exact current 16-field bridge snapshot; no cryptographic authority claim. */
 		function validateForgetWorkflowSnapshot(value, contracts) {
 			closed$2(value, FIELDS);
 			const result = copied(value, contracts);
-			requireValue([
+			requireValue$1([
 				"idle",
 				"proposal_pending",
 				"proposed",
@@ -926,21 +926,21 @@ window.__ModuleLoader__.load({
 				"unknown",
 				"refused"
 			].includes(result.recovery_status));
-			requireValue(result.operation_digest === null || digestValue(result.operation_digest));
-			requireValue(result.receipt_digest === null || digestValue(result.receipt_digest));
-			requireValue(result.recovery_operation_id === null || text(result.recovery_operation_id, 1024));
-			requireValue(result.recovery_operation_digest === null || digestValue(result.recovery_operation_digest));
-			requireValue(result.recovery_operation_id === null === (result.recovery_operation_digest === null));
-			requireValue(!["not_requested", "idle"].includes(result.recovery_status) || result.recovery_operation_id === null);
-			requireValue(![
+			requireValue$1(result.operation_digest === null || digestValue(result.operation_digest));
+			requireValue$1(result.receipt_digest === null || digestValue(result.receipt_digest));
+			requireValue$1(result.recovery_operation_id === null || text(result.recovery_operation_id, 1024));
+			requireValue$1(result.recovery_operation_digest === null || digestValue(result.recovery_operation_digest));
+			requireValue$1(result.recovery_operation_id === null === (result.recovery_operation_digest === null));
+			requireValue$1(!["not_requested", "idle"].includes(result.recovery_status) || result.recovery_operation_id === null);
+			requireValue$1(![
 				"known_unsent",
 				"saved",
 				"forgotten",
 				"unknown"
 			].includes(result.recovery_status) || result.recovery_operation_id !== null);
-			requireValue(result.operation === null === (result.record_summary === null) && result.operation === null === (result.operation_digest === null));
+			requireValue$1(result.operation === null === (result.record_summary === null) && result.operation === null === (result.operation_digest === null));
 			if (result.operation !== null) {
-				requireValue(typeof contracts?.validateContract === "function", "ui:forget-contract-helper-unavailable", "UNAVAILABLE");
+				requireValue$1(typeof contracts?.validateContract === "function", "ui:forget-contract-helper-unavailable", "UNAVAILABLE");
 				try {
 					contracts.validateContract("OperationProposal", result.operation);
 					validateForgetReview(result.operation, result.record_summary);
@@ -948,14 +948,14 @@ window.__ModuleLoader__.load({
 					fault("INVALID", "ui:invalid-forget-workflow-operation");
 				}
 			}
-			requireValue(result.result === null === (result.receipt === null));
+			requireValue$1(result.result === null === (result.receipt === null));
 			if (result.result !== null) logicalResult(result.result);
 			if (result.receipt !== null) receiptShape(result.receipt);
-			requireValue(result.receipt_digest === null || result.receipt !== null);
+			requireValue$1(result.receipt_digest === null || result.receipt !== null);
 			return immutable$1(result);
 		}
 		function reviewed(presentation, contracts) {
-			requireValue(presentation && [Object.prototype, null].includes(Object.getPrototypeOf(presentation)), "ui:forget-review-required", "TARGET_MISMATCH");
+			requireValue$1(presentation && [Object.prototype, null].includes(Object.getPrototypeOf(presentation)), "ui:forget-review-required", "TARGET_MISMATCH");
 			const selected = {};
 			for (const name of [
 				"operation",
@@ -964,7 +964,7 @@ window.__ModuleLoader__.load({
 				"forget_review"
 			]) {
 				const descriptor = Object.getOwnPropertyDescriptor(presentation, name);
-				requireValue(descriptor?.enumerable === true && Object.hasOwn(descriptor, "value"), "ui:forget-review-required", "TARGET_MISMATCH");
+				requireValue$1(descriptor?.enumerable === true && Object.hasOwn(descriptor, "value"), "ui:forget-review-required", "TARGET_MISMATCH");
 				selected[name] = descriptor.value;
 			}
 			const view = copied(selected, contracts);
@@ -976,14 +976,14 @@ window.__ModuleLoader__.load({
 			} catch {
 				fault("TARGET_MISMATCH", "ui:forget-review-mismatch");
 			}
-			requireValue(view.canonical_operation === contracts.canonicalJson(view.operation) && digestValue(view.operation_digest) && view.forget_review.canonical_sha256 === view.operation.canonical_parameters.canonical_sha256, "ui:forget-review-mismatch", "TARGET_MISMATCH");
+			requireValue$1(view.canonical_operation === contracts.canonicalJson(view.operation) && digestValue(view.operation_digest) && view.forget_review.canonical_sha256 === view.operation.canonical_parameters.canonical_sha256, "ui:forget-review-mismatch", "TARGET_MISMATCH");
 			return immutable$1({
 				...view,
 				summary
 			});
 		}
-		async function digest(domain, value, contracts) {
-			requireValue(typeof globalThis.crypto?.subtle?.digest === "function", "ui:forget-digest-unavailable", "UNAVAILABLE");
+		async function digest$1(domain, value, contracts) {
+			requireValue$1(typeof globalThis.crypto?.subtle?.digest === "function", "ui:forget-digest-unavailable", "UNAVAILABLE");
 			let result;
 			try {
 				result = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(domain + "\0" + contracts.canonicalJson(value)));
@@ -995,32 +995,32 @@ window.__ModuleLoader__.load({
 		/** The caller must fence its captured owner/revision again after this async check. */
 		async function validateForgetWorkflowResult(value, { presentation, approved, proofNonce, contracts } = {}) {
 			const result = validateForgetWorkflowSnapshot(value, contracts), view = reviewed(presentation, contracts);
-			requireValue(typeof contracts.operationDigest === "function", "ui:forget-contract-helper-unavailable", "UNAVAILABLE");
+			requireValue$1(typeof contracts.operationDigest === "function", "ui:forget-contract-helper-unavailable", "UNAVAILABLE");
 			let originalDigest;
 			try {
 				originalDigest = await contracts.operationDigest(view.operation);
 			} catch {
 				fault("TARGET_MISMATCH", "ui:forget-operation-digest-mismatch");
 			}
-			requireValue(originalDigest === view.operation_digest, "ui:forget-operation-digest-mismatch", "TARGET_MISMATCH");
-			if (result.operation !== null) requireValue(contracts.canonicalJson(result.operation) === view.canonical_operation && result.operation_digest === view.operation_digest && contracts.canonicalJson(result.record_summary) === contracts.canonicalJson(view.summary), "ui:forget-operation-changed", "TARGET_MISMATCH");
+			requireValue$1(originalDigest === view.operation_digest, "ui:forget-operation-digest-mismatch", "TARGET_MISMATCH");
+			if (result.operation !== null) requireValue$1(contracts.canonicalJson(result.operation) === view.canonical_operation && result.operation_digest === view.operation_digest && contracts.canonicalJson(result.record_summary) === contracts.canonicalJson(view.summary), "ui:forget-operation-changed", "TARGET_MISMATCH");
 			if ([
 				"proposal_pending",
 				"approval_pending",
 				"forget_pending"
 			].includes(result.phase) || result.approval === "pending" || result.forget === "pending" || result.recovery_status === "pending") fault("OUTCOME_UNKNOWN", "ui:forget-action-still-pending");
 			if (!(result.forgotten === true || result.forget === "forgotten" || result.phase === "forgotten" || result.result !== null)) {
-				requireValue(result.authority_settlement === null && result.receipt_digest === null && result.forgotten !== true, "ui:forget-result-contradictory", "OUTCOME_UNKNOWN");
-				requireValue(!([result.approval, result.forget].includes("unknown") || result.phase === "outcome_unknown" || result.approval === "approved" || result.forgotten === null || ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(result.error_code)) || result.reconciliation_required, "ui:forget-result-contradictory", "OUTCOME_UNKNOWN");
+				requireValue$1(result.authority_settlement === null && result.receipt_digest === null && result.forgotten !== true, "ui:forget-result-contradictory", "OUTCOME_UNKNOWN");
+				requireValue$1(!([result.approval, result.forget].includes("unknown") || result.phase === "outcome_unknown" || result.approval === "approved" || result.forgotten === null || ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(result.error_code)) || result.reconciliation_required, "ui:forget-result-contradictory", "OUTCOME_UNKNOWN");
 				return result;
 			}
-			requireValue(approved === true && typeof proofNonce === "string" && HEX.test(proofNonce) && result.phase === "forgotten" && result.approval === "approved" && result.forget === "forgotten" && result.forgotten === true && result.result !== null && result.receipt !== null, "ui:forget-result-not-bound-to-approval", "TARGET_MISMATCH");
-			if (result.operation === null) requireValue(result.recovery_status === "forgotten" && result.recovery_operation_id === view.operation.operation_id && result.recovery_operation_digest === view.operation_digest, "ui:forget-recovery-not-bound-to-review", "TARGET_MISMATCH");
+			requireValue$1(approved === true && typeof proofNonce === "string" && HEX.test(proofNonce) && result.phase === "forgotten" && result.approval === "approved" && result.forget === "forgotten" && result.forgotten === true && result.result !== null && result.receipt !== null, "ui:forget-result-not-bound-to-approval", "TARGET_MISMATCH");
+			if (result.operation === null) requireValue$1(result.recovery_status === "forgotten" && result.recovery_operation_id === view.operation.operation_id && result.recovery_operation_digest === view.operation_digest, "ui:forget-recovery-not-bound-to-review", "TARGET_MISMATCH");
 			const receipt = result.receipt, operation = view.operation;
-			requireValue(result.result.record_id === view.forget_review.record_id && receipt.operation_id === operation.operation_id && receipt.operation_digest === view.operation_digest && receipt.grant_id === "grant:" + proofNonce && receipt.owner_subject === operation.target_identity.owner_subject && contracts.canonicalJson(receipt.result) === contracts.canonicalJson(result.result), "ui:forget-receipt-mismatch", "TARGET_MISMATCH");
-			requireValue(result.authority_settlement === "completed" && result.reconciliation_required === false && digestValue(result.receipt_digest) || result.authority_settlement === "pending" && result.reconciliation_required === true, "ui:forget-settlement-mismatch", "OUTCOME_UNKNOWN");
-			requireValue(result.authority_settlement !== "completed" || !["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(result.error_code), "ui:forget-result-uncertain", "OUTCOME_UNKNOWN");
-			requireValue(receipt.result_digest === await digest("aukora-prime.memory-result.v1", result.result, contracts), "ui:forget-result-digest-mismatch", "TARGET_MISMATCH");
+			requireValue$1(result.result.record_id === view.forget_review.record_id && receipt.operation_id === operation.operation_id && receipt.operation_digest === view.operation_digest && receipt.grant_id === "grant:" + proofNonce && receipt.owner_subject === operation.target_identity.owner_subject && contracts.canonicalJson(receipt.result) === contracts.canonicalJson(result.result), "ui:forget-receipt-mismatch", "TARGET_MISMATCH");
+			requireValue$1(result.authority_settlement === "completed" && result.reconciliation_required === false && digestValue(result.receipt_digest) || result.authority_settlement === "pending" && result.reconciliation_required === true, "ui:forget-settlement-mismatch", "OUTCOME_UNKNOWN");
+			requireValue$1(result.authority_settlement !== "completed" || !["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(result.error_code), "ui:forget-result-uncertain", "OUTCOME_UNKNOWN");
+			requireValue$1(receipt.result_digest === await digest$1("aukora-prime.memory-result.v1", result.result, contracts), "ui:forget-result-digest-mismatch", "TARGET_MISMATCH");
 			const request = {
 				version: 1,
 				action_type: "memory.forget",
@@ -1029,8 +1029,8 @@ window.__ModuleLoader__.load({
 				operation_digest: view.operation_digest,
 				parameters: operation.canonical_parameters
 			};
-			requireValue(receipt.request_digest === await digest("aukora-prime.memory.effect.v1", request, contracts), "ui:forget-request-digest-mismatch", "TARGET_MISMATCH");
-			if (result.receipt_digest !== null) requireValue(result.receipt_digest === await digest("aukora-prime.memory-receipt.v1", receipt, contracts), "ui:forget-receipt-digest-mismatch", "TARGET_MISMATCH");
+			requireValue$1(receipt.request_digest === await digest$1("aukora-prime.memory.effect.v1", request, contracts), "ui:forget-request-digest-mismatch", "TARGET_MISMATCH");
+			if (result.receipt_digest !== null) requireValue$1(result.receipt_digest === await digest$1("aukora-prime.memory-receipt.v1", receipt, contracts), "ui:forget-receipt-digest-mismatch", "TARGET_MISMATCH");
 			return result;
 		}
 		/** Content-free terminal facts only; this never presents a recovered receipt. */
@@ -1053,7 +1053,90 @@ window.__ModuleLoader__.load({
 			].every((name) => result[name] === null) && result.recovery_status === "not_requested" && [null, "UNAVAILABLE"].includes(result.error_code) && result.reconciliation_required === false;
 			const unsent = result.approval === "not_requested" && result.forget === "not_attempted" && result.forgotten === false && result.authority_settlement === null;
 			const completed = result.approval === "approved" && result.forget === "forgotten" && result.forgotten === true && result.authority_settlement === "completed";
-			requireValue(cleared && (unsent || completed), "ui:cancelled-forget-needs-reconciliation", "OUTCOME_UNKNOWN");
+			requireValue$1(cleared && (unsent || completed), "ui:cancelled-forget-needs-reconciliation", "OUTCOME_UNKNOWN");
+			return result;
+		}
+		//#endregion
+		//#region lib/types/adapters/save-recovery.mjs
+		const RECEIPT = [
+			"version",
+			"kind",
+			"operation_id",
+			"operation_digest",
+			"grant_id",
+			"request_id",
+			"request_digest",
+			"owner_subject",
+			"action_type",
+			"status",
+			"result_digest",
+			"result"
+		];
+		const DIGEST = /^sha256:[a-f0-9]{64}$/;
+		const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+		const requireValue = (condition, reason) => {
+			if (!condition) throw new PrimeTransportError("TARGET_MISMATCH", reason);
+		};
+		async function digest(domain, value, contracts) {
+			if (typeof globalThis.crypto?.subtle?.digest !== "function") throw new PrimeTransportError("UNAVAILABLE", "ui:save-recovery-digest-unavailable");
+			const bytes = new TextEncoder().encode(domain + String.fromCharCode(0) + contracts.canonicalJson(value));
+			const hash = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+			return "sha256:" + Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+		}
+		/** The controller checks its captured owner/binding again after these awaits. */
+		async function validateSaveRecovery(result, { presentation: view, approved, proofNonce, contracts }) {
+			const operation = view.operation, receipt = result.receipt;
+			requireValue(approved === true && typeof proofNonce === "string" && /^[a-f0-9]{64}$/.test(proofNonce) && operation.action_type === "memory.save" && view.memory_review !== null && result.phase === "saved" && result.approval === "approved" && result.save === "saved" && result.saved === true && result.authority_settlement === "completed" && result.reconciliation_required === false && result.error_code === null && result.operation_digest === view.operation_digest, "ui:save-recovery-not-completed-or-bound");
+			contracts.validateContract("OperationProposal", operation);
+			validateCaptureReview(operation.canonical_parameters, view.memory_review && {
+				statement: view.memory_review.statement,
+				attributed_to: view.memory_review.attributed_to
+			});
+			requireValue(view.canonical_operation === contracts.canonicalJson(operation) && view.operation_digest === await contracts.operationDigest(operation), "ui:save-recovery-review-mismatch");
+			requireValue(result.operation === null && result.memory_capture === null || contracts.canonicalJson(result.operation) === view.canonical_operation && contracts.canonicalJson(result.memory_capture) === contracts.canonicalJson({
+				statement: view.memory_review.statement,
+				attributed_to: view.memory_review.attributed_to
+			}), "ui:save-recovery-operation-changed");
+			contracts.validateContract("MemoryRecord", result.record);
+			const original = JSON.parse(result.record.canonical_bytes);
+			requireValue(result.record.storage_status === "saved" && result.record.grants_authority === false && result.record.owner_subject === operation.target_identity.owner_subject && result.record.task_id === operation.task_id && original.statement === view.memory_review.statement && original.attributedTo === view.memory_review.attributed_to, "ui:save-recovery-record-mismatch");
+			requireValue(receipt && Object.keys(receipt).sort().join(",") === [...RECEIPT].sort().join(",") && receipt.version === 1 && receipt.kind === "prime-memory-effect/v1" && receipt.action_type === "memory.save" && receipt.operation_id === operation.operation_id && receipt.operation_digest === view.operation_digest && receipt.grant_id === "grant:" + proofNonce && receipt.owner_subject === operation.target_identity.owner_subject && typeof receipt.request_id === "string" && UUID.test(receipt.request_id) && receipt.status === "applied" && DIGEST.test(receipt.request_digest) && DIGEST.test(receipt.result_digest) && DIGEST.test(result.receipt_digest) && contracts.canonicalJson(receipt.result) === contracts.canonicalJson(result.record), "ui:save-recovery-receipt-mismatch");
+			const request = {
+				version: 1,
+				action_type: "memory.save",
+				owner_subject: operation.target_identity.owner_subject,
+				operation_id: operation.operation_id,
+				operation_digest: view.operation_digest,
+				parameters: operation.canonical_parameters
+			};
+			requireValue(receipt.request_digest === await digest("aukora-prime.memory.effect.v1", request, contracts) && receipt.result_digest === await digest("aukora-prime.memory-result.v1", result.record, contracts) && result.receipt_digest === await digest("aukora-prime.memory-receipt.v1", receipt, contracts), "ui:save-recovery-digest-mismatch");
+			const index = result.index;
+			requireValue(index.indexed === null && index.searchable === null && index.status === result.record.index_status || typeof index.indexed === "boolean" && typeof index.searchable === "boolean" && index.indexed === ["indexed", "searchable"].includes(index.status) && index.searchable === (index.status === "searchable"), "ui:save-recovery-index-mismatch");
+			if (result.citation !== null) {
+				const citation = result.citation, record = result.record;
+				const required = [
+					"record_id",
+					"revision",
+					"chain_domain",
+					"chain_sequence",
+					"aura_entry_hash",
+					"verified_head",
+					"verdict",
+					"grants_authority"
+				];
+				const optional = [
+					"reason",
+					"source_digest",
+					"source_span",
+					"source_span_integrity"
+				];
+				requireValue(required.every((key) => Object.hasOwn(citation, key)) && Object.keys(citation).every((key) => [...required, ...optional].includes(key)) && citation.record_id === record.record_id && citation.revision === record.revision && citation.chain_domain === record.chain_domain && Number.isSafeInteger(citation.chain_sequence) && citation.chain_sequence > 0 && typeof citation.aura_entry_hash === "string" && /^[a-f0-9]{64}$/.test(citation.aura_entry_hash) && typeof citation.verified_head === "string" && /^[a-f0-9]{64}$/.test(citation.verified_head) && [
+					"VERIFIED",
+					"UNVERIFIED",
+					"MISSING"
+				].includes(citation.verdict) && citation.grants_authority === false && result.citation_status === citation.verdict.toLowerCase(), "ui:save-recovery-citation-mismatch");
+				if (citation.verdict === "VERIFIED") requireValue("sha256:" + citation.source_digest === record.source_event_digest && contracts.canonicalJson(citation.source_span) === contracts.canonicalJson(record.source_span), "ui:save-recovery-citation-source-mismatch");
+			} else requireValue(result.citation_status === "unavailable", "ui:save-recovery-citation-mismatch");
 			return result;
 		}
 		//#endregion
@@ -1167,6 +1250,7 @@ window.__ModuleLoader__.load({
 			let binding, transport, pending, timer, revision = 0, operation, ownerKind, memoryCapture, captureMetadata, recordSummary;
 			let logoutFlight = null;
 			let approvalAction = null, forgetAction = null, approvalFlight = null, approvalActionBlocked = false;
+			let reconciliation = null, recoveryFlight = null, actionGeneration = 0, settledPresentation = null;
 			const configuredAction = () => operation?.action_type === "memory.forget" ? forgetAction : approvalAction;
 			let state = Object.freeze({
 				phase: "unavailable",
@@ -1202,11 +1286,7 @@ window.__ModuleLoader__.load({
 			};
 			const checkExpiry = () => {
 				stopTimer();
-				const expires = [
-					state.owner?.expiry,
-					state.presentation?.approval_expiry,
-					state.presentation?.operation.expiry
-				].filter(Boolean).map(Date.parse);
+				const expires = [state.owner?.expiry, ...state.presentation === settledPresentation ? [] : [state.presentation?.approval_expiry, state.presentation?.operation.expiry]].filter(Boolean).map(Date.parse);
 				if (!expires.length) return;
 				const remaining = Math.min(...expires) - now();
 				if (remaining <= 0) {
@@ -1444,6 +1524,8 @@ window.__ModuleLoader__.load({
 					return () => listeners.delete(listener);
 				},
 				connect(next) {
+					reconciliation = null;
+					settledPresentation = null;
 					cancelApprovalAction();
 					approvalAction = null;
 					forgetAction = null;
@@ -1571,6 +1653,7 @@ window.__ModuleLoader__.load({
 						fail(error);
 						throw error;
 					}
+					settledPresentation = null;
 					notify({
 						operation_available: true,
 						presentation: null,
@@ -1657,6 +1740,8 @@ window.__ModuleLoader__.load({
 					if (approvalFlight && handler !== null) throw new PrimeTransportError("RECONCILIATION_REQUIRED", "A memory action is still pending.");
 					if (handler === null && approvalFlight) api.logout();
 					else if (handler === null) cancelApprovalAction();
+					++actionGeneration;
+					reconciliation = null;
 					approvalAction = handler;
 					notify({ approval_action_available: !!configuredAction() && !approvalActionBlocked });
 				},
@@ -1665,8 +1750,54 @@ window.__ModuleLoader__.load({
 					if (approvalFlight && handler !== null) throw new PrimeTransportError("RECONCILIATION_REQUIRED", "A memory action is still pending.");
 					if (handler === null && approvalFlight) api.logout();
 					else if (handler === null) cancelApprovalAction();
+					++actionGeneration;
+					reconciliation = null;
 					forgetAction = handler;
 					notify({ approval_action_available: !!configuredAction() && !approvalActionBlocked });
+				},
+				reconcileApprovalAction(value) {
+					if (recoveryFlight) return recoveryFlight.promise;
+					const retained = reconciliation;
+					const current = () => retained && reconciliation === retained && approvalActionBlocked && revision === retained.revision && binding === retained.binding && state.owner === retained.owner && state.presentation === retained.presentation && configuredAction() === retained.handler && actionGeneration === retained.actionGeneration && !approvalFlight && !pending && !logoutFlight && state.authority_available === true && state.owner !== null && retained.approved === true && !retained.abort.signal.aborted && Date.parse(state.owner?.expiry) > now();
+					if (approvalFlight || pending || logoutFlight || !current()) return Promise.resolve(null);
+					const flight = { promise: null };
+					recoveryFlight = flight;
+					flight.promise = Promise.resolve().then(async () => {
+						try {
+							if (!current()) return null;
+							const forgetting = retained.presentation.operation.action_type === "memory.forget";
+							const result = forgetting ? await validateForgetWorkflowResult(value, retained) : await validateSaveRecovery(workflowSnapshot(value, retained), retained);
+							if (!current()) return null;
+							if (result.authority_settlement !== "completed" || result.reconciliation_required !== false || result.error_code !== null || (forgetting ? result.forgotten !== true : result.saved !== true)) throw new PrimeTransportError("OUTCOME_UNKNOWN", "ui:memory-recovery-not-completed");
+							approvalActionBlocked = false;
+							reconciliation = null;
+							settledPresentation = retained.presentation;
+							stopTimer();
+							notify({
+								phase: "approved",
+								error_code: null,
+								expired: false,
+								approval_action_pending: false,
+								...forgetting ? {
+									forget_action_result: result,
+									approval_action_result: null
+								} : {
+									approval_action_result: result,
+									forget_action_result: null
+								},
+								approval_action_available: !!configuredAction(),
+								reason: forgetting ? "The host recovered the logical forget receipt and confirmed authority settlement. Canonical payloads and external copies remain retained." : "The host recovered the save receipt and confirmed authority settlement. Index and citation status are shown separately."
+							});
+							checkExpiry();
+							return result;
+						} catch {
+							if (current()) fail(new PrimeTransportError("OUTCOME_UNKNOWN", "ui:memory-recovery-not-confirmed"));
+							return null;
+						} finally {
+							if (recoveryFlight === flight) recoveryFlight = null;
+						}
+					});
+					return flight.promise;
 				},
 				submitApproval() {
 					if (approvalActionBlocked) {
@@ -1688,6 +1819,8 @@ window.__ModuleLoader__.load({
 					}
 					const flight = {
 						revision,
+						binding,
+						actionGeneration,
 						presentation: state.presentation,
 						owner: state.owner,
 						handler,
@@ -1715,7 +1848,10 @@ window.__ModuleLoader__.load({
 								return null;
 							}
 							const unresolved = result.reconciliation_required || (forgetting ? result.forget : result.save) === "unknown" || result.phase === "outcome_unknown";
-							if (unresolved) approvalActionBlocked = true;
+							if (unresolved) {
+								approvalActionBlocked = true;
+								reconciliation = flight;
+							}
 							const completed = forgetting ? result.forget === "forgotten" : result.save === "saved";
 							notify({
 								...forgetting ? {
@@ -1734,6 +1870,7 @@ window.__ModuleLoader__.load({
 						} catch (error) {
 							if (flight.approved || flight.started && (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) || ["OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"].includes(error?.code)) approvalActionBlocked = true;
 							if (revision === flight.revision && state.owner === flight.owner) {
+								if (approvalActionBlocked) reconciliation = flight;
 								fail(approvalActionBlocked ? new PrimeTransportError("OUTCOME_UNKNOWN", "ui:memory-action-outcome-unknown") : error);
 								notify({ approval_action_available: !!configuredAction() && !approvalActionBlocked });
 							}
@@ -1769,6 +1906,8 @@ window.__ModuleLoader__.load({
 					});
 				},
 				logout() {
+					reconciliation = null;
+					settledPresentation = null;
 					if (logoutFlight?.revision === revision) return logoutFlight.promise;
 					cancelApprovalAction();
 					++revision;
@@ -1790,6 +1929,8 @@ window.__ModuleLoader__.load({
 					}, true);
 				},
 				disconnect() {
+					reconciliation = null;
+					settledPresentation = null;
 					cancelApprovalAction();
 					approvalAction = null;
 					forgetAction = null;
@@ -1987,7 +2128,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css$1 = "._7wS6_G_surface[hidden]{display:none!important}._7wS6_G_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}._7wS6_G_header{flex-direction:column;align-items:flex-start;gap:4px}._7wS6_G_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}._7wS6_G_header p{color:var(--aukora-text-secondary);margin:0}._7wS6_G_card{min-width:0;padding:16px}._7wS6_G_card h2{margin-top:0;font-size:16px;font-weight:600}._7wS6_G_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}._7wS6_G_fields{flex-direction:column;gap:12px;display:flex}._7wS6_G_fields dd{margin:0}._7wS6_G_fields dt{color:var(--aukora-text-secondary);font-size:13px}._7wS6_G_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}._7wS6_G_owner{flex-direction:column;gap:8px;display:flex}._7wS6_G_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}._7wS6_G_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}._7wS6_G_error{color:var(--aukora-red-warning)}._7wS6_G_menu{width:100%}._7wS6_G_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}._7wS6_G_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}._7wS6_G_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}._7wS6_G_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}._7wS6_G_badgePanel h2{font-size:14px}";
+		const css$1 = ".Q5b1ra_surface[hidden]{display:none!important}.Q5b1ra_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.Q5b1ra_header{flex-direction:column;align-items:flex-start;gap:4px}.Q5b1ra_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.Q5b1ra_header p{color:var(--aukora-text-secondary);margin:0}.Q5b1ra_card{min-width:0;padding:16px}.Q5b1ra_card h2{margin-top:0;font-size:16px;font-weight:600}.Q5b1ra_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.Q5b1ra_fields{flex-direction:column;gap:12px;display:flex}.Q5b1ra_fields dd{margin:0}.Q5b1ra_fields dt{color:var(--aukora-text-secondary);font-size:13px}.Q5b1ra_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.Q5b1ra_owner{flex-direction:column;gap:8px;display:flex}.Q5b1ra_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.Q5b1ra_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.Q5b1ra_error{color:var(--aukora-red-warning)}.Q5b1ra_menu{width:100%}.Q5b1ra_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.Q5b1ra_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.Q5b1ra_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.Q5b1ra_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.Q5b1ra_badgePanel h2{font-size:14px}";
 		const tagId$1 = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
@@ -1997,17 +2138,17 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "_7wS6_G_actions",
-			"badge": "_7wS6_G_badge",
-			"badgePanel": "_7wS6_G_badgePanel",
-			"capabilities": "_7wS6_G_capabilities",
-			"card": "_7wS6_G_card",
-			"error": "_7wS6_G_error",
-			"fields": "_7wS6_G_fields",
-			"header": "_7wS6_G_header",
-			"menu": "_7wS6_G_menu",
-			"owner": "_7wS6_G_owner",
-			"surface": "_7wS6_G_surface"
+			"actions": "Q5b1ra_actions",
+			"badge": "Q5b1ra_badge",
+			"badgePanel": "Q5b1ra_badgePanel",
+			"capabilities": "Q5b1ra_capabilities",
+			"card": "Q5b1ra_card",
+			"error": "Q5b1ra_error",
+			"fields": "Q5b1ra_fields",
+			"header": "Q5b1ra_header",
+			"menu": "Q5b1ra_menu",
+			"owner": "Q5b1ra_owner",
+			"surface": "Q5b1ra_surface"
 		};
 		//#endregion
 		//#region lib/types/client/OwnerSurface.js
@@ -2409,7 +2550,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/PrimeProviderEditor.module.css.mjs
-		const css = "._87fsza_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}._87fsza_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}._87fsza_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}._87fsza_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}._87fsza_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}._87fsza_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}._87fsza_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}._87fsza_rowHead{align-items:center;gap:10px;display:flex}._87fsza_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}._87fsza_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}._87fsza_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}._87fsza_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}._87fsza_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}._87fsza_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}._87fsza_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}._87fsza_primaryButton,._87fsza_secondaryButton,._87fsza_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}._87fsza_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}._87fsza_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}._87fsza_secondaryButton,._87fsza_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}._87fsza_secondaryButton:hover:not(:disabled),._87fsza_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}._87fsza_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}._87fsza_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}._87fsza_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}._87fsza_rowActions ._87fsza_secondaryButton,._87fsza_rowActions ._87fsza_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}._87fsza_primaryButton:disabled,._87fsza_secondaryButton:disabled,._87fsza_dangerButton:disabled,._87fsza_addButton:disabled,._87fsza_linkButton:disabled,._87fsza_addModelButton:disabled{opacity:.4;cursor:default}._87fsza_primaryButton:focus-visible,._87fsza_secondaryButton:focus-visible,._87fsza_dangerButton:focus-visible,._87fsza_addButton:focus-visible,._87fsza_linkButton:focus-visible,._87fsza_addModelButton:focus-visible,._87fsza_iconButton:focus-visible,._87fsza_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}._87fsza_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}._87fsza_editorHeader{align-items:baseline;gap:8px;display:flex}._87fsza_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}._87fsza_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}._87fsza_field{flex-direction:column;gap:6px;display:flex}._87fsza_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}._87fsza_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}._87fsza_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}._87fsza_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}._87fsza_editorActions{justify-content:flex-end;gap:8px;display:flex}._87fsza_addBlock{flex-direction:column;gap:12px;display:flex}._87fsza_addActions{flex-wrap:wrap;gap:10px;display:flex}._87fsza_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}._87fsza_addCard,._87fsza_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}._87fsza_addCard ._87fsza_editor,._87fsza_setupCard ._87fsza_editor{background:0 0;padding:0}._87fsza_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}._87fsza_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}._87fsza_customizedSummary::-webkit-details-marker{display:none}._87fsza_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}._87fsza_customized[open]>._87fsza_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}._87fsza_customizedSummary:hover{color:var(--dsw-alias-label-primary)}._87fsza_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}._87fsza_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}._87fsza_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}._87fsza_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}._87fsza_modelCatalogMeta,._87fsza_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}._87fsza_modelList{flex-direction:column;gap:8px;display:flex}._87fsza_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}._87fsza_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}._87fsza_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}._87fsza_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}._87fsza_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._87fsza_iconButton:disabled{cursor:default;opacity:.4}._87fsza_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}._87fsza_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}._87fsza_modelField{flex-direction:column;gap:4px;display:flex}._87fsza_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}._87fsza_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}._87fsza_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}._87fsza_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}._87fsza_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select._87fsza_input{cursor:pointer;max-width:240px}._87fsza_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}._87fsza_input::placeholder{color:var(--dsw-alias-label-dimmed)}._87fsza_input:disabled{opacity:.6;cursor:default}._87fsza_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}._87fsza_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}._87fsza_deleteDialog{width:min(480px,100%)}._87fsza_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}._87fsza_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}._87fsza_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){._87fsza_customizedSummary:before,._87fsza_switchThumb{transition:none}}._87fsza_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}._87fsza_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}._87fsza_candidateSearch{flex:240px;min-width:0}._87fsza_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}._87fsza_candidate{border-radius:6px}._87fsza_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}._87fsza_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}._87fsza_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
+		const css = ".sWclWa_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}.sWclWa_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}.sWclWa_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}.sWclWa_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}.sWclWa_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}.sWclWa_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}.sWclWa_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}.sWclWa_rowHead{align-items:center;gap:10px;display:flex}.sWclWa_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}.sWclWa_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.sWclWa_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}.sWclWa_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}.sWclWa_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}.sWclWa_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}.sWclWa_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}.sWclWa_primaryButton,.sWclWa_secondaryButton,.sWclWa_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.sWclWa_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.sWclWa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.sWclWa_secondaryButton,.sWclWa_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}.sWclWa_secondaryButton:hover:not(:disabled),.sWclWa_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.sWclWa_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}.sWclWa_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.sWclWa_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.sWclWa_rowActions .sWclWa_secondaryButton,.sWclWa_rowActions .sWclWa_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.sWclWa_primaryButton:disabled,.sWclWa_secondaryButton:disabled,.sWclWa_dangerButton:disabled,.sWclWa_addButton:disabled,.sWclWa_linkButton:disabled,.sWclWa_addModelButton:disabled{opacity:.4;cursor:default}.sWclWa_primaryButton:focus-visible,.sWclWa_secondaryButton:focus-visible,.sWclWa_dangerButton:focus-visible,.sWclWa_addButton:focus-visible,.sWclWa_linkButton:focus-visible,.sWclWa_addModelButton:focus-visible,.sWclWa_iconButton:focus-visible,.sWclWa_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.sWclWa_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}.sWclWa_editorHeader{align-items:baseline;gap:8px;display:flex}.sWclWa_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.sWclWa_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.sWclWa_field{flex-direction:column;gap:6px;display:flex}.sWclWa_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}.sWclWa_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.sWclWa_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.sWclWa_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.sWclWa_editorActions{justify-content:flex-end;gap:8px;display:flex}.sWclWa_addBlock{flex-direction:column;gap:12px;display:flex}.sWclWa_addActions{flex-wrap:wrap;gap:10px;display:flex}.sWclWa_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}.sWclWa_addCard,.sWclWa_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}.sWclWa_addCard .sWclWa_editor,.sWclWa_setupCard .sWclWa_editor{background:0 0;padding:0}.sWclWa_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}.sWclWa_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}.sWclWa_customizedSummary::-webkit-details-marker{display:none}.sWclWa_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}.sWclWa_customized[open]>.sWclWa_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}.sWclWa_customizedSummary:hover{color:var(--dsw-alias-label-primary)}.sWclWa_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}.sWclWa_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}.sWclWa_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}.sWclWa_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}.sWclWa_modelCatalogMeta,.sWclWa_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.sWclWa_modelList{flex-direction:column;gap:8px;display:flex}.sWclWa_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.sWclWa_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}.sWclWa_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}.sWclWa_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}.sWclWa_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.sWclWa_iconButton:disabled{cursor:default;opacity:.4}.sWclWa_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.sWclWa_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}.sWclWa_modelField{flex-direction:column;gap:4px;display:flex}.sWclWa_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.sWclWa_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}.sWclWa_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.sWclWa_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.sWclWa_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select.sWclWa_input{cursor:pointer;max-width:240px}.sWclWa_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}.sWclWa_input::placeholder{color:var(--dsw-alias-label-dimmed)}.sWclWa_input:disabled{opacity:.6;cursor:default}.sWclWa_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}.sWclWa_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}.sWclWa_deleteDialog{width:min(480px,100%)}.sWclWa_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.sWclWa_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.sWclWa_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){.sWclWa_customizedSummary:before,.sWclWa_switchThumb{transition:none}}.sWclWa_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}.sWclWa_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}.sWclWa_candidateSearch{flex:240px;min-width:0}.sWclWa_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}.sWclWa_candidate{border-radius:6px}.sWclWa_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}.sWclWa_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}.sWclWa_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
 		const tagId = "@aukora/prime-authority-ui/PrimeProviderEditor.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -2419,71 +2560,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var PrimeProviderEditor_module_css_default = {
-			"addActions": "_87fsza_addActions",
-			"addBlock": "_87fsza_addBlock",
-			"addButton": "_87fsza_addButton",
-			"addCard": "_87fsza_addCard",
-			"addModelButton": "_87fsza_addModelButton",
-			"advancedHint": "_87fsza_advancedHint",
-			"candidate": "_87fsza_candidate",
-			"candidateEmpty": "_87fsza_candidateEmpty",
-			"candidateId": "_87fsza_candidateId",
-			"candidateLabel": "_87fsza_candidateLabel",
-			"candidateList": "_87fsza_candidateList",
-			"candidateSearch": "_87fsza_candidateSearch",
-			"candidateToolbar": "_87fsza_candidateToolbar",
-			"credentialDot": "_87fsza_credentialDot",
-			"credentialDotConfigured": "_87fsza_credentialDotConfigured",
-			"credentialDotMissing": "_87fsza_credentialDotMissing",
-			"customized": "_87fsza_customized",
-			"customizedBody": "_87fsza_customizedBody",
-			"customizedSummary": "_87fsza_customizedSummary",
-			"dangerButton": "_87fsza_dangerButton",
-			"deleteConfirm": "_87fsza_deleteConfirm",
-			"deleteDialog": "_87fsza_deleteDialog",
-			"editor": "_87fsza_editor",
-			"editorActions": "_87fsza_editorActions",
-			"editorHeader": "_87fsza_editorHeader",
-			"editorRoute": "_87fsza_editorRoute",
-			"editorTitle": "_87fsza_editorTitle",
-			"error": "_87fsza_error",
-			"fetchDialog": "_87fsza_fetchDialog",
-			"field": "_87fsza_field",
-			"fieldLabel": "_87fsza_fieldLabel",
-			"hiddenLabel": "_87fsza_hiddenLabel",
-			"iconButton": "_87fsza_iconButton",
-			"iconButtonDanger": "_87fsza_iconButtonDanger",
-			"input": "_87fsza_input",
-			"intro": "_87fsza_intro",
-			"linkButton": "_87fsza_linkButton",
-			"modelAdvanced": "_87fsza_modelAdvanced",
-			"modelCatalog": "_87fsza_modelCatalog",
-			"modelCatalogHeading": "_87fsza_modelCatalogHeading",
-			"modelCatalogMeta": "_87fsza_modelCatalogMeta",
-			"modelCatalogTitle": "_87fsza_modelCatalogTitle",
-			"modelEmpty": "_87fsza_modelEmpty",
-			"modelEntry": "_87fsza_modelEntry",
-			"modelField": "_87fsza_modelField",
-			"modelFieldLabel": "_87fsza_modelFieldLabel",
-			"modelList": "_87fsza_modelList",
-			"modelListHead": "_87fsza_modelListHead",
-			"modelRow": "_87fsza_modelRow",
-			"notice": "_87fsza_notice",
-			"primaryButton": "_87fsza_primaryButton",
-			"rowActions": "_87fsza_rowActions",
-			"rowCard": "_87fsza_rowCard",
-			"rowHead": "_87fsza_rowHead",
-			"rowIdentity": "_87fsza_rowIdentity",
-			"rowName": "_87fsza_rowName",
-			"rowTag": "_87fsza_rowTag",
-			"rows": "_87fsza_rows",
-			"savedNotice": "_87fsza_savedNotice",
-			"secondaryButton": "_87fsza_secondaryButton",
-			"section": "_87fsza_section",
-			"selectInput": "_87fsza_selectInput",
-			"setupCard": "_87fsza_setupCard",
-			"switchThumb": "_87fsza_switchThumb",
-			"title": "_87fsza_title"
+			"addActions": "sWclWa_addActions",
+			"addBlock": "sWclWa_addBlock",
+			"addButton": "sWclWa_addButton",
+			"addCard": "sWclWa_addCard",
+			"addModelButton": "sWclWa_addModelButton",
+			"advancedHint": "sWclWa_advancedHint",
+			"candidate": "sWclWa_candidate",
+			"candidateEmpty": "sWclWa_candidateEmpty",
+			"candidateId": "sWclWa_candidateId",
+			"candidateLabel": "sWclWa_candidateLabel",
+			"candidateList": "sWclWa_candidateList",
+			"candidateSearch": "sWclWa_candidateSearch",
+			"candidateToolbar": "sWclWa_candidateToolbar",
+			"credentialDot": "sWclWa_credentialDot",
+			"credentialDotConfigured": "sWclWa_credentialDotConfigured",
+			"credentialDotMissing": "sWclWa_credentialDotMissing",
+			"customized": "sWclWa_customized",
+			"customizedBody": "sWclWa_customizedBody",
+			"customizedSummary": "sWclWa_customizedSummary",
+			"dangerButton": "sWclWa_dangerButton",
+			"deleteConfirm": "sWclWa_deleteConfirm",
+			"deleteDialog": "sWclWa_deleteDialog",
+			"editor": "sWclWa_editor",
+			"editorActions": "sWclWa_editorActions",
+			"editorHeader": "sWclWa_editorHeader",
+			"editorRoute": "sWclWa_editorRoute",
+			"editorTitle": "sWclWa_editorTitle",
+			"error": "sWclWa_error",
+			"fetchDialog": "sWclWa_fetchDialog",
+			"field": "sWclWa_field",
+			"fieldLabel": "sWclWa_fieldLabel",
+			"hiddenLabel": "sWclWa_hiddenLabel",
+			"iconButton": "sWclWa_iconButton",
+			"iconButtonDanger": "sWclWa_iconButtonDanger",
+			"input": "sWclWa_input",
+			"intro": "sWclWa_intro",
+			"linkButton": "sWclWa_linkButton",
+			"modelAdvanced": "sWclWa_modelAdvanced",
+			"modelCatalog": "sWclWa_modelCatalog",
+			"modelCatalogHeading": "sWclWa_modelCatalogHeading",
+			"modelCatalogMeta": "sWclWa_modelCatalogMeta",
+			"modelCatalogTitle": "sWclWa_modelCatalogTitle",
+			"modelEmpty": "sWclWa_modelEmpty",
+			"modelEntry": "sWclWa_modelEntry",
+			"modelField": "sWclWa_modelField",
+			"modelFieldLabel": "sWclWa_modelFieldLabel",
+			"modelList": "sWclWa_modelList",
+			"modelListHead": "sWclWa_modelListHead",
+			"modelRow": "sWclWa_modelRow",
+			"notice": "sWclWa_notice",
+			"primaryButton": "sWclWa_primaryButton",
+			"rowActions": "sWclWa_rowActions",
+			"rowCard": "sWclWa_rowCard",
+			"rowHead": "sWclWa_rowHead",
+			"rowIdentity": "sWclWa_rowIdentity",
+			"rowName": "sWclWa_rowName",
+			"rowTag": "sWclWa_rowTag",
+			"rows": "sWclWa_rows",
+			"savedNotice": "sWclWa_savedNotice",
+			"secondaryButton": "sWclWa_secondaryButton",
+			"section": "sWclWa_section",
+			"selectInput": "sWclWa_selectInput",
+			"setupCard": "sWclWa_setupCard",
+			"switchThumb": "sWclWa_switchThumb",
+			"title": "sWclWa_title"
 		};
 		//#endregion
 		//#region lib/types/client/PrimeProviderEditor.js

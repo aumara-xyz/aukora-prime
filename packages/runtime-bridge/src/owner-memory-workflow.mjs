@@ -285,7 +285,11 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
     async logout(){
       // The controller removes local owner state before the existing adapter
       // revokes C's durable token. Ending access never cancels a dispatched save.
-      controller.logout?.()
+      const ownerLogout=controller.logout?.()
+      // B also owns a completion flight around this same adapter revocation.
+      // Waiting for it lets the next ordinary login start after both flights
+      // have settled, including when the server's reply remains unconfirmed.
+      if(ownerLogout&&typeof ownerLogout.then==='function')return ownerLogout
       if(typeof memory.logout!=='function')return {ok:false,error_code:'UNAVAILABLE',reason:'OWNER_LOGOUT_UNMOUNTED'}
       return memory.logout()
     },

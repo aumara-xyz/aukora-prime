@@ -36,9 +36,25 @@ function runOwned(executor,resolveOperation) {
 export function createDshOpenShellExecutor({ShellExecutor,resolveSpec,executor,resolveOperation}) {
   if(typeof ShellExecutor!=='function'||typeof resolveSpec!=='function'||typeof resolveOperation!=='function'
     ||typeof executor?.execute!=='function')throw refused('trusted DSH/Bash ownership join missing','UNAVAILABLE')
+  const dispose=executor.dispose
+  const capability=Object.getOwnPropertyDescriptor(executor,'capability')
+  const execute=Object.getOwnPropertyDescriptor(executor,'execute')
+  const unavailableStub=Object.isFrozen(executor)&&Object.getPrototypeOf(executor)===Object.prototype
+    &&Reflect.ownKeys(executor).length===2
+    &&capability?.value==='unavailable'&&typeof execute?.value==='function'
+  if(typeof dispose!=='function'&&!unavailableStub)throw refused('owned executor disposal join missing','UNAVAILABLE')
   const run=runOwned(executor,resolveOperation)
   return class OpenShellBashExecutor extends ShellExecutor {
     static inject=['sandboxPolicy']
+    constructor(ctx) {
+      if(typeof ctx?.effect!=='function')throw refused('Cordis lifecycle ownership join missing','UNAVAILABLE')
+      super(ctx)
+      let cleanup
+      // One effect owns the complete awaited cleanup. The promise is captured
+      // before invocation so concurrent teardown joins it, including sync errors.
+      // Completion is not evidence of guest absence; receipts/ledger retain that.
+      ctx.effect(()=>()=>cleanup??=Promise.resolve().then(()=>dispose?.call(executor)),'owned OpenShell lifecycle')
+    }
     get sandboxMode() {return this.ctx.sandboxPolicy.defaultMode}
     resolve(request) {
       const policy=Object.hasOwn(request,'sandboxPolicy')?request.sandboxPolicy:this.ctx.sandboxPolicy.resolve()
@@ -58,7 +74,6 @@ export async function installOwnedBash(ctx,options) {
     runShell:runOwned(executor,options.resolveOperation),availability:()=>executor.availability()})
   const Executor=createDshOpenShellExecutor(options)
   ctx.provide('aukoraConfinement',service)
-  ctx.on('dispose',()=>executor.dispose())
   await ctx.plugin(Executor)
   return service
 }

@@ -11,9 +11,11 @@ export const memoryResultDigest=result=>'sha256:'+sha256(Buffer.from('aukora-pri
 export const memoryReceiptDigest=receipt=>'sha256:'+sha256(Buffer.from('aukora-prime.memory-receipt.v1\0'+canonicalJSON(receipt)))
 
 // Proof checking stays in C. A boolean callback, a CLI flag or a snapshot's synthetic label is not authority.
-export async function memoryAuthorization({authority,contracts},host,action,parameters,options) {
-  requireMemory(typeof authority?.reserve==='function' && typeof authority?.claimDispatch==='function',
-    'memory:authority-unavailable')
+export async function memoryAuthorization({authority,contracts,retainedMemory=false},host,action,parameters,options) {
+  const reserveMethod=retainedMemory?'reserveRetained':'reserve',dispatchMethod=retainedMemory?'claimDispatchRetained':'claimDispatch'
+  requireMemory(typeof authority?.[reserveMethod]==='function' && typeof authority?.[dispatchMethod]==='function'
+    && (!retainedMemory || typeof authority?.settleMemoryRetained==='function'),
+    retainedMemory?'memory:retained-authority-unavailable':'memory:authority-unavailable')
   contracts ??= await import('@aukora-prime/contracts').catch(()=>null)
   requireMemory(typeof contracts?.validateContract==='function' && typeof contracts?.operationDigest==='function',
     'memory:contracts-unavailable')
@@ -32,7 +34,7 @@ export async function memoryAuthorization({authority,contracts},host,action,para
   return {
     operation,digest,
     async reserve() {
-      const prepared=await authority.reserve({operation,approval_proof:proof})
+      const prepared=await authority[reserveMethod]({operation,approval_proof:proof})
       requireMemory(prepared?.ok===true && prepared.status==='PREPARED','memory:authority-refused')
       const grant=prepared.consumed_grant
       try {contracts.validateContract('ConsumedGrant',grant)} catch {requireMemory(false,'memory:grant-invalid')}
@@ -42,7 +44,7 @@ export async function memoryAuthorization({authority,contracts},host,action,para
       return grant
     },
     async dispatch({grant,request_id,request_digest}) {
-      const dispatched=await authority.claimDispatch({operation,consumed_grant:grant,request_id,request_digest})
+      const dispatched=await authority[dispatchMethod]({operation,consumed_grant:grant,request_id,request_digest})
       requireMemory(dispatched?.ok===true && dispatched.status==='DISPATCHED'
         && canonicalJSON(dispatched.consumed_grant)===canonicalJSON(grant),'memory:authority-dispatch-refused')
       return grant

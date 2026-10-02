@@ -1,0 +1,64 @@
+{
+  "observed_at": "2026-10-02T00:04:58.298222+00:00",
+  "gateway": {
+    "repository": "ghcr.io/nvidia/openshell/gateway",
+    "source_ref": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
+    "manifest_digest": "sha256:e0e18aa7a497290eed1f6ffb36f51540f037cec967c6d4354a264fecfd988620",
+    "index_digest": "sha256:2fe4dad9118e14ab80a8258b545ea6e6cd74c3469e24ad4e6610f964d98913a2",
+    "config_digest": "sha256:d6a87806b557730d55c95b4b3bd99ab74ccab0ad479166e116fae545e2b2f45e",
+    "config": {
+      "User": "1000:1000",
+      "Entrypoint": [
+        "/usr/local/bin/openshell-gateway"
+      ],
+      "WorkingDir": "/app",
+      "Volumes": null,
+      "Labels": null
+    },
+    "compressed_layer_bytes": 52631542
+  },
+  "docker_package_index": "https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-amd64/Packages.gz",
+  "docker_package_index_sha256": "4c74b468bc684576541595906cc064c53fd13d8c84519eadfb6b494bbdcdf3a3",
+  "packages": {
+    "docker-ce": {
+      "Package": "docker-ce",
+      "Version": "5:29.8.2-1~ubuntu.24.04~noble",
+      "Architecture": "amd64",
+      "Filename": "dists/noble/pool/stable/amd64/docker-ce_29.8.2-1~ubuntu.24.04~noble_amd64.deb",
+      "Size": "24358876",
+      "SHA256": "b53a44a6ff13277710978adbdbfea27fcdd7ac9f198017e733d2b8dc2343f8dc",
+      "Depends": "containerd.io (>= 2.1.5), docker-ce-cli, iptables, nftables, libc6 (>= 2.34), libsystemd0"
+    },
+    "docker-ce-cli": {
+      "Package": "docker-ce-cli",
+      "Version": "5:29.8.2-1~ubuntu.24.04~noble",
+      "Architecture": "amd64",
+      "Filename": "dists/noble/pool/stable/amd64/docker-ce-cli_29.8.2-1~ubuntu.24.04~noble_amd64.deb",
+      "Size": "17549632",
+      "SHA256": "008b3b49b474136063fe0fbe8999b0e77c3e8556d7f7de21f98f05715e2f76ba",
+      "Depends": "libc6 (>= 2.34)"
+    },
+    "containerd.io": {
+      "Package": "containerd.io",
+      "Version": "2.3.6-1~ubuntu.24.04~noble",
+      "Architecture": "amd64",
+      "Filename": "dists/noble/pool/stable/amd64/containerd.io_2.3.6-1~ubuntu.24.04~noble_amd64.deb",
+      "Size": "23155464",
+      "SHA256": "2eb8c6e244fe6886f2fa2eee9ec418c4b9bb44eb44fca748504f57c23341aed2",
+      "Depends": "libc6 (>= 2.38), libseccomp2 (>= 2.5.0)"
+    },
+    "docker-buildx-plugin": {
+      "Package": "docker-buildx-plugin",
+      "Version": "0.37.1-1~ubuntu.24.04~noble",
+      "Architecture": "amd64",
+      "Filename": "dists/noble/pool/stable/amd64/docker-buildx-plugin_0.37.1-1~ubuntu.24.04~noble_amd64.deb",
+      "Size": "17272004",
+      "SHA256": "3c398af6eea280ddb57f32334d83867efd2bf07c4bc1be75fbd0a61c490ea925",
+      "Depends": null
+    }
+  },
+  "layers_downloaded": false,
+  "packages_downloaded": false,
+  "installed": false,
+  "launched": false
+}

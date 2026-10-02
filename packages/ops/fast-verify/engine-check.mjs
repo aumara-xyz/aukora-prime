@@ -22,6 +22,13 @@ const sources = {
   timeout: "setInterval(()=>{},1000);\n",
   overflow: "process.stdout.write('Q'.repeat(70000));\n",
   mutate: "import {appendFileSync} from 'node:fs';appendFileSync(new URL(import.meta.url),'// changed\\n');\n",
+  fullTap: "console.log(\"TAP version 13\\nok 1 - synthetic selected\\n1..1\\n# tests 1\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\");\n",
+  fullMixedSkip: "console.log(\"TAP version 13\\nok 1 - synthetic selected\\nok 2 - omitted # SKIP fixture\\n1..2\\n# tests 2\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 1\\n# todo 0\");\n",
+  fullNestedTodo: "console.log(\"TAP version 13\\n    ok 1 - inner # TODO fixture\\nok 1 - synthetic selected\\n1..1\\n# tests 2\\n# pass 2\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\");\n",
+  fullMissingCounts: "console.log(\"TAP version 13\\nok 1 - synthetic selected\\n1..1\");\n",
+  jsonPass: "console.log(\"{\\\"result\\\":\\\"PASS\\\",\\\"groups\\\":1}\");\n",
+  jsonSkip: "console.log(\"{\\\"result\\\":\\\"PASS\\\",\\\"groups\\\":1,\\\"skipped\\\":1}\");\n",
+  jsonEmpty: "console.log(\"{\\\"result\\\":\\\"PASS\\\",\\\"groups\\\":0}\");\n",
   rebind: "import {renameSync,symlinkSync} from 'node:fs';import {dirname} from 'node:path';const evidence=dirname(dirname(process.env.TMPDIR));renameSync(evidence,evidence+'-retained');symlinkSync(process.cwd(),evidence,'dir');\n"
 }
 // Retained literal pins for these fixed synthetic bytes; not derived from roots.
@@ -35,11 +42,25 @@ const pins = {
   timeout: 'ecd0835b4e2198ba6874b86a435cc0211780c30759bdf31cbc55476499b7ccef',
   overflow: '45648a1b5e849b17af5b059b79ab69bad0474c1e188b2b300aebb9e733264da3',
   mutate: '42682108a6a18355417a8f45bdfad0b39d19168b047ec7e31ee092dcbfdcfe83',
+  fullTap: "console.log(\"TAP version 13\\nok 1 - synthetic selected\\n1..1\\n# tests 1\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\");\n",
+  fullMixedSkip: "console.log(\"TAP version 13\\nok 1 - synthetic selected\\nok 2 - omitted # SKIP fixture\\n1..2\\n# tests 2\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 1\\n# todo 0\");\n",
+  fullNestedTodo: "console.log(\"TAP version 13\\n    ok 1 - inner # TODO fixture\\nok 1 - synthetic selected\\n1..1\\n# tests 2\\n# pass 2\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\");\n",
+  fullMissingCounts: "console.log(\"TAP version 13\\nok 1 - synthetic selected\\n1..1\");\n",
+  jsonPass: "console.log(\"{\\\"result\\\":\\\"PASS\\\",\\\"groups\\\":1}\");\n",
+  jsonSkip: "console.log(\"{\\\"result\\\":\\\"PASS\\\",\\\"groups\\\":1,\\\"skipped\\\":1}\");\n",
+  jsonEmpty: "console.log(\"{\\\"result\\\":\\\"PASS\\\",\\\"groups\\\":0}\");\n",
+  fullTap: 'a5000a364adcc513b0cb33e72d80f5236e1460dd9136a8dfe3846a6c87e89556',
+  fullMixedSkip: '977100e4e5cf400d6f14e8e53070b4871b5da5b81aa9419fbbe5915f653936cc',
+  fullNestedTodo: 'f472d2195a51aca25749f278ebc5022499da6a679fdc9d42741d00c40ac6e892',
+  fullMissingCounts: 'b478ba8fe5cc67d6564532035c1163a4a44f995134f3d2b403fcb86097667009',
+  jsonPass: '76e2bba943fa480fabfebff2ba69ed0ca88cc7f836f2c22d6ae3702e70820c4e',
+  jsonSkip: 'bb9ef8a23fce7cf14a8ce926820778f30b04d242e1ec01e502aca67912175b84',
+  jsonEmpty: 'fe7c92af305c6847fabb821f387c4f65f4fafbe4af3d1eb2c91d386abd9d8a6b',
   rebind: 'ca5df18b46af50f2c482e1e1dadcbfdac2e8947ed782570cd00283ec3e058295'
 }
 const supportBytes = '{"synthetic":true}\n'
 const supportPin = 'cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8'
-const row = (kind, extra = {}) => ({id: kind, property: 'Synthetic orchestration fixture', entry: 'checks/' + kind + '.mjs',
+const row = (kind, extra = {}) => ({id: kind.replace(/[A-Z]/g, letter => '-'+letter.toLowerCase()), property: 'Synthetic orchestration fixture', entry: 'checks/' + kind + '.mjs',
   args: [], nodeArgs: [], expectedSha256: pins[kind], protocol: 'assert-script', timeoutMs: 2000, ...extra})
 const tapRow = (kind, extra = {}) => row(kind, {nodeArgs: ['--test', '--test-isolation=none', '--test-reporter=tap'], protocol: 'tap',
   expectedTitle: 'synthetic selected', minTests: 1, ...extra})
@@ -147,6 +168,33 @@ try {
   await check('skipped-or-wrong-selected-title-cannot-pass', async () => {
     const own = await fixture([tapRow('skip'), tapRow('tap', {expectedTitle: 'unselected title'})]), result = await own.run(); cleanSummary(result)
     assert.equal(result.exit_code, 1); assert.ok(result.cases.every(value => value.reason === 'TAP_SELECTED_TEST_MISSING'))
+  })
+  await check('required-full-tap-completes-all-counts-with-no-selection', async () => {
+    const own = await fixture([tapRow('fullTap', {nodeArgs: [], requireComplete: true})])
+    const result = await own.run(); cleanSummary(result)
+    assert.equal(result.status, 'PASS'); assert.equal(result.cases[0].required_full_file, true)
+  })
+  await check('required-full-tap-refuses-mixed-skip-and-nested-todo', async () => {
+    const own = await fixture(['fullMixedSkip', 'fullNestedTodo'].map(kind => tapRow(kind, {nodeArgs: [], requireComplete: true})))
+    const result = await own.run(); cleanSummary(result)
+    assert.equal(result.status, 'FAIL')
+    assert.ok(result.cases.every(value => value.reason === 'TAP_REQUIRED_TEST_SKIPPED_OR_TODO'))
+  })
+  await check('required-full-tap-refuses-missing-summary-counts', async () => {
+    const own = await fixture([tapRow('fullMissingCounts', {nodeArgs: [], requireComplete: true})])
+    const result = await own.run(); cleanSummary(result)
+    assert.equal(result.status, 'FAIL'); assert.equal(result.cases[0].reason, 'TAP_REQUIRED_COUNTS_MISSING')
+  })
+  await check('required-job-cannot-configure-a-test-name-selector', async () => {
+    const own = await fixture([tapRow('tap', {requireComplete: true, nodeArgs: ['--test','--test-name-pattern','synthetic selected']})])
+    const result = await own.run(); cleanSummary(result)
+    assert.equal(result.reason, 'INVALID_COMPILED_MANIFEST'); assert.equal(existsSync(own.evidenceDir), false)
+  })
+  await check('required-json-summary-needs-counts-and-zero-skips', async () => {
+    const own = await fixture(['jsonPass','jsonSkip','jsonEmpty'].map(kind => row(kind, {protocol: 'json-assertions', requireComplete: true})))
+    const result = await own.run(); cleanSummary(result)
+    assert.deepEqual(result.cases.map(value => value.status), ['PASS','FAIL','FAIL'])
+    assert.deepEqual(result.cases.map(value => value.reason), ['ASSERTIONS_COMPLETED','ASSERTION_REQUIRED_TESTS_INCOMPLETE','ASSERTION_SUMMARY_INCOMPLETE'])
   })
   await check('timeout-stops-following-case-and-signals-only-owned-child', async () => {
     const own = await fixture([row('timeout', {timeoutMs: 50}), row('pass')]), result = await own.run(); cleanSummary(result)

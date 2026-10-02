@@ -56,14 +56,17 @@ function compiledCases(root) {
           !/^[A-Z][A-Z0-9_]{0,119}$/.test(row.unsupportedReason)) reject('INVALID_COMPILED_MANIFEST')
       return {...row}
     }
-    const allowed = ['id', 'property', 'entry', 'args', 'nodeArgs', 'expectedSha256', 'timeoutMs', 'protocol', 'expectedTitle', 'minTests', 'pins', 'requiresPython']
+    const allowed = ['id', 'property', 'entry', 'args', 'nodeArgs', 'expectedSha256', 'timeoutMs', 'protocol', 'expectedTitle', 'minTests', 'pins', 'requiresPython', 'requireComplete']
     if (Object.keys(row).some(key => !allowed.includes(key)) || !safePath(row.entry) || isAbsolute(row.entry) ||
         row.entry.split('/').some(part => !part || part === '.' || part === '..') || row.entry.includes('\\') ||
         !Array.isArray(row.args) || row.args.some(value => !safePath(value)) ||
         (row.nodeArgs !== undefined && (!Array.isArray(row.nodeArgs) || row.nodeArgs.some(value => !safePath(value)))) ||
-        !/^[0-9a-f]{64}$/.test(row.expectedSha256) || !Number.isInteger(row.timeoutMs) || row.timeoutMs < 1 || row.timeoutMs > 20_000 ||
-        !['assert-script', 'tap'].includes(row.protocol) ||
-        (row.requiresPython !== undefined && typeof row.requiresPython !== 'boolean')) reject('INVALID_COMPILED_MANIFEST')
+        !/^[0-9a-f]{64}$/.test(row.expectedSha256) || !Number.isInteger(row.timeoutMs) || row.timeoutMs < 1 || row.timeoutMs > 30_000 ||
+        !['assert-script', 'tap', 'json-assertions'].includes(row.protocol) ||
+        (row.requiresPython !== undefined && typeof row.requiresPython !== 'boolean') ||
+        (row.requireComplete !== undefined && typeof row.requireComplete !== 'boolean') ||
+        (row.requireComplete && (row.protocol === 'assert-script' || row.nodeArgs.some(value =>
+          /^--test-(?:name-pattern|skip-pattern|only)(?:=|$)/.test(value))))) reject('INVALID_COMPILED_MANIFEST')
     if (row.protocol === 'tap' && (typeof row.expectedTitle !== 'string' || !row.expectedTitle.length ||
         CONTROLS.test(row.expectedTitle) || !Number.isInteger(row.minTests) || row.minTests < 1 || row.minTests > 10_000)) reject('INVALID_COMPILED_MANIFEST')
     const entry = join(root, row.entry)
@@ -167,7 +170,24 @@ function tapResult(text, row) {
     const plan = /^1\.\.(\d+)\s*$/.exec(line)
     if (plan) plans.push(Number(plan[1]))
   }
-  if (lines.some(line => /^Bail out!/i.test(line))) return {status: 'FAIL', reason: 'TAP_BAIL_OUT'}
+  if (lines.some(line => /^\s*Bail out!/i.test(line))) return {status: 'FAIL', reason: 'TAP_BAIL_OUT'}
+  if (row.requireComplete) {
+    if (lines.some(line => /^\s*(?:not ok|ok) \d+.*\s#\s*(?:SKIP|TODO)\b/i.test(line)))
+      return {status: 'FAIL', reason: 'TAP_REQUIRED_TEST_SKIPPED_OR_TODO'}
+    if (lines.some(line => /^\s*not ok \d+(?: -)? /.test(line)))
+      return {status: 'FAIL', reason: 'TAP_ASSERTION_FAILED'}
+    const counts = {}
+    for (const name of ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo']) {
+      const values = lines.map(line => new RegExp('^# ' + name + ' (\\d+)$').exec(line)).filter(Boolean)
+      if (values.length !== 1) return {status: 'FAIL', reason: 'TAP_REQUIRED_COUNTS_MISSING'}
+      counts[name] = Number(values[0][1])
+      if (!Number.isSafeInteger(counts[name]) || counts[name] < 0)
+        return {status: 'FAIL', reason: 'TAP_REQUIRED_COUNTS_MISSING'}
+    }
+    if (counts.skipped || counts.todo) return {status: 'FAIL', reason: 'TAP_REQUIRED_TEST_SKIPPED_OR_TODO'}
+    if (counts.fail || counts.cancelled || !counts.tests || counts.tests < leaves.length || counts.pass !== counts.tests)
+      return {status: 'FAIL', reason: 'TAP_REQUIRED_TESTS_INCOMPLETE'}
+  }
   if (plans.length !== 1 || plans[0] !== leaves.length || !leaves.length ||
       leaves.some((value, index) => value.number !== index + 1)) return {status: 'FAIL', reason: 'TAP_INCOMPLETE'}
   if (leaves.some(value => !value.passed && !value.skipped)) return {status: 'FAIL', reason: 'TAP_ASSERTION_FAILED'}
@@ -176,12 +196,27 @@ function tapResult(text, row) {
   return {status: 'PASS', reason: 'ASSERTIONS_COMPLETED', test_count: completed.length}
 }
 
+function jsonAssertionsResult(text) {
+  let value
+  try {value = JSON.parse(text.trim().split(/\r?\n/).at(-1))}
+  catch {return {status: 'FAIL', reason: 'ASSERTION_SUMMARY_MISSING'}}
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !['result', 'status'].some(key => value[key] === 'PASS') ||
+      ['result', 'status'].some(key => value[key] !== undefined && value[key] !== 'PASS') ||
+      !['checks', 'cases', 'groups', 'assertions'].some(key => Number.isSafeInteger(value[key]) && value[key] > 0))
+    return {status: 'FAIL', reason: 'ASSERTION_SUMMARY_INCOMPLETE'}
+  if (['skip', 'skipped', 'todo', 'fail', 'failed', 'cancelled'].some(key => value[key] !== undefined && value[key] !== 0) ||
+      (value.failures !== undefined && (!Array.isArray(value.failures) || value.failures.length)))
+    return {status: 'FAIL', reason: 'ASSERTION_REQUIRED_TESTS_INCOMPLETE'}
+  return {status: 'PASS', reason: 'ASSERTIONS_COMPLETED'}
+}
+
 /** Uses only the reviewed compiled manifest. Raw output is neither returned nor saved. */
 export async function runFastVerify(options) {
   const started = performance.now(), records = []
   const result = {schema: 'prime-fast-verify/v1', status: 'UNPERFORMED', exit_code: 2, cases: records,
     qualification: 'UNPERFORMED', g1: 'PENDING', historical: HISTORY, unperformed: UNPERFORMED,
-    source_review_commit: SOURCE_REVIEW_COMMIT,
+    source_review_commit: SOURCE_REVIEW_COMMIT, source_review_attribution: 'LITERAL_ENTRY_PINS_NOT_CHECKOUT_ATTESTATION',
     node: {version: process.version, executable: process.execPath, pin_verification: 'OBSERVED_ONLY'},
     budget: {suite_ms: SUITE_MS, wall_target_ms: 180_000, wall_limit_enforcement: 'COOPERATIVE_NOT_KERNEL_ENFORCED', cleanup_guarantee: 'COOPERATIVE_DIRECT_CHILD_ONLY'},
     descendant_cleanup: 'UNPERFORMED', source_pin_scope: 'COMPILED_ENTRYPOINTS_AND_LITERAL_SUPPORT_PINS',
@@ -205,7 +240,7 @@ export async function runFastVerify(options) {
     const deadline = started + SUITE_MS
     let stop = false
     for (const row of cases) {
-      const record = {id: row.id, property: row.property, status: 'UNPERFORMED', descendant_cleanup: 'UNPERFORMED'}
+      const record = {id: row.id, property: row.property, required_full_file: row.requireComplete === true, status: 'UNPERFORMED', descendant_cleanup: 'UNPERFORMED'}
       records.push(record)
       if (row.unsupportedReason) {record.reason = row.unsupportedReason; continue}
       if (stop || options.signal?.aborted || performance.now() >= deadline) {
@@ -284,7 +319,7 @@ export async function runFastVerify(options) {
         }
         record.status = 'FAIL'; record.reason = 'ASSERTION_PROCESS_FAILED'; continue
       }
-      Object.assign(record, row.protocol === 'tap' ? tapResult(execution.stdout, row) : {status: 'PASS', reason: 'ASSERTIONS_COMPLETED'})
+      Object.assign(record, row.protocol === 'tap' ? tapResult(execution.stdout, row) : row.protocol === 'json-assertions' ? jsonAssertionsResult(execution.stdout) : {status: 'PASS', reason: 'ASSERTIONS_COMPLETED'})
     }
     result.status = records.some(row => row.status === 'FAIL') ? 'FAIL' : records.every(row => row.status === 'PASS') ? 'PASS' : 'UNPERFORMED'
     result.exit_code = result.status === 'PASS' ? 0 : result.status === 'FAIL' ? 1 : 2

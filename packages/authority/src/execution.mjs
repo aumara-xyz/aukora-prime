@@ -32,7 +32,10 @@ export function validatedReceipt(input) {
     if(!s||typeof s!=='object'||Array.isArray(s)||Object.keys(s).sort().join(',')!=='identity,image_digest,name,policy_digest,uid'||
        !UUID.test(s.uid)||[s.identity,s.image_digest,s.name].some(x=>typeof x!=='string'||!x.length)||!DIGEST.test(s.policy_digest))throw new TypeError('INVALID: exact sandbox receipt')
   }
-  if(r.rpc_completion==='complete'&&r.exit_code===null)throw new TypeError('INVALID: complete RPC requires typed exit')
+  // A drained RPC can lack a trustworthy command exit (including ambiguous
+  // gateway timeout124). Preserve that fact without making it terminal.
+  if(r.rpc_completion==='complete'&&r.exit_code===null&&
+     (r.status!=='outcome_unknown'||r.reconciliation_required!==true||r.started_at===null))throw new TypeError('INVALID: complete RPC without typed exit requires started reconciliation uncertainty')
   if(r.rpc_completion==='not_started'&&(r.started_at!==null||r.exit_code!==null))throw new TypeError('INVALID: non-started receipt has execution evidence')
   if(r.cleanup==='not_created'&&(r.sandbox!==null||r.rpc_completion!=='not_started'||r.started_at!==null||r.exit_code!==null))throw new TypeError('INVALID: not_created contradicts execution')
   return r

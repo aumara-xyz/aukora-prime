@@ -94,11 +94,13 @@ export function resolveWitnessDir() {
     ? process.env.AUKORA_WITNESS_DIR : join(userInfo().homedir, '.aukora-witness'))
 }
 
-/**
- * Decide one approval. Commit consumption and the external witness before ALLOW.
- * @returns {{decision: 'ALLOW'|'DENY', reason: string, detail: string, approvalId?: string, receiptDraft?: object}}
- */
-export function decideApproval({ approvalPath, approverDid, operationDigest, subject, controlDigest, consumedIdsPath, stateRoot, createConsumedIds = false, nowSeconds, witnessDirectory, Store = ApprovalStateStore, beforePrepare }) {
+function approvalWindowRefusal(receipt, nowS) {
+  if (nowS < receipt.issuedAt) return deny('adapter:approval-not-yet-valid', `now ${String(nowS)} is before issuedAt ${String(receipt.issuedAt)}`)
+  if (!(receipt.expiresAt > nowS)) return deny('adapter:approval-expired', `now ${String(nowS)} is not before expiresAt ${String(receipt.expiresAt)}`)
+  return null
+}
+
+function verifyApprovalInput({ approvalPath, approverDid, operationDigest, subject, controlDigest, nowSeconds }) {
   if (!HEX64.test(operationDigest ?? '')) return deny('usage:operation-digest', '--operation-digest must be 64 lowercase hex')
   if (!HEX64.test(controlDigest ?? '')) return deny('usage:control-digest', '--control-digest must be 64 lowercase hex')
   if (typeof subject !== 'string' || subject === '') return deny('usage:subject', '--subject is required')
@@ -164,77 +166,116 @@ export function decideApproval({ approvalPath, approverDid, operationDigest, sub
   if (receipt.activeControlDigest !== controlDigest) {
     return deny('adapter:control-digest-mismatch', `the approval signs control digest ${receipt.activeControlDigest}; expected ${controlDigest}`)
   }
-  if (nowS < receipt.issuedAt) return deny('adapter:approval-not-yet-valid', `now ${String(nowS)} is before issuedAt ${String(receipt.issuedAt)}`)
-  if (!(receipt.expiresAt > nowS)) return deny('adapter:approval-expired', `now ${String(nowS)} is not before expiresAt ${String(receipt.expiresAt)}`)
+  const windowRefusal = approvalWindowRefusal(receipt, nowS)
+  if (windowRefusal) return windowRefusal
 
-  // 5. The ported transaction is the only writer of consumed ids and receipt head.
-  const approvalId = `approval:${receipt.challenge}`
+  return { receipt, signedBytesDigest, nowMs }
+}
+
+function ownerApprovalContext({ receipt, consumedIdsPath, stateRoot, witnessDirectory }) {
   const statePath = resolve(consumedIdsPath)
-  // Prime service supplies an explicit isolated witness location. No wire input selects this.
   const witnessDir = witnessDirectory === undefined ? resolveWitnessDir() : resolve(witnessDirectory)
-  const witnessPath = join(witnessDir, 'kernel-high-water.json')
-  let store, result, kernelFailure
-  try {
-    const restoreRoot = stateRoot ?? (statePath.endsWith('/home/aura-code/consumed-ids.json') ? resolve(dirname(statePath), '..', '..') : dirname(statePath))
-    store = new Store({
-      statePath, stateRoot: resolve(restoreRoot), witnessDir, createConsumedIds,
-      onMigration: (message) => process.stderr.write(`${message}\n`),
-      decide: (...args) => {
-        try {
-          result = kernel.decide(...args)
-          if (result.decision.status === 'allowed' && !result.nextState.consumedIds.includes(approvalId)) {
-            throw new KernelDidNotConsumeError('the kernel allowed without consuming the id; refusing')
-          }
-          return result
-        } catch (error) { kernelFailure = error; throw error }
-      },
-    })
-    store.open()
-    // Prime's trusted service hook checks exact epoch, policy, target state and owner proof
-    // under the SAME existing store lock. A refusal never reaches kernel preparation.
-    if (beforePrepare) store.primeBeforeKernel = () => beforePrepare({ receipt, store, genesis: structuredClone(EMPTY_STATE) })
-    const request = {
-      schema: 'aukora-kernel-request-v1',
-      requestId: `aumlok-approval:${signedBytesDigest}`,
-      action: { ...KERNEL_ACTION },
-      resource: { namespace: KERNEL_RESOURCE_NAMESPACE, id: receipt.subject },
-      ring: KERNEL_RING,
-      payloadHash: receipt.operationDigest,
-      consumptionId: approvalId,
-      humanClearance: false,
-      authorization: null,
+  const restoreRoot = stateRoot ?? (statePath.endsWith('/home/aura-code/consumed-ids.json') ? resolve(dirname(statePath), '..', '..') : dirname(statePath))
+  return { approvalId: `approval:${receipt.challenge}`, statePath, witnessDir, witnessPath: join(witnessDir, 'kernel-high-water.json'), restoreRoot, result: undefined, kernelFailure: undefined }
+}
+
+function ownerApprovalStore(context, Store, createConsumedIds) {
+  return new Store({
+    statePath: context.statePath, stateRoot: resolve(context.restoreRoot), witnessDir: context.witnessDir, createConsumedIds,
+    onMigration: (message) => process.stderr.write(`${message}\n`),
+    decide: (...args) => {
+      try {
+        const result = kernel.decide(...args)
+        context.result = result
+        if (result.decision.status === 'allowed' && !result.nextState.consumedIds.includes(context.approvalId)) {
+          throw new KernelDidNotConsumeError('the kernel allowed without consuming the id; refusing')
+        }
+        return result
+      } catch (error) { context.kernelFailure = error; throw error }
+    },
+  })
+}
+
+function ownerPreparation({ receipt, signedBytesDigest, nowMs }, approvalId, operationDigest) {
+  return {
+    genesis: structuredClone(EMPTY_STATE),
+    request: {
+      schema: 'aukora-kernel-request-v1', requestId: `aumlok-approval:${signedBytesDigest}`,
+      action: { ...KERNEL_ACTION }, resource: { namespace: KERNEL_RESOURCE_NAMESPACE, id: receipt.subject },
+      ring: KERNEL_RING, payloadHash: receipt.operationDigest, consumptionId: approvalId,
+      humanClearance: false, authorization: null,
       evidenceRefs: [`control:${receipt.activeControlDigest}`, `signed-bytes:${signedBytesDigest}`],
-    }
-    const outcome = store.authorizeAndPrepare({
-      genesis: structuredClone(EMPTY_STATE), request, policyBytes: kernel.canonicalBytes(KERNEL_POLICY), nowMs,
-      effect: { effectId: signedBytesDigest, descriptorKind: 'aumlok-approved-operation', targetPath: receipt.subject, contentHash: operationDigest },
-    })
-    const { decision, receiptDraft } = result
-    if (!outcome.ok) {
-      const detail = decision.code === 'replay' ? `${approvalId} is already consumed in ${statePath}` : `the kernel refused with ${decision.code}`
-      return deny(`kernel:${decision.code}`, detail, { approvalId, receiptDraft })
-    }
-    return {
-      decision: 'ALLOW',
-      reason: `kernel:${decision.code}`,
-      detail: `${approvalId} consumed in ${statePath} (${String(outcome.record.state.consumedIds.length)} consumed); external high-water retained`,
-      approvalId,
-      receiptDraft,
-    }
-  } catch (error) {
-    if (error?.primeRefusal === true) return deny(error.code, error.message)
-    const reason = error instanceof RollbackRefusedError ? 'kernel:rollback-refused'
-      : error instanceof WriterLockedError ? 'adapter:consumed-ids-locked'
-      : error instanceof MissingTrustedStateError ? 'adapter:consumed-ids-missing'
-      : error instanceof WitnessUnreadableError ? 'adapter:witness-unreadable'
-      : error instanceof TrustedStoreUnsafePathError ? 'adapter:trusted-state-unsafe-path'
-      : error instanceof KernelDidNotConsumeError ? 'adapter:kernel-did-not-consume'
-      : error === kernelFailure ? `kernel-input:${error?.code ?? 'error'}` : 'adapter:consumed-ids-unreadable'
-    const detail = error instanceof RollbackRefusedError
-      ? `${error.message}\nRecovery: the state folder is older than the witness at ${witnessPath}; restore the newer state, or reset the witness only if you intend to accept the rollback.`
-      : error instanceof Error ? error.message : String(error)
-    return deny(reason, detail, { approvalId })
-  } finally { store?.close() }
+    },
+    policyBytes: kernel.canonicalBytes(KERNEL_POLICY), nowMs,
+    effect: { effectId: signedBytesDigest, descriptorKind: 'aumlok-approved-operation', targetPath: receipt.subject, contentHash: operationDigest },
+  }
+}
+
+function ownerApprovalOutcome(outcome, { result, approvalId, statePath }) {
+  const { decision, receiptDraft } = result
+  if (!outcome.ok) {
+    const detail = decision.code === 'replay' ? `${approvalId} is already consumed in ${statePath}` : `the kernel refused with ${decision.code}`
+    return deny(`kernel:${decision.code}`, detail, { approvalId, receiptDraft })
+  }
+  return {
+    decision: 'ALLOW', reason: `kernel:${decision.code}`,
+    detail: `${approvalId} consumed in ${statePath} (${String(outcome.record.state.consumedIds.length)} consumed); external high-water retained`,
+    approvalId, receiptDraft,
+  }
+}
+
+function ownerApprovalError(error, { kernelFailure, witnessPath, approvalId }) {
+  if (error?.primeRefusal === true) return deny(error.code, error.message)
+  const reason = error instanceof RollbackRefusedError ? 'kernel:rollback-refused'
+    : error instanceof WriterLockedError ? 'adapter:consumed-ids-locked'
+    : error instanceof MissingTrustedStateError ? 'adapter:consumed-ids-missing'
+    : error instanceof WitnessUnreadableError ? 'adapter:witness-unreadable'
+    : error instanceof TrustedStoreUnsafePathError ? 'adapter:trusted-state-unsafe-path'
+    : error instanceof KernelDidNotConsumeError ? 'adapter:kernel-did-not-consume'
+    : error === kernelFailure ? `kernel-input:${error?.code ?? 'error'}` : 'adapter:consumed-ids-unreadable'
+  const detail = error instanceof RollbackRefusedError
+    ? `${error.message}\nRecovery: the state folder is older than the witness at ${witnessPath}; restore the newer state, or reset the witness only if you intend to accept the rollback.`
+    : error instanceof Error ? error.message : String(error)
+  return deny(reason, detail, { approvalId })
+}
+
+/** Decide one approval synchronously. The original transaction commits before ALLOW. */
+export function decideApproval({ approvalPath, approverDid, operationDigest, subject, controlDigest, consumedIdsPath, stateRoot, createConsumedIds = false, nowSeconds, witnessDirectory, Store = ApprovalStateStore, beforePrepare }) {
+  const verified = verifyApprovalInput({ approvalPath, approverDid, operationDigest, subject, controlDigest, nowSeconds })
+  if (verified.decision === 'DENY') return verified
+  const context = ownerApprovalContext({ receipt: verified.receipt, consumedIdsPath, stateRoot, witnessDirectory })
+  let store
+  try {
+    store = ownerApprovalStore(context, Store, createConsumedIds)
+    store.open()
+    if (beforePrepare) store.primeBeforeKernel = () => beforePrepare({ receipt: verified.receipt, store, genesis: structuredClone(EMPTY_STATE) })
+    const outcome = store.authorizeAndPrepare(ownerPreparation(verified, context.approvalId, operationDigest))
+    return ownerApprovalOutcome(outcome, context)
+  } catch (error) { return ownerApprovalError(error, context) }
+  finally { store?.close() }
+}
+
+/** Live retained preparation. The private service participant is awaited under
+ * the original state and witness locks. The audit-only clock is unavailable. */
+export async function decideApprovalRetained({ approvalPath, approverDid, operationDigest, subject, controlDigest, consumedIdsPath, stateRoot, createConsumedIds = false, nowSeconds, witnessDirectory, Store, beforePrepare, beforeRetainedPrepare }) {
+  if (nowSeconds !== undefined) return deny('INVALID', 'retained preparation requires the live clock, not an audit timestamp')
+  if (!Store || typeof beforePrepare !== 'function' || typeof beforeRetainedPrepare !== 'function') return deny('INVALID', 'retained preparation requires the private store and both service hooks')
+  const verified = verifyApprovalInput({ approvalPath, approverDid, operationDigest, subject, controlDigest })
+  if (verified.decision === 'DENY') return verified
+  const context = ownerApprovalContext({ receipt: verified.receipt, consumedIdsPath, stateRoot, witnessDirectory })
+  let store
+  try {
+    store = ownerApprovalStore(context, Store, createConsumedIds)
+    store.open()
+    if (typeof store.authorizeAndPrepareRetained !== 'function') return deny('INVALID', 'retained preparation requires the retained store adapter')
+    // This hook runs after the awaited marker and the intentional state reload.
+    // Signed receipt freshness is checked against the live clock at kernel use.
+    store.primeBeforeKernel = () => approvalWindowRefusal(verified.receipt, Math.floor(Date.now() / 1000))
+      ?? beforePrepare({ receipt: verified.receipt, store, genesis: structuredClone(EMPTY_STATE) })
+    const outcome = await store.authorizeAndPrepareRetained(ownerPreparation(verified, context.approvalId, operationDigest), beforeRetainedPrepare)
+    return ownerApprovalOutcome(outcome, context)
+  } catch (error) { return ownerApprovalError(error, context) }
+  finally { store?.close() }
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -270,25 +311,71 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
   process.exit(outcome.decision === 'ALLOW' ? 0 : 1)
 }
 
+function verifiedPasskeyContext({ proof, operationDigest, controlDigest, Store, beforePrepare }) {
+  if (!Store || typeof beforePrepare !== 'function' || !HEX64.test(operationDigest??'') || proof?.operation_digest!==`sha256:${operationDigest}` || !HEX64.test(proof?.nonce ?? '') || !HEX64.test(controlDigest ?? '')) return deny('INVALID','verified passkey exact-operation adapter inputs required')
+  const digest = sha256Hex(kernel.canonicalBytes(proof))
+  return { digest, approvalId: `approval:${proof.nonce}`, result: null }
+}
+
+function verifiedPasskeyStore({ consumedIdsPath, stateRoot, witnessDirectory, Store }, context) {
+  return new Store({statePath:resolve(consumedIdsPath),stateRoot:resolve(stateRoot),witnessDir:resolve(witnessDirectory),createConsumedIds:false,decide:(...args)=>{
+    const result=kernel.decide(...args)
+    context.result=result
+    if(result.decision.status==='allowed'&&!result.nextState.consumedIds.includes(context.approvalId)) throw new KernelDidNotConsumeError('kernel did not consume passkey nonce')
+    return result
+  }})
+}
+
+function verifiedPasskeyPreparation({ proof, subject, controlDigest }, { digest, approvalId }) {
+  return {
+    genesis:structuredClone(EMPTY_STATE),
+    request:{schema:'aukora-kernel-request-v1',requestId:`webauthn-approval:${digest}`,action:{...KERNEL_ACTION},resource:{namespace:KERNEL_RESOURCE_NAMESPACE,id:subject},ring:KERNEL_RING,payloadHash:proof.operation_digest.slice(7),consumptionId:approvalId,humanClearance:false,authorization:null,evidenceRefs:[`control:${controlDigest}`,`webauthn-proof:${digest}`]},
+    policyBytes:kernel.canonicalBytes(KERNEL_POLICY),nowMs:Date.now(),
+    effect:{effectId:digest,descriptorKind:'webauthn-approved-operation',targetPath:subject,contentHash:proof.operation_digest.slice(7)},
+  }
+}
+
+function verifiedPasskeyOutcome(outcome, { result, approvalId }) {
+  return outcome.ok ? {decision:'ALLOW',reason:`kernel:${result.decision.code}`,approvalId,receiptDraft:result.receiptDraft} : deny(`kernel:${result.decision.code}`,'kernel refused passkey reservation')
+}
+
+function verifiedPasskeyError(error) {
+  return deny(error.primeRefusal ? error.code : error instanceof RollbackRefusedError ? 'RECONCILIATION_REQUIRED' : 'UNAVAILABLE',error.message)
+}
+
 /** Prime adaptation: WebAuthn is verified by the immutable service at use, not converted
  * to a forged Ed25519 receipt. The same copied store/kernel transaction is used. This
  * trusted adapter entry is not a wire route; beforePrepare must reverify the persisted
  * authenticated owner's exact assertion under the held store lock. No hybrid claim. */
 export function decideVerifiedPasskey({ proof, operationDigest, subject, controlDigest, consumedIdsPath, stateRoot, witnessDirectory, Store, beforePrepare }) {
-  if (!Store || typeof beforePrepare !== 'function' || !HEX64.test(operationDigest??'') || proof?.operation_digest!==`sha256:${operationDigest}` || !HEX64.test(proof?.nonce ?? '') || !HEX64.test(controlDigest ?? '')) return deny('INVALID','verified passkey exact-operation adapter inputs required')
-  const digest = sha256Hex(kernel.canonicalBytes(proof)),approvalId=`approval:${proof.nonce}`
-  let store,result
+  const context=verifiedPasskeyContext({proof,operationDigest,controlDigest,Store,beforePrepare})
+  if(context.decision==='DENY') return context
+  let store
   try {
-    store=new Store({statePath:resolve(consumedIdsPath),stateRoot:resolve(stateRoot),witnessDir:resolve(witnessDirectory),createConsumedIds:false,decide:(...args)=>{
-      result=kernel.decide(...args)
-      if(result.decision.status==='allowed'&&!result.nextState.consumedIds.includes(approvalId)) throw new KernelDidNotConsumeError('kernel did not consume passkey nonce')
-      return result
-    }})
+    store=verifiedPasskeyStore({consumedIdsPath,stateRoot,witnessDirectory,Store},context)
     store.open()
     store.primeBeforeKernel=()=>beforePrepare({store})
-    const outcome=store.authorizeAndPrepare({genesis:structuredClone(EMPTY_STATE),request:{schema:'aukora-kernel-request-v1',requestId:`webauthn-approval:${digest}`,action:{...KERNEL_ACTION},resource:{namespace:KERNEL_RESOURCE_NAMESPACE,id:subject},ring:KERNEL_RING,payloadHash:proof.operation_digest.slice(7),consumptionId:approvalId,humanClearance:false,authorization:null,evidenceRefs:[`control:${controlDigest}`,`webauthn-proof:${digest}`]},policyBytes:kernel.canonicalBytes(KERNEL_POLICY),nowMs:Date.now(),effect:{effectId:digest,descriptorKind:'webauthn-approved-operation',targetPath:subject,contentHash:proof.operation_digest.slice(7)}})
-    return outcome.ok ? {decision:'ALLOW',reason:`kernel:${result.decision.code}`,approvalId,receiptDraft:result.receiptDraft} : deny(`kernel:${result.decision.code}`,'kernel refused passkey reservation')
-  } catch(error) {
-    return deny(error.primeRefusal ? error.code : error instanceof RollbackRefusedError ? 'RECONCILIATION_REQUIRED' : 'UNAVAILABLE',error.message)
-  } finally {store?.close()}
+    const outcome=store.authorizeAndPrepare(verifiedPasskeyPreparation({proof,subject,controlDigest},context))
+    return verifiedPasskeyOutcome(outcome,context)
+  } catch(error) {return verifiedPasskeyError(error)}
+  finally {store?.close()}
+}
+
+/** Retained passkey preparation uses the same original kernel/store transaction.
+ * The service must verify the exact assertion at use after its private participant
+ * has completed. Await before finally; no synchronous adapter returns a Promise. */
+export async function decideVerifiedPasskeyRetained({ proof, operationDigest, subject, controlDigest, consumedIdsPath, stateRoot, witnessDirectory, Store, beforePrepare, beforeRetainedPrepare }) {
+  if(typeof beforeRetainedPrepare!=='function') return deny('INVALID','retained preparation requires the private service preparation hook')
+  const context=verifiedPasskeyContext({proof,operationDigest,controlDigest,Store,beforePrepare})
+  if(context.decision==='DENY') return context
+  let store
+  try {
+    store=verifiedPasskeyStore({consumedIdsPath,stateRoot,witnessDirectory,Store},context)
+    store.open()
+    if(typeof store.authorizeAndPrepareRetained!=='function') return deny('INVALID','retained preparation requires the retained store adapter')
+    store.primeBeforeKernel=()=>beforePrepare({store})
+    const outcome=await store.authorizeAndPrepareRetained(verifiedPasskeyPreparation({proof,subject,controlDigest},context),beforeRetainedPrepare)
+    return verifiedPasskeyOutcome(outcome,context)
+  } catch(error) {return verifiedPasskeyError(error)}
+  finally {store?.close()}
 }

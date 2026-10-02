@@ -19,22 +19,50 @@ import { verifyDiamondEvidence } from '../src/diamond.mjs'
 import { snapshotReadOnlyKiraFiles } from '../src/read-only-snapshot.mjs'
 import { runMemoryCommand } from '../src/cli.mjs'
 import { validateCaptureReview, validateCaptureDraft } from '../src/capture-review.mjs'
-import { memoryTarget, MEMORY_AUDIENCE, memoryStateVersion, memoryReceiptDigest } from '../src/authorization.mjs'
+import { memoryTarget, MEMORY_AUDIENCE, memoryStateVersion, memoryReceiptDigest, memoryResultDigest } from '../src/authorization.mjs'
 import { createFileControlRetentionPublisher, createFileControlRetentionReader } from '../src/control-retention.mjs'
+import { createControlRetentionCoordinator } from '../src/control-retention-coordinator.mjs'
 
 // A disposable SQLite-backed SQL fixture, not PostgreSQL acceptance. Translation is limited to the
 // dialect differences below; all records, transactions, bytea and restart storage are real file bytes.
+// Session lock/PID observations below are modeled per fixture client, not actual PostgreSQL locks.
+let nextFixtureBackendPid=40000
+const fixtureSessionInspection=`SELECT pg_backend_pid() AS backend_pid, EXISTS (
+  SELECT 1 FROM pg_locks
+  WHERE locktype = 'advisory' AND mode = 'ExclusiveLock' AND granted = true
+    AND pid = pg_backend_pid()
+    AND classid = ((hashtextextended($1, 0) >> 32) & 4294967295)::oid
+    AND objid = (hashtextextended($1, 0) & 4294967295)::oid
+    AND objsubid = 1
+) AS held`
 class FixturePool {
-  constructor(path) { this.db = new DatabaseSync(path); this.queue=Promise.resolve(); this.failIndex = false; this.failOutbox = false; this.unavailable = false }
+  constructor(path) { this.db = new DatabaseSync(path); this.queue=Promise.resolve(); this.sessions=new Map(); this.failIndex = false; this.failOutbox = false; this.unavailable = false }
   async connect() {
     if(this.unavailable) throw new Error('synthetic store unavailable')
-    const previous=this.queue;let release
-    this.queue=new Promise(resolve=>{release=resolve});await previous
-    return {query:this.query.bind(this),release}
+    const previous=this.queue;let releaseQueue
+    this.queue=new Promise(resolve=>{releaseQueue=resolve});await previous
+    const session={backend_pid:++nextFixtureBackendPid,locks:new Map(),active:true}
+    this.sessions.set(session.backend_pid,session)
+    return {query:(sql,values)=>this.query(sql,values,session),release:()=>{
+      assert.equal(session.active,true,'fixture client released only once')
+      session.active=false;session.locks.clear();this.sessions.delete(session.backend_pid);releaseQueue()
+    }}
   }
   close() { this.db.close() }
-  async query(sql, values = []) {
+  async query(sql, values = [], session) {
     if (this.unavailable) throw new Error('synthetic store unavailable')
+    if(sql==='SELECT pg_advisory_lock(hashtextextended($1, 0)), pg_backend_pid() AS backend_pid'
+      || sql===fixtureSessionInspection || sql==='SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS unlocked') {
+      assert.equal(session?.active,true,'fixture session observation requires active owned client')
+      assert.equal(values.length,1);assert.equal(typeof values[0],'string')
+      const held=session.locks.get(values[0]) ?? 0
+      if(sql===fixtureSessionInspection) return {rows:[{backend_pid:session.backend_pid,held:held>0}]}
+      if(sql.startsWith('SELECT pg_advisory_lock(')) {
+        session.locks.set(values[0],held+1);return {rows:[{backend_pid:session.backend_pid}]}
+      }
+      if(held>0) session.locks.set(values[0],held-1)
+      return {rows:[{unlocked:held>0}]}
+    }
     if(sql.startsWith('SELECT current_setting')) return {rows:[{fsync:'on',full_page_writes:'on'}]}
     if (this.failIndex && sql.startsWith('INSERT INTO prime_memory_fts')) throw new Error('synthetic index unavailable')
     if (this.failOutbox && sql.startsWith('INSERT INTO prime_memory_outbox')) throw new Error('synthetic outbox unavailable')
@@ -721,89 +749,247 @@ test('cold restore retains owner-bound idempotency, committed receipts and unres
   } finally {sourcePool.close();targetPool.close();rmSync(dir,{recursive:true,force:true})}
 })
 
-test('file-reader checkpoint and epoch bind synthetic cold restore and preserve exact retained control bytes',async t=>{
-  // SQLite + same actual OS UID only. Model reader identity and the macOS-stripped setgid bit;
-  // this checks the source join, not PG, distinct UIDs or a production write-coordination gate.
-  const dir=mkdtempSync(join(realpathSync('/tmp'),'prime-memory-file-retention-'))
-  const retentionDirectory=mkdtempSync(join(dir,'independent-control-'))
-  chmodSync(retentionDirectory,0o2750)
-  const actualUid=process.getuid(),readerUid=actualUid+100000,gid=statSync(retentionDirectory).gid
+async function atomicRetentionFixture(t) {
+  // Ordinary SQLite + same actual UID fixture; mock identity and Mac-stripped setgid only.
+  const dir=mkdtempSync(join(realpathSync('/tmp'),'prime-memory-atomic-retention-'))
+  const directory=mkdtempSync(join(dir,'independent-control-'));chmodSync(directory,0o2750)
+  const actualUid=process.getuid(),readerUid=actualUid+100000,gid=statSync(directory).gid
   const uid=t.mock.method(process,'getuid',()=>actualUid),euid=t.mock.method(process,'geteuid',()=>actualUid)
   t.mock.method(process,'getgroups',()=>[gid])
   const role=value=>{uid.mock.mockImplementation(()=>value);euid.mock.mockImplementation(()=>value)}
-  if(process.platform==='darwin' && (statSync(retentionDirectory).mode & 0o2000)===0) {
+  if(process.platform==='darwin' && (statSync(directory).mode & 0o2000)===0) {
     const setgid=stat=>Object.assign(Object.create(Object.getPrototypeOf(stat)),stat,
       {mode:typeof stat.mode==='bigint'?stat.mode|0o2000n:stat.mode|0o2000})
     const lstat=retentionFiles.lstat,open=retentionFiles.open
     t.mock.method(retentionFiles,'lstat',async(filename,...args)=>{
-      const stat=await lstat(filename,...args)
-      return filename===retentionDirectory && stat.isDirectory()?setgid(stat):stat
+      const stat=await lstat(filename,...args);return filename===directory && stat.isDirectory()?setgid(stat):stat
     })
     t.mock.method(retentionFiles,'open',async(filename,...args)=>{
       const handle=await open(filename,...args)
-      if(filename===retentionDirectory) {
-        const stat=handle.stat.bind(handle)
-        t.mock.method(handle,'stat',async(...statArgs)=>setgid(await stat(...statArgs)))
-      }
+      if(filename===directory) {const stat=handle.stat.bind(handle)
+        t.mock.method(handle,'stat',async(...statArgs)=>setgid(await stat(...statArgs)))}
       return handle
     })
   }
-  const sourcePool=new FixturePool(join(dir,'source.sqlite'))
-  let targetPool=new FixturePool(join(dir,'target.sqlite')),effectPool=sourcePool,checkpoint
-  const h={...host(),owner_id:'distinct-file-retention-owner',authorization_epoch:0}
+  const h={...host(),owner_id:'distinct-atomic-retention-owner',authorization_epoch:0}
   const retainedHost={owner_id:h.owner_id,owner_subject:h.owner_subject,authorization_epoch:0}
-  const config={directory:retentionDirectory,publisher_uid:actualUid,reader_uid:readerUid,retention_gid:gid,contracts:toyContracts}
-  const publisher=createFileControlRetentionPublisher(config)
-  const markedAuthority={...toyAuthority,async claimDispatch(args) {
-    const intent=effectPool.db.prepare('SELECT operation_digest FROM prime_memory_intents WHERE operation_id=?').get(args.operation.operation_id)
-    assert.equal(intent.operation_digest,toyContracts.operationDigest(args.operation))
-    const previousRole=process.getuid();role(actualUid)
-    try {await publisher.beginUpdate({host:retainedHost,expected_checkpoint_sha256:checkpoint.checkpoint_sha256,
-      operation_id:args.operation.operation_id,operation_digest:toyContracts.operationDigest(args.operation)})}
-    finally {role(previousRole)}
-    return toyAuthority.claimDispatch(args)
-  }}
-  try {
-    const source=service(sourcePool,{authority:markedAuthority});await source.migrate()
-    checkpoint=await publisher.publish({host:retainedHost,control_state:await source.exportControlState(h),expected_checkpoint_sha256:null})
-    const captureBinding=await source.prepareCaptureBinding(h,input,'file-retained-key')
-    const saveOptions=toyBoundOperation(h,'memory.save',captureBinding.canonical_parameters)
-    const saved=await source.captureAuthorizedRemembered(h,input,'file-retained-key',saveOptions)
-    const snapshot=await source.exportSnapshot(h),control=await source.exportControlState(h)
-    role(readerUid)
-    const reader=createFileControlRetentionReader(config)
-    let target=createPostgresMemory({pool:targetPool,authority:markedAuthority,contracts:toyContracts,controlRetention:reader})
-    await target.migrate();assert.equal(target.controlRetentionStatus().kind,'file-reader')
-    await assert.rejects(target.prepareRestoreBinding(h,snapshot),{code:'memory:trusted-restore-anchor-unavailable'})
-    role(actualUid)
-    checkpoint=await publisher.publish({host:retainedHost,control_state:control,expected_checkpoint_sha256:checkpoint.checkpoint_sha256})
-    role(readerUid)
-    const proposal=await target.prepareRestoreBinding(h,snapshot)
-    assert.equal(proposal.canonical_parameters.control_anchor_sha256,control.control_sha256)
-    assert.equal(proposal.canonical_parameters.retention_checkpoint_sha256,checkpoint.checkpoint_sha256)
-    assert.equal(proposal.canonical_parameters.retention_epoch,0)
-    await assert.rejects(target.prepareRestoreBinding({...h,authorization_epoch:1},snapshot),{code:'memory:trusted-restore-anchor-unavailable'})
-    const changed=toyBoundOperation(h,'memory.restore',{...proposal.canonical_parameters,retention_checkpoint_sha256:'0'.repeat(64)})
-    await assert.rejects(target.restoreSnapshot(h,snapshot,changed),{code:'memory:operation-binding-mismatch'})
-    assert.equal(preparedOperations.has(changed.approval_proof.operation_digest),false)
-    effectPool=targetPool
-    const options=toyBoundOperation(h,'memory.restore',proposal.canonical_parameters)
-    const result=await target.restoreSnapshot(h,snapshot,options)
-    assert.equal(result.retention_checkpoint_sha256,checkpoint.checkpoint_sha256);assert.equal(result.retention_epoch,0)
-    const retainedIntent=targetPool.db.prepare('SELECT * FROM prime_memory_intents WHERE operation_id=?').get(saveOptions.operation.operation_id)
-    assert.deepEqual(retainedIntent,sourcePool.db.prepare('SELECT * FROM prime_memory_intents WHERE operation_id=?').get(saveOptions.operation.operation_id))
-    await assert.rejects(reader.readCurrent(retainedHost),{code:'memory:control-retention-update-pending'})
-    const restoredControl=await target.exportControlState(h)
-    role(actualUid)
-    checkpoint=await publisher.publish({host:retainedHost,control_state:restoredControl,expected_checkpoint_sha256:checkpoint.checkpoint_sha256})
-    role(readerUid)
-    targetPool.close();targetPool=new FixturePool(join(dir,'target.sqlite'))
-    target=createPostgresMemory({pool:targetPool,authority:toyAuthority,contracts:toyContracts,controlRetention:reader})
-    assert.equal((await target.status(h,saved.record.record_id)).record.canonical_bytes,saved.record.canonical_bytes)
-    assert.equal((await target.cite(h,saved.record.record_id)).verdict,'VERIFIED')
-    assert.equal((await reader.readCurrent(retainedHost)).checkpoint_sha256,checkpoint.checkpoint_sha256)
-  } finally {role(actualUid);sourcePool.close();targetPool.close();rmSync(dir,{recursive:true,force:true})}
+  const config={directory,publisher_uid:actualUid,reader_uid:readerUid,retention_gid:gid,contracts:toyContracts}
+  let publisher=createFileControlRetentionPublisher(config),pool=new FixturePool(join(dir,'source.sqlite')),memory,activePool=pool
+  const unconfigured=service(pool);await unconfigured.migrate()
+  await publisher.publish({host:retainedHost,control_state:await unconfigured.exportControlState(h),expected_checkpoint_sha256:null})
+  role(readerUid)
+  const reader=createFileControlRetentionReader(config),events=[],fault={mode:null}
+  const privatePublisher=Object.fromEntries(['beginMutation','retainPrepared','publishMutation'].map(method=>[method,async args=>{
+    if(fault.mode==='truthy-'+method) return true
+    const previous=process.getuid();role(actualUid)
+    try {
+      if(method==='publishMutation' && fault.mode==='publication-before') throw new Error('synthetic publication transport lost')
+      const actual=await publisher[method](args);events.push(method)
+      if(method==='retainPrepared' && fault.mode==='prepared-reply') throw new Error('synthetic prepared reply lost')
+      if(method==='publishMutation' && fault.mode==='publication-reply') throw new Error('synthetic final reply lost')
+      return actual
+    } finally {role(previous)}
+  }]))
+  const calls={reserve:0,dispatch:0,settle:0,unknown:0},permitSessions=new Map()
+  async function assertPermit(phase,args,permit) {
+    const fields=['version','kind','phase','owner_id','owner_subject','authorization_epoch','operation_id','operation_digest',
+      'request_id','request_digest','owner_session','predecessor_checkpoint_sha256','checkpoint_sha256','control_sha256',
+      'marker_sha256','grant_digest','receipt_digest','result_digest']
+    assert.deepEqual(Object.keys(permit).sort(),fields.sort());assert.equal(Object.isFrozen(permit),true)
+    assert.equal(permit.version,1);assert.equal(permit.kind,'prime-retained-memory-permit/v1');assert.equal(permit.phase,phase)
+    for(const key of Object.keys(retainedHost)) assert.equal(permit[key],retainedHost[key])
+    assert.equal(permit.operation_id,args.operation.operation_id)
+    assert.equal(permit.operation_digest,toyContracts.operationDigest(args.operation))
+    assert.match(permit.request_id,/^[0-9a-f-]{36}$/);assert.match(permit.request_digest,/^sha256:[0-9a-f]{64}$/)
+    const session=permit.owner_session
+    assert.deepEqual(Object.keys(session).sort(),['kind',...Object.keys(retainedHost),'session_id','backend_pid','lock_key_sha256'].sort())
+    assert.equal(Object.isFrozen(session),true);assert.equal(session.kind,'postgres-owner-session/v1')
+    for(const key of Object.keys(retainedHost)) assert.equal(session[key],retainedHost[key])
+    assert.match(session.session_id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    assert.equal(session.lock_key_sha256,sha256(Buffer.from('aukora-prime.memory-owner-lock.v1\0'+retainedHost.owner_subject)))
+    const heldSession=activePool.sessions.get(session.backend_pid)
+    assert.equal(heldSession?.active,true);assert.equal(heldSession.locks.get(retainedHost.owner_subject),1)
+    const prior=permitSessions.get(args.operation.operation_id)
+    if(prior) {
+      assert.deepEqual(session,prior.owner_session)
+      assert.equal(permit.request_id,prior.request_id);assert.equal(permit.request_digest,prior.request_digest)
+      assert.equal(permit.predecessor_checkpoint_sha256,prior.predecessor_checkpoint_sha256)
+    }
+    if(phase==='prepare') {
+      assert.equal(prior,undefined);permitSessions.set(args.operation.operation_id,permit)
+      assert.equal(permit.grant_digest,null);assert.equal(permit.receipt_digest,null);assert.equal(permit.result_digest,null)
+    } else {
+      assert.equal(permit.request_id,args.request_id);assert.equal(permit.request_digest,args.request_digest)
+      assert.equal(permit.grant_digest,'sha256:'+sha256(Buffer.from('aukora-prime.consumed-grant.v1\0'+canonicalJSON(args.consumed_grant))))
+    }
+    if(phase==='settle') {
+      const current=await reader.readCurrent(retainedHost)
+      assert.equal(permit.checkpoint_sha256,current.checkpoint_sha256)
+      assert.equal(permit.predecessor_checkpoint_sha256,current.previous_checkpoint_sha256)
+      assert.equal(permit.control_sha256,current.control_state.control_sha256)
+      assert.equal(permit.marker_sha256,null)
+      assert.equal(permit.receipt_digest,memoryReceiptDigest(args.receipt))
+      assert.equal(permit.result_digest,memoryResultDigest(args.receipt.result))
+      permitSessions.delete(args.operation.operation_id)
+    } else {
+      const observed=await reader.inspectPending(retainedHost),checkpoint=phase==='prepare'?observed.predecessor:observed.prepared
+      assert.ok(checkpoint)
+      assert.equal(permit.checkpoint_sha256,checkpoint.checkpoint_sha256)
+      assert.equal(permit.predecessor_checkpoint_sha256,observed.predecessor.checkpoint_sha256)
+      assert.equal(permit.control_sha256,checkpoint.control_state.control_sha256)
+      assert.equal(permit.marker_sha256,sha256(Buffer.from('aukora-prime.memory-retention-marker.v2\0'+canonicalJSON(observed.marker))))
+      assert.equal(permit.receipt_digest,null);assert.equal(permit.result_digest,null)
+    }
+  }
+  const authority={...toyAuthority,async reserve(args) {
+    calls.reserve++;events.push('reserve')
+    const observed=await reader.inspectPending(retainedHost)
+    assert.equal(observed.marker.operation_id,args.operation.operation_id);assert.equal(observed.prepared,null)
+    assert.equal(activePool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents WHERE operation_id=?').get(args.operation.operation_id).n,0)
+    const actual=toyAuthority.reserve(args)
+    if(fault.mode==='reserve-reply') throw new Error('synthetic reserve reply lost')
+    return actual
+  },async claimDispatch(args) {
+    calls.dispatch++;events.push('dispatch')
+    const observed=await reader.inspectPending(retainedHost)
+    assert.ok(observed.prepared);assert.equal(observed.current.checkpoint_sha256,observed.predecessor.checkpoint_sha256)
+    assert.equal(observed.prepared.control_state.tables.intents.some(row=>row.operation_id===args.operation.operation_id),true)
+    const actual=toyAuthority.claimDispatch(args)
+    if(fault.mode==='dispatch-reply') throw new Error('synthetic dispatch reply lost')
+    return actual
+  },async settleMemory(args) {
+    calls.settle++;events.push('settle')
+    const current=await reader.readCurrent(retainedHost)
+    assert.equal(current.control_state.tables.effects.some(row=>row.operation_id===args.operation.operation_id),true)
+    return toyAuthority.settleMemory(args)
+  },markOutcomeUnknown(args) {calls.unknown++;assert.equal(dispatchedOperations.has(toyContracts.operationDigest(args.operation)),true)
+    return {ok:true,status:'OUTCOME_UNKNOWN',reconciliation_required:true}},
+    async reserveRetained(args) {
+      await assertPermit('prepare',args,await memory.retainedMemoryParticipant.prepare({operation:args.operation}))
+      return authority.reserve(args)
+    },async claimDispatchRetained(args) {
+      await assertPermit('dispatch',args,await memory.retainedMemoryParticipant.dispatch(args))
+      return authority.claimDispatch(args)
+    },async settleMemoryRetained(args) {
+      await assertPermit('settle',args,await memory.retainedMemoryParticipant.settle(args))
+      return authority.settleMemory(args)
+    }}
+  const makeMemory=(selectedPool,{omitRetainedMethod}={})=>{
+    activePool=selectedPool
+    const selectedAuthority=omitRetainedMethod?{...authority,[omitRetainedMethod]:undefined}:authority
+    memory=createPostgresMemory({pool:selectedPool,authority:selectedAuthority,contracts:toyContracts,
+      controlRetentionCoordinator:createControlRetentionCoordinator({reader,publisher:privatePublisher,contracts:toyContracts})})
+    return memory
+  }
+  makeMemory(pool)
+  t.after(()=>{role(actualUid);pool.close();rmSync(dir,{recursive:true,force:true})})
+  return {h,retainedHost,reader,events,fault,calls,makeMemory,get pool(){return pool},
+    reopen(){pool.close();pool=new FixturePool(join(dir,'source.sqlite'));permitSessions.clear();return makeMemory(pool)},
+    freshPublisher(){const previous=process.getuid();role(actualUid);publisher=createFileControlRetentionPublisher(config);role(previous)},
+    dir,privatePublisher,get memory(){return memory}}
+}
+
+test('atomic retained participant orders reservation, dispatch and settlement; cold read works while restore is disabled',async t=>{
+  const f=await atomicRetentionFixture(t),binding=await f.memory.prepareCaptureBinding(f.h,input,'atomic-key')
+  const options=toyBoundOperation(f.h,'memory.save',binding.canonical_parameters)
+  const [saved,coalesced]=await Promise.all([
+    f.memory.captureAuthorizedRemembered(f.h,input,'atomic-key',options),
+    f.memory.captureAuthorizedRemembered(f.h,input,'atomic-key',options)])
+  assert.deepEqual(coalesced,saved)
+  assert.deepEqual(f.events,['beginMutation','reserve','retainPrepared','dispatch','publishMutation','settle'])
+  assert.equal(saved.authority_settlement,'completed')
+  const checkpoint=await f.reader.readCurrent(f.retainedHost),snapshot=await f.memory.exportSnapshot(f.h)
+  const targetPool=new FixturePool(join(f.dir,'target.sqlite'));t.after(()=>targetPool.close())
+  const readonly=createPostgresMemory({pool:targetPool,authority:toyAuthority,contracts:toyContracts,controlRetention:f.reader})
+  await readonly.migrate()
+  const prepared=await readonly.prepareRestoreBinding(f.h,snapshot)
+  const changed=toyBoundOperation(f.h,'memory.restore',{...prepared.canonical_parameters,retention_checkpoint_sha256:'0'.repeat(64)})
+  await assert.rejects(readonly.restoreSnapshot(f.h,snapshot,changed),{code:'memory:control-retention-coordinator-required'})
+  // The retained private participant and row observations now select the cold target memory service.
+  const restored=f.makeMemory(targetPool)
+  const before={...f.calls}
+  await assert.rejects(restored.restoreSnapshot(f.h,snapshot,changed),{code:'memory:retained-restore-lineage-unqualified'})
+  assert.equal(preparedOperations.has(changed.approval_proof.operation_digest),false)
+  await assert.rejects(restored.prepareRestoreBinding(f.h,snapshot),{code:'memory:retained-restore-lineage-unqualified'})
+  await assert.rejects(restored.prepareRestoreBinding({...f.h,authorization_epoch:1},snapshot),{code:'memory:retained-restore-lineage-unqualified'})
+  const restoreOptions=toyBoundOperation(f.h,'memory.restore',prepared.canonical_parameters)
+  await assert.rejects(restored.restoreSnapshot(f.h,snapshot,restoreOptions),{code:'memory:retained-restore-lineage-unqualified'})
+  await assert.rejects(restored.importSnapshot(f.h,snapshot,{...restoreOptions,mode:'prime-restore'}),
+    {code:'memory:retained-restore-lineage-unqualified'})
+  assert.deepEqual(f.calls,before)
+  assert.equal(targetPool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents').get().n,0)
+  assert.equal(targetPool.db.prepare('SELECT count(*) AS n FROM prime_memory_records').get().n,0)
+  assert.equal((await f.reader.readCurrent(f.retainedHost)).checkpoint_sha256,checkpoint.checkpoint_sha256)
+  const cold=f.reopen()
+  assert.equal((await cold.cite(f.h,saved.record.record_id)).verdict,'VERIFIED')
+  assert.equal((await cold.status(f.h,saved.record.record_id)).record.canonical_bytes,saved.record.canonical_bytes)
+  const reconciled=await cold.reconcileEffect(f.h,options.operation.operation_id)
+  assert.equal(reconciled.authority_settlement,'completed')
+  assert.equal(reconciled.receipt.request_id,saved.receipt.request_id)
 })
+
+test('atomic retained profile refuses each missing retained authority method before marker or legacy reservation',async t=>{
+  const f=await atomicRetentionFixture(t),initial=await f.reader.readCurrent(f.retainedHost)
+  for(const method of ['reserveRetained','claimDispatchRetained','settleMemoryRetained']) {
+    const memory=f.makeMemory(f.pool,{omitRetainedMethod:method})
+    const binding=await memory.prepareCaptureBinding(f.h,input,'missing-'+method)
+    const options=toyBoundOperation(f.h,'memory.save',binding.canonical_parameters)
+    await assert.rejects(memory.captureAuthorizedRemembered(f.h,input,'missing-'+method,options),
+      {code:'memory:retained-authority-unavailable'})
+    assert.equal(preparedOperations.has(options.approval_proof.operation_digest),false)
+    assert.deepEqual(f.calls,{reserve:0,dispatch:0,settle:0,unknown:0});assert.deepEqual(f.events,[])
+    assert.equal((await f.reader.readCurrent(f.retainedHost)).checkpoint_sha256,initial.checkpoint_sha256)
+    await assert.rejects(f.reader.inspectPending(f.retainedHost),{code:'memory:control-retention-pending-missing'})
+    assert.equal(f.pool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents').get().n,0)
+  }
+})
+
+for(const mode of ['reserve-reply','prepared-commit','prepared-reply','dispatch-reply','effect-commit','publication-before','publication-reply',
+  'truthy-beginMutation','truthy-retainPrepared','truthy-publishMutation'])
+  test('atomic retention keeps '+mode+' uncertainty fenced without effect retry',async t=>{
+    const f=await atomicRetentionFixture(t),binding=await f.memory.prepareCaptureBinding(f.h,input,'uncertain-atomic-key')
+    const options=toyBoundOperation(f.h,'memory.save',binding.canonical_parameters)
+    f.fault.mode=mode
+    if(mode.endsWith('-commit')) {
+      const query=f.pool.query.bind(f.pool);let injected=false
+      t.mock.method(f.pool,'query',async(sql,...args)=>{
+        const actual=await query(sql,...args)
+        if(sql==='COMMIT' && !injected) {
+          const intentCount=f.pool.db.prepare('SELECT count(*) AS n FROM prime_memory_intents').get().n
+          const effectCount=f.pool.db.prepare('SELECT count(*) AS n FROM prime_memory_effects').get().n
+          if(intentCount && (mode==='prepared-commit'?effectCount===0:effectCount===1)) {
+            injected=true;throw new Error('synthetic committed transaction reply lost')
+          }
+        }
+        return actual
+      })
+    }
+    await assert.rejects(f.memory.captureAuthorizedRemembered(f.h,input,'uncertain-atomic-key',options),error=>{
+      if(mode==='truthy-beginMutation') {
+        // The private prepare participant refuses a missing durable marker before kernel reservation.
+        assert.equal(error.code,'memory:control-retention-pending-missing')
+      } else {
+        assert.equal(error.code,'memory:authority-effect-outcome-unknown');assert.equal(error.automatic_retry,false)
+      }
+      return true
+    })
+    assert.equal(f.calls.reserve,mode==='truthy-beginMutation'?0:1);assert.equal(f.calls.settle,0)
+    const facts=f.pool.db.prepare('SELECT count(*) AS n FROM prime_memory_effects').get().n
+    const counts={...f.calls};f.fault.mode=null;f.freshPublisher()
+    const cold=f.reopen()
+    if(facts) {
+      const reconciled=await cold.reconcileEffect(f.h,options.operation.operation_id)
+      assert.equal(reconciled.authority_settlement,'completed')
+      assert.equal((await f.reader.readCurrent(f.retainedHost)).control_state.tables.effects.length,1)
+    } else {
+      if(mode==='truthy-beginMutation') assert.equal((await f.reader.readCurrent(f.retainedHost)).control_state.tables.intents.length,0)
+      else await assert.rejects(f.reader.readCurrent(f.retainedHost),{code:'memory:control-retention-update-pending'})
+      if(mode==='reserve-reply' || mode==='truthy-beginMutation') await assert.rejects(cold.reconcileEffect(f.h,options.operation.operation_id),{code:'memory:effect-missing-outcome-unknown'})
+      else {const held=await cold.reconcileEffect(f.h,options.operation.operation_id);assert.equal(held.status,'unresolved');assert.equal(held.automatic_retry,false)}
+    }
+    assert.equal(f.calls.reserve,counts.reserve);assert.equal(f.calls.dispatch,counts.dispatch)
+    assert.equal(f.pool.db.prepare('SELECT count(*) AS n FROM prime_memory_effects').get().n,facts)
+  })
 
 test('independent purge control anchor blocks old data in an empty store and retains content-free replay fences',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'prime-memory-purge-cold-restore-'))

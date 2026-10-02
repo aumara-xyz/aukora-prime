@@ -4,9 +4,30 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-or-later",
-  "dependencies": { "pg": "8.16.3" },
-  "peerDependencies": { "@aukora-prime/contracts": "1.0.0" },
-  "exports": { ".": "./src/index.mjs", "./codecs": "./src/codecs.mjs", "./snapshot": "./src/snapshot.mjs", "./capture-review": "./src/capture-review.mjs", "./capture-presentation": "./src/capture-presentation.mjs", "./pilot-capture": "./src/pilot-capture.mjs", "./control-state": "./src/control-state.mjs", "./control-retention": "./src/control-retention.mjs" },
-  "scripts": { "check": "node --test test/*.test.mjs", "cold-verify": "node bin/cold-verify.mjs" },
-  "engines": { "node": ">=22.19.0" }
+  "dependencies": {
+    "pg": "8.16.3"
+  },
+  "peerDependencies": {
+    "@aukora-prime/contracts": "1.0.0"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./codecs": "./src/codecs.mjs",
+    "./snapshot": "./src/snapshot.mjs",
+    "./capture-review": "./src/capture-review.mjs",
+    "./capture-presentation": "./src/capture-presentation.mjs",
+    "./pilot-capture": "./src/pilot-capture.mjs",
+    "./control-state": "./src/control-state.mjs",
+    "./control-retention": "./src/control-retention.mjs",
+    "./control-retention-coordinator": "./src/control-retention-coordinator.mjs",
+    "./retained-memory-participant": "./src/retained-memory-participant.mjs",
+    "./owner-serialization": "./src/owner-serialization.mjs"
+  },
+  "scripts": {
+    "check": "node --test test/*.test.mjs",
+    "cold-verify": "node bin/cold-verify.mjs"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
 }

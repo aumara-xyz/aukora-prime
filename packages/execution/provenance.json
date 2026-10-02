@@ -14,13 +14,14 @@
   },
   "adaptations": {
     "src/policy.mjs": "Carried donor validation, guest policy and environment translation; no host mounts or ambient credentials.",
-    "src/bash.mjs": "Carried foreground lifecycle seam; injected pinned ShellExecutor and trusted host callbacks.",
+    "src/bash.mjs": "Carried foreground lifecycle seam; injected pinned ShellExecutor and trusted host callbacks. One mounted Cordis effect owns a shared awaited cleanup promise; exact frozen unavailable stub supported.",
     "src/owned-executor.mjs": "Typed SDK lifecycle plus actual one-use C claim, ordered durable settlement outbox, conservative cancellation, exact gateway/profile/ledger recovery binding.",
-    "src/sdk-transport.ts": "New adapter using reviewed raw protobuf requestId/typed exec stream; structurally checked against real generated SDK.",
+    "src/sdk-transport.ts": "New adapter using reviewed raw protobuf requestId/typed exec stream; structurally checked against real generated SDK. Raw effective-config readback; ambiguous124 evidence distinct from command exit; explicit completion emitted only after RPC drain.",
     "src/ledger.mjs": "Separate OS SQLite lease and FULL-sync job checkpoints; explicit provisioning, identity/integrity validation and no silent ledger-loss reinitialization.",
     "src/binding.mjs": "Agreed C/F request/receipt digest domains and exact private authority join; no naked consumed-envelope acceptance.",
     "src/qualification.mjs": "Closed evidence/accepted host proof record bound to exact pins, policy, host profile, endpoint and ledger; no boolean qualification or default accepted proof.",
-    "checks/joined.mjs": "Actual ordinary disposable C owner-key login/review/reserve through kernel/store; SDK only mocked. C dependency checkpoint 1be5ccc2d93b4657a6fe7de63ec4d6757c73b114; frozen contracts f4fbe48e9cbb2c751d7eb2aaa2b931a9522978d0."
+    "checks/joined.mjs": "Actual ordinary disposable C owner-key login/review/reserve through kernel/store; SDK only mocked. C dependency checkpoint 1be5ccc2d93b4657a6fe7de63ec4d6757c73b114; frozen contracts f4fbe48e9cbb2c751d7eb2aaa2b931a9522978d0.",
+    "src/effective-policy.mjs": "Restricted static maps-empty protobuf/hash port from pinned Apache-2.0 OpenShell policy_identity.rs and grpc/policy.rs; verifies exact no-overlay effective config/admission with lossless uint64 binding."
   },
   "upstream": {
     "project": "https://github.com/NVIDIA/OpenShell",
@@ -40,7 +41,10 @@
       "proto/sandbox.proto": "ed3d2650c8d1c4cbb653259c6055adba2dba8a51498ab6a1b2cfc339997ab2b9",
       "proto/datamodel.proto": "e50bd875a760f54b80269c65ee47984cae424fb623b7f59551ba62550c23e70b",
       "proto/options.proto": "10c8a99b505047f759951285fdae6068afd267ef672d00a65385a91ee8d027ee",
-      "LICENSE": "c4be3acebe12527d7de689933d98329b4065f8c50cd929d0365584eafe6c20dd"
+      "LICENSE": "c4be3acebe12527d7de689933d98329b4065f8c50cd929d0365584eafe6c20dd",
+      "crates/openshell-core/src/policy_identity.rs": "e5f2a13b1a5994c6f83de2fc88ab06d6d990d5adb570fbeac820068df5e99183",
+      "crates/openshell-server/src/grpc/policy.rs": "e382b11e241674594065ac6e2b3cbf7561e4fe7e95adf7e4003863a6ceddcaab",
+      "crates/openshell-server/src/grpc/sandbox.rs": "225db22472ce173eb179e11494a0eb09fe76a73068dcbaa28b5d0ce62ec2171f"
     },
     "license": "Apache-2.0"
   },
@@ -50,7 +54,7 @@
     "licenses/Genesis-NOTICE.txt"
   ],
   "runtime_owned_repo_dependencies": [],
-  "qualification": "NOT VERIFIED: approved immutable custom workload image, real Linux runtime/metadata enforcement, gateway and H/C join pending",
+  "qualification": "NOT VERIFIED: immutable custom image, resource/mount join, atomic configuration fencing, independent termination/late-create supervision and C complete/null unknown receipt alignment remain prerequisites.",
   "runtime_preparation": {
     "source_commit": "6648bd0c290efbc41ba131ee9831ee45cd431f94",
     "source_sha256": {

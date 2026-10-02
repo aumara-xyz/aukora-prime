@@ -16,8 +16,18 @@ type ObservedPolicy = {
 }
 export type Sandbox = {
   metadata?: { id: string; name: string; workspace: string; labels: Record<string, string> };
-  spec?: { template?: { image: string }; policy?: ObservedPolicy; providers: string[]; environment: Record<string, string>; command: string[]; tty: boolean };
-  status?: { phase: number; configurationAdmission?: { state: number; policyHash: string } };
+  spec?: { template?: { image: string }; policy?: ObservedPolicy; providers: string[]; environment: Record<string, string>; command: string[]; tty: boolean; providerAttachmentEpoch?: string };
+  status?: { phase: number; configurationAdmission?: { instanceId: string; state: number; policyVersion: number; policyHash: string; configRevision: bigint; providerEnvRevision: bigint; error: string } };
+}
+/** Exact pinned raw readback. Revisions stay bigint until the durable boundary. */
+export type EffectiveConfiguration = {
+  policy?: ObservedPolicy; version: number; policyHash: string;
+  settings: Record<string, {scope: number; value?: unknown}>;
+  configRevision: bigint; policySource: number; globalPolicyVersion: number;
+  providerEnvRevision: bigint; supervisorMiddlewareServices: unknown[];
+  workspace: string; policyValidationFailureMode: string;
+  extensionAuthenticationEnabled: boolean; providerAttachmentEpoch: string;
+  configurationAdmitted: boolean; configurationError: string; configurationInstanceId: string;
 }
 type Scope = { selection: { case: 'workspace'; value: string } }
 type Options = { signal?: AbortSignal; timeoutMs?: number }
@@ -41,18 +51,22 @@ export type WireEvent = { payload: { case: 'stdout' | 'stderr'; value: { data: U
 export interface RawSdkClient {
   createSandbox(request: CreateRequest, options?: Options): Promise<{ sandbox?: Sandbox }>;
   getSandbox(request: Target, options?: Options): Promise<{ sandbox?: Sandbox }>;
+  getSandboxConfig(request: Target, options?: Options): Promise<EffectiveConfiguration>;
   listSandboxes(request: { workspaceScope: Scope; pageSize: number; pageToken: string; labelSelector: string }, options?: Options): Promise<{ sandboxes: Sandbox[]; nextPageToken: string }>;
   deleteSandbox(request: Target & { requestId: string; allowMissing: true }, options?: Options): Promise<{ outcome: number; sandboxId: string }>;
   execSandbox(request: ExecRequest, options?: Options): AsyncIterable<WireEvent>;
 }
-export type TypedEvent = { type: 'exit'; exitCode: number } | { stream: 'stdout' | 'stderr'; data: Buffer }
+export type TypedEvent = { type: 'exit'; exitCode: number }
+  | { type: 'ambiguous_exit'; exitCode: 124 }
+  | { type: 'rpc_complete' }
+  | { stream: 'stdout' | 'stderr'; data: Buffer }
 export class SdkTransport {
   readonly sourceCommit = SDK_SOURCE_COMMIT
   readonly packageVersion = SDK_PACKAGE_VERSION
   readonly raw: RawSdkClient
   readonly gatewayIdentity: string | null
   constructor(raw: RawSdkClient, options: {gatewayIdentity?: string} = {}) {
-    if (!raw || (['createSandbox','getSandbox','listSandboxes','deleteSandbox','execSandbox'] as const).some(k => typeof raw[k] !== 'function')) {
+    if (!raw || (['createSandbox','getSandbox','getSandboxConfig','listSandboxes','deleteSandbox','execSandbox'] as const).some(k => typeof raw[k] !== 'function')) {
       throw refused('built OpenShell SDK raw lifecycle surface required', 'UNAVAILABLE')
     }
     this.raw = raw
@@ -68,6 +82,9 @@ export class SdkTransport {
   }
   async get(job: Job, settings: Settings, options: Options) {
     return (await this.raw.getSandbox({ workspaceScope: this.scope(settings.workspace), name: job.name }, options)).sandbox
+  }
+  async configuration(job: Job, settings: Settings, options: Options) {
+    return this.raw.getSandboxConfig({ workspaceScope: this.scope(settings.workspace), name: job.name }, options)
   }
   async inventory(settings: Settings, pageToken: string, options: Options) {
     return this.raw.listSandboxes({ workspaceScope: this.scope(settings.workspace), pageSize: 100,
@@ -95,10 +112,16 @@ export class SdkTransport {
           throw refused('invalid or duplicate typed command exit', 'OUTCOME_UNKNOWN')
         }
         sawExit = true
-        yield { type: 'exit', exitCode: payload.value.exitCode }
+        // Pinned gateway also emits synthetic124 on its timeout path, without
+        // terminalizing the durable command launch. The wire has no provenance;
+        // a genuine command124 is indistinguishable and remains unknown too.
+        yield payload.value.exitCode === 124
+          ? { type: 'ambiguous_exit', exitCode: 124 }
+          : { type: 'exit', exitCode: payload.value.exitCode }
       } else throw refused('unknown exec protocol event', 'OUTCOME_UNKNOWN')
     }
     // Exhaustion drains Connect's final RPC status. Seeing exit alone is insufficient.
+    yield { type: 'rpc_complete' }
     if (!sawExit) throw refused('SDK stream completed without typed exit', 'OUTCOME_UNKNOWN')
   }
 }

@@ -56,8 +56,8 @@ export interface OwnerForgetController {
     readonly phase:string;readonly error_code:string|null;readonly presentation:unknown}
   subscribe(listener:()=>void):()=>void
   /** H prepares the controller's review after this exact operation is set. */
-  setOperation(operation:unknown):void
-  /** Raw approval API; the current save-shaped submitApproval hook is separate. */
+  setOperation(operation:unknown,options:{readonly recordSummary:ForgetRecordSummary}):void
+  /** Raw approval API; B's submitApproval selects its separate forget hook. */
   approve():Promise<unknown>
 }
 export interface OwnerForgetWorkflow {
@@ -72,7 +72,7 @@ export interface OwnerForgetWorkflow {
   dispose():void
 }
 /** Use the same adapter instance's authority in the controller and memory here.
- * H/B must explicitly hand off this separate forget result shape. */
+ * H/B hand off this separate result through the controller's forget hook. */
 export function createOwnerForgetWorkflow(options:{controller:OwnerForgetController;memory:{
   proposeForget(input:{readonly record_id:string}):Promise<unknown>
   forget(input:{readonly operation:Readonly<Record<string,unknown>>;readonly approval_proof:Readonly<Record<string,unknown>>}):Promise<unknown>

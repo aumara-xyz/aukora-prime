@@ -1,6 +1,6 @@
 // Disposable presentation fixture only. Never imported by the native production client.
-export function createOwnerUiFixture(contracts, { now = Date.now, outcome = 'approved', loginGate, approvalGate } = {}) {
-  const counts = { login: 0, review: 0, approve: 0, decline: 0 }
+export function createOwnerUiFixture(contracts, { now = Date.now, outcome = 'approved', loginGate, approvalGate, logoutGate } = {}) {
+  const counts = { login: 0, review: 0, approve: 0, decline: 0, logout: 0 }
   const expiry = new Date(now() + 300000).toISOString()
   const operation = Object.freeze({ version: 1, operation_id: 'ui-fixture-operation', task_id: 'ui-fixture-task', owner_id: 'ui-fixture-owner',
     agent_id: 'ui-fixture-agent', audience: 'prime:fixture', action_type: 'fixture.review',
@@ -27,6 +27,8 @@ export function createOwnerUiFixture(contracts, { now = Date.now, outcome = 'app
     async approvalComplete({proof}) { counts.approve++; await approvalGate; if(outcome==='unknown') throw new Error('Disposable lost reply');
       return {ok:true,status:'APPROVED',approval_proof:proof} },
     async declineApproval() { counts.decline++; return {ok:true,status:'DENIED'} },
+    // Synthetic server acknowledgement only; not evidence of real revocation.
+    async logout() { counts.logout++; await logoutGate; return {ok:true,status:'LOGGED_OUT'} },
   }
   return {authority,contracts,owner_id:operation.owner_id,operation,fixture:true,counts,
     passkeySigner:async()=>({kind:'passkey',credential_id:'Zml4dHVyZQ',client_data_json:'Zml4dHVyZQ',authenticator_data:'Zml4dHVyZQ',signature:'Zml4dHVyZQ',user_handle:null})}

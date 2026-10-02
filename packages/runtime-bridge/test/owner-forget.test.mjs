@@ -29,7 +29,7 @@ async function approvedForget(t,key) {
   assert.equal(parameters.heads[saved.record.chain_domain],saved.citation.verified_head)
   assert.deepEqual(proposed.record_summary,{record_id:saved.record.record_id,revision:saved.record.revision,
     statement:extraction.statement,attributed_to:'owner'})
-  f.controller.setOperation(operation)
+  f.controller.setOperation(operation,{recordSummary:proposed.record_summary})
   const review=await f.controller.prepare()
   assert.notEqual(review,null)
   assert.equal(review.canonical_operation,contracts.canonicalJson(operation))

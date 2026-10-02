@@ -6,6 +6,7 @@ import path from 'node:path'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { sha256 } from '../src/codecs.mjs'
 import { makeMemoryControlState, MEMORY_CONTROL_TABLES } from '../src/control-state.mjs'
+import { memoryEffectDigest, memoryResultDigest, memoryTarget } from '../src/authorization.mjs'
 import { createFileControlRetentionReader, createFileControlRetentionPublisher,
   createUnavailableControlRetention, isControlRetentionReader, MEMORY_RETENTION_SCHEMA } from '../src/control-retention.mjs'
 
@@ -261,4 +262,164 @@ test('durable pending markers block reads across publisher instances until a mat
   assert.equal((await fs.readdir(f.directory)).some(file => file.endsWith('.pending.json')), false)
   f.role(modelReaderUid)
   assert.equal((await createFileControlRetentionReader(f.config).readCurrent(host)).sequence, 2)
+})
+
+function mutationFixture(parameters = {statement: 'Synthetic reviewed memory', attributed_to: 'synthetic-owner'}) {
+  const proposal = {operation_id: 'synthetic-staged-memory-operation', owner_id: host.owner_id,
+    task_id: 'synthetic-staged-task', action_type: 'memory.save', audience: 'aukora-prime.memory',
+    authorization_epoch: host.authorization_epoch, target_identity: memoryTarget(host.owner_subject), canonical_parameters: parameters}
+  const operation_digest = fixtureContracts.operationDigest(proposal)
+  const request = {version: 1, action_type: proposal.action_type, owner_subject: host.owner_subject,
+    operation_id: proposal.operation_id, operation_digest, parameters}
+  const grant = {grant_id: 'synthetic-staged-grant', owner_id: host.owner_id, operation_id: proposal.operation_id,
+    operation_digest, audience: proposal.audience, authorization_epoch: proposal.authorization_epoch}
+  const tuple = {operation_id: proposal.operation_id, operation_digest,
+    request_id: '00000000-0000-4000-8000-000000000002', request_digest: memoryEffectDigest(request)}
+  const tables = emptyTables()
+  tables.intents.push({owner_subject: host.owner_subject, ...tuple,
+    grant_bytes: encode(grant), operation_bytes: encode(proposal), request_bytes: encode(request)})
+  const appliedTables = () => {
+    const applied = {...tables, effects: []}
+    const result = {record_id: 'rem:' + '9'.repeat(64), owner_subject: host.owner_subject,
+      task_id: proposal.task_id, storage_status: 'saved', index_status: 'pending'}
+    const receipt = {version: 1, kind: 'prime-memory-effect/v1', ...tuple, grant_id: grant.grant_id,
+      owner_subject: host.owner_subject, action_type: proposal.action_type, status: 'applied',
+      result_digest: memoryResultDigest(result), result}
+    applied.effects.push({...tables.intents[0], grant_id: grant.grant_id, action: proposal.action_type,
+      result_bytes: encode(result), receipt_bytes: encode(receipt)})
+    return applied
+  }
+  return {tuple, tables, appliedTables}
+}
+const mutationFields = (first, tuple) => ({host, expected_checkpoint_sha256: first.checkpoint_sha256, ...tuple})
+
+test('v2 marker precedes preparation; exact scoped observation preserves the predecessor until actual final publication', async t => {
+  const f = await fixture(t), first = await bootstrap(f), capture = mutationFixture()
+  const fields = mutationFields(first, capture.tuple)
+  const marker = await f.publisher.beginMutation(fields)
+  assert.equal(marker.schema, 'aukora-prime-memory-retention-pending/v2')
+  assert.equal(marker.prepared_checkpoint_sha256, null); assert.equal(marker.prepared_generation_file, null)
+  assert.deepEqual(Object.keys(marker).sort(), ['schema', ...Object.keys(host), ...Object.keys(capture.tuple),
+    'expected_checkpoint_sha256', 'prepared_checkpoint_sha256', 'prepared_generation_file'].sort())
+  f.role(modelReaderUid)
+  const reader = createFileControlRetentionReader(f.config)
+  await assert.rejects(reader.readCurrent(host), {code: 'memory:control-retention-update-pending'})
+  assert.deepEqual(await reader.observePredecessor(fields), first)
+  const initial = await reader.readPending(fields)
+  assert.equal(initial.prepared, null); assert.deepEqual(initial.predecessor, first)
+  assert.deepEqual(Object.keys(initial).sort(), ['marker', 'predecessor', 'prepared'])
+  const inspected = await reader.inspectPending(host)
+  assert.deepEqual(Object.keys(inspected).sort(), ['current', 'marker', 'predecessor', 'prepared'])
+  assert.deepEqual(inspected.current, first)
+  for (const changed of [{request_id: '00000000-0000-4000-8000-000000000003'},
+    {request_digest: 'sha256:' + '0'.repeat(64)}, {operation_digest: 'sha256:' + '1'.repeat(64)},
+    {expected_checkpoint_sha256: '2'.repeat(64)}]) {
+    await assert.rejects(reader.observePredecessor({...fields, ...changed}), {code: 'memory:control-retention-mutation-binding-conflict'})
+  }
+  await assert.rejects(reader.readPending({...fields, host: {...host, authorization_epoch: 3}}),
+    {code: 'memory:control-retention-mutation-pending-binding-invalid'})
+  f.role(actualUid)
+  await assert.rejects(f.publisher.publishMutation({...fields, control_state: bundle(capture.tables)}),
+    {code: 'memory:control-retention-mutation-prepared-required'})
+  const prepared = await f.publisher.retainPrepared({...fields, control_state: bundle(capture.tables)})
+  assert.equal(prepared.sequence, 2); assert.equal(prepared.previous_checkpoint_sha256, first.checkpoint_sha256)
+  assert.equal((await f.publisher.readCurrent(host)).checkpoint_sha256, first.checkpoint_sha256)
+  f.role(modelReaderUid)
+  const staged = await reader.readPending(fields)
+  assert.deepEqual(staged.prepared, prepared); assert.deepEqual(staged.predecessor, first)
+  await assert.rejects(reader.readCurrent(host), {code: 'memory:control-retention-update-pending'})
+  f.role(actualUid)
+  const final = await f.publisher.publishMutation({...fields,
+    control_state: bundle(capture.appliedTables(), {remembered: 'a'.repeat(64)})})
+  assert.notEqual(final.checkpoint_sha256, prepared.checkpoint_sha256)
+  assert.equal(final.previous_checkpoint_sha256, first.checkpoint_sha256)
+  assert.equal((await fs.readdir(f.directory)).some(file => file.endsWith('.pending.json')), false)
+  f.role(modelReaderUid)
+  assert.deepEqual(await reader.readCurrent(host), final)
+  await assert.rejects(reader.observePredecessor(fields), {code: 'memory:control-retention-pending-missing'})
+})
+
+test('v2 preparation and final publication require the exact committed intent and preserve unresolved replay state', async t => {
+  const f = await fixture(t), first = await bootstrap(f), capture = mutationFixture()
+  const fields = mutationFields(first, capture.tuple)
+  await f.publisher.beginMutation(fields)
+  await assert.rejects(f.publisher.retainPrepared({...fields, control_state: bundle()}),
+    {code: 'memory:control-retention-mutation-intent-unretained'})
+  const otherRequest = {...capture.tables, intents: [{...capture.tables.intents[0],
+    request_id: '00000000-0000-4000-8000-000000000004'}]}
+  await assert.rejects(f.publisher.retainPrepared({...fields, control_state: bundle(otherRequest)}),
+    {code: 'memory:control-retention-mutation-intent-unretained'})
+  await assert.rejects(f.publisher.retainPrepared({...fields, control_state: bundle(capture.appliedTables())}),
+    {code: 'memory:control-retention-mutation-prepared-already-applied'})
+  const prepared = await f.publisher.retainPrepared({...fields, control_state: bundle(capture.tables)})
+  await assert.rejects(f.publisher.publishMutation({...fields, control_state: bundle()}),
+    {code: 'memory:control-advance-unresolved-intent-missing'})
+  const changed = mutationFixture({statement: 'Different synthetic statement', attributed_to: 'synthetic-owner'})
+  await assert.rejects(f.publisher.publishMutation({...fields, control_state: bundle(changed.tables)}),
+    {code: 'memory:control-advance-intent-changed'})
+  const fenceOnly = emptyTables()
+  fenceOnly.replay_fences.push({owner_subject: host.owner_subject, ...capture.tuple, grant_id: 'synthetic-staged-grant',
+    action: 'memory.save', status: 'payload-purged'})
+  await assert.rejects(f.publisher.publishMutation({...fields, control_state: bundle(fenceOnly)}),
+    {code: 'memory:control-advance-unresolved-intent-missing'})
+  // Publishing the same genuine unresolved intent is a checkpoint, not an applied receipt.
+  // Prepared and final bytes coincide: the existing immutable generation must be reused.
+  const preparedFilename = (await fs.readdir(f.directory)).find(file => file.includes(prepared.checkpoint_sha256))
+  const before = await fs.stat(path.join(f.directory, preparedFilename))
+  assert.deepEqual(await f.publisher.retainPrepared({...fields, control_state: bundle(capture.tables)}), prepared)
+  const final = await f.publisher.publishMutation({...fields, control_state: bundle(capture.tables)})
+  const after = await fs.stat(path.join(f.directory, preparedFilename))
+  assert.equal(after.ino, before.ino); assert.equal(final.checkpoint_sha256, prepared.checkpoint_sha256)
+  assert.equal(final.control_state.tables.effects.length, 0)
+})
+
+test('v1 markers cannot grant v2 scoped observation or bypass the prepared mutation stage', async t => {
+  const f = await fixture(t), first = await bootstrap(f), capture = mutationFixture()
+  await begin(f, first.checkpoint_sha256)
+  const fields = mutationFields(first, capture.tuple)
+  await assert.rejects(f.publisher.retainPrepared({...fields, control_state: bundle(capture.tables)}),
+    {code: 'memory:control-retention-mutation-pending-fields-invalid'})
+  f.role(modelReaderUid)
+  const reader = createFileControlRetentionReader(f.config)
+  await assert.rejects(reader.observePredecessor(fields), {code: 'memory:control-retention-mutation-pending-fields-invalid'})
+  await assert.rejects(reader.inspectPending(host), {code: 'memory:control-retention-mutation-pending-fields-invalid'})
+})
+
+test('v2 final pointer uncertainty leaves the marker; fresh factual completion requires the exact existing final bytes', async t => {
+  const f = await fixture(t), first = await bootstrap(f), capture = mutationFixture()
+  const fields = mutationFields(first, capture.tuple)
+  await f.publisher.beginMutation(fields)
+  await f.publisher.retainPrepared({...fields, control_state: bundle(capture.tables)})
+  const finalState = bundle(capture.appliedTables(), {remembered: 'b'.repeat(64)}), rename = fs.rename
+  let finalReplacements = 0
+  t.mock.method(fs, 'rename', async (...args) => {
+    await rename(...args)
+    if (args[1].endsWith('.current.json')) {
+      finalReplacements++
+      throw Object.assign(new Error('synthetic v2 lost pointer replacement reply'), {code: 'EIO'})
+    }
+  })
+  await assert.rejects(f.publisher.publishMutation({...fields, control_state: finalState}),
+    {code: 'memory:control-retention-commit-uncertain'})
+  await assert.rejects(f.publisher.publishMutation({...fields, control_state: finalState}),
+    {code: 'memory:control-retention-commit-uncertain'})
+  f.role(modelReaderUid)
+  const reader = createFileControlRetentionReader(f.config)
+  await assert.rejects(reader.readCurrent(host), {code: 'memory:control-retention-update-pending'})
+  const actual = await reader.inspectPending(host)
+  assert.deepEqual(actual.current.control_state, finalState)
+  assert.equal(actual.prepared.control_state.tables.effects.length, 0)
+  await assert.rejects(reader.observePredecessor(fields), {code: 'memory:control-retention-checkpoint-conflict'})
+  f.role(actualUid)
+  const recovery = createFileControlRetentionPublisher(f.config)
+  await assert.rejects(recovery.publishMutation({...fields,
+    control_state: bundle(capture.appliedTables(), {remembered: 'c'.repeat(64)})}),
+  {code: 'memory:control-retention-mutation-final-conflict'})
+  const finalFilename = (await fs.readdir(f.directory)).find(file => file.includes(actual.current.checkpoint_sha256))
+  const before = await fs.stat(path.join(f.directory, finalFilename))
+  assert.deepEqual(await recovery.publishMutation({...fields, control_state: finalState}), actual.current)
+  assert.equal((await fs.stat(path.join(f.directory, finalFilename))).ino, before.ino)
+  assert.equal(finalReplacements, 1)
+  f.role(modelReaderUid)
+  assert.deepEqual(await reader.readCurrent(host), actual.current)
 })

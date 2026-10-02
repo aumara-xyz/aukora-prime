@@ -5,6 +5,7 @@ import { guestEnvironment, guestPolicy, refused, validateSpec } from './policy.m
 import { SDK_SOURCE_COMMIT, SDK_PACKAGE_VERSION } from './sdk-transport.ts'
 import { executorRequestDigest,executionReceiptDigest,requireBroker,brokerRefusal } from './binding.mjs'
 import { inspectQualification } from './qualification.mjs'
+import { assertEffectiveConfiguration } from './effective-policy.mjs'
 
 const LABEL='aukora.openshell/owner'
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -54,16 +55,10 @@ function own(sandbox,job,settings) {
   job.receipt.sandbox={uid:job.id,name:job.name,identity:`${settings.workspace}/${job.id}`,
     image_digest:settings.image_digest,policy_digest:job.policy_digest}
 }
-function admitted(s,job,settings,policy,env) {
+function admitted(s,job,settings,env) {
   own(s,job,settings)
-  const actual=s.spec?.policy
-  const normalized=actual&&{version:actual.version,filesystem:actual.filesystem&&{
-    includeWorkdir:actual.filesystem.includeWorkdir,readOnly:actual.filesystem.readOnly,readWrite:actual.filesystem.readWrite},
-    landlock:actual.landlock&&{compatibility:actual.landlock.compatibility},
-    process:actual.process&&{runAsUser:actual.process.runAsUser,runAsGroup:actual.process.runAsGroup},
-    networkPolicies:actual.networkPolicies,networkMiddlewares:actual.networkMiddlewares}
   if(s.status?.phase!==2||s.status.configurationAdmission?.state!==2||!s.status.configurationAdmission.policyHash
-    ||hash(normalized)!==hash(policy)||s.spec.template?.image!==settings.image_digest||s.spec.tty!==false
+    ||s.spec.template?.image!==settings.image_digest||s.spec.tty!==false
     ||s.spec.providers?.length!==0||canonicalJson(s.spec.environment)!==canonicalJson(env)
     ||canonicalJson(s.spec.command)!==canonicalJson(['/bin/sleep','infinity'])) throw refused('exact guest configuration was not admitted','UNAVAILABLE')
 }
@@ -157,7 +152,7 @@ export class OpenShellOwnedExecutor {
   normalize(job) {
     const r=job.receipt
     r.reconciliation_required=!['not_created','confirmed_absent'].includes(r.cleanup)
-    if(r.reconciliation_required) {r.status='outcome_unknown';r.error_code='RECONCILIATION_REQUIRED'}
+    if(r.reconciliation_required||job.configuration_uncertain||job.configuration_verification==='pending') {r.status='outcome_unknown';r.error_code='RECONCILIATION_REQUIRED';r.reconciliation_required=true}
     else if(r.rpc_completion==='complete'&&r.exit_code!==null) {r.status=r.exit_code===0?'completed':'failed';r.error_code=null}
     else if(job.cancel_state==='recorded'&&r.rpc_completion==='not_started'&&r.started_at===null&&r.exit_code===null) {r.status='cancelled';r.error_code='CANCELLED'}
     else if(job.claim_state==='refused') {r.status='unavailable';r.error_code=job.claim_reply?.error_code??'UNAVAILABLE'}
@@ -211,20 +206,32 @@ export class OpenShellOwnedExecutor {
         while(!controller.signal.aborted) {
           const observed=await this.transport.get(job,this.settings,{timeoutMs:Math.max(1,readyUntil-Date.now()),signal:controller.signal})
           own(observed,job,this.settings)
-          if(observed?.status?.phase===2){admitted(observed,job,this.settings,snap.policy,snap.env);break}
+          if(observed?.status?.phase===2){
+            admitted(observed,job,this.settings,snap.env)
+            const config=await this.transport.configuration(job,this.settings,{timeoutMs:Math.max(1,readyUntil-Date.now()),signal:controller.signal})
+            job.effective_configuration=assertEffectiveConfiguration({sandbox:observed,config,policy:snap.policy,workspace:this.settings.workspace})
+            this.ledger.save(job);break
+          }
           if(Date.now()>=readyUntil||[3,4,7,9].includes(observed?.status?.phase))throw refused('sandbox failed readiness','UNAVAILABLE')
           await new Promise(r=>setTimeout(r,this.settings.poll_ms))
         }
         if(!controller.signal.aborted) {
+          await this.verifyConfiguration(job,snap,controller.signal)
+          controller.signal.throwIfAborted()
           if(!this.admission(snap.r)||Date.parse(snap.r.operation.expiry)<=Date.now())throw refused('operation expired or runtime evidence revoked before exec','UNAVAILABLE')
+          // A crash after drained RPC but before final config corroboration must
+          // preserve uncertainty across restart. Only a durable verified save clears it.
+          job.configuration_verification='pending'
           job.stage='exec_attempted';job.receipt.started_at=iso();job.receipt.rpc_completion='transport_failed';this.ledger.save(job)
           for await(const event of this.transport.execStream(job,this.settings,snap.spec,snap.env,controller.signal)) {
             if(event.type==='exit')job.receipt.exit_code=event.exitCode
+            else if(event.type==='ambiguous_exit')job.gateway_exit_evidence={exit_code:event.exitCode,reason:'ambiguous_timeout_or_command_exit'}
+            else if(event.type==='rpc_complete'){job.receipt.rpc_completion='complete';job.stage='exec_drained'}
             else {const field=event.stream==='stdout'?'stdout_b64':'stderr_b64',retained=tail(job[field],event.data,snap.spec.stdoutMaxBytes);job[field]=retained.data;job.receipt.output_truncated ||= retained.truncated}
             this.ledger.save(job)
           }
-          if(job.receipt.exit_code===null)throw refused('typed exit missing','OUTCOME_UNKNOWN')
-          job.receipt.rpc_completion='complete';job.stage='exec_drained';this.ledger.save(job)
+          try {await this.verifyConfiguration(job,snap);job.configuration_verification='verified';this.ledger.save(job)}
+          catch(error){job.configuration_uncertain=true;this.ledger.save(job);throw error}
         }
       }
     } catch(error) {dispatchError=error}
@@ -236,6 +243,14 @@ export class OpenShellOwnedExecutor {
     try {await this.publish(job)}catch(error) {throw Object.assign(refused('durable authority settlement pending','RECONCILIATION_REQUIRED'),{cause:error,executionReceipt:clone(job.receipt)})}
     if(job.claim_state==='refused')throw Object.assign(dispatchError??refused('dispatch refused','UNAVAILABLE'),{executionReceipt:clone(job.receipt)})
     return validateContract('ExecutionReceipt',clone(job.receipt))
+  }
+  async verifyConfiguration(job,snap,signal) {
+    const options={timeoutMs:this.settings.control_timeout_ms,signal}
+    const sandbox=await this.transport.get(job,this.settings,options)
+    admitted(sandbox,job,this.settings,snap.env)
+    const config=await this.transport.configuration(job,this.settings,options)
+    const observed=assertEffectiveConfiguration({sandbox,config,policy:snap.policy,workspace:this.settings.workspace})
+    if(!job.effective_configuration||canonicalJson(observed)!==canonicalJson(job.effective_configuration))throw refused('effective configuration changed across execution boundary','UNAVAILABLE')
   }
   async find(job,deadline) {
     let token='',found=null;const seen=new Set()

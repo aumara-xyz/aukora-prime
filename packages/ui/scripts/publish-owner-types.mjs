@@ -2,7 +2,7 @@ import {mkdir,readdir,lstat,readFile,writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import assert from 'node:assert/strict'
 
-const adapters=Object.freeze(['capture-metadata','capture-presentation','capture-review','forget-result','forget-review','passkey','provider-settings','transport'])
+const adapters=Object.freeze(['capture-metadata','capture-presentation','capture-review','forget-result','forget-review','passkey','provider-settings','save-recovery','transport'])
 const rebase=bytes=>Buffer.from(bytes.toString('utf8').replaceAll('../../../adapters/','../adapters/'))
 async function directoryAt(path) {
   const metadata=await lstat(path)

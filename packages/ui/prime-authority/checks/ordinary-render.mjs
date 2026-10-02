@@ -1,0 +1,218 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
+import { resolve, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { createOwnerUiFixture } from './fixture.mjs'
+import { providerCatalog, providerNamespace, mountDshCatalog } from '../../../inference/src/provider-settings.mjs'
+import { providerNamespaceView } from '../../adapters/provider-settings.mjs'
+
+// Ordinary SSR acceptance only. Uses the committed built native UI and pinned
+// React; no compilation, malformed inputs, authority/memory service or browser.
+const [harness, contractFile] = process.argv.slice(2)
+if (!harness || !contractFile) throw new Error('ordinary-render.mjs <pinned Prime DSH> <browser contracts>')
+const require = createRequire(join(resolve(harness), 'node_modules/.pnpm/node_modules/prime-ordinary-render.cjs'))
+const React = require('react'), server = require('react-dom/server')
+assert.equal(require('react/package.json').version, '18.3.1')
+assert.equal(require('react-dom/package.json').version, '18.3.1')
+const contracts = await import(pathToFileURL(resolve(contractFile)).href)
+const modules = { react:React,'react/jsx-runtime':require('react/jsx-runtime'),'@deepseek-ai/dsh-client-store':{} }
+const factories = {}, bundleHashes = {}
+const loaderWindow = { __ModuleLoader__:{ load:({id,factory}) => { factories[id] = factory } } }
+for (const [name, relative] of [['layout','../../faces/layout/lib/client.js'],['prime_owner','../lib/client.js']]) {
+  const bytes = await readFile(new URL(relative, import.meta.url))
+  bundleHashes[name] = createHash('sha256').update(bytes).digest('hex')
+  new Function('window', bytes.toString('utf8'))(loaderWindow)
+}
+const get = name => {
+  if (Object.hasOwn(modules, name)) return modules[name]
+  return modules[name] = factories[name.replace(/\/client$/, '')](get)
+}
+get('@aukora/face-layout/client')
+const ui = get('@aukora/prime-authority-ui/client')
+const render = controller => server.renderToStaticMarkup(React.createElement(ui.OwnerSurface, {activeSurface:'prime-owner',controller}))
+const escaped = text => text.replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#x27;'}[character]))
+const preText = (html, attribute) => html.match(new RegExp(`<pre[^>]*\\b${attribute}="(?:true)?"[^>]*>([\\s\\S]*?)<\\/pre>`))?.[1]
+const nodeDigest = (domain, value) => 'sha256:' + createHash('sha256').update(domain).update('\0').update(contracts.canonicalJson(value)).digest('hex')
+let groups = 0, protocolGroups = 0
+
+// Capture the actual non-exported companion through its production Cordis slot
+// registration. Effects and service injections are recorded, never executed.
+const registrations = [], effects = [], injections = []
+ui.apply({
+  effect(callback, name) { effects.push({callback,name}) },
+  inject(names, callback) { injections.push({names,callback}) },
+  slots:{ inject(_name, callback) { return callback() },register(descriptor, component) {
+    registrations.push({descriptor,component}); return () => {}
+  } },
+})
+const providerSlot = registrations.find(({descriptor}) => descriptor.name === 'settings.models.provider-card')
+assert(providerSlot)
+assert.equal(providerSlot.descriptor.key, 'prime-inference')
+assert(effects.length > 0); assert.equal(injections.length, 2)
+const providers = providerSlot.descriptor.inject().controller
+try {
+  const provider = {provider:'externalDeepSeek',displayName:'DeepSeek',settingsNs:'prime-inference',
+    settingsPath:['providers','externalDeepSeek'],active:true,declared:true}
+  const before = providers.getSnapshot()
+  const html = server.renderToStaticMarkup(React.createElement(providerSlot.component, {
+    provider,configured:false,keyConfigured:false,controller:providers,
+  }))
+  assert(html.includes('data-prime-provider-editor="true"')); assert(html.includes('data-provider="externalDeepSeek"'))
+  assert(html.includes('DeepSeek')); assert(html.includes('externalDeepSeek'))
+  assert(/<input[^>]*aria-label="Endpoint"[^>]*value="https:\/\/api\.deepseek\.com"/.test(html))
+  assert(/<input[^>]*readonly=""[^>]*aria-label="Configured model"[^>]*value="Unconfirmed"/.test(html))
+  assert(html.includes('DeepSeek V4.1 Flash (deepseek-flash)'))
+  assert(/<option value="deepseek-flash" selected="">/.test(html))
+  assert(html.includes('This selection is a local draft. Configuration changes require separate owner approval.'))
+  assert(html.includes('Catalog: pending. Owner status: unavailable. Key entry: unavailable.'))
+  assert(html.includes('Not confirmed configured'))
+  assert(/<input[^>]*type="password"[^>]*aria-label="DeepSeek API key"[^>]*disabled=""/.test(html))
+  assert(/<button[^>]*type="submit"[^>]*disabled=""[^>]*>Store key with approved handoff<\/button>/.test(html))
+  assert(html.includes('Owner configuration and secure key entry are unavailable.'))
+  assert.equal(providers.getSnapshot(), before)
+  assert.equal(before.row.enabled, false); assert.equal(before.row.credentialConfigured, false)
+  groups++
+} finally { providers.dispose() }
+
+// Pure catalog data is injected directly into the actual built controller. No
+// public HTTP route, owner-status method or credential handoff is installed.
+const publicCatalog = providerCatalog(), publicNamespace = providerNamespace()
+const publicDirectory = publicCatalog.providers[0]
+assert.equal(publicDirectory.provider, 'externalDeepSeek'); assert.equal(publicDirectory.displayName, 'DeepSeek')
+assert.equal(publicDirectory.settingsNs, 'prime-inference')
+assert.deepEqual(publicDirectory.settingsPath, ['providers','externalDeepSeek'])
+assert.equal(publicDirectory.active, false); assert.equal(publicDirectory.paid_requests_enabled, false)
+assert.deepEqual(publicCatalog.namespace, publicNamespace)
+const unauthenticatedOwner = ui.createPrimeOwnerController()
+const loadedProviders = ui.createPrimeProviderController()
+let catalogReads = 0
+try {
+  assert.equal(unauthenticatedOwner.getSnapshot().owner, null)
+  loadedProviders.connect({ownerController:unauthenticatedOwner,contracts,api:{catalog() { catalogReads++; return providerCatalog() }}})
+  await loadedProviders.load()
+  const state = loadedProviders.getSnapshot()
+  assert.equal(catalogReads, 1); assert.equal(state.catalog_status, 'loaded')
+  assert.equal(state.owner_status, 'unavailable'); assert.equal(state.entry_status, 'unavailable')
+  assert.deepEqual(state.row, publicNamespace.section.providers.externalDeepSeek)
+  const html = server.renderToStaticMarkup(React.createElement(providerSlot.component, {
+    provider:publicDirectory,configured:false,keyConfigured:false,controller:loadedProviders,
+  }))
+  assert(html.includes('data-prime-provider-editor="true"'))
+  assert(html.includes('Catalog: loaded. Owner status: unavailable. Key entry: unavailable.'))
+  assert(/<input[^>]*readonly=""[^>]*aria-label="Endpoint"[^>]*value="https:\/\/api\.deepseek\.com"/.test(html))
+  assert(/<option value="deepseek-flash" selected="">/.test(html))
+  assert(html.includes('This selection is a local draft. Configuration changes require separate owner approval.'))
+  for (const label of ['Maximum input tokens','Maximum output tokens','Maximum requests']) {
+    assert(new RegExp(`<input[^>]*readonly=""[^>]*aria-label="${label}"[^>]*value="0"`).test(html))
+  }
+  assert(/<input[^>]*readonly=""[^>]*aria-label="Task spend ceiling"[^>]*value="Not configured"/.test(html))
+  assert(/<input[^>]*readonly=""[^>]*aria-label="Configured model"[^>]*value="Unconfirmed"/.test(html))
+  assert(/<input[^>]*type="password"[^>]*aria-label="DeepSeek API key"[^>]*disabled=""/.test(html))
+  assert(/<button[^>]*type="submit"[^>]*disabled=""[^>]*>Store key with approved handoff<\/button>/.test(html))
+  assert.equal(state.row.taskSpendCeiling, null); assert.equal(state.row.enabled, false)
+  assert.equal(state.row.credentialConfigured, false); assert.equal(catalogReads, 1)
+  groups++
+} finally { loadedProviders.dispose(); unauthenticatedOwner.dispose() }
+
+// Positive nonsecret settings-protocol conversion through the actual pinned
+// Schemastery implementation, plus a mocked directory registration only.
+const Schema = require('@deepseek-ai/schemastery')
+assert.equal(require('@deepseek-ai/schemastery/package.json').version, '3.18.2')
+const namespaceView = providerNamespaceView(publicNamespace, {Schema,contracts})
+const rehydratedSchema = new Schema(namespaceView.schema)
+assert.equal(namespaceView.ns, publicDirectory.settingsNs)
+assert.deepEqual(rehydratedSchema(namespaceView.value), publicNamespace.section)
+assert.deepEqual(namespaceView.value, namespaceView.base); assert.deepEqual(namespaceView.secrets, [])
+const serializedRoot = namespaceView.schema.refs[namespaceView.schema.uid]
+const serializedProviders = namespaceView.schema.refs[serializedRoot.dict.providers]
+const serializedProvider = namespaceView.schema.refs[serializedProviders.dict.externalDeepSeek]
+for (const field of Object.keys(publicNamespace.section.providers.externalDeepSeek)) {
+  assert.equal(namespaceView.schema.refs[serializedProvider.dict[field]].meta.role, 'readonly')
+}
+let registeredDirectory
+const directoryDisposer = () => {}
+assert.equal(mountDshCatalog({llm:{registerConfigurableProviders(entries) { registeredDirectory = entries; return directoryDisposer }}}), directoryDisposer)
+assert.deepEqual(registeredDirectory, [{provider:'externalDeepSeek',displayName:'DeepSeek',settingsNs:'prime-inference',
+  settingsPath:['providers','externalDeepSeek'],declared:false}])
+groups++; protocolGroups++
+
+const clock = Date.parse('2030-01-01T00:00:00Z')
+const binding = createOwnerUiFixture(contracts, {now:() => clock})
+const controller = ui.createPrimeOwnerController({now:() => clock,schedule:() => 1,unschedule() {}})
+controller.connect(binding)
+try {
+  await controller.login()
+  // Independently chosen ordinary original-record summary, never derived from
+  // operation parameters. The original synthetic bytes remain unchanged.
+  const recordSummary = {record_id:'ordinary-ssr-record',revision:'ordinary-ssr-revision',
+    statement:'  Keep café & tea\nLine two 😀  ',attributed_to:'owner-edit'}
+  const originalBytes = contracts.canonicalJson({statement:recordSummary.statement,attributedTo:recordSummary.attributed_to})
+  const canonicalHash = createHash('sha256').update(originalBytes).digest('hex')
+  const ownerSubject = 'aukora:1:' + '1'.repeat(64)
+  const operation = {...binding.operation,action_type:'memory.forget',audience:'aukora-prime.memory',
+    target_identity:{kind:'prime-memory',owner_subject:ownerSubject},expected_state_version:'sha256:' + '2'.repeat(64),
+    canonical_parameters:{profile:'prime-logical-forget/v1',record_id:recordSummary.record_id,revision:recordSummary.revision,
+      statement:recordSummary.statement,attributed_to:recordSummary.attributed_to,canonical_sha256:canonicalHash,
+      at:'2030-01-01T00:00:00Z',heads:{remembered:'aukora:aura-record:v1'}}}
+  controller.setOperation(operation, {recordSummary})
+  const operationDigest = await contracts.operationDigest(operation)
+  let handlerCalls = 0
+  controller.setForgetAction(async () => {
+    handlerCalls++
+    const approved = await controller.approve()
+    assert.equal(approved.status, 'APPROVED')
+    const result = {record_id:recordSummary.record_id,state:'tombstoned',canonical_payload_retained:true,physical_media_erasure:false,
+      authority_approval_history_erased:false,backups_erased:false,wal_erased:false,grants_authority:false}
+    const request = {version:1,action_type:'memory.forget',owner_subject:ownerSubject,operation_id:operation.operation_id,
+      operation_digest:operationDigest,parameters:operation.canonical_parameters}
+    const receipt = {version:1,kind:'prime-memory-effect/v1',operation_id:operation.operation_id,operation_digest:operationDigest,
+      grant_id:'grant:' + approved.approval_proof.nonce,request_id:'12345678-1234-4123-8123-123456789abc',
+      request_digest:nodeDigest('aukora-prime.memory.effect.v1', request),owner_subject:ownerSubject,action_type:'memory.forget',status:'applied',
+      result_digest:nodeDigest('aukora-prime.memory-result.v1', result),result}
+    return {phase:'forgotten',operation,record_summary:recordSummary,operation_digest:operationDigest,approval:'approved',forget:'forgotten',
+      forgotten:true,result,receipt,receipt_digest:nodeDigest('aukora-prime.memory-receipt.v1', receipt),authority_settlement:'completed',
+      reconciliation_required:false,error_code:null,recovery_status:'not_requested',recovery_operation_id:null,recovery_operation_digest:null}
+  })
+  await controller.prepare()
+  const review = controller.getSnapshot().presentation
+  const html = render(controller)
+  assert(html.includes('data-memory-forget-review="true"'))
+  for (const [attribute, value] of [['data-forget-record-id',recordSummary.record_id],['data-forget-revision',recordSummary.revision],
+    ['data-forget-statement',recordSummary.statement],['data-forget-attribution',recordSummary.attributed_to],['data-forget-canonical-hash',canonicalHash]]) {
+    assert.equal(preText(html, attribute), escaped(value))
+  }
+  for (const field of Object.keys(operation)) assert(html.includes(`data-operation-field="${field}"`))
+  assert.equal(preText(html, 'data-operation-digest'), operationDigest)
+  assert.equal(preText(html, 'data-canonical-operation'), escaped(contracts.canonicalJson(operation)))
+  assert(html.includes('data-review-challenge="true"'))
+  assert(html.includes('Logical forget removes visibility. Canonical payloads, backups, WAL, authority history and physical media are retained.'))
+  assert(!/disabled=""[^>]*>Approve exact operation/.test(html))
+  assert.equal(review.forget_review.statement, recordSummary.statement)
+  assert(!html.includes('synthetic-in-memory-only')); assert(!html.includes('client_data_json'))
+  groups++
+
+  const reported = await controller.submitApproval()
+  assert(reported); assert.equal(handlerCalls, 1); assert.equal(binding.counts.approve, 1)
+  const completed = render(controller)
+  assert(completed.includes('data-memory-forget-result="true"')); assert(completed.includes('data-phase="approved"'))
+  assert(/data-forget-status="true">forgotten<\/dd>/.test(completed))
+  assert(/data-forget-settlement="true">completed<\/dd>/.test(completed))
+  assert(completed.includes(reported.receipt_digest))
+  assert.equal(preText(completed, 'data-forget-receipt'), escaped(JSON.stringify(reported.receipt, null, 2)))
+  assert(completed.includes('Visibility was removed. Canonical payloads, external backups, WAL and physical media were not erased.'))
+  assert(!completed.includes('data-memory-workflow-result'))
+  assert(!completed.includes('synthetic-in-memory-only')); assert(!completed.includes('client_data_json'))
+  assert.equal(preText(completed, 'data-forget-statement'), escaped(recordSummary.statement))
+  assert.equal(originalBytes, contracts.canonicalJson({statement:recordSummary.statement,attributedTo:recordSummary.attributed_to}))
+  groups++
+} finally { controller.dispose() }
+
+console.log(JSON.stringify({result:'PASS',evidence:'RAN',scope:'ordinary native SSR and nonsecret provider protocol',
+  ordinary_acceptance_groups:groups,native_render_groups:groups-protocolGroups,provider_protocol_groups:protocolGroups,
+  base_checkpoint:'1b7bd3d7909996c8d515a5c588059e5b2257e39a',react:'18.3.1',react_dom:'18.3.1',schemastery:'3.18.2',
+  catalog_reads:catalogReads,bundle_sha256:bundleHashes,
+  browser_observation:'UNPERFORMED',runtime:false,network:false,real_authentication:false,real_credentials:false,
+  real_memory_effects:false,real_provider_effects:false,compile:false,adversarial_cases:false}))

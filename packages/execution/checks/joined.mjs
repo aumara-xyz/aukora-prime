@@ -2,21 +2,22 @@
 // Actual C authority/kernel/store + F lifecycle; only the SDK protocol is mocked.
 // Generated private keys live only in this process. No guest or live gateway runs.
 import assert from 'node:assert/strict'
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, sign, randomUUID, createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  createAuthorityService, loginSigningBytes, approvalSigningBytes,
+  createAuthorityService, provisionNewAuthorityStore, loginSigningBytes, approvalSigningBytes,
   executorRequestDigest as authorityRequestDigest,
   executionReceiptDigest as authorityReceiptDigest,
 } from '../../authority/src/index.mjs'
 import { didKeyFromEd25519PublicKey } from '../../authority/upstream/plugins/aukora-aumlok/lib/did-key.mjs'
-import { operationDigest } from '../../contracts/src/runtime.mjs'
+import { operationDigest, validateContract, canonicalJson } from '../../contracts/src/runtime.mjs'
 import { OwnedLedger, executorRequestDigest, executionReceiptDigest } from '../src/index.mjs'
 import { settings, request, fixture, MockedProtocolExecutor } from './harness.mjs'
 
 const roots = [], ledgers = new Set()
+const completeNullGroup = process.argv[2] === 'complete-null'
 let checks = 0
 const clone = structuredClone
 const accepted = value => {
@@ -66,11 +67,12 @@ function authorityFixture() {
     authorizeTask: () => ({ authenticated: true, task }),
     observeTarget: () => ({ target_identity: clone(target), state_version: r.operation.expected_state_version }),
   }
+  accepted(provisionNewAuthorityStore(config))
   const service = createAuthorityService(config)
   const loginChallenge = accepted(service.loginChallenge({ owner_id: identity.owner_id, kind: 'owner_key' })).challenge
   const token = accepted(service.loginComplete({ challenge: loginChallenge,
     material: { kind: 'owner_key', signature: sign(null, loginSigningBytes(loginChallenge), keys.privateKey).toString('hex') } })).session_token
-  accepted(service.propose(r.operation))
+  accepted(service.propose({session_token:token,operation:r.operation}))
   const review = accepted(service.approvalChallenge({ session_token: token, operation: r.operation }))
   const proof = { ...review.proof_template, material: { kind: 'owner_key', request: review.approval_request,
     signature: sign(null, approvalSigningBytes(review.approval_request), keys.privateKey).toString('hex') } }
@@ -112,7 +114,193 @@ const settlementBinding = (r, receipt) => ({ ...claimBinding(r), receipt,
   receipt_digest: executionReceiptDigest(receipt) })
 function closeLedger(ledger) { ledger.close(); ledgers.delete(ledger) }
 
+async function completeNullChecks() {
+  function unknown(receipt, rpc = 'complete', cleanup = 'confirmed_absent') {
+    validateContract('ExecutionReceipt', receipt)
+    assert.equal(receipt.status, 'outcome_unknown'); assert.equal(receipt.exit_code, null)
+    assert.equal(receipt.rpc_completion, rpc); assert.equal(receipt.cleanup, cleanup)
+    assert.equal(receipt.reconciliation_required, true)
+    assert.equal(new Date(receipt.started_at).toISOString(), receipt.started_at)
+    assert.notEqual(receipt.sandbox, null)
+    assert.equal(receipt.stdout, 'retained synthetic output'); assert.equal(receipt.stderr, 'retained error')
+  }
+  function evidence(f, r, receipt) {
+    const job = f.ledger.lookup(r.request_id)
+    assert.deepEqual(job.gateway_exit_evidence, { exit_code: 124, reason: 'ambiguous_timeout_or_command_exit' })
+    assert.equal(job.receipt.exit_code, null)
+    assert.deepEqual(job.request.consumed_grant, r.consumed_grant)
+    assert.equal(job.request_digest, executorRequestDigest(r))
+    assert.equal(job.outbox.at(-1).state, 'acked')
+    assert.deepEqual(job.outbox.at(-1).receipt, receipt)
+    assert.equal(job.outbox.at(-1).receipt_digest, executionReceiptDigest(receipt))
+    assert.equal(job.outbox.at(-1).reply.status, 'OUTCOME_UNKNOWN')
+    assert.equal(job.outbox.at(-1).reply.reconciliation_required, true)
+    const row = Object.values(f.authority.state().broker.operations)[0]
+    assert.deepEqual(row.grant, r.consumed_grant)
+    assert.deepEqual(row.dispatch.receipt, receipt)
+    assert.equal(row.dispatch.receipt_digest, executionReceiptDigest(receipt))
+    assert.equal(f.authority.state().prepared.length, 1)
+    return job
+  }
+
+  await check('full wire 124 drains RPC while exact command exit remains unknown; typed 0/1 facts stay distinct', async () => {
+    const f = await joined({ exit: 124 }), r = f.authority.r
+    const receipt = await f.executor.execute(r)
+    unknown(receipt); evidence(f, r, receipt)
+    assert.equal(receipt.error_code, 'OUTCOME_UNKNOWN')
+    assert.equal(authorityReceiptDigest(receipt), executionReceiptDigest(receipt))
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
+    assert.deepEqual(f.calls.map(c => c.method), ['claimDispatch', 'settle'])
+    assert.equal(count(f, 'create'), 1); assert.equal(count(f, 'exec'), 1)
+    assert.equal(f.executor.availability().runtimeEnforcementVerified, false)
+    for (const exit of [0, 1]) {
+      const known = await joined({ exit }), result = await known.executor.execute(known.authority.r)
+      assert.equal(result.exit_code, exit); assert.equal(result.rpc_completion, 'complete')
+      assert.equal(result.status, exit === 0 ? 'completed' : 'failed')
+      assert.equal(result.reconciliation_required, false)
+      assert.equal(known.authority.status().status, exit === 0 ? 'COMPLETED' : 'FAILED')
+      assert.equal(known.ledger.lookup(known.authority.r.request_id).gateway_exit_evidence, undefined)
+      assert.equal(known.ledger.lookup(known.authority.r.request_id).outbox[0].state, 'acked')
+    }
+  })
+
+  await check('wire 124 with lost final trailers retains raw evidence and transport_failed distinct from complete RPC', async () => {
+    const f = await joined({ exit: 124, trailerFailure: true }), r = f.authority.r
+    const receipt = await f.executor.execute(r)
+    unknown(receipt, 'transport_failed'); evidence(f, r, receipt)
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
+    assert.equal(count(f, 'exec'), 1)
+  })
+
+  await check('recorded cancellation with full wire 124 cannot settle CANCELLED even after complete RPC and owned absence', async () => {
+    const controller = new AbortController(), f = await joined({ exit: 124 })
+    const original = f.protocol.raw.execSandbox
+    f.protocol.raw.execSandbox = async function* (...args) {
+      for await (const event of original(...args)) {
+        if (event.payload?.case === 'exit') controller.abort()
+        yield event
+      }
+    }
+    const r = { ...f.authority.r, signal: controller.signal }, receipt = await f.executor.execute(r)
+    unknown(receipt)
+    const job = evidence(f, f.authority.r, receipt)
+    assert.equal(job.cancel_state, 'recorded'); assert.equal(job.cancel_cause, 'caller')
+    const cancellation = f.calls.find(c => c.method === 'requestCancel')
+    assert.equal(cancellation.value.status, 'CANCEL_REQUESTED'); assert.equal(cancellation.value.cancel_recorded, true)
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
+    const altered = { ...receipt, status: 'cancelled', error_code: 'CANCELLED', reconciliation_required: false }
+    rejected(await f.broker.reconcileSettlement(settlementBinding(f.authority.r, altered)), 'INVALID')
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
+    assert.equal(count(f, 'exec'), 1)
+  })
+
+  await check('full wire 124 cleanup reconciliation stays unknown with stable receipt/request/grant/fences and acknowledged changed digest', async () => {
+    const f = await joined({ exit: 124, cleanupFailure: true }), r = f.authority.r
+    const initial = await f.executor.execute(r)
+    unknown(initial, 'complete', 'unknown')
+    const before = evidence(f, r, initial), firstDigest = executionReceiptDigest(initial)
+    assert.equal(initial.error_code, 'RECONCILIATION_REQUIRED')
+    f.protocol.setCleanup(false)
+    const [receipt] = await f.executor.reconcileOwned()
+    unknown(receipt)
+    const after = evidence(f, r, receipt)
+    for (const key of ['receipt_id', 'operation_id', 'operation_digest', 'grant_id', 'request_id', 'started_at', 'stdout', 'stderr'])
+      assert.equal(receipt[key], initial[key])
+    assert.deepEqual(receipt.sandbox, initial.sandbox)
+    for (const key of ['request_id', 'request_digest', 'reservation_id', 'create_request_id', 'delete_request_id', 'token', 'id'])
+      assert.equal(after[key], before[key])
+    assert.deepEqual(after.request.consumed_grant, before.request.consumed_grant)
+    assert.notEqual(executionReceiptDigest(receipt), firstDigest)
+    assert.equal(after.outbox.length, 2); assert(after.outbox.every(item => item.state === 'acked'))
+    assert.equal(f.calls.at(-1).method, 'reconcileSettlement'); assert.equal(f.calls.at(-1).value.idempotent, false)
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
+    await assert.rejects(f.executor.execute(request()), e => e.code === 'RECONCILIATION_REQUIRED')
+    assert.equal(f.calls.filter(c => c.method === 'claimDispatch').length, 1)
+    assert.equal(count(f, 'create'), 1); assert.equal(count(f, 'exec'), 1)
+  })
+
+  await check('lost full wire 124 settlement reply drains identical idempotent C/F restart delivery and rejects fresh-ledger claim replay', async () => {
+    let lost = false
+    const f = await joined({ exit: 124 }, { settle: value => {
+      assert.equal(value.ok, true)
+      if (!lost) { lost = true; throw new Error('synthetic complete/null settlement reply loss after durable C commit') }
+    } }), r = f.authority.r
+    await assert.rejects(f.executor.execute(r), e => e.code === 'RECONCILIATION_REQUIRED' && e.executionReceipt?.rpc_completion === 'complete' && e.executionReceipt?.exit_code === null)
+    const prior = f.ledger.lookup(r.request_id), identity = f.ledger.identity
+    unknown(prior.receipt); assert.equal(prior.outbox[0].state, 'pending')
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN')
+    closeLedger(f.ledger)
+    const ledger = new OwnedLedger(f.root, { expected_identity: identity }); ledgers.add(ledger)
+    const restartedC = f.authority.restart()
+    const executor = new MockedProtocolExecutor({ settings, transport: f.transport, ledger,
+      broker: tracedBroker(restartedC, f.calls) })
+    const [receipt] = await executor.reconcileOwned()
+    unknown(receipt); assert.deepEqual(receipt, prior.outbox[0].receipt)
+    const recovered = ledger.lookup(r.request_id)
+    assert.equal(recovered.outbox.length, 1); assert.equal(recovered.outbox[0].state, 'acked')
+    assert.deepEqual(recovered.gateway_exit_evidence, prior.gateway_exit_evidence)
+    const settlements = f.calls.filter(c => c.method === 'settle')
+    assert.equal(settlements.length, 2); assert.deepEqual(settlements[1].input, settlements[0].input)
+    assert.equal(settlements[1].value.idempotent, true); assert.equal(settlements[1].value.status, 'OUTCOME_UNKNOWN')
+    assert.equal(count(f, 'create'), 1); assert.equal(count(f, 'exec'), 1)
+    rejected(restartedC.claimDispatch(claimBinding(r)), 'REPLAYED')
+    const fresh = await fixture({}, { broker: tracedBroker(restartedC, f.calls) })
+    roots.push(fresh.root); ledgers.add(fresh.ledger)
+    await assert.rejects(fresh.executor.execute(r), e => e.code === 'REPLAYED')
+    assert.equal(count(fresh, 'create'), 0); assert.equal(count(fresh, 'exec'), 0)
+    assert.equal(f.authority.status(restartedC).status, 'OUTCOME_UNKNOWN')
+    assert.equal(f.authority.state().prepared.length, 1)
+  })
+
+  await check('actual C rejects nonconservative complete/null shapes and changed settlement bindings without altering durable evidence', async () => {
+    const f = await joined({ exit: 124 }), r = f.authority.r, receipt = await f.executor.execute(r)
+    unknown(receipt)
+    const before = clone(Object.values(f.authority.state().broker.operations)[0].dispatch)
+    const invalidReceipts = [
+      ...['completed', 'failed', 'cancelled', 'unavailable'].map(status => ({ ...receipt, status })),
+      { ...receipt, reconciliation_required: false },
+      { ...receipt, started_at: null },
+      { ...receipt, sandbox: null },
+      { ...receipt, cleanup: 'not_created' },
+      { ...receipt, started_at: '2026-10-01T00:00:00+00:00' },
+      { ...receipt, started_at: new Date(Date.parse(receipt.started_at) - 1000).toISOString() },
+      { ...receipt, stdout: 'different retained synthetic output' },
+      { ...receipt, stderr: 'different retained synthetic error' },
+      { ...receipt, rpc_completion: 'transport_failed' },
+      { ...receipt, cleanup: 'unknown' },
+      { ...receipt, receipt_id: randomUUID() },
+      { ...receipt, operation_id: randomUUID() },
+      { ...receipt, grant_id: receipt.grant_id + '-changed' },
+      { ...receipt, request_id: randomUUID() },
+      { ...receipt, operation_digest: 'sha256:' + 'b'.repeat(64) },
+      { ...receipt, sandbox: { ...receipt.sandbox, image_digest: 'sha256:' + 'b'.repeat(64) } },
+      { ...receipt, sandbox: { ...receipt.sandbox, policy_digest: 'sha256:' + 'b'.repeat(64) } },
+    ]
+    const newUid = randomUUID()
+    invalidReceipts.push({ ...receipt, sandbox: { ...receipt.sandbox, uid: newUid, identity: settings.workspace + '/' + newUid } })
+    // Bypass production F receipt validation and send disposable negatives
+    // directly through C's own ingress with their exact canonical digest.
+    for (const altered of invalidReceipts) {
+      const receipt_digest='sha256:'+createHash('sha256').update('aukora-prime.execution-receipt.v1\0'+canonicalJson(altered)).digest('hex')
+      rejected(await f.broker.reconcileSettlement({ ...claimBinding(r),receipt:altered,receipt_digest }), 'INVALID')
+    }
+    const changedRequests = [
+      { ...settlementBinding(r, receipt), request_id: randomUUID() },
+      { ...settlementBinding(r, receipt), request_digest: 'sha256:' + 'b'.repeat(64) },
+      { ...settlementBinding(r, receipt), consumed_grant: { ...r.consumed_grant, reservation_id: r.consumed_grant.reservation_id + '-changed' } },
+      { ...settlementBinding(r, receipt), operation: { ...r.operation, nonce: randomUUID() } },
+      { ...settlementBinding(r, receipt), receipt_digest: 'sha256:' + 'b'.repeat(64) },
+    ]
+    for (const altered of changedRequests) rejected(await f.broker.reconcileSettlement(altered))
+    assert.deepEqual(Object.values(f.authority.state().broker.operations)[0].dispatch, before)
+    assert.equal(f.authority.status().status, 'OUTCOME_UNKNOWN'); assert.equal(f.authority.state().prepared.length, 1)
+    assert.equal(count(f, 'create'), 1); assert.equal(count(f, 'exec'), 1)
+  })
+}
+
 try {
+  if (completeNullGroup) await completeNullChecks()
+  else {
   await check('ordinary owner approval reaches real consumed kernel preparation and matching request/receipt digests', async () => {
     const f = await joined(), r = f.authority.r
     assert.equal(executorRequestDigest(r), authorityRequestDigest(r))
@@ -285,8 +473,10 @@ try {
     assert.equal(late.cancel_recorded, false); assert.equal(late.status, 'COMPLETED')
     assert.equal(completed.status, 'completed'); assert.equal(g.authority.status().status, 'COMPLETED')
   })
+  }
 
   console.log(JSON.stringify({ status: 'PASS', checks,
+    ...(completeNullGroup ? { group: 'complete-null' } : {}),
     scope: 'actual C approval/kernel/store and F lifecycle/settlement; mocked SDK only',
     limits: ['no real gateway or guest', 'no runtime enforcement qualification', 'same-UID disposable state',
       'in-process synthetic owner-key only; no enrollment or signing keys passed to F'] }))

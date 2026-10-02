@@ -2,10 +2,11 @@ import { createHash, randomBytes } from 'node:crypto'
 import { lstatSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ApprovalStateStore } from '../upstream/scripts/aukora/approval-state-store.mjs'
-import { RollbackRefusedError, TrustedStoreCorruptError, TrustedStoreUnsafePathError } from '../upstream/scripts/aukora/trusted-state-store.mjs'
+import { RollbackRefusedError, TrustedStoreCorruptError, TrustedStoreUnsafePathError, WriterLockedError } from '../upstream/scripts/aukora/trusted-state-store.mjs'
 import { parseStrictText } from '../upstream/plugins/aukora-kira/lib/strict-read.mjs'
 import { canonicalBytes } from '../upstream/vendor/authority/lib/index.js'
 import {compactRetainedRows,validateRetainedRows} from './retention.mjs'
+import {validateRetainedMemoryRows} from './retained-memory.mjs'
 
 export const EMPTY_KERNEL_STATE = Object.freeze({
   schema: 'aukora-trusted-state-v1', salama: { active: false, reason: null },
@@ -32,6 +33,7 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
   constructor(options) {
     super(options)
     this.maxStateBytes=options.maxStateBytes??16*1024*1024
+    this.retainedMemoryProfile=options.retainedMemoryProfile===true
     const assertWitness=this.witness.assertDir.bind(this.witness)
     this.witness.assertDir=()=>{this.assertAncestors();return assertWitness()}
   }
@@ -88,7 +90,7 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
     }
     const retained=this.witnessRecord.heads[this.brokerWitnessKey]??0
     if(broker.revision<retained) throw new RollbackRefusedError(`Prime broker revision ${broker.revision} below retained ${retained}`)
-    try {validateRetainedRows(broker.operations)} catch {throw new TrustedStoreCorruptError('Prime terminal retention metadata malformed')}
+    try {validateRetainedRows(broker.operations);validateRetainedMemoryRows(broker.operations)} catch {throw new TrustedStoreCorruptError('Prime terminal retention metadata malformed')}
     this.broker=structuredClone(broker)
     this.currentRecord={...record,broker:this.broker}
     if(record.broker===undefined) this.commitBroker() // Persist NEW identity before any successful API result.
@@ -103,7 +105,8 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
   commit(record) {
     if(!this.broker||!this.brokerWitnessKey) throw new TrustedStoreCorruptError('Prime store must load before commit')
     let broker
-    try {broker=compactRetainedRows(structuredClone(this.broker),record)} catch {throw new TrustedStoreCorruptError('Prime terminal retention evidence invalid; history preserved')}
+    try {broker=compactRetainedRows(structuredClone(this.broker),record,{deferMemoryPayloads:this.retainedMemoryProfile,
+      memorySettlementPermit:this.primeRetainedSettlement??null})} catch {throw new TrustedStoreCorruptError('Prime terminal retention evidence invalid; history preserved')}
     broker.revision+=1
     canonicalBytes(broker)
     const next={...record,broker}
@@ -113,6 +116,21 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
     this.broker=broker;this.currentRecord=next
   }
   commitBroker() {this.commit({...this.currentRecord,broker:this.broker})}
+  async authorizeAndPrepareRetained(args,beforeRetainedPrepare) {
+    if(typeof beforeRetainedPrepare!=='function') throw new TypeError('Prime retained preparation requires the private preparation participant')
+    if(!this.locked||!this.witness.locked) throw new WriterLockedError('Prime retained preparation requires both original writer locks')
+    this.assertAncestors()
+    this.load(args.genesis)
+    // The service validates the exact approval without mutation, then awaits the
+    // private durable marker while both original store locks remain held.
+    await beforeRetainedPrepare({store:this})
+    if(!this.locked||!this.witness.locked) throw new WriterLockedError('Prime retained preparation lost an original writer lock')
+    this.assertAncestors()
+    // Intentional reload: no callback's mutable broker snapshot becomes the
+    // at-use state. The existing synchronous hook and original kernel commit run
+    // together only after the retained preparation participant has completed.
+    return this.authorizeAndPrepare({...args,nowMs:Date.now()})
+  }
   authorizeAndPrepare(args) {
     const decide=this.decide
     this.decide=(...inputs)=>{

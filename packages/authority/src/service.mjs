@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { validateContract, canonicalJson } from '../../contracts/src/runtime.mjs'
 import { canonicalBytes } from '../upstream/vendor/authority/lib/index.js'
-import { decideApproval, decideVerifiedPasskey } from '../upstream/scripts/aukora/decide.mjs'
+import { decideApproval, decideVerifiedPasskey, decideApprovalRetained, decideVerifiedPasskeyRetained } from '../upstream/scripts/aukora/decide.mjs'
 import { createApprovalRequest, approvalSigningBytes } from '../upstream/plugins/aukora-aumlok/lib/owner-approval.mjs'
 import { createApprovalReceipt } from '../upstream/plugins/aukora-aumlok/lib/approval-receipt.mjs'
 import { ed25519PublicKeyFromDidKey, didKeyFromEd25519PublicKey } from '../upstream/plugins/aukora-aumlok/lib/did-key.mjs'
@@ -14,7 +14,8 @@ import { detachContract, operationDigest, dollars, deepFreeze, assertData } from
 import { prepareWebauthnConfig, webauthnChallenge, webauthnOptions, verifyWebauthnAssertion } from './webauthn.mjs'
 import { DIGEST, UUID, executionReceiptDigest, validatedReceipt, settlementStatus } from './execution.mjs'
 import { memoryEffectReceipt, memoryEffectReceiptDigest } from './memory-effect.mjs'
-import {isTerminalRecord,ownerKey,consumedGrantDigest,kernelPreparationMatches} from './retention.mjs'
+import {isTerminalRecord,ownerKey,consumedGrantDigest,kernelPreparationMatches,RETAINED_TERMINAL_SCHEMA} from './retention.mjs'
+import {configureRetainedMemoryParticipant,validateRetainedMemoryPermit} from './retained-memory.mjs'
 
 const hex = /^[a-f0-9]{64}$/
 const sha = value => createHash('sha256').update(value).digest('hex')
@@ -51,6 +52,7 @@ export function createAuthorityService(options) { return authorityService(option
 export function provisionNewAuthorityStore(options) { return authorityService(options,true) }
 function authorityService(options, provisionNew) {
   const c = { ...options }
+  const retainedParticipant=configureRetainedMemoryParticipant(c.retainedMemoryParticipant)
   const defaults={logins_per_owner:32,sessions_per_owner:16,operations_per_owner:128,operations_total:256,pending_ttl_ms:300000,denied_per_owner:32,denied_total:64,operation_bytes:65536,state_bytes:16*1024*1024}
   assertData(c.limits??{})
   if(Object.keys(c.limits??{}).some(k=>!Object.hasOwn(defaults,k))) throw new TypeError('INVALID: authority quota config')
@@ -79,7 +81,7 @@ function authorityService(options, provisionNew) {
     pinned.set(id.owner_id,id)
   }
   const now = () => Date.now() // wire callers can never select an audit clock
-  class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes})}}
+  class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes,retainedMemoryProfile:!!retainedParticipant})}}
   if(provisionNew) return attempt(()=>{
     if(c.provisionTrustedState!==true) refuse('UNAVAILABLE','EXPLICIT_NEW_STORE_PROVISIONING_REQUIRED')
     if(!identities.length) refuse('UNAVAILABLE','OWNER_PUBLIC_CONFIGURATION_REQUIRED')
@@ -121,7 +123,7 @@ function authorityService(options, provisionNew) {
     return {operation:op,operation_digest:operationDigest(op),status:'PROPOSED',review:null,approval:null,grant:null,pending_until:iso(Math.min(Date.parse(op.expiry),now()+c.limits.pending_ttl_ms))}
   }
   function tx(fn) {
-    const store = new PrimeApprovalStateStore({ statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:false,maxStateBytes:c.limits.state_bytes })
+    const store = new ConfiguredStore({ statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:false })
     try {
       store.open();store.load(structuredClone(EMPTY_KERNEL_STATE))
       // Ephemeral challenges/sessions may expire; authority consumption and operation
@@ -131,6 +133,35 @@ function authorityService(options, provisionNew) {
       prunePending(store)
       return fn(store)
     } finally { store.close() }
+  }
+  async function txAsync(fn) {
+    const store=new ConfiguredStore({statePath:c.statePath,stateRoot:c.stateRoot,witnessDir:c.witnessDir,createConsumedIds:false})
+    try {
+      store.open();store.load(structuredClone(EMPTY_KERNEL_STATE))
+      return await fn(store)
+    } finally {store.close()}
+  }
+  const memoryOperation=op=>op.target_identity?.kind==='prime-memory'||op.action_type.startsWith('memory.')||op.audience==='aukora-prime.memory'
+  function legacyMemoryGate(op) {
+    if(memoryOperation(op)&&(retainedParticipant||operationRequiresRetention(op))) refuse('UNAVAILABLE','RETAINED_MEMORY_PATH_REQUIRED')
+  }
+  function operationRequiresRetention(op) {
+    // A removed configuration cannot silently downgrade an existing retained row.
+    return tx(store=>Object.hasOwn(operationRowIfPresent(store,op)??{},'retained_memory'))
+  }
+  const operationRowIfPresent=(store,op)=>store.broker.operations[operationKey(op.owner_id,op.operation_id)]
+  function requireRetained(op) {
+    if(!retainedParticipant)refuse('UNAVAILABLE','RETAINED_MEMORY_PARTICIPANT_UNAVAILABLE')
+    if(op.target_identity?.kind!=='prime-memory'||!op.action_type.startsWith('memory.'))refuse('INVALID','RETAINED_MEMORY_TARGET_REQUIRED')
+    if(op.action_type==='memory.restore'||op.canonical_parameters?.mode==='prime-restore')refuse('UNAVAILABLE','RETAINED_RESTORE_LINEAGE_UNQUALIFIED')
+  }
+  function retainedRow(row) {
+    if(isTerminalRecord(row)||!row.retained_memory?.prepare)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_PREPARATION_REQUIRED')
+    return row.retained_memory
+  }
+  function originalLocks(store) {
+    if(!store.locked||!store.witness.locked)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_WRITER_LOCK_REQUIRED')
+    store.assertAncestors()
   }
   function owner(store, ownerId) {
     if(typeof ownerId!=='string'||!pinned.has(ownerId)) refuse('UNAUTHORIZED','OWNER_NOT_ENROLLED')
@@ -191,6 +222,7 @@ function authorityService(options, provisionNew) {
     }
   }
   function attempt(fn) { try {return fn()} catch(error) {return resultError(error)} }
+  async function attemptAsync(fn) {try {return await fn()} catch(error) {return resultError(error)}}
   function boundedOperation(input) {
     const op=detachContract('OperationProposal',input)
     if(Buffer.byteLength(canonicalJson(op))>c.limits.operation_bytes) refuse('INVALID','OPERATION_BYTE_QUOTA')
@@ -317,49 +349,78 @@ function authorityService(options, provisionNew) {
       return {ok:true,status:'DENIED'}
     })
   }) }
-  function reserve(input) { return attempt(()=>{
+  function verifiedApproval(store,op,proof) {
+    policy(store,op);liveTarget(op);const row=operationRow(store,op)
+    if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op))refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')
+    if(row.status==='DENIED')refuse('CANCELLED','OWNER_DECLINED')
+    if(row.status!=='APPROVED'||!row.approval||!equal(row.approval.proof,proof))refuse(row.grant||row.grant_digest?'REPLAYED':'UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
+    approvalSession(store,row)
+    if(Date.parse(proof.expiry)<=now())refuse('EXPIRED','APPROVAL_EXPIRED')
+    if(proof.material.kind==='passkey') {
+      const checked=verifyWebauthnAssertion({material:proof.material,config:c.webauthn,ownerId:op.owner_id,
+        challenge:webauthnChallenge(approvalSigningBytes(row.review.request)),checkCounter:false})
+      if(checked.signed_bytes_digest!==row.approval.assertion.signed_bytes_digest)refuse('INVALID','ASSERTION_PREIMAGE_CHANGED')
+    }
+    return row
+  }
+  function reservation(input,retained=false) {
     const v=closed(input,['operation','approval_proof']),op=boundedOperation(v.operation),proof=detachContract('ApprovalProof',v.approval_proof)
+    if(retained)requireRetained(op);else legacyMemoryGate(op)
     const approved=tx(store=>{
       policy(store,op);const row=operationRow(store,op)
-      if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
-      if(row.status!=='APPROVED'||!row.approval) refuse(row.grant||row.grant_digest?'REPLAYED':'UNAUTHORIZED',row.grant||row.grant_digest?'GRANT_ALREADY_CONSUMED':'AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
+      if(row.status==='DENIED')refuse('CANCELLED','OWNER_DECLINED')
+      if(row.status!=='APPROVED'||!row.approval)refuse(row.grant||row.grant_digest?'REPLAYED':'UNAUTHORIZED',row.grant||row.grant_digest?'GRANT_ALREADY_CONSUMED':'AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
       approvalSession(store,row)
-      if(!equal(proof,row.approval.proof)) refuse('INVALID','APPROVAL_PROOF_CHANGED')
+      if(!equal(proof,row.approval.proof))refuse('INVALID','APPROVAL_PROOF_CHANGED')
       return structuredClone(row.approval)
     })
-    const receipt=approved.receipt
-    let grant
-    const bindAtUse=({store})=>{
-        try {
-          policy(store,op);liveTarget(op);const row=operationRow(store,op)
-          if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op)) refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')
-          if(row.status==='DENIED') refuse('CANCELLED','OWNER_DECLINED')
-          if(row.status!=='APPROVED'||!row.approval||!equal(row.approval.proof,proof)) refuse(row.grant||row.grant_digest?'REPLAYED':'UNAUTHORIZED','AUTHENTICATED_OWNER_APPROVAL_REQUIRED')
-          approvalSession(store,row)
-          if(Date.parse(proof.expiry)<=now()) refuse('EXPIRED','APPROVAL_EXPIRED')
-          if(proof.material.kind==='passkey') {
-            const checked=verifyWebauthnAssertion({material:proof.material,config:c.webauthn,ownerId:op.owner_id,challenge:webauthnChallenge(approvalSigningBytes(row.review.request)),checkCounter:false})
-            if(checked.signed_bytes_digest!==row.approval.assertion.signed_bytes_digest) refuse('INVALID','ASSERTION_PREIMAGE_CHANGED')
-          }
-          grant={version:1,grant_id:'grant:'+proof.nonce,operation_id:op.operation_id,operation_digest:proof.operation_digest,owner_id:op.owner_id,audience:op.audience,authorization_epoch:op.authorization_epoch,prepared_at:iso(now()),reservation_id:'prepared:'+(receipt?.signedBytesDigest ?? sha(canonicalJson(proof)))}
-          validateContract('ConsumedGrant',grant)
-          row.status='PREPARED';row.grant=grant
-        } catch(error) { return {decision:'DENY',reason:error.error_code??'UNAVAILABLE',detail:error.message} }
-    }
-    const id=pinned.get(op.owner_id)
-    const args={subject:id.subject,controlDigest:id.control_digest,consumedIdsPath:c.statePath,stateRoot:c.stateRoot,witnessDirectory:c.witnessDir,Store:ConfiguredStore,beforePrepare:bindAtUse,operationDigest:operationDigest(op).slice(7)}
-    let verdict
-    if(proof.material.kind==='passkey') verdict=decideVerifiedPasskey({...args,proof})
-    else {
-      const tmp=mkdtempSync(join(dirname(c.statePath),'.prime-proof-')),path=join(tmp,'receipt.json')
+    const receipt=approved.receipt,id=pinned.get(op.owner_id)
+    let grant,preparePermit
+    const beforePrepare=({store})=>{
       try {
-        writeFileSync(path,JSON.stringify(receipt),{mode:0o600,flag:'wx'})
-        verdict=decideApproval({...args,approvalPath:path,approverDid:id.approval_key_did,operationDigest:operationDigest(op).slice(7),createConsumedIds:false})
-      } finally {rmSync(tmp,{recursive:true,force:true})}
+        const row=verifiedApproval(store,op,proof)
+        if(retained&&!preparePermit)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_MARKER_REQUIRED')
+        grant={version:1,grant_id:'grant:'+proof.nonce,operation_id:op.operation_id,operation_digest:proof.operation_digest,
+          owner_id:op.owner_id,audience:op.audience,authorization_epoch:op.authorization_epoch,prepared_at:iso(now()),
+          reservation_id:'prepared:'+(receipt?.signedBytesDigest??sha(canonicalJson(proof)))}
+        validateContract('ConsumedGrant',grant)
+        row.status='PREPARED';row.grant=grant
+        if(retained)row.retained_memory={prepare:structuredClone(preparePermit),dispatch:null,settle:null}
+      } catch(error) {return {decision:'DENY',reason:error.error_code??'UNAVAILABLE',detail:error.message}}
     }
-      if(verdict.decision!=='ALLOW') return {ok:false,error_code:['REPLAYED','EXPIRED','REVOKED','CANCELLED','TARGET_MISMATCH','INVALID','UNAUTHORIZED','UNAVAILABLE','RECONCILIATION_REQUIRED'].includes(verdict.reason)?verdict.reason:verdict.reason.includes('rollback')?'RECONCILIATION_REQUIRED':verdict.reason.includes('replay')?'REPLAYED':verdict.reason.includes('expired')?'EXPIRED':'UNAVAILABLE',reason:verdict.reason,detail:verdict.detail}
-    return {ok:true,status:'PREPARED',consumed_grant:deepFreeze(grant),kernel_receipt:verdict.receiptDraft,profile:proof.material.kind+'/local-write/authorization:null'}
-  }) }
+    const beforeRetainedPrepare=async({store})=>{
+      try {
+        originalLocks(store);verifiedApproval(store,op,proof)
+        preparePermit=validateRetainedMemoryPermit(await retainedParticipant.prepare({operation:deepFreeze(structuredClone(op))}),
+          {phase:'prepare',operation:op,ownerSubject:id.subject})
+      } catch(error) {throw Object.assign(new Error(error.message),{primeRefusal:true,code:error.error_code??'RECONCILIATION_REQUIRED'})}
+    }
+    const args={subject:id.subject,controlDigest:id.control_digest,consumedIdsPath:c.statePath,stateRoot:c.stateRoot,
+      witnessDirectory:c.witnessDir,Store:ConfiguredStore,beforePrepare,operationDigest:operationDigest(op).slice(7),
+      ...(retained?{beforeRetainedPrepare}:{})}
+    function outcome(verdict) {
+      if(verdict.decision!=='ALLOW')return {ok:false,error_code:['REPLAYED','EXPIRED','REVOKED','CANCELLED','TARGET_MISMATCH','INVALID','UNAUTHORIZED','UNAVAILABLE','RECONCILIATION_REQUIRED'].includes(verdict.reason)?verdict.reason:verdict.reason.includes('rollback')?'RECONCILIATION_REQUIRED':verdict.reason.includes('replay')?'REPLAYED':verdict.reason.includes('expired')?'EXPIRED':'UNAVAILABLE',reason:verdict.reason,detail:verdict.detail}
+      return {ok:true,status:'PREPARED',consumed_grant:deepFreeze(grant),kernel_receipt:verdict.receiptDraft,
+        profile:proof.material.kind+'/local-write/authorization:null'}
+    }
+    return {op,proof,receipt,id,args,outcome}
+  }
+  function reserve(input) {return attempt(()=>{
+    const r=reservation(input)
+    if(r.proof.material.kind==='passkey')return r.outcome(decideVerifiedPasskey({...r.args,proof:r.proof}))
+    const tmp=mkdtempSync(join(dirname(c.statePath),'.prime-proof-')),path=join(tmp,'receipt.json')
+    try {writeFileSync(path,JSON.stringify(r.receipt),{mode:0o600,flag:'wx'})
+      return r.outcome(decideApproval({...r.args,approvalPath:path,approverDid:r.id.approval_key_did,createConsumedIds:false}))
+    } finally {rmSync(tmp,{recursive:true,force:true})}
+  })}
+  function reserveRetained(input) {return attemptAsync(async()=>{
+    const r=reservation(input,true)
+    if(r.proof.material.kind==='passkey')return r.outcome(await decideVerifiedPasskeyRetained({...r.args,proof:r.proof}))
+    const tmp=mkdtempSync(join(dirname(c.statePath),'.prime-proof-')),path=join(tmp,'receipt.json')
+    try {writeFileSync(path,JSON.stringify(r.receipt),{mode:0o600,flag:'wx'})
+      return r.outcome(await decideApprovalRetained({...r.args,approvalPath:path,approverDid:r.id.approval_key_did,createConsumedIds:false}))
+    } finally {rmSync(tmp,{recursive:true,force:true})}
+  })}
   function reservedRow(store,op,grant) {
     const compact=operationRow(store,op)
     if(isTerminalRecord(compact)) {
@@ -377,6 +438,7 @@ function authorityService(options, provisionNew) {
   function claimDispatch(input) { return attempt(()=>{
     const v=closed(input,['operation','consumed_grant','request_id','request_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
     if(typeof v.request_id!=='string'||!UUID.test(v.request_id)||typeof v.request_digest!=='string'||!DIGEST.test(v.request_digest)) refuse('INVALID','EXACT_EXECUTOR_REQUEST_BINDING_REQUIRED')
+    legacyMemoryGate(op)
     return tx(store=>{
       policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant)
       if(row.status!=='PREPARED'||!equal(row.grant,grant)) refuse('REPLAYED','RESERVATION_NOT_DISPATCHABLE')
@@ -386,6 +448,30 @@ function authorityService(options, provisionNew) {
       return {ok:true,status:'DISPATCHED',consumed_grant:deepFreeze(grant),request_id:v.request_id,request_digest:v.request_digest}
     })
   }) }
+  function claimDispatchRetained(input) {return attemptAsync(async()=>{
+    const v=closed(input,['operation','consumed_grant','request_id','request_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant)
+    requireRetained(op)
+    if(typeof v.request_id!=='string'||!UUID.test(v.request_id)||typeof v.request_digest!=='string'||!DIGEST.test(v.request_digest))refuse('INVALID','EXACT_EXECUTOR_REQUEST_BINDING_REQUIRED')
+    return txAsync(async store=>{
+      const verify=()=>{
+        originalLocks(store);policy(store,op);liveTarget(op);const row=reservedRow(store,op,grant),binding=retainedRow(row)
+        if(row.status!=='PREPARED'||binding.dispatch!==null)refuse('REPLAYED','RESERVATION_NOT_DISPATCHABLE')
+        approvalSession(store,row)
+        if(Date.parse(row.approval.proof.expiry)<=now())refuse('EXPIRED','APPROVAL_EXPIRED')
+        if(binding.prepare.request_id!==v.request_id||binding.prepare.request_digest!==v.request_digest)refuse('INVALID','RETAINED_MEMORY_REQUEST_CHANGED')
+        return row
+      }
+      const row=verify()
+      const permit=validateRetainedMemoryPermit(await retainedParticipant.dispatch(deepFreeze(structuredClone(v))),
+        {phase:'dispatch',operation:op,ownerSubject:op.target_identity.owner_subject,request_id:v.request_id,
+          request_digest:v.request_digest,grant,prepare:row.retained_memory.prepare})
+      store.load(structuredClone(EMPTY_KERNEL_STATE));const current=verify()
+      current.status='DISPATCHED';current.retained_memory.dispatch=structuredClone(permit)
+      current.dispatch={request_id:v.request_id,request_digest:v.request_digest,cancel_requested:false,cancel_reason:null,
+        receipt:null,receipt_digest:null,settlement_digests:[]};store.commitBroker()
+      return {ok:true,status:'DISPATCHED',consumed_grant:deepFreeze(grant),request_id:v.request_id,request_digest:v.request_digest}
+    })
+  })}
   const terminal=['COMPLETED','FAILED','CANCELLED','UNAVAILABLE']
   function dispatchedRow(store,op,grant,requestId,requestDigest) {
     const row=reservedRow(store,op,grant)
@@ -406,6 +492,7 @@ function authorityService(options, provisionNew) {
   })}
   function settleExecution(input,reconcile=false) {return attempt(()=>{
     const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt','receipt_digest']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant),receipt=validatedReceipt(v.receipt)
+    legacyMemoryGate(op)
     const receiptDigest=executionReceiptDigest(receipt)
     if(receiptDigest!==v.receipt_digest)refuse('INVALID','EXECUTOR_RECEIPT_DIGEST_MISMATCH')
     return tx(store=>{
@@ -446,6 +533,7 @@ function authorityService(options, provisionNew) {
   })}
   function settleMemory(input) {return attempt(()=>{
     const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant),receipt=memoryEffectReceipt(v.receipt),receiptDigest=memoryEffectReceiptDigest(receipt)
+    legacyMemoryGate(op)
     return tx(store=>{
       const row=dispatchedRow(store,op,grant,v.request_id,v.request_digest),d=row.dispatch
       for(const [field,expected]of Object.entries({operation_id:op.operation_id,operation_digest:grant.operation_digest,grant_id:grant.grant_id,request_id:v.request_id,request_digest:v.request_digest,owner_subject:op.target_identity?.owner_subject,action_type:op.action_type}))if(receipt[field]!==expected)refuse('INVALID','MEMORY_RECEIPT_BINDING_MISMATCH')
@@ -455,6 +543,40 @@ function authorityService(options, provisionNew) {
       if(isTerminalRecord(row)||d.receipt)refuse('STALE','COMMITTED_MEMORY_RECEIPT_CONFLICT')
       row.status='COMPLETED';d.receipt=receipt;d.receipt_digest=receiptDigest;d.settlement_digests.push(receiptDigest);store.commitBroker()
       return result(false)
+    })
+  })}
+  function settleMemoryRetained(input) {return attemptAsync(async()=>{
+    const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant),receipt=memoryEffectReceipt(v.receipt),receiptDigest=memoryEffectReceiptDigest(receipt)
+    requireRetained(op)
+    return txAsync(async store=>{
+      const verify=()=>{
+        originalLocks(store)
+        const row=dispatchedRow(store,op,grant,v.request_id,v.request_digest)
+        for(const [field,expected]of Object.entries({operation_id:op.operation_id,operation_digest:grant.operation_digest,
+          grant_id:grant.grant_id,request_id:v.request_id,request_digest:v.request_digest,
+          owner_subject:op.target_identity.owner_subject,action_type:op.action_type}))if(receipt[field]!==expected)refuse('INVALID','MEMORY_RECEIPT_BINDING_MISMATCH')
+        if(receipt.owner_subject!==store.broker.owners[keyOf(op.owner_id)]?.subject)refuse('INVALID','MEMORY_OWNER_TARGET_REQUIRED')
+        return row
+      }
+      const row=verify(),d=row.dispatch
+      const result=(current,idempotent)=>({ok:true,status:current.status,request_id:v.request_id,
+        request_digest:current.dispatch.request_digest,receipt_digest:current.dispatch.receipt_digest,idempotent,reconciliation_required:false})
+      // Exact already-verified factual receipt needs no current-pointer lookup:
+      // later unrelated operations may have advanced D's retained lineage.
+      if(d.settlement_digests.includes(receiptDigest)&&(row.schema===RETAINED_TERMINAL_SCHEMA||row.retained_memory?.settle))return result(row,true)
+      if(isTerminalRecord(row)||d.receipt)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_TERMINAL_EVIDENCE_REQUIRED')
+      const binding=retainedRow(row)
+      if(!binding.dispatch)refuse('RECONCILIATION_REQUIRED','RETAINED_MEMORY_DISPATCH_REQUIRED')
+      const permit=validateRetainedMemoryPermit(await retainedParticipant.settle(deepFreeze(structuredClone(v))),
+        {phase:'settle',operation:op,ownerSubject:op.target_identity.owner_subject,request_id:v.request_id,
+          request_digest:v.request_digest,grant,receipt,prepare:binding.prepare,dispatch:binding.dispatch})
+      store.load(structuredClone(EMPTY_KERNEL_STATE));const current=verify()
+      if(isTerminalRecord(current)||current.dispatch.receipt)refuse('STALE','COMMITTED_MEMORY_RECEIPT_CONFLICT')
+      current.retained_memory.settle=structuredClone(permit);current.status='COMPLETED'
+      current.dispatch.receipt=receipt;current.dispatch.receipt_digest=receiptDigest;current.dispatch.settlement_digests.push(receiptDigest)
+      store.primeRetainedSettlement={operation_key:operationKey(op.owner_id,op.operation_id),receipt_digest:receiptDigest}
+      store.commitBroker()
+      return result(store.broker.operations[operationKey(op.owner_id,op.operation_id)],false)
     })
   })}
   function authenticateSession(input) {return attempt(()=>{
@@ -485,5 +607,5 @@ function authorityService(options, provisionNew) {
       return {ok:true,status:row.status,operation_digest:row.operation_digest,reconciliation_required:['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN'].includes(row.status)}
     })
   }) }
-  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,logoutSession,approvalChallenge,approvalComplete,declineApproval,reserve,claimDispatch,requestCancel,settle,reconcileSettlement,markOutcomeUnknown,settleMemory,advanceAuthorizationEpoch,status})
+  return Object.freeze({propose,loginChallenge,loginComplete,authenticateSession,logoutSession,approvalChallenge,approvalComplete,declineApproval,reserve,reserveRetained,claimDispatch,claimDispatchRetained,requestCancel,settle,reconcileSettlement,markOutcomeUnknown,settleMemory,settleMemoryRetained,advanceAuthorizationEpoch,status})
 }

@@ -50,7 +50,7 @@ try {
   })
   await check('stdout text cannot forge typed success and no exit never becomes exit 1',async()=>{
     const f=await fixture({events:[{payload:{case:'stdout',value:{data:Buffer.from('{"exitCode":0,"type":"exit"}')}}}]});const receipt=await f.executor.execute(request())
-    assert.equal(receipt.status,'outcome_unknown');assert.equal(receipt.exit_code,null);assert.equal(receipt.rpc_completion,'transport_failed');f.ledger.close()
+    assert.equal(receipt.status,'outcome_unknown');assert.equal(receipt.exit_code,null);assert.equal(receipt.rpc_completion,'complete');f.ledger.close()
   })
   await check('exact broker refusal and unqualified runtime do not create',async()=>{
     const a=await fixture({}, {beforeClaim:async()=>false});await assert.rejects(a.executor.execute(request()),e=>e.code==='UNAUTHORIZED');assert.equal(a.protocol.calls.length,0);a.ledger.close()
@@ -71,7 +71,7 @@ try {
     const f=await fixture({waitAbort:true});const controller=new AbortController(),r=request({signal:controller.signal});const run=f.executor.execute(r)
     while(!f.protocol.calls.some(([name])=>name==='exec'))await new Promise(resolve=>setImmediate(resolve));controller.abort();const receipt=await run
     assert.equal(receipt.status,'outcome_unknown');assert.equal(receipt.cleanup,'confirmed_absent');assert.equal(f.executor.cancellationCause(r.request_id),'caller');f.ledger.close()
-    const t=await fixture({waitAbort:true}),req=request();req.wall_time_ms=5;req.operation.canonical_parameters.timeout_ms=5;req.consumed_grant.operation_digest=operationDigest(req.operation)
+    const t=await fixture({waitAbort:true}),req=request();req.wall_time_ms=20;req.operation.canonical_parameters.timeout_ms=20;req.consumed_grant.operation_digest=operationDigest(req.operation)
     const timeout=await t.executor.execute(req);assert.equal(timeout.status,'outcome_unknown');assert.equal(t.executor.cancellationCause(req.request_id),'timeout');assert.equal(timeout.cleanup,'confirmed_absent');t.ledger.close()
   })
   await check('unknown create with empty inventory blocks new work; late owned creation reconciles',async()=>{
@@ -113,11 +113,11 @@ try {
   })
   await check('DSH foreground seam resolves exit 1 and refuses infrastructure/background/G1',async()=>{
     class ShellExecutor{constructor(ctx){this.ctx=ctx}}
-    const ctx={sandboxPolicy:{defaultMode:'read-only',resolve:()=>({mode:'read-only',workspaceRoot:settings.logical_workspace_root})}}
+    const ctx={effect(){},sandboxPolicy:{defaultMode:'read-only',resolve:()=>({mode:'read-only',workspaceRoot:settings.logical_workspace_root})}}
     const f=await fixture({exit:1}),resolveSpec=r=>({command:r.command,workdir:settings.logical_workspace_root,timeoutMs:500,stdoutMaxBytes:128})
     const make=options=>createDshOpenShellExecutor({ShellExecutor,resolveSpec,executor:f.executor,resolveOperation:async spec=>{const r=request();r.operation.canonical_parameters.command=spec.command;r.consumed_grant.operation_digest=operationDigest(r.operation);return r},...options})
     const klass=make(),shell=new klass(ctx),result=await shell.run(shell.resolve({command:'synthetic inert command'}));assert.equal(result.exitCode,1);assert.equal(result.stdout.text,'retained synthetic output');await assert.rejects(shell.start({}),e=>e.code==='UNAVAILABLE')
-    let approved=false;const unqualified=make({executor:{capability:'unavailable',execute(){}},resolveOperation:async()=>{approved=true}}),unqualifiedShell=new unqualified(ctx);await assert.rejects(unqualifiedShell.run(unqualifiedShell.resolve({command:'synthetic'})),e=>e.code==='UNAVAILABLE');assert.equal(approved,false)
+    let approved=false;const unqualified=make({executor:Object.freeze({capability:'unavailable',execute(){}}),resolveOperation:async()=>{approved=true}}),unqualifiedShell=new unqualified(ctx);await assert.rejects(unqualifiedShell.run(unqualifiedShell.resolve({command:'synthetic'})),e=>e.code==='UNAVAILABLE');assert.equal(approved,false)
     const broken=await fixture({trailerFailure:true}),failureClass=make({executor:broken.executor}),failureShell=new failureClass(ctx);await assert.rejects(failureShell.run(failureShell.resolve({command:'synthetic'})),e=>e.executionReceipt?.rpc_completion==='transport_failed');broken.ledger.close();f.ledger.close()
   })
   console.log('PASS disposable protocol check (mocked gateway; real local SQLite/process lease only)')

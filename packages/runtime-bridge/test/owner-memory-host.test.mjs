@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Source-only H join: pinned factories, bounded fake HTTP streams and disposable
+// Source-only H join: current Prime factories, bounded fake HTTP streams and disposable
 // same-UID IPC/SQLite. No accepted production qualifier or deployed C/PG/UID proof.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import {mkdtemp,realpath,readFile,rm,lstat} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
-import {pathToFileURL} from 'node:url'
+import {fileURLToPath,pathToFileURL} from 'node:url'
 import {Readable,Writable} from 'node:stream'
 import {finished} from 'node:stream/promises'
 import {createTrustedTaskRegistry} from '../src/registry.mjs'
@@ -17,27 +17,55 @@ import {authorityFixture} from './authority-fixture.mjs'
 import {FixturePool} from './sql-fixture.mjs'
 import {fixture as ownerFixture,draft,extraction,assertSaved} from './owner-memory-fixture.mjs'
 
-const hostRoot=process.env.PRIME_OWNER_MEMORY_HOST_ROOT
-const hostPin='9b2b10a971e1e902367ed162af943a62638ceeed'
-const hostOptions={skip:hostRoot?false:'Set PRIME_OWNER_MEMORY_HOST_ROOT to the exact H '+hostPin+' source snapshot; host join not performed'}
-const helperHashes={
-  'owner-memory-browser.mjs':'50d0c774a441dd8070ec76626ed0a9e9af41cc65659fdf1f6e4c3297652bc754',
-  'owner-memory-transport.mjs':'d091daff12a064b650814d9dea44aa6785308a59e3e6be8d3a1805ee2043a4b9',
-  'owner-memory-ipc.mjs':'2871743e788b6ef840e30f8139ba9a6d70dd681d314f12c0c0dc4edb00a9cbc8',
-  'owner-memory-context.mjs':'d4da90193ecdc0c48bc48b5267fca05e2f0b5e3aeed34ef4ab317fde3109e6d3',
+const primeRoot=await realpath(fileURLToPath(new URL('../../../',import.meta.url)))
+const hostRoot=process.env.PRIME_OWNER_MEMORY_HOST_ROOT??primeRoot
+const helperExports={
+  'owner-memory-browser.mjs':{OWNER_MEMORY_METHODS:'object',createOwnerMemoryHttpCall:'function'},
+  'owner-memory-transport.mjs':{createOwnerMemoryHttpRoutes:'function'},
+  'owner-memory-ipc.mjs':{createOwnerMemoryIpcBoundary:'function'},
+  'owner-memory-context.mjs':{createOwnerMemoryContext:'function'},
 }
+// Selected static imports and explicit own-root dynamic imports of those four
+// helpers. Compare an optional snapshot to the current checkout's source files,
+// rather than treating an old standalone hash as the current H implementation.
+const helperClosure=[
+  ...Object.keys(helperExports).map(file=>'harness/'+file),
+  'packages/contracts/src/runtime.mjs','packages/contracts/src/browser.mjs',
+  'packages/contracts/src/shared.mjs','packages/contracts/src/json.mjs',
+  'packages/runtime-bridge/src/ipc.mjs','packages/runtime-bridge/src/registry.mjs',
+  'packages/memory/src/codecs.mjs','packages/memory/src/capture-review.mjs',
+  ...['memory-forget.mjs','memory-tiers.mjs','memory-law.mjs','strict-read.mjs','record.mjs']
+    .map(file=>'packages/memory/genesis/plugins/aukora-kira/lib/'+file),
+  ...['envelope.js','ingestGate.js'].map(file=>'packages/memory/genesis/vendor/aukora-packages/lib/packages/memory/src/'+file),
+  ...['canonical.js','errors.js'].map(file=>'packages/memory/genesis/vendor/authority/lib/'+file),
+  ...['sha2.js','utils.js','_md.js','_u64.js'].map(file=>'packages/memory/genesis/vendor/authority/deps/@noble/hashes@2.2.0/'+file),
+]
 let hostModules
 async function host(){
   if(!hostModules)hostModules=(async()=>{
-    assert.equal(resolve(hostRoot),hostRoot,'host snapshot must be explicitly absolute')
-    for(const [file,digest] of Object.entries(helperHashes)){
-      const bytes=await readFile(join(hostRoot,'harness',file))
-      assert.equal(createHash('sha256').update(bytes).digest('hex'),digest,'H helper must match '+hostPin+': '+file)
+    assert.equal(resolve(hostRoot),hostRoot,'host source must be absolute')
+    const selectedRoot=await realpath(hostRoot)
+    await assert.rejects(lstat(join(selectedRoot,'prime-release.json')),error=>error?.code==='ENOENT',
+      'this source-only H join must reject a release layout before module import')
+    for(const file of helperClosure){
+      const source=join(selectedRoot,file),metadata=await lstat(source)
+      assert(metadata.isFile()&&!metadata.isSymbolicLink(),'H closure must contain regular source: '+file)
+      assert((await realpath(source)).startsWith(selectedRoot+'/'),'H closure must remain in its selected Prime root: '+file)
+      const [bytes,current]=await Promise.all([readFile(source),readFile(join(primeRoot,file))])
+      assert.equal(createHash('sha256').update(bytes).digest('hex'),createHash('sha256').update(current).digest('hex'),
+        'H snapshot must match the current Prime helper closure: '+file)
     }
     const [browser,transport,ipc,context,contracts]=await Promise.all([
-      ...Object.keys(helperHashes).map(file=>import(pathToFileURL(join(hostRoot,'harness',file)).href)),
+      ...Object.keys(helperExports).map(file=>import(pathToFileURL(join(selectedRoot,'harness',file)).href)),
       import(pathToFileURL(join(hostRoot,'packages/contracts/src/runtime.mjs')).href),
     ])
+    for(const [index,[file,expected]] of Object.entries(helperExports).entries()){
+      const module=[browser,transport,ipc,context][index]
+      assert.deepEqual(Object.keys(module).sort(),Object.keys(expected).sort(),'exact H exported hooks: '+file)
+      for(const [name,type] of Object.entries(expected))assert.equal(typeof module[name],type,'H export '+name)
+    }
+    assert(Array.isArray(browser.OWNER_MEMORY_METHODS)&&Object.isFrozen(browser.OWNER_MEMORY_METHODS))
+    assert.equal(typeof contracts.parseStrictJson,'function');assert.equal(typeof contracts.canonicalJson,'function')
     return {...browser,...transport,...ipc,...context,contracts}
   })()
   return hostModules
@@ -82,7 +110,7 @@ function browserResponse(response){
   }
 }
 
-test('pinned H HTTP factories reject closed Host/Origin and malformed bounded input before dispatch',hostOptions,async()=>{
+test('current H HTTP factories reject closed Host/Origin and malformed bounded input before dispatch',async()=>{
   const h=await host();let dispatched=0
   const endpoints=routes(h,{async handlePublic(){dispatched++;return refusal}})
   for(const changed of [
@@ -104,7 +132,7 @@ test('pinned H HTTP factories reject closed Host/Origin and malformed bounded in
   assert.equal(get.response.statusCode,405);assert.equal(dispatched,0)
 })
 
-test('pinned H browser performs one fetch and reports lost mutation replies as unknown without replay',hostOptions,async()=>{
+test('current H browser performs one fetch and reports lost mutation replies as unknown without replay',async()=>{
   const h=await host()
   for(const method of ['memory.save','memory.status']){
     let fetches=0,dispatched=0
@@ -132,7 +160,7 @@ test('pinned H browser performs one fetch and reports lost mutation replies as u
   }
 })
 
-test('pinned H HTTP disconnect does not abort or replay an already submitted call',hostOptions,async()=>{
+test('current H HTTP disconnect does not abort or replay an already submitted call',async()=>{
   const h=await host();let dispatched=0,release,entered
   const ready=new Promise(resolve=>{entered=resolve}),reply=new Promise(resolve=>{release=resolve})
   const endpoints=routes(h,{async handlePublic(){dispatched++;entered();return reply}})
@@ -162,7 +190,7 @@ async function captured(t,h){
   return {auth,registry,task,binding,bytes,resolver,registryReads:()=>registryReads,resetReads:()=>{registryReads=0}}
 }
 
-test('pinned H context derives immutable owner/task/source binding from its configured IPC credential',hostOptions,async t=>{
+test('current H context derives immutable owner/task/source binding from its configured IPC credential',async t=>{
   const h=await host(),f=await captured(t,h)
   const challenge=f.auth.service.loginChallenge({owner_id:f.auth.identity.owner_id,kind:'passkey'})
   assert.equal(challenge.ok,true)
@@ -192,9 +220,9 @@ test('pinned H context derives immutable owner/task/source binding from its conf
   // claim that the resolver itself authenticates a channel or owner session.
 })
 
-test('pinned B submitApproval and H byte factories carry one real C/D literal save through an explicit test-only boundary',hostOptions,async t=>{
+test('current B submitApproval and H byte factories carry one real C/D literal save through an explicit test-only boundary',async t=>{
   const h=await host()
-  // Load B from the verified snapshot, never the working UI merge. The injected
+  // Load B from the current selected Prime source. The injected
   // fixture boundary below is deliberately separate from the production IPC
   // boundary: it preserves the fixture's own trusted route and makes no claim
   // that HTTP request association is captured source or host qualification.
@@ -239,7 +267,7 @@ test('pinned B submitApproval and H byte factories carry one real C/D literal sa
   f.controller.setApprovalAction(null)
 })
 
-test('pinned H HTTP/IPC boundary refuses actual unqualified public and internal workers before C or SQL',hostOptions,async t=>{
+test('current H HTTP/IPC boundary refuses actual unqualified public and internal workers before C or SQL',async t=>{
   const h=await host(),f=await captured(t,h)
   for(const publicMode of [true,false]){
     const root=await realpath(await mkdtemp('/tmp/prime-omh-ipc-'))

@@ -10,7 +10,7 @@ import {createOwnerMemoryHttpCall} from './owner-memory-browser.mjs';
  * creates no identity, credential, session, listener or accepted host record.
  * Existing capability status must separately enable the native controller. */
 export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner}={}) {
- if(['connect','getSnapshot','subscribe','setApprovalAction','setForgetAction','logout','disconnect','setCapabilities','capabilitiesUnavailable'].some(name=>typeof controller?.[name]!=='function'))throw new TypeError('UNAVAILABLE: native owner controller required');
+ if(['connect','getSnapshot','subscribe','setApprovalAction','setForgetAction','reconcileApprovalAction','logout','disconnect','setCapabilities','capabilitiesUnavailable'].some(name=>typeof controller?.[name]!=='function'))throw new TypeError('UNAVAILABLE: native owner controller required');
  if(!ownerBinding||Object.getPrototypeOf(ownerBinding)!==Object.prototype
   ||Object.keys(ownerBinding).sort().join(',')!=='owner_id,passkeyProfile'
   ||typeof ownerBinding.owner_id!=='string'||!ownerBinding.owner_id.length
@@ -57,10 +57,20 @@ export function createOwnerMemoryClient({controller,contracts,ownerBinding,fetch
   refresh:()=>attached().refresh(),
   // An explicit call after a fresh authenticated binding. Recovery reads C/D
   // facts and may deliver an already committed receipt; never replays an effect.
-  recover:input=>attached().recover(input),
+  recover:async input=>{
+   const snapshot=await attached().recover(input);
+   // B accepts only the exact retained, already approved operation and its
+   // completed receipt. A null result keeps its unresolved-action fence.
+   await controller.reconcileApprovalAction(snapshot);
+   return snapshot;
+  },
   proposeForget:input=>attachedForget().proposeForget(input),
   approveAndForget:()=>attachedForget().approveAndForget(),
-  recoverForget:input=>attachedForget().recover(input),
+  recoverForget:async input=>{
+   const snapshot=await attachedForget().recover(input);
+   await controller.reconcileApprovalAction(snapshot);
+   return snapshot;
+  },
   setCapabilities:value=>{attached();controller.setCapabilities(value);},
   capabilitiesUnavailable:()=>{attached();controller.capabilitiesUnavailable();},
   logout:()=>attached().logout(),

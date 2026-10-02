@@ -220,7 +220,7 @@ try {
   assert(source.includes(early));source=source.replace(early,'    // mutation: earlier exact-row guard removed');writeFileSync(serviceFile,source)
   const runMutant=()=>new Promise(resolve=>{const child=spawn(process.execPath,[join(mutant,'check.mjs'),'mutation-child'],{stdio:['ignore','pipe','pipe']});let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);child.on('close',code=>resolve({code,output}));child.on('error',e=>resolve({code:-1,output:String(e)}))})
   const single=await runMutant();assert.equal(single.code,0,single.output);checks++
-  source=source.replace("          if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op)) refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')",'          // mutation: bind digest guard removed')
+  source=source.replace("    if(proof.operation_digest!==row.operation_digest||proof.operation_digest!==operationDigest(op))refuse('INVALID','VERIFIED_OPERATION_DIGEST_MISMATCH')",'    // mutation: bind digest guard removed')
   writeFileSync(serviceFile,source)
   const adapter=readFileSync(adapterFile,'utf8');assert(adapter.includes('proof?.operation_digest!==`sha256:${operationDigest}`'));writeFileSync(adapterFile,adapter.replace('proof?.operation_digest!==`sha256:${operationDigest}` || ',''))
   const disabled=await runMutant();assert.notEqual(disabled.code,0);assert(disabled.output.includes('changed synthetic command')||disabled.output.includes('AssertionError'));checks++

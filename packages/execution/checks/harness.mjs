@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { OpenShellOwnedExecutor,OwnedLedger,SdkTransport,policyDigest,executorRequestDigest,executionReceiptDigest } from '../src/index.mjs'
 import { operationDigest,canonicalJson } from '../../contracts/src/runtime.mjs'
+import { expectedConfigIdentity } from '../src/effective-policy.mjs'
 export const settings={workspace:'disposable-protocol',logical_workspace_root:'/logical/project',image_digest:'example.invalid/workload@sha256:'+'a'.repeat(64),control_timeout_ms:1000,cleanup_timeout_ms:150,poll_ms:2}
 export function request(overrides={}) {
   const operation={version:1,operation_id:randomUUID(),task_id:'synthetic-task',owner_id:'synthetic-owner',agent_id:'synthetic-agent',audience:'synthetic-executor',
@@ -19,11 +20,14 @@ export function request(overrides={}) {
   const consumed_grant={version:1,grant_id:randomUUID(),operation_id:operation.operation_id,operation_digest:operationDigest(operation),owner_id:operation.owner_id,audience:operation.audience,authorization_epoch:1,prepared_at:new Date().toISOString(),reservation_id:randomUUID()}
   return {operation,consumed_grant,request_id:randomUUID(),image_digest:settings.image_digest,policy_digest:policyDigest('read-only'),wall_time_ms:500,max_output_bytes:128,...overrides}
 }
-export function mock({exit=0,trailerFailure=false,createFailure=false,invisibleCreate=false,cleanupFailure=false,identityMismatch=false,waitAbort=false,afterDelete=0,events,afterCreate,crashAfterExit=false}={}) {
-  let sandbox=null,pendingDeletion=0;const calls=[]
+export function mock({exit=0,trailerFailure=false,createFailure=false,invisibleCreate=false,cleanupFailure=false,identityMismatch=false,waitAbort=false,afterDelete=0,events,afterCreate,crashAfterExit=false,configurationHook}={}) {
+  let sandbox=null,config=null,pendingDeletion=0,configurationReads=0;const calls=[]
   const raw={
-    async createSandbox(r){calls.push(['create',r]);sandbox={metadata:{id:randomUUID(),name:r.name,workspace:r.workspaceScope.selection.value,labels:{...r.labels}},spec:{...r.spec},status:{phase:2,configurationAdmission:{state:2,policyHash:'synthetic-accepted'}}};afterCreate?.();if(createFailure)throw Object.assign(new Error('mock transport loss'),{name:'SdkError',code:'rpc'});return {sandbox}},
+    async createSandbox(r){calls.push(['create',r]);const identity=expectedConfigIdentity(r.spec.policy),epoch=randomUUID(),instance=randomUUID()
+      config={policy:structuredClone(r.spec.policy),version:1,policyHash:identity.policy_hash,settings:Object.fromEntries(['ocsf_json_enabled','ocsf_schema_version','agent_policy_proposals_enabled','proposal_approval_mode'].map(key=>[key,{scope:0}])),configRevision:BigInt(identity.config_revision),policySource:1,globalPolicyVersion:0,providerEnvRevision:BigInt(identity.provider_env_revision),supervisorMiddlewareServices:[],workspace:r.workspaceScope.selection.value,policyValidationFailureMode:'fail_closed',extensionAuthenticationEnabled:false,providerAttachmentEpoch:epoch,configurationAdmitted:true,configurationError:'',configurationInstanceId:instance}
+      sandbox={metadata:{id:randomUUID(),name:r.name,workspace:r.workspaceScope.selection.value,labels:{...r.labels}},spec:{...r.spec,providerAttachmentEpoch:epoch},status:{phase:2,configurationAdmission:{instanceId:instance,state:2,policyVersion:1,policyHash:identity.policy_hash,configRevision:config.configRevision,providerEnvRevision:config.providerEnvRevision,error:''}}};afterCreate?.();if(createFailure)throw Object.assign(new Error('mock transport loss'),{name:'SdkError',code:'rpc'});return {sandbox}},
     async getSandbox(r){calls.push(['get',r]);return {sandbox:identityMismatch?{...sandbox,metadata:{...sandbox.metadata,id:randomUUID()}}:sandbox}},
+    async getSandboxConfig(r){calls.push(['config',r]);configurationReads++;const copy=structuredClone(config);return configurationHook?configurationHook({config:copy,sandbox,read:configurationReads}):copy},
     async listSandboxes(r){calls.push(['list',r]);if(cleanupFailure)throw new Error('synthetic inventory unavailable');if(pendingDeletion&&--pendingDeletion===0)sandbox=null;return {sandboxes:invisibleCreate?[]:sandbox?[sandbox]:[],nextPageToken:''}},
     async deleteSandbox(r){calls.push(['delete',r]);const id=sandbox.metadata.id;if(afterDelete)pendingDeletion=afterDelete;else sandbox=null;return {outcome:2,sandboxId:id}},
     async *execSandbox(r,{signal}){calls.push(['exec',r]);if(waitAbort){if(!signal.aborted)await once(signal,'abort');throw Object.assign(new Error('mock canceled'),{name:'SdkError',code:'canceled'})}

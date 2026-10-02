@@ -59,7 +59,7 @@ const cases={
     class ShellExecutor {constructor(ctx){this.ctx=ctx}}
     const Executor=createDshOpenShellExecutor({ShellExecutor,executor:f.executor,
       resolveSpec:input=>input,resolveOperation:async()=>{resolves++;return r}})
-    const shell=new Executor({sandboxPolicy:{defaultMode:'read-only',resolve:()=>({mode:p.sandbox_mode,workspaceRoot:p.workdir})}})
+    const shell=new Executor({effect(){},sandboxPolicy:{defaultMode:'read-only',resolve:()=>({mode:p.sandbox_mode,workspaceRoot:p.workdir})}})
     const spec=shell.resolve({command:p.command+' changed',workdir:p.workdir,stdin:p.stdin,env:p.env,dshEnv:p.dsh_env,
       timeoutMs:p.timeout_ms,stdoutMaxBytes:p.max_output_bytes})
     await assert.rejects(shell.run(spec),error=>error.code==='TARGET_MISMATCH')

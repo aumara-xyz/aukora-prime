@@ -5,8 +5,10 @@ import {canonicalJson} from '../../contracts/src/runtime.mjs'
 import {assertData,detachContract,operationDigest} from './operation.mjs'
 import {DIGEST,UUID,executionReceiptDigest,validatedReceipt,settlementStatus} from './execution.mjs'
 import {memoryEffectReceipt,memoryEffectReceiptDigest} from './memory-effect.mjs'
+import {retainedMemoryLineage,validateRetainedMemoryLineage} from './retained-memory.mjs'
 
 export const TERMINAL_SCHEMA='prime-terminal-operation-v1'
+export const RETAINED_TERMINAL_SCHEMA='prime-retained-terminal-operation-v1'
 export const TERMINAL_STATUSES=Object.freeze(['COMPLETED','FAILED','CANCELLED','UNAVAILABLE'])
 const hex=/^[a-f0-9]{64}$/
 const sha=value=>createHash('sha256').update(value).digest('hex')
@@ -14,15 +16,16 @@ const keys=(value,expected)=>Object.keys(value).sort().join(',')===expected.spli
 const invalid=()=>{throw new TypeError('INVALID: terminal authority retention record')}
 const stringMatch=(value,pattern)=>typeof value==='string'&&pattern.test(value)
 export const ownerKey=ownerId=>sha(ownerId)
-export const isTerminalRecord=row=>row?.schema===TERMINAL_SCHEMA
+export const isTerminalRecord=row=>[TERMINAL_SCHEMA,RETAINED_TERMINAL_SCHEMA].includes(row?.schema)
 export function consumedGrantDigest(input) {
  const grant=detachContract('ConsumedGrant',input)
  return 'sha256:'+sha('aukora-prime.consumed-grant.v1\0'+canonicalJson(grant))
 }
 export function validateTerminalRecord(row) {
  assertData(row)
- if(!row||Array.isArray(row)||!keys(row,'schema,owner_key,operation_digest,status,grant_digest,dispatch')||
-    row.schema!==TERMINAL_SCHEMA||!stringMatch(row.owner_key,hex)||!stringMatch(row.operation_digest,DIGEST)||!stringMatch(row.grant_digest,DIGEST)||!TERMINAL_STATUSES.includes(row.status))invalid()
+ const retained=row?.schema===RETAINED_TERMINAL_SCHEMA
+ if(!row||Array.isArray(row)||!keys(row,'schema,owner_key,operation_digest,status,grant_digest,dispatch'+(retained?',retained_memory':''))||
+    !isTerminalRecord(row)||!stringMatch(row.owner_key,hex)||!stringMatch(row.operation_digest,DIGEST)||!stringMatch(row.grant_digest,DIGEST)||!TERMINAL_STATUSES.includes(row.status))invalid()
  const d=row.dispatch
  if(!d||Array.isArray(d)||!keys(d,'request_id,request_digest,receipt_digest,settlement_digests,evidence_kind,result_digest')||
     !stringMatch(d.request_id,UUID)||!stringMatch(d.request_digest,DIGEST)||!stringMatch(d.receipt_digest,DIGEST)||
@@ -31,6 +34,10 @@ export function validateTerminalRecord(row) {
     !d.settlement_digests.includes(d.receipt_digest)||!['memory','execution'].includes(d.evidence_kind)||
     (d.evidence_kind==='memory'?(row.status!=='COMPLETED'||!stringMatch(d.result_digest,DIGEST)):d.result_digest!==null)||
     Buffer.byteLength(canonicalJson(row))>4096)invalid()
+ if(retained) {
+  if(d.evidence_kind!=='memory'||row.status!=='COMPLETED')invalid()
+  validateRetainedMemoryLineage(row.retained_memory)
+ }
  return row
 }
 export function kernelPreparationMatches(record,op,grant,nonce) {
@@ -70,10 +77,21 @@ export function validateRetainedRows(operations) {
   if(Object.hasOwn(row,'schema'))validateTerminalRecord(row)
  }
 }
-export function compactRetainedRows(broker,record) {
+export function compactRetainedRows(broker,record,{deferMemoryPayloads=false,memorySettlementPermit=null}={}) {
  validateRetainedRows(broker.operations)
  // Build all candidates before replacing any row. A malformed legacy terminal
  // record refuses the whole commit; no partial payload removal/history eviction.
- const candidates=Object.fromEntries(Object.entries(broker.operations).map(([key,row])=>[key,compactTerminalRow(key,row,record,broker.owners)]))
+ const candidates=Object.fromEntries(Object.entries(broker.operations).map(([key,row])=>{
+  const candidate=compactTerminalRow(key,row,record,broker.owners)
+  if(!isTerminalRecord(row)&&isTerminalRecord(candidate)&&candidate.dispatch.evidence_kind==='memory'
+    &&(deferMemoryPayloads||row.retained_memory)) {
+   // Validate every legacy candidate, but missing retained evidence never blocks logout.
+   if(memorySettlementPermit?.operation_key!==key||memorySettlementPermit.receipt_digest!==candidate.dispatch.receipt_digest
+      ||!row.retained_memory?.settle)return [key,row]
+   return [key,validateTerminalRecord({...candidate,schema:RETAINED_TERMINAL_SCHEMA,
+    retained_memory:retainedMemoryLineage(row.retained_memory)})]
+  }
+  return [key,candidate]
+ }))
  return {...broker,operations:candidates}
 }

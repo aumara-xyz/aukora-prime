@@ -31,14 +31,17 @@ export async function startAuthorityWorker(config) {
   if(config.kind!=='authority')throw new TypeError('INVALID: authority worker kind')
   const registry=createTrustedTaskRegistry(config.registryEntries)
   const identities=new Map(config.authorityConfig.identities.map(identity=>[identity.owner_id,copy(identity)]))
-  let scope=null
+  let scope=null,authorityCallActive=false
   const authority=createAuthorityService({...config.authorityConfig,authorizeTask:registry.authorizeTask,
     observeTarget(operation) {
       if(!scope||contracts.operationDigest(operation)!==scope.digest||contracts.canonicalJson(operation)!==scope.operation_json)throw refuse('WORKER_TARGET_SCOPE_REQUIRED')
       return copy(scope.observation)
     }})
-  const handler=(method,input,{role}={})=>{
+  const handler=async(method,input,{role}={})=>{
     if(role!=='memory_effect'||!PRIVATE_AUTHORITY_METHODS.includes(method))throw refuse('WORKER_PRIVATE_ROLE_REQUIRED')
+    // One direct C call owns the observation for its whole promise lifetime.
+    // Refuse overlapping calls; neither timeout nor disconnection clears it.
+    if(authorityCallActive)throw refuse('WORKER_TARGET_SCOPE_REENTRANT')
     // IPC has already performed strict textual parsing, MAC and exact method ACL.
     const wrapper=copy(closed(input,['input','operation','operation_digest','observation']))
     const name=Object.keys(METHODS).find(key=>METHODS[key]===method)
@@ -63,13 +66,15 @@ export async function startAuthorityWorker(config) {
         if(proof.operation_id!==operation.operation_id||proof.owner_id!==operation.owner_id||proof.operation_digest!==wrapper.operation_digest||proof.audience!==operation.audience||proof.authorization_epoch!==operation.authorization_epoch)throw refuse('WORKER_REVIEW_PROOF_BINDING_REQUIRED')
       }
       if(scope)throw refuse('WORKER_TARGET_SCOPE_REENTRANT')
-      // No await/interleaving occurs between install, direct C call and clearing.
+      // Keep the exact detached observation through awaited C rechecks.
       scope={digest:wrapper.operation_digest,operation_json:contracts.canonicalJson(operation),observation:observed}
-      try {return authority[name](wrapper.input)} finally {scope=null}
+      authorityCallActive=true
+      try {return await authority[name](wrapper.input)} finally {scope=null;authorityCallActive=false}
     }
     if(wrapper.observation!==null)throw refuse('WORKER_OBSERVATION_UNEXPECTED')
     if(['propose',...factual].includes(name)&&!operation)throw refuse('WORKER_OPERATION_REQUIRED')
-    return authority[name](wrapper.input)
+    authorityCallActive=true
+    try {return await authority[name](wrapper.input)} finally {authorityCallActive=false}
   }
   const server=await createAuthorityIpcServer({...config.ipc,handlePublic:handler})
   return Object.freeze({close:()=>server.close(),status:()=>({kind:'authority',qualification:'unqualified',socket:server.address})})

@@ -12,11 +12,15 @@ import { assertMemoryControlAdvance } from './control-retention-advance.mjs'
 export const MEMORY_RETENTION_SCHEMA = 'aukora-prime-memory-retention/v1'
 const POINTER_SCHEMA = 'aukora-prime-memory-retention-current/v1'
 const PENDING_SCHEMA = 'aukora-prime-memory-retention-pending/v1'
+const MUTATION_SCHEMA = 'aukora-prime-memory-retention-pending/v2'
 const readers = new WeakSet(), HEX = /^[0-9a-f]{64}$/
 const HOST_KEYS = ['owner_id', 'owner_subject', 'authorization_epoch']
 const ENVELOPE_KEYS = ['schema', ...HOST_KEYS, 'sequence', 'previous_checkpoint_sha256', 'control_state', 'checkpoint_sha256']
 const POINTER_KEYS = ['schema', ...HOST_KEYS, 'sequence', 'checkpoint_sha256', 'generation_file']
 const PENDING_KEYS = ['schema', ...HOST_KEYS, 'expected_checkpoint_sha256', 'operation_id', 'operation_digest']
+const MUTATION_FIELDS = ['expected_checkpoint_sha256', 'operation_id', 'operation_digest', 'request_id', 'request_digest']
+const MUTATION_KEYS = ['schema', ...HOST_KEYS, ...MUTATION_FIELDS, 'prepared_checkpoint_sha256', 'prepared_generation_file']
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const pointerLimit = 16384
 const encode = value => Buffer.from(canonicalJSON(value) + '\n')
 const fail = code => { throw new MemoryRefusal(`memory:control-retention-${code}`) }
@@ -102,6 +106,17 @@ function ownerKey(host) {
 function checkpoint(body) {
   return sha256(Buffer.from('aukora-prime.memory-retention.v1\0' + canonicalJSON(body)))
 }
+function mutationRequest(request, {state = false} = {}) {
+  const fields = closedData(request, ['host', ...MUTATION_FIELDS, ...(state ? ['control_state'] : [])], 'mutation-fields-invalid')
+  const host = checkedHost(fields.host)
+  check(typeof fields.expected_checkpoint_sha256 === 'string' && HEX.test(fields.expected_checkpoint_sha256)
+    && typeof fields.operation_id === 'string' && fields.operation_id.length > 0 && fields.operation_id.length <= 4096
+    && typeof fields.operation_digest === 'string' && /^sha256:[0-9a-f]{64}$/.test(fields.operation_digest)
+    && typeof fields.request_id === 'string' && UUID.test(fields.request_id)
+    && typeof fields.request_digest === 'string' && /^sha256:[0-9a-f]{64}$/.test(fields.request_digest), 'mutation-binding-invalid')
+  return {...fields, host}
+}
+const sameMutation = (marker, fields) => MUTATION_FIELDS.every(key => marker[key] === fields[key])
 async function pendingAbsent(config, host) {
   try { await fs.lstat(path.join(config.directory, `${ownerKey(host)}.pending.json`)) }
   catch (error) { if (error.code === 'ENOENT') return; throw error }
@@ -175,6 +190,77 @@ async function pending(config, host) {
     && typeof marker.operation_digest === 'string' && /^sha256:[0-9a-f]{64}$/.test(marker.operation_digest), 'pending-operation-invalid')
   return {...source, marker}
 }
+async function mutationPending(config, host) {
+  const source = await readFile(config, `${ownerKey(host)}.pending.json`, pointerLimit, {optional: true})
+  check(source !== null, 'pending-missing')
+  const marker = closedData(source.value, MUTATION_KEYS, 'mutation-pending-fields-invalid')
+  check(marker.schema === MUTATION_SCHEMA && marker.owner_id === host.owner_id && marker.owner_subject === host.owner_subject
+    && marker.authorization_epoch === host.authorization_epoch, 'mutation-pending-binding-invalid')
+  mutationRequest({host, ...Object.fromEntries(MUTATION_FIELDS.map(key => [key, marker[key]]))})
+  check(marker.prepared_checkpoint_sha256 === null && marker.prepared_generation_file === null
+    || typeof marker.prepared_checkpoint_sha256 === 'string' && HEX.test(marker.prepared_checkpoint_sha256)
+      && marker.prepared_generation_file === `${ownerKey(host)}.${marker.prepared_checkpoint_sha256}.json`,
+  'mutation-prepared-reference-invalid')
+  return {...source, marker}
+}
+async function generation(config, host, digest, {pastEpoch = false} = {}) {
+  check(typeof digest === 'string' && HEX.test(digest), 'checkpoint-invalid')
+  const source = await readFile(config, `${ownerKey(host)}.${digest}.json`, MAX_BYTES)
+  const envelope = closedData(source.value, ENVELOPE_KEYS, 'envelope-fields-invalid')
+  check(envelope.schema === MEMORY_RETENTION_SCHEMA, 'envelope-schema-invalid'); binding(envelope, host, pastEpoch)
+  check(envelope.previous_checkpoint_sha256 === null || typeof envelope.previous_checkpoint_sha256 === 'string'
+    && HEX.test(envelope.previous_checkpoint_sha256), 'previous-checkpoint-invalid')
+  check((envelope.sequence === 1) === (envelope.previous_checkpoint_sha256 === null), 'sequence-invalid')
+  const {checkpoint_sha256, ...body} = envelope
+  check(checkpoint_sha256 === digest && checkpoint(body) === digest, 'checkpoint-changed')
+  inspectMemoryControlState(envelope.control_state, host, {contracts: config.contracts})
+  return envelope
+}
+function mutationIntent(envelope, marker, host, contracts) {
+  const checked = inspectMemoryControlState(envelope.control_state, host, {contracts})
+  const matches = row => ['operation_id', 'operation_digest', 'request_id', 'request_digest'].every(key => row[key] === marker[key])
+  check(checked.tables.intents.some(matches), 'mutation-intent-unretained')
+  check(!checked.tables.effects.some(row => row.operation_id === marker.operation_id)
+    && !checked.tables.replay_fences.some(row => row.operation_id === marker.operation_id), 'mutation-prepared-already-applied')
+}
+function retainedMutation(envelope, marker, host, contracts) {
+  const checked = inspectMemoryControlState(envelope.control_state, host, {contracts})
+  check(['intents', 'effects', 'replay_fences'].some(table => checked.tables[table].some(row =>
+    ['operation_id', 'operation_digest', 'request_id', 'request_digest'].every(key => row[key] === marker[key]))),
+  'mutation-operation-unretained')
+}
+async function mutationFiles(config, host, directory) {
+  const source = await mutationPending(config, host), marker = source.marker
+  const predecessor = await generation(config, host, marker.expected_checkpoint_sha256, {pastEpoch: true})
+  let prepared = null
+  if (marker.prepared_checkpoint_sha256 !== null) {
+    prepared = await generation(config, host, marker.prepared_checkpoint_sha256)
+    check(prepared.previous_checkpoint_sha256 === predecessor.checkpoint_sha256
+      && prepared.sequence === predecessor.sequence + 1, 'mutation-prepared-predecessor-invalid')
+    assertMemoryControlAdvance(predecessor.control_state, prepared.control_state, host, {contracts: config.contracts})
+    mutationIntent(prepared, marker, host, config.contracts)
+  }
+  const retained = await current(config, host, directory, {pastEpoch: true})
+  if (retained.checkpoint_sha256 !== predecessor.checkpoint_sha256) {
+    check(prepared !== null && retained.authorization_epoch === host.authorization_epoch
+      && retained.previous_checkpoint_sha256 === predecessor.checkpoint_sha256
+      && retained.sequence === predecessor.sequence + 1, 'mutation-current-predecessor-invalid')
+    assertMemoryControlAdvance(predecessor.control_state, retained.control_state, host, {contracts: config.contracts})
+    assertMemoryControlAdvance(prepared.control_state, retained.control_state, host, {contracts: config.contracts})
+    retainedMutation(retained, marker, host, config.contracts)
+  }
+  const repeated = await mutationPending(config, host)
+  check(repeated.identity === source.identity && repeated.bytes.equals(source.bytes), 'pending-changed')
+  await directoryUnchanged(config, directory)
+  return {source, marker, predecessor, prepared, current: retained}
+}
+async function removeMutationPending(config, host, source, directory) {
+  const repeated = await mutationPending(config, host)
+  check(source.identity === repeated.identity && source.bytes.equals(repeated.bytes), 'pending-changed')
+  await directoryUnchanged(config, directory)
+  await fs.unlink(path.join(config.directory, `${ownerKey(host)}.pending.json`))
+  await directory.handle.sync()
+}
 function retainedOperation(envelope, marker, host, contracts) {
   const checked = inspectMemoryControlState(envelope.control_state, host, {contracts})
   check(['intents', 'effects', 'replay_fences'].some(table => checked.tables[table].some(row =>
@@ -230,6 +316,7 @@ export function isControlRetentionReader(adapter) { return readers.has(adapter) 
 export function createUnavailableControlRetention() {
   const unavailable = async () => fail('unavailable')
   const adapter = Object.freeze({readCurrent: unavailable, restoreAnchorProvider: unavailable,
+    inspectPending: unavailable, readPending: unavailable, observePredecessor: unavailable,
     status: Object.freeze({configured: false, kind: 'unavailable', schema: MEMORY_RETENTION_SCHEMA})})
   readers.add(adapter)
   return adapter
@@ -246,7 +333,24 @@ export function createFileControlRetentionReader(input) {
       return retained
     })
   }
-  const adapter = Object.freeze({readCurrent, restoreAnchorProvider: readCurrent,
+  const inspectPending = async trustedHost => {
+    const host = checkedHost(trustedHost)
+    return withDirectory(config, async directory => {
+      const inspected = await mutationFiles(config, host, directory)
+      return {marker: inspected.marker, predecessor: inspected.predecessor, prepared: inspected.prepared, current: inspected.current}
+    })
+  }
+  const readPending = async request => {
+    const fields = mutationRequest(request)
+    return withDirectory(config, async directory => {
+      const inspected = await mutationFiles(config, fields.host, directory)
+      check(sameMutation(inspected.marker, fields), 'mutation-binding-conflict')
+      check(inspected.current.checkpoint_sha256 === fields.expected_checkpoint_sha256, 'checkpoint-conflict')
+      return {predecessor: inspected.predecessor, prepared: inspected.prepared, marker: inspected.marker}
+    })
+  }
+  const observePredecessor = async request => (await readPending(request)).predecessor
+  const adapter = Object.freeze({readCurrent, restoreAnchorProvider: readCurrent, inspectPending, readPending, observePredecessor,
     status: Object.freeze({configured: true, kind: 'file-reader', schema: MEMORY_RETENTION_SCHEMA})})
   readers.add(adapter)
   return adapter
@@ -259,6 +363,23 @@ async function createDurableFile(config, filename, bytes) {
     regular(await handle.stat({bigint: true}), config, 0o640, MAX_BYTES)
     await handle.sync()
   } finally { await handle.close() }
+}
+async function immutableGeneration(config, filename, bytes) {
+  try { await createDurableFile(config, filename, bytes) }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error
+    const retained = await readFile(config, filename, MAX_BYTES)
+    check(retained.bytes.equals(bytes), 'generation-conflict')
+  }
+}
+function mutationEnvelope(host, predecessor, control_state) {
+  const sequence = predecessor.sequence + 1
+  check(Number.isSafeInteger(sequence), 'sequence-invalid')
+  const body = {schema: MEMORY_RETENTION_SCHEMA, ...host, sequence,
+    previous_checkpoint_sha256: predecessor.checkpoint_sha256, control_state}
+  const envelope = {...body, checkpoint_sha256: checkpoint(body)}
+  check(encode(envelope).length <= MAX_BYTES, 'bytes-limit')
+  return envelope
 }
 // No mkdir/chmod/chown, imported-snapshot fallback, retry or generation overwrite exists here.
 export function createFileControlRetentionPublisher(input) {
@@ -274,6 +395,94 @@ export function createFileControlRetentionPublisher(input) {
     try { return await action() }
     catch (error) { if (error.code === 'memory:control-retention-commit-uncertain') uncertain = true; throw error }
   }
+  const beginMutation = async request => guarded(async () => {
+    const fields = mutationRequest(request), host = fields.host
+    const marker = {schema: MUTATION_SCHEMA, ...host,
+      ...Object.fromEntries(MUTATION_FIELDS.map(key => [key, fields[key]])),
+      prepared_checkpoint_sha256: null, prepared_generation_file: null}
+    return withDirectory(config, directory => ownerLock(config, host, async () => {
+      await pendingAbsent(config, host)
+      const retained = await current(config, host, directory, {pastEpoch: true})
+      check(retained.checkpoint_sha256 === fields.expected_checkpoint_sha256, 'checkpoint-conflict')
+      try {
+        await createDurableFile(config, `${ownerKey(host)}.pending.json`, encode(marker))
+        await directory.handle.sync()
+        await directoryUnchanged(config, directory)
+      } catch { fail('commit-uncertain') }
+      return marker
+    }))
+  })
+  const retainPrepared = async request => guarded(async () => {
+    const fields = mutationRequest(request, {state: true}), host = fields.host
+    inspectMemoryControlState(fields.control_state, host, {contracts: config.contracts})
+    const control_state = parseOriginal(encode(fields.control_state))
+    return withDirectory(config, directory => ownerLock(config, host, async () => {
+      const inspected = await mutationFiles(config, host, directory)
+      check(sameMutation(inspected.marker, fields), 'mutation-binding-conflict')
+      check(inspected.current.checkpoint_sha256 === fields.expected_checkpoint_sha256, 'checkpoint-conflict')
+      assertMemoryControlAdvance(inspected.predecessor.control_state, control_state, host, {contracts: config.contracts})
+      const envelope = mutationEnvelope(host, inspected.predecessor, control_state)
+      mutationIntent(envelope, inspected.marker, host, config.contracts)
+      if (inspected.prepared !== null) {
+        check(encode(inspected.prepared).equals(encode(envelope)), 'mutation-prepared-conflict')
+        return inspected.prepared
+      }
+      const generation_file = `${ownerKey(host)}.${envelope.checkpoint_sha256}.json`
+      const marker = {...inspected.marker, prepared_checkpoint_sha256: envelope.checkpoint_sha256,
+        prepared_generation_file: generation_file}
+      try {
+        await immutableGeneration(config, generation_file, encode(envelope))
+        await directory.handle.sync()
+        const temporary = `${ownerKey(host)}.pending.${randomUUID()}.tmp`
+        await createDurableFile(config, temporary, encode(marker))
+        const repeated = await mutationPending(config, host)
+        check(repeated.identity === inspected.source.identity && repeated.bytes.equals(inspected.source.bytes), 'pending-changed')
+        await directoryUnchanged(config, directory)
+        await fs.rename(path.join(config.directory, temporary), path.join(config.directory, `${ownerKey(host)}.pending.json`))
+        await directory.handle.sync()
+        await directoryUnchanged(config, directory)
+      } catch { fail('commit-uncertain') }
+      return envelope
+    }))
+  })
+  const publishMutation = async request => guarded(async () => {
+    const fields = mutationRequest(request, {state: true}), host = fields.host
+    inspectMemoryControlState(fields.control_state, host, {contracts: config.contracts})
+    const control_state = parseOriginal(encode(fields.control_state))
+    return withDirectory(config, directory => ownerLock(config, host, async () => {
+      const inspected = await mutationFiles(config, host, directory)
+      check(sameMutation(inspected.marker, fields), 'mutation-binding-conflict')
+      check(inspected.prepared !== null, 'mutation-prepared-required')
+      assertMemoryControlAdvance(inspected.predecessor.control_state, control_state, host, {contracts: config.contracts})
+      assertMemoryControlAdvance(inspected.prepared.control_state, control_state, host, {contracts: config.contracts})
+      const envelope = mutationEnvelope(host, inspected.predecessor, control_state)
+      retainedMutation(envelope, inspected.marker, host, config.contracts)
+      if (inspected.current.checkpoint_sha256 !== fields.expected_checkpoint_sha256) {
+        check(encode(inspected.current).equals(encode(envelope)), 'mutation-final-conflict')
+        try { await removeMutationPending(config, host, inspected.source, directory) }
+        catch { fail('commit-uncertain') }
+        return inspected.current
+      }
+      const key = ownerKey(host), generation_file = `${key}.${envelope.checkpoint_sha256}.json`
+      try {
+        await immutableGeneration(config, generation_file, encode(envelope))
+        await directory.handle.sync()
+        const pointer = {schema: POINTER_SCHEMA, ...host, sequence: envelope.sequence,
+          checkpoint_sha256: envelope.checkpoint_sha256, generation_file}
+        const temporary = `${key}.current.${randomUUID()}.tmp`
+        await createDurableFile(config, temporary, encode(pointer))
+        const repeated = await mutationFiles(config, host, directory)
+        check(repeated.source.identity === inspected.source.identity && repeated.source.bytes.equals(inspected.source.bytes), 'pending-changed')
+        check(repeated.current.checkpoint_sha256 === fields.expected_checkpoint_sha256, 'checkpoint-conflict')
+        await directoryUnchanged(config, directory)
+        await fs.rename(path.join(config.directory, temporary), path.join(config.directory, `${key}.current.json`))
+        await directory.handle.sync()
+        await directoryUnchanged(config, directory)
+        await removeMutationPending(config, host, inspected.source, directory)
+      } catch { fail('commit-uncertain') }
+      return envelope
+    }))
+  })
   const beginUpdate = async request => guarded(async () => {
     const fields = closedData(request, ['host', 'expected_checkpoint_sha256', 'operation_id', 'operation_digest'], 'begin-fields-invalid')
     const host = checkedHost(fields.host)
@@ -359,6 +568,6 @@ export function createFileControlRetentionPublisher(input) {
       }
     })))
   }
-  return Object.freeze({publish, readCurrent, beginUpdate, completePending,
+  return Object.freeze({publish, readCurrent, beginUpdate, completePending, beginMutation, retainPrepared, publishMutation,
     status: Object.freeze({configured: true, kind: 'file-publisher', schema: MEMORY_RETENTION_SCHEMA})})
 }
