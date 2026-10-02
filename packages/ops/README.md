@@ -163,20 +163,34 @@ for the required closed 66-job / 65-file profile, inventories, literal pins, exi
 and historical-only records. The union retains all 29 required whole owner-memory
 files from H's 37-job profile, including eight files absent from the earlier G53
 profile. Four missing whole files and H's bounded ordinary `bash_parameters`
-selection are now required. Source review is complete for 140 references across
-99 selected paths. The frozen literal review basis remains
-`b336753488a2a70adcefd82a95909263dbe26c5a`; the current integration base is
-`739bab5176f78c5b7333a8350c69cc75544709e5`. The final manifest SHA256 is
-`618fdac6f1ca1d62a797ee7461c40ef7b06011c9a95bdc6488e58d65d1f1accb`.
-The 66-job product suite remains UNPERFORMED and the current target is NOTQUALIFIED.
-Both older H37 37-PASS and newer 36-PASS/1-host-FAIL observations remain separately
-attributed. The existing temporary Unix-socket bind EPERM is separately
-classified BLOCKED_ENVIRONMENT; the evaluator retains its nonzero FAIL outcome.
-The required case is included, and H owns diagnosis. The
-600000 ms suite, 120000 ms maximum full-TAP and 60000 ms maximum non-TAP budgets
-retain the existing shorter per-case bounds; output is capped at 65536 bytes and
-the direct Node heap at 512 MiB. The 42 full TAP jobs use 120000 ms and the inference
-mock retains 20000 ms. Full-union duration is UNMEASURED and the wall target is null.
+selection are now required. The initial adjudicated source review covered 140
+references across 99 selected paths. Subsequent reviewed fixture repairs and the
+exact worker socket helper binding make the current closure 142 references across
+101 paths; every literal pin matched the selected source. The current manifest
+SHA256 is `d7916f11cdd9b2bda39e7efe3e7e6b217140b7bbec03e4fb4e6cf9b352cfcca7`.
+The initial review basis and its original manifest remain historical in PROVENANCE.json.
+
+The corrected final profile awaits two complete runs at the same frozen revision:
+integrator and independent clean-copy reader. The planned `prime-v1.2-research-review`
+reference and external immutable receipt must identify that exact source and both
+results. The retained [54c failed run](../../docs/evidence/source-profile-54c4a306.json)
+returned 63 PASS / 2 FAIL / 1 UNPERFORMED; the prior 9c8 failed run returned
+58 PASS / 2 FAIL / 6 UNPERFORMED. Older H37 results and its independent
+36-PASS/1-host-FAIL observation remain separately attributed. The previous denied
+Unix-socket bind is preserved; it is not retried or promoted to PASS.
+
+The evaluator supplies its existing private evidence directory only to the exact
+compiled `bridge-worker` fixture. Socket path length is checked before creation;
+config/state retain the case TMPDIR. No caller override, ancestor discovery or
+fallback after refusal is introduced, and the production 103-byte IPC limit stays
+unchanged. Other jobs and prerequisite probes receive no socket-root binding.
+
+The 600000 ms suite and 120000 ms full-TAP limits remain. The exact pinned
+`authority-core-only` job has a 180000 ms exception; other non-TAP jobs retain
+60000 ms maximum and existing shorter bounds. Output is capped at 65536 bytes
+and the direct Node heap at 512 MiB. The inference mock retains 20000 ms.
+These are cooperative budgets, not containment. The two historical failed66
+runs took 209966 ms and 242303 ms; final-pair duration remains unmeasured.
 The E total-budget gate is absent from this source profile: UNPERFORMED, deferral
 intent UNKNOWN pending its owner. Archive verification is unchanged; qualification
 stays UNPERFORMED and G1 stays PENDING.

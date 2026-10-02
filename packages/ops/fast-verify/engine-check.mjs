@@ -6,6 +6,7 @@ import {mkdtempSync, realpathSync, mkdirSync, readFileSync, writeFileSync, symli
 import {dirname, join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {fileURLToPath, pathToFileURL} from 'node:url'
+import {CASES} from './manifest.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const requested = process.argv.slice(2)
@@ -16,7 +17,9 @@ const focusedChecks = new Set([
   'external-title-must-skip-with-exact-compiled-reason', 'unnamed-malformed-and-directive-plans-cannot-disappear',
   'hook-prerequisite-and-main-execution-share-case-deadline', 'tap-summary-cannot-hide-failure-cancellation-skip-or-todo',
   'json-summary-must-be-unambiguous-pass-with-no-required-incomplete-counts',
+  'json-ancillary-group-labels-preserve-counts-and-incomplete-refusals',
   'only-compiled-hook-and-host-bindings-propagate-and-provider-env-is-scrubbed',
+  'worker-socket-binding-is-one-reviewed-job-and-never-caller-environment',
   'closed-protocol-schemas-and-reviewed-case-caps-refuse-before-spawn',
   'support-pin-cap-accepts-nine-and-refuses-thirteen', 'main-child-controller-mutation-fails-post-execution-source-guard'
 ])
@@ -68,6 +71,7 @@ const sources = {
   passLinesDuplicate: emit('PASS synthetic first\nPASS synthetic first\n'),
   passLinesFail: emit('PASS synthetic first\nFAIL synthetic second\n', 1),
   passLinesUnknown: emit('PASS synthetic first\nPASS secret=fixture-do-not-retain\n'),
+  jsonAuthorityGroups: "process.stdout.write(\"MUTATION PASS: earlier row guard removed still refuses; removing all digest boundaries is caught\\n{\\\"kernel_guards\\\":{\\\"status\\\":\\\"PASS\\\",\\\"checks\\\":17,\\\"baseline\\\":[{\\\"status\\\":\\\"PASS\\\",\\\"scenario\\\":\\\"pure-replay\\\",\\\"checks\\\":4},{\\\"status\\\":\\\"PASS\\\",\\\"scenario\\\":\\\"store-replay\\\",\\\"checks\\\":6},{\\\"status\\\":\\\"PASS\\\",\\\"scenario\\\":\\\"store-high-water\\\",\\\"checks\\\":7}],\\\"mutations\\\":[{\\\"mutation\\\":\\\"kernel-replay-guard-removed\\\",\\\"scenario\\\":\\\"pure-replay\\\",\\\"caught_by\\\":\\\"KERNEL_REPLAY_REFUSAL\\\",\\\"observed\\\":{\\\"status\\\":\\\"allowed\\\",\\\"code\\\":\\\"allowed\\\",\\\"ring\\\":\\\"observe\\\",\\\"authorizedRootId\\\":null}},{\\\"mutation\\\":\\\"kernel-replay-guard-removed\\\",\\\"scenario\\\":\\\"store-replay\\\",\\\"caught_by\\\":\\\"STORE_KERNEL_REPLAY_REFUSAL\\\",\\\"observed\\\":{\\\"ok\\\":true,\\\"decision\\\":{\\\"status\\\":\\\"allowed\\\",\\\"code\\\":\\\"allowed\\\",\\\"ring\\\":\\\"observe\\\",\\\"authorizedRootId\\\":null}}},{\\\"mutation\\\":\\\"original-store-high-water-guard-removed\\\",\\\"scenario\\\":\\\"store-high-water\\\",\\\"caught_by\\\":\\\"STORE_HIGH_WATER_ROLLBACK_REFUSAL\\\",\\\"observed\\\":{\\\"loadedCount\\\":1}}],\\\"scope\\\":\\\"Direct pure kernel and original-default TrustedStateStore; public synthetic fixtures; temporary copies only\\\"}}\\n{\\\"sessions\\\":{\\\"status\\\":\\\"PASS\\\",\\\"checks\\\":85,\\\"groups\\\":[\\\"durable current-token logout; other session/owner unaffected\\\",\\\"post-logout proposal/review/reserve/dispatch refusal and no new consumption\\\",\\\"fresh login cannot revive old approval; prepared duties retained\\\",\\\"dispatched factual settlement/replay survive logout\\\",\\\"pre-logout rollback rejected by retained witness\\\",\\\"active approval cannot outlive its five-minute owner session\\\"],\\\"limits\\\":\\\"Synthetic in-process keys/disposable paths only; no public route, deployment or audit.\\\"}}\\n{\\\"retention\\\":{\\\"status\\\":\\\"PASS\\\",\\\"checks\\\":531,\\\"lifecycles\\\":16,\\\"groups\\\":[\\\"terminal memory and all execution statuses compact in one commit without payloads\\\",\\\"exact replay/owner/grant/request/evidence bindings survive reopening\\\",\\\"unknown and prepared obligations stay full; explicit reconciliation retains prior digest idempotence\\\",\\\"legacy full terminal rows migrate only on successful write with broker witness rollback protection\\\",\\\"kernel consumptions/preparations remain required; byte cap fails closed without eviction\\\"],\\\"limits\\\":\\\"Synthetic signed in-process lifecycles and disposable paths only; no database, executor, application, deployment, or stopped audit.\\\"}}\\n{\\\"status\\\":\\\"PASS\\\",\\\"checks\\\":125,\\\"scope\\\":\\\"synthetic owner-key + ES256 passkey assertions; copied durable stores/kernel; replay/denial/epoch/restore; no external effects\\\",\\\"limits\\\":[\\\"no real enrollment\\\",\\\"same UID can rewrite state and witness\\\",\\\"no deployed broker IPC/UID separation\\\",\\\"assertion does not prove comprehension\\\",\\\"no OpenShell execution or signing keys in guest\\\"]}\\n\");\n",
   jsonExact: emit('{"status":"FAIL","checks":2,"secret":"fixture-do-not-retain"}\n'),
   jsonPass: emit('{"status":"PASS","checks":2,"secret":"fixture-do-not-retain"}\n'),
   jsonConflict: emit('{"result":"PASS","status":"FAIL","checks":2}\n'),
@@ -85,7 +89,7 @@ const sources = {
   jsonProcessFail: emit('{"status":"PASS","checks":2}\n', 1),
   jsonAmbiguous: emit('{"checks":2}\n{"checks":2}\n'),
   jsonPrivate: emit('{"checks":"secret=fixture-do-not-retain"}\n'),
-  envScrub: "import assert from 'node:assert/strict';for(const key of ['TEST_OWNED_SHOULD_NOT_PROPAGATE','NODE_OPTIONS','NODE_PATH','PGHOST','PGPASSWORD','PRIME_OWNER_HOOK_CONTROLLER','PRIME_OWNER_MEMORY_HOST_ROOT','PRIME_OWNER_MEMORY_SOURCE_PIN','OPENAI_API_KEY'])assert.equal(process.env[key],undefined);\n",
+  envScrub: "import assert from 'node:assert/strict';for(const key of ['TEST_OWNED_SHOULD_NOT_PROPAGATE','NODE_OPTIONS','NODE_PATH','PGHOST','PGPASSWORD','PRIME_OWNER_HOOK_CONTROLLER','PRIME_OWNER_MEMORY_HOST_ROOT','PRIME_OWNER_MEMORY_SOURCE_PIN','PRIME_BRIDGE_WORKER_SOCKET_ROOT','OPENAI_API_KEY'])assert.equal(process.env[key],undefined);\n",
   sourcePin: "import assert from 'node:assert/strict';assert.equal(process.env.PRIME_OWNER_MEMORY_SOURCE_PIN,'0'.repeat(40));assert.equal(process.env.PRIME_OWNER_MEMORY_HOST_ROOT,undefined);assert.equal(process.env.PRIME_OWNER_HOOK_CONTROLLER,undefined);\n",
   hostRoot: "import assert from 'node:assert/strict';import {realpathSync} from 'node:fs';assert.equal(process.env.PRIME_OWNER_MEMORY_HOST_ROOT,realpathSync(process.cwd()));assert.equal(process.env.PRIME_OWNER_HOOK_CONTROLLER,undefined);assert.equal(process.env.PGHOST,undefined);\n",
   hookMain: "import assert from 'node:assert/strict';import {writeFileSync} from 'node:fs';import {dirname,join} from 'node:path';writeFileSync(join(dirname(process.env.TMPDIR),'main-ran'),'synthetic');assert.equal(process.env.PRIME_OWNER_HOOK_CONTROLLER,join(process.cwd(),'checks/controllerGood.mjs'));assert.equal(process.env.PRIME_OWNER_MEMORY_HOST_ROOT,undefined);\n",
@@ -136,6 +140,7 @@ const pins = {
   passLinesDuplicate: 'd0cc163e1902cf180faac345a3dfd0ede7dcd47d3d9b1fdcabdf64bcbfdcf1fa',
   passLinesFail: 'ad943b9d7dd63319579bf671a2e6565c3b548dde421e6f6b00ef97b3e4ce5346',
   passLinesUnknown: '9a6ef43ca16ff3c2792f2017b9218ba77ef640e35bf1f189962475c6540bdcb7',
+  jsonAuthorityGroups: '55348bf997252a6bb617366be0661c377d2e13b19454f6f7703fa4ced75ea3be',
   jsonExact: '718cd442aef87985863fc41382a21316da6a365d667e72aa2c0c9fcff241da96',
   jsonPass: 'f812a42c4e916810835c2a418331167533591f119074cf4877ff93dce275b3cf',
   jsonConflict: 'fcdbf0f20f314a7d1e8b4d370a6404a9e6c90b82adef62e84bd5017f4f50959b',
@@ -153,7 +158,7 @@ const pins = {
   jsonProcessFail: '8456ad0697d123885f7e7aa096d9cb52bebb5bf5a235cd85fc6a3a4afb1edf54',
   jsonAmbiguous: '6f36bc05ce454b422a350bfba9d98d1a794a76de75192e6298ff91222a04bf1e',
   jsonPrivate: '6f9694d719b3e84a8c6d5238c2c27df531ce42e5b84ea38d39d3cd3e8878658b',
-  envScrub: '77ade3fea7f66296837b6d04a8e028a45949f4883370d5a1924ca9687d0ace2a',
+  envScrub: 'ca81f069494d020975e5e2ad5d2a2e28e81b46e0368e41be071011f52d2bfcfc',
   sourcePin: '401f73951931b916c0d1b593c164251c7134e56e9881564770d1daee7fbf8a14',
   hostRoot: '71ea99f8ea49acd5a00eb7db1ab64157cd209a1e631f44d03155aef9da0a4d1f',
   hookMain: 'ea8f0b9216577b6523764362ba46d3af901f116ff1a7299dcf7e2fa149869783',
@@ -425,6 +430,37 @@ try {
     assert.equal(result.cases[7].reason, 'ASSERT_JSON_SUMMARY_AMBIGUOUS')
     assert.equal(result.cases[8].reason, 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE'); assert.equal(result.cases[9].reason, 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE')
   })
+  await check('json-ancillary-group-labels-preserve-counts-and-incomplete-refusals', async () => {
+    // Fixed retained public diagnostic output, never authority execution.
+    const own = await fixture([jsonRow('jsonAuthorityGroups', {counter: {key: 'checks', value: 125}})]), accepted = await own.run(); cleanSummary(accepted)
+    assert.equal(accepted.status, 'PASS'); assert.equal(accepted.cases[0].counter.observed, 125)
+    const assertJson = async (output, counter = {key: 'checks', value: 2}) => {
+      const body = emit(output), expectedSha256 = createHash('sha256').update(body).digest('hex')
+      const copy = await fixture([jsonRow('jsonPass', {expectedSha256, counter})], ({root}) =>
+        writeFileSync(join(root, 'checks/jsonPass.mjs'), body, {mode: 0o600}))
+      const result = await copy.run(); cleanSummary(result); return result
+    }
+    for (const groups of [[], ['name', 1], ['name', null], [['name']], [{status: 'FAIL'}],
+      [''], [' control'], ['control\nlabel'], ['x'.repeat(1001)], Array(1001).fill('name'),
+      ['FAIL'], ['FAILED case'], ['SKIP fixture'], ['TODO: pending'], ['# SKIP fixture'], ['UNPERFORMED'], ['CANCELLED']]) {
+      const result = await assertJson(JSON.stringify({status: 'PASS', checks: 2, nested: {groups}}))
+      assert.equal(result.cases[0].reason, 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE')
+    }
+    for (const extra of [{status: 'FAIL'}, {status: 'TODO'}, {result: 'SKIP'}, {status: 'UNPERFORMED'},
+      {skip: 1}, {skipped: 1}, {todo: 1}, {failed: 1}, {cancelled: 1},
+      {failures: ['uncompleted']}, {checks: 'annotation'}]) {
+      const result = await assertJson(JSON.stringify({status: 'PASS', checks: 2, nested: {groups: ['named group'], ...extra}}))
+      assert.equal(result.cases[0].reason, 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE')
+    }
+    const numeric = await assertJson(JSON.stringify({status: 'PASS', checks: 2, nested: {groups: 3}}))
+    assert.equal(numeric.status, 'PASS')
+    const selected = await assertJson(JSON.stringify({status: 'PASS', groups: ['named group']}), {key: 'groups', value: 1})
+    assert.equal(selected.cases[0].reason, 'ASSERT_JSON_COUNTER_MISMATCH')
+    const rootLabels = await assertJson(JSON.stringify({status: 'PASS', checks: 2, groups: ['named group']}))
+    assert.equal(rootLabels.cases[0].reason, 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE')
+    const ambiguous = await assertJson(JSON.stringify({groups: ['named group']}) + '\n' + JSON.stringify({status: 'PASS', checks: 2}))
+    assert.equal(ambiguous.cases[0].reason, 'ASSERT_JSON_SUMMARY_AMBIGUOUS')
+  })
   await check('compiled-hook-pin-export-interface-and-disposal-precede-main-child', async () => {
     const own = await fixture([hookRow()]), result = await own.run(); cleanSummary(result)
     assert.equal(result.status, 'PASS'); assert.equal(result.cases[0].hook_controller.preflight, 'PASS')
@@ -463,7 +499,7 @@ try {
     assert.equal(result.cases[0].reason, 'HOOK_CONTROLLER_SOURCE_CHANGED'); assert.equal(result.cases[1].reason, 'EARLIER_EXECUTION_INCOMPLETE')
   })
   await check('only-compiled-hook-and-host-bindings-propagate-and-provider-env-is-scrubbed', async () => {
-    const keys = ['TEST_OWNED_SHOULD_NOT_PROPAGATE', 'NODE_OPTIONS', 'NODE_PATH', 'PGHOST', 'PGPASSWORD', 'PRIME_OWNER_HOOK_CONTROLLER', 'PRIME_OWNER_MEMORY_HOST_ROOT', 'PRIME_OWNER_MEMORY_SOURCE_PIN', 'OPENAI_API_KEY']
+    const keys = ['TEST_OWNED_SHOULD_NOT_PROPAGATE', 'NODE_OPTIONS', 'NODE_PATH', 'PGHOST', 'PGPASSWORD', 'PRIME_OWNER_HOOK_CONTROLLER', 'PRIME_OWNER_MEMORY_HOST_ROOT', 'PRIME_OWNER_MEMORY_SOURCE_PIN', 'PRIME_BRIDGE_WORKER_SOCKET_ROOT', 'OPENAI_API_KEY']
     const saved = keys.map(key => process.env[key])
     for (const key of keys) process.env[key] = 'synthetic-caller-credential'
     try {
@@ -474,6 +510,27 @@ try {
     } finally {
       keys.forEach((key, index) => {if (saved[index] === undefined) delete process.env[key]; else process.env[key] = saved[index]})
     }
+  })
+  await check('worker-socket-binding-is-one-reviewed-job-and-never-caller-environment', async () => {
+    const own = await fixture([], ({base}) => {
+      const path = join(base, 'engine/runner.mjs')
+      writeFileSync(path, readFileSync(path, 'utf8') + '\nexport {workerSocketBinding}\n', {mode: 0o600})
+    })
+    const {workerSocketBinding: binds} = await import(pathToFileURL(join(own.base, 'engine/runner.mjs')).href)
+    const selected = structuredClone(CASES.find(row => row.id === 'bridge-worker'))
+    assert.equal(binds(selected), true)
+    for (const change of [row => {row.id = 'other'}, row => {row.entry = 'checks/other.mjs'},
+      row => {row.expectedSha256 = '0'.repeat(64)}, row => {row.protocol = 'assert-script'},
+      row => {row.args = ['other']}, row => {row.nodeArgs = []},
+      row => {row.requiredTitles = ['other']}, row => {row.pins = []},
+      row => {row.pins[0].path = 'checks/other.mjs'}, row => {row.pins[0].sha256 = '0'.repeat(64)}]) {
+      const altered = structuredClone(selected); change(altered); assert.equal(binds(altered), false)
+    }
+    for (const row of CASES.filter(row => row.id !== selected.id)) assert.equal(binds(row), false)
+    const saved = process.env.PRIME_BRIDGE_WORKER_SOCKET_ROOT
+    process.env.PRIME_BRIDGE_WORKER_SOCKET_ROOT = 'synthetic-caller-override'
+    try {const probe = await fixture([row('envScrub')]), result = await probe.run(); cleanSummary(result); assert.equal(result.status, 'PASS')}
+    finally {if (saved === undefined) delete process.env.PRIME_BRIDGE_WORKER_SOCKET_ROOT; else process.env.PRIME_BRIDGE_WORKER_SOCKET_ROOT = saved}
   })
   await check('closed-protocol-schemas-and-reviewed-case-caps-refuse-before-spawn', async () => {
     const invalid = [tapRow('tap', {requiredTitles: []}), tapRow('tap', {requiredTitles: ['synthetic selected', 'synthetic selected']}),

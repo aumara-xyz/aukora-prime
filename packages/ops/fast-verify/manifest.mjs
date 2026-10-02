@@ -1558,7 +1558,7 @@ export const CASES = freeze([
     "id": "bridge-worker",
     "property": "Whole runtime-bridge source assertions: worker",
     "entry": "packages/runtime-bridge/test/worker.test.mjs",
-    "expectedSha256": "be1a9be11d0a06b535654e0b11d73fffae5a8af1194f249fafd89de1b09d57b1",
+    "expectedSha256": "5618b402ba9abdfbbc7389d512997f3d7efef5d13220994a3b5717dd66ec3289",
     "protocol": "tap",
     "timeoutMs": 120000,
     "nodeArgs": [
@@ -1573,7 +1573,12 @@ export const CASES = freeze([
     ],
     "externalSkips": [],
     "args": [],
-    "pins": []
+    "pins": [
+      {
+        "path": "packages/runtime-bridge/test/worker-fixture-paths.mjs",
+        "sha256": "1ae49843e6a11de817ba3100a2a152081332f6a2c07c67d81aa77d0d25a4b105"
+      }
+    ]
   },
   {
     "id": "execution-protocol",

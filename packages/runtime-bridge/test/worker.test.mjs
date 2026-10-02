@@ -2,7 +2,7 @@
 // Actual authority and memory child workers. Test-only SQLite factory; same UID.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync,realpathSync,mkdirSync,writeFileSync,rmSync,chmodSync,existsSync} from 'node:fs'
+import {mkdtempSync,realpathSync,writeFileSync,rmSync,chmodSync,existsSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {pathToFileURL,fileURLToPath} from 'node:url'
@@ -15,6 +15,7 @@ import {createUiAdapters} from '../src/ui-adapter.mjs'
 import {createIpcClient} from '../src/ipc.mjs'
 import {authorityFixture} from './authority-fixture.mjs'
 import {sha256} from '../../memory/src/codecs.mjs'
+import {createWorkerFixtureSockets,planWorkerFixtureSockets} from './worker-fixture-paths.mjs'
 const workerPath=fileURLToPath(new URL('../src/worker.mjs',import.meta.url))
 const fixturePath=fileURLToPath(new URL('./worker-fixture.mjs',import.meta.url))
 const sqlFixture=pathToFileURL(fileURLToPath(new URL('./sql-fixture.mjs',import.meta.url))).href
@@ -32,6 +33,17 @@ async function child(config) {
 }
 async function stop(processChild){if(!processChild||processChild.exitCode!==null)return;const closed=once(processChild,'exit');processChild.kill('SIGTERM');await closed}
 test('worker and synthetic client refuse readable secret-bearing config before importing it',async()=>{
+  // A gate's nested TMPDIR can itself exceed the IPC limit. The runner may
+  // explicitly supply its existing private evidence root for sockets only.
+  const longTemporaryRoot='/'+('a'.repeat(109))
+  assert.throws(()=>planWorkerFixtureSockets(longTemporaryRoot),/pathname budget exceeded/)
+  const boundary='/'+('a'.repeat(92)),plan=planWorkerFixtureSockets(boundary)
+  assert.equal(Buffer.byteLength(plan.authoritySocket),103)
+  assert.equal(Buffer.byteLength(plan.memorySocket),103)
+  assert.throws(()=>planWorkerFixtureSockets(boundary+'a'),/pathname budget exceeded/)
+  const evidence='/'+('a'.repeat(91)),shortPlan=planWorkerFixtureSockets(evidence)
+  assert.equal(Buffer.byteLength(shortPlan.authoritySocket),102)
+  assert.equal(Buffer.byteLength(shortPlan.memorySocket),102)
   const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-config-')),config=join(root,'readable.mjs'),marker=join(root,'imported')
   writeFileSync(config,`import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},'imported');throw new Error('CONFIG_MUST_NOT_BE_IMPORTED');\n`,{mode:0o600});chmodSync(config,0o644)
   try {
@@ -48,20 +60,23 @@ test('worker and synthetic client refuse readable secret-bearing config before i
   } finally {rmSync(root,{recursive:true,force:true})}
 })
 test('actual separate C/D worker processes preserve real passkey + locked observation + save/settle/cited restart; no PG or UID proof',async()=>{
-  const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-workers-'));mkdirSync(join(root,'c'),{mode:0o700});mkdirSync(join(root,'d'),{mode:0o700})
-  const fixture=authorityFixture({root,audience:'aukora-prime.memory',authorizeTask:()=>null,observeTarget:()=>null})
-  const at='2026-10-01T11:03:00Z',task={version:1,task_id:'synthetic-task',owner_id:fixture.identity.owner_id,agent_id:'synthetic-agent',conversation_id:'synthetic-conversation',status:'running',created_at:at,route_id:null,allowed_data_classes:['synthetic'],max_input_tokens:100,max_output_tokens:100,max_requests:5,task_spend_ceiling:{currency:'USD',amount:'0'}}
-  const registryEntries=[{task,provider_and_region:{provider:'local',region:'local'},audience:'aukora-prime.memory',policy_version:'synthetic-policy',data_scope:['synthetic']}]
-  const privateSecret=randomBytes(32).toString('hex'),publicSecret=randomBytes(32).toString('hex'),cSocket=join(root,'c','c.sock'),dSocket=join(root,'d','d.sock')
-  const cConfig=join(root,'c-config.mjs'),dConfig=join(root,'d-config.mjs')
-  const {authorizeTask,observeTarget,...authorityConfig}=fixture.config
-  writeFileSync(cConfig,'export default '+JSON.stringify({kind:'authority',ipc:{socketPath:cSocket,credentials:[{id:'memory',role:'memory_effect',secret:privateSecret}]},registryEntries,authorityConfig})+'\n',{mode:0o600})
-  const event=Buffer.from(JSON.stringify({type:'turn',text:'Synthetic owner likes banana.',seq:0,at})+'\n')
-  const host={privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(event)}}
-  const config={kind:'memory',ipc:{socketPath:dSocket,credentials:[{id:'app',role:'owner_control',secret:publicSecret}]},authorityChannel:{socketPath:cSocket,credential:{id:'memory',secret:privateSecret},limits:{maxRequestsPerConnection:1}},registryEntries,initializeSchema:true}
-  writeFileSync(dConfig,`import {FixturePool} from ${JSON.stringify(sqlFixture)};\nconst cfg=${JSON.stringify(config)};\nconst host=${JSON.stringify(host)};host.events=[Buffer.from(${JSON.stringify(event.toString('base64'))},'base64')];\ncfg.createPgPool=()=>new FixturePool(${JSON.stringify(join(root,'memory.sqlite'))});\ncfg.resolveHostContext=({session})=>session?{task_id:'synthetic-task',memory_host:host}:{login_owner_id:${JSON.stringify(fixture.identity.owner_id)}};\nexport default cfg;\n`,{mode:0o600})
-  let c,d,client
+  const temporaryRoot=realpathSync(tmpdir())
+  const sockets=createWorkerFixtureSockets({temporaryRoot,socketRoot:process.env.PRIME_BRIDGE_WORKER_SOCKET_ROOT})
+  let root,c,d,client
   try {
+    // Configs, synthetic keys and state retain their original case TMPDIR.
+    root=mkdtempSync(join(temporaryRoot,'prime-workers-'))
+    const fixture=authorityFixture({root,audience:'aukora-prime.memory',authorizeTask:()=>null,observeTarget:()=>null})
+    const at='2026-10-01T11:03:00Z',task={version:1,task_id:'synthetic-task',owner_id:fixture.identity.owner_id,agent_id:'synthetic-agent',conversation_id:'synthetic-conversation',status:'running',created_at:at,route_id:null,allowed_data_classes:['synthetic'],max_input_tokens:100,max_output_tokens:100,max_requests:5,task_spend_ceiling:{currency:'USD',amount:'0'}}
+    const registryEntries=[{task,provider_and_region:{provider:'local',region:'local'},audience:'aukora-prime.memory',policy_version:'synthetic-policy',data_scope:['synthetic']}]
+    const privateSecret=randomBytes(32).toString('hex'),publicSecret=randomBytes(32).toString('hex'),cSocket=sockets.authoritySocket,dSocket=sockets.memorySocket
+    const cConfig=join(root,'c-config.mjs'),dConfig=join(root,'d-config.mjs')
+    const {authorizeTask,observeTarget,...authorityConfig}=fixture.config
+    writeFileSync(cConfig,'export default '+JSON.stringify({kind:'authority',ipc:{socketPath:cSocket,credentials:[{id:'memory',role:'memory_effect',secret:privateSecret}]},registryEntries,authorityConfig})+'\n',{mode:0o600})
+    const event=Buffer.from(JSON.stringify({type:'turn',text:'Synthetic owner likes banana.',seq:0,at})+'\n')
+    const host={privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-session',seq:0,at,sha256:sha256(event)}}
+    const config={kind:'memory',ipc:{socketPath:dSocket,credentials:[{id:'app',role:'owner_control',secret:publicSecret}]},authorityChannel:{socketPath:cSocket,credential:{id:'memory',secret:privateSecret},limits:{maxRequestsPerConnection:1}},registryEntries,initializeSchema:true}
+    writeFileSync(dConfig,`import {FixturePool} from ${JSON.stringify(sqlFixture)};\nconst cfg=${JSON.stringify(config)};\nconst host=${JSON.stringify(host)};host.events=[Buffer.from(${JSON.stringify(event.toString('base64'))},'base64')];\ncfg.createPgPool=()=>new FixturePool(${JSON.stringify(join(root,'memory.sqlite'))});\ncfg.resolveHostContext=({session})=>session?{task_id:'synthetic-task',memory_host:host}:{login_owner_id:${JSON.stringify(fixture.identity.owner_id)}};\nexport default cfg;\n`,{mode:0o600})
     c=await child(cConfig);d=await child(dConfig);assert.notEqual(c.pid,d.pid);assert.notEqual(c.pid,process.pid)
     client=await createIpcClient({socketPath:dSocket,credential:{id:'app',secret:publicSecret}})
     const adapters=createUiAdapters({call:(method,input)=>client.request(method,input)})
@@ -100,5 +115,5 @@ test('actual separate C/D worker processes preserve real passkey + locked observ
     client=await createIpcClient({socketPath:dSocket,credential:{id:'app',secret:publicSecret}})
     const reopened=await adapters.memory.status(read);assert.equal(reopened.ok,true,JSON.stringify(reopened));assert.equal(reopened.record.canonical_bytes,record.canonical_bytes)
     const cold=await adapters.memory.cite({...read,retained_head:cited.citation.verified_head});assert.equal(cold.citation.verdict,'VERIFIED')
-  } finally {await client?.close();await stop(d);await stop(c);rmSync(root,{recursive:true,force:true})}
+  } finally {await client?.close();await stop(d);await stop(c);if(root)rmSync(root,{recursive:true,force:true});rmSync(sockets.root,{recursive:true,force:true})}
 })

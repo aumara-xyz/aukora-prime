@@ -15,6 +15,8 @@ git rev-parse HEAD
 
 Report the exit status, every configured PASS/FAIL and the explicit UNPERFORMED list. If execution is unavailable, say so and give a source-only review. Report missing prerequisites rather than treating an unavailable check as PASS.
 
+The corrected final 66-job profile awaits two complete runs at the same frozen revision; publication acceptance remains on hold. Final attribution must use the planned named review reference `prime-v1.2-research-review` and an external immutable receipt identifying the exact tested revision and both full results. Record the exact revision received, the reference and receipt digest, and both complete result records. Do not infer a final PASS from the reference name or from an earlier run. The failed [54c4a306 result](docs/evidence/source-profile-54c4a306.json) and [9c8f5c1 result](docs/evidence/source-profile-9c8f5c1.json), and the independent `b336753` 36 PASS / 1 FAIL environment-blocked observation, remain retained. Its `listen EPERM` denial must not be bypassed, silently skipped or converted to PASS.
+
 An older PASS or build receipt does not qualify the revision you received. The recorded eight-check source PASS does not close every P0 obligation. Historical PostgreSQL evidence, source fixtures, generated outputs, running bytes and actual owner approval are different evidence. Read the runner's [declared scope](packages/ops/fast-verify/README.md); do not turn its result into a claim that the live agent is contained.
 
 ## Primary review questions

@@ -64,6 +64,18 @@ const authorityCoreBudget = row => row.id === 'authority-core-only' && row.entry
   row.nodeArgs?.length === 1 && row.nodeArgs[0] === '--max-old-space-size=512' &&
   exactKeys(row.counter, ['key', 'value']) && row.counter.key === 'checks' && row.counter.value === 125
 
+// Test-only socket binding for one reviewed job; never inherited from callers.
+const workerSocketBinding = row => row.id === 'bridge-worker' &&
+  row.entry === 'packages/runtime-bridge/test/worker.test.mjs' &&
+  row.expectedSha256 === '5618b402ba9abdfbbc7389d512997f3d7efef5d13220994a3b5717dd66ec3289' &&
+  row.protocol === 'tap' && row.args?.length === 0 &&
+  JSON.stringify(row.nodeArgs) === JSON.stringify(['--max-old-space-size=512', '--test', '--test-isolation=none', '--test-reporter=tap']) &&
+  JSON.stringify(row.requiredTitles) === JSON.stringify([
+    'worker and synthetic client refuse readable secret-bearing config before importing it',
+    'actual separate C/D worker processes preserve real passkey + locked observation + save/settle/cited restart; no PG or UID proof']) &&
+  row.pins?.length === 1 && row.pins[0].path === 'packages/runtime-bridge/test/worker-fixture-paths.mjs' &&
+  row.pins[0].sha256 === '1ae49843e6a11de817ba3100a2a152081332f6a2c07c67d81aa77d0d25a4b105'
+
 function compiledCases(root) {
   if (!Array.isArray(CASES) || CASES.length < 1 || CASES.length > 66) reject('INVALID_COMPILED_MANIFEST')
   const ids = new Set()
@@ -147,7 +159,7 @@ function assertEvidence(binding) {
   } catch {reject('EVIDENCE_CHANGED')}
 }
 
-function runChild(command, args, {cwd, home, tmp, timeoutMs, signal, requiresPython, hookControllerPath, hostRoot, syntheticSourcePin}) {
+function runChild(command, args, {cwd, home, tmp, timeoutMs, signal, requiresPython, hookControllerPath, hostRoot, syntheticSourcePin, workerSocketRoot}) {
   return new Promise(resolve => {
     let child, done = false, reason, exit, total = 0, stdout = [], stderr = [], timer, escalation, drain
     const finish = completion => {
@@ -186,7 +198,8 @@ function runChild(command, args, {cwd, home, tmp, timeoutMs, signal, requiresPyt
           ...(requiresPython ? {PRIME_OPS_PYTHON: '/usr/bin/python3'} : {}),
           ...(hookControllerPath ? {PRIME_OWNER_HOOK_CONTROLLER: hookControllerPath} : {}),
           ...(hostRoot ? {PRIME_OWNER_MEMORY_HOST_ROOT: hostRoot} : {}),
-          ...(syntheticSourcePin ? {PRIME_OWNER_MEMORY_SOURCE_PIN: '0'.repeat(40)} : {})},
+          ...(syntheticSourcePin ? {PRIME_OWNER_MEMORY_SOURCE_PIN: '0'.repeat(40)} : {}),
+          ...(workerSocketRoot ? {PRIME_BRIDGE_WORKER_SOCKET_ROOT: workerSocketRoot} : {})},
         stdio: ['ignore', 'pipe', 'pipe']})
     } catch {reason = 'SPAWN_UNAVAILABLE'; finish('NOT_STARTED'); return}
     child.stdout.on('data', chunk => capture(stdout, chunk)); child.stderr.on('data', chunk => capture(stderr, chunk))
@@ -321,9 +334,14 @@ function jsonResult(text, row) {
   while (pending.length) {
     const item = pending.pop()
     if (++visited > 10_000) return {...report, reason: 'ASSERT_JSON_SUMMARY_UNBOUNDED'}
-    if (item === 'FAIL' || item === 'FAILED') return {...report, reason: 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE'}
+    if (['FAIL', 'FAILED', 'SKIP', 'SKIPPED', 'TODO', 'CANCELLED', 'CANCELED', 'UNPERFORMED'].includes(item)) return {...report, reason: 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE'}
     if (!item || typeof item !== 'object') continue
+    // Nested helper group names are annotations; the selected summary counter stays numeric.
+    const ancillaryGroups = !values.includes(item) && Array.isArray(item.groups) &&
+      item.groups.length > 0 && item.groups.length <= 1000 && item.groups.every(label => literal(label) &&
+        !/^(?:#\s*)?(?:FAIL(?:ED)?|SKIP(?:PED)?|TODO|CANCEL(?:L)?ED|UNPERFORMED)(?:$|[\s:])/i.test(label))
     if (!Array.isArray(item) && (counters.some(key => Object.hasOwn(item, key) &&
+        !(key === 'groups' && ancillaryGroups) &&
         (!Number.isSafeInteger(item[key]) || item[key] < 0 || item[key] > 10_000)) ||
         negativeCounts.some(key => Object.hasOwn(item, key) && item[key] !== 0) ||
         (Object.hasOwn(item, 'failures') && (!Array.isArray(item.failures) || item.failures.length)))) return {...report, reason: 'ASSERT_JSON_REQUIRED_TESTS_INCOMPLETE'}
@@ -484,7 +502,8 @@ export async function runFastVerify(options) {
         const execution = await runChild(process.execPath, [...(row.nodeArgs ?? []), row.absoluteEntry, ...row.args], {cwd: root, home, tmp,
           timeoutMs: Math.max(1, remaining()), signal: options.signal, requiresPython: row.requiresPython,
           hookControllerPath: row.hookController?.absolutePath, hostRoot: row.hostRoot ? root : undefined,
-          syntheticSourcePin: row.syntheticSourcePin === true})
+          syntheticSourcePin: row.syntheticSourcePin === true,
+          workerSocketRoot: workerSocketBinding(row) ? evidenceBinding.path : undefined})
         assertEvidence(evidenceBinding)
         record.completion = execution.completion
         record.child_exit_code = execution.code
