@@ -1,1 +1,1 @@
-{"version":3,"file":"MemoryCaptureHints.d.ts","sourceRoot":"","sources":["../../../src/client/MemoryCaptureHints.tsx"],"names":[],"mappings":"AAqBA,wBAAgB,kBAAkB,CAAC,EAAC,SAAS,EAAC,EAAC;IAAC,SAAS,EAAC,MAAM,CAAA;CAAC,+BAiBhE"}
+{"version":3,"file":"MemoryCaptureHints.d.ts","sourceRoot":"","sources":["../../../src/client/MemoryCaptureHints.tsx"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAC,eAAe,EAAC,MAAM,wCAAwC,CAAA;AAmB3E,wBAAgB,kBAAkB,CAAC,EAAC,SAAS,EAAC,aAAa,EAAC,QAAQ,EAAC,EAAC;IAAC,SAAS,EAAC,MAAM,CAAC;IAAA,aAAa,EAAC,MAAM,CAAC;IAAA,QAAQ,EAAC,eAAe,GAAC,IAAI,CAAA;CAAC,+BAyB1I"}

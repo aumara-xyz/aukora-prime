@@ -75,15 +75,15 @@
       "face": "prime-authority",
       "id": "@aukora/prime-authority-ui",
       "path": "prime-authority/client.js",
-      "bytes": 165508,
-      "sha256": "433cd767e66ae85435b1c9a1d2f9cbfa1294e1d57c4e462e74c3ca859b333213"
+      "bytes": 175760,
+      "sha256": "6b4e97b1f60e80d782fcd9704acf57db678aa5c21ab6866f72a8936553c32e8a"
     },
     {
       "face": "prime-authority",
       "id": "@aukora/prime-authority-ui",
       "path": "prime-authority/client.js.map",
-      "bytes": 217637,
-      "sha256": "b3761d04eb43888ddc4ba5ec2a0ab0a02c09c19042247512b2a457a57a8101bc"
+      "bytes": 231940,
+      "sha256": "82875363884b8d596230ef3b2c5a889fee1deb1d96473b78816c24e138ee5abb"
     }
   ],
   "owner_build": {
@@ -92,13 +92,13 @@
     "source_inputs": [
       {
         "path": "adapters/capture-metadata.d.mts",
-        "bytes": 294,
-        "sha256": "eb8e1438cab0cf1eb6af0406f7525d5cffc64f789c70c60f75440cbca1624d10"
+        "bytes": 123,
+        "sha256": "bc846a3fe29373d31f99d1600df217110ac664c51e08596be5d9c212ec7c606f"
       },
       {
         "path": "adapters/capture-metadata.mjs",
-        "bytes": 1411,
-        "sha256": "77b691abf599f91b250c653077b36075cedac2929896bf0248549319d8525ef9"
+        "bytes": 187,
+        "sha256": "819b14e2062d58fd0b341cacd3e1462a51250ee2af16556b66a5f685b92fa365"
       },
       {
         "path": "adapters/capture-presentation.d.mts",
@@ -112,13 +112,13 @@
       },
       {
         "path": "adapters/capture-review.d.mts",
-        "bytes": 415,
-        "sha256": "213b8153205a44ab3cd340750d29819c49346beb3bccf960c0b9726f771ce1de"
+        "bytes": 1385,
+        "sha256": "3c5843fcbdb4f179548e7393e96dcdc47984d142424766fc1bc6221146db204f"
       },
       {
         "path": "adapters/capture-review.mjs",
-        "bytes": 2635,
-        "sha256": "89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96c0"
+        "bytes": 5195,
+        "sha256": "d82eda5f8ae0fefa02f182fac80480d82a7c88fd6148beadabde5cd8480472d7"
       },
       {
         "path": "adapters/forget-result.d.mts",
@@ -156,9 +156,14 @@
         "sha256": "88f1b4030ae2886a6449b7484ba9ba7dc4fc6a13c90c4532a899209edbba8c92"
       },
       {
+        "path": "adapters/save-recovery.d.mts",
+        "bytes": 369,
+        "sha256": "6b76ed13e9bd56a32ecc908d3e4dc7e3389bff553227e0999f5e82e9c498a0fc"
+      },
+      {
         "path": "adapters/save-recovery.mjs",
-        "bytes": 6793,
-        "sha256": "ff8d9e86a8ef3e262d7f91c2d7e5fb200ad538d0df934efb1986ed306e7b850f"
+        "bytes": 9289,
+        "sha256": "cdd5ad90f6274365a431e2423ecde60c9faea560987dcd666da460c304fee0e9"
       },
       {
         "path": "adapters/static-assets.mjs",
@@ -167,8 +172,8 @@
       },
       {
         "path": "adapters/transport.mjs",
-        "bytes": 19341,
-        "sha256": "fb3e36a82639bc4b42b10a5395860fa06277550387bb80c24292d90d86f2a925"
+        "bytes": 20110,
+        "sha256": "9b28b62d2f7d8ec29823096e0d904ca9f3161d52238794a30cbb723c2f81215c"
       },
       {
         "path": "baseline-manifest.json",
@@ -182,8 +187,8 @@
       },
       {
         "path": "docs/capture-review-provenance.json",
-        "bytes": 490,
-        "sha256": "c3c6917db14cfa200c063964406e853596ad29833e0fb9de2652017ca354a9c2"
+        "bytes": 893,
+        "sha256": "c6d8ef66573f1c7a927b91339231960294f4a6f576cb3302592e4c117a558412"
       },
       {
         "path": "faces/layout/lib/client.js",
@@ -437,13 +442,13 @@
       },
       {
         "path": "prime-authority/src/client/controller.d.mts",
-        "bytes": 5164,
-        "sha256": "6bc454d97aa2b02820bdcde83c615f014f1bc22f24c0c25bdd4b25fbe2d764f8"
+        "bytes": 5251,
+        "sha256": "a796c8eb71a0d4d5d13416c99e35f800e8a5d3406b22a5ad0214535b4516d1a9"
       },
       {
         "path": "prime-authority/src/client/controller.mjs",
-        "bytes": 35458,
-        "sha256": "17752be37b95c5987b6921f8a05af08709331d57644f0866f3d3fd1bd3eabbff"
+        "bytes": 36994,
+        "sha256": "b0204bc9068c90bc94dc53dc9d75560c2c7ad52547ccd8ccbd64ea1f27668733"
       },
       {
         "path": "prime-authority/src/client/index.ts",
@@ -452,8 +457,8 @@
       },
       {
         "path": "prime-authority/src/client/MemoryCaptureHints.tsx",
-        "bytes": 2353,
-        "sha256": "41d323abe5c256aeeb5ad8da02697821d14a4823a291a54f65a38539c4f7429f"
+        "bytes": 3835,
+        "sha256": "a9d03a0ff1fc8ea5533c2ff8883cff1660b3ea5fc76ce257a45b40469e9c4ba9"
       },
       {
         "path": "prime-authority/src/client/OwnerSurface.module.css",
@@ -462,8 +467,8 @@
       },
       {
         "path": "prime-authority/src/client/OwnerSurface.tsx",
-        "bytes": 13284,
-        "sha256": "01531918fcf48c5f072c40e695eea580a83bea4f3f51c76f2e6def0c7061427c"
+        "bytes": 15145,
+        "sha256": "b76f0635092590163e38abefdae099511d0002103b145929018216f2470d6f0e"
       },
       {
         "path": "prime-authority/src/client/PrimeProviderEditor.module.css",
@@ -511,8 +516,8 @@
         "sha256": "a0d7d2157870deb95a25ecd63ffa4a4aa2e1ff2539954ee168af4e382ef1fde1"
       }
     ],
-    "source_inputs_before_sha256": "ee530263e36bb0bbf114915a11483b85bfa08c5c61f04568fa6526547a0ef378",
-    "source_inputs_after_sha256": "ee530263e36bb0bbf114915a11483b85bfa08c5c61f04568fa6526547a0ef378",
+    "source_inputs_before_sha256": "c108c49e0fcdad88b7383db1ee4dbeb758fac5d96cc69dae38be06a18c79b08f",
+    "source_inputs_after_sha256": "c108c49e0fcdad88b7383db1ee4dbeb758fac5d96cc69dae38be06a18c79b08f",
     "build_inputs": {
       "harness_identity": {
         "path": ".dsh-build/pinned-harness-identity.json",
@@ -667,14 +672,14 @@
       {
         "path": "prime-authority/lib/client.js",
         "output_path": "prime-authority/client.js",
-        "bytes": 165508,
-        "sha256": "433cd767e66ae85435b1c9a1d2f9cbfa1294e1d57c4e462e74c3ca859b333213"
+        "bytes": 175760,
+        "sha256": "6b4e97b1f60e80d782fcd9704acf57db678aa5c21ab6866f72a8936553c32e8a"
       },
       {
         "path": "prime-authority/lib/client.js.map",
         "output_path": "prime-authority/client.js.map",
-        "bytes": 217637,
-        "sha256": "b3761d04eb43888ddc4ba5ec2a0ab0a02c09c19042247512b2a457a57a8101bc"
+        "bytes": 231940,
+        "sha256": "82875363884b8d596230ef3b2c5a889fee1deb1d96473b78816c24e138ee5abb"
       },
       {
         "path": "prime-authority/lib/index.js",
@@ -685,14 +690,14 @@
       {
         "path": "prime-authority/lib/types/adapters/capture-metadata.d.mts",
         "output_path": "prime-authority/types/adapters/capture-metadata.d.mts",
-        "bytes": 294,
-        "sha256": "eb8e1438cab0cf1eb6af0406f7525d5cffc64f789c70c60f75440cbca1624d10"
+        "bytes": 123,
+        "sha256": "bc846a3fe29373d31f99d1600df217110ac664c51e08596be5d9c212ec7c606f"
       },
       {
         "path": "prime-authority/lib/types/adapters/capture-metadata.mjs",
         "output_path": "prime-authority/types/adapters/capture-metadata.mjs",
-        "bytes": 1411,
-        "sha256": "77b691abf599f91b250c653077b36075cedac2929896bf0248549319d8525ef9"
+        "bytes": 187,
+        "sha256": "819b14e2062d58fd0b341cacd3e1462a51250ee2af16556b66a5f685b92fa365"
       },
       {
         "path": "prime-authority/lib/types/adapters/capture-presentation.d.mts",
@@ -709,14 +714,14 @@
       {
         "path": "prime-authority/lib/types/adapters/capture-review.d.mts",
         "output_path": "prime-authority/types/adapters/capture-review.d.mts",
-        "bytes": 415,
-        "sha256": "213b8153205a44ab3cd340750d29819c49346beb3bccf960c0b9726f771ce1de"
+        "bytes": 1385,
+        "sha256": "3c5843fcbdb4f179548e7393e96dcdc47984d142424766fc1bc6221146db204f"
       },
       {
         "path": "prime-authority/lib/types/adapters/capture-review.mjs",
         "output_path": "prime-authority/types/adapters/capture-review.mjs",
-        "bytes": 2635,
-        "sha256": "89cf53048efa6d12baff858f388b078ea64917ffb874d62d75f26d64648a96c0"
+        "bytes": 5195,
+        "sha256": "d82eda5f8ae0fefa02f182fac80480d82a7c88fd6148beadabde5cd8480472d7"
       },
       {
         "path": "prime-authority/lib/types/adapters/forget-result.d.mts",
@@ -755,28 +760,34 @@
         "sha256": "88f1b4030ae2886a6449b7484ba9ba7dc4fc6a13c90c4532a899209edbba8c92"
       },
       {
+        "path": "prime-authority/lib/types/adapters/save-recovery.d.mts",
+        "output_path": "prime-authority/types/adapters/save-recovery.d.mts",
+        "bytes": 369,
+        "sha256": "6b76ed13e9bd56a32ecc908d3e4dc7e3389bff553227e0999f5e82e9c498a0fc"
+      },
+      {
         "path": "prime-authority/lib/types/adapters/save-recovery.mjs",
         "output_path": "prime-authority/types/adapters/save-recovery.mjs",
-        "bytes": 6793,
-        "sha256": "ff8d9e86a8ef3e262d7f91c2d7e5fb200ad538d0df934efb1986ed306e7b850f"
+        "bytes": 9289,
+        "sha256": "cdd5ad90f6274365a431e2423ecde60c9faea560987dcd666da460c304fee0e9"
       },
       {
         "path": "prime-authority/lib/types/adapters/transport.mjs",
         "output_path": "prime-authority/types/adapters/transport.mjs",
-        "bytes": 19341,
-        "sha256": "fb3e36a82639bc4b42b10a5395860fa06277550387bb80c24292d90d86f2a925"
+        "bytes": 20110,
+        "sha256": "9b28b62d2f7d8ec29823096e0d904ca9f3161d52238794a30cbb723c2f81215c"
       },
       {
         "path": "prime-authority/lib/types/client/controller.d.mts",
         "output_path": "prime-authority/types/client/controller.d.mts",
-        "bytes": 5146,
-        "sha256": "3accdbef3f3d489f54a4d3cea2ccf5596de51956ea890926574614cfc5a1e5e8"
+        "bytes": 5233,
+        "sha256": "932fb0e315956d2048af284f9ee88059bb556a6c48ec88b5de37c00e4ebe06f8"
       },
       {
         "path": "prime-authority/lib/types/client/controller.mjs",
         "output_path": "prime-authority/types/client/controller.mjs",
-        "bytes": 35416,
-        "sha256": "f55b2b199d27ee0c60bf0d169127499e0299e93ef8b7f9aedf75fc51f56c1a91"
+        "bytes": 36952,
+        "sha256": "de7e1e9956e23b9902739d012c608b4327286c6330b923d29694e22d85fef42e"
       },
       {
         "path": "prime-authority/lib/types/client/index.d.ts",
@@ -805,26 +816,26 @@
       {
         "path": "prime-authority/lib/types/client/MemoryCaptureHints.d.ts",
         "output_path": "prime-authority/types/client/MemoryCaptureHints.d.ts",
-        "bytes": 164,
-        "sha256": "44339b4e3442b88ae65b8f49c4f7329159820a5be2c9d82215814bd91b026fa6"
+        "bytes": 327,
+        "sha256": "5b499d378c2ab6552bf81c9d76db96d6a5532a1ea566a32c12c41c37111349b7"
       },
       {
         "path": "prime-authority/lib/types/client/MemoryCaptureHints.d.ts.map",
         "output_path": "prime-authority/types/client/MemoryCaptureHints.d.ts.map",
-        "bytes": 226,
-        "sha256": "f4591bf6ad9926b8ddc321b38c8bc5150e3e5b389c5cdd316039a0872cb48839"
+        "bytes": 354,
+        "sha256": "24cb1a6ac8ca3b29ccda26f2306f08aac7321be5b3102d93617b00ea5625c923"
       },
       {
         "path": "prime-authority/lib/types/client/MemoryCaptureHints.js",
         "output_path": "prime-authority/types/client/MemoryCaptureHints.js",
-        "bytes": 2573,
-        "sha256": "cf24227d2e3d470c5887b3dfb45176330ff991c50bbec9d1875af72bf2cdbe89"
+        "bytes": 4189,
+        "sha256": "ec947ba8297a01893f0f0a2f278437a740fd59a5427dbcea985ea6af68585d11"
       },
       {
         "path": "prime-authority/lib/types/client/MemoryCaptureHints.js.map",
         "output_path": "prime-authority/types/client/MemoryCaptureHints.js.map",
-        "bytes": 1742,
-        "sha256": "44965f32adaba533961014aaa1462fb7ef3d5f052e77ddac7ddaee345818cfa2"
+        "bytes": 2492,
+        "sha256": "3d97affc4b7a62fefcbdb542a3468753c49f585cba8aeeb918b77268cdae9a42"
       },
       {
         "path": "prime-authority/lib/types/client/OwnerSurface.d.ts",
@@ -836,19 +847,19 @@
         "path": "prime-authority/lib/types/client/OwnerSurface.d.ts.map",
         "output_path": "prime-authority/types/client/OwnerSurface.d.ts.map",
         "bytes": 503,
-        "sha256": "3420e703a3a1cc8915323b087afce382883a55610a0aa38a9ae9468d05f46706"
+        "sha256": "01b20dc699180a8079206143ac9f75b4d58172a6f5691abe9f795dc3d11a7636"
       },
       {
         "path": "prime-authority/lib/types/client/OwnerSurface.js",
         "output_path": "prime-authority/types/client/OwnerSurface.js",
-        "bytes": 15741,
-        "sha256": "de352c35ebb63b72eb16c6151580be15ff55e77fddc585a84792119f5ccf5ea0"
+        "bytes": 17757,
+        "sha256": "c0e3ab3946f90687f1cc48ef437cfd00c1475e17559790d51ba30b234602e7c8"
       },
       {
         "path": "prime-authority/lib/types/client/OwnerSurface.js.map",
         "output_path": "prime-authority/types/client/OwnerSurface.js.map",
-        "bytes": 9348,
-        "sha256": "11f5d3308bbe97bb007eea61b616ecff62314494ea0ad61a1272714bac7fa5e5"
+        "bytes": 10547,
+        "sha256": "58e11cd4d5f52237235146089e11c7ca4e124ca9a168cdb764cbb19a6991ad12"
       },
       {
         "path": "prime-authority/lib/types/client/PrimeProviderEditor.d.ts",

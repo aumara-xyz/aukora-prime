@@ -7,6 +7,9 @@ window.__ModuleLoader__.load({
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let react = require("react");
 		let _aukora_face_layout_client = require("@aukora/face-layout/client");
+		//#region lib/types/adapters/capture-review.mjs
+		const CAPTURE_STATEMENT_MAX = 4096;
+		const CAPTURE_EVIDENCE_QUOTE_MAX = 4096;
 		const CAPTURE_ATTRIBUTIONS = Object.freeze([
 			"owner",
 			"owner-voice",
@@ -16,13 +19,43 @@ window.__ModuleLoader__.load({
 			"dream",
 			"agent"
 		]);
+		const CAPTURE_METADATA_FIELDS = Object.freeze([
+			"profile",
+			"category",
+			"valid_from",
+			"observed_at",
+			"confidence_percent",
+			"sensitivity"
+		]);
+		const CAPTURE_DRAFT_FIELDS = Object.freeze([
+			"statement",
+			"attributed_to",
+			"capture_metadata",
+			"evidence_quote"
+		]);
 		const CAPTURE_PARAMETER_FIELDS = Object.freeze([
 			"capture_sha256",
 			"idempotency_key_sha256",
 			"heads",
-			"statement",
-			"attributed_to"
+			...CAPTURE_DRAFT_FIELDS
 		]);
+		const CAPTURE_TEXT_POLICY = Object.freeze({
+			scope: "new-capture-only",
+			normal_form: "NFC-required-never-normalized",
+			allowed_controls: Object.freeze(["U+0009", "U+000A"]),
+			allowed_format_controls: Object.freeze(["U+200C", "U+200D"]),
+			refused_fillers: Object.freeze([
+				"U+034F",
+				"U+115F",
+				"U+1160",
+				"U+17B4",
+				"U+17B5",
+				"U+2800",
+				"U+3164",
+				"U+FFA0"
+			]),
+			refused_line_separators: Object.freeze(["U+2028", "U+2029"])
+		});
 		const fail$2 = () => {
 			throw new TypeError("memory:capture-review-invalid");
 		};
@@ -35,8 +68,11 @@ window.__ModuleLoader__.load({
 				if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) fail$2();
 			}
 		};
-		function statement(value) {
-			if (typeof value !== "string" || value.length === 0 || value.length > 4096 || !value.trim() || /[\u0000-\u0008\u000b-\u001f\u007f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value)) fail$2();
+		const FORMAT_CONTROL$1 = /\p{Cf}/u;
+		const UNSAFE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u034f\u115f\u1160\u17b4\u17b5\u2028\u2029\u2800\u3164\uffa0]/u;
+		const BLANKISH = /^[\s\p{Cf}\p{Mn}\p{Me}\u115f\u1160\u2800\u3164\uffa0]*$/u;
+		function text$2(value, maximum) {
+			if (typeof value !== "string" || value.length === 0 || value.length > maximum || !value.trim() || UNSAFE.test(value) || BLANKISH.test(value)) fail$2();
 			for (let i = 0; i < value.length; i++) {
 				const unit = value.charCodeAt(i);
 				if (unit >= 55296 && unit <= 56319) {
@@ -44,14 +80,35 @@ window.__ModuleLoader__.load({
 					if (!(next >= 56320 && next <= 57343)) fail$2();
 				} else if (unit >= 56320 && unit <= 57343) fail$2();
 			}
+			if (value.normalize("NFC") !== value) fail$2();
+			for (const character of value) if (FORMAT_CONTROL$1.test(character) && character !== "‌" && character !== "‍") fail$2();
 		}
-		function validateCaptureDraft(draft) {
+		function validateCaptureLiterals(draft) {
 			object(draft, ["statement", "attributed_to"]);
-			statement(draft.statement);
+			text$2(draft.statement, CAPTURE_STATEMENT_MAX);
 			if (!CAPTURE_ATTRIBUTIONS.includes(draft.attributed_to)) fail$2();
 			return Object.freeze({
 				statement: draft.statement,
 				attributed_to: draft.attributed_to
+			});
+		}
+		function validateCaptureMetadata(metadata) {
+			object(metadata, CAPTURE_METADATA_FIELDS);
+			if (metadata.profile !== "prime-pilot-memory-capture/v1" || metadata.category !== "fact" || metadata.confidence_percent !== 70 || metadata.sensitivity !== "none" || typeof metadata.valid_from !== "string" || typeof metadata.observed_at !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(metadata.valid_from) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(metadata.observed_at) || !Number.isFinite(Date.parse(metadata.observed_at)) || new Date(metadata.observed_at).toISOString().replace(".000Z", "Z") !== metadata.observed_at || metadata.valid_from !== metadata.observed_at.slice(0, 10)) fail$2();
+			return Object.freeze(Object.fromEntries(CAPTURE_METADATA_FIELDS.map((key) => [key, metadata[key]])));
+		}
+		function validateCaptureDraft(draft) {
+			object(draft, CAPTURE_DRAFT_FIELDS);
+			const literals = validateCaptureLiterals({
+				statement: draft.statement,
+				attributed_to: draft.attributed_to
+			});
+			const capture_metadata = validateCaptureMetadata(draft.capture_metadata);
+			text$2(draft.evidence_quote, CAPTURE_EVIDENCE_QUOTE_MAX);
+			return Object.freeze({
+				...literals,
+				capture_metadata,
+				evidence_quote: draft.evidence_quote
 			});
 		}
 		function validateCaptureReview(parameters, immutableDraft) {
@@ -65,27 +122,9 @@ window.__ModuleLoader__.load({
 				"approved",
 				"legacy-presplit"
 			].includes(domain) || typeof head !== "string" || !(head === "aukora:aura-record:v1" || /^[0-9a-f]{64}$/.test(head))) fail$2();
-			if (parameters.statement !== draft.statement || parameters.attributed_to !== draft.attributed_to) fail$2();
+			const metadata = validateCaptureMetadata(parameters.capture_metadata);
+			if (parameters.statement !== draft.statement || parameters.attributed_to !== draft.attributed_to || parameters.evidence_quote !== draft.evidence_quote || CAPTURE_METADATA_FIELDS.some((key) => metadata[key] !== draft.capture_metadata[key])) fail$2();
 			return draft;
-		}
-		//#endregion
-		//#region lib/types/adapters/capture-metadata.mjs
-		function validateCaptureMetadata(value) {
-			const fields = [
-				"profile",
-				"category",
-				"valid_from",
-				"observed_at",
-				"confidence_percent",
-				"sensitivity"
-			];
-			if (!value || ![Object.prototype, null].includes(Object.getPrototypeOf(value)) || Reflect.ownKeys(value).length !== fields.length || Reflect.ownKeys(value).some((key) => !fields.includes(key))) throw new TypeError("ui:fixed-capture-metadata-required");
-			for (const key of fields) {
-				const descriptor = Object.getOwnPropertyDescriptor(value, key);
-				if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) throw new TypeError("ui:fixed-capture-metadata-required");
-			}
-			if (value.profile !== "prime-pilot-memory-capture/v1" || value.category !== "fact" || value.confidence_percent !== 70 || value.sensitivity !== "none" || typeof value.observed_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value.observed_at) || !Number.isFinite(Date.parse(value.observed_at)) || new Date(value.observed_at).toISOString().replace(".000Z", "Z") !== value.observed_at || value.valid_from !== value.observed_at.slice(0, 10)) throw new TypeError("ui:fixed-capture-metadata-required");
-			return Object.freeze({ ...value });
 		}
 		const FORGET_STATEMENT_MAX_BYTES = 16384;
 		const FORGET_REFERENCE_MAX_BYTES = 1024;
@@ -484,16 +523,16 @@ window.__ModuleLoader__.load({
 				let metadata = null;
 				if (operation.action_type === "memory.save") {
 					try {
-						validateCaptureReview(operation.canonical_parameters, memoryCapture);
+						memoryDraft = copy(validateCaptureReview(operation.canonical_parameters, memoryCapture), "memory-capture-draft");
 					} catch {
 						fail("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
 					}
-					memoryDraft = copy(memoryCapture, "memory-capture-draft");
 					if (captureMetadata !== void 0) try {
-						metadata = validateCaptureMetadata(captureMetadata);
+						if (exact(validateCaptureMetadata(captureMetadata)) !== exact(memoryDraft.capture_metadata)) throw new TypeError("metadata-mismatch");
 					} catch {
-						fail("TARGET_MISMATCH", "ui:fixed-capture-metadata-required");
+						fail("TARGET_MISMATCH", "ui:fixed-capture-metadata-required-or-mismatched");
 					}
+					metadata = memoryDraft.capture_metadata;
 				} else if (operation.action_type === "memory.forget") try {
 					forgetDraft = validateForgetReview(operation, recordSummary);
 				} catch {
@@ -507,6 +546,11 @@ window.__ModuleLoader__.load({
 					operation
 				}, signal);
 				sameSession(current);
+				if (memoryDraft) try {
+					validateCaptureReview(operation.canonical_parameters, memoryDraft);
+				} catch {
+					fail("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
+				}
 				validateContract("OperationProposal", answer.operation);
 				if (canonicalJson(answer.operation) !== canonicalJson(operation) || answer.operation_digest !== digest) fail("TARGET_MISMATCH", "ui:approval-operation-changed");
 				const proofTemplate = copy(object(answer.proof_template, "approval-template"), "approval-template");
@@ -533,8 +577,7 @@ window.__ModuleLoader__.load({
 						exact: canonicalJson(operation[key])
 					})),
 					memory_review: memoryDraft ? {
-						statement: memoryDraft.statement,
-						attributed_to: memoryDraft.attributed_to,
+						...memoryDraft,
 						capture_sha256: operation.canonical_parameters.capture_sha256
 					} : null,
 					capture_metadata: metadata,
@@ -584,6 +627,11 @@ window.__ModuleLoader__.load({
 				const pending = (async () => {
 					const material = await sign(kind, "approval", record.request, signal, record.public_key);
 					sameSession(current);
+					if (record.memoryDraft) try {
+						validateCaptureReview(record.operation.canonical_parameters, record.memoryDraft);
+					} catch {
+						fail("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
+					}
 					checkExpiry(record.operation.expiry);
 					checkSignal(signal);
 					const proof = copy({
@@ -611,6 +659,7 @@ window.__ModuleLoader__.load({
 					}
 					if (answer.status !== "APPROVED") fail("OUTCOME_UNKNOWN", "ui:approval-result-unknown");
 					try {
+						if (record.memoryDraft) validateCaptureReview(record.operation.canonical_parameters, record.memoryDraft);
 						validateContract("ApprovalProof", answer.approval_proof);
 						proofMatches(answer.approval_proof, record.operation, record.digest, record.request);
 						if (exact(answer.approval_proof) !== exact(proof)) fail("TARGET_MISMATCH", "ui:approval-proof-changed");
@@ -1077,6 +1126,33 @@ window.__ModuleLoader__.load({
 		const requireValue = (condition, reason) => {
 			if (!condition) throw new PrimeTransportError("TARGET_MISMATCH", reason);
 		};
+		const EVIDENCE = [
+			"log",
+			"turn",
+			"turnDigest",
+			"quote"
+		];
+		const evidenceEntry = (value) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === [...EVIDENCE].sort().join(",") && typeof value.log === "string" && value.log.length > 0 && Number.isSafeInteger(value.turn) && value.turn >= 0 && typeof value.turnDigest === "string" && /^[a-f0-9]{64}$/.test(value.turnDigest) && typeof value.quote === "string";
+		/**
+		* Compare a retained NEW-capture review with the exact saved donor content.
+		* The legacy original byte string is only read for equality; its text is never
+		* admitted as a new capture, normalized, trimmed, or reserialized here.
+		* The caller validates the frozen outer MemoryRecord before calling this helper.
+		*/
+		function validateSavedCaptureContent(record, memoryDraft) {
+			let draft, original;
+			try {
+				draft = validateCaptureDraft(memoryDraft);
+				original = JSON.parse(record.canonical_bytes);
+			} catch {
+				requireValue(false, "ui:save-recovery-record-mismatch");
+			}
+			const metadata = draft.capture_metadata;
+			requireValue(original && typeof original === "object" && !Array.isArray(original) && original.statement === draft.statement && original.attributedTo === draft.attributed_to && original.category === metadata.category && original.validFrom === metadata.valid_from && original.observedAt === metadata.observed_at && original.confidence === metadata.confidence_percent / 100 && original.sensitivity === metadata.sensitivity, "ui:save-recovery-record-mismatch");
+			const source = original.source;
+			requireValue(Array.isArray(original.evidence) && original.evidence.length === 1 && Array.isArray(record.evidence) && record.evidence.length === 1 && evidenceEntry(original.evidence[0]) && evidenceEntry(record.evidence[0]) && source && typeof source === "object" && !Array.isArray(source) && original.evidence[0].log === source.sessionId && original.evidence[0].turn === source.seq && original.evidence[0].turnDigest === source.sha256 && record.source_event_digest === "sha256:" + source.sha256 && original.evidence[0].quote === draft.evidence_quote && EVIDENCE.every((key) => record.evidence[0][key] === original.evidence[0][key]), "ui:save-recovery-evidence-mismatch");
+			return record;
+		}
 		async function digest(domain, value, contracts) {
 			if (typeof globalThis.crypto?.subtle?.digest !== "function") throw new PrimeTransportError("UNAVAILABLE", "ui:save-recovery-digest-unavailable");
 			const bytes = new TextEncoder().encode(domain + String.fromCharCode(0) + contracts.canonicalJson(value));
@@ -1088,18 +1164,18 @@ window.__ModuleLoader__.load({
 			const operation = view.operation, receipt = result.receipt;
 			requireValue(approved === true && typeof proofNonce === "string" && /^[a-f0-9]{64}$/.test(proofNonce) && operation.action_type === "memory.save" && view.memory_review !== null && result.phase === "saved" && result.approval === "approved" && result.save === "saved" && result.saved === true && result.authority_settlement === "completed" && result.reconciliation_required === false && result.error_code === null && result.operation_digest === view.operation_digest, "ui:save-recovery-not-completed-or-bound");
 			contracts.validateContract("OperationProposal", operation);
-			validateCaptureReview(operation.canonical_parameters, view.memory_review && {
+			const memoryDraft = validateCaptureReview(operation.canonical_parameters, view.memory_review && {
 				statement: view.memory_review.statement,
-				attributed_to: view.memory_review.attributed_to
+				attributed_to: view.memory_review.attributed_to,
+				capture_metadata: view.memory_review.capture_metadata,
+				evidence_quote: view.memory_review.evidence_quote
 			});
+			requireValue(view.memory_review.capture_sha256 === operation.canonical_parameters.capture_sha256 && contracts.canonicalJson(view.capture_metadata) === contracts.canonicalJson(memoryDraft.capture_metadata), "ui:save-recovery-review-mismatch");
 			requireValue(view.canonical_operation === contracts.canonicalJson(operation) && view.operation_digest === await contracts.operationDigest(operation), "ui:save-recovery-review-mismatch");
-			requireValue(result.operation === null && result.memory_capture === null || contracts.canonicalJson(result.operation) === view.canonical_operation && contracts.canonicalJson(result.memory_capture) === contracts.canonicalJson({
-				statement: view.memory_review.statement,
-				attributed_to: view.memory_review.attributed_to
-			}), "ui:save-recovery-operation-changed");
+			requireValue(result.operation === null && result.memory_capture === null || contracts.canonicalJson(result.operation) === view.canonical_operation && contracts.canonicalJson(result.memory_capture) === contracts.canonicalJson(memoryDraft), "ui:save-recovery-operation-changed");
 			contracts.validateContract("MemoryRecord", result.record);
-			const original = JSON.parse(result.record.canonical_bytes);
-			requireValue(result.record.storage_status === "saved" && result.record.grants_authority === false && result.record.owner_subject === operation.target_identity.owner_subject && result.record.task_id === operation.task_id && original.statement === view.memory_review.statement && original.attributedTo === view.memory_review.attributed_to, "ui:save-recovery-record-mismatch");
+			validateSavedCaptureContent(result.record, memoryDraft);
+			requireValue(result.record.storage_status === "saved" && result.record.grants_authority === false && result.record.owner_subject === operation.target_identity.owner_subject && result.record.task_id === operation.task_id, "ui:save-recovery-record-mismatch");
 			requireValue(receipt && Object.keys(receipt).sort().join(",") === [...RECEIPT].sort().join(",") && receipt.version === 1 && receipt.kind === "prime-memory-effect/v1" && receipt.action_type === "memory.save" && receipt.operation_id === operation.operation_id && receipt.operation_digest === view.operation_digest && receipt.grant_id === "grant:" + proofNonce && receipt.owner_subject === operation.target_identity.owner_subject && typeof receipt.request_id === "string" && UUID.test(receipt.request_id) && receipt.status === "applied" && DIGEST.test(receipt.request_digest) && DIGEST.test(receipt.result_digest) && DIGEST.test(result.receipt_digest) && contracts.canonicalJson(receipt.result) === contracts.canonicalJson(result.record), "ui:save-recovery-receipt-mismatch");
 			const request = {
 				version: 1,
@@ -1511,11 +1587,42 @@ window.__ModuleLoader__.load({
 				}
 				if (result.saved === true || result.save === "saved") {
 					contracts.validateContract("MemoryRecord", result.record);
+					validateSavedCaptureContent(result.record, result.memory_capture);
 					const original = JSON.parse(result.record.canonical_bytes);
 					const view = flight.presentation, receipt = result.receipt;
 					if (!flight.approved || result.saved !== true || result.save !== "saved" || result.approval !== "approved" || !result.operation || result.record.storage_status !== "saved" || result.record.owner_subject !== view.operation.target_identity.owner_subject || result.record.task_id !== view.operation.task_id || original.statement !== view.memory_review.statement || original.attributedTo !== view.memory_review.attributed_to || receipt?.status !== "applied" || receipt.operation_id !== view.operation.operation_id || receipt.operation_digest !== view.operation_digest || receipt.grant_id !== "grant:" + flight.proofNonce || contracts.canonicalJson(receipt.result) !== contracts.canonicalJson(result.record) || !["completed", "pending"].includes(result.authority_settlement) || result.authority_settlement === "completed" && result.reconciliation_required || result.authority_settlement === "pending" && !result.reconciliation_required) throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-workflow-receipt-mismatch");
 				}
 				return result;
+			}
+			const liveApprovalFlight = (flight) => approvalFlight === flight && revision === flight.revision && binding === flight.binding && state.owner === flight.owner && state.presentation === flight.presentation && actionGeneration === flight.actionGeneration && configuredAction() === flight.handler && !flight.abort.signal.aborted && state.authority_available === true && state.expired === false && Date.parse(state.owner?.expiry) > now();
+			function requestApproval(flight = null) {
+				if (state.phase !== "review_ready" || state.expired || !state.authority_available) return Promise.resolve(null);
+				const presentation = state.presentation;
+				return action("approval_pending", (signal) => transport.approve(presentation, {
+					kind: ownerKind ?? "passkey",
+					signal
+				}), (result) => {
+					if (flight && liveApprovalFlight(flight)) {
+						flight.approved = true;
+						flight.proofNonce = result.approval_proof.nonce;
+					}
+					notify({
+						phase: "approved",
+						error_code: null,
+						reason: result.status === "APPROVED" ? "The host confirmed approval of this exact operation. Execution has not been confirmed." : "The result is unknown."
+					});
+				});
+			}
+			function hookApproval(flight) {
+				if (!liveApprovalFlight(flight)) return Promise.resolve(null);
+				if (flight.approvalPromise) return flight.approvalPromise;
+				if (pending || state.phase !== "review_ready") return Promise.resolve(null);
+				flight.approvalPromise = Promise.resolve().then(async () => {
+					if (!liveApprovalFlight(flight) || pending) return null;
+					const result = await requestApproval(flight);
+					return liveApprovalFlight(flight) ? result : null;
+				});
+				return flight.approvalPromise;
 			}
 			const api = {
 				getSnapshot: () => state,
@@ -1625,20 +1732,23 @@ window.__ModuleLoader__.load({
 					try {
 						binding.contracts.validateContract("OperationProposal", proposal);
 						const proposed = immutable(JSON.parse(binding.contracts.canonicalJson(proposal)));
-						if (proposed.action_type === "memory.save") {
-							try {
-								validateCaptureReview(proposed.canonical_parameters, options.memoryCapture);
-							} catch {
-								throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
+						let captureDraft;
+						if (proposed.action_type === "memory.save") try {
+							captureDraft = validateCaptureReview(proposed.canonical_parameters, options.memoryCapture);
+							if (options.captureMetadata !== void 0) {
+								const metadata = validateCaptureMetadata(options.captureMetadata);
+								if (CAPTURE_METADATA_FIELDS.some((key) => metadata[key] !== captureDraft.capture_metadata[key])) throw new TypeError("ui:fixed-capture-metadata-mismatched");
 							}
-							if (options.captureMetadata !== void 0) validateCaptureMetadata(options.captureMetadata);
-						} else if (proposed.action_type === "memory.forget") try {
+						} catch {
+							throw new PrimeTransportError("TARGET_MISMATCH", "ui:memory-capture-review-missing-or-mismatched");
+						}
+						else if (proposed.action_type === "memory.forget") try {
 							validateForgetReview(proposed, options.recordSummary);
 						} catch {
 							throw new PrimeTransportError("TARGET_MISMATCH", "ui:forget-record-review-missing-or-mismatched");
 						}
-						memoryCapture = proposed.action_type === "memory.save" ? immutable(JSON.parse(binding.contracts.canonicalJson(options.memoryCapture))) : void 0;
-						captureMetadata = proposed.action_type === "memory.save" && options.captureMetadata !== void 0 ? validateCaptureMetadata(options.captureMetadata) : void 0;
+						memoryCapture = captureDraft;
+						captureMetadata = memoryCapture?.capture_metadata;
 						recordSummary = proposed.action_type === "memory.forget" ? validateForgetReview(proposed, options.recordSummary) : void 0;
 						operation = proposed;
 					} catch (error) {
@@ -1718,22 +1828,8 @@ window.__ModuleLoader__.load({
 					});
 				},
 				approve() {
-					if (state.phase !== "review_ready" || state.expired || !state.authority_available) return Promise.resolve(null);
-					const presentation = state.presentation;
-					return action("approval_pending", (signal) => transport.approve(presentation, {
-						kind: ownerKind ?? "passkey",
-						signal
-					}), (result) => {
-						if (approvalFlight?.revision === revision && approvalFlight.presentation === presentation) {
-							approvalFlight.approved = true;
-							approvalFlight.proofNonce = result.approval_proof.nonce;
-						}
-						notify({
-							phase: "approved",
-							error_code: null,
-							reason: result.status === "APPROVED" ? "The host confirmed approval of this exact operation. Execution has not been confirmed." : "The result is unknown."
-						});
-					});
+					if (approvalFlight || approvalActionBlocked) return Promise.resolve(null);
+					return requestApproval();
 				},
 				setApprovalAction(handler) {
 					if (handler !== null && typeof handler !== "function") throw new PrimeTransportError("INVALID", "ui:invalid-approval-action");
@@ -1835,7 +1931,10 @@ window.__ModuleLoader__.load({
 						try {
 							if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) return null;
 							flight.started = true;
-							const value = await flight.handler(flight.presentation, { signal: flight.abort.signal });
+							const value = await flight.handler(flight.presentation, Object.freeze({
+								signal: flight.abort.signal,
+								approve: () => hookApproval(flight)
+							}));
 							if (revision !== flight.revision || state.owner !== flight.owner || flight.abort.signal.aborted) {
 								if (forgetting) validateCancelledForgetWorkflow(value, flight.contracts);
 								else cancelledWorkflowResult(value, flight);
@@ -2079,17 +2178,11 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region lib/types/client/MemoryCaptureHints.js
 		const POLICY = Object.freeze([
-			["Policy version", "1"],
-			["Category", "fact"],
-			["Confidence", "0.7"],
-			["Sensitivity", "none"],
 			["Privacy", "local"],
 			["Scope", "owner"],
 			["Links", "empty"],
 			["Origin", "prime.capture/v1"],
 			["Body override", "none (null)"],
-			["Observed time", "exact selected source event time"],
-			["Valid from", "source event calendar date"],
 			["Evidence", "derived from the exact selected source event"],
 			["Authority grants", "none"]
 		]);
@@ -2098,16 +2191,74 @@ window.__ModuleLoader__.load({
 			if ("code_point" in example) return `${position}: ${example.code_point}${"resembles" in example ? `, ${example.script ?? "Unicode"} letter resembling ${example.resembles}` : ""}`;
 			return `${position}, length ${example.length}: ${example.scripts.join(", ")}`;
 		}
-		function MemoryCaptureHints({ statement }) {
-			const warnings = capturePresentationWarnings(statement);
+		function MemoryCaptureHints({ statement, evidenceQuote, metadata }) {
 			return (0, react_jsx_runtime.jsxs)("div", {
 				"data-memory-capture-hints": true,
 				children: [
 					(0, react_jsx_runtime.jsx)("h4", { children: "Text review hints" }),
 					(0, react_jsx_runtime.jsx)("p", { children: "Hints aid review and preserve the exact text. Examples use UTF-16 indexes and Unicode code points, with up to 16 examples per category. Greek and Cyrillic lookalike examples are limited, and script mixing can be legitimate." }),
+					(0, react_jsx_runtime.jsx)(TextHints, {
+						text: statement,
+						label: "Captured statement",
+						field: "statement"
+					}),
+					(0, react_jsx_runtime.jsx)(TextHints, {
+						text: evidenceQuote,
+						label: "Source quotation",
+						field: "evidence_quote"
+					}),
+					(0, react_jsx_runtime.jsxs)("div", {
+						"data-new-capture-text-policy": true,
+						children: [
+							(0, react_jsx_runtime.jsx)("p", { children: "New statements and source quotations must already use NFC, with visible nonblank content. Their text is never normalized or replaced." }),
+							(0, react_jsx_runtime.jsx)("p", { children: "Tabs, line feeds, ZWNJ and ZWJ are permitted. Other C0 and C1 controls, DEL, and other Unicode format controls are refused." }),
+							(0, react_jsx_runtime.jsxs)("p", { children: [
+								"Refused invisible fillers: ",
+								(0, react_jsx_runtime.jsx)("code", { children: CAPTURE_TEXT_POLICY.refused_fillers.join(", ") }),
+								"."
+							] }),
+							(0, react_jsx_runtime.jsxs)("p", { children: [
+								"Refused line separators: ",
+								(0, react_jsx_runtime.jsx)("code", { children: CAPTURE_TEXT_POLICY.refused_line_separators.join(", ") }),
+								". Existing saved bytes retain their original text."
+							] })
+						]
+					}),
+					(0, react_jsx_runtime.jsx)("h4", { children: "Fixed new-capture policy" }),
+					metadata ? (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						(0, react_jsx_runtime.jsx)("p", { children: "The host supplied these exact metadata values for the reviewed operation." }),
+						(0, react_jsx_runtime.jsx)("dl", {
+							"data-memory-fixed-capture-policy": true,
+							children: [
+								["Profile", metadata.profile],
+								["Category", metadata.category],
+								["Confidence percent", String(metadata.confidence_percent)],
+								["Sensitivity", metadata.sensitivity],
+								["Observed at", metadata.observed_at],
+								["Valid from", metadata.valid_from],
+								...POLICY
+							].map(([label, value]) => (0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: label }), (0, react_jsx_runtime.jsx)("dd", { children: value })] }, label))
+						}),
+						(0, react_jsx_runtime.jsx)("pre", {
+							"data-fixed-capture-metadata": true,
+							children: JSON.stringify(metadata, null, 2)
+						})
+					] }) : (0, react_jsx_runtime.jsx)("p", {
+						"data-fixed-capture-metadata-unavailable": true,
+						children: "The host has not supplied fixed capture metadata. Approval requires all exact metadata fields."
+					})
+				]
+			});
+		}
+		function TextHints({ text, label, field }) {
+			const warnings = capturePresentationWarnings(text);
+			return (0, react_jsx_runtime.jsxs)("div", {
+				"data-memory-unicode-field": field,
+				children: [
+					(0, react_jsx_runtime.jsx)("h5", { children: label }),
 					warnings.length === 0 && (0, react_jsx_runtime.jsx)("p", {
 						"data-memory-no-presentation-hints": true,
-						children: "These limited checks produced no hints. Review the exact statement above."
+						children: "These limited checks produced no hints. Review the exact text above."
 					}),
 					warnings.map((warning) => (0, react_jsx_runtime.jsxs)("div", {
 						"data-memory-unicode-hint": warning.code,
@@ -2116,19 +2267,13 @@ window.__ModuleLoader__.load({
 							(0, react_jsx_runtime.jsxs)("p", { children: ["Occurrences: ", warning.count] }),
 							(0, react_jsx_runtime.jsx)("ul", { children: warning.examples.map((example, index) => (0, react_jsx_runtime.jsx)("li", { children: (0, react_jsx_runtime.jsx)("code", { children: exampleText(example) }) }, index)) })
 						]
-					}, warning.code)),
-					(0, react_jsx_runtime.jsx)("h4", { children: "Fixed new-capture policy" }),
-					(0, react_jsx_runtime.jsx)("p", { children: "This pilot uses the documented fixed policy for new captures." }),
-					(0, react_jsx_runtime.jsx)("dl", {
-						"data-memory-fixed-capture-policy": true,
-						children: POLICY.map(([label, value]) => (0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("dt", { children: label }), (0, react_jsx_runtime.jsx)("dd", { children: value })] }, label))
-					})
+					}, warning.code))
 				]
 			});
 		}
 		//#endregion
 		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/OwnerSurface.module.css.mjs
-		const css$1 = ".Q5b1ra_surface[hidden]{display:none!important}.Q5b1ra_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.Q5b1ra_header{flex-direction:column;align-items:flex-start;gap:4px}.Q5b1ra_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.Q5b1ra_header p{color:var(--aukora-text-secondary);margin:0}.Q5b1ra_card{min-width:0;padding:16px}.Q5b1ra_card h2{margin-top:0;font-size:16px;font-weight:600}.Q5b1ra_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.Q5b1ra_fields{flex-direction:column;gap:12px;display:flex}.Q5b1ra_fields dd{margin:0}.Q5b1ra_fields dt{color:var(--aukora-text-secondary);font-size:13px}.Q5b1ra_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.Q5b1ra_owner{flex-direction:column;gap:8px;display:flex}.Q5b1ra_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.Q5b1ra_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.Q5b1ra_error{color:var(--aukora-red-warning)}.Q5b1ra_menu{width:100%}.Q5b1ra_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.Q5b1ra_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.Q5b1ra_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.Q5b1ra_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.Q5b1ra_badgePanel h2{font-size:14px}";
+		const css$1 = ".dSSOzq_surface[hidden]{display:none!important}.dSSOzq_surface{box-sizing:border-box;overscroll-behavior:contain;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow-y:auto}.dSSOzq_header{flex-direction:column;align-items:flex-start;gap:4px}.dSSOzq_header h1{margin:0;font-size:20px;font-weight:600;line-height:28px}.dSSOzq_header p{color:var(--aukora-text-secondary);margin:0}.dSSOzq_card{min-width:0;padding:16px}.dSSOzq_card h2{margin-top:0;font-size:16px;font-weight:600}.dSSOzq_card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--dsw-font-family-mono);margin:4px 0}.dSSOzq_fields{flex-direction:column;gap:12px;display:flex}.dSSOzq_fields dd{margin:0}.dSSOzq_fields dt{color:var(--aukora-text-secondary);font-size:13px}.dSSOzq_actions{flex-wrap:wrap;gap:8px;margin-top:12px;display:flex}.dSSOzq_owner{flex-direction:column;gap:8px;display:flex}.dSSOzq_owner input{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);color:var(--aukora-text);font:inherit;padding:10px 14px}.dSSOzq_owner input:focus-visible{outline:2px solid var(--aukora-blue);outline-offset:2px}.dSSOzq_error{color:var(--aukora-red-warning)}.dSSOzq_menu{width:100%}.dSSOzq_capabilities{margin:12px 0 0;padding-left:18px;font-size:12px;line-height:1.7}.dSSOzq_badge{max-width:min(26rem,100% - 96px);color:var(--aukora-text);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);font-size:11px;position:absolute;bottom:20px;left:50%;transform:translate(-50%)}.dSSOzq_badge summary{cursor:pointer;color:var(--aukora-text-secondary);padding:7px 10px}.dSSOzq_badgePanel{overflow-wrap:anywhere;max-height:clamp(0px,100dvh - 120px,30rem);padding:0 12px 12px;overflow:auto}.dSSOzq_badgePanel h2{font-size:14px}";
 		const tagId$1 = "@aukora/prime-authority-ui/OwnerSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
@@ -2138,17 +2283,17 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var OwnerSurface_module_css_default = {
-			"actions": "Q5b1ra_actions",
-			"badge": "Q5b1ra_badge",
-			"badgePanel": "Q5b1ra_badgePanel",
-			"capabilities": "Q5b1ra_capabilities",
-			"card": "Q5b1ra_card",
-			"error": "Q5b1ra_error",
-			"fields": "Q5b1ra_fields",
-			"header": "Q5b1ra_header",
-			"menu": "Q5b1ra_menu",
-			"owner": "Q5b1ra_owner",
-			"surface": "Q5b1ra_surface"
+			"actions": "dSSOzq_actions",
+			"badge": "dSSOzq_badge",
+			"badgePanel": "dSSOzq_badgePanel",
+			"capabilities": "dSSOzq_capabilities",
+			"card": "dSSOzq_card",
+			"error": "dSSOzq_error",
+			"fields": "dSSOzq_fields",
+			"header": "dSSOzq_header",
+			"menu": "dSSOzq_menu",
+			"owner": "dSSOzq_owner",
+			"surface": "dSSOzq_surface"
 		};
 		//#endregion
 		//#region lib/types/client/OwnerSurface.js
@@ -2162,10 +2307,13 @@ window.__ModuleLoader__.load({
 			if (!memoryReady && view?.memory_review) try {
 				validateCaptureReview(view.operation.canonical_parameters, {
 					statement: view.memory_review.statement,
-					attributed_to: view.memory_review.attributed_to
+					attributed_to: view.memory_review.attributed_to,
+					capture_metadata: view.memory_review.capture_metadata,
+					evidence_quote: view.memory_review.evidence_quote
 				});
 				memoryReady = view.memory_review.capture_sha256 === view.operation.canonical_parameters.capture_sha256;
-				if (view.capture_metadata) validateCaptureMetadata(view.capture_metadata);
+				const metadata = validateCaptureMetadata(view.capture_metadata);
+				memoryReady = memoryReady && CAPTURE_METADATA_FIELDS.every((key) => metadata[key] === view.memory_review.capture_metadata[key]);
 			} catch {
 				memoryReady = false;
 			}
@@ -2270,8 +2418,17 @@ window.__ModuleLoader__.load({
 											"data-memory-capture-hash": true,
 											children: view.memory_review.capture_sha256
 										}),
-										(0, react_jsx_runtime.jsx)("p", { children: "The operation digest below binds this exact statement and attribution. The host verifies the private capture." }),
-										(0, react_jsx_runtime.jsx)(MemoryCaptureHints, { statement: view.memory_review.statement }),
+										(0, react_jsx_runtime.jsx)("h3", { children: "Exact selected source quotation" }),
+										(0, react_jsx_runtime.jsx)("pre", {
+											"data-memory-evidence-quote": true,
+											children: view.memory_review.evidence_quote
+										}),
+										(0, react_jsx_runtime.jsx)("p", { children: "The source quotation can differ from the captured statement. The operation digest binds the exact statement, attribution, metadata and quotation. The host verifies the private capture and source." }),
+										(0, react_jsx_runtime.jsx)(MemoryCaptureHints, {
+											statement: view.memory_review.statement,
+											evidenceQuote: view.memory_review.evidence_quote,
+											metadata: view.capture_metadata
+										}),
 										view.capture_metadata ? (0, react_jsx_runtime.jsxs)("dl", {
 											"data-fixed-capture-dates": true,
 											children: [
@@ -2287,7 +2444,7 @@ window.__ModuleLoader__.load({
 									] }) : (0, react_jsx_runtime.jsx)("p", {
 										role: "alert",
 										"data-memory-review-refused": true,
-										children: "The exact memory statement and attribution are missing or do not match the capture draft. Approval is unavailable."
+										children: "The exact statement, attribution, metadata or source quotation is missing or does not match the independent capture draft. Approval is unavailable."
 									})]
 								}),
 								view.operation.action_type === "memory.forget" && (0, react_jsx_runtime.jsxs)("div", {
@@ -2428,6 +2585,7 @@ window.__ModuleLoader__.load({
 								role: "status",
 								children: ["Index or citation read unavailable: ", state.approval_action_result.read_error_code]
 							}),
+							state.approval_action_result.saved === true && state.approval_action_result.record && (0, react_jsx_runtime.jsx)(SavedCaptureContent, { record: state.approval_action_result.record }),
 							state.approval_action_result.receipt && (0, react_jsx_runtime.jsxs)("details", { children: [(0, react_jsx_runtime.jsx)("summary", { children: "Exact host receipt" }), (0, react_jsx_runtime.jsx)("pre", {
 								"data-memory-effect-receipt": true,
 								children: JSON.stringify(state.approval_action_result.receipt, null, 2)
@@ -2484,6 +2642,37 @@ window.__ModuleLoader__.load({
 					state.expired && (0, react_jsx_runtime.jsx)("p", {
 						role: "alert",
 						children: "This session or review has expired."
+					})
+				]
+			});
+		}
+		function SavedCaptureContent({ record }) {
+			const evidence = Array.isArray(record.evidence) ? record.evidence : [];
+			return (0, react_jsx_runtime.jsxs)("div", {
+				"data-memory-saved-capture-content": true,
+				children: [
+					(0, react_jsx_runtime.jsx)("h3", { children: "Exact saved memory and source evidence" }),
+					(0, react_jsx_runtime.jsx)("p", { children: "The original saved bytes remain unchanged. Source quotations describe the selected source event and can differ from the captured statement." }),
+					(0, react_jsx_runtime.jsx)("pre", {
+						"data-memory-saved-canonical-bytes": true,
+						children: typeof record.canonical_bytes === "string" ? record.canonical_bytes : "Unavailable"
+					}),
+					evidence.map((entry, index) => {
+						const quote = entry && typeof entry === "object" && "quote" in entry ? entry.quote : null;
+						return (0, react_jsx_runtime.jsxs)("div", {
+							"data-memory-saved-evidence": true,
+							children: [typeof quote === "string" && (0, react_jsx_runtime.jsx)("pre", {
+								"data-memory-saved-evidence-quote": true,
+								children: quote
+							}), (0, react_jsx_runtime.jsx)("pre", {
+								"data-memory-saved-evidence-fields": true,
+								children: JSON.stringify(entry, null, 2)
+							})]
+						}, index);
+					}),
+					evidence.length === 0 && (0, react_jsx_runtime.jsx)("p", {
+						"data-memory-saved-evidence-unavailable": true,
+						children: "No source evidence was supplied in the saved record."
 					})
 				]
 			});
@@ -2550,7 +2739,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:packages/client/aukora-prime-authority/src/client/PrimeProviderEditor.module.css.mjs
-		const css = ".sWclWa_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}.sWclWa_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}.sWclWa_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}.sWclWa_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}.sWclWa_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}.sWclWa_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}.sWclWa_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}.sWclWa_rowHead{align-items:center;gap:10px;display:flex}.sWclWa_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}.sWclWa_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.sWclWa_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}.sWclWa_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}.sWclWa_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}.sWclWa_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}.sWclWa_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}.sWclWa_primaryButton,.sWclWa_secondaryButton,.sWclWa_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.sWclWa_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.sWclWa_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.sWclWa_secondaryButton,.sWclWa_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}.sWclWa_secondaryButton:hover:not(:disabled),.sWclWa_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.sWclWa_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}.sWclWa_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.sWclWa_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.sWclWa_rowActions .sWclWa_secondaryButton,.sWclWa_rowActions .sWclWa_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.sWclWa_primaryButton:disabled,.sWclWa_secondaryButton:disabled,.sWclWa_dangerButton:disabled,.sWclWa_addButton:disabled,.sWclWa_linkButton:disabled,.sWclWa_addModelButton:disabled{opacity:.4;cursor:default}.sWclWa_primaryButton:focus-visible,.sWclWa_secondaryButton:focus-visible,.sWclWa_dangerButton:focus-visible,.sWclWa_addButton:focus-visible,.sWclWa_linkButton:focus-visible,.sWclWa_addModelButton:focus-visible,.sWclWa_iconButton:focus-visible,.sWclWa_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.sWclWa_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}.sWclWa_editorHeader{align-items:baseline;gap:8px;display:flex}.sWclWa_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.sWclWa_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.sWclWa_field{flex-direction:column;gap:6px;display:flex}.sWclWa_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}.sWclWa_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.sWclWa_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.sWclWa_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.sWclWa_editorActions{justify-content:flex-end;gap:8px;display:flex}.sWclWa_addBlock{flex-direction:column;gap:12px;display:flex}.sWclWa_addActions{flex-wrap:wrap;gap:10px;display:flex}.sWclWa_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}.sWclWa_addCard,.sWclWa_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}.sWclWa_addCard .sWclWa_editor,.sWclWa_setupCard .sWclWa_editor{background:0 0;padding:0}.sWclWa_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}.sWclWa_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}.sWclWa_customizedSummary::-webkit-details-marker{display:none}.sWclWa_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}.sWclWa_customized[open]>.sWclWa_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}.sWclWa_customizedSummary:hover{color:var(--dsw-alias-label-primary)}.sWclWa_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}.sWclWa_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}.sWclWa_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}.sWclWa_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}.sWclWa_modelCatalogMeta,.sWclWa_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.sWclWa_modelList{flex-direction:column;gap:8px;display:flex}.sWclWa_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.sWclWa_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}.sWclWa_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}.sWclWa_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}.sWclWa_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.sWclWa_iconButton:disabled{cursor:default;opacity:.4}.sWclWa_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.sWclWa_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}.sWclWa_modelField{flex-direction:column;gap:4px;display:flex}.sWclWa_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.sWclWa_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}.sWclWa_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.sWclWa_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.sWclWa_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select.sWclWa_input{cursor:pointer;max-width:240px}.sWclWa_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}.sWclWa_input::placeholder{color:var(--dsw-alias-label-dimmed)}.sWclWa_input:disabled{opacity:.6;cursor:default}.sWclWa_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}.sWclWa_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}.sWclWa_deleteDialog{width:min(480px,100%)}.sWclWa_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.sWclWa_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.sWclWa_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){.sWclWa_customizedSummary:before,.sWclWa_switchThumb{transition:none}}.sWclWa_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}.sWclWa_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}.sWclWa_candidateSearch{flex:240px;min-width:0}.sWclWa_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}.sWclWa_candidate{border-radius:6px}.sWclWa_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}.sWclWa_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}.sWclWa_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
+		const css = ".OtlLjG_section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;gap:12px;display:flex}.OtlLjG_title{color:var(--dsw-alias-label-primary);margin:0;font-size:16px;font-weight:500;line-height:24px}.OtlLjG_intro{color:var(--dsw-alias-label-tertiary);margin:0;font-size:14px;line-height:22px}.OtlLjG_notice{color:var(--dsw-alias-state-warn-label);margin:0;font-size:12px;line-height:18px}.OtlLjG_savedNotice{color:var(--dsw-alias-state-success-primary);margin:0;font-size:12px;line-height:18px}.OtlLjG_rows{flex-direction:column;gap:8px;margin:12px 0 0;padding:0;list-style:none;display:flex}.OtlLjG_rowCard{border:.5px solid var(--dsw-alias-border-l4);border-radius:16px;flex-direction:column;gap:12px;padding:12px 14px;display:flex}.OtlLjG_rowHead{align-items:center;gap:10px;display:flex}.OtlLjG_rowIdentity{align-items:center;gap:6px;min-width:0;display:inline-flex}.OtlLjG_rowName{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.OtlLjG_rowTag{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;padding:1px 6px;font-size:11px;line-height:16px}.OtlLjG_credentialDot{box-sizing:border-box;corner-shape:round;border-radius:50%;flex:none;width:8px;height:8px;display:inline-block}.OtlLjG_credentialDotConfigured{background:var(--dsw-alias-state-success-primary)}.OtlLjG_credentialDotMissing{background:var(--dsw-alias-state-error-primary)}.OtlLjG_rowActions{align-items:center;gap:4px;margin-left:auto;display:inline-flex}.OtlLjG_primaryButton,.OtlLjG_secondaryButton,.OtlLjG_addButton{box-sizing:border-box;height:36px;font:inherit;cursor:pointer;border:none;border-radius:18px;justify-content:center;align-items:center;gap:4px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.OtlLjG_primaryButton{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.OtlLjG_primaryButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.OtlLjG_secondaryButton,.OtlLjG_addButton{border:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:0 0}.OtlLjG_secondaryButton:hover:not(:disabled),.OtlLjG_addButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.OtlLjG_secondaryButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}.OtlLjG_dangerButton{box-sizing:border-box;height:36px;color:var(--dsw-alias-state-error-primary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:18px;justify-content:center;align-items:center;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}.OtlLjG_dangerButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.OtlLjG_rowActions .OtlLjG_secondaryButton,.OtlLjG_rowActions .OtlLjG_dangerButton{border-radius:14px;height:28px;padding:0 10px;font-size:12px;line-height:18px}.OtlLjG_primaryButton:disabled,.OtlLjG_secondaryButton:disabled,.OtlLjG_dangerButton:disabled,.OtlLjG_addButton:disabled,.OtlLjG_linkButton:disabled,.OtlLjG_addModelButton:disabled{opacity:.4;cursor:default}.OtlLjG_primaryButton:focus-visible,.OtlLjG_secondaryButton:focus-visible,.OtlLjG_dangerButton:focus-visible,.OtlLjG_addButton:focus-visible,.OtlLjG_linkButton:focus-visible,.OtlLjG_addModelButton:focus-visible,.OtlLjG_iconButton:focus-visible,.OtlLjG_customizedSummary:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3);outline:none}.OtlLjG_editor{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;display:flex}.OtlLjG_editorHeader{align-items:baseline;gap:8px;display:flex}.OtlLjG_editorTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.OtlLjG_editorRoute{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.OtlLjG_field{flex-direction:column;gap:6px;display:flex}.OtlLjG_fieldLabel{color:var(--dsw-alias-label-secondary);align-items:center;gap:10px;font-size:12px;font-weight:500;line-height:18px;display:inline-flex}.OtlLjG_linkButton{box-sizing:border-box;height:28px;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.OtlLjG_linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.OtlLjG_advancedHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.OtlLjG_editorActions{justify-content:flex-end;gap:8px;display:flex}.OtlLjG_addBlock{flex-direction:column;gap:12px;display:flex}.OtlLjG_addActions{flex-wrap:wrap;gap:10px;display:flex}.OtlLjG_addButton{border:1px dashed var(--dsw-alias-border-l3);border-radius:16px;flex:1 1 0;gap:6px;min-width:180px;height:44px}.OtlLjG_addCard,.OtlLjG_setupCard{background:var(--dsw-alias-bg-module-platform);border-radius:12px;flex-direction:column;gap:14px;padding:14px 16px;list-style:none;display:flex}.OtlLjG_addCard .OtlLjG_editor,.OtlLjG_setupCard .OtlLjG_editor{background:0 0;padding:0}.OtlLjG_customized{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}.OtlLjG_customizedSummary{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}.OtlLjG_customizedSummary::-webkit-details-marker{display:none}.OtlLjG_customizedSummary:before{content:\"\";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}.OtlLjG_customized[open]>.OtlLjG_customizedSummary:before{transform:rotate(45deg)translate(-1px,-1px)}.OtlLjG_customizedSummary:hover{color:var(--dsw-alias-label-primary)}.OtlLjG_customizedBody{flex-direction:column;gap:12px;padding-top:12px;display:flex}.OtlLjG_modelCatalog{border-top:.5px solid var(--dsw-alias-border-l2);flex-direction:column;gap:10px;padding-top:12px;display:flex}.OtlLjG_modelCatalogHeading{flex-direction:column;gap:2px;display:flex}.OtlLjG_modelCatalogTitle{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:18px}.OtlLjG_modelCatalogMeta,.OtlLjG_modelEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}.OtlLjG_modelList{flex-direction:column;gap:8px;display:flex}.OtlLjG_modelListHead{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.OtlLjG_modelEntry{border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;padding:6px}.OtlLjG_modelRow{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;display:grid}.OtlLjG_iconButton{box-sizing:border-box;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;display:inline-flex}.OtlLjG_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.OtlLjG_iconButton:disabled{cursor:default;opacity:.4}.OtlLjG_iconButtonDanger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.OtlLjG_modelAdvanced{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:8px 4px 2px;display:grid}.OtlLjG_modelField{flex-direction:column;gap:4px;display:flex}.OtlLjG_modelFieldLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.OtlLjG_modelEmpty{border:1px dashed var(--dsw-alias-border-l3);text-align:center;border-radius:8px;padding:12px}.OtlLjG_addModelButton{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);height:28px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:14px;align-self:flex-start;align-items:center;gap:4px;padding:0 10px;font-size:12px;line-height:18px;display:inline-flex}.OtlLjG_addModelButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.OtlLjG_input{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);width:100%;height:32px;font:inherit;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:14px;line-height:22px}select.OtlLjG_input{cursor:pointer;max-width:240px}.OtlLjG_input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}.OtlLjG_input::placeholder{color:var(--dsw-alias-label-dimmed)}.OtlLjG_input:disabled{opacity:.6;cursor:default}.OtlLjG_selectInput{appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 12px center;background-repeat:no-repeat;background-size:12px 12px;padding-right:32px}.OtlLjG_error{color:var(--dsw-alias-state-error-primary);margin:0;font-size:12px;line-height:18px}.OtlLjG_deleteDialog{width:min(480px,100%)}.OtlLjG_deleteConfirm:not(:disabled){border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.OtlLjG_deleteConfirm:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger)}.OtlLjG_hiddenLabel{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@media (prefers-reduced-motion:reduce){.OtlLjG_customizedSummary:before,.OtlLjG_switchThumb{transition:none}}.OtlLjG_fetchDialog{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);max-width:520px}.OtlLjG_candidateToolbar{align-items:center;gap:8px;margin-bottom:6px;display:flex}.OtlLjG_candidateSearch{flex:240px;min-width:0}.OtlLjG_candidateList{flex-direction:column;gap:2px;max-height:320px;margin:0;padding:0;list-style:none;display:flex;overflow-y:auto}.OtlLjG_candidate{border-radius:6px}.OtlLjG_candidateLabel{cursor:pointer;align-items:center;gap:8px;padding:6px 8px;display:flex}.OtlLjG_candidateId{font-family:var(--ds-font-family-code);overflow-wrap:anywhere;flex:auto;font-size:13px}.OtlLjG_candidateEmpty{color:var(--dsw-alias-label-secondary);text-align:center;margin:24px 0;font-size:13px;line-height:20px}";
 		const tagId = "@aukora/prime-authority-ui/PrimeProviderEditor.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -2560,71 +2749,71 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var PrimeProviderEditor_module_css_default = {
-			"addActions": "sWclWa_addActions",
-			"addBlock": "sWclWa_addBlock",
-			"addButton": "sWclWa_addButton",
-			"addCard": "sWclWa_addCard",
-			"addModelButton": "sWclWa_addModelButton",
-			"advancedHint": "sWclWa_advancedHint",
-			"candidate": "sWclWa_candidate",
-			"candidateEmpty": "sWclWa_candidateEmpty",
-			"candidateId": "sWclWa_candidateId",
-			"candidateLabel": "sWclWa_candidateLabel",
-			"candidateList": "sWclWa_candidateList",
-			"candidateSearch": "sWclWa_candidateSearch",
-			"candidateToolbar": "sWclWa_candidateToolbar",
-			"credentialDot": "sWclWa_credentialDot",
-			"credentialDotConfigured": "sWclWa_credentialDotConfigured",
-			"credentialDotMissing": "sWclWa_credentialDotMissing",
-			"customized": "sWclWa_customized",
-			"customizedBody": "sWclWa_customizedBody",
-			"customizedSummary": "sWclWa_customizedSummary",
-			"dangerButton": "sWclWa_dangerButton",
-			"deleteConfirm": "sWclWa_deleteConfirm",
-			"deleteDialog": "sWclWa_deleteDialog",
-			"editor": "sWclWa_editor",
-			"editorActions": "sWclWa_editorActions",
-			"editorHeader": "sWclWa_editorHeader",
-			"editorRoute": "sWclWa_editorRoute",
-			"editorTitle": "sWclWa_editorTitle",
-			"error": "sWclWa_error",
-			"fetchDialog": "sWclWa_fetchDialog",
-			"field": "sWclWa_field",
-			"fieldLabel": "sWclWa_fieldLabel",
-			"hiddenLabel": "sWclWa_hiddenLabel",
-			"iconButton": "sWclWa_iconButton",
-			"iconButtonDanger": "sWclWa_iconButtonDanger",
-			"input": "sWclWa_input",
-			"intro": "sWclWa_intro",
-			"linkButton": "sWclWa_linkButton",
-			"modelAdvanced": "sWclWa_modelAdvanced",
-			"modelCatalog": "sWclWa_modelCatalog",
-			"modelCatalogHeading": "sWclWa_modelCatalogHeading",
-			"modelCatalogMeta": "sWclWa_modelCatalogMeta",
-			"modelCatalogTitle": "sWclWa_modelCatalogTitle",
-			"modelEmpty": "sWclWa_modelEmpty",
-			"modelEntry": "sWclWa_modelEntry",
-			"modelField": "sWclWa_modelField",
-			"modelFieldLabel": "sWclWa_modelFieldLabel",
-			"modelList": "sWclWa_modelList",
-			"modelListHead": "sWclWa_modelListHead",
-			"modelRow": "sWclWa_modelRow",
-			"notice": "sWclWa_notice",
-			"primaryButton": "sWclWa_primaryButton",
-			"rowActions": "sWclWa_rowActions",
-			"rowCard": "sWclWa_rowCard",
-			"rowHead": "sWclWa_rowHead",
-			"rowIdentity": "sWclWa_rowIdentity",
-			"rowName": "sWclWa_rowName",
-			"rowTag": "sWclWa_rowTag",
-			"rows": "sWclWa_rows",
-			"savedNotice": "sWclWa_savedNotice",
-			"secondaryButton": "sWclWa_secondaryButton",
-			"section": "sWclWa_section",
-			"selectInput": "sWclWa_selectInput",
-			"setupCard": "sWclWa_setupCard",
-			"switchThumb": "sWclWa_switchThumb",
-			"title": "sWclWa_title"
+			"addActions": "OtlLjG_addActions",
+			"addBlock": "OtlLjG_addBlock",
+			"addButton": "OtlLjG_addButton",
+			"addCard": "OtlLjG_addCard",
+			"addModelButton": "OtlLjG_addModelButton",
+			"advancedHint": "OtlLjG_advancedHint",
+			"candidate": "OtlLjG_candidate",
+			"candidateEmpty": "OtlLjG_candidateEmpty",
+			"candidateId": "OtlLjG_candidateId",
+			"candidateLabel": "OtlLjG_candidateLabel",
+			"candidateList": "OtlLjG_candidateList",
+			"candidateSearch": "OtlLjG_candidateSearch",
+			"candidateToolbar": "OtlLjG_candidateToolbar",
+			"credentialDot": "OtlLjG_credentialDot",
+			"credentialDotConfigured": "OtlLjG_credentialDotConfigured",
+			"credentialDotMissing": "OtlLjG_credentialDotMissing",
+			"customized": "OtlLjG_customized",
+			"customizedBody": "OtlLjG_customizedBody",
+			"customizedSummary": "OtlLjG_customizedSummary",
+			"dangerButton": "OtlLjG_dangerButton",
+			"deleteConfirm": "OtlLjG_deleteConfirm",
+			"deleteDialog": "OtlLjG_deleteDialog",
+			"editor": "OtlLjG_editor",
+			"editorActions": "OtlLjG_editorActions",
+			"editorHeader": "OtlLjG_editorHeader",
+			"editorRoute": "OtlLjG_editorRoute",
+			"editorTitle": "OtlLjG_editorTitle",
+			"error": "OtlLjG_error",
+			"fetchDialog": "OtlLjG_fetchDialog",
+			"field": "OtlLjG_field",
+			"fieldLabel": "OtlLjG_fieldLabel",
+			"hiddenLabel": "OtlLjG_hiddenLabel",
+			"iconButton": "OtlLjG_iconButton",
+			"iconButtonDanger": "OtlLjG_iconButtonDanger",
+			"input": "OtlLjG_input",
+			"intro": "OtlLjG_intro",
+			"linkButton": "OtlLjG_linkButton",
+			"modelAdvanced": "OtlLjG_modelAdvanced",
+			"modelCatalog": "OtlLjG_modelCatalog",
+			"modelCatalogHeading": "OtlLjG_modelCatalogHeading",
+			"modelCatalogMeta": "OtlLjG_modelCatalogMeta",
+			"modelCatalogTitle": "OtlLjG_modelCatalogTitle",
+			"modelEmpty": "OtlLjG_modelEmpty",
+			"modelEntry": "OtlLjG_modelEntry",
+			"modelField": "OtlLjG_modelField",
+			"modelFieldLabel": "OtlLjG_modelFieldLabel",
+			"modelList": "OtlLjG_modelList",
+			"modelListHead": "OtlLjG_modelListHead",
+			"modelRow": "OtlLjG_modelRow",
+			"notice": "OtlLjG_notice",
+			"primaryButton": "OtlLjG_primaryButton",
+			"rowActions": "OtlLjG_rowActions",
+			"rowCard": "OtlLjG_rowCard",
+			"rowHead": "OtlLjG_rowHead",
+			"rowIdentity": "OtlLjG_rowIdentity",
+			"rowName": "OtlLjG_rowName",
+			"rowTag": "OtlLjG_rowTag",
+			"rows": "OtlLjG_rows",
+			"savedNotice": "OtlLjG_savedNotice",
+			"secondaryButton": "OtlLjG_secondaryButton",
+			"section": "OtlLjG_section",
+			"selectInput": "OtlLjG_selectInput",
+			"setupCard": "OtlLjG_setupCard",
+			"switchThumb": "OtlLjG_switchThumb",
+			"title": "OtlLjG_title"
 		};
 		//#endregion
 		//#region lib/types/client/PrimeProviderEditor.js
