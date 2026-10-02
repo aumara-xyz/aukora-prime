@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "kind": "prime-owner-save-pilot-source-provenance/v1",
+  "license": "AGPL-3.0-or-later",
+  "license_path": "packages/ops/LICENSE",
+  "owned_scope": "packages/ops/owner-save-pilot/v1/**",
+  "ops_base_commit": "cfafd5de4d73624b4001b2d438695d0dcc4d2514",
+  "reviewed_h_commit": "251fdb5776daa90aab37251e56b73758a633d67c",
+  "reviewed_d_core1d_commit": "1d395db6c07551a7afc9382fce16799b03ab61de",
+  "latest_genesis_reference": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "implementation": "NEW_FIRST_PARTY_OPS_SCOPE_METADATA_ONLY",
+  "copied_runtime_donor_code": "NONE",
+  "integrated_runtime_dependency": "PRIME_OWNED_PACKAGES_CONTRACTS_ONLY",
+  "disposable_source_check_inputs": [
+    {"path": "packages/contracts/src/runtime.mjs", "sha256": "d42ec191f52279b4af33ad23edb1518425817ac89e70a80955d0c0266386be12"},
+    {"path": "packages/contracts/src/shared.mjs", "sha256": "92dd3cf5aefb2d0fe206c892246620987d62898cdd40e3e7931f53ce590203ff"},
+    {"path": "packages/contracts/src/json.mjs", "sha256": "068aa14d3be101413cb028dc5f39e442130b4eeb87c40e18209ddce3ffce4639"}
+  ],
+  "closed_receipt_semantics_reference": {"path": "packages/authority/src/memory-effect.mjs", "sha256": "530cdc76d727e6948a9458e9ccdfb14c2c26176f9262be084b180265926342dc"},
+  "closed_reply_and_ui_references": [
+    {"path": "packages/runtime-bridge/src/index.mjs", "sha256": "02cf1d96878c14b9870b96730329d7bc59907e717a7dad81e4a73bab2d2b6ebd"},
+    {"path": "packages/runtime-bridge/src/owner-memory-workflow.mjs", "sha256": "507f35a5c2fc914df32f1a2eeb0c050d02e32106cb9d71b54e1b63e6d1140cb0"},
+    {"path": "packages/runtime-bridge/src/ui-adapter.mjs", "sha256": "780756f8016a014594a865e226cb8827ee1f85ebbadac829c4be180c2b4c95bf"}
+  ],
+  "setup_helper_inventory": "bootstrap-requirements.json",
+  "qualification": "UNPERFORMED",
+  "grok_review": "PENDING_ACTUAL_BYTES_REVIEW",
+  "frozen_accounting": "ORIGINAL_146_AND_TWO_RED_ROWS_UNCHANGED"
+}
