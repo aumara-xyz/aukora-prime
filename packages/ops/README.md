@@ -158,6 +158,21 @@ closure requires a newly retained external `evaluator-digest` before a future ru
 
 The new ordinary keyless runner is `node packages/ops/verify-fast.mjs --root
 /physical/source --evidence-dir /physical/private/parent/new-run [--json true]`.
-H owns its root `./prime verify` hook. See [the closed short profile](fast-verify/README.md)
-for exact cases, pins, exit codes, missing C/F entrypoints and historical-only records.
-It leaves archive verification and G1 qualification unchanged.
+H owns its root `./prime verify` hook. See [the closed ordinary source profile](fast-verify/README.md)
+for the required closed 66-job / 65-file profile, inventories, literal pins, exit codes
+and historical-only records. The union retains all 29 required whole owner-memory
+files from H's 37-job profile, including eight files absent from the earlier G53
+profile. Four missing whole files and H's bounded ordinary `bash_parameters`
+selection are now required. The earlier 61-job source review at
+`b336753488a2a70adcefd82a95909263dbe26c5a` is historical; the expanded target
+`a6aa7fea122417bade9d284481d20a46bfdb57cf` awaits root closure and counter freeze.
+The 66-job product suite remains UNPERFORMED and the current target is NOTQUALIFIED.
+Both older H37 37-PASS and newer 36-PASS/1-host-FAIL observations remain separately
+attributed; H owns diagnosis. The
+600000 ms suite, 120000 ms maximum full-TAP and 60000 ms maximum non-TAP budgets
+retain the existing shorter per-case bounds; output is capped at 65536 bytes and
+the direct Node heap at 512 MiB. The inference mock retains 20000 ms; the expanded
+full-TAP count awaits review. Full-union duration is UNMEASURED and the wall target is null.
+The E total-budget gate is absent from this source profile: UNPERFORMED, deferral
+intent UNKNOWN pending its owner. Archive verification is unchanged; qualification
+stays UNPERFORMED and G1 stays PENDING.

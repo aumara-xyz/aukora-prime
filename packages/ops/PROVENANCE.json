@@ -75,6 +75,179 @@
     "source_review_original_private_commit": "795f32337dd27848eaf85952b70ab86a27c54b24",
     "publication_review_scope": "Explicit static checker/baseline pins reviewed after comment-only privacy adaptation; four metadata refusal regressions passed. No product qualification."
   },
+  "ordinary_verify_profile_attribution": "HISTORICAL_ONLY; preceding ordinary_verify_profile fields retained verbatim; its missing_short_checks and review metadata are not the current66 union disposition",
+  "ordinary_verify_union": {
+    "status": "PENDING_SOURCE_FREEZE_AND_INVENTORY_REVIEW",
+    "product_status": "PRODUCT_UNPERFORMED",
+    "scope": "Parent-Astra-required closed66 ordinary source profile; whole required files plus inherited bounded bash_parameters selection; no runtime qualification",
+    "source_review_commit": null,
+    "source_review_basis": "b336753488a2a70adcefd82a95909263dbe26c5a",
+    "source_review_attribution": "PRIOR_B336_LITERAL_BASIS_RETAINED; expanded current target closure and counters pending root review; no checkout/runtime attestation",
+    "source_closure_status": "PENDING_EXPANDED_SOURCE_FREEZE",
+    "source_closure_receipt": null,
+    "inventory_status": "PENDING_ROOT_LITERAL_INVENTORY",
+    "manifest_sha256": null,
+    "required_jobs": 66,
+    "distinct_entry_files": 65,
+    "later_selected_closure_observation": "Prior85-path unchanged observations concern the superseded61 profile; current expanded closure with four additional files and inherited mechanisms selection is pending",
+    "composition": "Preserve H37 selection, upgrade memory-original to whole codecs file, add29 files/modes; earlier61 union plus four missing whole files and retained H bash_parameters invocation",
+    "historical_H37_declarations": {
+      "jobs": 37,
+      "selected_ordinary_jobs": 8,
+      "required_full_owner_memory_files": 29,
+      "required_TAP_cases": 106,
+      "required_JSON_assertion_files": 9,
+      "scope": "Historical H37 source documentation attribution only; not union counters or completed-run evidence"
+    },
+    "retained_H37_result": {
+      "source_basis": "b336753488a2a70adcefd82a95909263dbe26c5a",
+      "reported_result": "PASS 37/0/0",
+      "duration_ms": 100676,
+      "artifact_sha256": "722bad957e0f1f093d8e9ba4174a7fbb841a45e7166316eb364c22d433787ff7",
+      "provenance": "OWNER_RELAY_ONLY; retained older separate H37 result, contradicted by newer reported host failure; not current66 evidence"
+    },
+    "required_H_only_entries": [
+      "packages/runtime-bridge/test/expanded-review-join.test.mjs",
+      "packages/runtime-bridge/test/invocation-forget-join.test.mjs",
+      "packages/runtime-bridge/test/owner-capacity.test.mjs",
+      "packages/runtime-bridge/test/owner-save-retry.test.mjs",
+      "packages/runtime-bridge/test/pre-reservation-unknown.test.mjs",
+      "packages/ui/prime-authority/checks/ordinary-hook.test.mjs",
+      "packages/ui/prime-authority/checks/capture-review.test.mjs",
+      "packages/ui/prime-authority/checks/expanded-transport.test.mjs"
+    ],
+    "required_joined_invocations": [
+      "default",
+      "complete-null"
+    ],
+    "mandatory_selection": "Literal required whole files and reviewed exact titles/PASS labels/counters; one inherited fixed bash_parameters selection retained; no caller selector, wildcard or launch-time repinning",
+    "required_inventory_totals": {
+      "status": "PRELIMINARY_ROOT_REVIEW_COUNTS_PENDING_FINAL_FREEZE",
+      "TAP_jobs": 43,
+      "full_TAP_jobs": 42,
+      "required_TAP_titles": 273,
+      "declared_external_TAP_titles": 1,
+      "pass_line_jobs": 8,
+      "required_PASS_labels": 71,
+      "JSON_assertion_jobs": 12,
+      "assertion_script_jobs": 3,
+      "source_reference_occurrences": null,
+      "distinct_source_paths": null,
+      "scope": "Different accounting units; expanded pins, references and final manifest hash await root normalization"
+    },
+    "source_counter_adjustment": "Prior61 H-client adjustment53to55 is historical reviewed metadata; expanded66 counters pending root inventory",
+    "recommended_product_check": "One closed66 full run by H after root source/pin/counter freeze; no new subset selector or CLI",
+    "required_skips": "FAIL; required SKIP or TODO never passes",
+    "external_skips": "One declared external PostgreSQL title; exact title/reason produces UNPERFORMED/exit2 unless failure takes precedence",
+    "closed_API": "runFastVerify({root,evidenceDir,json?:boolean,signal?:AbortSignal}); no command, selector, callback or environment override",
+    "root_hook_owner": "A/H; existing dispatch and archive verification unchanged",
+    "budgets": {
+      "suite_ms": 600000,
+      "full_TAP_case_max_ms": 120000,
+      "full_TAP_jobs": 42,
+      "full_TAP_job_count_status": "PRELIMINARY_ROOT_REVIEW_PENDING_FINAL_FREEZE",
+      "inference_mock_case_ms": 20000,
+      "non_TAP_case_max_ms": 60000,
+      "authority_core_case_ms": 60000,
+      "existing_short_case_ms": [
+        15000,
+        20000,
+        30000
+      ],
+      "output_bytes": 65536,
+      "direct_Node_heap_MiB": 512,
+      "wall_target_ms": null,
+      "scope": "Existing cooperative budgets retained; expanded counts pending final root freeze; no kernel or descendant enforcement"
+    },
+    "runtime_measurement": "UNMEASURED",
+    "completed_product_suite": "UNPERFORMED",
+    "qualification": "UNPERFORMED",
+    "g1": "PENDING",
+    "E_total_budget_gate": {
+      "coverage": "ABSENT_FROM_REVIEWED_H_SOURCE_PROFILE",
+      "status": "UNPERFORMED",
+      "deferral_intent": "UNKNOWN",
+      "mock_accounting_scope": "Does not establish the total-budget gate"
+    },
+    "extended_C_265_save_admission": "UNPERFORMED",
+    "w1_recovery": "BLOCKED/UNPERFORMED; pre-reservation-unknown asserts the unresolved fence only; authoritative C/D writer-observation and closure evidence still required",
+    "facade_fixture_source_metadata": "Compiled zero40 synthetic marker; no source review or release attestation",
+    "historical_receipts": "OWNER_RELAY_ONLY/HISTORICAL_ONLY; no independent receipt files reopened and no old experiment rerun",
+    "source_scope_limits": "No old ancestry, stopped audit reconstruction, product tests, VM, network, activation or runtime qualification performed by this documentation lane",
+    "prior_61_source_review": {
+      "status": "COMPLETE_SOURCE_REVIEW",
+      "scope": "SUPERSEDED_61_JOB_SOURCE_REVIEW_ONLY; not current66 coverage or product evidence",
+      "source_review_basis": "b336753488a2a70adcefd82a95909263dbe26c5a",
+      "manifest_sha256": "e667e778db37325cb60de5fb6ba761d5866d46ed05a62496f435144281f8a595",
+      "source_closure_receipt": {
+        "file": "required-union-closure-b336.json",
+        "sha256": "b863560cf39947b9712db6cbcb745c50687f3e773536e83f99bdd3117a707341",
+        "selected_entry_and_support_files": 85,
+        "provenance": "ROOT_CAPTURED_AND_SOURCE_VERIFIED; source closure receipt, not product execution evidence"
+      },
+      "required_jobs": 61,
+      "distinct_entry_files": 60,
+      "required_inventory_totals": {
+        "TAP_jobs": 39,
+        "full_TAP_jobs": 38,
+        "required_TAP_titles": 247,
+        "declared_external_TAP_titles": 1,
+        "required_PASS_labels": 70,
+        "JSON_assertion_jobs": 12,
+        "source_reference_occurrences": 118,
+        "distinct_source_paths": 85,
+        "scope": "Different accounting units; no combined independent-test count inferred"
+      },
+      "strict_coverage_delta": {
+        "unchanged_H_invocations": 31,
+        "expanded_strict_jobs": 30,
+        "whole_file_jobs": 25,
+        "additional_files": 24,
+        "full_existing_codecs_jobs": 1,
+        "second_joined_mode_jobs": 1,
+        "changed_binding_jobs": 4,
+        "changed_bindings": [
+          "browser transport",
+          "hook byte preflight",
+          "explicit current host root",
+          "explicit synthetic facade zero marker"
+        ],
+        "scope": "Source coverage delta, not executed product results"
+      },
+      "product_status": "PRODUCT_UNPERFORMED"
+    },
+    "current_target_head": "a6aa7fea122417bade9d284481d20a46bfdb57cf",
+    "current_target_status": "NOTQUALIFIED",
+    "new_required_whole_entries": [
+      "packages/memory/test/control-retention-coordinator.test.mjs",
+      "packages/memory/test/owner-serialization.test.mjs",
+      "packages/memory/test/retained-memory-participant.test.mjs",
+      "packages/runtime-bridge/test/worker-observation-scope.test.mjs"
+    ],
+    "retained_ordinary_execution_mechanism": {
+      "selection": "Inherited fixed bash_parameters ordinary source selection",
+      "entry": "packages/execution/checks/mechanisms.mjs",
+      "entry_sha256": "fcd2a75fd42995da24f040b0ec0838dd129e793e0373aaff9202dd5f6f1228de",
+      "id": "execution-ordinary-binding",
+      "args": ["bash_parameters"],
+      "property": "Ordinary executor qualification/binding regression",
+      "protocol": "pass-lines",
+      "required_PASS_labels": ["bash_parameters"],
+      "timeout_ms": 15000,
+      "source_assertion_scope": "Changed command requires TARGET_MISMATCH before executor; declaration asserts zero executor/broker/calls/ledger effects; not observed run evidence",
+      "status": "REQUIRED_IN_CLOSED66_PROFILE; PRODUCT_UNPERFORMED",
+      "limits": "Only this bounded source case; no other mechanisms, held activation, OpenShell runtime or prohibited canary sequence reconstructed"
+    },
+    "later_H37_observation": {
+      "reported_result": "36 PASS / 1 host FAIL",
+      "duration_ms": 154599,
+      "exact_run_source": "UNSUPPLIED",
+      "artifact_sha256": null,
+      "provenance": "PARENT_RELAY_ONLY; independent H37 reader observation reported by parent; original receipt not opened by this lane",
+      "relationship": "Contradicts the older retained37PASS result; both preserved separately, no resolution inferred",
+      "disposition": "CURRENT_NOTQUALIFIED; H owns host diagnosis"
+    }
+  },
   "contract_base_original_private": "f502d539a01e5efae4fc688ad4759162205aa0f4",
   "privacy_rewrite_scope": "Corresponding sanitized historical source IDs; original observations and receipts remain historical. No new build or installed identity is claimed."
 }

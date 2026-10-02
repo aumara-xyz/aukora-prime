@@ -20,7 +20,7 @@ function parse(args) {
 
 if (process.argv.slice(2).join(' ') === '--help') {
   console.log('verify-fast.mjs --root CANONICAL_SOURCE --evidence-dir NEW_EXTERNAL_DIR [--json true]')
-  console.log('Ordinary source regressions only. Exit 0 complete PASS, 1 FAIL, 2 UNPERFORMED. G1 stays PENDING.')
+  console.log('Closed ordinary source profile. Exit 0 complete PASS, 1 FAIL, 2 UNPERFORMED. G1 stays PENDING.')
 } else {
   try {
     const options = parse(process.argv.slice(2))
@@ -32,10 +32,16 @@ if (process.argv.slice(2).join(' ') === '--help') {
     finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel) }
     if (options.json) console.log(JSON.stringify(result))
     else {
-      for (const row of result.cases) console.log(`${row.status} ${row.id}: ${row.reason ?? row.property}`)
+      for (const row of result.cases) {
+        const count = row.counter ? `; ${row.counter.key} ${row.counter.observed ?? 'UNPERFORMED'}/${row.counter.expected}`
+          : Number.isSafeInteger(row.required_test_count) ? `; required ${row.test_count ?? 'UNPERFORMED'}/${row.required_test_count}; skipped ${row.skipped_count ?? 'UNPERFORMED'}` : ''
+        console.log(`${row.status} ${row.id}: ${row.reason ?? row.property}${count}`)
+        for (const title of row.failed_titles ?? []) console.log(`  FAIL required: ${title}`)
+        for (const item of row.external_skips ?? []) console.log(`  UNPERFORMED external: ${item.title}; ${item.reason}`)
+      }
       for (const record of result.historical) console.log(`HISTORICAL_ONLY ${record.id}: ${record.reported_result}; ${record.provenance}; current UNPERFORMED`)
       for (const row of result.unperformed) console.log(`UNPERFORMED ${row.id}: ${row.reason}`)
-      console.log(`${result.status} ordinary source suite${result.reason ? ': '+result.reason : ''}; qualification UNPERFORMED; G1 PENDING`)
+      console.log(`${result.status} ordinary source suite${result.reason ? ': '+result.reason : ''}; functional ${result.functional_status ?? 'UNPERFORMED'}; ${result.duration_ms ?? 'UNPERFORMED'} ms; qualification UNPERFORMED; G1 PENDING`)
       console.log(`Evidence: ${result.evidence_path ?? 'UNPERFORMED'}`)
     }
     process.exitCode = result.exit_code
