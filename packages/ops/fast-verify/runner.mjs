@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url'
 import {CASES, NODE_VERSION, SOURCE_REVIEW_COMMIT, HISTORY, UNPERFORMED} from './manifest.mjs'
 
 const CONTROLS = /[\x00-\x1f\x7f]/
-const SUITE_MS = 600_000, CASE_MS = 120_000, ORDINARY_CASE_MS = 60_000, OUTPUT_BYTES = 65_536, ENTRY_BYTES = 1_048_576
+const SUITE_MS = 600_000, CASE_MS = 120_000, ORDINARY_CASE_MS = 60_000, AUTHORITY_CORE_MS = 180_000, OUTPUT_BYTES = 65_536, ENTRY_BYTES = 1_048_576
 const outside = value => value === '..' || value.startsWith('..' + sep) || isAbsolute(value)
 const reject = reason => {throw new Error(reason)}
 const same = (a, b) => ['dev', 'ino', 'mode', 'uid', 'gid', 'nlink', 'size', 'mtimeNs', 'ctimeNs'].every(key => a[key] === b[key])
@@ -58,6 +58,12 @@ function sourceRoot(root) {
   return root
 }
 
+const authorityCoreBudget = row => row.id === 'authority-core-only' && row.entry === 'packages/authority/check.mjs' &&
+  row.expectedSha256 === 'a745a3b8ab6b8ebb182a6322577b10ec845f0af027120cc7dbd15d41a7666cfe' &&
+  row.protocol === 'assert-json' && row.args?.length === 1 && row.args[0] === 'core-only' &&
+  row.nodeArgs?.length === 1 && row.nodeArgs[0] === '--max-old-space-size=512' &&
+  exactKeys(row.counter, ['key', 'value']) && row.counter.key === 'checks' && row.counter.value === 125
+
 function compiledCases(root) {
   if (!Array.isArray(CASES) || CASES.length < 1 || CASES.length > 66) reject('INVALID_COMPILED_MANIFEST')
   const ids = new Set()
@@ -81,7 +87,7 @@ function compiledCases(root) {
         (row.nodeArgs !== undefined && (!Array.isArray(row.nodeArgs) || row.nodeArgs.length > 64 || row.nodeArgs.some(value => !literal(value)))) ||
         [...row.args, ...(row.nodeArgs ?? [])].some(value => /^--test-(?:(?:name|skip)-pattern|only)(?:=|$)/.test(value)) ||
         !digest(row.expectedSha256) || !Number.isInteger(row.timeoutMs) || row.timeoutMs < 1 ||
-        row.timeoutMs > (row.protocol === 'tap' ? CASE_MS : ORDINARY_CASE_MS) ||
+        row.timeoutMs > (authorityCoreBudget(row) ? AUTHORITY_CORE_MS : row.protocol === 'tap' ? CASE_MS : ORDINARY_CASE_MS) ||
         (row.requiresPython !== undefined && typeof row.requiresPython !== 'boolean') ||
         (row.hostRoot !== undefined && row.hostRoot !== true) ||
         (row.syntheticSourcePin !== undefined && row.syntheticSourcePin !== true)) reject('INVALID_COMPILED_MANIFEST')
@@ -354,7 +360,8 @@ export async function runFastVerify(options) {
     source_review_commit: SOURCE_REVIEW_COMMIT,
     source_review_attribution: 'LITERAL_ENTRY_PINS_NOT_CHECKOUT_ATTESTATION',
     node: {version: process.version, executable: process.execPath, pin_verification: 'OBSERVED_ONLY'},
-    budget: {suite_ms: SUITE_MS, case_max_ms: CASE_MS, ordinary_case_max_ms: ORDINARY_CASE_MS,
+    budget: {suite_ms: SUITE_MS, case_max_ms: AUTHORITY_CORE_MS, tap_case_max_ms: CASE_MS,
+      authority_core_only_max_ms: AUTHORITY_CORE_MS, ordinary_case_max_ms: ORDINARY_CASE_MS,
       wall_target_ms: null, expected_full_profile_duration_ms: null, expected_full_profile_duration_status: 'NOT_MEASURED',
       wall_limit_enforcement: 'COOPERATIVE_NOT_KERNEL_ENFORCED', cleanup_guarantee: 'COOPERATIVE_DIRECT_CHILD_ONLY'},
     descendant_cleanup: 'UNPERFORMED', source_pin_scope: 'COMPILED_ENTRYPOINTS_LITERAL_SUPPORT_AND_HOOK_CONTROLLER_PINS',

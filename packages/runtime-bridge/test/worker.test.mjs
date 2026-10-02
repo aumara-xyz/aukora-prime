@@ -68,8 +68,20 @@ test('actual separate C/D worker processes preserve real passkey + locked observ
     const ui=createPrimeTransport({authority:adapters.authority,contracts,passkeySigner:({public_key})=>fixture.assertion(public_key.challenge)})
     await ui.login({owner_id:fixture.identity.owner_id})
     const draft={extraction_json:JSON.stringify({category:'fact',statement:'banana',validFrom:'2026-10-01',observedAt:at,confidence:0.7,sensitivity:'none'}),idempotency_key:'worker-synthetic-save'}
+    // Expected review fields come from the fixed capture and original event,
+    // independently of the worker's returned operation or capture hashes.
+    const expectedMetadata={profile:'prime-pilot-memory-capture/v1',category:'fact',valid_from:at.slice(0,10),
+      observed_at:at,confidence_percent:70,sensitivity:'none'}
+    const expectedCapture={statement:JSON.parse(draft.extraction_json).statement,attributed_to:host.attributedTo,
+      capture_metadata:expectedMetadata,evidence_quote:JSON.parse(event.toString('utf8')).text}
     const proposed=await adapters.memory.proposeSave(draft);assert.equal(proposed.ok,true,JSON.stringify(proposed))
-    assert.deepEqual(proposed.memory_capture,{statement:'banana',attributed_to:'owner'})
+    assert.deepEqual(proposed.memory_capture,expectedCapture)
+    assert.deepEqual(Object.keys(proposed.memory_capture).sort(),['attributed_to','capture_metadata','evidence_quote','statement'])
+    assert.deepEqual(Object.keys(proposed.operation.canonical_parameters).sort(),['attributed_to','capture_metadata','capture_sha256','evidence_quote','heads','idempotency_key_sha256','statement'])
+    assert.deepEqual(proposed.capture_metadata,expectedMetadata)
+    assert.deepEqual(proposed.operation.canonical_parameters.capture_metadata,expectedMetadata)
+    assert.equal(proposed.operation.canonical_parameters.evidence_quote,expectedCapture.evidence_quote)
+    assert.notEqual(expectedCapture.evidence_quote,expectedCapture.statement)
     const approved=await ui.approve(await ui.prepareApproval(proposed.operation,{memoryCapture:proposed.memory_capture}))
     const saved=await adapters.memory.save({...draft,operation:proposed.operation,approval_proof:approved.approval_proof})
     assert.equal(saved.ok,true,JSON.stringify(saved));assert.equal(saved.authority_settlement,'completed');assert.equal(saved.record.storage_status,'saved');assert.equal(saved.record.index_status,'pending')

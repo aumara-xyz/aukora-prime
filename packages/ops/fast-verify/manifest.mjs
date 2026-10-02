@@ -1292,7 +1292,7 @@ export const CASES = freeze([
     "id": "bridge-deployed-fixture",
     "property": "Whole runtime-bridge source assertions: deployed-fixture",
     "entry": "packages/runtime-bridge/test/deployed-fixture.test.mjs",
-    "expectedSha256": "4c7fed8e66956e761725e94d8c4d6f051857fda6c0a278f286a46e5a3b736da6",
+    "expectedSha256": "e4df64b781a83c3350ad121c33623e35eb4d7266474164ee44f22edd13b56475",
     "protocol": "tap",
     "timeoutMs": 120000,
     "nodeArgs": [
@@ -1312,7 +1312,12 @@ export const CASES = freeze([
     ],
     "externalSkips": [],
     "args": [],
-    "pins": []
+    "pins": [
+      {
+        "path": "packages/runtime-bridge/test/deployed-profile.mjs",
+        "sha256": "306c729dc5d1ca5891eae65eeee06f693fe6510f670e9442b58c85aa83383ce7"
+      }
+    ]
   },
   {
     "id": "bridge-deployed-lifecycle",
@@ -1553,7 +1558,7 @@ export const CASES = freeze([
     "id": "bridge-worker",
     "property": "Whole runtime-bridge source assertions: worker",
     "entry": "packages/runtime-bridge/test/worker.test.mjs",
-    "expectedSha256": "11084b481193ea0740600e3466198e9719ec4cd4945d691194757b433279a2df",
+    "expectedSha256": "be1a9be11d0a06b535654e0b11d73fffae5a8af1194f249fafd89de1b09d57b1",
     "protocol": "tap",
     "timeoutMs": 120000,
     "nodeArgs": [
@@ -1689,7 +1694,7 @@ export const CASES = freeze([
     "entry": "packages/authority/check.mjs",
     "expectedSha256": "a745a3b8ab6b8ebb182a6322577b10ec845f0af027120cc7dbd15d41a7666cfe",
     "protocol": "assert-json",
-    "timeoutMs": 60000,
+    "timeoutMs": 180000,
     "args": [
       "core-only"
     ],

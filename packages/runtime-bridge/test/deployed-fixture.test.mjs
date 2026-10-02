@@ -250,7 +250,21 @@ async function reviewFixture(t){
 
 test('controller refuses changed D capture, idempotency, task, target, heads and attribution before signing',async t=>{
   const f=await reviewFixture(t)
+  const s=scenario(f.profile,'primary'),event=s.host.events.find(bytes=>sha(bytes)===s.host.source.sha256)
+  assert.ok(event)
+  const metadata={profile:'prime-pilot-memory-capture/v1',category:'fact',valid_from:f.profile.at.slice(0,10),
+    observed_at:f.profile.at,confidence_percent:70,sensitivity:'none'}
+  const independentDraft={statement:s.extraction.statement,attributed_to:s.host.attributedTo,capture_metadata:metadata,
+    evidence_quote:parseOriginal(Buffer.from(event)).text}
+  assert.deepEqual(Object.keys(f.reviewed.memory_capture).sort(),['attributed_to','capture_metadata','evidence_quote','statement'])
+  assert.deepEqual(Object.keys(f.reviewed.operation.canonical_parameters).sort(),['attributed_to','capture_metadata','capture_sha256','evidence_quote','heads','idempotency_key_sha256','statement'])
+  assert.deepEqual(Object.keys(f.reviewed.memory_capture.capture_metadata).sort(),['category','confidence_percent','observed_at','profile','sensitivity','valid_from'])
+  assert.deepEqual(f.reviewed.memory_capture,independentDraft)
+  const parameters=f.reviewed.operation.canonical_parameters
+  assert.deepEqual({statement:parameters.statement,attributed_to:parameters.attributed_to,
+    capture_metadata:parameters.capture_metadata,evidence_quote:parameters.evidence_quote},independentDraft)
   await refuse(f.signing.handle(f.approval),'NO_ARBITRARY_SIGNING_OR_REPLAY')
+  const changedMetadata={...metadata,observed_at:'2026-10-02T11:03:00Z',valid_from:'2026-10-02'}
   const changes=[
     op=>{op.canonical_parameters.capture_sha256='f'.repeat(64)},
     op=>{op.canonical_parameters.idempotency_key_sha256='e'.repeat(64)},
@@ -259,12 +273,19 @@ test('controller refuses changed D capture, idempotency, task, target, heads and
     op=>{op.canonical_parameters.heads={remembered:'d'.repeat(64)}},
     op=>{op.canonical_parameters.attributed_to='agent'},
     op=>{op.canonical_parameters.statement='Different reviewed text.'},
+    op=>{op.canonical_parameters.evidence_quote='Different selected source quote.'},
+    op=>{op.canonical_parameters.capture_metadata=clone(changedMetadata)},
     op=>{op.expected_state_version='sha256:'+'c'.repeat(64)},
     op=>{op.provider_and_region={provider:'untrusted',region:'elsewhere'}},
   ]
   for(const change of changes){
     const payload=clone(f.reviewed);change(payload.operation)
     await refuse(f.signing.handle(payload))
+    assert.equal(f.snapshots.length,1);assert.equal((await f.readSigner()).owners.primary.counter,1)
+  }
+  for(const changed of [{evidence_quote:'Different selected source quote.'},{capture_metadata:changedMetadata}]){
+    const payload=clone(f.reviewed);payload.memory_capture={...payload.memory_capture,...clone(changed)}
+    await refuse(f.signing.handle(payload),'EXACT_FIXTURE_DRAFT_REQUIRED')
     assert.equal(f.snapshots.length,1);assert.equal((await f.readSigner()).owners.primary.counter,1)
   }
   assert.deepEqual(await f.signing.handle(f.reviewed),{type:'reviewed',operation_digest:contracts.operationDigest(f.reviewed.operation)})

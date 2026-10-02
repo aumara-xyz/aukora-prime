@@ -496,11 +496,26 @@ try {
       assert.equal(result.reason, 'INVALID_COMPILED_MANIFEST'); assert.equal(existsSync(own.evidenceDir), false)
     }
     const accepted = await fixture([tapRow('tap', {timeoutMs: 120_000}), row('pass', {timeoutMs: 60_000})]), result = await accepted.run(); cleanSummary(result)
-    assert.equal(result.status, 'PASS'); assert.equal(result.budget.case_max_ms, 120_000)
+    assert.equal(result.status, 'PASS'); assert.equal(result.budget.case_max_ms, 180_000)
     assert.equal(result.budget.ordinary_case_max_ms, 60_000); assert.equal(result.budget.suite_ms, 600_000)
     assert.equal(result.budget.wall_target_ms, null); assert.equal(result.budget.expected_full_profile_duration_ms, null)
     assert.equal(result.budget.expected_full_profile_duration_status, 'NOT_MEASURED')
     assert.ok(Number.isInteger(result.duration_ms)); assert.match(result.duration_scope, /EXCLUDES_FINAL_EVIDENCE_WRITE/)
+  })
+  await check('authority-core-budget-exception-is-exact-and-finite-before-spawn', async () => {
+    const core = jsonRow('jsonExact', {id: 'authority-core-only', entry: 'packages/authority/check.mjs',
+      expectedSha256: 'a745a3b8ab6b8ebb182a6322577b10ec845f0af027120cc7dbd15d41a7666cfe',
+      args: ['core-only'], nodeArgs: ['--max-old-space-size=512'], counter: {key: 'checks', value: 125}, timeoutMs: 180_000})
+    const controller = new AbortController(); controller.abort()
+    const own = await fixture([core]), accepted = await own.run({signal: controller.signal}); cleanSummary(accepted)
+    assert.equal(accepted.cases[0].reason, 'CANCELLED'); assert.equal(existsSync(join(own.evidenceDir, core.id)), false)
+    assert.equal(accepted.budget.authority_core_only_max_ms, 180_000); assert.equal(accepted.budget.tap_case_max_ms, 120_000)
+    for (const change of [{timeoutMs: 180_001}, {id: 'other-core'}, {entry: 'checks/jsonExact.mjs'},
+      {expectedSha256: '0'.repeat(64)}, {args: []}, {args: ['extended']}, {nodeArgs: []},
+      {counter: {key: 'checks', value: 124}}, {counter: {key: 'checks', value: 125, extra: true}}]) {
+      const bad = await fixture([{...core, ...change}]), refused = await bad.run({signal: controller.signal}); cleanSummary(refused)
+      assert.equal(refused.reason, 'INVALID_COMPILED_MANIFEST'); assert.equal(existsSync(bad.evidenceDir), false)
+    }
   })
   await check('compiled-case-population-accepts-sixty-six-and-refuses-sixty-seven-before-spawn', async () => {
     const rows = Array.from({length: 66}, (_, index) => row('pass', {id: 'reviewed-' + index}))

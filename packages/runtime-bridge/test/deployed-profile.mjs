@@ -57,7 +57,13 @@ export function scenario(profile,owner){
   const bytes=Buffer.from(JSON.stringify({type:'turn',text:statement,seq:0,at:profile.at})+'\n')
   const host={owner_id:registered.owner_id,owner_subject:registered.owner_subject,task_id:registered.task_id,privacy:'local',scope:'owner',attributedTo:'owner',source:{sessionId:'synthetic-worker-session:'+profile.fixture.run_id+':'+owner,seq:0,at:profile.at,sha256:sha(bytes)},events:[bytes]}
   const extraction={category:'fact',statement,validFrom:profile.at.slice(0,10),observedAt:profile.at,confidence:0.7,sensitivity:'none'}
-  return {host,extraction,extraction_json:JSON.stringify(extraction),idempotency_key:'synthetic-worker-save:'+profile.fixture.run_id+':'+owner,memory_capture:{statement,attributed_to:'owner'}}
+  // Independent expected review: original extraction, trusted attribution and
+  // the full parsed source event. No proposed parameter supplies these values.
+  const capture_metadata={profile:'prime-pilot-memory-capture/v1',category:'fact',valid_from:extraction.validFrom,
+    observed_at:extraction.observedAt,confidence_percent:70,sensitivity:'none'}
+  const memory_capture={statement:extraction.statement,attributed_to:host.attributedTo,capture_metadata,
+    evidence_quote:contracts.parseStrictJson(bytes.toString('utf8')).text}
+  return {host,extraction,extraction_json:JSON.stringify(extraction),idempotency_key:'synthetic-worker-save:'+profile.fixture.run_id+':'+owner,memory_capture}
 }
 export function registryEntries(profile){return ['primary','secondary'].map(owner=>({task:{version:1,task_id:profile.fixture.owners[owner].task_id,owner_id:profile.fixture.owners[owner].owner_id,agent_id:'synthetic-agent',conversation_id:profile.fixture.owners[owner].conversation_id,status:'running',created_at:profile.at,route_id:null,allowed_data_classes:['synthetic'],max_input_tokens:100,max_output_tokens:100,max_requests:5,task_spend_ceiling:{currency:'USD',amount:'0'}},provider_and_region:{provider:'local',region:'local'},audience:'aukora-prime.memory',policy_version:'synthetic-policy:'+profile.fixture.run_id,data_scope:['synthetic']}))}
 export function fixturePaths(profile){const run=profile.fixture.run_id;return {authoritySocket:'/run/aukora-prime/acceptance-'+run+'/authority/authority.sock',memorySocket:'/run/aukora-prime/acceptance-'+run+'/memory/memory.sock',stateRoot:'/var/lib/aukora-prime/authority/acceptance-'+run,witnessDir:'/var/lib/aukora-prime-witness/pilot/acceptance-'+run,actorWitness:'/var/lib/aukora-prime/app/acceptance-'+run+'/witness.json'}}
@@ -83,7 +89,8 @@ export async function validateReview(profile,owner,operation,memory_capture){
   const s=scenario(profile,owner);contracts.validateContract('OperationProposal',operation)
   validateCaptureReview(operation.canonical_parameters,s.memory_capture);must(contracts.canonicalJson(memory_capture)===contracts.canonicalJson(s.memory_capture),'EXACT_FIXTURE_DRAFT_REQUIRED')
   const registry=createTrustedTaskRegistry(registryEntries(profile)),expected=(await dFixture()).expectedWorkerCaptureDigests({config:profile.postgres,fixture:profile.fixture,owner,host:s.host,extraction:s.extraction,idempotencyKey:s.idempotency_key})
-  must(registry.authorizeTask(operation).authenticated===true&&operation.action_type==='memory.save'&&operation.authorization_epoch===0&&contracts.canonicalJson(operation.target_identity)===contracts.canonicalJson({kind:'prime-memory',owner_subject:s.host.owner_subject})&&operation.expected_state_version===memoryStateVersion({})&&contracts.canonicalJson(operation.canonical_parameters)===contracts.canonicalJson({...expected,heads:{}})&&contracts.canonicalJson(operation.maximum_cost)===contracts.canonicalJson({currency:'USD',amount:'0'})&&Date.parse(operation.expiry)>Date.now()&&Date.parse(operation.expiry)<=Date.now()+121000,'EXACT_FRESH_FIXTURE_CAPTURE_REQUIRED')
+  const expectedParameters={capture_sha256:expected.capture_sha256,idempotency_key_sha256:expected.idempotency_key_sha256,heads:{},...s.memory_capture}
+  must(expected.statement===s.memory_capture.statement&&expected.attributed_to===s.memory_capture.attributed_to&&registry.authorizeTask(operation).authenticated===true&&operation.action_type==='memory.save'&&operation.authorization_epoch===0&&contracts.canonicalJson(operation.target_identity)===contracts.canonicalJson({kind:'prime-memory',owner_subject:s.host.owner_subject})&&operation.expected_state_version===memoryStateVersion({})&&contracts.canonicalJson(operation.canonical_parameters)===contracts.canonicalJson(expectedParameters)&&contracts.canonicalJson(operation.maximum_cost)===contracts.canonicalJson({currency:'USD',amount:'0'})&&Date.parse(operation.expiry)>Date.now()&&Date.parse(operation.expiry)<=Date.now()+121000,'EXACT_FRESH_FIXTURE_CAPTURE_REQUIRED')
   return copy(operation)
 }
 export function validateSigner(signer,profile){
