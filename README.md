@@ -74,7 +74,7 @@ At this integration checkpoint:
 - Threads needs an actually available read-only workspace host or an explicit unavailable state. UI appearance alone does not establish the host path.
 - A genuine v3 owner build is recorded, but new composition, Linux boot and browser observation remain pending. The Apps source has a comment-only privacy adaptation; its donor build input record remains historical and a new Apps build is unperformed. The Models source includes documented DeepSeek metadata; its assembled row and secure credential entry remain unqualified.
 - Protected pilot and SSH acceptance configuration is required and has not been provisioned or qualified for this sanitized source.
-- A private security reporting contact has not yet been confirmed.
+- [GitHub private vulnerability reporting is enabled](SECURITY.md). No separate private email contact or response-time commitment is established.
 
 The live agent is not yet fully contained. Root and identity design still need hardening. Every repair should land with a focused regression and update this list when the integrated command actually passes.
 
@@ -84,7 +84,7 @@ The live agent is not yet fully contained. Root and identity design still need h
 - [Review prompt](SHARE.md)
 - [Architecture and build instructions](docs/ARCHITECTURE.md)
 - [License inventory](licenses/README.md), [AGPL v3 license text](LICENSE), [donor provenance](provenance/donors.json) and [component ledger](provenance/core-ledger.json)
-- [Vulnerability reporting — private contact pending](SECURITY.md)
+- [Report a vulnerability privately](SECURITY.md)
 - [Contributor rules](AGENTS.md)
 
 First-party source currently declares **AGPL-3.0-or-later**. Third-party code retains its own licenses: DSH is MIT, OpenShell is Apache-2.0, and vendored dependencies keep their notices. See the inventory for the specific closure and its gaps.
