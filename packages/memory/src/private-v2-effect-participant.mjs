@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Explicit source-only ordinary save/forget participant. Existing C permits stay byte-profile v1.
+// Explicit source-only retained effect participant. Existing C permits stay byte-profile v1.
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { types } from 'node:util'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { MemoryRefusal, parseOriginal, requireMemory, sha256 } from './codecs.mjs'
-import { MEMORY_AUDIENCE, memoryTarget, memoryEffectDigest, memoryReceiptDigest, memoryResultDigest } from './authorization.mjs'
+import { MEMORY_AUDIENCE, memoryTarget, memoryStateVersion, memoryEffectDigest, memoryReceiptDigest, memoryResultDigest } from './authorization.mjs'
 import { isMemoryOwnerSerializer } from './owner-serialization.mjs'
 import { isPrivateV2Coordinator, privateV2Fields, privateV2Detach } from './private-v2-coordinator.mjs'
-import { assertPrivateHost, assertPrivateProfile, readControlV3, decodeControlV3,
+import { assertPrivateHost, assertPrivateProfile, assertEffectReference, assertRestoreEffectParameters, readControlV3, decodeControlV3,
   effectTransitionDigest } from './private-v2-control.mjs'
-import { assertForwardControlV3 } from './private-v2-advance.mjs'
+import { assertForwardControlV3, assertRestoreEffectAdvance } from './private-v2-advance.mjs'
 import { requirePrivateV2Guards } from './private-v2-guards.mjs'
+import { inspectPrivateV2ColdBundle } from './private-v2-restore.mjs'
+import { createPrivateV2RecordAccess } from './private-v2-records.mjs'
 
 const controllers = new WeakSet()
+const ownerClients = new WeakMap()
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const DIGEST = /^sha256:[0-9a-f]{64}$/
 const check = (ok, reason) => requireMemory(ok, 'memory:private-v2-effect-' + reason)
@@ -23,6 +26,20 @@ const referenceOf = op => ({owner_id:op.owner_id,owner_subject:op.target_identit
 const markerDigest = marker => sha256(Buffer.from('aukora-prime.memory-retention-marker.v2\0' + canonicalJSON(marker)))
 const grantDigest = grant => 'sha256:' + sha256(Buffer.from('aukora-prime.consumed-grant.v1\0' + canonicalJSON(grant)))
 export const isPrivateV2EffectController = value => controllers.has(value)
+
+// No caller can register a client. The raw client is usable by the fixed D-owned
+// physical restore algorithms only during this factory's genuine held restore scope.
+export function isPrivateV2EffectOwnerClient(client, host, access = 'read') {
+  if (!host || types.isProxy(host) || !['read','write'].includes(access)) return false
+  const ds = Object.getOwnPropertyDescriptors(host), states = ownerClients.get(client)
+  return Boolean(states && [...states].some(state => state.active && !state.recovered
+    && state.op.action_type === 'memory.restore' && state.restoreBundle !== null
+    && state.scope.client === client
+    && ['owner_id','owner_subject','task_id','authorization_epoch'].every(key => ds[key]
+      && Object.hasOwn(ds[key],'value') && ds[key].value === state.host[key])
+    && (access === 'read' || state.serializer.current() === state.scope && state.phase === 'applied' && state.dispatched
+      && state.context !== null && state.effectPrepared === null)))
+}
 
 export function createPrivateV2EffectController(input) {
   const config = privateV2Fields(input, ['coordinator','serializer','contracts','profile'], 'effect-configuration-required')
@@ -34,11 +51,12 @@ export function createPrivateV2EffectController(input) {
   const ds = Object.getOwnPropertyDescriptors(config.contracts), keys = ['validateContract','operationDigest','canonicalJson']
   check(keys.every(key => ds[key] && Object.hasOwn(ds[key],'value') && typeof ds[key].value === 'function'), 'contracts-required')
   const contracts = Object.freeze(Object.fromEntries(keys.map(key => [key,ds[key].value.bind(config.contracts)])))
+  const records = createPrivateV2RecordAccess({})
   const storage = new AsyncLocalStorage(), ownerLifetimes = new AsyncLocalStorage(), active = new Map()
   function operation(inputOperation) {
     const op = privateV2Detach(inputOperation)
     try {contracts.validateContract('OperationProposal',op)} catch {check(false,'operation-invalid')}
-    check(['memory.save','memory.forget'].includes(op.action_type) && op.audience === MEMORY_AUDIENCE
+    check(['memory.save','memory.forget','memory.restore'].includes(op.action_type) && op.audience === MEMORY_AUDIENCE
       && same(op.target_identity,memoryTarget(op.target_identity?.owner_subject)), 'operation-profile-invalid')
     const digest = contracts.operationDigest(op)
     check(typeof digest === 'string' && DIGEST.test(digest), 'operation-digest-invalid')
@@ -52,8 +70,17 @@ export function createPrivateV2EffectController(input) {
       && same(bound.op.target_identity,memoryTarget(host.owner_subject)), 'operation-host-mismatch')
     check(typeof r.request_id === 'string' && UUID.test(r.request_id)
       && typeof r.request_digest === 'string' && DIGEST.test(r.request_digest), 'request-binding-invalid')
-    const reference = {...referenceOf(bound.op),operation_digest:bound.digest}
+    check(r.request_digest === memoryEffectDigest({version:1,action_type:bound.op.action_type,owner_subject:host.owner_subject,
+      operation_id:bound.op.operation_id,operation_digest:bound.digest,parameters:bound.op.canonical_parameters}),
+    'request-digest-mismatch')
+    const reference = assertEffectReference({...referenceOf(bound.op),operation_digest:bound.digest},host)
+    if (bound.op.action_type === 'memory.restore') restoreParameters(bound.op)
     return {...bound,host,reference:privateV2Detach(reference),request_id:r.request_id,request_digest:r.request_digest}
+  }
+  function restoreParameters(op) {
+    const params = assertRestoreEffectParameters(op.canonical_parameters)
+    check(params.retention_epoch === op.authorization_epoch, 'restore-parameters-invalid')
+    return params
   }
   function current() {
     const state = storage.getStore()
@@ -85,6 +112,11 @@ export function createPrivateV2EffectController(input) {
   const decoded = (control, state) => decodeControlV3(control,state.host,{profile,contracts})
   function eligible(control, state) {
     const tables = decoded(control,state).tables
+    if (state.op.action_type === 'memory.restore') {
+      check(!['runtime_workflows','workflow_closure_progress','unsent_closures','replay_fences']
+        .some(name => tables[name].some(row => row.operation_id === state.op.operation_id)), 'restore-operation-fenced')
+      return tables
+    }
     const workflow = tables.runtime_workflows.find(row => row.operation_id === state.op.operation_id)
     check(workflow && Object.entries(state.reference).every(([key,value]) => workflow[key] === value)
       && workflow.phase === 'attempted', 'retained-attempted-workflow-required')
@@ -113,7 +145,7 @@ export function createPrivateV2EffectController(input) {
       'intent-request-fields-invalid')
     check(req.version === 1 && memoryEffectDigest(req) === state.request_digest && req.owner_subject === state.host.owner_subject
       && req.operation_id === state.op.operation_id && req.operation_digest === state.digest
-      && req.action_type === state.op.action_type, 'intent-request-mismatch')
+      && req.action_type === state.op.action_type && same(req.parameters,state.op.canonical_parameters), 'intent-request-mismatch')
     return {row,grant:storedGrant,tables}
   }
   function effect(control, state, supplied) {
@@ -140,6 +172,37 @@ export function createPrivateV2EffectController(input) {
       reference:state.reference,authorization_epoch:state.host.authorization_epoch,operation:state.op,
       request_id:state.request_id,request_digest:state.request_digest,phase,expected_checkpoint_sha256:checkpoint})
   }
+  function restoreFacts(control, state, protectedState) {
+    check(state.op.action_type === 'memory.restore' && !state.recovered && state.restoreBundle !== null,
+      'restore-bundle-required')
+    const {current:anchor,lineage} = protectedState, params = restoreParameters(state.op)
+    const checked = inspectPrivateV2ColdBundle(state.restoreBundle,state.host,{profile,contracts})
+    check(same(checked.published_lineage,lineage) && same(checked.published_lineage[0],anchor),
+      'restore-protected-bundle-mismatch')
+    const local = decoded(control,state), retained = decoded(anchor.control_state,state)
+    check(params.manifest_sha256 === checked.bundle.snapshot.manifest_sha256
+      && params.retention_checkpoint_sha256 === anchor.checkpoint_sha256
+      && params.control_anchor_sha256 === anchor.control_state.control_sha256
+      && params.retention_epoch === anchor.authorization_epoch
+      && same(params.heads,checked.bundle.snapshot.heads) && same(params.retained_heads,retained.heads)
+      && state.op.expected_state_version === memoryStateVersion(local.heads), 'restore-reviewed-binding-mismatch')
+    const at = lineage.findIndex(envelope => same(envelope.control_state,control))
+    check(at >= 0, 'restore-local-ancestor-required')
+    // The reviewed fixed journal adapter performs ordinary monotone per-edge CAS.
+    // A protected exceptional restore edge may be valid history, yet unsupported
+    // by that adapter. Refuse the actual chronological interval BEFORE C consumes;
+    // never skip an edge or supply archive ancestry to weaken this compatibility check.
+    for (let n = at; n > 0; --n) assertForwardControlV3(lineage[n].control_state,
+      lineage[n - 1].control_state,state.host,{profile,contracts})
+    for (const envelope of lineage) {
+      const tables = eligible(envelope.control_state,state)
+      check(!['intents','effects','replay_fences'].some(name => tables[name].some(row =>
+        row.operation_id === state.op.operation_id || row.request_id === state.request_id)), 'restore-durable-operation-present')
+    }
+    return {anchor,localControl:control,lineage:privateV2Detach(lineage),
+      ancestry:privateV2Detach(lineage.slice(0,at + 1).reverse().map(envelope => envelope.control_state)),
+      snapshot:privateV2Detach(checked.bundle.snapshot),retained}
+  }
   async function start(state, phase, control, predecessor) {
     await session(state)
     const body = transition(state,phase,predecessor.checkpoint_sha256), transition_id = randomUUID()
@@ -164,12 +227,28 @@ export function createPrivateV2EffectController(input) {
   }
   async function prepare(inputPrepare) {
     const r = privateV2Fields(inputPrepare,['operation'],'prepare-fields-invalid'), state = stateFor(r.operation)
-    check(!state.prepareCalled && state.context === null, 'prepare-already-attempted')
+    check(!state.recovered && !state.prepareCalled && state.context === null, 'prepare-already-attempted')
     state.prepareCalled = true
     const control = await read(state.scope.client,state), tables = eligible(control,state)
     check(!tables.intents.some(row => row.operation_id === state.op.operation_id)
       && !tables.effects.some(row => row.operation_id === state.op.operation_id), 'durable-operation-present')
-    const predecessor = await coordinator.readVerifiedCurrent(state.host,control)
+    let predecessor
+    if (state.op.action_type === 'memory.restore') {
+      const protectedState = await coordinator.readVerifiedRestoreCurrent(state.host,control)
+      const factual = restoreFacts(control,state,protectedState)
+      // Fixed owned SQL checks actual local physical records against the signed full
+      // snapshot and protected anchor BEFORE C receives a prepare permit or consumes.
+      await records.preflight(state.scope.client,state.host,factual.snapshot,factual.retained)
+      const reread = await read(state.scope.client,state)
+      check(same(reread,control), 'restore-preflight-state-changed')
+      const protectedAgain = await coordinator.readVerifiedRestoreCurrent(state.host,reread)
+      check(same(protectedAgain,protectedState), 'restore-preflight-publication-changed')
+      state.restoreLocalControl = factual.localControl
+      state.restorePublishedLineage = factual.lineage
+      state.restoreAncestry = factual.ancestry
+      state.restoreSnapshot = factual.snapshot
+      predecessor = factual.anchor
+    } else predecessor = await coordinator.readVerifiedCurrent(state.host,control)
     state.original = predecessor
     await start(state,'intent',control,predecessor)
     return permit(state,'prepare',await session(state),predecessor,state.marker)
@@ -215,6 +294,58 @@ export function createPrivateV2EffectController(input) {
     state.effectPrepared = await coordinator.prepareTyped(state.context,candidate)
     return state.effectPrepared
   }
+  async function restoreEvidence(client) {
+    const state = current()
+    check(state.op.action_type === 'memory.restore' && !state.recovered && state.restoreBundle !== null,
+      'restore-bundle-required')
+    const actual = await read(client,state)
+    let facts
+    if (state.original === null) {
+      check(state.context === null && !state.prepareCalled, 'restore-evidence-context-invalid')
+      facts = restoreFacts(actual,state,await coordinator.readVerifiedRestoreCurrent(state.host,actual))
+      await records.preflight(client,state.host,facts.snapshot,facts.retained)
+      check(same(await read(client,state),actual), 'restore-preflight-state-changed')
+    } else {
+      check(state.context && ['intent','applied'].includes(state.phase) && state.restoreLocalControl !== null
+        && state.restorePublishedLineage !== null && same(state.restorePublishedLineage[0],state.original),
+      'restore-evidence-context-invalid')
+      const pending = await coordinator.reader.readPending({host:state.host,
+        transition_id:state.context.request.transition_id,transition_digest:state.context.request.transition_digest})
+      const expected = state.phase === 'intent' ? state.original : state.intentCheckpoint
+      check(pending.prepared === null && same(pending.current,expected) && same(pending.predecessor,expected)
+        && same(pending.marker,state.marker) && same(pending.marker.transition,state.context.request.transition),
+      'restore-evidence-pending-mismatch')
+      if (state.phase === 'intent') check(same(actual,state.restoreLocalControl), 'restore-evidence-local-changed')
+      else {
+        check(state.intentCheckpoint !== null && same(actual,state.intentCheckpoint.control_state)
+          && state.intentCheckpoint.previous_checkpoint_sha256 === state.original.checkpoint_sha256,
+        'restore-evidence-intent-changed')
+        intent(actual,state,state.grant)
+        assertRestoreEffectAdvance(state.original.control_state,actual,state.host,{profile,contracts,
+          transition:transition(state,'intent',state.original.checkpoint_sha256),
+          published_ancestry:state.restorePublishedLineage})
+      }
+      facts = {anchor:state.original,localControl:state.restoreLocalControl,ancestry:state.restoreAncestry,
+        snapshot:state.restoreSnapshot}
+    }
+    return privateV2Detach({anchor:facts.anchor,localControl:facts.localControl,ancestry:facts.ancestry,
+      snapshot:facts.snapshot,operation:state.op})
+  }
+  async function restoreIntent(client) {
+    const state = current()
+    check(state.op.action_type === 'memory.restore' && state.phase === 'applied' && state.dispatched
+      && state.effectPrepared === null, 'restore-intent-context-required')
+    await restoreEvidence(client)
+    const actual = await read(client,state)
+    check(same(actual,state.intentCheckpoint.control_state), 'restore-evidence-intent-changed')
+    intent(actual,state,state.grant)
+    // A portable copy of the ACTUAL I row is evidence for preserving X. It is not
+    // a target control projection or a caller-provided instruction to omit a row.
+    return privateV2Detach(actual.tables.intents.find(row => row.operation_id === state.op.operation_id))
+  }
+  const verifiedEffectCurrent = (state,control) => state.op.action_type === 'memory.restore'
+    ? coordinator.readVerifiedEffectCurrent(state.host,control,state.op)
+    : coordinator.readVerifiedCurrent(state.host,control)
   async function archiveLineage(state, control, currentEnvelope) {
     const lineage = await coordinator.reader.readPublishedLineage(state.host,{checkpoint_sha256:null})
     check(Array.isArray(lineage) && lineage.length > 0 && same(lineage[0],currentEnvelope), 'published-lineage-required')
@@ -230,7 +361,11 @@ export function createPrivateV2EffectController(input) {
     }
     check(firstIntent >= 0 && firstEffect >= 0 && firstIntent > firstEffect && firstIntent + 1 < lineage.length,
       'first-effect-lineage-missing')
-    const I = lineage[firstIntent], E = lineage[firstEffect], P = lineage[firstIntent + 1]
+    const I = lineage[firstIntent], E = lineage[firstEffect]
+    const P = state.op.action_type === 'memory.restore'
+      ? lineage.find(envelope => envelope.checkpoint_sha256 === restoreParameters(state.op).retention_checkpoint_sha256)
+      : lineage[firstIntent + 1]
+    check(P && same(P,lineage[firstIntent + 1]), 'effect-original-checkpoint-missing')
     check(I.previous_checkpoint_sha256 === P.checkpoint_sha256 && I.sequence === P.sequence + 1
       && E.previous_checkpoint_sha256 === I.checkpoint_sha256 && E.sequence === I.sequence + 1,
     'effect-lineage-adjacency-invalid')
@@ -238,8 +373,15 @@ export function createPrivateV2EffectController(input) {
     check(!originalTables.intents.some(row => row.operation_id === state.op.operation_id)
       && !originalTables.effects.some(row => row.operation_id === state.op.operation_id), 'intent-predecessor-not-absent')
     const intentBody = transition(state,'intent',P.checkpoint_sha256), appliedBody = transition(state,'applied',I.checkpoint_sha256)
-    assertForwardControlV3(P.control_state,I.control_state,state.host,{profile,contracts,transition:intentBody})
-    assertForwardControlV3(I.control_state,E.control_state,state.host,{profile,contracts,transition:appliedBody})
+    if (state.op.action_type === 'memory.restore') {
+      assertRestoreEffectAdvance(P.control_state,I.control_state,state.host,{profile,contracts,
+        transition:intentBody,published_ancestry:lineage.slice(firstIntent + 1)})
+      assertRestoreEffectAdvance(I.control_state,E.control_state,state.host,{profile,contracts,
+        transition:appliedBody,published_ancestry:lineage.slice(firstIntent)})
+    } else {
+      assertForwardControlV3(P.control_state,I.control_state,state.host,{profile,contracts,transition:intentBody})
+      assertForwardControlV3(I.control_state,E.control_state,state.host,{profile,contracts,transition:appliedBody})
+    }
     effect(control,state)
     return {P,I,E}
   }
@@ -268,7 +410,7 @@ export function createPrivateV2EffectController(input) {
       state.context = null
     } else {
       await recoverApplied(client,state,actual)
-      envelope = await coordinator.readVerifiedCurrent(state.host,actual)
+      envelope = await verifiedEffectCurrent(state,actual)
       const archived = await archiveLineage(state,actual,envelope)
       state.original = archived.P; state.intentCheckpoint = archived.I; state.effectPrepared = archived.E
     }
@@ -282,7 +424,7 @@ export function createPrivateV2EffectController(input) {
     const actual = await read(state.scope.client,state), factual = effect(actual,state)
     state.effectObserved = true
     check(same(factual.grant,grant) && same(factual.receipt,privateV2Detach(r.receipt)), 'settle-factual-receipt-mismatch')
-    const retained = await coordinator.readVerifiedCurrent(state.host,actual)
+    const retained = await verifiedEffectCurrent(state,actual)
     const archived = await archiveLineage(state,actual,retained)
     state.original = archived.P; state.intentCheckpoint = archived.I
     return permit(state,'settle',await session(state),retained,null,grant,factual.receipt)
@@ -297,6 +439,11 @@ export function createPrivateV2EffectController(input) {
     await requirePrivateV2Guards(client,{owner_subject:host.owner_subject,owner_id:host.owner_id,
       expected_store_id:profile.expected_memory_store_id,profile})
     const actual = privateV2Detach(await readControlV3(client,{owner_subject:host.owner_subject,owner_id:host.owner_id,profile},{contracts}))
+    if (state?.active && state.op.action_type === 'memory.restore') {
+      if (state.recovered || state.intentCheckpoint !== null || decoded(actual,state).tables.intents
+        .some(row => row.operation_id === state.op.operation_id)) return verifiedEffectCurrent(state,actual)
+      return (await coordinator.readVerifiedRestoreCurrent(host,actual)).current
+    }
     return coordinator.readVerifiedCurrent(host,actual)
   }
 
@@ -353,8 +500,8 @@ export function createPrivateV2EffectController(input) {
       } finally {lifetime.active = false}
     })
   }
-  async function runOperation(inputRequest, fn) {
-    const bound = request(inputRequest); check(typeof fn === 'function', 'work-required')
+  async function runBound(bound, fn, {bundle = null,recovered = false} = {}) {
+    check(typeof fn === 'function', 'work-required')
     let state = null
     try {
       return await serializer.run({owner_id:bound.host.owner_id,owner_subject:bound.host.owner_subject,
@@ -362,21 +509,52 @@ export function createPrivateV2EffectController(input) {
         check(!active.has(bound.key), 'operation-already-active')
         const lifetime = ownerLifetimes.getStore()
         if (lifetime) check(lifetime.active && lifetime.scope === scope && same(lifetime.host,bound.host), 'owner-lifetime-inactive')
-        state = {...bound,scope,active:true,context:null,phase:null,original:null,marker:null,grant:null,
+        state = {...bound,scope,serializer,active:true,context:null,phase:null,original:null,marker:null,grant:null,
           ids:new Set(),pendingMayExist:false,lastRequest:null,prepareCalled:false,intentPrepared:null,intentCheckpoint:null,
-          dispatched:false,effectPrepared:null,effectCheckpoint:null,effectObserved:false}
+          dispatched:false,effectPrepared:null,effectCheckpoint:null,effectObserved:false,recovered,
+          restoreBundle:bundle,restoreLocalControl:null,restorePublishedLineage:null,restoreAncestry:null,restoreSnapshot:null}
         if (lifetime) lifetime.states.push(state)
         active.set(bound.key,state)
+        let owned = ownerClients.get(scope.client)
+        if (!owned) {owned = new Set(); ownerClients.set(scope.client,owned)}
+        owned.add(state)
         try {return await storage.run(state,() => fn(scope))}
-        finally {state.active = false; active.delete(bound.key)}
+        finally {
+          state.active = false; active.delete(bound.key); owned.delete(state)
+          if (owned.size === 0) ownerClients.delete(scope.client)
+        }
       })
     } catch (cause) {
       if (uncertainState(state) || ownerSessionFailure(cause)) throw outcomeUnknown(cause,bound.host,state)
       throw cause
     }
   }
+  async function runOperation(inputRequest, fn) {
+    const bound = request(inputRequest)
+    check(bound.op.action_type !== 'memory.restore', 'restore-bundle-required')
+    return runBound(bound,fn)
+  }
+  async function runRestoreOperation(inputRequest, fn) {
+    const supplied = privateV2Fields(inputRequest,['host','operation','request_id','request_digest','bundle'],
+      'restore-request-fields-invalid')
+    const bound = request(Object.fromEntries(['host','operation','request_id','request_digest'].map(key => [key,supplied[key]])))
+    check(bound.op.action_type === 'memory.restore', 'restore-operation-required')
+    const bundle = privateV2Detach(supplied.bundle)
+    // This first byte inspection is deliberately not a publication assertion. prepare
+    // repeats it against the protected reader and actual owner SQL before C consumes.
+    inspectPrivateV2ColdBundle(bundle,bound.host,{profile,contracts})
+    return runBound(bound,fn,{bundle})
+  }
+  async function runRecoveredOperation(inputRequest, fn) {
+    const bound = request(inputRequest)
+    check(bound.op.action_type === 'memory.restore', 'restore-operation-required')
+    // A restart can settle an actual already committed receipt without retaining its
+    // input snapshot. This scope cannot prepare, dispatch, or write physical records.
+    return runBound(bound,fn,{recovered:true})
+  }
   const context = () => {const state = storage.getStore(); return state?.active && serializer.current() === state.scope ? state.context : null}
-  const controller = Object.freeze({participant,runOperation,withOwnerLifetime,context,prepareIntent,completeIntent,prepareEffect,completeEffect,
+  const controller = Object.freeze({participant,runOperation,runRestoreOperation,runRecoveredOperation,restoreEvidence,restoreIntent,
+    withOwnerLifetime,context,prepareIntent,completeIntent,prepareEffect,completeEffect,
     finalizeRecovered:completeEffect,assertCurrent,profile})
   controllers.add(controller)
   return controller

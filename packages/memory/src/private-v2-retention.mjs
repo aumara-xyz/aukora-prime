@@ -13,7 +13,7 @@ import { assertControlV3, assertJournalTransition, journalTransitionDigest,
   assertWorkflowTransition, workflowTransitionDigest, assertNegativeTransition,
   negativeTransitionDigest, assertRestoreTransition, restoreTransitionDigest,
   assertAuthorizedEffectTransition, effectTransitionDigest, detachPrivateData } from './private-v2-control.mjs'
-import { assertForwardControlV3, assertLineageCompletionsV2 } from './private-v2-advance.mjs'
+import { assertForwardControlV3, assertLineageCompletionsV2, assertRestoreEffectAdvance } from './private-v2-advance.mjs'
 
 export const PRIVATE_V2_RETENTION_SCHEMA = 'aukora-prime-memory-retention/v2'
 const POINTER_SCHEMA = 'aukora-prime-memory-retention-current/v2'
@@ -273,8 +273,9 @@ async function publishedLineage(config, host, head) {
     const previous = await generation(config, host, digest, {pastEpoch: true})
     check(previous.sequence + 1 === next.sequence && previous.authorization_epoch <= next.authorization_epoch,
       'lineage-sequence-invalid')
-    assertForwardControlV3(previous.control_state, next.control_state, host,
-      {contracts: config.contracts, profile: config.profile})
+    // Build the COMPLETE authenticated chain before interpreting any control
+    // edge. A restore event may require an older original P from this history;
+    // validating a partial suffix while reading cannot establish that proof.
     bytes += encode(previous).length
     check(bytes <= MAX_BYTES, 'lineage-bytes-limit')
     lineage.push(previous); seen.add(digest)
@@ -498,11 +499,15 @@ function candidateEnvelope(host, predecessor, control_state) {
   check(encode(envelope).length <= MAX_BYTES, 'bytes-limit')
   return envelope
 }
-function purposeAdvance(previous, candidate, marker, host, config) {
+async function purposeAdvance(previous, candidate, marker, host, config, published_ancestry) {
   // The parser verifies full immutable metadata/profile and every original control
   // row, then validates only this closed purpose's target/CAS. No callback flag is
   // accepted as evidence for a candidate or for publication.
-  if (marker.transition.kind === 'prime-memory-control-restore-transition/v3') {
+  if (marker.transition.kind === 'prime-memory-authorized-effect-transition/v3'
+    && marker.transition.operation.action_type === 'memory.restore') {
+    assertRestoreEffectAdvance(previous.control_state, candidate.control_state, host,
+      {contracts: config.contracts, profile: config.profile, transition: marker.transition, published_ancestry})
+  } else if (marker.transition.kind === 'prime-memory-control-restore-transition/v3') {
     // The retained predecessor is the independently published CURRENT restore
     // anchor. The publisher never authenticates a caller's local SQL ancestor or
     // chooses a snapshot. The participant verifies that separate committed
@@ -518,14 +523,17 @@ function purposeAdvance(previous, candidate, marker, host, config) {
 async function pendingFiles(config, host, directory) {
   const source = await pending(config, host), marker = source.marker
   const predecessor = await generation(config, host, marker.transition.expected_checkpoint_sha256, {pastEpoch: true})
+  const retained = await current(config, host, directory, {pastEpoch: true})
+  const published = await publishedLineage(config, host, retained)
+  const previousIndex = published.findIndex(envelope => envelope.checkpoint_sha256 === predecessor.checkpoint_sha256)
+  check(previousIndex >= 0 && encode(published[previousIndex]).equals(encode(predecessor)), 'pending-predecessor-unpublished')
   let prepared = null
   if (marker.prepared_checkpoint_sha256 !== null) {
     prepared = await generation(config, host, marker.prepared_checkpoint_sha256)
     check(prepared.previous_checkpoint_sha256 === predecessor.checkpoint_sha256
       && prepared.sequence === predecessor.sequence + 1, 'prepared-predecessor-invalid')
-    purposeAdvance(predecessor, prepared, marker, host, config)
+    await purposeAdvance(predecessor, prepared, marker, host, config, published.slice(previousIndex))
   }
-  const retained = await current(config, host, directory, {pastEpoch: true})
   check(retained.checkpoint_sha256 === predecessor.checkpoint_sha256
     || prepared !== null && encode(retained).equals(encode(prepared)), 'pending-current-conflict')
   if (source.location === 'cleanup') check(prepared !== null && encode(retained).equals(encode(prepared)),
@@ -534,7 +542,6 @@ async function pendingFiles(config, host, directory) {
     // Prepared bytes establish no publication. This prospective content check
     // nevertheless prevents B from storing an invented completion before SQL
     // COMMIT: every referenced A must already be on the actual published chain.
-    const published = await publishedLineage(config, host, retained)
     assertLineageCompletionsV2([prepared, ...published], host,
       {contracts: config.contracts, profile: config.profile})
   }
@@ -652,11 +659,11 @@ export function createPrivateV2FileRetentionPublisher(input) {
       matchingPending(inspected.marker, fields)
       check(inspected.current.checkpoint_sha256 === fields.transition.expected_checkpoint_sha256, 'checkpoint-conflict')
       const envelope = candidateEnvelope(host, inspected.predecessor, fields.control_state)
-      purposeAdvance(inspected.predecessor, envelope, inspected.marker, host, config)
+      const published = await publishedLineage(config, host, inspected.current)
+      await purposeAdvance(inspected.predecessor, envelope, inspected.marker, host, config, published)
       // Validate the candidate against protected CURRENT ancestry before writing
       // a prepared generation and before the participant's PG COMMIT. The
       // candidate remains unpublished and cannot qualify a factual read.
-      const published = await publishedLineage(config, host, inspected.current)
       assertLineageCompletionsV2([envelope, ...published], host,
         {contracts: config.contracts, profile: config.profile})
       if (inspected.prepared !== null) {

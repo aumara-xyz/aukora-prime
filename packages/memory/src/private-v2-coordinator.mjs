@@ -3,12 +3,12 @@ import { types } from 'node:util'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { MAX_BYTES, parseOriginal, requireMemory, sha256 } from './codecs.mjs'
 import {
-  assertPrivateProfile, assertPrivateHost, assertControlV3, assertJournalTransition,
+  assertPrivateProfile, assertPrivateHost, assertControlV3, decodeControlV3, assertJournalTransition,
   assertWorkflowTransition, assertNegativeTransition, assertRestoreTransition,
   journalTransitionDigest, workflowTransitionDigest, negativeTransitionDigest, restoreTransitionDigest,
-  assertAuthorizedEffectTransition, effectTransitionDigest,
+  assertAuthorizedEffectTransition, effectTransitionDigest, assertRestoreEffectParameters,
 } from './private-v2-control.mjs'
-import { assertForwardControlV3 } from './private-v2-advance.mjs'
+import { assertForwardControlV3, assertRestoreEffectAdvance } from './private-v2-advance.mjs'
 import { isPrivateV2FileRetentionReader } from './private-v2-retention.mjs'
 
 const coordinators = new WeakSet()
@@ -140,33 +140,100 @@ export function createPrivateV2Coordinator(input) {
     check(same(current, prior) || prepared !== null && same(current, prepared), 'published-pending-mismatch')
     return {marker: p.marker, predecessor: prior, prepared, current}
   }
+  function unresolvedRestoreIntents(control, host) {
+    const decoded = decodeControlV3(control, host, {profile, contracts})
+    return decoded.tables.intents.filter(row => parseOriginal(row.operation_bytes).action_type === 'memory.restore'
+      && !decoded.tables.effects.some(effect => effect.operation_id === row.operation_id)
+      && !decoded.tables.replay_fences.some(fence => fence.operation_id === row.operation_id))
+  }
+  function requireOrdinaryCurrent(control, host) {
+    check(unresolvedRestoreIntents(control, host).length === 0, 'unresolved-restore-intent')
+  }
+  function bindRestoreOperationAnchor(operation, anchor) {
+    const parameters = assertRestoreEffectParameters(operation.canonical_parameters)
+    check(parameters.control_anchor_sha256 === anchor.control_state.control_sha256
+      && parameters.retention_checkpoint_sha256 === anchor.checkpoint_sha256
+      && parameters.retention_epoch === anchor.authorization_epoch
+      && same(parameters.heads, anchor.control_state.heads) && same(parameters.retained_heads, anchor.control_state.heads),
+    'restore-operation-anchor-mismatch')
+  }
   async function readVerifiedCurrent(hostInput, actualControl) {
     const host = privateV2Detach(assertPrivateHost(hostInput))
     const control = assertControlV3(actualControl, host, {profile, contracts})
     const current = checkedEnvelope(await reader.readCurrent(host), host)
     check(same(current.control_state, control), 'sql-retained-mismatch')
+    requireOrdinaryCurrent(control, host)
+    return current
+  }
+  // Internal qualified effect-controller composition only. This factual helper
+  // grants no permit and cannot dispatch, repair or finish pending work. The
+  // genuine producer/context fence remains owned by the effect controller.
+  async function readVerifiedEffectCurrent(hostInput, actualControl, inputOperation) {
+    const host = privateV2Detach(assertPrivateHost(hostInput)), operation = privateV2Detach(inputOperation)
+    try { contracts.validateContract('OperationProposal', operation) }
+    catch { check(false, 'effect-operation-invalid') }
+    check(operation.action_type === 'memory.restore' && operation.owner_id === host.owner_id
+      && operation.task_id === host.task_id && operation.authorization_epoch === host.authorization_epoch,
+    'effect-operation-binding-invalid')
+    const control = assertControlV3(actualControl, host, {profile, contracts})
+    const current = checkedEnvelope(await reader.readCurrent(host), host)
+    check(same(current.control_state, control), 'sql-retained-mismatch')
+    const decoded = decodeControlV3(control, host, {profile, contracts}), operationDigest = contracts.operationDigest(operation)
+    const intent = decoded.tables.intents.find(row => row.operation_id === operation.operation_id)
+    check(intent && intent.operation_digest === operationDigest
+      && intent.operation_bytes.equals(Buffer.from(canonicalJSON(operation))), 'effect-intent-binding-invalid')
+    const unresolved = unresolvedRestoreIntents(control, host)
+    check(unresolved.every(row => row.operation_id === operation.operation_id
+      && row.request_id === intent.request_id && row.request_digest === intent.request_digest), 'unresolved-restore-intent')
+    assertAuthorizedEffectTransition({version: 3, kind: 'prime-memory-authorized-effect-transition/v3',
+      memory_store_id: profile.expected_memory_store_id,
+      reference: {owner_id: host.owner_id, owner_subject: host.owner_subject, task_id: host.task_id,
+        operation_id: operation.operation_id, operation_digest: operationDigest, action_type: operation.action_type},
+      authorization_epoch: host.authorization_epoch, operation, request_id: intent.request_id,
+      request_digest: intent.request_digest, phase: 'applied', expected_checkpoint_sha256: current.checkpoint_sha256},
+    {host, profile, contracts})
+    const lineage = await reader.readPublishedLineage(host, {checkpoint_sha256: null})
+    check(Array.isArray(lineage) && lineage.length > 0 && same(lineage[0], current), 'published-lineage-head-mismatch')
+    const parameters = assertRestoreEffectParameters(operation.canonical_parameters)
+    const anchor = lineage.find(envelope => envelope.checkpoint_sha256 === parameters.retention_checkpoint_sha256)
+    check(anchor, 'restore-operation-anchor-unpublished')
+    bindRestoreOperationAnchor(operation, checkedEnvelope(anchor, {...host, authorization_epoch: anchor.authorization_epoch}))
     return current
   }
   async function readVerifiedRestoreCurrent(hostInput, actualControl) {
     const host = privateV2Detach(assertPrivateHost(hostInput)), control = assertControlV3(actualControl, host, {profile, contracts})
     const current = checkedEnvelope(await reader.readCurrent(host), host)
+    requireOrdinaryCurrent(current.control_state, host)
+    requireOrdinaryCurrent(control, host)
     const raw = await reader.readPublishedLineage(host, {checkpoint_sha256: null})
     check(Array.isArray(raw) && raw.length > 0, 'published-lineage-required')
     const lineage = raw.map(e => checkedEnvelope(e, {...host, authorization_epoch: e.authorization_epoch}))
     check(same(lineage[0], current), 'published-lineage-head-mismatch')
     const index = lineage.findIndex(e => same(e.control_state, control))
     check(index >= 0, 'sql-not-published-ancestor')
-    for (let i = index; i > 0; --i) {
-      check(lineage[i - 1].previous_checkpoint_sha256 === lineage[i].checkpoint_sha256
-        && lineage[i - 1].sequence === lineage[i].sequence + 1, 'published-lineage-adjacency-invalid')
-      assertForwardControlV3(lineage[i].control_state, lineage[i - 1].control_state, host, {profile, contracts})
-    }
+    // The branded file reader already authenticates the COMPLETE current chain,
+    // including every chronological restore edge, epoch and original first-A
+    // proof. Rechecking a historical suffix with the live host epoch would refuse
+    // valid archived events. No caller supplies this lineage or its qualification.
     return Object.freeze({current, lineage:Object.freeze(lineage)})
   }
   async function beginTyped(inputRequest, actualControl) {
     const r = request(inputRequest)
-    let predecessor
-    if (r.transition.kind === 'prime-memory-control-restore-transition/v3') {
+    let predecessor, published_ancestry = null
+    if (r.transition.kind === 'prime-memory-authorized-effect-transition/v3'
+      && r.transition.operation.action_type === 'memory.restore' && r.transition.phase === 'intent') {
+      const observed = await readVerifiedRestoreCurrent(r.host, actualControl)
+      predecessor = observed.current; published_ancestry = observed.lineage
+      bindRestoreOperationAnchor(r.transition.operation, predecessor)
+    } else if (r.transition.kind === 'prime-memory-authorized-effect-transition/v3'
+      && r.transition.operation.action_type === 'memory.restore' && r.transition.phase === 'applied') {
+      predecessor = await readVerifiedEffectCurrent(r.host, actualControl, r.transition.operation)
+      const raw = await reader.readPublishedLineage(r.host, {checkpoint_sha256: null})
+      check(Array.isArray(raw) && raw.length > 0, 'published-lineage-required')
+      published_ancestry = Object.freeze(raw.map(envelope => checkedEnvelope(envelope,
+        {...r.host, authorization_epoch: envelope.authorization_epoch})))
+      check(same(published_ancestry[0], predecessor), 'published-lineage-head-mismatch')
+    } else if (r.transition.kind === 'prime-memory-control-restore-transition/v3') {
       predecessor = (await readVerifiedRestoreCurrent(r.host, actualControl)).current
       check(r.transition.anchor_checkpoint_sha256 === predecessor.checkpoint_sha256, 'restore-anchor-mismatch')
     } else predecessor = await readVerifiedCurrent(r.host, actualControl)
@@ -176,13 +243,24 @@ export function createPrivateV2Coordinator(input) {
       transition_digest: r.transition_digest}), r, predecessor)
     check(pending.prepared === null && same(pending.current, predecessor), 'unexpected-preparation')
     const owned = Object.freeze({request: r, predecessor})
-    contexts.set(owned, {active: true, request: r, predecessor, prepared: null})
+    contexts.set(owned, {active: true, request: r, predecessor, prepared: null, published_ancestry})
     return owned
   }
   async function prepareTyped(inputContext, actualControl) {
     const s = context(inputContext), control = assertControlV3(actualControl, s.request.host, {profile, contracts})
     check(s.prepared === null, 'already-prepared')
-    if (s.request.transition.kind === 'prime-memory-control-restore-transition/v3') {
+    if (s.request.transition.kind === 'prime-memory-authorized-effect-transition/v3'
+      && s.request.transition.operation.action_type === 'memory.restore') {
+      const pending = await reader.readPending({host: s.request.host, transition_id: s.request.transition_id,
+        transition_digest: s.request.transition_digest})
+      // Cache no caller-provided history. This branded context retains the FULL
+      // independently read published chain from before pending installation;
+      // protected pending readback now proves its unchanged exact current head.
+      check(same(pending.predecessor, s.predecessor) && same(pending.current, s.predecessor)
+        && Array.isArray(s.published_ancestry) && same(s.published_ancestry[0], s.predecessor), 'restore-predecessor-mismatch')
+      assertRestoreEffectAdvance(s.predecessor.control_state, control, s.request.host,
+        {profile, contracts, transition: s.request.transition, published_ancestry: s.published_ancestry})
+    } else if (s.request.transition.kind === 'prime-memory-control-restore-transition/v3') {
       check(same(control, s.predecessor.control_state), 'restore-candidate-anchor-mismatch')
     } else assertForwardControlV3(s.predecessor.control_state, control, s.request.host,
       {profile, contracts, transition: s.request.transition})
@@ -252,7 +330,7 @@ export function createPrivateV2Coordinator(input) {
     return completeTyped(inputContext, actualControl)
   }
   const coordinator = Object.freeze({reader, profile, contracts, isContext: value => contexts.has(value) && contexts.get(value).active,
-    readVerifiedCurrent, readVerifiedRestoreCurrent, beginTyped, prepareTyped, completeTyped, recoverTyped,
+    readVerifiedCurrent, readVerifiedEffectCurrent, readVerifiedRestoreCurrent, beginTyped, prepareTyped, completeTyped, recoverTyped,
     beginJournal, prepareJournal, completeJournal, recoverJournal,
     readPublishedLineage: (host, options) => reader.readPublishedLineage(host, options)})
   coordinators.add(coordinator)

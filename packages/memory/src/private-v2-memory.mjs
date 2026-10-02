@@ -46,8 +46,12 @@ export function createPrivateV2Memory(input) {
     privateV2Fields(input,['pool','coordinator','profile','contracts','statements'],'memory-configuration-required')
     throw new MemoryRefusal('memory:private-v2-host-qualification-unavailable')
   }
-  const configured=privateV2Fields(input,['pool','coordinator','profile','contracts','statements','authority'],
+  const configurationKeys=['pool','coordinator','profile','contracts','statements','authority']
+  if(input && !types.isProxy(input) && Object.hasOwn(input,'journalRestore')) configurationKeys.push('journalRestore')
+  const configured=privateV2Fields(input,configurationKeys,
     'memory-configuration-required')
+  if(Object.hasOwn(configured,'journalRestore')) check(typeof configured.journalRestore==='function'
+    && !types.isProxy(configured.journalRestore),'restore-journal-source-required')
   const authority=configured.authority
   check(authority && typeof authority==='object' && !types.isProxy(authority),'retained-authority-unavailable')
   const ds=Object.getOwnPropertyDescriptors(authority), required=['reserveRetained','claimDispatchRetained','settleMemoryRetained']
@@ -61,12 +65,14 @@ export function createPrivateV2Memory(input) {
   const serializer=createMemoryOwnerSerializer({pool:configured.pool})
   const closure=buildClosureParticipant(Object.fromEntries(['pool','coordinator','profile','contracts','statements']
     .map(key=>[key,configured[key]])),serializer)
-  const effects=createPostgresMemory({pool:configured.pool,authority:Object.freeze(captured),contracts:closure.participant.contracts,
-    privateV2:Object.freeze({coordinator:configured.coordinator,profile:closure.participant.profile,serializer})})
   const records=createPrivateV2RecordAccess({})
   const cold=createPrivateV2Restore({participant:closure.participant,reader:configured.coordinator.reader,
-    profile:closure.participant.profile,contracts:closure.participant.contracts,records})
-  return Object.freeze({...closure,...effects,...cold,
+    profile:closure.participant.profile,contracts:closure.participant.contracts,records,
+    ...(Object.hasOwn(configured,'journalRestore')?{journalRestore:configured.journalRestore}:{})})
+  const effects=createPostgresMemory({pool:configured.pool,authority:Object.freeze(captured),contracts:closure.participant.contracts,
+    privateV2:Object.freeze({coordinator:configured.coordinator,profile:closure.participant.profile,serializer,
+      ...(Object.hasOwn(configured,'journalRestore')?{restoreSource:cold}:{})})})
+  return Object.freeze({...closure,...cold,...effects,
     controlRetentionStatus:()=>Object.freeze({configured:true,kind:'private-v2-source-composition',qualified_runtime:false})})
 }
 

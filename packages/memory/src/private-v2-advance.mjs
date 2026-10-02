@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { types } from 'node:util'
-import { parseOriginal, requireMemory, sha256, validateOriginal } from './codecs.mjs'
+import { MAX_BYTES, parseOriginal, requireMemory, sha256, validateOriginal } from './codecs.mjs'
 import { assertMemoryControlAdvance } from './control-retention-advance.mjs'
 import { makeMemoryControlState, MEMORY_CONTROL_TABLES } from './control-state.mjs'
 import { memoryStateVersion, memoryResultDigest } from './authorization.mjs'
 import { PRIVATE_CONTROL_TABLES, PRIVATE_REFERENCE_FIELDS, PRIVATE_PROGRESS_STAGES, decodeControlV3,
   assertProgressV2, progressDigest, workflowRowDigest, assertJournalTransition, assertWorkflowTransition,
   assertNegativeTransition, assertRestoreTransition, assertAuthorizedEffectTransition, assertPrivateHost,
-  detachPrivateData, writerCompletionV2Digest } from './private-v2-control.mjs'
+  detachPrivateData, writerCompletionV2Digest, assertRestoreEffectParameters } from './private-v2-control.mjs'
 
 const check = (ok,reason) => requireMemory(ok,'memory:private-v2-advance-' + reason)
 const same = (a,b) => canonicalJSON(a) === canonicalJSON(b)
@@ -177,6 +177,128 @@ function assertAuthorizedEffectDelta(previous,next,host,{profile,contracts,trans
     check(changedHeads.length === (alreadyTombstoned ? 0 : 1),'effect-forget-head-count')
   }
 }
+function restoreIntents(control) {
+  return control.tables.intents.filter(row => parseOriginal(row.operation_bytes).action_type === 'memory.restore')
+}
+function unresolvedRestores(control) {
+  return restoreIntents(control).filter(row => !control.tables.effects.some(effect => effect.operation_id === row.operation_id)
+    && !control.tables.replay_fences.some(fence => fence.operation_id === row.operation_id))
+}
+function hasRestoreEdge(previous,next) {
+  return unresolvedRestores(previous).length > 0 || restoreIntents(next)
+    .some(row => !previous.tables.intents.some(old => old.operation_id === row.operation_id))
+}
+function restoreEdge(previous,next,checkpoint) {
+  const inserted = restoreIntents(next).filter(row => !previous.tables.intents.some(old => old.operation_id === row.operation_id)
+    && (checkpoint === undefined || parseOriginal(row.operation_bytes).canonical_parameters.retention_checkpoint_sha256 === checkpoint))
+  const unresolved = unresolvedRestores(previous)
+  check(unresolved.length <= 1,'restore-event-overlap')
+  if (unresolved.length) return {phase:'applied',row:unresolved[0]}
+  check(inserted.length <= 1,'restore-event-overlap')
+  if (inserted.length) return {phase:'intent',row:inserted[0]}
+  return null
+}
+function sameControlRows(actual,expected,{omitIntent,omitEffect} = {}) {
+  if (!same(actual.heads,expected.heads) || !same(actual.logical_store,expected.logical_store)
+    || !same(actual.closure_profile,expected.closure_profile)) return false
+  return Object.keys(PRIVATE_CONTROL_TABLES).every(name => {
+    const rows = actual.tables[name].filter(row => !(name === 'intents' && row.operation_id === omitIntent)
+      && !(name === 'effects' && row.operation_id === omitEffect))
+    return rows.length === expected.tables[name].length && rows.every((row,n) => rowSame(row,expected.tables[name][n],name))
+  })
+}
+function restoreBody(event,lineage,host,{profile,contracts,transition}) {
+  const operation = parseOriginal(event.row.operation_bytes)
+  const factualHost = transition ? host : {owner_id:operation.owner_id,owner_subject:event.row.owner_subject,
+    task_id:operation.task_id,authorization_epoch:operation.authorization_epoch}
+  const inferred = {version:3,kind:'prime-memory-authorized-effect-transition/v3',
+    memory_store_id:lineage.controls[0].closure_profile.expected_memory_store_id,reference:{owner_id:operation.owner_id,
+      owner_subject:event.row.owner_subject,task_id:operation.task_id,operation_id:operation.operation_id,
+      operation_digest:event.row.operation_digest,action_type:operation.action_type},
+    authorization_epoch:operation.authorization_epoch,operation,request_id:event.row.request_id,
+    request_digest:event.row.request_digest,phase:event.phase,expected_checkpoint_sha256:lineage.envelopes[0].checkpoint_sha256}
+  const body = assertAuthorizedEffectTransition(transition ?? inferred,{host:factualHost,profile,contracts})
+  check(body.reference.action_type === 'memory.restore' && same(body,inferred),'restore-event-transition-mismatch')
+  return body
+}
+function assertRestoreResult(result,parameters) {
+  check(result && typeof result === 'object' && !Array.isArray(result) && Object.keys(result).length === 5
+    && ['state','manifest_sha256','heads','restored_records','grants_authority'].every(key => Object.hasOwn(result,key))
+    && result.state === 'restored' && result.manifest_sha256 === parameters.manifest_sha256
+    && same(result.heads,parameters.heads) && Number.isSafeInteger(result.restored_records)
+    && result.restored_records >= 0 && result.restored_records <= 10000 && !Object.is(result.restored_records,-0)
+    && result.grants_authority === false,'restore-effect-result-invalid')
+}
+// Only actual reprojections are accepted. Removing the one newly observed event
+// row here is a comparison with archived state, never a projected SQL candidate.
+function assertRestoreDecoded(previous,next,host,{profile,contracts,transition},lineage) {
+  check(lineage && lineage.envelopes.length > 0,'restore-published-ancestry-required')
+  const event = restoreEdge(previous,next,lineage.envelopes[0].checkpoint_sha256)
+  check(event,'restore-event-missing')
+  const body = restoreBody(event,lineage,host,{profile,contracts,transition})
+  const parameters = assertRestoreEffectParameters(body.operation.canonical_parameters), operation_id = body.reference.operation_id
+  const anchorIndex = lineage.envelopes.findIndex(envelope => envelope.checkpoint_sha256 === parameters.retention_checkpoint_sha256)
+  check(anchorIndex >= 0,'restore-anchor-unpublished')
+  const anchor = lineage.controls[anchorIndex], anchorEnvelope = lineage.envelopes[anchorIndex]
+  check(anchor.digest === parameters.control_anchor_sha256 && anchorEnvelope.authorization_epoch === parameters.retention_epoch
+    && parameters.retention_epoch === body.authorization_epoch && same(parameters.heads,anchor.heads)
+    && same(parameters.retained_heads,anchor.heads),'restore-original-anchor-mismatch')
+  check(Object.keys(PRIVATE_CONTROL_TABLES).every(name => !PRIVATE_CONTROL_TABLES[name].columns.includes('operation_id')
+    || !anchor.tables[name].some(row => row.operation_id === operation_id)),'restore-operation-already-archived')
+  const local = event.phase === 'intent' ? next : previous
+  const ancestorIndex = lineage.controls.findIndex((control,n) => n >= anchorIndex
+    && sameControlRows(local,control,{omitIntent:operation_id}))
+  check(ancestorIndex >= anchorIndex,'restore-local-not-published-ancestor')
+  const ancestor = lineage.controls[ancestorIndex]
+  check(unresolvedRestores(ancestor).length === 0 && unresolvedRestores(anchor).length === 0
+    && body.operation.expected_state_version === memoryStateVersion(ancestor.heads),'restore-reviewed-local-mismatch')
+  const intent = local.tables.intents.find(row => row.operation_id === operation_id)
+  const grant = assertBoundEffectIntent(intent,body,contracts)
+  check(local.tables.intents.length === ancestor.tables.intents.length + 1
+    && !local.tables.effects.some(row => row.operation_id === operation_id)
+    && !local.tables.replay_fences.some(row => row.operation_id === operation_id),'restore-local-ledger-mismatch')
+  if (event.phase === 'intent') {
+    // The new archived edge is P -> I. Actual older SQL A is proven only by
+    // stripping the sole observed X intent and matching this complete archive.
+    check(anchorIndex === 0 && body.expected_checkpoint_sha256 === anchorEnvelope.checkpoint_sha256
+      && previous.digest === anchor.digest && sameControlRows(previous,anchor),'restore-intent-predecessor-mismatch')
+  } else {
+    const intentEnvelope = lineage.envelopes[0]
+    check(anchorIndex === 1 && sameControlRows(previous,lineage.controls[0])
+      && body.expected_checkpoint_sha256 === intentEnvelope.checkpoint_sha256
+      && intentEnvelope.previous_checkpoint_sha256 === anchorEnvelope.checkpoint_sha256
+      && intentEnvelope.sequence === anchorEnvelope.sequence + 1,'restore-applied-predecessor-mismatch')
+    check(sameControlRows(next,anchor,{omitIntent:operation_id,omitEffect:operation_id})
+      && next.tables.intents.length === anchor.tables.intents.length + 1
+      && next.tables.effects.length === anchor.tables.effects.length + 1,'restore-applied-anchor-mismatch')
+    const retainedIntent = next.tables.intents.find(row => row.operation_id === operation_id)
+    check(rowSame(intent,retainedIntent,'intents'),'restore-intent-changed')
+    const effect = next.tables.effects.find(row => row.operation_id === operation_id)
+    const result = effect && parseOriginal(effect.result_bytes), receipt = effect && parseOriginal(effect.receipt_bytes)
+    check(effect && effect.operation_digest === body.reference.operation_digest && effect.grant_id === grant.grant_id
+      && effect.action === 'memory.restore' && effect.request_id === body.request_id && effect.request_digest === body.request_digest
+      && ['operation_bytes','grant_bytes','request_bytes'].every(column => effect[column].equals(intent[column]))
+      && effect.result_bytes.equals(Buffer.from(canonicalJSON(result))) && effect.receipt_bytes.equals(Buffer.from(canonicalJSON(receipt)))
+      && receipt.version === 1 && receipt.kind === 'prime-memory-effect/v1' && receipt.status === 'applied'
+      && receipt.operation_id === operation_id && receipt.operation_digest === body.reference.operation_digest
+      && receipt.grant_id === grant.grant_id && receipt.request_id === body.request_id && receipt.request_digest === body.request_digest
+      && receipt.owner_subject === body.reference.owner_subject && receipt.action_type === 'memory.restore'
+      && receipt.result_digest === memoryResultDigest(result) && same(receipt.result,result),'restore-applied-receipt-mismatch')
+    assertRestoreResult(result,parameters)
+  }
+  return {next,body,phase:event.phase,anchor,ancestor,anchorEnvelope}
+}
+/** Content validation only. Compare published P -> actual I, then I -> actual E.
+ * Actual older SQL A is proved from the sole observed intent and archived state.
+ * The caller independently authenticates the COMPLETE P/I
+ * predecessor envelopes and the actual owner client; this helper supplies neither
+ * publication nor authorization. No caller-selected ancestor or permissive flag
+ * replaces the exact archived comparison. */
+export function assertRestoreEffectAdvance(previousBundle,nextBundle,host,{profile,contracts,transition,published_ancestry} = {}) {
+  const lineage = validatePublishedLineage(published_ancestry,host,{profile,contracts})
+  const previous = decodeControlV3(previousBundle,host,{profile,contracts}), next = decodeControlV3(nextBundle,host,{profile,contracts})
+  return assertRestoreDecoded(previous,next,host,{profile,contracts,transition},lineage).next
+}
 function assertTypedDelta(previous,next,host,{profile,contracts,transition,restore_ancestry}) {
   const operation_id = transition?.reference?.operation_id
   if (transition.kind === 'prime-memory-authorized-effect-transition/v3') {
@@ -261,8 +383,11 @@ function assertDecodedEdge(previous,next,host,{profile,contracts}) {
 /** Verify one actual full control edge. It proves continuity grammar, never publication or authority.
  * Restore callers must verify EVERY protected committed predecessor edge before accepting endpoint state.
  */
-export function assertForwardControlV3(previousBundle,nextBundle,host,{profile,contracts,transition,restore_ancestry} = {}) {
+export function assertForwardControlV3(previousBundle,nextBundle,host,{profile,contracts,transition,restore_ancestry,published_ancestry} = {}) {
   const previous = decodeControlV3(previousBundle,host,{profile,contracts}), next = decodeControlV3(nextBundle,host,{profile,contracts})
+  if (transition !== undefined) transition = detachPrivateData(transition)
+  if (transition?.operation?.action_type === 'memory.restore' || hasRestoreEdge(previous,next))
+    return assertRestoreEffectAdvance(previousBundle,nextBundle,host,{profile,contracts,transition,published_ancestry})
   if (transition?.kind === 'prime-memory-control-restore-transition/v3') {
     assertTypedDelta(previous,next,host,{profile,contracts,transition,restore_ancestry}); return next
   }
@@ -276,7 +401,7 @@ export const assertMemoryControlAdvanceV3 = assertForwardControlV3
  * actual PUBLISHED current predecessor chain; this helper cannot qualify an orphan generation.
  * Input is complete newest-first, ending at the original marker-free sequence-one baseline.
  */
-export function assertLineageCompletionsV2(input,host,{profile,contracts} = {}) {
+function validatePublishedLineage(input,host,{profile,contracts} = {}) {
   const currentHost = assertPrivateHost(host)
   check(Array.isArray(input) && !types.isProxy(input) && Object.getPrototypeOf(input) === Array.prototype
     && input.length > 0 && input.length <= 10000,'lineage-array-invalid')
@@ -285,7 +410,7 @@ export function assertLineageCompletionsV2(input,host,{profile,contracts} = {}) 
     && (key === 'length' || /^(?:0|[1-9][0-9]*)$/.test(key) && Number(key) < input.length))
     && Reflect.ownKeys(descriptors).length === input.length + 1 && Object.keys(input).length === input.length,
     'lineage-array-inert-required')
-  const controls = [], envelopes = [], seen = new Set()
+  const controls = [], envelopes = [], seen = new Set(); let bytes = 0
   for (let index = 0; index < input.length; index++) {
     const descriptor = descriptors[String(index)]
     check(descriptor && Object.hasOwn(descriptor,'value') && descriptor.enumerable,'lineage-array-inert-required')
@@ -305,26 +430,51 @@ export function assertLineageCompletionsV2(input,host,{profile,contracts} = {}) 
       && checkpoint_sha256 === sha256(Buffer.from('aukora-prime.memory-retention.v2\0'+canonicalJSON(body)))
       && !seen.has(checkpoint_sha256),'lineage-envelope-invalid')
     seen.add(checkpoint_sha256)
+    bytes += Buffer.byteLength(canonicalJSON(envelope))
+    check(bytes <= MAX_BYTES,'lineage-byte-limit')
     controls.push(decodeControlV3(envelope.control_state,currentHost,{profile,contracts})); envelopes.push(envelope)
     if (index > 0) {
       const successor = envelopes[index-1]
       check(successor.sequence === envelope.sequence + 1 && successor.previous_checkpoint_sha256 === checkpoint_sha256
         && successor.authorization_epoch >= envelope.authorization_epoch,
         'lineage-predecessor-mismatch')
-      assertForwardControlV3(envelope.control_state,successor.control_state,currentHost,{profile,contracts})
-      const predecessorProgress = new Map(controls[index].tables.workflow_closure_progress.map(row => [row.operation_id,row]))
-      for (const row of controls[index-1].tables.workflow_closure_progress) {
-        const old = predecessorProgress.get(row.operation_id)
-        if (!old || old.progress_digest !== row.progress_digest) check(parseOriginal(row.progress_bytes).closing_authorization_epoch
-          === successor.authorization_epoch,'lineage-stage-closing-epoch-mismatch')
-      }
     }
   }
   check(envelopes.at(-1).sequence === 1 && envelopes.at(-1).previous_checkpoint_sha256 === null,'lineage-baseline-missing')
   check(Object.keys(controls.at(-1).heads).length === 0
     && Object.keys(PRIVATE_CONTROL_TABLES).every(name => controls.at(-1).tables[name].length === 0),
     'lineage-original-pre-work-baseline-missing')
-  const proofs = new Map(), originalRows = controls[0].tables.unsent_closures.filter(row => parseOriginal(row.closure_bytes).version === 2)
+  // Validate oldest to newest. The internal predecessor view contains only
+  // already-checked published edges; no caller flag can substitute for it.
+  for (let index = controls.length - 2; index >= 0; index--) {
+    const previous = controls[index+1], next = controls[index]
+    let restore = null
+    if (hasRestoreEdge(previous,next)) restore = assertRestoreDecoded(previous,next,currentHost,{profile,contracts},
+      {envelopes:envelopes.slice(index+1),controls:controls.slice(index+1)})
+    else assertDecodedEdge(previous,next,currentHost,{profile,contracts})
+    if (restore) check(restore.body.authorization_epoch === envelopes[index].authorization_epoch,
+      'lineage-restore-event-epoch-mismatch')
+    const previousProgress = new Map(previous.tables.workflow_closure_progress.map(row => [row.operation_id,row]))
+    const archived = restore && (restore.phase === 'intent' ? restore.ancestor : restore.anchor)
+    for (const row of next.tables.workflow_closure_progress) {
+      const old = previousProgress.get(row.operation_id)
+      if (old && old.progress_digest === row.progress_digest) continue
+      const original = archived?.tables.workflow_closure_progress.find(item => item.operation_id === row.operation_id)
+      if (original && rowSame(row,original,'workflow_closure_progress')) continue
+      check(parseOriginal(row.progress_bytes).closing_authorization_epoch === envelopes[index].authorization_epoch,
+        'lineage-stage-closing-epoch-mismatch')
+    }
+  }
+  const proofs = new Map(), originalByOperation = new Map()
+  // An unresolved restore I may contain an older SQL ancestor. Original
+  // closure A evidence remains on its protected P predecessor chain.
+  for (const control of controls) for (const row of control.tables.unsent_closures) {
+    if (parseOriginal(row.closure_bytes).version !== 2) continue
+    const existing = originalByOperation.get(row.operation_id)
+    check(!existing || rowSame(existing,row,'unsent_closures'),'lineage-marker-bytes-changed')
+    originalByOperation.set(row.operation_id,row)
+  }
+  const originalRows = [...originalByOperation.values()]
   for (const row of originalRows) {
     const marker = parseOriginal(row.closure_bytes)
     let first = -1
@@ -358,5 +508,8 @@ export function assertLineageCompletionsV2(input,host,{profile,contracts} = {}) 
     check(proof && same(progress.memory,proof) && progress.closing_authorization_epoch === proof.closure.authorization_epoch,
       'lineage-original-completion-mismatch')
   }
-  return proofs
+  return {envelopes,controls,proofs}
+}
+export function assertLineageCompletionsV2(input,host,options = {}) {
+  return validatePublishedLineage(input,host,options).proofs
 }

@@ -9,6 +9,7 @@ import { assertForwardControlV3 } from './private-v2-advance.mjs'
 import { requirePrivateV2Guards } from './private-v2-guards.mjs'
 import { isPrivateV2JournalStatement } from './private-v2-journal-statements.mjs'
 import { createPrivateV2RestoreJournalScope } from './private-v2-restore-journal.mjs'
+import { isPrivateV2EffectController, isPrivateV2EffectOwnerClient } from './private-v2-effect-participant.mjs'
 import { isPrivateV2Coordinator, privateV2Fields, privateV2Detach, privateV2Checkpoint, checkedPrivateV2Transition } from './private-v2-coordinator.mjs'
 
 const participants = new WeakSet(), transactions = new WeakMap(), ownedClients = new WeakMap()
@@ -24,6 +25,7 @@ export const isPrivateV2Participant = value => participants.has(value)
 export const isPrivateV2Transaction = value => transactions.get(value)?.active === true
 export function isPrivateV2OwnerClient(client, host, access = 'read') {
   const bound = ownedClients.get(client)
+  if (!bound) return isPrivateV2EffectOwnerClient(client, host, access)
   if (!bound || !['read','write'].includes(access) || (access === 'write' && bound.mode !== 'write')
     || !host || types.isProxy(host)) return false
   const ds = Object.getOwnPropertyDescriptors(host)
@@ -348,6 +350,46 @@ export function createPrivateV2Participant(input) {
     const out = await run(h, request, mutate, ['prime-memory-control-restore-transition/v3'], true)
     return Object.freeze({checkpoint: out.checkpoint})
   }
+  // The archive interval is captured from the genuine dispatched restore while
+  // actual SQL is still I. Bridge receives only the existing fixed query scope.
+  // Physical record restoration may then run before this one-use journal replay.
+  async function prepareRestoreEffectJournal(controller, hostInput, adapter) {
+    const h = host(hostInput), scope = serializer.current()
+    check(isPrivateV2EffectController(controller) && typeof adapter === 'function'
+      && !types.isProxy(adapter), 'restore-effect-source-required')
+    check(scope && isPrivateV2EffectOwnerClient(scope.client, h, 'write'), 'restore-effect-session-required')
+    await serializer.inspect(scope); await guard(scope.client, h)
+    const evidence = await controller.restoreEvidence(scope.client)
+    check(byName.size === 9, 'restore-fixed-statements-required')
+    const assertActive = async () => {
+      check(serializer.current() === scope && isPrivateV2EffectOwnerClient(scope.client, h, 'write'),
+        'restore-effect-session-inactive')
+      await serializer.inspect(scope); await guard(scope.client, h)
+    }
+    const prepared = createPrivateV2RestoreJournalScope({client:scope.client,host:h,
+      ancestry:evidence.ancestry,profile,contracts,assertActive,statements:[...byName.values()]})
+    transactions.set(prepared.tx, prepared.state)
+    let used = false, completed = false
+    const execute = async () => {
+      check(!used, 'restore-effect-journal-reused'); used = true
+      try {
+        await assertActive()
+        const result = await adapter(prepared.tx, prepared.ancestry, profile)
+        check(result === undefined, 'restore-effect-journal-result-invalid')
+        prepared.finish(); prepared.assertComplete()
+        await assertActive(); prepared.assertComplete()
+        completed = true
+      } finally {
+        prepared.state.active = false
+        if (prepared.state.pending.size) await Promise.allSettled([...prepared.state.pending])
+      }
+    }
+    Object.defineProperty(execute,'assertComplete',{value:()=>{
+      check(used && completed,'restore-effect-journal-incomplete')
+      prepared.assertComplete()
+    }})
+    return Object.freeze(execute)
+  }
   async function verified(hostInput, fn, restore) {
     const h = host(hostInput); check(typeof fn === 'function', 'read-callback-required')
     return serializer.run(ownerHost(h), async scope => {
@@ -434,6 +476,7 @@ export function createPrivateV2Participant(input) {
   async function clientInspect(scope) { await serializer.inspect(scope) }
   const participant = Object.freeze({profile, contracts, coordinator,
     withRetainedJournalTransition, withRetainedWorkflowMutation, runRetainedPurpose, runRetainedRestorePurpose,
+    prepareRestoreEffectJournal,
     withVerifiedControl: (h, fn) => verified(h, fn, false),
     withVerifiedRestoreControl: (h, fn) => verified(h, fn, true),
     recoverRetainedPurpose,

@@ -7,6 +7,7 @@ import {assertData,deepFreeze,operationDigest} from './operation.mjs'
 import {consumedGrantDigest} from './retention.mjs'
 import {memoryEffectReceiptDigest} from './memory-effect.mjs'
 import {validateClosureProfile} from './closure-retention.mjs'
+import {validateRetainedRestoreOperation,retainedRestoreRequestDigest,validateRetainedRestoreResult} from './retained-restore.mjs'
 
 // Default authority use remains independent of the optional D retained profile.
 // The path is source-owned and fixed; no caller chooses a module or brand predicate.
@@ -91,6 +92,14 @@ export function validateRetainedMemoryPermit(input,{phase,operation,ownerSubject
  'RETAINED_MEMORY_PERMIT_OWNER_SESSION')
  need(match(p.predecessor_checkpoint_sha256,HEX)&&match(p.checkpoint_sha256,HEX)&&match(p.control_sha256,HEX),
   'RETAINED_MEMORY_PERMIT_CHECKPOINT')
+ if(operation.action_type==='memory.restore') {
+  const params=validateRetainedRestoreOperation(operation)
+  need(p.request_digest===retainedRestoreRequestDigest(operation),'RETAINED_RESTORE_REQUEST_BINDING')
+  need(p.predecessor_checkpoint_sha256===params.retention_checkpoint_sha256
+   &&(phase==='prepare'?p.control_sha256===params.control_anchor_sha256:p.control_sha256!==params.control_anchor_sha256),
+  'RETAINED_RESTORE_ANCHOR_BINDING')
+  if(phase==='settle')validateRetainedRestoreResult(receipt?.result,operation)
+ }
  if(phase==='prepare') {
   need(p.checkpoint_sha256===p.predecessor_checkpoint_sha256&&match(p.marker_sha256,HEX)
    &&p.grant_digest===null&&p.receipt_digest===null&&p.result_digest===null,'RETAINED_MEMORY_PREPARE_PERMIT')
@@ -130,11 +139,13 @@ export function validateRetainedMemoryLineage(input) {
 }
 export function validateRetainedMemoryRows(operations,{expectedAuthorityStoreId}={}) {
  for(const row of Object.values(operations)) {
+  if(row.operation?.action_type==='memory.restore'&&Object.hasOwn(row,'retained_memory')&&!Object.hasOwn(row,'schema'))
+   need(Object.hasOwn(row,'retained_memory_profile'),'RETAINED_RESTORE_PROFILE_REQUIRED')
   if(Object.hasOwn(row,'retained_memory_profile')) {
    need(match(expectedAuthorityStoreId,HEX),'RETAINED_MEMORY_AUTHORITY_STORE_ID_REQUIRED')
    validateRetainedMemoryProfile(row.retained_memory_profile,{expectedAuthorityStoreId})
    need(!Object.hasOwn(row,'schema')&&Object.hasOwn(row,'retained_memory')
-    &&['memory.save','memory.forget'].includes(row.operation?.action_type)
+    &&['memory.save','memory.forget','memory.restore'].includes(row.operation?.action_type)
     &&row.operation?.audience==='aukora-prime.memory','RETAINED_MEMORY_PROFILE_ROW_REQUIRED')
    need(['PREPARED','DISPATCHED','CANCEL_REQUESTED','OUTCOME_UNKNOWN','COMPLETED'].includes(row.status)
     &&((row.status==='PREPARED')===(row.retained_memory?.dispatch===null))

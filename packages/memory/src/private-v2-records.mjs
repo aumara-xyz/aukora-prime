@@ -3,10 +3,13 @@
 // The algorithms retain the original index.mjs serialization and record identities.
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { types } from 'node:util'
-import { requireMemory, parseOriginal, sha256, verifyChain, validateOriginal } from './codecs.mjs'
+import { requireMemory, parseOriginal, sha256, verifyChain, validateOriginal, MAX_BYTES } from './codecs.mjs'
 import { makeSnapshot, inspectSnapshot, recordCommitment } from './snapshot.mjs'
 import { MEMORY_CONTROL_TABLES, MEMORY_WRITER_CLOSURE_TABLE } from './control-state.mjs'
 import { isPrivateV2OwnerClient } from './private-v2-participant.mjs'
+import { PRIVATE_CONTROL_TABLES, detachPrivateData } from './private-v2-control.mjs'
+import { isPrivateV2EffectController } from './private-v2-effect-participant.mjs'
+import { memoryEffectDigest } from './authorization.mjs'
 
 const accesses = new WeakSet()
 const queryFacades = new WeakMap()
@@ -219,8 +222,78 @@ export function createPrivateV2RecordAccess(input = {}) {
     }
   }
 
-  async function restoreSnapshot(db, host, snapshot, retained) {
+  // Preserve X only from the genuine active dispatched controller's factual I
+  // row, independently compared with actual SQL. This creates a physical write
+  // plan, never a new retained checkpoint or caller-selected control projection.
+  async function liveRestoreTarget(db, host, snapshot, retained, controller) {
+    requireMemory(isPrivateV2EffectController(controller), 'memory:private-v2-restore-controller-required')
+    const actual = queryFacades.get(db) ?? db
+    const evidence = detachPrivateData(await controller.restoreEvidence(actual))
+    requireMemory(evidence && Object.keys(evidence).length === 5
+      && ['anchor', 'localControl', 'ancestry', 'snapshot', 'operation'].every(key => Object.hasOwn(evidence, key)),
+    'memory:private-v2-restore-evidence-fields-invalid')
+    const operation = evidence.operation, control = evidence.anchor.control_state
+    requireMemory(same(snapshot, evidence.snapshot) && operation.action_type === 'memory.restore'
+      && operation.owner_id === host.owner_id && operation.target_identity.owner_subject === owner(host)
+      && operation.task_id === host.task_id && operation.authorization_epoch === host.authorization_epoch
+      && operation.canonical_parameters.manifest_sha256 === snapshot.manifest_sha256
+      && retained.digest === control.control_sha256 && same(retained.heads, control.heads),
+    'memory:private-v2-restore-original-target-mismatch')
+    let decodedBytes = 0
+    function decodeRow(row, specification) {
+      requireMemory(row && Object.keys(row).length === specification.columns.length
+        && specification.columns.every(field => Object.hasOwn(row, field)), 'memory:private-v2-restore-row-fields-invalid')
+      const decoded = {...row}
+      for (const field of specification.byteColumns) {
+        const envelope = row[field]
+        requireMemory(envelope && Object.keys(envelope).length === 2 && Object.hasOwn(envelope, 'bytes_base64')
+          && Object.hasOwn(envelope, 'sha256') && typeof envelope.bytes_base64 === 'string'
+          && typeof envelope.sha256 === 'string' && /^[0-9a-f]{64}$/.test(envelope.sha256),
+        'memory:private-v2-restore-row-bytes-invalid')
+        const original = Buffer.from(envelope.bytes_base64, 'base64')
+        decodedBytes += original.length
+        requireMemory(decodedBytes <= MAX_BYTES && original.toString('base64') === envelope.bytes_base64
+          && sha256(original) === envelope.sha256, 'memory:private-v2-restore-row-bytes-changed')
+        parseOriginal(original); decoded[field] = original
+      }
+      return decoded
+    }
+    const tables = {}
+    for (const [name, specification] of Object.entries(PRIVATE_CONTROL_TABLES)) {
+      const target = control.tables[name].map(row => decodeRow(row, specification))
+      const supplied = retained.tables[name]
+      requireMemory(Array.isArray(supplied) && supplied.length === target.length
+        && target.every((row, index) => sameRow(row, supplied[index], specification)),
+      'memory:private-v2-restore-original-target-mismatch')
+      tables[name] = target
+    }
+    const live = decodeRow(detachPrivateData(await controller.restoreIntent(actual)), definitions.intents)
+    const grant = parseOriginal(live.grant_bytes), request = parseOriginal(live.request_bytes)
+    requireMemory(live.owner_subject === owner(host) && live.operation_id === operation.operation_id
+      && live.operation_bytes.equals(Buffer.from(canonicalJSON(operation)))
+      && grant.operation_id === operation.operation_id && grant.operation_digest === live.operation_digest
+      && grant.owner_id === host.owner_id && grant.authorization_epoch === host.authorization_epoch
+      && grant.audience === operation.audience && request.version === 1
+      && request.operation_id === live.operation_id && request.operation_digest === live.operation_digest
+      && request.owner_subject === owner(host) && request.action_type === 'memory.restore'
+      && same(request.parameters, operation.canonical_parameters) && memoryEffectDigest(request) === live.request_digest,
+    'memory:private-v2-restore-live-intent-binding-mismatch')
+    requireMemory(!tables.intents.some(row => row.operation_id === live.operation_id || row.request_id === live.request_id)
+      && !tables.effects.some(row => row.operation_id === live.operation_id || row.request_id === live.request_id)
+      && !tables.replay_fences.some(row => row.operation_id === live.operation_id || row.request_id === live.request_id)
+      && !tables.unsent_closures.some(row => row.operation_id === live.operation_id),
+    'memory:private-v2-restore-anchor-live-intent-present')
+    const stored = await rows(db, 'SELECT ' + definitions.intents.columns.join(',')
+      + ' FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2', [owner(host), live.operation_id])
+    requireMemory(stored.length === 1 && sameRow(live, stored[0], definitions.intents),
+      'memory:private-v2-restore-live-intent-changed')
+    tables.intents = [...tables.intents, live]
+    return {...retained, heads: control.heads, tables}
+  }
+
+  async function restoreSnapshot(db, host, snapshot, retained, controller) {
     db = client(db, host, 'write')
+    const historical = controller === undefined ? retained : await liveRestoreTarget(db, host, snapshot, retained, controller)
     const subject = owner(host), checked = await preflight(db, host, snapshot, retained)
     const priorPurges = new Set((await rows(db, 'SELECT operation_id FROM prime_memory_purges WHERE owner_subject=$1', [subject]))
       .map(row => row.operation_id))
@@ -270,10 +343,19 @@ export function createPrivateV2RecordAccess(input = {}) {
         + 'VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
       [subject, meta.id, file.revision, file.bytes, meta.digest, meta.format, meta.canon, file.task_id,
         meta.scope, meta.privacy, meta.tier, meta.statement, file.chain_domain, file.chain_sequence, meta.record.source?.sha256 ?? null])
+      const restored = await rows(db, 'SELECT canonical_bytes,original_sha256,record_format,canonicalizer,task_id,scope,privacy,tier,'
+        + 'statement,chain_domain,chain_sequence,source_digest FROM prime_memory_records WHERE owner_subject=$1 '
+        + 'AND record_id=$2 AND revision=$3', [subject, meta.id, file.revision])
+      const stored = restored[0]
+      requireMemory(restored.length === 1 && stored.original_sha256 === meta.digest && bytes(stored.canonical_bytes).equals(file.bytes)
+        && stored.record_format === meta.format && stored.canonicalizer === meta.canon && stored.task_id === file.task_id
+        && stored.scope === meta.scope && stored.privacy === meta.privacy && stored.tier === meta.tier && stored.statement === meta.statement
+        && stored.chain_domain === file.chain_domain && stored.chain_sequence === file.chain_sequence
+        && stored.source_digest === (meta.record.source?.sha256 ?? null), 'memory:restore-record-readback-conflict')
       await db.query('INSERT INTO prime_memory_outbox(owner_subject,record_id,revision,target,generation,operation) '
         + "VALUES($1,$2,$3,$4,$5,'index') ON CONFLICT DO NOTHING", [subject, meta.id, file.revision, indexTarget, indexGeneration])
     }
-    await restoreHistoricalControl(db, host, retained)
+    await restoreHistoricalControl(db, host, historical)
     for (const tombstone of retained.tables.tombstones) await db.query('DELETE FROM prime_memory_fts WHERE owner_subject=$1 AND record_id=$2',
       [subject, tombstone.record_id])
     for (const redaction of retained.tables.redactions) {
@@ -286,8 +368,9 @@ export function createPrivateV2RecordAccess(input = {}) {
     }
     const removedSources = new Set(retained.tables.purges.flatMap(row => parseOriginal(row.bytes).source_digests ?? []))
     for (const digest of removedSources) await db.query('DELETE FROM prime_memory_events WHERE owner_subject=$1 AND sha256=$2', [subject, digest])
-    // No result object can substitute for the participant's actual full SQL reprojection.
-    return undefined
+    // These original records were independently read back; the participant still
+    // verifies the complete actual control after journal replay before preparing E.
+    return Object.freeze({restored_records: checked.records.length})
   }
   const access = Object.freeze({exportSnapshot, preflight, restoreSnapshot})
   accesses.add(access)

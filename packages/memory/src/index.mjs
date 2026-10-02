@@ -20,7 +20,8 @@ import { createMemoryOwnerSerializer } from './owner-serialization.mjs'
 import { createRetainedMemoryParticipant, createPrivateV2RetainedMemoryParticipant } from './retained-memory-participant.mjs'
 import { isMemoryOwnerSerializer } from './owner-serialization.mjs'
 import { isPrivateV2Coordinator } from './private-v2-coordinator.mjs'
-import { assertPrivateHost, assertPrivateProfile, readControlV3 } from './private-v2-control.mjs'
+import { assertPrivateHost, assertPrivateProfile, readControlV3, assertRestoreEffectParameters, detachPrivateData } from './private-v2-control.mjs'
+import { isPrivateV2Restore, inspectPrivateV2ColdBundle } from './private-v2-restore.mjs'
 import { requirePrivateV2Guards } from './private-v2-guards.mjs'
 import { writerClosureBinding, makeWriterClosureRow, inspectWriterClosureRow } from './writer-closure.mjs'
 import { installWriterClosureGuards, requireWriterClosureGuards } from './writer-closure-guards.mjs'
@@ -56,6 +57,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     && canonicalJSON(assertPrivateProfile(privateV2.profile))===canonicalJSON(privateV2.coordinator.profile)
     && controlRetention===undefined && controlRetentionCoordinator===undefined && restoreAnchorProvider===undefined),
   'memory:private-v2-configuration-required')
+  const restoreSource=v3?privateV2.restoreSource:undefined
+  requireMemory(restoreSource===undefined || isPrivateV2Restore(restoreSource),'memory:private-v2-owned-restore-source-required')
   const retainedReader=v3?privateV2.coordinator.reader:controlRetention ?? controlRetentionCoordinator?.reader ?? createUnavailableControlRetention()
   requireMemory(v3 || isControlRetentionReader(retainedReader),'memory:owned-control-retention-reader-required')
   requireMemory(controlRetentionCoordinator===undefined || controlRetentionCoordinator.reader===retainedReader,
@@ -73,7 +76,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   const loadRestoreAnchor=restoreAnchorProvider ?? (host=>retainedReader.restoreAnchorProvider({
     owner_id:host.owner_id,owner_subject:host.owner_subject,authorization_epoch:host.authorization_epoch}))
 
-  async function transaction(owner, work, { readOnly = false, privateV2Phase = null } = {}) {
+  async function transaction(owner, work, { readOnly = false, privateV2Phase = null, restoreCompletion = null } = {}) {
     const ownedScope=ownerSerializer?.current()
     requireMemory(!ownedScope || ownedScope.host.owner_subject===owner,'memory:owner-session-mismatch')
     const client = ownedScope?.client ?? await pool.connect()
@@ -91,11 +94,15 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
           expected_store_id:privateV2.profile.expected_memory_store_id,profile:privateV2.profile})
         if(privateV2Phase===null || privateV2Phase==='intent') await participantController.assertCurrent(client,host)
       }
+      if(restoreCompletion && privateV2Phase!=='effect') restoreCompletion()
       const result = await work(client)
+      if(restoreCompletion) restoreCompletion()
       if(v3 && privateV2Phase==='intent' && result===null) await participantController.prepareIntent(client)
       if(v3 && privateV2Phase==='effect') await participantController.prepareEffect(client,result)
       if(v3 && privateV2Phase===null) await participantController.assertCurrent(client,v3Hosts.get(ownedScope))
+      if(restoreCompletion) restoreCompletion()
       await client.query('COMMIT')
+      if(restoreCompletion) restoreCompletion()
       return result
     } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error }
     finally { if(!ownedScope) client.release() }
@@ -310,14 +317,30 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     host=structuredClone(host);operation=structuredClone(operation)
     requireMemory(typeof fn==='function' && typeof host.owner_id==='string' && operation.owner_id===host.owner_id && ownerOf(host) && operation.task_id===host.task_id
       && canonicalJSON(operation.target_identity)===canonicalJSON(memoryTarget(host.owner_subject)),'memory:target-binding-mismatch')
+    const restoreReview=v3 && operation.action_type==='memory.restore'
+    requireMemory(!restoreReview || restoreSource,'memory:private-v2-restore-source-required')
     return transaction(host.owner_subject,async db=>{
+      if(restoreReview) {
+        const bound=assertPrivateHost({...retentionHost(host),task_id:host.task_id})
+        const actual=await readControlV3(db,{owner_subject:bound.owner_subject,owner_id:bound.owner_id,
+          profile:privateV2.profile},{contracts})
+        const retained=await privateV2.coordinator.readVerifiedRestoreCurrent(bound,actual)
+        const parameters=assertRestoreEffectParameters(operation.canonical_parameters)
+        requireMemory(parameters.retention_checkpoint_sha256===retained.current.checkpoint_sha256
+          && parameters.control_anchor_sha256===retained.current.control_state.control_sha256
+          && parameters.retention_epoch===retained.current.authorization_epoch
+          && operation.authorization_epoch===bound.authorization_epoch
+          && parameters.retention_epoch===bound.authorization_epoch
+          && canonicalJSON(parameters.heads)===canonicalJSON(retained.current.control_state.heads),
+        'memory:private-v2-restore-review-binding-mismatch')
+      }
       const heads=await currentHeads(db,host.owner_subject)
       requireMemory(operation.expected_state_version===memoryStateVersion(heads),'memory:target-state-changed')
       requireMemory(!activeTargets.has(operation.operation_id),'memory:target-observation-reentrant')
       activeTargets.set(operation.operation_id,{operation_json:canonicalJSON(operation),
         observation:{target_identity:memoryTarget(host.owner_subject),state_version:memoryStateVersion(heads)}})
       try {return await fn()} finally {activeTargets.delete(operation.operation_id)}
-    })
+    },{privateV2Phase:restoreReview?'restore-review':null})
   }
 
   /** FTS is a rebuildable projection. Its ACK never changes the authoritative bytes or chain membership. */
@@ -712,8 +735,10 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       const settlement=v3?await transaction(owner,()=>settleCommitted(effect)):await settleCommitted(effect)
       return {result:effect.result,receipt:effect.receipt,...settlement}
     }
-    return participantController?participantController.runOperation({host:v3?assertPrivateHost({ ...retentionHost(host),task_id:host.task_id }):retentionHost(host),operation:effect.operation,
-      request_id:effect.receipt.request_id,request_digest:effect.receipt.request_digest},finish):finish()
+    const plan={host:v3?assertPrivateHost({ ...retentionHost(host),task_id:host.task_id }):retentionHost(host),operation:effect.operation,
+      request_id:effect.receipt.request_id,request_digest:effect.receipt.request_digest}
+    return participantController?(v3 && effect.operation.action_type==='memory.restore'
+      ?participantController.runRecoveredOperation(plan,finish):participantController.runOperation(plan,finish)):finish()
   }
   // Trusted worker-only recovery primitive. This closes the exact D writer; it grants no
   // permission, consumes no proof and cannot establish C's independently durable non-consumption.
@@ -826,8 +851,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     const heads=restorePrepared?retained.heads:await currentHeads(db,owner)
     return makeMemoryControlState(host,{heads,tables},{contracts:await controlContracts()})
   }
-  async function finalizeRetainedEffect(host,effect,context) {
-    if(v3) return transaction(ownerOf(host),db=>participantController.completeEffect(db),{privateV2Phase:'completion'})
+  async function finalizeRetainedEffect(host,effect,context,restoreCompletion=null) {
+    if(v3) return transaction(ownerOf(host),db=>participantController.completeEffect(db),{privateV2Phase:'completion',restoreCompletion})
     if(!controlRetentionCoordinator) return
     await transaction(ownerOf(host),async db=>{
       const [intent]=await rows(db,'SELECT * FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',
@@ -856,8 +881,9 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       await controlRetentionCoordinator.complete(context,await retentionControlState(db,host,context))
     })
   }
-  async function authorizedEffect(host,action,parameters,options,work,{includeReceipt=false,receiptResultKey='record'}={}) {
-    requireMemory(!v3 || ['memory.save','memory.forget'].includes(action),'memory:private-v2-action-unavailable')
+  async function authorizedEffect(host,action,parameters,options,work,{includeReceipt=false,receiptResultKey='record',restoreBundle}={}) {
+    requireMemory(!v3 || ['memory.save','memory.forget'].includes(action)
+      || (action==='memory.restore' && restoreSource && restoreBundle),'memory:private-v2-action-unavailable')
     requireMemory(v3 || retainedReader.status.kind!=='file-reader' || controlRetentionCoordinator,
       'memory:control-retention-coordinator-required')
     const owner=ownerOf(host),binding=await memoryAuthorization({authority,contracts,retainedMemory:!!participantController},host,action,parameters,options)
@@ -873,11 +899,15 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       if(committed) requireMemory(committed.receipt.operation_digest===binding.digest,'memory:operation-replay-conflict')
       const request_id=committed?.receipt.request_id ?? randomUUID(),request={version:1,action_type:action,owner_subject:owner,
         operation_id:binding.operation.operation_id,operation_digest:binding.digest,parameters}
-      const effectPlan={request_id,request,request_digest:memoryEffectDigest(request)}
+      const effectPlan={request_id,request,request_digest:memoryEffectDigest(request),committed}
       requireMemory(!committed || committed.receipt.request_digest===effectPlan.request_digest,'memory:request-replay-conflict')
       const execute=()=>executeAuthorizedEffect(host,action,parameters,options,work,{includeReceipt,receiptResultKey},binding,effectPlan)
-      return (participantController?participantController.runOperation({host:v3?assertPrivateHost({ ...retentionHost(host),task_id:host.task_id }):retentionHost(host),operation:binding.operation,
-        request_id,request_digest:effectPlan.request_digest},execute):execute())
+      const plan={host:v3?assertPrivateHost({ ...retentionHost(host),task_id:host.task_id }):retentionHost(host),operation:binding.operation,
+        request_id,request_digest:effectPlan.request_digest}
+      if(v3 && action==='memory.restore') return committed
+        ?participantController.runRecoveredOperation(plan,execute)
+        :participantController.runRestoreOperation({...plan,bundle:restoreBundle},execute)
+      return participantController?participantController.runOperation(plan,execute):execute()
 
     })().finally(()=>inFlightEffects.delete(key))
     inFlightEffects.set(key,{digest:binding.digest,proof_json,promise})
@@ -886,6 +916,11 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   async function executeAuthorizedEffect(host,action,parameters,options,work,{includeReceipt,receiptResultKey},binding,effectPlan) {
     const owner=ownerOf(host),{request_id,request,request_digest}=effectPlan
     let preparedGrant,dispatched=false,dispatchAttempted=false,effect,retentionContext,retentionAttempted=false
+    let restoreCheck=null
+    const restoreCompletion=v3 && action==='memory.restore' && !effectPlan.committed ?()=>{
+      requireMemory(typeof restoreCheck==='function','memory:private-v2-restore-completion-missing')
+      restoreCheck()
+    }:null
     const targetScope=async(db,fn)=>{
       const heads=await currentHeads(db,owner)
       requireMemory(binding.operation.expected_state_version===memoryStateVersion(heads),'memory:target-state-changed')
@@ -904,6 +939,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
           requireMemory(prior.receipt.operation_digest===binding.digest && prior.operation.action_type===action,'memory:operation-replay-conflict')
           return prior
         }
+        requireMemory(!effectPlan.committed,'memory:committed-effect-disappeared')
         const [intent]=await rows(db,'SELECT request_id FROM prime_memory_intents WHERE owner_subject=$1 AND operation_id=$2',[owner,binding.operation.operation_id])
         requireMemory(!intent,'memory:effect-unresolved-reconciliation-required')
         await work(db,{preflight:true})
@@ -931,7 +967,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
           [owner,binding.operation.operation_id,binding.digest,Buffer.from(canonicalJSON(preparedGrant)),
             Buffer.from(canonicalJSON(binding.operation)),request_id,request_digest,Buffer.from(canonicalJSON(request))])
         return null
-      },{privateV2Phase:v3?'intent':null})
+      },{privateV2Phase:v3?(effectPlan.committed?'recovery':'intent'):null})
       if(!effect && v3) await transaction(owner,db=>participantController.completeIntent(db),{privateV2Phase:'completion'})
       if(!effect && retentionContext && !v3) await transaction(owner,async db=>{
         // Actual committed intent is retained; current stays predecessor and marker stays held.
@@ -945,6 +981,12 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
         if(retentionContext && !v3) await controlRetentionCoordinator.observe(retentionContext)
         await targetScope(db,async()=>{dispatchAttempted=true;await binding.dispatch({grant,request_id,request_digest});dispatched=true})
         const result=await execute(),result_digest=memoryResultDigest(result)
+        if(restoreCompletion) {
+          const descriptor=Object.getOwnPropertyDescriptor(execute,'assertComplete')
+          requireMemory(descriptor && Object.hasOwn(descriptor,'value') && typeof descriptor.value==='function',
+            'memory:private-v2-restore-completion-missing')
+          restoreCheck=descriptor.value;restoreCompletion()
+        }
         const receipt={version:1,kind:'prime-memory-effect/v1',operation_id:binding.operation.operation_id,
           operation_digest:binding.digest,grant_id:grant.grant_id,request_id,request_digest,owner_subject:owner,
           action_type:action,status:'applied',result_digest,result}
@@ -954,9 +996,9 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
             request_id,request_digest,Buffer.from(canonicalJSON(request)),Buffer.from(canonicalJSON(receipt)),
             Buffer.from(canonicalJSON(binding.operation)),Buffer.from(canonicalJSON(grant))])
         return {result,receipt,operation:binding.operation,grant}
-      },{privateV2Phase:v3?'effect':null})
+      },{privateV2Phase:v3?'effect':null,restoreCompletion})
       // Independent final checkpoint commits before C receives an applied settlement.
-      await finalizeRetainedEffect(host,effect,retentionContext)
+      await finalizeRetainedEffect(host,effect,retentionContext,restoreCompletion)
     } catch(error) {
       if(!v3 && participantController && retentionAttempted && !preparedGrant && !participantController.context()) {
         try {await controlRetentionCoordinator.inspect(retentionHost(host))}
@@ -975,7 +1017,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       throw unknown
     } finally {retentionContexts.delete(binding.operation.operation_id)}
     // Only the committed, locally derived receipt can settle C. No guest receipt is accepted.
-    const settlement=v3?await transaction(owner,()=>settleCommitted(effect)):await settleCommitted(effect)
+    const settlement=v3?await transaction(owner,()=>settleCommitted(effect),{restoreCompletion}):await settleCommitted(effect)
     return includeReceipt?{[receiptResultKey]:effect.result,receipt:effect.receipt,...settlement}:effect.result
   }
   async function exportBackup(host,options) {
@@ -1267,6 +1309,20 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
       })
   }
   async function restoreSnapshot(host,snapshot,options) {
+    if(v3) {
+      requireMemory(restoreSource,'memory:private-v2-restore-source-required')
+      const bound=assertPrivateHost({...retentionHost(host),task_id:host.task_id})
+      const bundle=detachPrivateData(snapshot)
+      const checked=inspectPrivateV2ColdBundle(bundle,bound,{profile:privateV2.profile,contracts})
+      const anchor=checked.published_lineage[0]
+      const parameters={manifest_sha256:checked.bundle.snapshot.manifest_sha256,mode:'prime-restore',
+        heads:checked.bundle.snapshot.heads,retained_heads:anchor.control_state.heads,
+        control_anchor_sha256:anchor.control_state.control_sha256,
+        retention_checkpoint_sha256:anchor.checkpoint_sha256,retention_epoch:anchor.authorization_epoch}
+      return authorizedEffect(host,'memory.restore',parameters,options,
+        db=>restoreSource.prepareRestoreEffectWork(db,bound,participantController),
+        {includeReceipt:true,receiptResultKey:'result',restoreBundle:bundle})
+    }
     requireMemory(!participantController,'memory:retained-restore-lineage-unqualified')
     requireMemory(options?.mode===undefined || options.mode==='prime-restore','memory:restore-mode-invalid')
     return importSnapshot(host,snapshot,{...options,mode:'prime-restore'})
@@ -1276,6 +1332,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     // context before acquiring its genuine held session; unsigned writers/setup are absent.
     const allowed={captureAuthorizedRemembered,prepareCaptureBinding,withAuthorityTargetObservation,reconcileEffect,
       drainOutbox,repairIndex,status,recall,cite,prepareRecordMutationBinding,forgetRecord,
+      ...(restoreSource?{restoreSnapshot}:{}),
       exportControlState:host=>transaction(ownerOf(host),db=>readControlV3(db,
         {owner_subject:host.owner_subject,owner_id:host.owner_id,profile:privateV2.profile},{contracts}))}
     const wrapped=Object.fromEntries(Object.entries(allowed).map(([name,fn])=>[name,async(host,...args)=>{

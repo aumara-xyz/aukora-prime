@@ -5,11 +5,12 @@ import { types } from 'node:util'
 import { requireMemory, sha256, MAX_BYTES } from './codecs.mjs'
 import { inspectSnapshot } from './snapshot.mjs'
 import { memoryTarget, memoryStateVersion } from './authorization.mjs'
-import { assertPrivateHost, assertPrivateProfile, detachPrivateData, decodeControlV3, assertForwardControlV3,
+import { assertPrivateHost, assertPrivateProfile, detachPrivateData, decodeControlV3,
   assertLineageCompletionsV2 } from './private-v2-control.mjs'
 import { assertRetentionV2, isPrivateV2FileRetentionReader } from './private-v2-retention.mjs'
 import { isPrivateV2Participant } from './private-v2-participant.mjs'
 import { isPrivateV2RecordAccess } from './private-v2-records.mjs'
+import { isPrivateV2EffectController } from './private-v2-effect-participant.mjs'
 
 export const PRIVATE_V2_COLD_SCHEMA = 'aukora-prime-memory-cold-bundle/v3'
 const KEYS = ['schema', 'owner_id', 'owner_subject', 'snapshot', 'published_lineage', 'pending',
@@ -37,12 +38,12 @@ function lineage(input, host, {profile, contracts}) {
     check(next.previous_checkpoint_sha256 === previous.checkpoint_sha256 && next.sequence === previous.sequence + 1,
       'lineage-predecessor-mismatch')
     check(previous.authorization_epoch <= next.authorization_epoch, 'lineage-epoch-regression')
-    assertForwardControlV3(previous.control_state, next.control_state,
-      {...host, authorization_epoch: next.authorization_epoch}, {profile, contracts})
   }
   const oldest = checked[checked.length - 1]
   check(oldest.sequence === 1 && oldest.previous_checkpoint_sha256 === null, 'lineage-baseline-missing')
   check(checked[0].authorization_epoch === host.authorization_epoch, 'current-epoch-mismatch')
+  // The shared checker validates every chronological edge with the complete
+  // already-checked predecessor prefix and its original historical epoch.
   assertLineageCompletionsV2(checked, host, {profile, contracts})
   return checked
 }
@@ -80,18 +81,27 @@ export function createPrivateV2Restore(input = {}) {
   check(input && typeof input === 'object' && !Array.isArray(input) && !types.isProxy(input)
     && [Object.prototype, null].includes(Object.getPrototypeOf(input)), 'configuration-invalid')
   const descriptors = Object.getOwnPropertyDescriptors(input), keys = ['participant', 'reader', 'profile', 'contracts', 'records']
+  if (Object.hasOwn(descriptors, 'journalRestore')) keys.push('journalRestore')
   check(Reflect.ownKeys(descriptors).length === keys.length && keys.every(key => descriptors[key]
     && Object.hasOwn(descriptors[key], 'value') && descriptors[key].enumerable), 'configuration-invalid')
-  const {participant, reader, profile: rawProfile, contracts, records} = Object.fromEntries(keys.map(key => [key, descriptors[key].value]))
+  const {participant, reader, profile: rawProfile, contracts: rawContracts, records, journalRestore} =
+    Object.fromEntries(keys.map(key => [key, descriptors[key].value]))
+  if (Object.hasOwn(descriptors, 'journalRestore')) check(typeof journalRestore === 'function'
+    && !types.isProxy(journalRestore) && Reflect.ownKeys(Object.getOwnPropertyDescriptors(journalRestore))
+      .every(key => Object.hasOwn(Object.getOwnPropertyDescriptor(journalRestore, key), 'value')),
+  'journal-source-required')
   check(isPrivateV2Participant(participant) && isPrivateV2FileRetentionReader(reader)
     && isPrivateV2RecordAccess(records), 'owned-source-capabilities-required')
   const profile = detachPrivateData(assertPrivateProfile(rawProfile))
   check(participant.coordinator?.reader === reader, 'reader-mismatch')
   check(same(participant.profile, profile), 'profile-mismatch')
-  check(contracts && typeof contracts === 'object' && !types.isProxy(contracts), 'contracts-required')
-  const contractDescriptors = Object.getOwnPropertyDescriptors(contracts)
+  check(rawContracts && typeof rawContracts === 'object' && !types.isProxy(rawContracts), 'contracts-required')
+  const contractDescriptors = Object.getOwnPropertyDescriptors(rawContracts)
   check(['validateContract', 'operationDigest', 'canonicalJson'].every(key => contractDescriptors[key]
-    && Object.hasOwn(contractDescriptors[key], 'value') && typeof contractDescriptors[key].value === 'function'), 'contracts-required')
+    && Object.hasOwn(contractDescriptors[key], 'value') && typeof contractDescriptors[key].value === 'function'
+    && !types.isProxy(contractDescriptors[key].value)), 'contracts-required')
+  const contracts = Object.freeze(Object.fromEntries(['validateContract', 'operationDigest', 'canonicalJson']
+    .map(key => [key, (...args) => Reflect.apply(contractDescriptors[key].value, undefined, args)])))
 
   async function verifiedBundle(host, input, current, published) {
     const checked = inspectPrivateV2ColdBundle(input, host, {profile, contracts})
@@ -148,11 +158,55 @@ export function createPrivateV2Restore(input = {}) {
   }
 
   async function restoreSnapshot() {
-    // C's real retained restore reservation/dispatch/effect-receipt join is still v1.
-    // A physical restore helper or lineage digest supplies no replacement permission.
+    // The approved service owns C's actual reserve/dispatch/receipt path. This
+    // factual adapter exposes no independent authorization or effect entry point.
     check(false, 'authority-join-unavailable')
   }
-  const adapter = Object.freeze({exportColdBundle, verifyColdBundle, prepareRestoreBinding, restoreSnapshot})
+  async function prepareRestoreEffectWork(client, rawHost, controller) {
+    const host = assertPrivateHost(rawHost)
+    check(isPrivateV2EffectController(controller) && same(controller.profile, profile), 'effect-controller-required')
+    check(typeof journalRestore === 'function', 'journal-source-required')
+    const evidence = detachPrivateData(await controller.restoreEvidence(client))
+    check(evidence && Object.keys(evidence).length === 5
+      && ['anchor', 'localControl', 'ancestry', 'snapshot', 'operation'].every(key => Object.hasOwn(evidence, key)),
+    'effect-evidence-fields-invalid')
+    const operation = evidence.operation, snapshot = evidence.snapshot
+    check(operation.action_type === 'memory.restore' && operation.owner_id === host.owner_id
+      && operation.target_identity.owner_subject === host.owner_subject && operation.task_id === host.task_id
+      && operation.authorization_epoch === host.authorization_epoch
+      && operation.canonical_parameters.manifest_sha256 === snapshot.manifest_sha256,
+    'effect-evidence-operation-mismatch')
+    const retained = decodeControlV3(evidence.anchor.control_state, host, {profile, contracts})
+    const checked = await records.preflight(client, host, snapshot, retained)
+    // Capture only the controller's original snapshot and archived target. No
+    // caller-selected target or projected future control enters the executable work.
+    let used = false, completed = false, preparedJournal = null
+    function assertComplete() {
+      check(used && completed && preparedJournal !== null, 'effect-work-incomplete')
+      // The genuine participant's private scope retains sticky query failures
+      // after finish; no receipt or caller flag can substitute for that check.
+      preparedJournal.assertComplete()
+    }
+    const execute = async () => {
+      check(!used, 'effect-work-reused'); used = true
+      // Only dispatch activates the genuine WRITE client. Capture the ordered
+      // journal scope while actual SQL is still I, before physical restoration.
+      preparedJournal = await participant.prepareRestoreEffectJournal(controller, host, journalRestore)
+      const restored = await records.restoreSnapshot(client, host, snapshot, retained, controller)
+      check(restored && Object.keys(restored).length === 1 && Object.hasOwn(restored, 'restored_records')
+        && restored.restored_records === checked.records.length, 'effect-record-result-mismatch')
+      await preparedJournal()
+      completed = true
+      assertComplete()
+      return Object.freeze({state: 'restored', manifest_sha256: snapshot.manifest_sha256,
+        heads: detachPrivateData(snapshot.heads), restored_records: restored.restored_records, grants_authority: false})
+    }
+    Object.defineProperty(execute, 'assertComplete', {value: assertComplete, enumerable: false})
+    return Object.freeze(execute)
+  }
+  const adapter = {exportColdBundle, verifyColdBundle, prepareRestoreBinding, restoreSnapshot}
+  Object.defineProperty(adapter, 'prepareRestoreEffectWork', {value: prepareRestoreEffectWork, enumerable: false})
+  Object.freeze(adapter)
   factories.add(adapter)
   return adapter
 }

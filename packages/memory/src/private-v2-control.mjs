@@ -101,6 +101,29 @@ export function assertClosureReference(input, host) {
     check(['owner_id','owner_subject','task_id'].every(key => value[key] === checkedHost[key]),'reference-host-mismatch')}
   return value
 }
+// Effect admission is separate from the frozen save/forget journal and negative
+// closure reference. A restore operation never becomes an original13 workflow.
+export function assertEffectReference(input, host) {
+  const value = detachPrivateData(input)
+  exact(value,PRIVATE_REFERENCE_FIELDS,'effect-reference-fields')
+  check(['owner_id','owner_subject','task_id','operation_id'].every(key => text(value[key])) && digest(value.operation_digest)
+    && [...ACTIONS,'memory.restore'].includes(value.action_type),'effect-reference-invalid')
+  if (host) {const checkedHost = hostFields(host,['owner_id','owner_subject','task_id']);
+    check(['owner_id','owner_subject','task_id'].every(key => value[key] === checkedHost[key]),'effect-reference-host-mismatch')}
+  return value
+}
+export function assertRestoreEffectParameters(input) {
+  const value = detachPrivateData(input)
+  exact(value,['manifest_sha256','mode','heads','retained_heads','control_anchor_sha256',
+    'retention_checkpoint_sha256','retention_epoch'],'restore-effect-parameter-fields')
+  const heads = value => value && typeof value === 'object' && !Array.isArray(value)
+    && Object.entries(value).every(([domain,head]) => CHAIN_DOMAINS.includes(domain)
+      && typeof head === 'string' && (head === AURA_RECORD_DOMAIN || rawHash(head)))
+  check(value.mode === 'prime-restore' && rawHash(value.manifest_sha256) && heads(value.heads) && heads(value.retained_heads)
+    && same(value.heads,value.retained_heads) && rawHash(value.control_anchor_sha256)
+    && rawHash(value.retention_checkpoint_sha256) && epoch(value.retention_epoch),'restore-effect-parameters-invalid')
+  return value
+}
 export function assertLogicalMetadata(input) {
   const value = detachPrivateData(input)
   exact(value,['version','kind','store_id'],'logical-metadata-fields')
@@ -260,7 +283,7 @@ export function assertAuthorizedEffectTransition(input,{host,profile,contracts} 
   const value = detachPrivateData(input)
   exact(value,AUTHORIZED_EFFECT_TRANSITION_FIELDS,'authorized-effect-transition-fields')
   const pair = assertPrivateProfile(profile), checkedHost = assertPrivateHost(host)
-  const reference = assertClosureReference(value.reference,checkedHost)
+  const reference = assertEffectReference(value.reference,checkedHost)
   check(typeof contracts?.validateContract === 'function' && typeof contracts?.operationDigest === 'function',
     'authorized-effect-contracts-required')
   try {contracts.validateContract('OperationProposal',value.operation)} catch {check(false,'authorized-effect-operation-invalid')}
@@ -277,6 +300,10 @@ export function assertAuthorizedEffectTransition(input,{host,profile,contracts} 
   const request = {version:1,action_type:reference.action_type,owner_subject:reference.owner_subject,
     operation_id:reference.operation_id,operation_digest:reference.operation_digest,parameters:operation.canonical_parameters}
   check(value.request_digest === memoryEffectDigest(request),'authorized-effect-request-mismatch')
+  if (reference.action_type === 'memory.restore') {
+    const parameters = assertRestoreEffectParameters(operation.canonical_parameters)
+    check(parameters.retention_epoch === value.authorization_epoch,'restore-effect-epoch-mismatch')
+  }
   return value
 }
 export function effectTransitionDigest(input) {
@@ -520,4 +547,5 @@ export async function readControlV3(client,input,{contracts} = {}) {
 }
 // Both modules initialize without reading each other's bindings. This compatibility export keeps
 // private composition imports small; the edge implementation remains owned by the separate module.
-export { assertForwardControlV3, assertMemoryControlAdvanceV3, assertLineageCompletionsV2 } from './private-v2-advance.mjs'
+export { assertForwardControlV3, assertMemoryControlAdvanceV3, assertLineageCompletionsV2,
+  assertRestoreEffectAdvance } from './private-v2-advance.mjs'

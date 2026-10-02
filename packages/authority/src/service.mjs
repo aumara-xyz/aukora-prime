@@ -22,6 +22,7 @@ import {inferenceEffectReceipt,inferenceEffectReceiptDigest,validateInferenceRec
 import {assertOperationUnconsumed} from './preparation-history.mjs'
 import {closureDigest,validateClosureRow} from './unconsumed-closure.mjs'
 import {validateClosureProfile} from './closure-retention.mjs'
+import {validateRetainedRestoreOperation,validateRetainedRestoreResult} from './retained-restore.mjs'
 
 const hex = /^[a-f0-9]{64}$/
 const sha = value => createHash('sha256').update(value).digest('hex')
@@ -175,8 +176,11 @@ function authorityService(options, provisionNew) {
   function requireRetained(op) {
     if(!retainedParticipant)refuse('UNAVAILABLE','RETAINED_MEMORY_PARTICIPANT_UNAVAILABLE')
     if(op.target_identity?.kind!=='prime-memory'||!op.action_type.startsWith('memory.'))refuse('INVALID','RETAINED_MEMORY_TARGET_REQUIRED')
-    if(op.action_type==='memory.restore'||op.canonical_parameters?.mode==='prime-restore')refuse('UNAVAILABLE','RETAINED_RESTORE_LINEAGE_UNQUALIFIED')
-    if(retainedProfile&&!['memory.save','memory.forget'].includes(op.action_type))refuse('UNAVAILABLE','RETAINED_MEMORY_ACTION_UNQUALIFIED')
+    if(op.action_type==='memory.restore'||op.canonical_parameters?.mode==='prime-restore') {
+      if(!retainedProfile)refuse('UNAVAILABLE','RETAINED_RESTORE_LINEAGE_UNQUALIFIED')
+      validateRetainedRestoreOperation(op)
+    }
+    if(retainedProfile&&!['memory.save','memory.forget','memory.restore'].includes(op.action_type))refuse('UNAVAILABLE','RETAINED_MEMORY_ACTION_UNQUALIFIED')
   }
   function retainedProfileBinding(store,row) {
     assertRetainedMemoryProfileBinding(row,retainedProfile,{expectedAuthorityStoreId:store.store_id})
@@ -645,6 +649,7 @@ function authorityService(options, provisionNew) {
   function settleMemoryRetained(input) {return attemptAsync(async()=>{
     const v=closed(input,['operation','consumed_grant','request_id','request_digest','receipt']),op=boundedOperation(v.operation),grant=detachContract('ConsumedGrant',v.consumed_grant),receipt=memoryEffectReceipt(v.receipt),receiptDigest=memoryEffectReceiptDigest(receipt)
     requireRetained(op)
+    if(op.action_type==='memory.restore')validateRetainedRestoreResult(receipt.result,op)
     return txAsync(async store=>{
       const verify=()=>{
         originalLocks(store)
