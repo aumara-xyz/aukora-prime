@@ -1,0 +1,7 @@
+MEASURED: bounded current-file evidence review; numeric/model-result inputs remain SYNTHETIC where labeled.
+37 files labeled; final 8 input hashes and 3 stdout hashes matched.
+Current-file private-key/path/IP pattern check passed; this is not repository-history privacy qualification.
+An earlier overly broad IP regex failed on AppleClang version text in inventory.stdout.txt; numeric/version false-positive corrected.
+Read-only reviewer verified missing-quality handling on synthetic input; no model, provider or network run.
+Timeout/launch/invalid-JSON/wrong-shape fault injections: UNPERFORMED.
+Source-response/raw prior-run omissions remain disclosed; no actual model/corpus measurement qualified.

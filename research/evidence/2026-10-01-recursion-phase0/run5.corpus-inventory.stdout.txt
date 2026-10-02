@@ -1,0 +1,2 @@
+MEASURED: offline command output; input=historical_source_metadata; no model inference; reference only.
+{"evidence_class": "measured", "status": "NO_VERIFIED_RECEIPTS", "example_count": 0, "source_revision_coverage": 0, "rejected_source_count": 4, "training_performed": false}

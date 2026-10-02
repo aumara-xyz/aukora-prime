@@ -1,0 +1,94 @@
+SYNTHETIC: posthoc historical benchmark arithmetic; not newly measured model performance.
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "kind": "posthoc_arithmetic_over_historical_author_labeled_benchmark",
+  "fresh_model_evaluation": false,
+  "historical_input_provenance_verified": false,
+  "input_sha256": "a2b531fa0be833d8698ae6d6bb6113af8de10ba14fd01fdc00213f272cd55f7e",
+  "sample_count": 12,
+  "original_exact": {
+    "correct": 5,
+    "total": 12,
+    "accuracy": 0.4166666666666667,
+    "nominal_95pct_wilson": {
+      "lower": 0.19326031365875665,
+      "upper": 0.6804886874504503,
+      "confidence": 0.95,
+      "method": "Wilson score",
+      "sampling_assumptions_established": false
+    }
+  },
+  "optional_KEEP_SAFE_only": {
+    "correct": 8,
+    "total": 12,
+    "accuracy": 0.6666666666666666,
+    "posthoc": true,
+    "semantic_equivalence_verified": false,
+    "nominal_95pct_wilson": {
+      "lower": 0.39062208887279953,
+      "upper": 0.8618799089087867,
+      "confidence": 0.95,
+      "method": "Wilson score",
+      "sampling_assumptions_established": false
+    }
+  },
+  "retrospective_risk_discrimination": {
+    "positive": "author HOSTILE",
+    "positive_count": 4,
+    "negative": "all other author labels",
+    "negative_count": 8,
+    "negative_means_certified_safe": false,
+    "pairwise_auc": 1.0,
+    "pairwise_wins": 32,
+    "pairwise_ties": 0,
+    "pairwise_losses": 0,
+    "pair_count": 32,
+    "pairs_are_independent_samples": false,
+    "auc_confidence_interval": null,
+    "max_observed_negative_score": 0.96,
+    "min_observed_positive_score": 1.66,
+    "observed_score_gap": 0.7,
+    "posthoc_midpoint_threshold": 1.31,
+    "classify_HOSTILE_if": "risk >= threshold",
+    "same_rows_used_to_select_and_evaluate_threshold": true,
+    "confusion": {
+      "TP": 4,
+      "TN": 8,
+      "FP": 0,
+      "FN": 0
+    },
+    "same_table_accuracy": 1.0,
+    "nominal_95pct_wilson_sensitivity": {
+      "lower": 0.5101091635454027,
+      "upper": 1,
+      "confidence": 0.95,
+      "method": "Wilson score",
+      "sampling_assumptions_established": false
+    },
+    "nominal_95pct_wilson_specificity": {
+      "lower": 0.6755924351161198,
+      "upper": 1,
+      "confidence": 0.95,
+      "method": "Wilson score",
+      "sampling_assumptions_established": false
+    },
+    "nominal_95pct_wilson_same_table_accuracy": {
+      "lower": 0.7575059933447592,
+      "upper": 1,
+      "confidence": 0.95,
+      "method": "Wilson score",
+      "sampling_assumptions_established": false
+    },
+    "population_performance_or_generalization_established": false,
+    "probability_calibration_established": false
+  },
+  "limits": [
+    "n=12 curated cases, no demonstrated random/independent sampling",
+    "author-label dependence and missing raw requests/responses",
+    "retrospective mapping and threshold selection after seeing data",
+    "risk scores are recorded/rounded scalar values, not calibrated probabilities",
+    "no fresh heldout cases or independent labels",
+    "original locked prediction and lock evidence still absent"
+  ]
+}

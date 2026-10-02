@@ -1,0 +1,2 @@
+# Evidence class: SYNTHETIC source packaging rule; generated interpreter caches are not evidence artifacts.
+__pycache__/

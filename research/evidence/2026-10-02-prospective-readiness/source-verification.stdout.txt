@@ -1,0 +1,2 @@
+Evidence class: MEASURED offline named-source hashes; raw blobs not exported or executed.
+{"passed": true, "files": 8, "wall_seconds": 0.314907625, "new_paid_experiment_spend_usd": 0}

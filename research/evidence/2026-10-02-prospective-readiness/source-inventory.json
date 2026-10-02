@@ -1,0 +1,21 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "bounded_static_archived_source_inventory_not_execution",
+  "source_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+  "path_prefix": "experiments/governed-learning/",
+  "files": [
+    {"path":"adapter_experiment_v1.py","role":"Corpus splitting, manifest and controls; no inspected optimizer/backward training loop","sha256":"cd0ebe8f4cea594fd4abaa33810b1bb63debabea1cb4dfa0a1d4fc0854e6ebe5"},
+    {"path":"adapter_v1_repaired.py","role":"Data materialization and validation; no inspected optimizer/backward training loop","sha256":"409996716f88eb0df4e0f8533f0b213fe41184fafd909c32ec0b19ced0f33e0d"},
+    {"path":"adapter_v1_final.py","role":"Data acceptance, tokenizer and isolated validation; no inspected optimizer/backward training loop","sha256":"adcf3515b27302d7200aecf6755069d62508cf111fc510ecabf0667932b7007b"},
+    {"path":"adapter-experiment-v1-manifest.json","role":"Declarative experiment manifest","sha256":"5acf992af713df59e65eefa4e91102073abd65442d8516210be078fdcf970b2e"},
+    {"path":"adapter-v1-first-batch.json","role":"Batch artifact; eligibility unqualified; raw rows not exported","sha256":"cf883d7fa3114be6878871f16931b6abffae038b1fce63c8ac9727323b0e886c"},
+    {"path":"adapter-v1-nebius-launch-sheet.md","role":"Contradictory historical planning sections; not a rate or allocation quote","sha256":"3e9b42c975f1bbdbc84018b15b416f53772b704aa80570d39fe6956bad5fa127"},
+    {"path":"gen19_grading_contract.py","role":"Grader and synthetic checks, not a training runner","sha256":"e18b5015aad0f3f2520ac390f8111a72f32ca7a48e54f001a923d52165df088a"},
+    {"path":"generate_governance_corpus.py","role":"Corpus authoring, not training","sha256":"35d3afb37cac1e7e9cc6eee7379bee1243439a72bab0bd41de09df8c40c93c98"}
+  ],
+  "model_names_declared_by_plan_not_available_weights": ["Qwen/Qwen2.5-1.5B-Instruct","Qwen/Qwen3.8-27B"],
+  "raw_source_prompts_receipts_resource_identifiers_exported": false,
+  "source_imported_or_executed": false,
+  "absence_scope": "Only the named scripts at this revision; not an assertion that no trainer exists anywhere"
+}

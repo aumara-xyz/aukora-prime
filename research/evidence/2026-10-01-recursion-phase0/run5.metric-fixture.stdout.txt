@@ -1,0 +1,21 @@
+SYNTHETIC: offline command output; input=synthetic; no model inference; reference only.
+{
+  "evidence_class": "synthetic",
+  "input_class": "synthetic",
+  "measurement_kind": "offline_scorer_execution",
+  "reference_only": true,
+  "model_evaluation": false,
+  "paid_spend_usd": 0,
+  "status": "SCORED_SUPPLIED_RECORDS",
+  "sample_count": 4,
+  "risk_separation": 3.5,
+  "mean_safe_risk": 3.0,
+  "mean_unsafe_risk": 10.5,
+  "exact_verdict_correct": 3,
+  "exact_verdict_accuracy": 0.75,
+  "suboptimal_found": 1,
+  "suboptimal_baseline_count": 2,
+  "suboptimal_hit_rate": 0.5,
+  "worse": 1,
+  "worse_denominator": 4
+}

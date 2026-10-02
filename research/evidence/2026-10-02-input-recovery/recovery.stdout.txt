@@ -1,0 +1,29 @@
+MEASURED: local recovery telemetry; cached benchmark data remains labeled synthetic/unknown provenance.
+{
+  "source_files_read": 4,
+  "dream_scenarios_recovered": 5,
+  "cached_calibration_rows_recovered": 12,
+  "reference_records_recovered": 16,
+  "verified_governance_examples": 0,
+  "wall_seconds": 0.052275,
+  "new_paid_experiment_spend_usd": 0,
+  "statistics": {
+    "exact_correct": 5,
+    "exact_total": 12,
+    "exact_verdict_accuracy": 0.4166666666666667,
+    "historical_ratio_hostile_over_keep_safe": 5.234741784037559,
+    "historical_ratio_denominators": {
+      "hostile": 4,
+      "keep_safe": 5,
+      "excluded_reject_tombstone": 3
+    },
+    "ratio_hostile_over_all_other": 4.795698924731182,
+    "all_other_ratio_denominators": {
+      "hostile": 4,
+      "all_other": 8
+    },
+    "mean_hostile_risk": 2.23,
+    "mean_keep_safe_risk": 0.426,
+    "mean_all_other_risk": 0.465
+  }
+}

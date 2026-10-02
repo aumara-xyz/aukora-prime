@@ -1,0 +1,115 @@
+{
+  "evidence_class": "measured",
+  "measurement_kind": "retained_prior_execution_notes",
+  "reference_only": true,
+  "input_results_class": "synthetic arithmetic and missing-input registry; historical source metadata inventory",
+  "prior_executions": [
+    {
+      "started_at_utc": "2026-10-01T23:16:19.540113+00:00",
+      "metric_fixture_wall_seconds": 0.032743708,
+      "missing_inputs_wall_seconds": 0.026268125,
+      "corpus_wall_seconds": 0.028321,
+      "total_wall_seconds": 0.087332833,
+      "exit_codes": [
+        0,
+        2,
+        2
+      ],
+      "spend_usd": 0,
+      "raw_outputs_retention": "UNAVAILABLE: overwritten before review; timings retained from tool response, not independently verifiable"
+    },
+    {
+      "started_at_utc": "2026-10-01T23:18:55.110725+00:00",
+      "total_wall_seconds": 0.117010541,
+      "exit_codes": [
+        0,
+        2,
+        2
+      ],
+      "spend_usd": 0,
+      "raw_outputs_retention": "UNAVAILABLE: overwrite planned to correct evidence labels; ledger copy retained",
+      "ledger": {
+        "evidence_class": "measured",
+        "measurement_kind": "offline_tool_execution",
+        "reference_only": true,
+        "real_model_evaluation": false,
+        "runs": [
+          {
+            "run_id": "metric-fixture",
+            "started_at_utc": "2026-10-01T23:18:55.110725+00:00",
+            "command": "python3 evaluate_offline.py metric-fixture.json",
+            "wall_seconds": 0.036463167,
+            "input_class": "synthetic",
+            "exit_code": 0,
+            "expected_exit_code": 0,
+            "validation_passed": true,
+            "model_evaluation": false,
+            "cloud_compute_seconds": 0,
+            "cloud_compute_rate_usd_per_second": 0,
+            "cloud_compute_usd": 0,
+            "api_model_calls": 0,
+            "api_usd": 0,
+            "new_cloud_storage_usd": 0,
+            "incremental_external_experiment_spend_usd": 0,
+            "standing_storage_burn": "UNVERIFIED; provider account not accessed",
+            "output_sha256": "8ec770101f3fa6ffa9912ef4437db603bb058d01a5a7fff3a0a83d9b5ab81b7c"
+          },
+          {
+            "run_id": "missing-dream-inputs",
+            "started_at_utc": "2026-10-01T23:18:55.148402+00:00",
+            "command": "python3 evaluate_offline.py dream-pool-registry.json",
+            "wall_seconds": 0.040277958,
+            "input_class": "synthetic_missing_input_registry",
+            "exit_code": 2,
+            "expected_exit_code": 2,
+            "validation_passed": true,
+            "model_evaluation": false,
+            "cloud_compute_seconds": 0,
+            "cloud_compute_rate_usd_per_second": 0,
+            "cloud_compute_usd": 0,
+            "api_model_calls": 0,
+            "api_usd": 0,
+            "new_cloud_storage_usd": 0,
+            "incremental_external_experiment_spend_usd": 0,
+            "standing_storage_burn": "UNVERIFIED; provider account not accessed",
+            "output_sha256": "03aac940d502a56831737ff06f89e00873601b718249c2d47a988accc6878ed5"
+          },
+          {
+            "run_id": "corpus-inventory",
+            "started_at_utc": "2026-10-01T23:18:55.189557+00:00",
+            "command": "python3 generate_governance_corpus.py --inventory source-inventory.json --output corpus-manifest.json",
+            "wall_seconds": 0.040269416,
+            "input_class": "historical_source_metadata",
+            "exit_code": 2,
+            "expected_exit_code": 2,
+            "validation_passed": true,
+            "model_evaluation": false,
+            "cloud_compute_seconds": 0,
+            "cloud_compute_rate_usd_per_second": 0,
+            "cloud_compute_usd": 0,
+            "api_model_calls": 0,
+            "api_usd": 0,
+            "new_cloud_storage_usd": 0,
+            "incremental_external_experiment_spend_usd": 0,
+            "standing_storage_burn": "UNVERIFIED; provider account not accessed",
+            "output_sha256": "d52368ec53dd809304a6528f7a3eebec48f841b65eff1e71ac39bf192ce8dd3f"
+          }
+        ],
+        "total_wall_seconds": 0.117010541,
+        "total_incremental_external_experiment_spend_usd": 0,
+        "scope_excludes": [
+          "standing storage costs",
+          "host energy",
+          "Codex subscription/agent usage"
+        ],
+        "all_expected_results_validated": true
+      }
+    }
+  ],
+  "corrections": [
+    "Synthetic-output labels corrected from measured to synthetic after review.",
+    "Unverified Laya cache completeness changed from false to null.",
+    "Source-text metadata fetches distinguished from model-weight downloads."
+  ],
+  "independent_legacy_raw_reproduction": false
+}

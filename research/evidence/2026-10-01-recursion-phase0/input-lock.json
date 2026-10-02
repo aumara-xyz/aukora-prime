@@ -1,0 +1,17 @@
+{
+  "evidence_class": "measured",
+  "measurement_kind": "local_pre_execution_hash_record",
+  "reference_only": true,
+  "independent_timestamp_or_lock": false,
+  "captured_at_utc": "2026-10-01T23:19:48.139715+00:00",
+  "files_sha256": {
+    "source-inventory.json": "86add10f9b2ac85901b0b4be41d30ad6a7b5e64474594d76c212435f6e722f79",
+    "metric-fixture.json": "ef93234e9a031a077d7a3bc200dd9dbb90dbc0aece5f192de7a74a0a4efcfe3d",
+    "dream-pool-registry.json": "9ba830999eabf97682e3fc5c8ad84c3a0cc7f4765d424cdaf9ea05b4047d72f0",
+    "preregistration.json": "bf35c026e825c8e7bad4e78b4a060bdf65fc50367dffb844549535ba1a1b9c49",
+    "evaluate_offline.py": "ea220caab6cdbdac2a791043585c7c55a13d881ea5f6dae3aa120e61d3e01046",
+    "generate_governance_corpus.py": "144307b4b54d5717046313ef902ea754b95b087c0c6ea35830022e63d58fa81f",
+    "run_phase0.py": "d0bc3f2f858b0f29789841c9ca5bf50bb32a5e90d5ff6232f99e098f3f15df15",
+    "model-source-audit.json": "cf449b1c6a3994f11297661a476aeba6085844f84fe38920e21fac4e6d3fd1b1"
+  }
+}

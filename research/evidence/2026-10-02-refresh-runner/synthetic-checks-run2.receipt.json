@@ -1,0 +1,27 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "command": [
+    "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "synthetic_control_checks.py"
+  ],
+  "source_sha256": {
+    "runner_core.py": "5b47c4f213e087ac27b254eb2c2d4b3f71b9c03cf2f8537814162347c3a8682c",
+    "refresh_runner.py": "2b3b91f7052ec07975efd99ca6274baede0682da8e06018a53e286f94ca8ac50",
+    "synthetic_control_checks.py": "4776e6555e212ab3dd01743a1f3a5bf18b5b0ebc13b17daedc5790f8e28437e5"
+  },
+  "started_at_utc": "2026-10-02T03:03:06.015692+00:00",
+  "wall_seconds": 0.208786458,
+  "exit_code": 0,
+  "stdout_raw_bytes": 223,
+  "stderr_raw_bytes": 0,
+  "stderr_sanitized": true,
+  "real_model_calls": 0,
+  "provider_actions": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "spend_scope_excludes": [
+    "standing storage",
+    "host energy",
+    "subscription/agent usage"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "offline_calculation_telemetry",
+  "command": "python3 analyze_posthoc.py",
+  "started_at_utc": "2026-10-02T01:35:38.719392+00:00",
+  "wall_seconds": 0.0020956250000000003,
+  "model_calls": 0,
+  "provider_actions": 0,
+  "cloud_compute_seconds": 0,
+  "new_storage_resources": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "standing_storage_cost": "UNVERIFIED; no provider call",
+  "spend_scope_excludes": [
+    "standing storage",
+    "host energy",
+    "subscription/agent usage"
+  ]
+}

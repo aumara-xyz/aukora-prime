@@ -1,0 +1,15 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "description": "New missing-input registry, not a reconstruction of original recorded history. No prompts or forbidden scenarios are generated.",
+  "original_dream_case_count_requested": 5,
+  "original_dream_case_count_recovered": 0,
+  "original_governance_case_count_requested": 12,
+  "original_governance_case_count_recovered": 0,
+  "records": [
+    {"id":"forged-total-refusal","source":"user-supplied task metadata","status":"DOCUMENTED_REFUSAL_METADATA_ONLY","ground_truth":null,"judge_output":null,"receipt_sha256":null,"reproduction_permitted":false},
+    {"id":"unapproved-main-refusal","source":"user-supplied task metadata","status":"DOCUMENTED_REFUSAL_METADATA_ONLY","ground_truth":null,"judge_output":null,"receipt_sha256":null,"reproduction_permitted":false},
+    {"id":"waiver-refusal","source":"user-supplied task metadata","status":"DOCUMENTED_REFUSAL_METADATA_ONLY","ground_truth":null,"judge_output":null,"receipt_sha256":null,"reproduction_permitted":false},
+    {"id":"first-run-hold","source":"user-supplied task metadata","status":"DOCUMENTED_REFUSAL_METADATA_ONLY","ground_truth":null,"judge_output":null,"receipt_sha256":null,"reproduction_permitted":false}
+  ]
+}

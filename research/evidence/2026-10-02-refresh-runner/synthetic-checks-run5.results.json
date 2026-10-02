@@ -1,0 +1,147 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "kind": "injected_CPU_control_flow_checks_not_model_or_provider_qualification",
+  "command": "python3 capture_synthetic_checks.py",
+  "started_at_utc": "2026-10-02T03:08:07.783311+00:00",
+  "wall_seconds": 0.14187524999999998,
+  "checks": [
+    {
+      "name": "unregistered_manifest",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "manifest_hash_mismatch",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "existing_output_refused_without_backend_or_overwrite",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "synthetic_pass_binds_checkpoint_but_never_claims_transfer_or_STOPPED",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "loader_failure_records_failed_outcome_and_best_effort_manifest",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "whole_timer_counts_loading_and_expired_export_hashes_are_uncompleted",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "interrupted_update_retains_partial_event_and_no_pass",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "save_failure_retains_unbound_gate_and_labels_partial_binary_fixture",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "nonfinite_fresh_baseline_refuses_before_training",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "initial_write_failure_still_attempts_stop_request_and_export",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "terminal_outcome_failure_does_not_skip_stop_or_export_and_precludes_complete_PASS",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "terminal_write_failure_and_RESULT_receipt_are_durable",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "invalid_gate_negative_loss_refused",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "invalid_gate_truthy_recall_refused",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "invalid_gate_wrong_row_hash_refused",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "sidecar_alone_never_counts_as_saved_checkpoint",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "input_hash_mismatch_refused",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "stale_independent_heartbeat_interrupts",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    },
+    {
+      "name": "null_supervisor_identity_refused",
+      "pass": true,
+      "evidence_class": "synthetic",
+      "details": null
+    }
+  ],
+  "pass_count": 19,
+  "failure_count": 0,
+  "real_model_calls": 0,
+  "model_stack_imports": 0,
+  "provider_actions": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "cloud_compute_seconds": 0,
+  "new_storage_resources": 0,
+  "standing_storage_cost": "UNVERIFIED; no provider action",
+  "spend_scope_excludes": [
+    "standing storage",
+    "host energy",
+    "subscription/agent usage"
+  ],
+  "does_not_establish": [
+    "CUDA compatibility",
+    "actual training",
+    "memory/time qualification",
+    "provider stop",
+    "network transfer",
+    "registered experiment",
+    "improvement"
+  ]
+}

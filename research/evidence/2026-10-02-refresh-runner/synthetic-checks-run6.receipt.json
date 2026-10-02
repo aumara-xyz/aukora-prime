@@ -1,0 +1,32 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "command": [
+    "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "synthetic_control_checks.py"
+  ],
+  "source_sha256": {
+    "runner_core.py": "b75e3638bcb727fab69723846209df0ed1b7e606fb167761bfde500176b59b44",
+    "refresh_runner.py": "04729099dfb6c2b608e26409ca8adedc97ccf1467464bb6e149beb8ef2badd2d",
+    "synthetic_control_checks.py": "c34288e9c47b8528921c9b2b8c467bba1dec3ed7de4f2ab4ce1b8a7d8c3faeec",
+    "capture_synthetic_checks.py": "b3a862701565fd6ea5795e297d8282696f0f3f8d2f36fd26f90c829ca20a0445",
+    "manifest-template.json": "372602dcbaec05e941e9f63eeb7cc1c405087f349beee0177d4a85433d4a14c8"
+  },
+  "started_at_utc": "2026-10-02T03:16:21.513444+00:00",
+  "wall_seconds": 0.876984417,
+  "exit_code": 0,
+  "stdout_raw_bytes": 215,
+  "timed_out": false,
+  "stderr_raw_bytes": 0,
+  "stderr_sanitized": true,
+  "real_model_calls": 0,
+  "provider_actions": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "spend_scope_excludes": [
+    "standing storage",
+    "host energy",
+    "subscription/agent usage"
+  ],
+  "pass_count": 19,
+  "failure_count": 0
+}

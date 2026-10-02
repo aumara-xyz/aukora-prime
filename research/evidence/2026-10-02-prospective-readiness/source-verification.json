@@ -1,0 +1,137 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "offline_named_Git_blob_hash_check",
+  "command": "python3 verify_sources.py > source-verification.stdout.txt",
+  "source_root_binding": "Operator-supplied GENESIS_SOURCE_ROOT; private absolute path intentionally omitted",
+  "source_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+  "started_at_utc": "2026-10-02T01:49:41.789850+00:00",
+  "wall_seconds": 0.314907625,
+  "files": [
+    {
+      "path": "experiments/governed-learning/adapter_experiment_v1.py",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/adapter_experiment_v1.py"
+      ],
+      "exit_code": 0,
+      "bytes": 11503,
+      "sha256": "cd0ebe8f4cea594fd4abaa33810b1bb63debabea1cb4dfa0a1d4fc0854e6ebe5",
+      "matches_inventory": true,
+      "wall_seconds": 0.061920957999999984,
+      "raw_source_exported": false
+    },
+    {
+      "path": "experiments/governed-learning/adapter_v1_repaired.py",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/adapter_v1_repaired.py"
+      ],
+      "exit_code": 0,
+      "bytes": 25217,
+      "sha256": "409996716f88eb0df4e0f8533f0b213fe41184fafd909c32ec0b19ced0f33e0d",
+      "matches_inventory": true,
+      "wall_seconds": 0.03302633399999999,
+      "raw_source_exported": false
+    },
+    {
+      "path": "experiments/governed-learning/adapter_v1_final.py",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/adapter_v1_final.py"
+      ],
+      "exit_code": 0,
+      "bytes": 17931,
+      "sha256": "adcf3515b27302d7200aecf6755069d62508cf111fc510ecabf0667932b7007b",
+      "matches_inventory": true,
+      "wall_seconds": 0.03278362499999998,
+      "raw_source_exported": false
+    },
+    {
+      "path": "experiments/governed-learning/adapter-experiment-v1-manifest.json",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/adapter-experiment-v1-manifest.json"
+      ],
+      "exit_code": 0,
+      "bytes": 14888,
+      "sha256": "5acf992af713df59e65eefa4e91102073abd65442d8516210be078fdcf970b2e",
+      "matches_inventory": true,
+      "wall_seconds": 0.030308,
+      "raw_source_exported": false
+    },
+    {
+      "path": "experiments/governed-learning/adapter-v1-first-batch.json",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/adapter-v1-first-batch.json"
+      ],
+      "exit_code": 0,
+      "bytes": 77837,
+      "sha256": "cf883d7fa3114be6878871f16931b6abffae038b1fce63c8ac9727323b0e886c",
+      "matches_inventory": true,
+      "wall_seconds": 0.040097207999999995,
+      "raw_source_exported": false
+    },
+    {
+      "path": "experiments/governed-learning/adapter-v1-nebius-launch-sheet.md",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/adapter-v1-nebius-launch-sheet.md"
+      ],
+      "exit_code": 0,
+      "bytes": 8338,
+      "sha256": "3e9b42c975f1bbdbc84018b15b416f53772b704aa80570d39fe6956bad5fa127",
+      "matches_inventory": true,
+      "wall_seconds": 0.03604370800000001,
+      "raw_source_exported": false
+    },
+    {
+      "path": "experiments/governed-learning/gen19_grading_contract.py",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/gen19_grading_contract.py"
+      ],
+      "exit_code": 0,
+      "bytes": 9003,
+      "sha256": "e18b5015aad0f3f2520ac390f8111a72f32ca7a48e54f001a923d52165df088a",
+      "matches_inventory": true,
+      "wall_seconds": 0.039692084000000016,
+      "raw_source_exported": false
+    },
+    {
+      "path": "experiments/governed-learning/generate_governance_corpus.py",
+      "command": [
+        "git",
+        "show",
+        "500bb4ba2748c8dc2b816560e6bbd052d300b67e:experiments/governed-learning/generate_governance_corpus.py"
+      ],
+      "exit_code": 0,
+      "bytes": 15425,
+      "sha256": "35d3afb37cac1e7e9cc6eee7379bee1243439a72bab0bd41de09df8c40c93c98",
+      "matches_inventory": true,
+      "wall_seconds": 0.040322374999999966,
+      "raw_source_exported": false
+    }
+  ],
+  "passed": true,
+  "archived_source_execution": false,
+  "model_calls": 0,
+  "provider_actions": 0,
+  "cloud_compute_seconds": 0,
+  "new_storage_resources": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "standing_storage_cost": "UNVERIFIED; no provider call",
+  "spend_scope_excludes": [
+    "standing storage",
+    "host energy",
+    "subscription/agent usage"
+  ]
+}

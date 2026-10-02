@@ -1,0 +1,198 @@
+{
+  "evidence_class": "measured",
+  "measurement_kind": "reference_artifact_byte_manifest",
+  "reference_only": true,
+  "privacy_history_qualified": false,
+  "files": [
+    {
+      "name": "RESULTS.md",
+      "bytes": 9330,
+      "sha256": "dfd79672edee78a8b0f0c6cfed8ed092b03cdc24dd2667cd96fba87fc6410b82"
+    },
+    {
+      "name": "corpus-inventory.stderr.txt",
+      "bytes": 104,
+      "sha256": "16f1ff6db8af0d30fce11486f2e0b1255b03e35f851322d3e0ff9e98527ec333"
+    },
+    {
+      "name": "corpus-inventory.stdout.txt",
+      "bytes": 277,
+      "sha256": "283f2625f5210fa8bae7fda4d60e5fa333cbf31b778611a8a11ceba4a20b20c3"
+    },
+    {
+      "name": "corpus-manifest.json",
+      "bytes": 1726,
+      "sha256": "23304b345c8bd33f46f576f516fc55fa502fd2eb03bb8f822e78b5d9d98d38fc"
+    },
+    {
+      "name": "dream-pool-registry.json",
+      "bytes": 1251,
+      "sha256": "9ba830999eabf97682e3fc5c8ad84c3a0cc7f4765d424cdaf9ea05b4047d72f0"
+    },
+    {
+      "name": "evaluate_offline.py",
+      "bytes": 3987,
+      "sha256": "9f7b38372f358e1933c87fd964584165a16fe59ccaeea09bf5e853adf094ade2"
+    },
+    {
+      "name": "generate_governance_corpus.py",
+      "bytes": 2437,
+      "sha256": "144307b4b54d5717046313ef902ea754b95b087c0c6ea35830022e63d58fa81f"
+    },
+    {
+      "name": "input-lock.json",
+      "bytes": 1017,
+      "sha256": "c10e4fd39f8bd4ff72a073c39f543bac59f809a2e94089c7c66dff7fcf6bfc26"
+    },
+    {
+      "name": "inventory.stdout.txt",
+      "bytes": 1970,
+      "sha256": "100324bf5c68bea95d861cabaa3ec6cee60eefd5cc53b79d6e5ba603b0ce8af2"
+    },
+    {
+      "name": "metric-fixture.json",
+      "bytes": 900,
+      "sha256": "ef93234e9a031a077d7a3bc200dd9dbb90dbc0aece5f192de7a74a0a4efcfe3d"
+    },
+    {
+      "name": "metric-fixture.stderr.txt",
+      "bytes": 88,
+      "sha256": "89d8c7ca7a7c59cc6e2861305ca6d713b87b94f439d201ea4fba8cfd4632718e"
+    },
+    {
+      "name": "metric-fixture.stdout.txt",
+      "bytes": 614,
+      "sha256": "361f5f647eda2db87cab544e161c59929713ba388be3aa9a55aaade8933d18f4"
+    },
+    {
+      "name": "missing-dream-inputs.stderr.txt",
+      "bytes": 111,
+      "sha256": "52d6eb649826c1a168733dc84ea99acc76ad8dc5bf92689ee81691de36ee55da"
+    },
+    {
+      "name": "missing-dream-inputs.stdout.txt",
+      "bytes": 476,
+      "sha256": "0f925513cd4899451812db2b97be94f68bc4a163210a85ba94fe9b82134910b6"
+    },
+    {
+      "name": "model-source-audit.json",
+      "bytes": 3300,
+      "sha256": "cf449b1c6a3994f11297661a476aeba6085844f84fe38920e21fac4e6d3fd1b1"
+    },
+    {
+      "name": "preregistration.json",
+      "bytes": 1658,
+      "sha256": "bf35c026e825c8e7bad4e78b4a060bdf65fc50367dffb844549535ba1a1b9c49"
+    },
+    {
+      "name": "prior-run-notes.json",
+      "bytes": 4656,
+      "sha256": "3b308d4012c8d29da94bccedf372ea7f277863a84ac519dd36a6eee957dffd18"
+    },
+    {
+      "name": "review-output.txt",
+      "bytes": 702,
+      "sha256": "e1b9bff4a98fafb3680a7b81391e0e8cb7cc6945d8ad27c2aaf3f3879a09c9f6"
+    },
+    {
+      "name": "run-ledger.json",
+      "bytes": 10102,
+      "sha256": "3821d12213a33c1855799fc72581512e060bdc25ca73bc270f59a882e03fdf9a"
+    },
+    {
+      "name": "run4.corpus-inventory.stderr.txt",
+      "bytes": 104,
+      "sha256": "16f1ff6db8af0d30fce11486f2e0b1255b03e35f851322d3e0ff9e98527ec333"
+    },
+    {
+      "name": "run4.corpus-inventory.stdout.txt",
+      "bytes": 277,
+      "sha256": "283f2625f5210fa8bae7fda4d60e5fa333cbf31b778611a8a11ceba4a20b20c3"
+    },
+    {
+      "name": "run4.corpus-manifest.json",
+      "bytes": 1726,
+      "sha256": "23304b345c8bd33f46f576f516fc55fa502fd2eb03bb8f822e78b5d9d98d38fc"
+    },
+    {
+      "name": "run4.input-lock.json",
+      "bytes": 1017,
+      "sha256": "7b5337ae295000df9177b2b75b7bc20453a3ea70da39639dc711529abfafe809"
+    },
+    {
+      "name": "run4.metric-fixture.stderr.txt",
+      "bytes": 88,
+      "sha256": "89d8c7ca7a7c59cc6e2861305ca6d713b87b94f439d201ea4fba8cfd4632718e"
+    },
+    {
+      "name": "run4.metric-fixture.stdout.txt",
+      "bytes": 614,
+      "sha256": "361f5f647eda2db87cab544e161c59929713ba388be3aa9a55aaade8933d18f4"
+    },
+    {
+      "name": "run4.missing-dream-inputs.stderr.txt",
+      "bytes": 111,
+      "sha256": "52d6eb649826c1a168733dc84ea99acc76ad8dc5bf92689ee81691de36ee55da"
+    },
+    {
+      "name": "run4.missing-dream-inputs.stdout.txt",
+      "bytes": 476,
+      "sha256": "0f925513cd4899451812db2b97be94f68bc4a163210a85ba94fe9b82134910b6"
+    },
+    {
+      "name": "run5.corpus-inventory.stderr.txt",
+      "bytes": 104,
+      "sha256": "16f1ff6db8af0d30fce11486f2e0b1255b03e35f851322d3e0ff9e98527ec333"
+    },
+    {
+      "name": "run5.corpus-inventory.stdout.txt",
+      "bytes": 277,
+      "sha256": "283f2625f5210fa8bae7fda4d60e5fa333cbf31b778611a8a11ceba4a20b20c3"
+    },
+    {
+      "name": "run5.corpus-manifest.json",
+      "bytes": 1726,
+      "sha256": "23304b345c8bd33f46f576f516fc55fa502fd2eb03bb8f822e78b5d9d98d38fc"
+    },
+    {
+      "name": "run5.input-lock.json",
+      "bytes": 1017,
+      "sha256": "6be27328330bf8380d44ac67e228754d7606ed350f9ccc36b823eb3c519a7101"
+    },
+    {
+      "name": "run5.metric-fixture.stderr.txt",
+      "bytes": 88,
+      "sha256": "89d8c7ca7a7c59cc6e2861305ca6d713b87b94f439d201ea4fba8cfd4632718e"
+    },
+    {
+      "name": "run5.metric-fixture.stdout.txt",
+      "bytes": 614,
+      "sha256": "361f5f647eda2db87cab544e161c59929713ba388be3aa9a55aaade8933d18f4"
+    },
+    {
+      "name": "run5.missing-dream-inputs.stderr.txt",
+      "bytes": 111,
+      "sha256": "52d6eb649826c1a168733dc84ea99acc76ad8dc5bf92689ee81691de36ee55da"
+    },
+    {
+      "name": "run5.missing-dream-inputs.stdout.txt",
+      "bytes": 476,
+      "sha256": "0f925513cd4899451812db2b97be94f68bc4a163210a85ba94fe9b82134910b6"
+    },
+    {
+      "name": "run5.runner.stdout.txt",
+      "bytes": 10179,
+      "sha256": "e320c963a46eaaf6ebd182afc5dbd85bd6954cf9ea6536db95892a3c79534b0f"
+    },
+    {
+      "name": "run_phase0.py",
+      "bytes": 6430,
+      "sha256": "a62af772c0de991dff6c447f2e18bdbe943b6d03b627afd9c05c63cf75c7bc5d"
+    },
+    {
+      "name": "source-inventory.json",
+      "bytes": 3664,
+      "sha256": "86add10f9b2ac85901b0b4be41d30ad6a7b5e64474594d76c212435f6e722f79"
+    }
+  ]
+}

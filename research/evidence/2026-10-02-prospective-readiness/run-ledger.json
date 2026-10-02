@@ -1,0 +1,21 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "command": "python3 preflight.py > preflight.stdout.txt",
+  "started_at_utc": "2026-10-02T01:45:02.965310+00:00",
+  "wall_seconds": 1.374905333,
+  "source_execution": false,
+  "weight_loading": false,
+  "model_calls": 0,
+  "provider_actions": 0,
+  "cloud_compute_seconds": 0,
+  "downloads_or_installs": 0,
+  "new_storage_resources": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "standing_storage_cost": "UNVERIFIED; no provider call",
+  "spend_scope_excludes": [
+    "standing storage",
+    "host energy",
+    "subscription/agent usage"
+  ]
+}

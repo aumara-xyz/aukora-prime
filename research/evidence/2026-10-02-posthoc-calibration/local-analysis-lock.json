@@ -1,0 +1,11 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "local_pre_recalculation_byte_record",
+  "recorded_at_utc": "2026-10-02T01:35:38.719392+00:00",
+  "historical_data_and_labels_already_seen": true,
+  "prospective_preregistration": false,
+  "input_sha256": "a2b531fa0be833d8698ae6d6bb6113af8de10ba14fd01fdc00213f272cd55f7e",
+  "posthoc_plan_sha256": "b6c2dd0812e8a38acb9505dce71cbb5f318081b7d1f4b05bae936eb32dabedde",
+  "analyzer_sha256": "4c9f63a5d6b2580ab8c3151f6e614e35ccc9cdbd69b516bb6f676d1b418f5bc4"
+}

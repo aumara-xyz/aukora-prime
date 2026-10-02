@@ -1,0 +1,52 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "input_kind": "archived hand-authored scenario encodings of historical decisions",
+  "original_five_scenarios_recovered": 5,
+  "author_labels_recovered": 5,
+  "independent_ground_truth_verified": false,
+  "baseline_suboptimal_by_author_labels": 3,
+  "judge_outputs_recovered": 0,
+  "dream_hit_rate": null,
+  "worse_rate": null,
+  "forward_scenario_count": 1,
+  "original_locked_forward_prediction_recovered": false,
+  "prompt_and_proposal_text_omitted": true,
+  "rows": [
+    {
+      "id": "dream-01",
+      "source_row": 0,
+      "option_count": 4,
+      "baseline_option": 0,
+      "author_ground_truth_option": 3
+    },
+    {
+      "id": "dream-02",
+      "source_row": 1,
+      "option_count": 2,
+      "baseline_option": 0,
+      "author_ground_truth_option": 0
+    },
+    {
+      "id": "dream-03",
+      "source_row": 2,
+      "option_count": 2,
+      "baseline_option": 0,
+      "author_ground_truth_option": 1
+    },
+    {
+      "id": "dream-04",
+      "source_row": 3,
+      "option_count": 2,
+      "baseline_option": 1,
+      "author_ground_truth_option": 1
+    },
+    {
+      "id": "dream-05",
+      "source_row": 4,
+      "option_count": 2,
+      "baseline_option": 0,
+      "author_ground_truth_option": 1
+    }
+  ]
+}

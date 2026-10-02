@@ -1,0 +1,36 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "measurement_kind": "bounded local Git byte inventory",
+  "source_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+  "files": [
+    {
+      "path": "experiments/dream-rsi-phase-a-v2.py",
+      "git_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+      "bytes": 9924,
+      "sha256": "93a9589c567e0689103fec880b6fea2144527397c45cf3bfe110862e942937e4",
+      "git_blob_sha1": "1de87dce13a5a38f4a57ecebf641e53e19d2bac7"
+    },
+    {
+      "path": "experiments/jev-calibration-v01.json",
+      "git_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+      "bytes": 1904,
+      "sha256": "97d5d29199552b690b1b6cede5a5847b785ce088d5a19085eda866bffb4dfa85",
+      "git_blob_sha1": "5e45b572eb5cf3608eb499c19fa764066a48f486"
+    },
+    {
+      "path": "experiments/governed-learning/generate_governance_corpus.py",
+      "git_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+      "bytes": 15425,
+      "sha256": "35d3afb37cac1e7e9cc6eee7379bee1243439a72bab0bd41de09df8c40c93c98",
+      "git_blob_sha1": "f09259f29953ca56dac2f918fb2c82f311d3edfd"
+    },
+    {
+      "path": "experiments/governed-learning/governance-corpus-v01.json",
+      "git_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+      "bytes": 22513,
+      "sha256": "771a5417f30e2c7cd25b7a28fe701590ecf916d80f4b7c51e817f79e9adc0a2e",
+      "git_blob_sha1": "8cc6c3310084a442fa1db4e09f292eed62631abf"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+SYNTHETIC: offline command output; input=synthetic_missing_input_registry; no model inference; reference only.
+{
+  "evidence_class": "synthetic",
+  "input_class": "synthetic",
+  "measurement_kind": "offline_scorer_execution",
+  "reference_only": true,
+  "model_evaluation": false,
+  "paid_spend_usd": 0,
+  "status": "NOT_RUN_MISSING_GROUND_TRUTH",
+  "sample_count": 4,
+  "risk_separation": null,
+  "exact_verdict_accuracy": null,
+  "suboptimal_found": null,
+  "worse": null
+}

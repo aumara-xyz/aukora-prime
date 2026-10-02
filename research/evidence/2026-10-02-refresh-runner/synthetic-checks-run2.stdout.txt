@@ -1,0 +1,3 @@
+Evidence class: SYNTHETIC captured CPU-check stdout; label added before captured bytes.
+Evidence class: SYNTHETIC injected CPU fixtures only; no real model/provider execution.
+{"pass_count": 14, "failure_count": 0, "wall_seconds": 0.12207962499999998, "real_model_calls": 0, "new_paid_experiment_spend_usd": 0}

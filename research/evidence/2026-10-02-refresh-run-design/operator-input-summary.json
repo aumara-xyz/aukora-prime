@@ -1,0 +1,50 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "sanitized_metadata_from_operator_local_hash_receipt",
+  "operator_receipt_source_id": "task-9/local-source-audit/gen16-continuation-checkpoint.json",
+  "operator_receipt_sha256": "3273c5a954f3ac109ae3c478114a74724720969d71ec262a28d3e35d95f75cb3",
+  "checkpoint": {
+    "bytes": 1107347624,
+    "sha256": "ed8b316728368f73f670485eaf2bac09126585e68f17e50dd48cb4c9b9ee1dac",
+    "wall_seconds_measured": 2.554817125,
+    "header_extent_valid": true,
+    "stable_during_read": true,
+    "tensor_values_loaded": false,
+    "config_sha256": "38e08fda482a14a20d1f294b0da71ce1d0b930323fa2db9ba761e84cca18c1be",
+    "trainer_sha256": "5db86fcf16433ef6fef6568be7fe83e555570c37b98b615b05de21664dabc5ee",
+    "base_revision_in_adapter_config": null,
+    "local_base_backup_directory_present": false,
+    "base_and_tokenizer_hashes": "UNRECOVERED in named local backup; remote paths not accessible in this subtask"
+  },
+  "selected_adapter_config": {
+    "peft_version": "0.20.0",
+    "peft_type": "LORA",
+    "r": 64,
+    "lora_alpha": 128,
+    "lora_dropout": 0.0,
+    "target_modules": [
+      "down_proj",
+      "up_proj",
+      "gate_proj"
+    ],
+    "inference_mode": true,
+    "revision": null
+  },
+  "this_lab_rehashed_checkpoint": false,
+  "operator_hashes_are_not_load_compatibility": true,
+  "provider_state_rate_and_stop": "Fresh operator baseline STOPPED and one H200 confirmed after owner login; rate, free space, capacity and end-of-run stop remain unqualified",
+  "denied_access_rule": "Operator reported SSH denied before connect; no retry or alternate access attempted by this lab",
+  "historical_source_execution_binding": "UNKNOWN",
+  "raw_source_paths_prompts_or_keys_exported": false,
+  "fresh_operator_provider_receipt": {
+    "source_id": "task-9/private-provider/resumed-h200-get.stdout",
+    "bytes": 1890,
+    "sha256": "d36880e5102fd6f570622dbd6c86d0afcd08796c20e59e87637702f8c5b8688a",
+    "operator_reported_state": "STOPPED",
+    "operator_reported_shape": "1gpu-16vcpu-200gb",
+    "operator_reported_platform": "gpu-h200-sxm",
+    "raw_output_or_resource_identifiers_exported": false,
+    "this_lab_provider_calls": 0
+  }
+}

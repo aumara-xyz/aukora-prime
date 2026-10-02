@@ -1,0 +1,2 @@
+Evidence class: MEASURED static inspection only; no archived source/model execution.
+{"source_sha256": "5db86fcf16433ef6fef6568be7fe83e555570c37b98b615b05de21664dabc5ee", "wall_seconds": 0.009122166999999987, "new_paid_experiment_spend_usd": 0}

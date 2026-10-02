@@ -1,0 +1,221 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "measurement_kind": "sanitized metadata extracted from existing historical experiment records",
+  "new_model_run": false,
+  "record_count": 16,
+  "sources": [
+    {
+      "source_label": "D28",
+      "receipt_basename": "loop-receipts.jsonl",
+      "receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "receipt_bytes": 11093,
+      "results_sha256": "7019a32864cd3916f42b4251a00e469fcc4d7f986f4d46a68c4053ecd6051f36",
+      "row_count": 8,
+      "archived_corpus_source_hash_match": true,
+      "actions": {
+        "reject-no-improvement": 4,
+        "keep": 2,
+        "tombstone": 2
+      },
+      "verification_class": "local source-file integrity only; producer-recorded outcomes"
+    },
+    {
+      "source_label": "D32",
+      "receipt_basename": "loop-receipts.jsonl",
+      "receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "receipt_bytes": 12419,
+      "results_sha256": "de1070713dcb7fe5c33de39d99da3262c0a3bf612820795587857341881a45dc",
+      "row_count": 8,
+      "archived_corpus_source_hash_match": true,
+      "actions": {
+        "tombstone": 2,
+        "keep": 2,
+        "reject-no-improvement": 4
+      },
+      "verification_class": "local source-file integrity only; producer-recorded outcomes"
+    }
+  ],
+  "records": [
+    {
+      "source_label": "D28",
+      "iteration": 1,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.0091328",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D28",
+      "iteration": 2,
+      "recorded_action": "keep",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.0179889",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D28",
+      "iteration": 3,
+      "recorded_action": "tombstone",
+      "proposal_digest_present": false,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 0,
+      "historical_reported_api_cost_usd": "0.00601407",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D28",
+      "iteration": 4,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.0049266",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D28",
+      "iteration": 5,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.0019939129",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D28",
+      "iteration": 6,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.01357168",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D28",
+      "iteration": 7,
+      "recorded_action": "tombstone",
+      "proposal_digest_present": false,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 0,
+      "historical_reported_api_cost_usd": "0.045488",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D28",
+      "iteration": 8,
+      "recorded_action": "keep",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": true,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.02720022",
+      "source_receipt_sha256": "2e38a4170c1be03802789a3943265593da90a52ee3386fc1d24cb914607e9538",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 1,
+      "recorded_action": "tombstone",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 0,
+      "historical_reported_api_cost_usd": "0.015309",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 2,
+      "recorded_action": "keep",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.01039095",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 3,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.00805695",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 4,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.0086702",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 5,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.00193833",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 6,
+      "recorded_action": "reject-no-improvement",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.01668508",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 7,
+      "recorded_action": "keep",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 2,
+      "historical_reported_api_cost_usd": "0.01117628",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    },
+    {
+      "source_label": "D32",
+      "iteration": 8,
+      "recorded_action": "tombstone",
+      "proposal_digest_present": true,
+      "proposal_bytes_match_in_bounded_snapshot_search": false,
+      "recorded_case_count": 0,
+      "historical_reported_api_cost_usd": "0.0101037",
+      "source_receipt_sha256": "5ce031eab63707c3cf90f0377d6ea6bc1399184aa8ad002076c97d16142272fa",
+      "outcome_independently_reverified": false
+    }
+  ],
+  "historical_reported_api_cost_usd": "0.2086466729",
+  "historical_invoice_verified": false,
+  "new_paid_experiment_spend_usd": 0,
+  "raw_receipts_prompts_code_and_private_paths_omitted": true
+}

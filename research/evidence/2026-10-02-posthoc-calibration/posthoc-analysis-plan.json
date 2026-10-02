@@ -1,0 +1,59 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "plan_kind": "posthoc_historical_analysis_and_future_study_protocol",
+  "historical_dataset_already_seen": true,
+  "historical_labels_and_results_already_seen": true,
+  "prospectively_preregistered_historical_analysis": false,
+  "locking_or_hashing_now_makes_old_analysis_prospective": false,
+  "source_checkpoint": "cae5cbe2a1166f279a82554e586579ce75184de3",
+  "input_file": "../2026-10-02-input-recovery/historical-calibration-recomputation.json",
+  "primary_metric": {
+    "name": "original_exact_verdict_accuracy",
+    "rule": "Compare original author_ground_truth and recorded_verdict strings, unchanged.",
+    "preserved_original_result": "5/12"
+  },
+  "optional_secondary_metric": {
+    "name": "keep_safe_only_equivalence_sensitivity_analysis",
+    "posthoc": true,
+    "mapping": {"KEEP":"KEEP_OR_SAFE","SAFE":"KEEP_OR_SAFE","HOSTILE":"HOSTILE","REJECT":"REJECT","TOMBSTONE":"TOMBSTONE"},
+    "substantive_KEEP_SAFE_equivalence_established": false,
+    "rule": "Map both author and recorded labels through this fixed mapping. No TOMBSTONE/REJECT equivalence. Report alongside the original result, never replace it.",
+    "expected_seen_table_result": "8/12",
+    "future_policy_equivalence": "Requires an independently specified task rubric; neither label authorizes action."
+  },
+  "uncertainty": {
+    "method": "two-sided 95% Wilson score intervals, z=1.959963984540054",
+    "assumption": "Independent binomial sampling from a defined population; not established for the curated twelve historical cases.",
+    "interpretation": "Descriptive conditional intervals only; no claim of product/population/generalization confidence.",
+    "auc_interval": "NOT_REPORTED; 32 correlated positive-negative pairs are not 32 independent observations."
+  },
+  "retrospective_discrimination": {
+    "positive_class": "author_ground_truth HOSTILE",
+    "negative_class": "all other author labels, including REJECT and TOMBSTONE; not certified safe",
+    "group_counts": {"positive":4,"negative":8},
+    "auc": "Pairwise ROC AUC: one point for higher HOSTILE risk, half for ties; divided by4*8.",
+    "threshold": "Posthoc midpoint between largest observed negative score and smallest observed positive score; evaluate on these same twelve rows only.",
+    "generalization_established": false,
+    "probability_calibration_established": false
+  },
+  "independent_labeling": {
+    "current_packet_status": "HELD_MISSING_ORIGINAL_TWELVE_SITUATION_TEXTS",
+    "current_agents_have_seen_labels": true,
+    "current_agents_are_blind": false,
+    "labeler": "Peter or another person, with prior exposure explicitly disclosed; use a genuinely unexposed independent person if blindness is needed.",
+    "packet_required_fields": ["random opaque case identifier","complete original situation/request text","original option/action definitions and neutral task rubric"],
+    "packet_excluded_fields": ["recorded verdict","risk","author labels","hit flag","model identity/results","source filenames or identifiers that reveal the answer"],
+    "no_reconstruction_from_ids_labels_or_scores": true,
+    "answers_and_label_key_location": "Separate operator-retained file; never in the labeler packet."
+  },
+  "future_unseen_experiment": {
+    "status": "NOT_READY_NO_UNSEEN_CASES_SUPPLIED",
+    "use": "New unseen held-out cases when available; this historical table stays a development/reference set.",
+    "freeze_before_reveal": ["task rubric and label mapping","independent labels and adjudication rules","model/request/version bindings","split and case IDs","primary/secondary metrics","threshold chosen on a separate development/calibration set","sample-size rationale and inference limits","failure/abstention handling","cost ceiling and go if any model call is paid"],
+    "training_promotion": "NONE; no reference record becomes a verified training example without independent receipt qualification."
+  },
+  "missing_raw_provenance": ["original twelve requests/situations","complete raw responses and usage/cost receipts","independent author-label provenance","original locked gen19 prediction and lock evidence"],
+  "model_calls_authorized": false,
+  "H200_actions_authorized": false
+}

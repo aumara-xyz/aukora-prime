@@ -1,0 +1,1 @@
+SYNTHETIC: offline command output; input=synthetic_missing_input_registry; no model inference; reference only.

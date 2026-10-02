@@ -1,3 +1,11 @@
+# Nebius Lab — completed research snapshot
+
+**Reference only; this branch is not a product release.** Start with the [Nebius Lab evidence index](research/NEBIUS-LAB.md): completed offline recovery, corrected historical calibration, prospective design and 19 recorded synthetic runner control checks. No new model/provider/training run occurred; GPU work remains HELD and real preregistration inputs are unready.
+
+This branch copies completed research file bytes onto sanitized Prime baseline `a15966fd4cda16186757adf84c954b44f4ccf5c8`. Its retained Prime documentation below describes that baseline and historical evidence, not qualification of a new deployed product. Use the index's per-round limits and ledgers when reviewing the lab.
+
+## Prime baseline documentation
+
 ![AUKORA's intended human-first architecture](docs/assets/aukora-human-first.png)
 
 *Human first. AI next.*

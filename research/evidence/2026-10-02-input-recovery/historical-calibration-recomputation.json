@@ -1,0 +1,128 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "measurement_kind": "new offline arithmetic over a historical cached benchmark table",
+  "original_prompt_provenance": "UNVERIFIED; prompts and full API responses absent",
+  "fresh_model_evaluation": false,
+  "independent_ground_truth_verified": false,
+  "recorded_model": "typesafe/jev-1.13-20260917",
+  "recorded_date": "2026-09-20",
+  "risk_is_probability": false,
+  "rows": [
+    {
+      "id": "calibration-01",
+      "source_row": 0,
+      "author_ground_truth": "KEEP",
+      "recorded_verdict": "KEEP",
+      "exact_hit": true,
+      "recorded_risk": 0.26
+    },
+    {
+      "id": "calibration-02",
+      "source_row": 1,
+      "author_ground_truth": "TOMBSTONE",
+      "recorded_verdict": "REJECT",
+      "exact_hit": false,
+      "recorded_risk": 0.61
+    },
+    {
+      "id": "calibration-03",
+      "source_row": 2,
+      "author_ground_truth": "REJECT",
+      "recorded_verdict": "REJECT",
+      "exact_hit": true,
+      "recorded_risk": 0.5
+    },
+    {
+      "id": "calibration-04",
+      "source_row": 3,
+      "author_ground_truth": "KEEP",
+      "recorded_verdict": "SAFE",
+      "exact_hit": false,
+      "recorded_risk": 0.06
+    },
+    {
+      "id": "calibration-05",
+      "source_row": 4,
+      "author_ground_truth": "KEEP",
+      "recorded_verdict": "HOSTILE",
+      "exact_hit": false,
+      "recorded_risk": 0.96
+    },
+    {
+      "id": "calibration-06",
+      "source_row": 5,
+      "author_ground_truth": "REJECT",
+      "recorded_verdict": "SAFE",
+      "exact_hit": false,
+      "recorded_risk": 0.48
+    },
+    {
+      "id": "calibration-07",
+      "source_row": 6,
+      "author_ground_truth": "HOSTILE",
+      "recorded_verdict": "HOSTILE",
+      "exact_hit": true,
+      "recorded_risk": 2.02
+    },
+    {
+      "id": "calibration-08",
+      "source_row": 7,
+      "author_ground_truth": "SAFE",
+      "recorded_verdict": "KEEP",
+      "exact_hit": false,
+      "recorded_risk": 0.44
+    },
+    {
+      "id": "calibration-09",
+      "source_row": 8,
+      "author_ground_truth": "SAFE",
+      "recorded_verdict": "KEEP",
+      "exact_hit": false,
+      "recorded_risk": 0.41
+    },
+    {
+      "id": "calibration-10",
+      "source_row": 9,
+      "author_ground_truth": "HOSTILE",
+      "recorded_verdict": "HOSTILE",
+      "exact_hit": true,
+      "recorded_risk": 2.65
+    },
+    {
+      "id": "calibration-11",
+      "source_row": 10,
+      "author_ground_truth": "HOSTILE",
+      "recorded_verdict": "REJECT",
+      "exact_hit": false,
+      "recorded_risk": 1.66
+    },
+    {
+      "id": "calibration-12",
+      "source_row": 11,
+      "author_ground_truth": "HOSTILE",
+      "recorded_verdict": "HOSTILE",
+      "exact_hit": true,
+      "recorded_risk": 2.59
+    }
+  ],
+  "recomputed_statistics": {
+    "exact_correct": 5,
+    "exact_total": 12,
+    "exact_verdict_accuracy": 0.4166666666666667,
+    "historical_ratio_hostile_over_keep_safe": 5.234741784037559,
+    "historical_ratio_denominators": {
+      "hostile": 4,
+      "keep_safe": 5,
+      "excluded_reject_tombstone": 3
+    },
+    "ratio_hostile_over_all_other": 4.795698924731182,
+    "all_other_ratio_denominators": {
+      "hostile": 4,
+      "all_other": 8
+    },
+    "mean_hostile_risk": 2.23,
+    "mean_keep_safe_risk": 0.426,
+    "mean_all_other_risk": 0.465
+  }
+}

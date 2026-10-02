@@ -1,0 +1,2 @@
+Evidence class: SYNTHETIC proposed row-index schedule; not model results.
+{"quota": [50, 50, 8, 8, 8, 8, 8], "total": 140, "target_share": "5/7", "output_sha256": "c873b7ca0918a62d6540c6b017fffb2b0c3c25acd55c142b7c959050486ddb35"}

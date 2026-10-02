@@ -1,0 +1,1 @@
+Evidence class: SYNTHETIC CPU-check stderr; runner-directory path sanitized; may be empty.

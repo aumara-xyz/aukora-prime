@@ -1,0 +1,32 @@
+MEASURED: read-only source/runtime inventory; historical source claims remain unverified; reference only.
+
+GitHub branch metadata:
+  aumara-xyz/aukora-genesis main = 645d3213b8aede3b544269b4224ae09df06b0a42
+  commit time = 2026-10-01T07:34:49Z
+  tree = 08ed3dbb8ce02fd402a8b6327b491e54b21552d8
+  recursive tree: truncated=false, 2654 entries
+  current-tree lookup experiments/governed-learning/generate_governance_corpus.py: HTTP404 NOT_FOUND
+  branch search for documented glm/ingestion: branches=[]
+  source search REPEAT MIN_EPOCH gen-19: results=[]
+
+Local reads (locations represented by scope variables; no private configuration read):
+  git -C "$PRIME_ROOT" status --porcelain=v1: empty
+  git -C "$PRIME_ROOT" rev-parse HEAD: 9d6c2205af5a05651b9fff7525505fb2ce0e076d
+  targeted "$GENESIS_ROOT/experiments" inventory: Laya cache and venv present; no dream/corpus/Riemann scripts found
+  "$GENESIS_ROOT/research": directory absent
+  "$MODELS_ROOT" top-level *Bonsai*.gguf/*bonsai*.gguf lookup: no candidate emitted
+  command -v python3/llama-cli/llama-server/ollama/nebius/node: binaries present
+  llama-cli --version: version0.3.0, build10621, commitc1d0e7a00, AppleClang21.0.0.21000101, Darwin arm64
+  df -h lab filesystem: 460Gi size, 385Gi used, 46Gi available, 90% capacity
+
+Read failures and incomplete availability:
+  git ls-remote https://github.com/aumara-xyz/aukora-genesis.git refs/heads/main:
+    exit128; Could not resolve host: github.com
+  sysctl -n hw.memsize:
+    Operation not permitted; RAM headroom unavailable
+  encoded historical branch URL fetch:
+    INVALID_ARGUMENT, invalid repository path; subsequent purpose-built branch search returned no branch
+
+Inventory command wall times were not captured as a single run; UNRECORDED.
+No inference, provider command, install, model download, resource mutation or private-journal read occurred.
+Incremental external experiment spend: USD0. Existing cloud storage costs: UNVERIFIED, not assumed zero.

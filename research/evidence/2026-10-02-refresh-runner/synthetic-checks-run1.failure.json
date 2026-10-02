@@ -1,0 +1,18 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "status": "FAILED_FIXTURE_SETUP",
+  "command": "python3 synthetic_control_checks.py > synthetic-checks.stdout.txt",
+  "failure": "runner_core.Refused: Symlink write/input path is not permitted",
+  "cause": "macOS temporary-directory path used a symlinked ancestor; the source path guard refused before backend creation",
+  "retained_raw_stdout_bytes": 0,
+  "raw_stderr_retention": "Original tool traceback was not saved; this record is a sanitized transcription, not the complete raw traceback",
+  "original_source_revision": "uncommitted first fixture version; exact prior fixture bytes were not preserved",
+  "wall_seconds": null,
+  "wall_time_status": "UNRECORDED; no invented timing",
+  "correction": "Resolve the newly created synthetic fixture root to its canonical physical path; preserve the real symlink prohibition",
+  "real_model_calls": 0,
+  "provider_actions": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "spend_scope_excludes": ["standing storage", "host energy", "subscription/agent usage"]
+}

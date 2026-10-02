@@ -1,0 +1,1 @@
+SYNTHETIC: offline command output; input=synthetic; no model inference; reference only.

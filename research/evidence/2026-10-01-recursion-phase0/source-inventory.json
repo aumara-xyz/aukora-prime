@@ -1,0 +1,85 @@
+{
+  "evidence_class": "measured",
+  "measurement_kind": "read_only_source_inventory",
+  "reference_only": true,
+  "captured_at_utc": "2026-10-01T23:11:16Z",
+  "prime_base_revision": "9d6c2205af5a05651b9fff7525505fb2ce0e076d",
+  "genesis_revision": "645d3213b8aede3b544269b4224ae09df06b0a42",
+  "sources": [
+    {
+      "source_id": "nebius_report",
+      "kind": "historical_report_only",
+      "revision": "645d3213b8aede3b544269b4224ae09df06b0a42",
+      "path": "docs/NEBIUS-WINDOW-REPORT-20260921.md",
+      "git_blob_sha1": "2ee2d284d543b52dc0e7ab3b7608aeda5f34bbe2",
+      "url": "https://github.com/aumara-xyz/aukora-genesis/blob/645d3213b8aede3b544269b4224ae09df06b0a42/docs/NEBIUS-WINDOW-REPORT-20260921.md",
+      "corpus_eligible": false,
+      "reason": "Narrative historical result; raw provider receipt and invoice unavailable. Never treat as a fresh run."
+    },
+    {
+      "source_id": "recursion_report",
+      "kind": "historical_report_only",
+      "revision": "645d3213b8aede3b544269b4224ae09df06b0a42",
+      "path": "docs/RECURSION-FULL-REPORT-20260921.md",
+      "git_blob_sha1": "8405c21cf263d1152a2d63b2f34549eebfea89a4",
+      "url": "https://github.com/aumara-xyz/aukora-genesis/blob/645d3213b8aede3b544269b4224ae09df06b0a42/docs/RECURSION-FULL-REPORT-20260921.md",
+      "corpus_eligible": false,
+      "reason": "Narrative only, raw original decision points, model outputs and verdict labels absent."
+    },
+    {
+      "source_id": "archive_map",
+      "kind": "source_topology",
+      "revision": "645d3213b8aede3b544269b4224ae09df06b0a42",
+      "path": "ARCHIVE.md",
+      "git_blob_sha1": "a6f66e400566b6233fe5e363f1afde51ecf026c4",
+      "url": "https://github.com/aumara-xyz/aukora-genesis/blob/645d3213b8aede3b544269b4224ae09df06b0a42/ARCHIVE.md",
+      "corpus_eligible": false,
+      "reason": "Experiments archived on Sep27; private archive not ingested."
+    },
+    {
+      "source_id": "pg_storage_summary",
+      "kind": "reported_synthetic_fixture_summary",
+      "revision": "9d6c2205af5a05651b9fff7525505fb2ce0e076d",
+      "path": "packages/memory/pg-storage-receipt.json",
+      "corpus_eligible": false,
+      "reason": "Synthetic PostgreSQL storage acceptance summary; no original source evidence, no governance settle chain."
+    }
+  ],
+  "local_availability": {
+    "python3": true,
+    "llama_cli": {
+      "present": true,
+      "version": "0.3.0",
+      "build": 10621,
+      "commit": "c1d0e7a00"
+    },
+    "llama_server": true,
+    "ollama_cli": true,
+    "nebius_cli_present_but_not_invoked": true,
+    "laya_cache_directory_present": true,
+    "laya_cache_complete": null,
+    "laya_cache_complete_verification": "UNPERFORMED",
+    "bonsai_qualified_local_pack": "NOT_LOCATED_IN_BOUNDED_MODEL_PATH",
+    "riemann_method": "NOT_LOCATED",
+    "ram_headroom": "UNAVAILABLE: sysctl Operation not permitted",
+    "disk_available_gib": 46
+  },
+  "missing": {
+    "corpus_generator_at_genesis_pin": "404_NOT_FOUND",
+    "original_dream_inputs": 5,
+    "original_governance_decisions": 12,
+    "raw_jev_outputs": true,
+    "gen19_locked_prediction_artifact": true,
+    "gen19_preregistration_artifact": true,
+    "settle_decline_replay_B1_M9_receipts": true
+  },
+  "provider_current_state": "UNVERIFIED_NO_PROVIDER_CALL",
+  "new_paid_spend_usd": 0,
+  "standing_storage_cost": "UNVERIFIED_NOT_ZERO_CLAIM",
+  "omissions": [
+    "Private conversation and journals not read.",
+    "Private keys and cloud account configuration not read.",
+    "Safety-refused cases retained only as documented metadata; no reproduction.",
+    "Full historical report text omitted from evidence bundle pending privacy review."
+  ]
+}

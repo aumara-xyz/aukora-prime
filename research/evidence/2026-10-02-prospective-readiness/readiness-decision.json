@@ -1,0 +1,23 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "kind": "unexecuted_new_experiment_proposal_and_gate_decision",
+  "decision": "NOT_READY_FOR_H200",
+  "four_hours": {"proposed_maximum_window_seconds": 14400, "authorization_to_start": false, "numeric_total_spend_ceiling_usd": null, "obligation_to_use_entire_window": false},
+  "historical_gen19_grading": {"status": "HELD", "original_locked_prediction_missing": true, "reconstructed_prediction_allowed": false},
+  "new_prospective_experiment": {"old_prediction_is_a_prerequisite": false, "smallest_near_ready_option": "Fixed-weight Laya inference compatibility smoke on a fresh synthetic fixture, independently labeled as such; not training, historical grading or verified governance performance", "existing_checkpoint": "convaiinnovations/laya@1c5edc17a7acd8701df6fc341c0d179f1c62c982", "fresh_fixture_frozen": false, "model_runner_qualified": false, "exact_qualified_model_command": null, "qualified_H200_training_command": null},
+  "resource_estimates": {"weight_file_bytes_measured": 842609210, "parameters_from_header": 421293830, "FP32_parameter_storage_bytes_formula": "421293830 * 4 = 1685175320", "total_inference_GPU_memory": "UNMEASURED; parameter storage excludes activations, framework buffers, tokenizer and temporary copies", "training_GPU_memory": "UNMEASURED; optimizer, gradients, sequence length, batch size and trainer not frozen", "model_duration_seconds": null, "duration_reason": "No compatible load or inference/training step has been measured", "local_preflight_wall_seconds_measured": 1.374905333},
+  "blockers": [
+    "No qualified small H200 trainer, frozen fresh training/evaluation data or new prediction/preregistration was recovered in the bounded source scope",
+    "Cached Laya belongs to a different revision from the audited current public pin; qualify this exact old checkpoint and installed environment explicitly",
+    "No actual model load, tensor compatibility, RAM headroom, CUDA capability or peak GPU memory measurement",
+    "Installed loader may mutate tokenizer configuration and has remote-download fallback; a future runner must stage mutable metadata in the lab and enforce offline local-only loading",
+    "No verified provider allocation, current rate, capacity, all-in cost ledger, independent stop controller or fresh STOPPED output",
+    "Peter's explicit numeric TOTAL ceiling and window go remain absent"
+  ],
+  "recommended_next": "Freeze a small synthetic fixed-weight Laya compatibility fixture and safe offline runner, qualify resource headroom and run locally if permitted. That experiment does not justify H200 by itself. Prepare a separate new training proposal only for a concrete question with frozen source/data and bounded measured smoke estimates.",
+  "current_rate": "UNVERIFIED; user-quoted $5/hour and historical $4.50/GPU-hour are not provider quotes",
+  "training_or_cloud_executed": false,
+  "verified_training_corpus_examples": 0,
+  "no_product_authorization": true
+}

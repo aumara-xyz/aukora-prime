@@ -1,0 +1,51 @@
+{
+  "evidence_class": "measured",
+  "measurement_kind": "read_only_public_metadata_audit",
+  "reference_only": true,
+  "model_evaluation_performed": false,
+  "auditor": "isolated lab read-only source audit",
+  "laya": {
+    "source_revision": "4aa6761be8173de4ce6d92c31b3e40b6eaf59a7c",
+    "source_commit_at_utc": "2026-10-01T18:18:45Z",
+    "tag_v0_3_23_revision": "ae3222b3fcdf424254a2c726d72161f671a86d95",
+    "source_url": "https://github.com/NandhaKishorM/laya/tree/4aa6761be8173de4ce6d92c31b3e40b6eaf59a7c",
+    "readme_url": "https://github.com/NandhaKishorM/laya/blob/4aa6761be8173de4ce6d92c31b3e40b6eaf59a7c/README.md",
+    "pyproject_url": "https://github.com/NandhaKishorM/laya/blob/4aa6761be8173de4ce6d92c31b3e40b6eaf59a7c/pyproject.toml",
+    "name_distinction": "Laya is an encoder package. Jev is a separate TypeSafe API. Published comparisons use differing third-party prompts/sample counts.",
+    "licence_declared": "Apache-2.0",
+    "package_version": "0.3.23",
+    "minimum_dependencies": {"python":"3.10","torch":"2.0.0","transformers":"4.48.0","safetensors":"0.4.0","huggingface_hub":"0.20.0","numpy":"1.20.0"},
+    "checkpoints": [
+      {"name":"convaiinnovations/laya","revision":"55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851","parameters":421293830,"weight_file_bytes":842609210},
+      {"name":"convaiinnovations/laya-multilingual","revision":"e4e9ddf21a7b1903b7acffd8814ad4307bf63a67","parameters":321908998,"weight_file_bytes":643835514},
+      {"name":"convaiinnovations/laya-typed-decisions","revision":"1a793eb568e6718f15941d08f85432581df534e3","parameters":421293830,"weight_file_bytes":842609220}
+    ],
+    "better_at_prime_governance": "UNPROVEN"
+  },
+  "bonsai": {
+    "repository": "prism-ml/Bonsai-27B-gguf",
+    "revision": "f10afb355f104535e3e3e98cf7ab7795c72bd292",
+    "revision_at_utc": "2026-07-17T16:05:42Z",
+    "source_url": "https://huggingface.co/prism-ml/Bonsai-27B-gguf/tree/f10afb355f104535e3e3e98cf7ab7795c72bd292",
+    "compressed_file": "Bonsai-27B-Q1_0.gguf",
+    "compressed_file_bytes": 3803452480,
+    "published_file_sha256": "17ef842e47450caeb8eaa3ebfbbab5d2f2278b62b79be107985fb69a2f819aa0",
+    "published_hash_locally_verified": false,
+    "format": "Q1_0_g128",
+    "runtime_requirement_vendor_stated": "PrismML llama.cpp fork with custom kernels for CPU/Metal/CUDA",
+    "generic_hf_default_f16_file_bytes": 53808280640,
+    "optional_dspark_q4_1_bytes": 1787468768,
+    "optional_vision_q8_0_bytes": 629246880,
+    "licence": "Apache-2.0",
+    "licence_text_sha256": "69849221bfb90053de2134ef5e6d540287b4b98062326492f1f96f5da685524b",
+    "licence_url": "https://huggingface.co/prism-ml/Bonsai-27B-gguf/blob/f10afb355f104535e3e3e98cf7ab7795c72bd292/LICENSE.txt",
+    "ancestry_notice": "Qwen3.6-27B",
+    "historical_report_target_is_different": "20260921 report names Ternary-Bonsai-27B-gguf @86e89f34c93201c3dfd5e5880fedb0022fc7e34d, Q2_g64/PQ2_0. Its reported 9.2 tok/s and 7.59 GB cannot be assigned to this Q1 file.",
+    "local_runtime_compatibility": "UNPROVEN",
+    "quality_latency_and_nebius_deployment": "UNPROVEN"
+  },
+  "jev_current_version_and_price": "UNVERIFIED",
+  "model_weight_downloads_installs_inference_cloud_actions": 0,
+  "public_metadata_and_source_text_fetched": true,
+  "new_paid_experiment_spend_usd": 0
+}

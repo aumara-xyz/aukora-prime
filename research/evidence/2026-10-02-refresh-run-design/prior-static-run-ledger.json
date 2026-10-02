@@ -1,0 +1,18 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "command": "python3 inspect_trainer.py > trainer-inspection.stdout.txt",
+  "started_at_utc": "2026-10-02T02:10:05.418233+00:00",
+  "wall_seconds": 0.016386958000000007,
+  "model_calls": 0,
+  "provider_actions": 0,
+  "cloud_compute_seconds": 0,
+  "new_storage_resources": 0,
+  "new_paid_experiment_spend_usd": 0,
+  "standing_storage_cost": "UNVERIFIED; no provider call",
+  "spend_scope_excludes": [
+    "standing storage",
+    "host energy",
+    "subscription/agent usage"
+  ]
+}

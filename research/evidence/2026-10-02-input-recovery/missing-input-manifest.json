@@ -1,0 +1,29 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "measurement_kind": "bounded artifact recovery disposition",
+  "recovered": [
+    "Original five hand-authored dream scenarios and author option labels in archived dream-rsi-phase-a-v2.py",
+    "Twelve cached calibration verdict/risk rows in jev-calibration-v01.json",
+    "Sixteen historical loop metadata rows from two local loop-receipts.jsonl files, hashes matching the archived corpus sources",
+    "Original generate_governance_corpus.py and gen19_grading_contract.py in local glm/ingestion Git history"
+  ],
+  "minimal_missing_files": [
+    {"needed_file":"dream-judge-outputs.json","minimum_contents":"Five source-row bindings, exact returned option/verdict/risk, transport failures and original API usage/cost. The original cached outputs are required to grade old hit/worse rates without new calls."},
+    {"needed_file":"calibration-requests.jsonl","minimum_contents":"Twelve original requests/prompts and exact source-row/model bindings, sanitized before any transfer."},
+    {"needed_file":"calibration-raw-responses.jsonl","minimum_contents":"Twelve complete original responses, errors and API usage/cost receipts, sanitized before any transfer."},
+    {"needed_file":"independent-ground-truth-manifest.json","minimum_contents":"Independent frozen labels tied to source decision/outcome receipts; author-supplied labels alone do not establish outcome truth."},
+    {"needed_file":"verified-governance-receipt-manifest.json","minimum_contents":"Approved sanitized settle/decline/refusal/replay/B1/M9 receipt files, expected hashes, source revisions, reviewed verifier and trust anchor. No private conversation, journal or secret material."},
+    {"needed_file":"documented-refusal-manifest.json","minimum_contents":"Metadata-only records for the new forged-total, unapproved-main, waiver and first-run-hold cases. No reproduction instructions or forbidden fixture payloads."},
+    {"needed_file":"gen19-locked-prediction.json","minimum_contents":"Original prediction bytes and evidence of locking before training; a newly authored scenario is not the prediction."},
+    {"needed_file":"gen19-preregistration.json","minimum_contents":"Original burn design, repeat/epoch/wall/gate settings and grader bindings. Contract code exists, original lock provenance remains missing."}
+  ],
+  "additional_loop_proposal_binding_gaps": {
+    "D28_missing_iterations": [1,2,4,5,6],
+    "D32_missing_iterations": [2,3,4,5,6,7],
+    "scope": "Missing matching proposal bytes in a bounded top-level Python snapshot search; not a claim they are absent everywhere. No court rerun or cryptographic chain verification."
+  },
+  "fresh_model_calls": "HELD_NO_APPROVED_API_BUDGET",
+  "H200_window": "HELD_BLANK_CEILING_NO_EXPLICIT_GO",
+  "source_search_complete_for_this_round": true
+}

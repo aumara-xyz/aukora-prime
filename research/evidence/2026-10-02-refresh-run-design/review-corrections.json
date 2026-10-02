@@ -1,0 +1,17 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "draft_review_correction_trace",
+  "corrections": [
+    "Generalized helper redaction to remove a literal remote home path from helper source; no raw training text exported",
+    "Added required 120-token reachability qualification for each nonempty 240-character target",
+    "Added parent baseline target-failure precondition; already passing targets do not support restoration question",
+    "Clarified checkpoint estimate covers adapter-only files; optimizer/RNG/base/export copies excluded and no resume authorized",
+    "Separated Ternary pack footprints: PQ2_0 about7.17GB versus Q2_g64 about7.59GB; no shared7.2GB claim"
+  ],
+  "prior_static_stdout_and_ledger_retained": true,
+  "model_calls": 0,
+  "provider_actions": 0,
+  "historical_Bonsai_correction": "193/196 and196/196 are agreement counts, not accuracy/validity; no prior incorrect claim was committed/uploaded by this lab",
+  "operator_quote_currency_caveat": "21.731510768 quote units not confirmedUSD/not all-in/not spent"
+}

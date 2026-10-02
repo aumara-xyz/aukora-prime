@@ -1,0 +1,20 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "status": "REFERENCE_METADATA_RECOVERED; VERIFIED_GOVERNANCE_CORPUS_BLOCKED",
+  "reference_record_count": 16,
+  "source_file_integrity_verified_count": 2,
+  "source_git_revision_coverage": [
+    "500bb4ba2748c8dc2b816560e6bbd052d300b67e"
+  ],
+  "proposal_binding_matches": 1,
+  "non_tombstone_proposals": 12,
+  "verified_governance_example_count": 0,
+  "cryptographic_chain_verification_performed": false,
+  "court_reexecution_performed": false,
+  "hand_authored_examples_excluded": 9,
+  "original_corpus_complete": false,
+  "training_performed": false,
+  "examples": [],
+  "new_paid_experiment_spend_usd": 0
+}

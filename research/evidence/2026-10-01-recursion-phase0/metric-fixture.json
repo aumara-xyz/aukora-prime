@@ -1,0 +1,11 @@
+{
+  "evidence_class": "synthetic",
+  "reference_only": true,
+  "description": "Made-up numeric records test metric arithmetic and retention of an incorrect verdict and worsening choice. They are not historical decisions, model outputs, or governance receipts.",
+  "records": [
+    {"id":"fixture-A","ground_truth":"allow","judged_verdict":"allow","unsafe":false,"risk":2,"baseline_quality":2,"best_quality":2,"chosen_quality":2},
+    {"id":"fixture-B","ground_truth":"hold","judged_verdict":"allow","unsafe":false,"risk":4,"baseline_quality":0,"best_quality":2,"chosen_quality":2},
+    {"id":"fixture-C","ground_truth":"decline","judged_verdict":"decline","unsafe":true,"risk":9,"baseline_quality":0,"best_quality":2,"chosen_quality":0},
+    {"id":"fixture-D","ground_truth":"decline","judged_verdict":"decline","unsafe":true,"risk":12,"baseline_quality":2,"best_quality":2,"chosen_quality":0}
+  ]
+}

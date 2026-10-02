@@ -1,0 +1,140 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "named_recovered_trainer_static_inspection",
+  "source_id": "aukora-lab/train_burn18-hybrid.py",
+  "source_bytes": 6305,
+  "source_sha256": "5db86fcf16433ef6fef6568be7fe83e555570c37b98b615b05de21664dabc5ee",
+  "assignments": [
+    {
+      "line": 23,
+      "names": [
+        "BASE"
+      ],
+      "expression": "'${REMOTE_HOME}/base-weights'"
+    },
+    {
+      "line": 24,
+      "names": [
+        "HERE"
+      ],
+      "expression": "Path('${REMOTE_HOME}/fable-micro-lora')"
+    },
+    {
+      "line": 25,
+      "names": [
+        "CORPUS"
+      ],
+      "expression": "HERE / 'pairs/pairs-burn-16.json'"
+    },
+    {
+      "line": 26,
+      "names": [
+        "ENGRAVE"
+      ],
+      "expression": "HERE / 'pairs/pairs-burn-13.json'"
+    },
+    {
+      "line": 27,
+      "names": [
+        "CARRIER"
+      ],
+      "expression": "sys.argv[1] if len(sys.argv) > 1 else str(HERE / 'adapters/gen-16')"
+    },
+    {
+      "line": 28,
+      "names": [
+        "OUT"
+      ],
+      "expression": "sys.argv[2] if len(sys.argv) > 2 else str(HERE / 'adapters/gen-17')"
+    },
+    {
+      "line": 29,
+      "names": [
+        "REPEAT"
+      ],
+      "expression": "int(sys.argv[3]) if len(sys.argv) > 3 else 20"
+    },
+    {
+      "line": 31,
+      "names": [
+        "(EPOCHS_CAP, WALL_CAP_MIN)"
+      ],
+      "expression": "(6, 80)"
+    },
+    {
+      "line": 32,
+      "names": [
+        "MIN_EPOCH"
+      ],
+      "expression": "3"
+    },
+    {
+      "line": 33,
+      "names": [
+        "(LR, MAXLEN, SEED, FLOOR)"
+      ],
+      "expression": "(0.0001, 16384, 20260904, 0.001)"
+    }
+  ],
+  "selected_calls": [
+    {
+      "line": 47,
+      "call": "AutoTokenizer.from_pretrained"
+    },
+    {
+      "line": 48,
+      "call": "AutoModelForCausalLM.from_pretrained"
+    },
+    {
+      "line": 51,
+      "call": "PeftModel.from_pretrained"
+    },
+    {
+      "line": 74,
+      "call": "torch.optim.AdamW"
+    },
+    {
+      "line": 118,
+      "call": "model.save_pretrained"
+    },
+    {
+      "line": 110,
+      "call": "model.save_pretrained"
+    },
+    {
+      "line": 69,
+      "call": "model.generate"
+    },
+    {
+      "line": 89,
+      "call": "out.loss.backward"
+    }
+  ],
+  "observations": {
+    "actual_optimizer_backward_loop": true,
+    "default_output_generation": "gen-17; MUST NOT RUN DEFAULT",
+    "fixed_receipt_name": "burn-18-receipt.json; explicit OUT does not redirect receipt",
+    "corpus_rows_expected": 146,
+    "engraving_rows_expected": 7,
+    "repeat_default": 20,
+    "minimum_epoch": 3,
+    "epoch_cap": 6,
+    "training_loop_wall_cap_minutes": 80,
+    "max_token_length": 16384,
+    "seed": 20260904,
+    "learning_rate": 0.0001,
+    "loss_floor": 0.001,
+    "source_order": "146 corpus rows followed by engraving block, unlike comment",
+    "loss_gate": "max of last 100 online engraving losses, not post-epoch max across all seven rows",
+    "recall_gate": "original.strip()[:240] is a substring of generated decoded text; characters, not byte equality",
+    "generation": "greedy; max_new_tokens=120; skip_special_tokens=False",
+    "wall_cap_scope": "starts after loading/tokenizing; checked between training steps; not a hard cap on gates, saves or provider lifecycle",
+    "per_epoch_checkpoint_save": true,
+    "current_share_knob": "none; all seven engraving rows receive equal repeat count"
+  },
+  "raw_training_texts_exported": false,
+  "archived_source_imported_or_executed": false,
+  "model_calls": 0,
+  "provider_actions": 0
+}

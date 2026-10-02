@@ -1,0 +1,2 @@
+Evidence class: MEASURED offline metadata, header and checksum preflight; no model run.
+{"local_files_checked": 5, "wall_seconds": 1.374905333, "new_paid_experiment_spend_usd": 0, "gpu_readiness": "HELD; compatibility/headroom/data/controls/budget unqualified"}

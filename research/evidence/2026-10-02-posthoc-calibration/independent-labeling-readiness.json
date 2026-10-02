@@ -1,0 +1,19 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "bounded_original_situation_availability_check",
+  "source_revision": "500bb4ba2748c8dc2b816560e6bbd052d300b67e",
+  "inspected_files": [
+    {"path":"experiments/jev-calibration-v01.json","sha256":"97d5d29199552b690b1b6cede5a5847b785ce088d5a19085eda866bffb4dfa85","rows":12,"rows_with_original_situation_or_request_text":0},
+    {"path":"experiments/governed-learning/jev_threshold_plane.py","sha256":"e004562f7bd49cfc5040278aa51127b58afb368284e49879044b6355fd81630d","original_situations_available":false}
+  ],
+  "twelve_situation_labeling_packet_created": false,
+  "status": "HELD_MISSING_ORIGINAL_SITUATIONS",
+  "reason": "Result identifiers, verdicts, risk and author labels cannot reconstruct the original twelve requests without invention or answer leakage.",
+  "parent_and_current_agent_prior_label_exposure": true,
+  "parent_and_current_agent_blind": false,
+  "independent_label_step_performed": false,
+  "needs": ["Approved sanitized original twelve situation/request texts and neutral option definitions","Independent human labeling and exposure disclosure","Separate operator-held source-to-random-ID key and author/model outputs"],
+  "future_unseen_heldout_status": "NOT_AVAILABLE; not manufactured from the seen historical cases",
+  "no_new_source_search_required_this_round": true
+}

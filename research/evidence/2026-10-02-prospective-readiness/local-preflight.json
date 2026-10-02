@@ -1,0 +1,120 @@
+{
+  "evidence_class": "measured",
+  "reference_only": true,
+  "kind": "bounded_offline_local_availability_not_model_results",
+  "captured_at_utc": "2026-10-02T01:45:02.965310+00:00",
+  "python": "3.9.6",
+  "packages": {
+    "torch": "2.8.0",
+    "transformers": "4.53.0",
+    "peft": "0.17.1",
+    "accelerate": "1.10.1",
+    "laya": "0.3.4",
+    "safetensors": "0.7.0",
+    "huggingface-hub": "0.36.2"
+  },
+  "named_other_cache_directory_presence": {
+    "convaiinnovations/laya-typed-decisions": false,
+    "Qwen/Qwen2.5-1.5B-Instruct": false
+  },
+  "laya": {
+    "present": true,
+    "revision": "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
+    "files": {
+      "rl_agent_config.json": {
+        "status": "HASHED",
+        "bytes": 745,
+        "sha256": "ae287b56bbcf5f8c4f4541ae9dfd00c914c4c48b940b8398c3058af37ba92bbd",
+        "hash_wall_seconds": 0.000857208000000026
+      },
+      "encoder/config.json": {
+        "status": "HASHED",
+        "bytes": 2083,
+        "sha256": "bf3ab80598fdccf414855a2ce80f22859e4492d06ca8a62ddd1cfb63972f8979",
+        "hash_wall_seconds": 0.0006041249999999831
+      },
+      "tokenizer/tokenizer.json": {
+        "status": "HASHED",
+        "bytes": 3583228,
+        "sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+        "hash_wall_seconds": 0.007281082999999994
+      },
+      "tokenizer/tokenizer_config.json": {
+        "status": "HASHED",
+        "bytes": 308,
+        "sha256": "50044de60daaa73df97d262e15a40d4faf0160e7d742df64b377877a1320dd12",
+        "hash_wall_seconds": 0.0007088749999999977
+      },
+      "model.safetensors": {
+        "status": "HASHED",
+        "bytes": 842609210,
+        "sha256": "891102d372688fc2a094dac56a384bc537b87c63f21f9f3dac0be2b7cbc8d86c",
+        "hash_wall_seconds": 1.246801334
+      }
+    },
+    "safetensors": {
+      "header_bytes": 21536,
+      "header_sha256": "3a42d8e7a96d5aa22c5bc9475d7ff092e32a832ae7c6973688f66f7a84048c04",
+      "tensor_count": 206,
+      "parameter_count": 421293830,
+      "dtypes": [
+        "F16",
+        "F32"
+      ],
+      "data_bytes": 842587666,
+      "declared_extent_matches_file": true,
+      "tensor_values_or_model_loaded": false,
+      "architecture_or_quality_verified": false
+    }
+  },
+  "installed_loader": {
+    "requires_python": ">=3.8",
+    "laya/agent.py": {
+      "sha256": "025522e4fd212d805703dfe1b93919c6cfae7a3c12dc72a984f88de02f2eb9c0",
+      "calls": [
+        {
+          "call": "_fix_tokenizer_config",
+          "line": 137
+        },
+        {
+          "call": "AutoTokenizer.from_pretrained",
+          "line": 175
+        },
+        {
+          "call": "load_file",
+          "line": 181
+        },
+        {
+          "call": "snapshot_download",
+          "line": 128
+        }
+      ]
+    },
+    "laya/common.py": {
+      "sha256": "f948ee606abe2ed2463f830c051f1a60dccc1b9f5ca1fdc15635cfcbe0cff7b2",
+      "calls": [
+        {
+          "call": "AutoConfig.from_pretrained",
+          "line": 133
+        },
+        {
+          "call": "AutoModel.from_config",
+          "line": 134
+        },
+        {
+          "call": "AutoModel.from_pretrained",
+          "line": 136
+        }
+      ]
+    }
+  },
+  "disk_available_gib": 33.40581512451172,
+  "ram_and_gpu_headroom": "UNQUALIFIED; no alternative access attempted after prior OS denial",
+  "cuda_and_model_compatibility": "UNTESTED; metadata presence is not a load test",
+  "hashing_caps": {
+    "file_bytes": 900000000,
+    "per_file_wall_seconds": 15,
+    "read_buffer_bytes": 1048576,
+    "process_priority": "UNCHANGED"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "evidence_class": "measured",
+  "measurement_kind": "corpus_inventory_execution",
+  "input_class": "historical_report_and_source_metadata",
+  "reference_only": true,
+  "status": "NO_VERIFIED_RECEIPTS",
+  "training_performed": false,
+  "example_count": 0,
+  "accepted_source_revision_count": 0,
+  "accepted_source_revisions": [],
+  "inventoried_source_revision_count": 2,
+  "inventoried_source_revisions": [
+    "645d3213b8aede3b544269b4224ae09df06b0a42",
+    "9d6c2205af5a05651b9fff7525505fb2ce0e076d"
+  ],
+  "inventory_sha256": "86add10f9b2ac85901b0b4be41d30ad6a7b5e64474594d76c212435f6e722f79",
+  "rejected_source_count": 4,
+  "rejections": [
+    {
+      "source_id": "nebius_report",
+      "revision": "645d3213b8aede3b544269b4224ae09df06b0a42",
+      "reason": "NO_REVIEWED_RECEIPT_VERIFIER_ADAPTER: Narrative historical result; raw provider receipt and invoice unavailable. Never treat as a fresh run."
+    },
+    {
+      "source_id": "recursion_report",
+      "revision": "645d3213b8aede3b544269b4224ae09df06b0a42",
+      "reason": "NO_REVIEWED_RECEIPT_VERIFIER_ADAPTER: Narrative only, raw original decision points, model outputs and verdict labels absent."
+    },
+    {
+      "source_id": "archive_map",
+      "revision": "645d3213b8aede3b544269b4224ae09df06b0a42",
+      "reason": "NO_REVIEWED_RECEIPT_VERIFIER_ADAPTER: Experiments archived on Sep27; private archive not ingested."
+    },
+    {
+      "source_id": "pg_storage_summary",
+      "revision": "9d6c2205af5a05651b9fff7525505fb2ce0e076d",
+      "reason": "NO_REVIEWED_RECEIPT_VERIFIER_ADAPTER: Synthetic PostgreSQL storage acceptance summary; no original source evidence, no governance settle chain."
+    }
+  ],
+  "examples": [],
+  "paid_spend_usd": 0
+}
