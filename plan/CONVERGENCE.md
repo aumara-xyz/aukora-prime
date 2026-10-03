@@ -1,6 +1,6 @@
 # AUKORA Convergence: the front page
 
-Last updated 2026-10-03 ~12:12 WITA (UTC+8) by Grok. This page wins over every older plan. Details live in [MASTER-PLAN-v4.md](MASTER-PLAN-v4.md); Peter's ideas live in [IDEAS-LEDGER.md](IDEAS-LEDGER.md).
+Last updated 2026-10-03 ~13:40 WITA (UTC+8) by Grok. This page wins over every older plan. Details live in [MASTER-PLAN-v4.md](MASTER-PLAN-v4.md); Peter's ideas live in [IDEAS-LEDGER.md](IDEAS-LEDGER.md).
 
 Labels: **RAN** = executed and the output exists. **SOURCE-ONLY** = the code says so, nothing ran. **UNPERFORMED** = not done.
 
@@ -11,32 +11,31 @@ Labels: **RAN** = executed and the output exists. **SOURCE-ONLY** = the code say
 3. **Two friends** running Auma on their own nodes.
 4. Later: a network of personally owned Aumas. Nodes talk over Nostr. **Transport is not permission.**
 
-## Current state (2026-10-03 ~12:12 WITA)
+## Current state (2026-10-03 ~13:40 WITA)
 
 | Fact | Label |
 |---|---|
 | The agent relay is live on the private pilot at rev `921b3c0`. The Dot/Grok handshake over it worked. | RAN |
-| GitHub branch `trunk` is at `62a2a8fa` (parent `b4ffb636`; cleared C retention tags + approved two-file support-pin refresh). Plan docs live on `main` (`9562c75` and successors). Grok remote readback CONFIRMED. | RAN |
-| Full suite on `trunk@62a2a8fa` via GitHub Actions run [37094853235](https://github.com/aumara-xyz/aukora-prime/actions/runs/37094853235): **61 PASS / 4 FAIL / 1 UNPERFORMED**, exit 1. Artifact `11264315201` digest `sha256:ab485d1a9ef02d6f9e0b9d660a8ee163e537fed454a4c20ae7ad5a466732d1b3` verified by Grok. Qualification UNPERFORMED; G1 PENDING. | RAN (red) |
-| Local Darwin profile claim 55/10/1 on the same SHA (P). | SOURCE-ONLY (not re-run by Grok) |
+| Product trunk merged into `main` at `a0e5303b`; tip `ad31e96b` ("Preserve live proposals during recovery and refresh exact source pins"). Prior product tip `62a2a8fa` remains on stale `refs/heads/trunk`. Plan docs preserved. Grok remote readback CONFIRMED. | RAN |
+| Full suite on `main@ad31e96b` via GitHub Actions run [37099437453](https://github.com/aumara-xyz/aukora-prime/actions/runs/37099437453): **63 PASS / 2 FAIL / 1 UNPERFORMED**, exit 1. Artifact `11264589983` digest `sha256:82212e91926dadfece00e79126143d3cc768ccabca9d55244d78db92828cf57a` verified by Grok. Qualification UNPERFORMED; G1 PENDING. | RAN (red) |
+| Prior suite on `trunk@62a2a8fa` was 61/4/1 (run 37094853235). Two of those FAILs (`full-h-owner-memory-client`, `full-pre-reservation-unknown`) now PASS on main@ad31. | RAN (superseded) |
 | A real Auma reply in the app. | UNPERFORMED |
 | A real owner-approved memory save. | UNPERFORMED |
-| Public `main` suite at `89d0cf5` was red: 59 pass, 6 fail, 1 not run (cause `b867c72`). Explicit retirement approved **with conditions** (Grok review, not Peter's acceptance). | RAN (reproduced) |
+| #2 inference/chat source candidates through local `15f45ef` (E93 + Bridge/H joins). Awaiting Claude CLEAR/REFUTE. | SOURCE-ONLY |
 | Lanes: Dot/#6 disposition table covers all 176 SHAs (20 included / 129 superseded / 24 held / 3 excluded). Coverage OK; held scopes still open. | SOURCE-ONLY (table); M1 open |
+| Peter 04:49 directive (relay): stop feature coding; converge piece by piece onto MAIN; P sole publisher. | RAN (coordination) |
 
-### CI FAIL rows on trunk@`62a2a8fa` (Linux)
+### CI FAIL rows on main@`ad31e96b` (Linux)
 
 1. `full-owner-recovery` — TAP (known_unsent path)
 2. `full-owner-forget-workflow` — TAP (known_unsent path)
-3. `full-h-owner-memory-client` — ASSERT_JSON_COUNTER_MISMATCH
-4. `full-pre-reservation-unknown` — TAP (W1 still blocked)
 
-(`authority-core-only` now PASS vs trunk@088.)
+(`authority-core-only`, `full-h-owner-memory-client`, and `full-pre-reservation-unknown` are PASS on this tip.)
 
 ## Operating rules
 
-1. **One trunk.** Lanes merge into it every few hours. Build plus the suite run after every merge.
-2. **Red gets fixed first.** No new lanes until the trunk builds and the suite runs.
+1. **One line on `main`.** No parallel trunk. Lanes merge into `main` every few hours. Build plus the suite run after every merge. Stale `trunk` refs get fast-forwarded or retired.
+2. **Red gets fixed first.** No new lanes until `main` builds and the suite runs.
 3. **Teeth twins.** Every check ships with a twin that disables only that check and must fail, in the same run.
 4. **Label everything** RAN / SOURCE-ONLY / UNPERFORMED.
 5. **Never fake.** If something fails, name the exact failing command and its output.
@@ -56,7 +55,7 @@ Labels: **RAN** = executed and the output exists. **SOURCE-ONLY** = the code say
 
 | # | Milestone | Owner | Pass test |
 |---|---|---|---|
-| 1 | Trunk pushed, lanes reconciled | Dot (Grok reviews) | One integration branch on GitHub contains `40e1033` or its successor. Every one of the 176 lane commits is merged or explicitly dropped. Build plus suite run on that commit, with the exact counts posted. **Partial:** trunk@`62a2a8fa` is live and CI suite is RAN red (61/4/1); 24 held dispositions and green suite still open. |
+| 1 | Trunk pushed, lanes reconciled | Dot (Grok reviews) | One integration branch on GitHub contains `40e1033` or its successor. Every one of the 176 lane commits is merged or explicitly dropped. Build plus suite run on that commit, with the exact counts posted. **Partial:** product is on `main@ad31e96b` with CI suite RAN red (63/2/1); 24 held dispositions and green suite still open. |
 | 2 | The Electron app talks to Auma | Dot, Claude Code reviews | Peter types in the app and gets a real DeepSeek reply. The provider call is visible in a receipt. Spend stays under the proposed **$10 chat cap** (Peter approves cap and key setup). The twin: with the route disabled, the app says "unavailable" and does not fake a reply. |
 | 3 | Passkey enrolment plus one real save | Claude Code (proposed), Dot integrates | Peter enrols a passkey. One reduced-guarantee memory save goes through with his approval and leaves a receipt. The refusal twin: the identical save without approval is refused, with zero effects. |
 | 4 | Restart, export, restore | Claude Code and Dot | After an app restart, the saved item is recalled with its citation. Export, then restore into an empty target, and the item is still there with its original ID. |
