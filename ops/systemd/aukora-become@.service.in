@@ -1,0 +1,20 @@
+[Unit]
+Description=AUKORA owner-approved Linux release transition %i
+After=network.target
+
+[Service]
+# External controller: stopping aukora-host cannot kill this separate cgroup.
+# Installation/start authority and the privileged lifecycle role require separate owner approval.
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=@NODE_PATH@ @SOURCE_ROOT@/scripts/aukora/become-linux.mjs --config /etc/aukora-host/host.json --commit %i --release /opt/aukora/releases/%i --approval-state /var/lib/aukora-host-control/approvals/%i/state
+TimeoutStartSec=1800
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aukora-host-control
+StandardOutput=journal
+StandardError=journal

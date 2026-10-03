@@ -1,0 +1,34 @@
+[Unit]
+Description=AUKORA authenticated local memory door
+After=aukora-openviking.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+# Existing identity/credential only; source refuses missing fields rather than minting them.
+Type=simple
+User=aukora-host
+Group=aukora-host
+WorkingDirectory=/var/lib/aukora-host/state/workspace
+Environment=HOME=/var/lib/aukora-host
+Environment="AUKORA_VIKING_DOOR_KEY_FILE=@EXISTING_PRIVATE_DOOR_KEY_FILE@"
+UMask=0077
+ExecStart=@NODE_PATH@ @SOURCE_ROOT@/scripts/kira/viking-door.mjs --installed --support-root /var/lib/aukora-host --port 8766
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aukora-host
+TasksMax=32
+MemoryHigh=256M
+MemoryMax=384M
+CPUQuota=25%
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

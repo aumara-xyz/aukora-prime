@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "commit": "@APPROVED_COMMIT@",
+  "release": "@APPROVED_RELEASE@",
+  "approved_record_sha": "@APPROVED_ARTIFACT_RECORD_SHA256@",
+  "approval_state": "/var/lib/aukora-host-control/approvals/@APPROVED_COMMIT@/state",
+  "plugin_set_sha256": "@PLUGIN_SET_SHA256@",
+  "approval_sha256": "@PLUGIN_SET_APPROVAL_SHA256@",
+  "pin_sha256": "@PLUGIN_SET_APPROVER_SHA256@"
+}
