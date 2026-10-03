@@ -1,5 +1,6 @@
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Compile into the package-local .runtime/AUKORA Prime.app.
+use scripting additions
 on run
     set bundlePath to POSIX path of (path to me)
     set runtimePath to do shell script "/usr/bin/dirname " & quoted form of bundlePath
