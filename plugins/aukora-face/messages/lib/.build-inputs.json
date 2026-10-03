@@ -1,0 +1,30 @@
+{
+  "face": "messages",
+  "srcDigest": "d88251d4baa0bf28449406a7ef2dba5c6207048f1ddc5f8e987c9aa0e46e3cd7",
+  "files": [
+    "package.json",
+    "src/add-contact-route.ts",
+    "src/client/Messages.module.css",
+    "src/client/MessagesIcons.tsx",
+    "src/client/MessagesMenu.tsx",
+    "src/client/MessagesSurface.tsx",
+    "src/client/add-contact.ts",
+    "src/client/contacts-client.ts",
+    "src/client/index.ts",
+    "src/client/locales.ts",
+    "src/client/qr-scanner.ts",
+    "src/confirm-contact-route.ts",
+    "src/contacts-store.ts",
+    "src/css-modules.d.ts",
+    "src/index.ts",
+    "src/invariant.ts",
+    "src/messages-route.ts",
+    "src/vendor/jsqr/LICENSE",
+    "src/vendor/jsqr/jsQR.d.ts",
+    "src/vendor/jsqr/jsQR.js",
+    "src/vendor/jsqr/package.json",
+    "src/vendor/jsqr/upstream-jsqr.json",
+    "tsdown.config.ts"
+  ],
+  "builtAt": "2026-10-01T04:05:13Z"
+}

@@ -1,0 +1,1182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  THE ONE-BIT APPROVAL WINDOW.
+
+  WHAT THIS PAGE IS: a native modal that puts ONE operation in front of a person, over the digest that
+  the key will actually sign, and returns ONE BIT — approve or refuse. It opens for an approval and
+  for nothing else.
+
+  WHAT IT IS NOT, AND THIS IS THE WHOLE REASON IT SURVIVED WHEN THE CEREMONY WINDOW DID NOT: it draws
+  no words, asks for none, derives nothing, keeps nothing and writes nothing. There is no phrase on
+  this path, so there is no phrase here to leak, log, screenshot or recover. The seven words that bind
+  a machine are generated and typed on the Aumlok screen inside the face, which is where binding
+  happens in v3.
+
+  IT NAMES ONLY TOKENS AND CARRIES NO HEX. The shell reads the face's own token values out of the
+  release and sets them on the root element; every colour below is one of those tokens, so this window
+  follows the face when the face changes and cannot drift from the palette a person is used to.
+
+  IT REFUSES TO GUESS. Nothing is rendered until the question's facts have arrived, the Approve button
+  is disabled until they have, and a refusal from the shell is shown verbatim as the shell's own name
+  rather than replaced with a sentence this page invented.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>AUKORA — approval</title>
+<style>
+  /*
+   * THE SITE'S TOKENS, WITH FALLBACKS THAT ARE ONLY FALLBACKS.
+   *
+   * The shell injects the site's own values into this document (the same `--dsw-…` set the release's layout
+   * bundle carries), so what is painted here changes when the site changes. The literals below are what a
+   * MISSING token degrades to — never the source of truth — and `scripts/face/approval-probe.mjs` measures
+   * the computed result against the injected values, so a literal that took over is a finding.
+   */
+  :root {
+    --approval-surface: var(--dsw-alias-bg-layer-1, rgb(11, 13, 24));
+    --approval-raised: var(--dsw-alias-bg-layer-2, rgb(17, 21, 32));
+    --approval-border: var(--dsw-alias-border-l2, #3a3a3c);
+    --approval-label: var(--dsw-alias-label-primary, #f2f2f2);
+    --approval-muted: var(--dsw-alias-label-secondary, #a8a8a8);
+    --approval-font: var(--dsw-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+    --approval-glass: var(--dsw-static-spatial-night-900, #16171a);
+    --approval-gap: var(--dsh-spatial-gap, 6px);
+    --approval-radius: 14px;
+    --approval-blue: var(--dsw-static-spatial-blue, rgb(150, 180, 255));
+    --approval-gold: var(--dsw-static-spatial-gold, rgb(224, 183, 106));
+    --approval-green: var(--dsw-static-spatial-mint, rgb(129, 212, 180));
+    --approval-purple: var(--dsw-static-spatial-violet, rgb(196, 170, 255));
+    --approval-red: var(--dsw-alias-label-error, rgb(242, 85, 90));
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    /* THE PAGE IS A SHEET OVER THE CONVERSATION, SO THE PAGE ITSELF IS NOTHING: the scrim below is what a
+       person sees between the card and the words they were reading. */
+    background: transparent;
+    color: var(--approval-label);
+    font: 13px/1.5 var(--approval-font);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* A SMALL CARD ABOVE THE CHAT BOX, NOT A SHEET OVER THE APP (2026-09-27, Peter: "it should just be a little pop-up in
+     the chat"). The shell sizes this view to the card and places it just above the composer, so there is no scrim: the
+     page is transparent and the card is all there is. The card scrolls inside itself and Approve/Refuse stay pinned. */
+  .scrim { position: fixed; inset: 0; display: flex; align-items: flex-end; background: transparent; }
+  /* `main.card`, NOT `.card`: the bare class also matched the record's field list (`<dl id="f-card">`). */
+  main.card {
+    display: flex; flex-direction: column; min-height: 0; width: 100%; max-height: 100vh;
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 14px 14px 0; gap: 10px;
+    background: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--approval-purple) 8%, transparent), transparent 65%),
+      color-mix(in srgb, var(--approval-surface) 97%, transparent);
+    backdrop-filter: blur(20px) saturate(1.1); -webkit-backdrop-filter: blur(20px) saturate(1.1);
+    border: 1px solid color-mix(in srgb, var(--approval-label) 14%, var(--approval-border));
+    border-radius: var(--approval-radius);
+    box-shadow: 0 8px 28px color-mix(in srgb, #000 45%, transparent);
+  }
+  /* NOTHING IN THE CARD SHRINKS BELOW ITS TEXT: the card scrolls instead (a shrunk line printed over its neighbour). */
+  main.card > * { flex: none; }
+  h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+  p.lede { display: none; }
+  /* THE CHANGE ITSELF, WITH ITS LINE BREAKS: a diff run together into one paragraph is not something a person can read. */
+  .words {
+    margin: 0; padding: 12px; max-height: min(44vh, 360px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+    font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; line-height: 1.6;
+    background: var(--approval-raised); border: 1px solid var(--approval-border); border-radius: calc(var(--approval-radius) - 6px);
+    -webkit-user-select: text; user-select: text;
+  }
+  #facts { display: flex; flex-direction: column; gap: 8px; }
+  #f-words-note { margin: 0; padding: 10px; font-size: 12px; color: var(--approval-red); border: 1px solid currentColor; border-radius: 8px; }
+  .operation-summary { padding: 14px; border: 2px solid var(--approval-blue); border-radius: var(--approval-radius);
+    background: var(--approval-raised); display: flex; flex-direction: column; gap: 10px; }
+  .operation-summary[data-risk="true"] { border-color: var(--approval-red); }
+  .summary-heading { display: flex; align-items: center; gap: 9px; color: var(--approval-label); }
+  .summary-heading h1 { flex: 1; font-size: 13px; letter-spacing: .09em; }
+  .icon { width: 19px; height: 19px; display: inline-flex; flex: none; align-items: center; justify-content: center; }
+  .icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  #summary-risk { color: var(--approval-red); }
+  /* TOUCH ID AFTER APPROVE: an icon and a colour, nothing else. No icon when this Mac never enrolled. */
+  #summary-presence[data-presence="ready"] { color: var(--approval-blue); }
+  #summary-presence[data-presence="confirmed"] { color: var(--approval-green); }
+  #summary-presence[data-presence="downgraded"] { color: var(--approval-red); }
+  #summary-reason { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  .requester-words { display: flex; align-items: flex-start; gap: 7px; margin-top: 6px; padding-inline-start: 9px;
+    border-inline-start: 2px solid var(--approval-muted); color: var(--approval-muted); font-style: italic; }
+  .requester-words .icon { width: 14px; height: 14px; margin-top: 4px; }
+  .requester-words q { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .summary-counts, .summary-hashes, .summary-effects { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
+  .summary-counts { font-size: 12px; font-variant-numeric: tabular-nums; }
+  .summary-hashes { color: var(--approval-muted); font: 11px/1.5 var(--dsw-font-family-mono, ui-monospace, monospace); }
+  .summary-hashes b { font-weight: 500; color: var(--approval-label); }
+  .summary-effects { padding-top: 8px; border-top: 1px solid var(--approval-border); gap: 10px; }
+  .summary-effects .icon { width: 27px; height: 27px; padding: 4px; border-radius: 7px; background: color-mix(in srgb, currentColor 8%, transparent); }
+  [data-effect="memory"], .file-added { color: var(--approval-green); }
+  [data-effect="messages"], .file-modified { color: var(--approval-blue); }
+  [data-effect="approval"], [data-effect="sandbox"], [data-effect="instructions"], .file-deleted { color: var(--approval-red); }
+  [data-effect="shell"] { color: var(--approval-purple); }
+  [data-effect="docs"] { color: var(--approval-gold); }
+  details.more > summary { cursor: pointer; color: var(--approval-muted); font-size: 12px; }
+  details.more[open] { display: flex; flex-direction: column; gap: 8px; }
+  details.more dl { font-size: 12px; }
+  dl {
+    margin: 0; padding: 10px 12px; gap: 6px 10px;
+    background: var(--approval-raised);
+    border: 1px solid var(--approval-border);
+    border-radius: calc(var(--approval-radius) - 6px);
+    display: grid; grid-template-columns: 110px 1fr;
+  }
+  /* THE SEVEN LABELS KEEP THE GRID ABOVE AT THEIR FULL HEIGHT: the outer card is what scrolls, never this list. */
+  dl.card-fields { flex: none; }
+  dt { color: var(--approval-muted); }
+  dd { margin: 0; overflow-wrap: anywhere; font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; }
+  .filler { flex: 1; }
+  .actions {
+    display: flex; justify-content: space-between; gap: 32px;
+    position: sticky; bottom: 0; margin: 0 -14px; padding: 10px 14px 12px;
+    background: var(--approval-surface); border-top: 1px solid var(--approval-border);
+  }
+  .queue-actions { display: flex; gap: 32px; }
+  .actions button, .queue-actions button { flex: 1; min-width: 0; min-height: 48px; padding: 12px 16px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 14px; font-weight: 600; border-radius: 12px;
+    border: 1px solid var(--approval-border); background: transparent; color: var(--approval-label); }
+  #approve, .queue-actions [data-approval-queue-approve] { border-color: currentColor; color: color-mix(in srgb, var(--approval-green) 70%, var(--approval-muted)); }
+  #refuse, .queue-actions [data-approval-queue-decline] { border-color: currentColor; color: color-mix(in srgb, var(--approval-red) 70%, var(--approval-muted)); }
+  button:hover:not(:disabled) { background: transparent; }
+  button:focus-visible, .words:focus-visible { outline: 2px solid var(--approval-blue); outline-offset: 2px; }
+  button {
+    font: inherit; font-weight: 600; padding: 8px 18px;
+    border-radius: calc(var(--approval-radius) - 7px); cursor: pointer;
+    border: 1px solid var(--approval-border); background: var(--approval-raised); color: var(--approval-label);
+  }
+  button.primary { background: var(--approval-label); color: var(--approval-surface); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #state { margin: 0; min-height: 0; font-size: 12px; color: var(--approval-muted); }
+  #state:empty { display: none; }
+  #state.bad { color: var(--approval-red); font-weight: 600; }
+  /*
+   * THE ROUTED STATE: WHAT THE WINDOW SHOWS WHEN THE DECISION IS NOT ITS OWN TO MAKE.
+   *
+   * When the owner daemon is installed, a settle-class approval is answered in the owner console or on a phone, so
+   * this window holds no one-bit sheet at all — it waits, and it says what it is waiting for. The colours are the
+   * site's, through the same `--approval-*` aliases as everything else, so a missing token degrades rather than
+   * painting a literal.
+   */
+  #routed {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px;
+    background: var(--approval-raised);
+    border: 1px solid var(--approval-border);
+    border-radius: calc(var(--approval-radius) - 6px);
+  }
+  #routed-line { margin: 0; color: var(--approval-label); font-weight: 600; }
+  #routed[data-approval-routed="pending"] #routed-line::before {
+    /* A WAIT THAT LOOKS LIKE A WAIT, drawn from the label colour rather than a new one. */
+    content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px;
+    border-radius: 50%; background: var(--approval-label); opacity: 0.55;
+  }
+  .routedFacts { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .routedFacts span {
+    font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 12px; overflow-wrap: anywhere;
+  }
+  #routed-digest { color: var(--approval-muted); }
+  #routed-summary { color: var(--approval-label); }
+  #routed-ceiling { margin: 0; color: var(--approval-muted); }
+  /* THE HONEST LINE ABOUT WHAT THIS APPROVAL IS, shown only where it is true. */
+  .shellAssertion { margin: 0; font-size: 11.5px; color: var(--approval-muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="scrim">
+<main class="card">
+  <section id="operation-summary" class="operation-summary" hidden aria-label="Operation summary">
+    <div class="summary-heading"><span id="summary-icon" class="icon" aria-hidden="true"></span><h1 id="headline">Approval</h1><span id="summary-risk" class="icon" role="img" hidden></span><span id="summary-presence" class="icon" role="img" hidden></span></div>
+    <blockquote id="summary-reason" class="requester-words" hidden></blockquote>
+    <div id="summary-counts" class="summary-counts" hidden></div>
+    <div id="summary-hashes" class="summary-hashes" hidden></div>
+    <div id="summary-effects" class="summary-effects" role="group" aria-label="What this can affect" hidden></div>
+  </section>
+  <p class="lede">This is the exact operation digest your key would sign. Nothing is signed until you
+    approve, and refusing signs nothing.</p>
+  <section id="facts" hidden>
+    <div id="f-words" class="words" tabindex="0" role="region" aria-label="Exact operation text">—</div>
+    <p id="f-words-note" hidden></p>
+    <details class="more">
+      <summary>Details</summary>
+      <dl>
+        <dt>Identity</dt><dd id="f-subject">—</dd>
+        <dt>Operation digest</dt><dd id="f-digest">—</dd>
+        <dt>Challenge</dt><dd id="f-challenge">—</dd>
+        <dt>Valid until</dt><dd id="f-expires">—</dd>
+      </dl>
+      <!-- THE CARD: SEVEN LABELS (What / Where / Who / Limit / Cost / Until / Irreversible), each read from the record
+           the digest covers; a label the record does not answer says so. -->
+      <dl id="f-card" class="card-fields" data-approval-card hidden></dl>
+      <p id="shell-assertion" class="shellAssertion" hidden>—</p>
+    </details>
+  </section>
+  <p id="state">Reading the pending questions…</p>
+  <!--
+    THE QUEUE, AND WHY EVERY ENTRY IS ITS OWN DECISION.
+
+    More than one request may be waiting. Each entry shows THREE THINGS AND NOTHING ELSE — the derived line, its
+    digest prefix and the time — because a diff or the operation's own text is not something a person can act on
+    and is not something this window was ever given. **EACH ENTRY CARRIES ITS OWN APPROVE BUTTON, AND THERE IS NO
+    CONTROL THAT SIGNS SEVERAL**: a click means one named operation, which is the property `ASK_BUSY` used to
+    protect by refusing the second request and this queue protects by naming it. An entry whose line fails the
+    page's own check shows `cannot display` and NO button at all — a disabled button would still say the request
+    is approvable.
+  -->
+  <section id="queue" hidden>
+    <h2 id="queue-heading">Also waiting</h2>
+    <ul id="queue-list"></ul>
+  </section>
+  <!--
+    THE ROUTED PANEL. `data-approval-routed` is `pending` while the owner daemon has the question and `resolved`
+    once it has answered, and the in-app approve/refuse pair is HIDDEN in both — a one-bit sheet beside a routed
+    question would invite a person to answer here something that is being answered elsewhere.
+  -->
+  <section id="routed" hidden data-approval-routed="pending">
+    <p id="routed-line">—</p>
+    <div class="routedFacts">
+      <span id="routed-digest">—</span>
+      <span id="routed-summary">—</span>
+    </div>
+    <p id="routed-ceiling" hidden></p>
+  </section>
+  <!-- AND WHEN NO DAEMON IS PRESENT, WHAT THIS APPROVAL ACTUALLY IS. -->
+  <div class="filler"></div>
+  <div class="actions" id="actions">
+    <!-- **NEITHER BUTTON IS THE DEFAULT (AUMLOK-113).** `approve` carried `class="primary"`, which styled it
+         as the affirmative choice — so a person declining an operation they could not describe was taking the
+         visually lesser path. **Saying no is not the lesser answer**: on an operation nobody could derive it is
+         the ONLY answer the window leaves available, and a filled button beside an outlined one argues against
+         it. Both carry the same weight, and the pair is still disabled until the question is answerable. -->
+    <button id="refuse" disabled>Refuse</button>
+    <button id="approve" disabled>Approve</button>
+  </div>
+</main>
+</div>
+<script>
+  (function () {
+    var theme = new URLSearchParams(window.location.search).get('theme')
+    if (theme === 'dark') document.documentElement.setAttribute('data-ds-dark-theme', '')
+
+    var bridge = window.aukoraApproval
+    var state = document.getElementById('state')
+    var facts = document.getElementById('facts')
+    var approve = document.getElementById('approve')
+    var refuse = document.getElementById('refuse')
+    var queueSection = document.getElementById('queue')
+    var queueList = document.getElementById('queue-list')
+    var queueHeading = document.getElementById('queue-heading')
+    var challenge = null
+    var settled = false
+    // WHAT THIS WINDOW WAS ALREADY SHOWING. When a submit comes back routed by a daemon, the refusal from the
+    // ANSWER handler carries no digest and no operation — that handler froze no proposal — so the only digest and
+    // the only description this window can honestly put beside the waiting line are the ones it was already
+    // answering. Kept, rather than re-derived: re-deriving them would be composing a description for itself.
+    var askedDigest = null
+    var askedWords = null
+    // Keep eligibility in one record so retries use the same verified-text gate.
+    var witness = null
+    // **WHEN THE QUESTION APPEARED, SO A DECISION CARRIES ITS OWN DWELL (AUMLOK, LIVE-TEST PREP).**
+    // The event log records `dwellMs` = shown -> decided, which is the only place "a decision with no time
+    // to read it" can be seen. The clock starts when the FACTS and the words are on screen, not when the
+    // window opened — a person cannot read a question that has not been drawn yet.
+    var shownAt = null
+    function approveEligible() {
+      return settled !== true && challenge !== null && witness !== null
+        && witness.ok === true && witness.truncated === false
+    }
+    /** Refuse answers the QUESTION, so it needs a question and nothing about the description. */
+    function refuseEligible() {
+      return settled !== true && challenge !== null
+    }
+    /** **THE ONLY PLACE THAT WRITES `disabled`.** Every other path calls this. */
+    function applyEligibility() {
+      approve.disabled = approveEligible() !== true
+      refuse.disabled = refuseEligible() !== true
+    }
+    /**
+     * Take the pair off screen **without settling anything**. A question rendered into the waiting or routed
+     * panel is still open; this window is simply not the one holding it right now.
+     *
+     * **MEASURED, AND IT WAS MY OWN BUG:** both rendering paths used to disable the two buttons directly, and I
+     * routed them through `stop()` — which SETS the `settled` latch, and that latch never comes back. `send()`
+     * then returned early for the rest of the window's life, so a click that was meant to answer the question
+     * did nothing at all. *Disabling a button and settling a window are different acts, and one function that
+     * does both will be used for the wrong one.*
+     */
+    function hidePair() {
+      approve.disabled = true
+      refuse.disabled = true
+    }
+
+    function say(text, bad) {
+      state.textContent = text
+      if (bad === true) state.classList.add('bad')
+    }
+
+    function show(id, value) {
+      document.getElementById(id).textContent =
+        typeof value === 'string' && value.length > 0 ? value : '—'
+    }
+
+    /**
+     * Render one expiry as a real time a person can act on.
+     *
+     * THE WIRE CARRIES AN INTEGER AND THE PAGE USED TO DEMAND A STRING, so the window rendered "—" for
+     * every well-formed request ever made — MEASURED on Peter's first real approval, 2026-09-23 21:29,
+     * where the window he had just trusted said "Valid until —". `owner-approval.mjs` parses
+     * `expiresAt` with `readNonNegativeInteger`, so `typeof reply.expiresAt === 'string'` was false by
+     * construction: a type guard that can never be satisfied is the same defect as a court arm that can
+     * never fail.
+     *
+     * UTC AND LABELLED, because the alternative is a time the reader has to convert in their head. The
+     * raw seconds are kept beside it: the SIGNED field is the integer, and a person comparing this
+     * screen to a log line needs the number that was signed, not only the rendering of it.
+     * @param {unknown} value - the request's own `expiresAt`.
+     * @returns {string} a labelled instant, or a named refusal to render one.
+     */
+    function expiryText(value) {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+        return 'refused: this approval carries no usable expiry, so there is no window to show'
+      }
+      var rendered = new Date(value * 1000).toISOString().replace('.000Z', 'Z').replace('T', ' ')
+      return rendered + ' UTC  (' + String(value) + ' unix seconds, the signed value)'
+    }
+
+    /**
+     * The words line, DISPLAYED ONLY WHEN THE PAGE CAN CHECK IT AGAINST THE BYTES IT IS SHOWN.
+     *
+     * The line is derived from the operation's own bytes — the same bytes the digest above covers —
+     * and never from a summary the requesting side chose. The check that makes that true is here: the
+     * shell hands over the line AND `sha256("aukora:approval-words:v1" NUL line)`, and a line whose
+     * digest does not recompute is NOT SHOWN AT ALL. A caller-supplied summary that differs from the
+     * bound bytes is refused by this check rather than displayed and hoped about.
+     *
+     * THE DIGEST STAYS THE ONLY THING SIGNED. This line is a rendering for a reader; it is not part of
+     * the preimage and no verifier compares it.
+     * @param {unknown} words - the shell's derived line.
+     * @param {unknown} wordsDigest - the shell's digest over that exact line.
+     * @returns {Promise<{ok: true, text: string} | {ok: false, reason: string}>} the line, or a named refusal.
+     */
+    function witnessText(words, wordsDigest) {
+      if (typeof words !== 'string' || words.length === 0) {
+        return Promise.resolve({
+          ok: false,
+          reason: 'the shell sent no readable description of the operation, and this window will not '
+            + 'show a summary it cannot derive',
+        })
+      }
+      if (typeof wordsDigest !== 'string' || wordsDigest.length === 0 || crypto === undefined
+        || crypto.subtle === undefined) {
+        return Promise.resolve({
+          ok: false,
+          reason: 'the shell sent no way to check that these words describe the bytes being signed, so '
+            + 'they are not shown',
+        })
+      }
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode('aukora:approval-words:v1\0' + words))
+        .then(function (buffer) {
+          var hex = ''
+          var view = new Uint8Array(buffer)
+          for (var index = 0; index < view.length; index += 1) {
+            hex += view[index].toString(16).padStart(2, '0')
+          }
+          if (hex !== wordsDigest) {
+            return {
+              ok: false,
+              reason: 'the words offered for this operation are not the shell\'s own description of the '
+                + 'bytes being signed, so they are refused and not shown',
+            }
+          }
+          return { ok: true, text: words }
+        }, function () {
+          return { ok: false, reason: 'this window could not check the words it was offered, so it shows none' }
+        })
+    }
+
+    /**
+     * THE COPY, IN BOTH LANGUAGES.
+     *
+     * This window carries no dictionary system — it is one document whose words are in it — so it holds its own two
+     * tables and takes `?lang=`, exactly the way it already takes `?theme=`. English is the default; an unknown
+     * language is English rather than nothing, because a missing string must never be a blank line.
+     */
+    var COPY = {
+      en: {
+        digestPrefix: 'digest ',
+        approve: 'Approve',
+        decline: 'Refuse',
+        reading: 'Checking the description against the bytes being signed…',
+        cannotDisplay: 'cannot display',
+        queueHeading: 'Also waiting',
+        summaryPrefix: 'operation: ',
+        routedPending: 'Waiting for the owner: approve in the owner console or on your phone.',
+        routedConsole: 'Approved in the owner console.',
+        routedPhone: 'Approved on your phone.',
+        routedConsoleRefused: 'Refused in the owner console.',
+        routedPhoneRefused: 'Refused on your phone.',
+        routedNoChannel: 'the owner daemon answered, but named no channel, so this window will not guess where it went',
+        routedNoSummary: 'this window could not check a description of the operation, so it shows none',
+        routedCeiling: 'ceiling: ',
+        shellAssertion: 'This approval is a shell assertion \u2014 storage is not yet isolated.',
+        ownerUnreachable: 'the owner daemon could not be reached, so nothing was submitted and nothing is waiting',
+      },
+      zh: {
+        digestPrefix: '摘要 ',
+        approve: '同意',
+        decline: '拒绝',
+        reading: '正在对照将要签署的字节检查描述…',
+        cannotDisplay: '无法显示',
+        queueHeading: '等待您的处理',
+        summaryPrefix: '操作：',
+        routedPending: '等待主人：请在主人控制台或手机上批准。',
+        routedConsole: '已在主人控制台批准。',
+        routedPhone: '已在手机上批准。',
+        routedConsoleRefused: '已在主人控制台拒绝。',
+        routedPhoneRefused: '已在手机上拒绝。',
+        routedNoChannel: '主人守护进程已作答，但没有说明渠道，本窗口不会猜测它去了哪里',
+        routedNoSummary: '本窗口无法核对这次操作的描述，因此不显示任何描述',
+        routedCeiling: '上限：',
+        shellAssertion: '这是一次外壳断言 \u2014 存储尚未隔离。',
+        ownerUnreachable: '无法联系主人守护进程，因此没有提交任何内容，也没有任何等待中的请求',
+      },
+    }
+    var lang = new URLSearchParams(window.location.search).get('lang')
+    var words = COPY[lang] === undefined ? COPY.en : COPY[lang]
+    function t(key) { return words[key] === undefined ? COPY.en[key] : words[key] }
+
+    var panel = document.getElementById('routed')
+    var panelLine = document.getElementById('routed-line')
+    var panelDigest = document.getElementById('routed-digest')
+    var panelSummary = document.getElementById('routed-summary')
+    var panelCeiling = document.getElementById('routed-ceiling')
+    var assertion = document.getElementById('shell-assertion')
+    // THE PAIR, BY ID. A DOM SELECTOR is a capability three courts that drive THIS script in a minimal sandbox do
+    // not implement — they provide `getElementById` and nothing else — and reaching for one here in the routed
+    // state turned them red with "not a function". A two-button sheet does not need a selector, and the shipped
+    // window has to stay drivable by the harness that measures it.
+    var actions = document.getElementById('actions')
+
+    /** The one-bit pair, by NAME rather than by a selector — the sheet has exactly two buttons and no others. */
+    function pair() { return [refuse, approve] }
+
+    /** The proposal's digest, as a prefix a person can compare against another screen. */
+    function digestPrefix(value) {
+      return typeof value === 'string' && value.length > 0 ? value.slice(0, 16) : '\u2014'
+    }
+
+    /** The short summary: the CHECKED description's first clause, never a caller's summary. */
+    function shortSummary(text, limit) {
+      var flat = String(text).replace(/\s+/gu, ' ').trim()
+      var stop = flat.search(/[.\u3002;\uff1b]/u)
+      var clause = stop > 0 ? flat.slice(0, stop + 1) : flat
+      var room = limit === undefined ? 90 : limit
+      return clause.length > room ? clause.slice(0, room - 1) + '\u2026' : clause
+    }
+
+    /**
+     * Render where this question is being answered.
+     *
+     * ROUTED MEANS THE ONE-BIT SHEET IS NOT OFFERED AT ALL: when the owner daemon holds a settle-class approval and
+     * it is answered in the console or on a phone, an approve/refuse pair here would invite a person to answer
+     * something that is already being answered elsewhere, and two answers to one question is the defect this panel
+     * exists to avoid. While it waits, the panel carries the digest prefix and a short summary so the reader can
+     * tell WHICH operation is out there; when the daemon answers, the same panel says which channel answered and
+     * prints the ceilings that qualify it.
+     * @param {object} reply - the shell's question, or an update from the daemon.
+     * @param {{ok: boolean, text?: string}} checked - the digest-checked description.
+     * @returns {boolean} whether the question is routed away from this window.
+     */
+    /**
+     * Render the routed panel FROM A PENDING OBJECT.
+     *
+     * The waiting state is reachable two ways — the question arrives already routed, or the SUBMIT comes back
+     * `aukora:settle-requires-owner-daemon` with a `pending` object — and both must show the same panel from the
+     * same fields. This is the one place that turns a pending object into what a reader sees, so the two paths
+     * cannot drift into two different sentences.
+     * @param {object} pending - `{phase, digest, operation, scope, ledgerId, expiresAt, ceiling, reason}`.
+     * @param {{digest?: string, operation?: string}} [asked] - what the answered question already put on screen.
+     */
+    function renderRouted(pending, asked) {
+      actions.hidden = true
+      hidePair()
+      panel.hidden = false
+      // THE SHELL-ASSERTION LINE GOES WITH THE PAIR. It describes an approval taken IN THIS WINDOW, and there is
+      // no longer one — a daemon holds the question. The question path never shows it in this state, so leaving
+      // it up here would make one state read two ways depending on which route reached it.
+      assertion.hidden = true
+      panel.setAttribute('data-approval-routed', pending.phase === 'awaiting-owner' ? 'pending' : String(pending.phase))
+      // AND THE WINDOW'S OWN LINE STOPS CLAIMING AN ACTION. `send()` writes "Approving…" BEFORE the reply arrives,
+      // and on this path the reply says a daemon holds the question — so leaving it there told a reader something
+      // was being approved here while the panel below said the decision is waiting elsewhere. The stale line was
+      // MEASURED, not guessed: `--route answer-pending` reads it back after the submit. The error styling goes with
+      // it, because waiting for the owner is not this window's failure.
+      state.classList.remove('bad')
+      say(t('routedPending'))
+      panelFacts(pending, asked)
+      panelLine.textContent = t('routedPending')
+      if (Array.isArray(pending.ceiling) && pending.ceiling.length > 0) {
+        panelCeiling.hidden = false
+        panelCeiling.textContent = t('routedCeiling') + pending.ceiling.join(' \u00b7 ')
+      }
+    }
+
+    /**
+     * THE DIGEST PREFIX AND THE OPERATION SUMMARY BESIDE THE LINE.
+     *
+     * THE PENDING OBJECT IS ASKED FIRST AND WHAT THIS WINDOW ALREADY SHOWED IS THE FALLBACK, in that order,
+     * because the shell sends TWO shapes: the SUBMIT ceremony path freezes a proposal and sends `digest` and
+     * `operation`, while the ANSWER handler refuses the one bit without freezing anything and sends neither. On
+     * that second shape the digest a reader can compare against another screen is the one already on this one.
+     *
+     * ONE PLACE, because both routed states carry these two facts: while they were written twice, the resolved
+     * state lost them the moment the waiting state's copy moved into `renderRouted`.
+     * @param {{digest?: string, operation?: string, scope?: string}} source - the reply's own fields.
+     * @param {{digest?: string, operation?: string}} [asked] - what the answered question already put on screen.
+     */
+    function panelFacts(source, asked) {
+      var digest = typeof source.digest === 'string' && source.digest.length > 0 ? source.digest
+        : (asked === undefined ? null : asked.digest)
+      panelDigest.textContent = t('digestPrefix') + digestPrefix(digest)
+      // THE SUMMARY COMES FROM THE SHELL — the operation it submitted, named by it, never a description this
+      // window composed for itself. Failing that, from the description this window CHECKED for the question it
+      // answered: the same rule applied to the same bytes.
+      var operation = typeof source.operation === 'string' && source.operation.length > 0 ? source.operation
+        : (asked === undefined ? null : asked.operation)
+      if (typeof operation !== 'string' || operation.length === 0) operation = null
+      var scope = typeof source.scope === 'string' && source.scope.length > 0 ? source.scope : null
+      panelSummary.textContent = operation === null
+        ? t('routedNoSummary')
+        : t('summaryPrefix') + shortSummary(scope === null ? operation : operation + ' \u2014 ' + scope)
+    }
+
+    function renderRoute(reply, checked) {
+      var route = typeof reply.route === 'string' ? reply.route : ''
+      var routed = route === 'owner-daemon' || route === 'owner'
+      if (routed !== true) {
+        // NO DAEMON: the sheet stays exactly as it was, with one honest line about what it is.
+        assertion.hidden = false
+        assertion.textContent = t('shellAssertion')
+        return false
+      }
+      var resolution = reply.resolution
+      if (resolution === null || typeof resolution !== 'object') {
+        // THE WAITING STATE, THROUGH THE ONE RENDERER. These lines used to be written here a second time, which
+        // is two places that can disagree about one state — and the submit path is the other one.
+        renderRouted({
+          phase: 'awaiting-owner',
+          digest: reply.operationDigest,
+          operation: checked !== null && checked.ok === true ? checked.text : null,
+          ceiling: reply.ceilings,
+        })
+        return true
+      }
+      actions.hidden = true
+      hidePair()
+      panel.hidden = false
+      assertion.hidden = true
+      panel.setAttribute('data-approval-routed', 'resolved')
+      panelFacts({
+        digest: reply.operationDigest,
+        operation: checked !== null && checked.ok === true ? checked.text : null,
+      })
+      var via = resolution.via === 'phone' ? 'Phone' : (resolution.via === 'console' ? 'Console' : null)
+      if (via === null) {
+        panelLine.textContent = t('routedNoChannel')
+      } else if (resolution.decision === 'refused') {
+        panelLine.textContent = t(via === 'Phone' ? 'routedPhoneRefused' : 'routedConsoleRefused')
+      } else {
+        panelLine.textContent = t(via === 'Phone' ? 'routedPhone' : 'routedConsole')
+      }
+      var ceilings = Array.isArray(resolution.ceilings) ? resolution.ceilings
+        : (Array.isArray(reply.ceilings) ? reply.ceilings : [])
+      if (ceilings.length > 0) {
+        panelCeiling.hidden = false
+        panelCeiling.textContent = t('routedCeiling') + ceilings.join(' \u00b7 ')
+      }
+      return true
+    }
+
+    function stop() {
+      settled = true
+      applyEligibility()
+    }
+
+    /** Send ONE BIT, and never claim more than the shell's own reply said. */
+    /**
+     * THE PER-ENTRY LATCH, WHICH IS WHAT MAKES A QUEUE A BINDING RATHER THAN A LIST.
+     *
+     * `send()` holds ONE `settled` flag and ONE module-level `challenge`, because it answers the one question this
+     * window showed. A queue cannot use it: pressing entry 3's button would answer whichever challenge the module
+     * happens to hold, and `stop()` would disable the shared pair rather than that entry — which is exactly the
+     * ambiguity that makes "the person said yes" mean nothing in particular. So each entry keeps its own settled
+     * flag and its own shown-at time, and `sendFor` names the challenge it answers.
+     */
+    var queueSettled = Object.create(null)
+
+    /**
+     * Answer ONE named entry. The challenge comes from the caller, never from module state.
+     * @param {string} entryChallenge - the challenge this click answers, taken from the entry that was pressed.
+     * @param {boolean} decision - true approves; anything else refuses.
+     * @param {{ok: boolean, reason?: string}} check - that entry's own words check, for `wordsOk`.
+     * @param {number|null} shown - when that entry's line first appeared, for `dwellMs`.
+     */
+    function sendFor(entryChallenge, decision, check, shown) {
+      if (typeof entryChallenge !== 'string' || entryChallenge.length === 0) return
+      if (queueSettled[entryChallenge] === true) return
+      // A DESCRIPTION THIS PAGE COULD NOT VERIFY IS NOT ONE IT WILL ASK ANYONE TO APPROVE.
+      if (decision === true && (check === null || check.ok !== true)) return
+      queueSettled[entryChallenge] = true
+      bridge.answer({
+        challenge: entryChallenge,
+        approve: decision,
+        wordsOk: check === null ? null : check.ok === true,
+        dwellMs: shown === null ? null : Math.max(0, Date.now() - shown),
+      }).then(function () {
+        // THE ENTRY IS ANSWERED, SO IT LEAVES THE LIST rather than staying with a button that would do nothing.
+        var row = queueList.querySelector('[data-approval-queue-entry="' + entryChallenge + '"]')
+        if (row !== null && row.parentNode !== null) row.parentNode.removeChild(row)
+        if (queueList.children.length === 0) queueSection.hidden = true
+      })
+    }
+
+    /** Render the shell's existing field list verbatim. */
+    function renderCard(fields) {
+      var card = document.getElementById('f-card')
+      if (card === null) return
+      card.textContent = ''
+      if (!Array.isArray(fields) || fields.length === 0) { card.hidden = true; return }
+      fields.forEach(function (entry) {
+        if (entry === null || typeof entry !== 'object') return
+        var label = typeof entry.label === 'string' ? entry.label : ''
+        var value = typeof entry.value === 'string' ? entry.value : ''
+        if (label === '' || value === '') return
+        var dt = document.createElement('dt')
+        dt.setAttribute('data-approval-card-label', label)
+        dt.textContent = label
+        var dd = document.createElement('dd')
+        dd.setAttribute('data-approval-card-value', label)
+        dd.textContent = value
+        card.appendChild(dt)
+        card.appendChild(dd)
+      })
+      card.hidden = card.childNodes.length === 0
+    }
+
+    // Presentation only: read the digest-checked witness, never alter it or the signing request.
+    // Header parsing stops before a diff, so source lines cannot impersonate operation fields.
+    var icons = {
+      approve: 'm5 12 4 4L19 6',
+      refuse: 'm6 6 12 12M18 6 6 18',
+      move: 'M4 6h13m-4-4 4 4-4 4M20 18H7m4-4-4 4 4 4',
+      code: 'm8 5-6 7 6 7m8-14 6 7-6 7m-3-17-2 20',
+      load: 'M12 2v13m-5-5 5 5 5-5M4 16v5h16v-5',
+      owner: 'M14 3a7 7 0 1 1-5 12l-6 6H1v-4l6-6a7 7 0 0 1 7-8Zm2 4h.01',
+      risk: 'm12 2 10 19H2L12 2Zm0 6v6m0 3h.01',
+      memory: 'M4 5c0-4 16-4 16 0s-16 4-16 0Zm0 0v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7',
+      messages: 'M3 3h18v14H9l-6 4V3Z',
+      approval: 'M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6l-9-4Zm-4 10 3 3 5-6',
+      sandbox: 'M3 3h7M3 3v7m18-7h-7m7-0v7M3 21h7M3 21v-7m18 7h-7m7 0v-7M8 8h8v8H8Z',
+      instructions: 'M5 2h9l5 5v15H5V2Zm9 0v6h5M9 12h6m-6 4h3m3 0v3m0 2h.01',
+      requester: 'M4 5h16v12h-9l-7 4V5Zm4 4h2v4H7v-2l1-2Zm7 0h2v4h-3v-2l1-2Z',
+      shell: 'M2 4h20v16H2V4Zm0 5h20M6 6.5h.01m3 0h.01',
+      docs: 'M5 2h9l5 5v15H5V2Zm9 0v6h5M9 12h6m-6 4h6',
+      unknown: 'M9 8a3 3 0 1 1 5 2c-2 1-2 2-2 4m0 3h.01M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20',
+      presence: 'M6.5 19.5c.9-2 1.5-4.4 1.5-7.5a4 4 0 0 1 8 0c0 1.2-.1 2.4-.3 3.5M12 12c0 3.4-.7 6.4-2 9m5.3-1.6c.4-1.1.7-2.3.9-3.6M4.2 15.5c.3-1.1.3-2.3.3-3.5a7.5 7.5 0 0 1 13.7-4.2m1.2 2.4c.1.6.1 1.2.1 1.8 0 1.3-.1 2.6-.3 3.8',
+      presenceDowngraded: 'M6.5 19.5c.9-2 1.5-4.4 1.5-7.5a4 4 0 0 1 8 0c0 1.2-.1 2.4-.3 3.5M12 12c0 3.4-.7 6.4-2 9m5.3-1.6c.4-1.1.7-2.3.9-3.6M4.2 15.5c.3-1.1.3-2.3.3-3.5a7.5 7.5 0 0 1 13.7-4.2m1.2 2.4c.1.6.1 1.2.1 1.8 0 1.3-.1 2.6-.3 3.8M3 3l18 18',
+    }
+    function drawIcon(node, name, label) {
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      svg.setAttribute('viewBox', '0 0 24 24')
+      svg.setAttribute('aria-hidden', 'true')
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', icons[name] || icons.unknown)
+      svg.appendChild(path)
+      node.appendChild(svg)
+      if (label) { node.setAttribute('aria-label', label); node.setAttribute('title', label) }
+    }
+    function decisionLabel(node, name, label) {
+      node.textContent = ''
+      var icon = document.createElement('span'); icon.className = 'icon'; icon.setAttribute('aria-hidden', 'true')
+      drawIcon(icon, name)
+      var text = document.createElement('span'); text.textContent = label
+      node.appendChild(icon); node.appendChild(text)
+    }
+    decisionLabel(refuse, 'refuse', 'Refuse')
+    decisionLabel(approve, 'approve', 'Approve')
+    /** The shell's reading of Touch ID on this Mac. Any other value, including none, draws nothing. */
+    function renderPresence(value) {
+      var node = document.getElementById('summary-presence')
+      node.textContent = ''
+      var labels = { ready: 'Touch ID after Approve', confirmed: 'Touch ID confirmed', downgraded: 'Touch ID downgraded' }
+      node.hidden = !(typeof value === 'string' && Object.prototype.hasOwnProperty.call(labels, value))
+      node.setAttribute('data-presence', node.hidden ? '' : value)
+      if (node.hidden) return
+      // No `title`: a hover tooltip is words on the screen. Assistive technology still gets the name.
+      drawIcon(node, value === 'downgraded' ? 'presenceDowngraded' : 'presence')
+      node.setAttribute('aria-label', labels[value])
+    }
+    function renderReason(node, reason) {
+      node.textContent = ''
+      node.hidden = !reason
+      if (!reason) return
+      var icon = document.createElement('span'); icon.className = 'icon'; icon.setAttribute('role', 'img')
+      drawIcon(icon, 'requester', "Requester's words")
+      var quote = document.createElement('q')
+      // The signer already used escapeWitnessText before hashing this witness. Keep its reversible
+      // escapes verbatim, including literal backslash escapes; these are the requester's bound words.
+      quote.textContent = reason
+      node.appendChild(icon); node.appendChild(quote)
+    }
+    function normalizedRiskPath(path) {
+      var parts = []
+      // Ignore escaped controls only for classification; the original path still marks the summary partial.
+      // Backslash separators arrive escaped by the witness, including literal escape-like filename text.
+      String(path).replace(/\\u\{(?!5c\})[a-f0-9]+\}/giu, '').replace(/\\u\{5C\}/giu, '/').split('/').forEach(function (part) {
+        if (part === '' || part === '.') return
+        if (part === '..' && parts.length > 0 && parts[parts.length - 1] !== '..') parts.pop()
+        else parts.push(part)
+      })
+      return parts.join('/').toLowerCase()
+    }
+    function operationSummary(text) {
+      var body = text.replace(/^operation — its content, exactly as bound:\n/u, '')
+      var header = body.split(/\n(?:\n|diff --git )/u)[0]
+      var first = header.split('\n')[0]
+      var result = { kind: 'unknown', title: 'OPERATION', counts: [], hashes: [], paths: [], components: [], fileStates: {}, risk: false, partial: false }
+      function field(re) { var match = re.exec(header); return match ? match[1] : '' }
+      function count(value, label, tone) { result.counts.push({ text: value + ' ' + label, tone: Number(value) > 0 ? tone || '' : '' }) }
+      function hash(label, value) { if (value) result.hashes.push({ label: label, value: value.slice(0, 9) }) }
+      var reason = field(/^why:?[^\S\n]+([^\n]+)$/mu) || field(/^reason:?[^\S\n]+([^\n]+)$/mu)
+      if (/^AUKORA: (?:MOVE MAIN|REPLACE MAIN WITH A NEW ROOT)$/u.test(first)) {
+        result.kind = 'move'; result.title = first.slice(8)
+        hash('base', field(/^main now[^\S\n]+([a-f0-9]{40}|none)/mu))
+        hash('target', field(/^main after[^\S\n]+([a-f0-9]{40})/mu))
+        var commits = /^commits[^\S\n]+(\d+) added:/mu.exec(header)
+        if (commits) count(commits[1], 'commits')
+        var dropped = /^REPLACES main's history: drops (\d+) commits:/mu.exec(header)
+        if (dropped) count(dropped[1], 'commits removed', 'deleted')
+        var files = /^files[^\S\n]+against main now: (\d+) added, (\d+) modified, (\d+) deleted$/mu.exec(header)
+        if (files) {
+          count(files[1], 'added', 'added'); count(files[2], 'modified', 'modified'); count(files[3], 'deleted', 'deleted')
+          result.risk = result.risk || Number(files[3]) > 0
+        }
+        // Only the file-list section supplies paths; commit subjects are never paths.
+        var fileList = body.split(/^files[^\S\n]+against main now:[^\n]*\n/mu)[1] || ''
+        fileList.split('\n').some(function (line) {
+          var row = /^  ([AMD]) (.+)$/u.exec(line)
+          if (row) {
+            result.paths.push(row[2])
+            if (row[1] === 'D') result.risk = true
+            return false
+          }
+          if (/^  … and \d+ more$/u.test(line)) result.partial = true
+          return true
+        })
+      } else if (/^code\.change(?: —|$)/u.test(first)) {
+        result.kind = 'code'; result.title = 'CODE CHANGE'
+        hash('base', field(/^base: ([a-f0-9]{40})$/mu))
+        hash('tree', field(/^tree: ([a-f0-9]{40})$/mu))
+        result.paths = field(/^paths: (.+)$/mu).split(', ').filter(Boolean)
+        var counts = { added: 0, modified: 0, deleted: 0 }
+        var seen = new Set()
+        body.split(/^diff --git /mu).slice(1).forEach(function (block) {
+          var metadata = block.split(/^@@/mu)[0]
+          if (/^deleted file mode /mu.test(metadata)) result.risk = true
+          var pair = /^a\/(.+) b\/(.+)\n/u.exec(metadata)
+          var path = pair ? pair[2] : null
+          if (!path) { result.partial = true; return }
+          if (!seen.has(path)) {
+            seen.add(path)
+            var status = /^new file mode /mu.test(metadata) ? 'added' : /^deleted file mode /mu.test(metadata) ? 'deleted' : 'modified'
+            counts[status]++
+            result.fileStates[path] = status
+          }
+          if (!result.paths.includes(path)) result.paths.push(path)
+          if (pair[1] !== path) {
+            seen.add(pair[1])
+            if (!result.paths.includes(pair[1])) result.paths.push(pair[1])
+          }
+        })
+        // Generated paths can be absent from the source diff; their add/modify status is not stated.
+        var unlisted = result.paths.filter(function (path) { return !seen.has(path) }).length
+        Object.keys(counts).forEach(function (key) { count(counts[key], key, key) })
+        if (unlisted) count(unlisted, 'unclassified files')
+        result.risk = result.risk || counts.deleted > 0
+      } else if (first === 'AUKORA: ADMIT THESE PLUGINS') {
+        result.kind = 'load'; result.title = 'LOAD RELEASE'
+        reason = reason || field(/^(Approve lets exactly these plugin bytes load\.)/mu)
+        hash('set', field(/^set ([a-f0-9]{64})$/mu))
+        var plugins = /^(\d+) plugins, (\d+) files, sha256 each:$/mu.exec(header)
+        if (plugins) { count(plugins[1], 'plugins'); count(plugins[2], 'files') }
+        // Plugin IDs identify admitted components, but do not supply the full changed path list.
+        for (var row of header.matchAll(/^([a-z0-9-]+)[^\S\n]+\d+ [a-f0-9]{16}$/gmu)) result.components.push(row[1])
+        result.partial = true
+      } else if (/^Switch the live app to release /u.test(first)) {
+        result.kind = 'load'; result.title = 'LOAD RELEASE'
+        reason = reason || first
+        var release = /^Switch the live app to release (.+) \(cut from ([a-f0-9]{7}), green\): ([a-f0-9]{8})$/u.exec(first)
+        if (release) { hash('cut from', release[2]); hash('composition', release[3]) }
+        result.partial = true
+      } else if (/^checks changed: /u.test(first)) {
+        var move = /^Move main from ([a-f0-9]{7}) to ([a-f0-9]{7}): (\d+) commits;/mu.exec(header)
+        if (move) {
+          result.kind = 'move'; result.title = 'MOVE MAIN'
+          hash('base', move[1]); hash('target', move[2]); count(move[3], 'commits')
+          var gates = first.slice('checks changed: '.length)
+          result.paths = gates === 'none' ? [] : gates.split(', ')
+          result.partial = true
+        }
+      } else if (/^(?:aukora:nostr-(?:identity-binding|sas-confirmation):v1$|AUKORA: .*\b(?:OWNER|KEY|IDENTITY|BIND)|(?:owner|identity|key)[. :]|sign-nostr-binding|confirm-nostr-sas)/iu.test(first)) {
+        result.kind = 'owner'; result.title = 'OWNER KEY'; result.risk = true
+        result.components.push('owner-key')
+        if (first === 'aukora:nostr-identity-binding:v1') reason = reason || 'Bind Nostr identity'
+        if (first === 'aukora:nostr-sas-confirmation:v1') reason = reason || 'Confirm Nostr identity'
+      }
+      var composition = /^product (\d+) lines, proof (\d+) lines$/mu.exec(header)
+      if (composition) { count(composition[1], 'product lines'); count(composition[2], 'proof lines') }
+      result.reason = reason
+      result.effects = []
+      var docs = /(?:^docs\/|\.(?:md|mdx|rst)$)/iu
+      var instructionPath = /(?:^|\/)(?:agents\.md|claude\.md|skill\.md)$|(?:^|\/)(?:\.claude|\.agents|presets|prompts)\//iu
+      var pluginInstructions = /(?:^|[\/_.-])(?:prompts?|instructions?)(?:[\/_.-]|$)/iu
+      function isInstructionPath(path) {
+        return instructionPath.test(path)
+          || /^plugins\/[^/]+\/.+\.md$/iu.test(path)
+            && pluginInstructions.test(path.replace(/^plugins\/[^/]+\//iu, ''))
+      }
+      var paths = result.paths.concat(result.components).map(normalizedRiskPath)
+      var areas = [
+        ['memory', /(?:memory|recall|viking|kira)/iu],
+        ['messages', /(?:messages|threads|chat|conversation)/iu],
+        ['approval', /(?:aumlok|approval|signer|authority|identity|owner|keychain|secret|preload|lane-card|airlock|witness|kernel|own-code|precard|(?:^|[\/_.-])(?:keys?|keypair|keyring|pubkey|privatekey|publickey)(?:[\/_.-]|$)|action-gate|policy|custody|^scripts\/aukora\/(?:self-change|advance|decide)\.mjs$)/iu],
+        ['sandbox', /(?:sandbox|seatbelt|walls?|landlock|openshell|confine|caged|membrane|airlock)/iu],
+        ['shell', /(?:^apps\/aukora-desktop\/|aukora-face[\/-](?:layout|apps)(?:\/|$)|(?:^|\/)(?:become|release|plugin-set)[^\/]*\.)/iu],
+        ['docs', docs],
+      ]
+      if (paths.some(isInstructionPath)) result.effects.push('instructions')
+      areas.forEach(function (area) {
+        if (paths.some(function (path) {
+          return area[1].test(path) && (area[0] === 'docs' || isInstructionPath(path) || !docs.test(path))
+        })) result.effects.push(area[0])
+      })
+      result.partial = result.partial || result.kind === 'unknown' || result.paths.some(function (path) {
+        return /…|\\u\{/u.test(String(path).replace(/\\u\{5C\}/giu, '/'))
+      })
+      result.risk = result.risk || ['instructions', 'approval', 'sandbox'].some(function (area) { return result.effects.includes(area) })
+      return result
+    }
+    function renderQueueSummary(node, text) {
+      var summary = operationSummary(text)
+      node.textContent = summary.kind === 'unknown'
+        ? shortSummary(text.replace(/^operation — its content, exactly as bound:\n/u, '').split('\n').find(function (line) {
+          return line.trim() !== '' && !/^(?:why|reason):?[^\S\n]/u.test(line)
+        }) || summary.title) : summary.title
+      if (summary.reason) {
+        node.textContent += ' '
+        var reason = document.createElement('span'); reason.className = 'requester-words'
+        renderReason(reason, summary.reason); node.appendChild(reason)
+      }
+    }
+    function renderOperation(text, truncated) {
+      var summary = operationSummary(text)
+      var parts = ['summary-icon', 'summary-risk', 'summary-counts', 'summary-hashes', 'summary-effects']
+      parts.forEach(function (id) {
+        document.getElementById(id).textContent = ''
+      })
+      var reason = document.getElementById('summary-reason')
+      renderReason(reason, summary.reason)
+      var box = document.getElementById('operation-summary')
+      box.setAttribute('data-kind', summary.kind)
+      box.setAttribute('data-risk', String(summary.risk))
+      box.hidden = false
+      show('headline', summary.title)
+      drawIcon(document.getElementById('summary-icon'), summary.kind)
+      var risk = document.getElementById('summary-risk')
+      risk.hidden = !summary.risk
+      drawIcon(risk, 'risk', 'Instructions, approval, keys, boundaries or file removal')
+      var counts = document.getElementById('summary-counts')
+      summary.counts.forEach(function (entry) {
+        var item = document.createElement('span'); item.textContent = entry.text
+        if (entry.tone) item.className = 'file-' + entry.tone
+        counts.appendChild(item)
+      })
+      counts.hidden = summary.counts.length === 0
+      var hashes = document.getElementById('summary-hashes')
+      summary.hashes.forEach(function (entry) {
+        var item = document.createElement('span'); item.textContent = entry.label + ' '
+        var value = document.createElement('b'); value.textContent = entry.value
+        item.appendChild(value); hashes.appendChild(item)
+      })
+      hashes.hidden = summary.hashes.length === 0
+      var effects = document.getElementById('summary-effects')
+      var labels = { memory: 'Memory', messages: 'Messages', instructions: 'Agent instructions / prompts', approval: 'Approval / keys / action gate', sandbox: 'Sandbox / walls', shell: 'App shell', docs: 'Docs' }
+      summary.effects.forEach(function (name) {
+        var item = document.createElement('span'); item.className = 'icon'; item.setAttribute('role', 'img')
+        item.setAttribute('data-effect', name); drawIcon(item, name, labels[name]); effects.appendChild(item)
+      })
+      effects.hidden = summary.effects.length === 0
+      var words = document.getElementById('f-words')
+      words.textContent = ''
+      // Span boundaries add no characters. Selection/copy and textContent remain the exact verified witness.
+      var diffTone = ''
+      text.split(/(?<=\n)/u).forEach(function (line) {
+        var span = document.createElement('span')
+        span.textContent = line
+        var diffPath = /^diff --git a\/.+ b\/(.+)\n/u.exec(line)
+        if (diffPath) diffTone = summary.fileStates[diffPath[1]] || 'modified'
+        if (/^(?:  A |\+(?!\+\+))/u.test(line)) span.className = 'file-added'
+        else if (/^(?:  D |-(?!--))/u.test(line)) span.className = 'file-deleted'
+        else if (/^(?:  M |diff --git |generated: |paths: |\+\+\+ |--- )/u.test(line)) span.className = 'file-modified'
+        if (/^(?:diff --git |\+\+\+ |--- )/u.test(line) && diffTone) span.className = 'file-' + diffTone
+        words.appendChild(span)
+      })
+    }
+
+    function renderQueue(entries, current) {
+      // THE QUESTION ON THE CARD IS NOT ALSO LISTED BELOW IT: one question, one pair of buttons. Others waiting show only
+      // their headline and their own pair.
+      var list = (Array.isArray(entries) ? entries : []).filter(function (entry) {
+        return entry !== null && typeof entry === 'object' && entry.challenge !== current
+      })
+      queueList.textContent = ''
+      queueSection.hidden = list.length === 0
+      list.forEach(function (entry) {
+        if (entry === null || typeof entry !== 'object') return
+        var entryChallenge = typeof entry.challenge === 'string' ? entry.challenge : ''
+        if (entryChallenge === '') return
+        var row = document.createElement('li')
+        row.setAttribute('data-approval-queue-entry', entryChallenge)
+        var line = document.createElement('p')
+        line.setAttribute('data-approval-queue-line', 'checking')
+        line.textContent = t('reading')
+        // THE PENDING ITEM NAMES ITSELF FROM ITS OWN RECORD: "Move main from a to b: 3 commits", and the gates it
+        // moved. A queue of digests tells a person that something is waiting; this tells them what.
+        if (Array.isArray(entry.fields)) {
+          var what = ''
+          var limit = ''
+          entry.fields.forEach(function (each) {
+            if (each === null || typeof each !== 'object') return
+            if (each.label === 'WHAT' && typeof each.value === 'string') what = each.value
+            if (each.label === 'LIMIT' && typeof each.value === 'string') limit = each.value
+          })
+          if (what !== '') {
+            var headline = document.createElement('p')
+            headline.setAttribute('data-approval-queue-what', '')
+            headline.textContent = limit === '' ? what : what + '; ' + limit
+            row.appendChild(headline)
+          }
+        }
+        var facts = document.createElement('p')
+        facts.className = 'queue-facts'
+        facts.textContent = t('digestPrefix') + digestPrefix(entry.wordsDigest)
+        var when = document.createElement('p')
+        when.className = 'queue-facts'
+        when.textContent = String(entry.expiresAt === undefined || entry.expiresAt === null
+          ? '—' : entry.expiresAt)
+        row.appendChild(line) // its digest and expiry stay in the record; the row shows only what it is and its two buttons
+        queueList.appendChild(row)
+        var shown = Date.now()
+        witnessText(entry.words, entry.wordsDigest).then(function (check) {
+          if (check.ok !== true) {
+            line.setAttribute('data-approval-queue-line', 'cannot-display')
+            line.textContent = t('cannotDisplay') + ' — ' + check.reason
+            return
+          }
+          line.setAttribute('data-approval-queue-line', 'shown')
+          renderQueueSummary(line, check.text)
+          var actions = document.createElement('div'); actions.className = 'queue-actions'
+          var press = document.createElement('button')
+          press.setAttribute('data-approval-queue-approve', entryChallenge)
+          decisionLabel(press, 'approve', t('approve'))
+          press.addEventListener('click', function () { sendFor(entryChallenge, true, check, shown) })
+          // **REFUSING SIGNS NOTHING, AND A QUEUE THAT CAN ONLY SAY YES IS NOT A CHOICE.** The pair belongs on every
+          // row that can be read, for the same reason it belongs on the routed question: the person decides, and
+          // the challenge this click answers is the row's own.
+          var decline = document.createElement('button')
+          decline.setAttribute('data-approval-queue-decline', entryChallenge)
+          decisionLabel(decline, 'refuse', t('decline'))
+          decline.addEventListener('click', function () { sendFor(entryChallenge, false, check, shown) })
+          actions.appendChild(decline)
+          actions.appendChild(press)
+          row.appendChild(actions)
+        })
+      })
+    }
+
+    function send(decision) {
+      if (settled || challenge === null) return
+      // **AND IT ASKS THE ELIGIBILITY QUESTION, NOT JUST WHETHER THE WINDOW IS STILL OPEN.** MEASURED: this
+      // checked only `settled` and `challenge`, so a retry that had re-enabled the pair by hand could submit an
+      // APPROVE the page would never have offered. A gate on the button is not a gate on the answer.
+      if (decision === true && approveEligible() !== true) {
+        say(t('ownerUnreachable') === undefined ? 'This window cannot approve: the description was not verified '
+          + 'in full.' : 'This window cannot approve: the description was not verified in full.', true)
+        applyEligibility()
+        return
+      }
+      stop()
+      say(decision ? 'Approving…' : 'Refusing…')
+      // **THE WINDOW'S OWN FACTS TRAVEL WITH ITS ANSWER.** The signer writes the event, but only this page
+      // knows how long the question was on screen and whether the description passed the words check.
+      bridge.answer({
+        challenge: challenge,
+        approve: decision,
+        wordsOk: witness === null ? null : witness.ok === true,
+        dwellMs: shownAt === null ? null : Math.max(0, Date.now() - shownAt),
+      }).then(function (reply) {
+        if (reply && reply.ok === true) {
+          say(decision ? 'Approved. The signature is being produced.' : 'Refused. Nothing was signed.')
+          return
+        }
+        // ── THE OWNER CUT: A ROUTED SUBMIT IS NOT A FAILURE ────────────────────────────────────────────────
+        //
+        // `aukora:settle-requires-owner-daemon` is a refusal in the shell's vocabulary and the RIGHT outcome
+        // when an owner daemon is installed: the decision was not this window's to make after all. Treating it
+        // as an error would tell a person their approval failed at the exact moment it was handed to the
+        // authority they installed. The `pending` object carries the digest, the operation and the ceilings, so
+        // the same panel the waiting state uses is rendered from THOSE fields rather than from the question.
+        if (reply && reply.reason === 'aukora:settle-requires-owner-daemon'
+          && reply.pending !== null && typeof reply.pending === 'object') {
+          stop()
+          renderRouted(reply.pending, { digest: askedDigest, operation: askedWords })
+          return
+        }
+        // AND IF THE DAEMON CANNOT BE REACHED, THE NAMED REFUSAL IS SHOWN PLAINLY rather than paraphrased.
+        if (reply && reply.reason === 'aukora-owner:submit-unreachable') {
+          // NOTHING WAS SUBMITTED, SO THE DECISION IS STILL THIS WINDOW'S — and that means the latch is released
+          // with the buttons. Leaving `settled` set while re-enabling the pair gave a person a live-looking
+          // Approve that did nothing at all, silently: MEASURED by `--route answer-unreachable`, where the retry
+          // press never reached the shell.
+          settled = false
+          say('aukora-owner:submit-unreachable \u2014 ' + t('ownerUnreachable'), true)
+          // **THE LATCH IS RELEASED AND THE ELIGIBILITY IS RE-ASKED, NOT ASSUMED.** MEASURED: this was
+          // `approve.disabled = false` unconditionally, which handed back a live Approve on a description the
+          // window had already reported it could not derive. `witness` still holds that verdict, so the pair
+          // comes back in exactly the state the question left it in — which for an undisplayable or truncated
+          // description means Refuse alone.
+          applyEligibility()
+          return
+        }
+        say(shellReason(reply), true)
+      }, function (cause) {
+        say('the shell did not answer: ' + String(cause && cause.message ? cause.message : cause), true)
+      })
+    }
+
+    /** The shell's own refusal name, quoted rather than described. */
+    function shellReason(reply) {
+      return reply && typeof reply.reason === 'string' && reply.reason.length > 0
+        ? reply.reason
+        : 'the shell refused without naming a reason'
+    }
+
+    if (bridge === undefined || bridge === null || bridge.available !== true
+      || typeof bridge.question !== 'function' || typeof bridge.answer !== 'function') {
+      say('this window has no approval bridge, so it cannot ask or answer anything', true)
+      return
+    }
+
+    bridge.question().then(function (reply) {
+      // THE QUEUE, RENDERED BEFORE ANYTHING ELSE IS DECIDED ABOUT THE SINGLE QUESTION. A reply that carries no
+      // queue renders nothing and leaves the section hidden, so a bridge that predates the queue still works.
+      if (reply !== null && typeof reply === 'object') renderQueue(reply.queue, reply.challenge)
+      if (reply === null || typeof reply !== 'object' || reply.ok !== true) {
+        say(shellReason(reply), true)
+        return
+      }
+      // NO CHALLENGE, NO ANSWER. An answer that could not name its question could not be told apart
+      // from an answer to any other, so this window refuses to offer one.
+      if (typeof reply.challenge !== 'string' || reply.challenge.length === 0) {
+        say('the shell sent a question with no challenge, so no answer can be bound to it', true)
+        return
+      }
+      // NO EXPIRY, NO QUESTION. The shell refuses these before the window opens — this is the second
+      // half of the same rule, in the place that draws it: a window that opened with nothing to show
+      // would already be too late.
+      if (typeof reply.expiresAt !== 'number' || !Number.isSafeInteger(reply.expiresAt) || reply.expiresAt <= 0) {
+        say('this question carries no expiry, so there is no window to show and nothing to answer', true)
+        return
+      }
+      challenge = reply.challenge
+      askedDigest = reply.operationDigest
+      show('f-subject', reply.subject)
+      show('f-digest', reply.operationDigest)
+      show('f-challenge', reply.challenge)
+      show('f-expires', expiryText(reply.expiresAt))
+      // THE CARD GOES UP WITH THE FACTS, BEFORE THE WORDS ARE VERIFIED, for the same reason the identity and the
+      // window do: a person should see WHAT this is, WHERE it lands and WHO it is bound to even if the long
+      // description fails its digest check. What must never appear unverified is the description itself.
+      renderCard(reply.fields)
+      facts.hidden = false
+      // THE FACTS ARE ON SCREEN BEFORE THE WORDS ARE CHECKED, so a reader sees the identity, the digest
+      // and the window even if the description cannot be verified. What must NOT appear is a
+      // description nobody checked.
+      witnessText(reply.words, reply.wordsDigest).then(function (checked) {
+        if (checked.ok === true) {
+          renderOperation(checked.text, reply.wordsTruncated)
+          renderPresence(reply.presenceState)
+          if (reply.wordsTruncated === true) {
+            var note = document.getElementById('f-words-note')
+            note.textContent = 'The description above is SHORTENED for this screen: '
+              + String(reply.wordsOmittedChars || 0) + ' character(s) of the staged text are not shown. '
+              + 'The digest above covers every one of them, and it is the digest that is signed.'
+            note.hidden = false
+          }
+          say('Approve signs exactly these bytes. Refuse signs nothing.')
+        } else {
+          // NO DESCRIPTION IS SHOWN, AND THE QUESTION IS STILL THE PERSON'S TO ANSWER.
+          //
+          // The failure this screen must not commit is DISPLAYING something unchecked; it is not
+          // withholding the decision. The identity, the digest and the window are the request's own
+          // fields and they are on screen above, so a person can still refuse — which is what someone
+          // shown an operation nobody can describe should do. Disabling both buttons here would turn
+          // "this description could not be verified" into a window that hangs until the request expires
+          // and reports the OWNER as having declined, which is a different and untrue sentence.
+          say(checked.reason, true)
+        }
+        // WHAT THE QUESTION PUT ON SCREEN, KEPT FOR THE SUBMIT PATH: a routed refusal may carry no digest and no
+        // operation of its own, and these are the two facts this window checked and showed for the same bytes.
+        askedWords = checked.ok === true ? checked.text : null
+        // WHERE THIS QUESTION IS ANSWERED COMES BEFORE THE BUTTONS ARE ARMED: a routed question must not offer the
+        // in-app pair, and it must not be armed by the code below either.
+        var routed = renderRoute(reply, checked)
+        if (routed === true) {
+          // AND IT RESOLVES WHEN THE DAEMON ANSWERS. The shell re-asks, or pushes through `watch` when it has one;
+          // this window renders whichever arrives and never invents a resolution of its own.
+          if (typeof bridge.watch === 'function') {
+            bridge.watch(function (update) {
+              if (update !== null && typeof update === 'object') renderRoute(update, checked)
+            })
+          }
+          return
+        }
+        // Preserve the witness verdict and start the existing dwell measurement after display.
+        witness = { ok: checked.ok === true, truncated: reply.wordsTruncated === true }
+        shownAt = Date.now()
+        applyEligibility()
+      })
+    }, function (cause) {
+      say('the shell did not answer: ' + String(cause && cause.message ? cause.message : cause), true)
+    })
+
+    // **A READ-ONLY PROBE FOR THE COURT.** The latches decide whether a click does anything, and a shim that
+    // can only see the DOM reports one sentence for every cause.
+    window.__probe = { get settled() { return settled }, get challenge() { return challenge },
+      get approveEligible() { return approveEligible() }, get witness() { return witness } }
+    approve.addEventListener('click', function () { send(true) })
+    refuse.addEventListener('click', function () { send(false) })
+  })()
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+name: CORE
+description: >-
+  A session that does NOT hold Peter's authority. This preset directly exposes no shell or web tool.
+  Native Codex and Claude Code SDK delegation tools are disabled because their launch closures currently
+  refuse AUKORA_NATIVE_CONFINEMENT_UNWIRED. Spawn/fork delegation, workflow delegation and child control
+  remain available through the host providers; child sessions inherit this preset's restrictions.
+  Path scoping is NOT provided here — the fs policy is host-plane — so reads of state/launch.json,
+  state/lane-door/, state/eye/, gate-state/ and every *.sock stay open until AUMLOK's deny-default
+  profile lands. No test in this tree checks this file.
+order: 3

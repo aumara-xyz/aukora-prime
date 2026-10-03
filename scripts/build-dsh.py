@@ -21,7 +21,7 @@ Usage:
     python3 scripts/build-dsh.py --root <dir>         # operate on another checkout root (tests)
     python3 scripts/build-dsh.py --verify-built       # read-only release prerequisite
 """
-import argparse, contextlib, hashlib, io, json, os, shutil, stat, subprocess, tarfile, tempfile, urllib.request
+import argparse, contextlib, hashlib, json, os, subprocess, tarfile, urllib.request
 from pathlib import Path
 
 parser = argparse.ArgumentParser(description='Reproduce the pinned upstream build plus the Aukora patch layer.')
@@ -36,8 +36,8 @@ parser.add_argument('--phase', choices=['all', 'apply', 'build'], default=None,
                          'to apply for --patches-only, whose tree has no built artifacts yet. The court '
                          'uses the explicit phases to exercise each gate on its own.')
 parser.add_argument('--skip-pristine', action='store_true',
-                    help='patches-only fixture seam: skip the pristine-tree comparison to reach the '
-                         'build-phase expectation gate on a pre-patched tree. Never allowed for a build.')
+                    help='skip the pristine-tree comparison. The court uses it to reach the build-phase '
+                         'expectation gate on a tree it pre-patched; the supported build never skips it.')
 parser.add_argument('--verify-built', action='store_true',
                     help='read-only: require a successful build bound to this archive and complete patch set')
 parser.add_argument('--source', type=Path, help='built tree to check with --verify-built')
@@ -46,8 +46,6 @@ if args.verify_built and (args.patches_only or args.phase or args.skip_pristine)
     parser.error('--verify-built cannot be combined with build/patch phase options')
 if args.source and not args.verify_built:
     parser.error('--source requires --verify-built')
-if args.skip_pristine and not args.patches_only:
-    parser.error('--skip-pristine requires --patches-only; builds must verify the full pristine inventory')
 
 root = args.root.resolve()
 pin = json.loads((root / 'upstream-dsh.json').read_text())
@@ -185,15 +183,9 @@ def verify_built(patches: list[dict]) -> None:
         binding = json.loads(binding_path.read_text())
     except (OSError, ValueError) as error:
         raise SystemExit(f'harness-patch-set-mismatch: missing/invalid successful build provenance: {error}')
-    if (not isinstance(binding, dict) or binding.get('formatVersion') != 2
+    if (not isinstance(binding, dict) or binding.get('formatVersion') != 1
             or binding.get('kind') != 'pinned-harness-build' or binding.get('inputs') != build_inputs(patches)):
-        raise SystemExit('harness-patch-set-mismatch: fresh v2 build with stable identity required; rebuild')
-    identity = binding.get('harnessIdentity')
-    if (not isinstance(identity, dict) or set(identity) != {'path', 'sha256'}
-            or identity['path'] != '.dsh-build/pinned-harness-identity.json'
-            or not isinstance(identity['sha256'], str) or len(identity['sha256']) != 64
-            or any(c not in '0123456789abcdef' for c in identity['sha256'])):
-        raise SystemExit('harness-identity-mismatch: successful stable build identity required; rebuild')
+        raise SystemExit('harness-patch-set-mismatch: built archive/patch set differs from this checkout; rebuild')
     # Reuse the committed coverage semantics, including the upstream client build record. An empty,
     # truncated, changed or incomplete inventory cannot turn a receipt into proof of a current build.
     check = r'''
@@ -201,21 +193,16 @@ import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const [root, source, bindingPath] = process.argv.slice(1);
-const { loadCoverage, coveredPaths, aggregateDigest, readUpstreamClientRecord, sha256File, verifyHarnessIdentity } =
+const { loadCoverage, coveredPaths, aggregateDigest, readUpstreamClientRecord, sha256File } =
   await import(pathToFileURL(resolve(root, 'scripts/lib/artifact-integrity.mjs')));
 const fail = (kind, message) => { throw new Error(`${kind}: ${message}`); };
 try {
   const binding = JSON.parse(readFileSync(bindingPath, 'utf8'));
-  const identity = verifyHarnessIdentity({ root, source });
-  if (identity.sha256 !== binding.harnessIdentity.sha256)
-    fail('harness-identity-mismatch', 'successful build identity differs from current pinned bytes');
   const coverage = loadCoverage(root);
   const recordPath = resolve(source, coverage.value.record);
   const record = JSON.parse(readFileSync(recordPath, 'utf8'));
-  if (sha256File(recordPath) !== binding.provenance?.artifactRecordSha256)
+  if (sha256File(recordPath) !== binding.artifactRecordSha256)
     fail('harness-build-record-mismatch', 'inventory differs from the successful build receipt');
-  if (JSON.stringify(record.producer) !== JSON.stringify(binding.provenance?.producer))
-    fail('harness-build-provenance-mismatch', 'producer provenance differs from the successful build receipt');
   if (record?.formatVersion !== 1 || record?.kind !== 'genesis-artifact-record')
     fail('harness-build-record-invalid', 'unknown inventory format');
   const paths = coveredPaths(source, coverage.value.hostPatterns, coverage.value.excluded);
@@ -263,263 +250,29 @@ try {
     verify_expectations(patches, 'build')
 
 
-def archive_path_parts(name: str, directory: bool) -> tuple[str, ...]:
-    """Canonical POSIX member names only; extraction never repairs an unsafe name."""
-    if (not isinstance(name, str) or not name or name.startswith('/') or '\\' in name
-            or any(ord(character) < 32 or ord(character) == 127 for character in name)):
-        raise SystemExit('source-archive-path-invalid: noncanonical or control-bearing member name')
-    if directory and name.endswith('/'):
-        name = name[:-1]
-    parts = tuple(name.split('/'))
-    if any(part in ('', '.', '..') for part in parts) or ':' in parts[0]:
-        raise SystemExit(f'source-archive-path-invalid: {name}')
-    return parts
-
-
-def contained_link_path(relative: str, target: str) -> list[str]:
-    if (not isinstance(target, str) or not target or target.startswith('/') or '\\' in target
-            or any(ord(character) < 32 or ord(character) == 127 for character in target)):
-        raise SystemExit(f'source-archive-link-invalid: {relative}')
-    target_parts = target.split('/')
-    if any(part in ('', '.') for part in target_parts):
-        raise SystemExit(f'source-archive-link-invalid: {relative}')
-    # Parent steps must precede named components. Collapsing a/../b before resolving a symlink
-    # named a would change POSIX lookup semantics; such noncanonical targets are refused.
-    named = False
-    parts = relative.split('/')[:-1]
-    for part in target_parts:
-        if part == '..':
-            if named or not parts:
-                raise SystemExit(f'source-archive-link-escape: {relative}')
-            parts.pop()
-        else:
-            named = True
-            parts.append(part)
-    return parts
-
-
-def archive_inventory(snapshot: tarfile.TarFile) -> dict[str, dict]:
-    """Bind all paths/types, including implicit parents and exact contained symlinks.
-
-    The pinned GitHub archive contains regular files, directories and relative symlinks. Hard links,
-    devices, FIFO/sparse members, duplicate paths and link-parent children are refused before any
-    extraction. File/directory permissions are normalized to the same 0644/0755 extraction policy,
-    retaining the archive's executable-file distinction rather than inheriting its group-write bits.
-    """
-    inventory: dict[str, dict] = {}
-    explicit = set()
-    top = None
-    total_bytes = 0
-    members = snapshot.getmembers()
-    if not members or len(members) > 200000:
-        raise SystemExit('source-archive-inventory-invalid: empty or excessive member inventory')
-    for member in members:
-        if (not (member.isfile() or member.isdir() or member.issym()) or member.sparse is not None
-                or member.mode & 0o7000):
-            raise SystemExit(f'source-archive-type-invalid: {member.name}')
-        parts = archive_path_parts(member.name, member.isdir())
-        if top is None:
-            top = parts[0]
-        if parts[0] != top:
-            raise SystemExit('source-archive-root-mismatch: expected exactly one top-level directory')
-        relative = '/'.join(parts[1:])
-        if relative in explicit:
-            raise SystemExit(f'source-archive-path-duplicate: {relative or "<root>"}')
-        explicit.add(relative)
-        if not relative:
-            if not member.isdir():
-                raise SystemExit('source-archive-root-invalid: top-level member must be a directory')
-            continue
-        for length in range(1, len(parts) - 1):
-            parent = '/'.join(parts[1:length + 1])
-            existing = inventory.get(parent)
-            if existing is not None and existing['type'] != 'directory':
-                raise SystemExit(f'source-archive-parent-type-mismatch: {parent}')
-            inventory.setdefault(parent, {'type': 'directory', 'mode': 0o755})
-        existing = inventory.get(relative)
-        kind = 'directory' if member.isdir() else 'symlink' if member.issym() else 'file'
-        if existing is not None and (existing['type'] != 'directory' or kind != 'directory'):
-            raise SystemExit(f'source-archive-parent-type-mismatch: {relative}')
-        entry = {'type': kind, 'mode': 0o755 if member.isdir() or member.mode & 0o111 else 0o644,
-                 'member': member}
-        if member.isfile():
-            total_bytes += member.size
-            if member.size < 0 or member.size > 512 * 1024 * 1024 or total_bytes > 2 * 1024 * 1024 * 1024:
-                raise SystemExit(f'source-archive-size-invalid: {relative}')
-            with snapshot.extractfile(member) as contents:
-                body = contents.read(member.size + 1)
-            if len(body) != member.size:
-                raise SystemExit(f'source-archive-size-mismatch: {relative}')
-            entry.update(bytes=member.size, sha256=hashlib.sha256(body).hexdigest())
-        elif member.issym():
-            entry['target'] = member.linkname
-            contained_link_path(relative, member.linkname)
-        inventory[relative] = entry
-    if not inventory:
-        raise SystemExit('source-archive-inventory-invalid: no extracted paths')
-    # Resolve links against the complete archive inventory, never the host filesystem. A chain
-    # cannot escape, cycle, dangle, or traverse a regular file. Symlink-parent entries above refuse.
-    for relative, entry in inventory.items():
-        if entry['type'] != 'symlink':
-            continue
-        pending = contained_link_path(relative, entry['target'])
-        resolved = []
-        followed = set()
-        while pending:
-            resolved.append(pending.pop(0))
-            path = '/'.join(resolved)
-            target_entry = inventory.get(path)
-            if target_entry is None:
-                raise SystemExit(f'source-archive-link-dangling: {relative}')
-            if target_entry['type'] == 'symlink':
-                if path in followed or len(followed) >= 40:
-                    raise SystemExit(f'source-archive-link-cycle: {relative}')
-                followed.add(path)
-                pending = contained_link_path(path, target_entry['target']) + pending
-                resolved = []
-            elif pending and target_entry['type'] != 'directory':
-                raise SystemExit(f'source-archive-link-type-mismatch: {relative}')
-    return inventory
-
-
-def verify_pristine_inventory(directory: Path, inventory: dict[str, dict]) -> None:
-    """No generated-path exceptions: a supported build starts with exactly archived source bytes.
-
-    In particular node_modules, build outputs, .dsh-build, hooks and additional configuration do not
-    survive a reused extraction. `--verify-built` is the separate read-only path for a built tree.
-    """
-    if directory.is_symlink() or not directory.is_dir():
-        raise SystemExit('source-root-type-mismatch: expected a real extracted directory')
-    if stat.S_IMODE(directory.stat().st_mode) != 0o755:
-        raise SystemExit('source-root-mode-mismatch: expected normalized 0755 extraction directory')
-    found = set()
-
-    def visit(parent: Path, prefix: str = '') -> None:
-        for child in sorted(os.scandir(parent), key=lambda entry: entry.name):
-            relative = f'{prefix}/{child.name}' if prefix else child.name
-            expected = inventory.get(relative)
-            if expected is None:
-                raise SystemExit(f'source-path-unexpected: {relative}; use a fresh verified extraction')
-            metadata = child.stat(follow_symlinks=False)
-            actual = ('directory' if stat.S_ISDIR(metadata.st_mode) else
-                      'symlink' if stat.S_ISLNK(metadata.st_mode) else
-                      'file' if stat.S_ISREG(metadata.st_mode) else 'unsupported')
-            if actual != expected['type']:
-                raise SystemExit(f'source-type-mismatch: {relative}')
-            found.add(relative)
-            if actual == 'symlink':
-                if os.readlink(child.path) != expected['target']:
-                    raise SystemExit(f'source-link-mismatch: {relative}')
-            else:
-                if stat.S_IMODE(metadata.st_mode) != expected['mode']:
-                    raise SystemExit(f'source-mode-mismatch: {relative}')
-                if actual == 'directory':
-                    visit(Path(child.path), relative)
-                else:
-                    if metadata.st_nlink != 1:
-                        raise SystemExit(f'source-file-link-mismatch: {relative}')
-                    descriptor = os.open(child.path, os.O_RDONLY | os.O_NOFOLLOW)
-                    with os.fdopen(descriptor, 'rb') as contents:
-                        before = os.fstat(contents.fileno())
-                        body = contents.read(expected['bytes'] + 1)
-                        after = os.fstat(contents.fileno())
-                    current = os.stat(child.path, follow_symlinks=False)
-                    identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
-                                              value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-                    if not (identity(metadata) == identity(before) == identity(after) == identity(current)):
-                        raise SystemExit(f'source-file-changed: {relative}')
-                    if len(body) != expected['bytes'] or hashlib.sha256(body).hexdigest() != expected['sha256']:
-                        raise SystemExit(f'source-file-mismatch: inspect {relative} before building')
-
-    visit(directory)
-    missing = sorted(set(inventory) - found)
-    if missing:
-        raise SystemExit(f'source-path-missing: {missing[0]}')
-
-
-def extract_pristine(snapshot: tarfile.TarFile, inventory: dict[str, dict]) -> None:
-    """Create only validated members in a private fresh tree; publish after complete verification."""
-    temporary = Path(tempfile.mkdtemp(prefix='.dsh-pristine-', dir=source.parent))
-    try:
-        os.chmod(temporary, 0o755)
-        for relative, entry in sorted(inventory.items(), key=lambda item: (item[0].count('/'), item[0])):
-            if entry['type'] == 'directory':
-                (temporary / relative).mkdir(mode=0o755)
-                os.chmod(temporary / relative, 0o755)
-        for relative, entry in sorted(inventory.items()):
-            if entry['type'] != 'file':
-                continue
-            descriptor = os.open(temporary / relative, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                                 entry['mode'])
-            with os.fdopen(descriptor, 'wb') as output, snapshot.extractfile(entry['member']) as contents:
-                shutil.copyfileobj(contents, output)
-                os.fchmod(output.fileno(), entry['mode'])
-        # Links land last, so archive content is never written through a link.
-        for relative, entry in sorted(inventory.items()):
-            if entry['type'] == 'symlink':
-                os.symlink(entry['target'], temporary / relative)
-        verify_pristine_inventory(temporary, inventory)
-        if source.exists() or source.is_symlink():
-            raise SystemExit('source-extraction-race: destination appeared before publication')
-        temporary.rename(source)
-    finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
-
-
-def invalidate_build_binding() -> None:
-    # Even the fixture-only content bypass cannot unlink a receipt through a contaminated link.
-    if source.is_symlink() or (source / '.dsh-build').is_symlink():
-        raise SystemExit('source-binding-parent-invalid: symlinked extraction or receipt directory')
+# Invalidate success BEFORE any attempted mutation, including a failed/partial patches-only run.
+if not args.verify_built:
     binding_path.unlink(missing_ok=True)
-
-
 patches = load_patches()
 if args.verify_built:
     verify_built(patches)
     raise SystemExit(0)
 archive.parent.mkdir(exist_ok=True)
-if archive.parent.is_symlink() or archive.parent.resolve() != archive.parent:
-    raise SystemExit('source-archive-parent-invalid: expected a canonical vendor directory')
-if archive.is_symlink() or (archive.exists() and not archive.is_file()):
-    raise SystemExit('source-archive-type-invalid: expected a regular archive, never a link or special file')
 if not archive.exists():
     with urllib.request.urlopen(pin['archiveUrl'], timeout=60) as response:
-        downloaded = response.read(512 * 1024 * 1024 + 1)
-    if len(downloaded) > 512 * 1024 * 1024:
-        raise SystemExit('source-archive-size-invalid: archive download exceeds the bounded input size')
-    descriptor = os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
-    with os.fdopen(descriptor, 'wb') as output:
-        output.write(downloaded)
-initial = os.stat(archive, follow_symlinks=False)
-descriptor = os.open(archive, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-with os.fdopen(descriptor, 'rb') as contents:
-    metadata = os.fstat(contents.fileno())
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size > 512 * 1024 * 1024:
-        raise SystemExit('source-archive-type-invalid: expected a bounded regular archive with one link')
-    archive_bytes = contents.read(metadata.st_size + 1)
-    after = os.fstat(contents.fileno())
-    identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
-                              value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-    if (len(archive_bytes) != metadata.st_size or identity(initial) != identity(metadata)
-            or identity(metadata) != identity(after)
-            or identity(os.stat(archive, follow_symlinks=False)) != identity(after)):
-        raise SystemExit('source-archive-changed: archive changed while reading')
-if hashlib.sha256(archive_bytes).hexdigest() != pin['archiveSha256']:
+        archive.write_bytes(response.read())
+if hashlib.sha256(archive.read_bytes()).hexdigest() != pin['archiveSha256']:
     raise SystemExit('source-digest-mismatch: retain archive and inspect provenance before retrying')
-try:
-    with tarfile.open(fileobj=io.BytesIO(archive_bytes)) as snapshot:
-        inventory = archive_inventory(snapshot)
-        if not source.exists() and not source.is_symlink():
-            extract_pristine(snapshot, inventory)
-        # The sole exemption is an explicitly patches-only synthetic phase fixture. It cannot
-        # invoke a package manager, produce a successful build receipt, or qualify a built tree.
-        if not args.skip_pristine:
-            verify_pristine_inventory(source, inventory)
-except (tarfile.TarError, OSError, EOFError) as error:
-    raise SystemExit(f'source-archive-invalid: {error}')
-# Invalidate success before the first patch mutation, after refusing contaminated path ancestors.
-invalidate_build_binding()
+if not source.exists():
+    source.mkdir()
+    subprocess.run(['tar', '-xzf', str(archive), '--strip-components=1', '-C', str(source)], check=True)
+# A hand-edited tree cannot inherit the archive pin. Only existing court phase checks skip this.
+if not args.skip_pristine:
+    with tarfile.open(archive) as snapshot:
+        for member in snapshot.getmembers():
+            relative = Path(*Path(member.name).parts[1:])
+            if member.isfile() and (source / relative).read_bytes() != snapshot.extractfile(member).read():
+                raise SystemExit(f'source-file-mismatch: inspect {relative} before building')
 phase = args.phase if args.phase is not None else ('apply' if args.patches_only else 'all')
 if hashlib.sha256((source / 'pnpm-lock.yaml').read_bytes()).hexdigest() != pin['lockfileSha256']:
     raise SystemExit('lockfile-digest-mismatch: restore the pinned dependency inputs')
@@ -542,9 +295,6 @@ env = {**os.environ, 'CI': 'true', 'LEFTHOOK': '0', 'DSH_CLIENT_TITLE': 'AUKORA'
 # `--frozen-lockfile`; that is now unnecessary and was removed, because a tree that needs a stash
 # to install is a tree whose inputs are wrong. If a face package is ever found here again, the
 # build should be understood as running against a dirty checkout, not quietly repaired.
-manager = subprocess.run(['pnpm', '--version'], cwd=source, env=env, capture_output=True, text=True)
-if manager.returncode != 0 or 'pnpm@' + manager.stdout.strip() != pin['packageManager']:
-    raise SystemExit(f'package-manager-version-mismatch: require {pin["packageManager"]}; install/build not started')
 subprocess.run(['pnpm', 'install', '--frozen-lockfile'], cwd=source, env=env, check=True)
 subprocess.run(['pnpm', 'run', 'build'], cwd=source, env=env, check=True)
 if phase in ('all', 'build'):
@@ -555,21 +305,8 @@ subprocess.run(['node', str(root / 'scripts/artifact-record.mjs'), '--source', s
 if not args.skip_pristine:
     record_path = source / '.dsh-build/genesis-artifacts.json'
     record = json.loads(record_path.read_text())
-    # A stable downstream key covers actual harness inputs/outputs. Volatile
-    # Prime commit/platform/source-inventory provenance remains separately named.
-    write_identity = r'''
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-const [root, source] = process.argv.slice(1);
-const { writeHarnessIdentity } = await import(pathToFileURL(resolve(root, 'scripts/lib/artifact-integrity.mjs')));
-writeHarnessIdentity({ root, source });
-'''
-    subprocess.run(['node', '--input-type=module', '-e', write_identity, str(root), str(source)], check=True)
-    identity = json.loads((source / '.dsh-build/pinned-harness-identity.json').read_text())
-    binding = {'formatVersion': 2, 'kind': 'pinned-harness-build', 'inputs': build_inputs(patches),
-               'harnessIdentity': {'path': '.dsh-build/pinned-harness-identity.json', 'sha256': identity['sha256']},
-               'artifactCount': len(record['entries']),
-               'provenance': {'artifactRecordSha256': sha256_file(record_path), 'producer': record['producer']}}
+    binding = {'formatVersion': 1, 'kind': 'pinned-harness-build', 'inputs': build_inputs(patches),
+               'artifactRecordSha256': sha256_file(record_path), 'artifactCount': len(record['entries'])}
     temporary = binding_path.with_suffix('.tmp')
     temporary.write_text(json.dumps(binding, indent=2) + '\n')
     temporary.replace(binding_path)

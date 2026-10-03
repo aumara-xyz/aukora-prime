@@ -12,8 +12,8 @@
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, globSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, resolve, sep } from 'node:path';
+import { existsSync, globSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { parseStripManifest, verifyStrip } from './release-strip.mjs';
 
 /** Record schema version written and accepted by this module. */
@@ -29,137 +29,6 @@ export const COVERAGE_DECLARATION_PATH = 'scripts/artifacts-coverage.json';
 export const PIN_PATH = 'upstream-dsh.json';
 
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
-
-export const HARNESS_IDENTITY_PATH = '.dsh-build/pinned-harness-identity.json';
-export const HARNESS_IDENTITY_ALGORITHM = 'aukora-prime:pinned-harness-identity:v1';
-const HARNESS_IDENTITY_DOMAIN = 'aukora-prime.pinned-harness-identity.v1\0';
-// Fixed upstream configuration/build-script closure. The archive and patch pins
-// cover upstream source; this inventory additionally binds the actual compiler
-// configuration that was present, without selecting any Prime source tree.
-export const HARNESS_COMPILER_PATTERNS = Object.freeze([
-  'package.json', 'pnpm-workspace.yaml', 'tsconfig*.json', 'tsdown*.ts',
-  'apps/*/package.json', 'apps/*/tsconfig*.json', 'apps/*/*config.ts',
-  'packages/*/tsdown*.ts',
-  'packages/*/*/package.json', 'packages/*/*/tsconfig*.json', 'packages/*/*/tsdown*.ts',
-  'vendor/*/package.json', 'vendor/*/tsconfig*.json', 'vendor/*/tsdown*.ts',
-  'scripts/**/*.ts', 'scripts/**/*.mjs', 'scripts/**/*.js', 'scripts/**/*.cjs',
-  'native/**/package.json', 'native/**/tsconfig*.json', 'native/system/scripts/**/*.ts',
-]);
-const HARNESS_COMPILER_EXCLUDED = Object.freeze([
-  '**/node_modules/**', '**/lib/**', '**/dist/**', '**/target/**', '.dsh-build/**',
-]);
-export const HARNESS_COMPILER_REQUIRED = Object.freeze([
-  'package.json', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'tsconfig.base.client.json',
-  'packages/client/tsdown.client.ts', 'scripts/build.ts',
-  'scripts/client-build-environment.ts', 'scripts/bundle-input-isolation.ts',
-]);
-
-function identityJson(value) {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
-  if (typeof value === 'number' && Number.isSafeInteger(value)) return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(identityJson).join(',') + ']';
-  if (value && Object.getPrototypeOf(value) === Object.prototype)
-    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + identityJson(value[key])).join(',') + '}';
-  throw new Error('harness-identity-invalid: canonical JSON data required');
-}
-
-function identityEntries(source, paths) {
-  const root = realpathSync(source);
-  return [...paths].sort().map(path => {
-    if (typeof path !== 'string' || path === '' || /[\u0000-\u001f\u007f\\]/u.test(path)
-        || path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..'))
-      throw new Error('harness-identity-invalid: relative input path required');
-    const absolute = resolve(source, path), actual = realpathSync(absolute);
-    if (!lstatSync(absolute).isFile() || !actual.startsWith(root + sep))
-      throw new Error(`harness-identity-nonregular-input: ${path}`);
-    const bytes = readFileSync(absolute);
-    return { path, bytes: bytes.length, sha256: sha256Buffer(bytes) };
-  });
-}
-
-function harnessIdentity({ root, source }) {
-  const pin = loadPin(root), coverage = loadCoverage(root), declaration = coverage.value;
-  if (sha256File(resolve(root, 'vendor/dsh-source.tar.gz')) !== pin.archiveSha256)
-    throw new Error('harness-identity-archive-mismatch');
-  if (sha256File(resolve(source, declaration.sourceLockfile)) !== pin.lockfileSha256)
-    throw new Error('harness-identity-lock-mismatch');
-  if (!/^[a-f0-9]{40}$/u.test(pin.commit) || !DIGEST_PATTERN.test(pin.archiveSha256)
-      || !DIGEST_PATTERN.test(pin.lockfileSha256) || typeof pin.packageManager !== 'string'
-      || typeof pin.cordisVersion !== 'string' || !Array.isArray(pin.localPatches))
-    throw new Error('harness-identity-pin-invalid');
-  const seen = new Set();
-  const localPatches = pin.localPatches.map(patch => {
-    if (typeof patch?.file !== 'string' || !/^patches\/[A-Za-z0-9_.-]+\.patch\.json$/u.test(patch.file)
-        || seen.has(patch.file) || !DIGEST_PATTERN.test(patch.sha256)
-        || sha256File(resolve(root, patch.file)) !== patch.sha256)
-      throw new Error('harness-identity-patch-mismatch');
-    seen.add(patch.file);
-    return { file: patch.file, sha256: patch.sha256 };
-  }).sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
-  const compilerPaths = coveredPaths(source, HARNESS_COMPILER_PATTERNS, HARNESS_COMPILER_EXCLUDED);
-  if (HARNESS_COMPILER_REQUIRED.some(path => !compilerPaths.includes(path)))
-    throw new Error('harness-identity-compiler-input-missing');
-  const hostPaths = coveredPaths(source, declaration.hostPatterns, declaration.excluded);
-  if (!hostPaths.length || declaration.requiredEntries.some(path => !hostPaths.includes(path)))
-    throw new Error('harness-identity-host-closure-incomplete');
-  const clientPaths = coveredPaths(source, declaration.clientPatterns, declaration.excluded);
-  const client = readUpstreamClientRecord(source, declaration.upstreamClientRecord);
-  if (!clientPaths.length || clientPaths.length !== client.fileCount || aggregateDigest(source, clientPaths) !== client.digest)
-    throw new Error('harness-identity-client-closure-incomplete');
-  return {
-    upstream: Object.fromEntries(['commit', 'archiveSha256', 'lockfileSha256', 'packageManager', 'cordisVersion'].map(key => [key, pin[key]])),
-    localPatches,
-    compilerInputs: identityEntries(source, compilerPaths),
-    coverage: { hostPatterns: declaration.hostPatterns, clientPatterns: declaration.clientPatterns,
-      requiredEntries: declaration.requiredEntries, excluded: declaration.excluded, sourceLockfile: declaration.sourceLockfile },
-    host: { entries: identityEntries(source, hostPaths), sha256: aggregateDigest(source, hostPaths) },
-    client: { entries: identityEntries(source, clientPaths), sha256: aggregateDigest(source, clientPaths) },
-  };
-}
-
-/** Stable byte identity only. Producer commit/platform/environment and raw receipt
- * hashes belong to build provenance, and must never key a downstream owner build. */
-export function buildHarnessIdentity({ root, source }) {
-  const identity = harnessIdentity({ root, source });
-  return { formatVersion: 1, kind: 'pinned-harness-identity', algorithm: HARNESS_IDENTITY_ALGORITHM,
-    identity, sha256: sha256Buffer(Buffer.from(HARNESS_IDENTITY_DOMAIN + identityJson(identity), 'utf8')) };
-}
-
-/** Called only after a successful pristine full build, never to migrate an old receipt. */
-export function writeHarnessIdentity({ root, source }) {
-  const document = buildHarnessIdentity({ root, source }), path = resolve(source, HARNESS_IDENTITY_PATH);
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = path + '.tmp';
-  writeFileSync(temporary, identityJson(document) + '\n');
-  renameSync(temporary, path);
-  return document;
-}
-
-/** Re-derive pinned inputs and complete declared output sets; a self-rehashed or
- * stale identity file cannot establish current required bytes. No files are written.
- * Consumers verify the ORIGINAL supplied harness before creating an owner/UI
- * overlay. That overlay adds its own packages and outputs; it preserves this
- * identity document as an input, rather than claiming to be the pure harness. */
-export function verifyHarnessIdentity({ root, source }) {
-  const binding = JSON.parse(readFileSync(resolve(source, '.dsh-build/pinned-harness-build.json'), 'utf8'));
-  if (binding?.formatVersion !== 2 || binding.kind !== 'pinned-harness-build')
-    throw new Error('harness-identity-successful-build-required: fresh v2 build required; historical v1 receipts cannot migrate');
-  const document = buildHarnessIdentity({ root, source });
-  if (readFileSync(resolve(source, HARNESS_IDENTITY_PATH), 'utf8') !== identityJson(document) + '\n')
-    throw new Error('harness-identity-mismatch: recorded identity differs from current pinned inputs or outputs');
-  const upstream = Object.fromEntries(['commit', 'archiveSha256', 'lockfileSha256', 'packageManager']
-    .map(key => [key, document.identity.upstream[key]]));
-  const coverage = loadCoverage(root), recordPath = resolve(source, coverage.value.record);
-  const record = JSON.parse(readFileSync(recordPath, 'utf8'));
-  if (binding?.formatVersion !== 2 || binding.kind !== 'pinned-harness-build'
-      || identityJson(binding.inputs) !== identityJson({ upstream, localPatches: document.identity.localPatches })
-      || binding.harnessIdentity?.path !== HARNESS_IDENTITY_PATH || binding.harnessIdentity.sha256 !== document.sha256
-      || binding.artifactCount !== document.identity.host.entries.length
-      || binding.provenance?.artifactRecordSha256 !== sha256File(recordPath)
-      || identityJson(binding.provenance.producer) !== identityJson(record.producer))
-    throw new Error('harness-identity-successful-build-required: fresh v2 build required; historical v1 receipts cannot migrate');
-  return document;
-}
 
 /** Hash one file's bytes. */
 export function sha256File(path) {

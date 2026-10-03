@@ -1,0 +1,124 @@
+{
+  "name": "aukora-desktop",
+  "productName": "AUKORA",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test --test-timeout=180000 ../../tests/aukora-approval-roundtrip.test.mjs ../../tests/aukora-aumlok-verify.test.mjs",
+    "dist": "sh ../../scripts/aumlok/build-touchid.sh && electron-builder --mac dir"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "xyz.aukora.desktop",
+    "productName": "AUKORA",
+    "icon": "icons/icon.icns",
+    "files": [
+      "aumlok-approval-preload.cjs",
+      "aumlok-approval-view.mjs",
+      "aumlok-approval.html",
+      "aumlok-bridge-preload.cjs",
+      "aumlok-bridge-state.mjs",
+      "aumlok-bridge.mjs",
+      "aumlok-draw.mjs",
+      "aumlok-presence.mjs",
+      "aumlok-airlock-config.mjs",
+      "aumlok-signer-airlock.mjs",
+      "aumlok-signer-review.mjs",
+      "aumlok-signer-witness.mjs",
+      "aumlok-signer.mjs",
+      "backend-status.mjs",
+      "card-chain.mjs",
+      "desktop-log.mjs",
+      "eye.mjs",
+      "footprint-watch.mjs",
+      "icons/**",
+      "install-settings.mjs",
+      "lane-card-preload.cjs",
+      "lane-card-view.mjs",
+      "lane-card-window.mjs",
+      "lane-card.html",
+      "lane-dispatch.mjs",
+      "lane-door.mjs",
+      "main.mjs",
+      "resolve.mjs",
+      "supervisor.mjs",
+      "url-policy.mjs"
+    ],
+    "mac": {
+      "identity": "-",
+      "target": "dir",
+      "category": "public.app-category.productivity",
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "AUKORA uses the camera only while you scan an AUKORA contact to verify them in person. Camera frames stay on this device.",
+        "NSMicrophoneUsageDescription": "AUKORA uses the microphone only while you open the voice channel in Auma Live, and the audio goes to the local voice process on this machine."
+      }
+    },
+    "extraFiles": [
+      {
+        "from": "../../plugins/aukora-owner-daemon/lib",
+        "to": "plugins/aukora-owner-daemon/lib",
+        "filter": [
+          "detect.mjs",
+          "client.mjs",
+          "peer-uid.mjs",
+          "boundary.mjs",
+          "airlock-witness.mjs",
+          "airlock-rollout.mjs",
+          "visible.mjs"
+        ]
+      },
+      {
+        "from": "../../plugins/aukora-aumlok/lib",
+        "to": "plugins/aukora-aumlok/lib",
+        "filter": [
+          "repo-advance.mjs",
+          "release-activate.mjs",
+          "plugin-set-content.mjs",
+          "approval-presence.mjs"
+        ]
+      },
+      {
+        "from": "../../plugins/aukora-box/aukora",
+        "to": "plugins/aukora-box/aukora",
+        "filter": [
+          "aura/record.mjs",
+          "kernel-seed/canonical-json.mjs"
+        ]
+      },
+      {
+        "from": "../../scripts/aumlok",
+        "to": "scripts/aumlok",
+        "filter": [
+          "touchid.swift",
+          "build-touchid.sh"
+        ]
+      },
+      {
+        "from": "../../plugins/aukora-kira/lib",
+        "to": "plugins/aukora-kira/lib",
+        "filter": [
+          "strict-read.mjs",
+          "record.mjs",
+          "lane-door-messages.mjs"
+        ]
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "../../out/touchid",
+        "to": ".",
+        "filter": [
+          "aukora-touchid"
+        ]
+      }
+    ]
+  }
+}

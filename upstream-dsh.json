@@ -28,16 +28,6 @@
       "file": "patches/mandatory-agent-confinement.patch.json",
       "sha256": "d7091a14e87ab13116b5cdd5f772fef8d499a0a83396df391a0a79de5fc69c9f",
       "reason": "Agent process launch requires the AUKORA native confinement service before child execution; full-access session mode cannot bypass it, and unwired native SDK providers refuse startup."
-    },
-    {
-      "file": "patches/cordis-logger-exporter-disposer.patch.json",
-      "sha256": "49b01ff3947d94bd928cfc1bbed697e53206daf33711e43f2225fdf736ce2ed6",
-      "reason": "Dispose the logger exporter by its captured registration ID so unloading an earlier exporter cannot remove a later exporter. Narrow backport of official DSH ac2f890291a0c1f5b8bc785fca2ae39005343819; no Cordis API or configuration upgrade."
-    },
-    {
-      "file": "patches/gateway-per-read-cancellation.patch.json",
-      "sha256": "7ce8c512d3dab1a1d0e86af878944148f4b81217a56458dde85939f5fae337e1",
-      "reason": "Create one cancellation promise per gateway iterator read so a long-lived Remote stream does not retain all completed Promise.race reactions. Backport only cancellableStream from official DSH 4cfd292a7ba6fcac697731da4252a5754d59c74a, preserving pinned remoteCancelled errors and iterator cleanup; no duplex transport or settings upgrade."
     }
   ]
 }
