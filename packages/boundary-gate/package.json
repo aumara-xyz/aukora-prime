@@ -8,8 +8,13 @@
   "exports": {
     "./layout": "./src/layout.mjs",
     "./sandbox": "./src/sandbox.mjs",
-    "./selfcheck": "./src/selfcheck.mjs"
+    "./selfcheck": "./src/selfcheck.mjs",
+    "./gate": "./src/gate.mjs",
+    "./ledger": "./src/ledger.mjs",
+    "./card": "./src/card.mjs",
+    "./server": "./src/server.mjs"
   },
   "scripts": {"check": "node --test checks/*.mjs"},
-  "files": ["src", "host", "README.md"]
+  "bin": {"aukora-boundary-gate": "./bin/gate.mjs", "aukora-boundary-owner": "./bin/owner-cli.mjs"},
+  "files": ["src", "bin", "host", "README.md"]
 }
