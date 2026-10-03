@@ -21,7 +21,7 @@ export const ownedEntries=Object.freeze([
  {id:'prime-connection',name:'./packages/client/connection/lib/prime-host.mjs',config:{trustedHosts:[],cookieMaxAgeDays:1,maxRequestBodyBytes:8388608}},
  {id:'prime-shell',name:'./harness/shell-unavailable.mjs'},
  {id:'prime-host',name:'./harness/host.mjs'},
- // Client metadata only; native workspace actions stay unavailable.
+ // Native workspace listing for the one guarded CPU workspace; file actions stay unavailable.
  {id:'prime-workspace-client',name:'./packages/api/workspace-controller/lib/prime-host.mjs'},
  {id:'prime-file-upload-client',name:'./packages/client/file-upload/lib/prime-host.mjs'},
  {id:'aukora-foundation',name:'./plugins/aukora-foundation/lib/index.js'},

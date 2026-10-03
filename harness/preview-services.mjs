@@ -59,5 +59,5 @@ export function previewRpcAllowed(endpoint,payload) {
 }
 export class PreviewGateway extends TypertGatewayService {
  dispatchRpc(endpoint,payload,signal){if(!previewRpcAllowed(endpoint,payload))return Promise.resolve({ok:false,error:{code:'UNAVAILABLE',message:'Prime preview effect route is unavailable',details:{}}});return super.dispatchRpc(endpoint,payload,signal);}
- openWireStream(endpoint,payload,signal){if(!['$events','session/control','session/follow'].includes(endpoint))return unavailable();return super.openWireStream(endpoint,payload,signal);}
+ openWireStream(endpoint,payload,signal){if(!['$events','session/control','session/follow','workspace/follow'].includes(endpoint))return unavailable();return super.openWireStream(endpoint,payload,signal);}
 }

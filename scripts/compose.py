@@ -97,7 +97,8 @@ for package,target in ([] if reuse_runtime else [('foundation','aukora-foundatio
  shutil.copytree(src,dst,symlinks=True,dirs_exist_ok=reuse_runtime,ignore=lambda directory,names:[n for n in names if n in ['src','checks','licenses']])
 shutil.copy2(root/'harness/preview-connection.mjs',release/'packages/client/connection/lib/prime-host.mjs')
 shutil.copy2(root/'harness/gateway-host.mjs',release/'packages/api/gateway/lib/prime-host.mjs')
-for target in ['packages/api/workspace-controller','packages/client/file-upload']:
+shutil.copy2(root/'harness/workspace-host.mjs',release/'packages/api/workspace-controller/lib/prime-host.mjs')
+for target in ['packages/client/file-upload']:
  shutil.copy2(root/'harness/ui-host.mjs',release/target/'lib/prime-host.mjs')
 removed_links=[]
 for link in release.rglob('*'):
