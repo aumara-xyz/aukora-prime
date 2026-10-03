@@ -1,0 +1,10 @@
+# Handoff only: Grok owns shared composition and materializer registration.
+# Keep disabled until the wrapper's policy and lifecycle contract is joined.
+# Disable both stock sandbox and aukora-seatbelt on Linux before enabling.
+- insert:
+    - id: aukora-openshell-confinement
+      name: ./plugins/aukora-openshell-confinement/lib/index.mjs
+      disabled: true
+      config:
+        workspaceRoot: /sandbox
+        timeoutSeconds: 60
