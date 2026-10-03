@@ -11,5 +11,5 @@
     "./credential-service": {"types":"./src/credential-service.d.mts","default":"./src/credential-service.mjs"},
     "./credential-http": {"types":"./src/credential-http.d.mts","default":"./src/credential-http.mjs"},
     "./credential-entry": {"types":"./src/provider-http.d.mts","default":"./src/provider-http.mjs"} },
-  "scripts": { "check": "node --test check.mjs check-dispatch.mjs check-total-budget.mjs check-worker-outbox.mjs check-dispatch-expiry.mjs check-reserve-attempt.mjs check-worker-continuation.mjs check-private-transport.mjs" }
+  "scripts": { "check": "node --test check.mjs check-dispatch.mjs check-total-budget.mjs check-worker-outbox.mjs check-dispatch-expiry.mjs check-reserve-attempt.mjs check-worker-continuation.mjs check-private-transport.mjs check-dsh-cancellation.mjs" }
 }
