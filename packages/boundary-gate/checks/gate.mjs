@@ -14,7 +14,6 @@ import { rotateBearer, bearerOk } from '../src/secrets.mjs'
 import { cardWarnings, COLOR_NAMES, colorName, cleanNote, noteMeta } from '../src/card.mjs'
 import { createOwnerPage, PAGE_APPROVER } from '../src/owner-page.mjs'
 import { serveGate, call, OWNER_SOCKET_APPROVER } from '../src/server.mjs'
-import { gateTargets, gateStore } from '../src/wiring.mjs'
 
 const base = (g) => g.proposeOps.read({ target: ACCENT }).sha256
 const propose = (g, hex, note = 'Accent update.', extra = {}) => g.proposeOps.propose({ target: ACCENT, content: accent(hex), why: note, claimed_base: base(g), session: 's', ...extra })
@@ -182,9 +181,9 @@ test('crash reconciliation never replays an approval; stale pending expire at st
   g4.startup({ pid: 3 }); assert.equal(g4.proposeOps.state({ id: p3.id }).state, 'expired')
 })
 
-test('production wiring with no reviewed registry refuses every proposal (fail closed)', () => {
+test('a gate with an empty registry refuses every proposal (fail closed)', () => {
   const home = tmpHome()
-  const g = createGate({ home, targets: gateTargets(), store: gateStore() }); g.startup({ pid: 1 })
+  const g = createGate({ home, targets: {}, store: memoryStore() }); g.startup({ pid: 1 })
   assert.deepEqual(g.proposeOps.targets(), [])
   assert.throws(() => g.proposeOps.propose({ target: ACCENT, content: accent('#1E90FF'), claimed_base: 'absent' }), /not on the allowlist \(empty\)/)
   g.close()

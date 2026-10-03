@@ -12,7 +12,10 @@
     "./gate": "./src/gate.mjs",
     "./ledger": "./src/ledger.mjs",
     "./card": "./src/card.mjs",
-    "./server": "./src/server.mjs"
+    "./server": "./src/server.mjs",
+    "./targets": "./src/targets.mjs",
+    "./receipts": "./src/receipts.mjs",
+    "./client": "./src/gate-client.mjs"
   },
   "scripts": {"check": "node --test checks/*.mjs"},
   "bin": {"aukora-boundary-gate": "./bin/gate.mjs", "aukora-boundary-owner": "./bin/owner-cli.mjs"},

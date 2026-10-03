@@ -10,9 +10,10 @@ Source: `aumara-xyz/aukora-genesis`, `labs/deepseek-harness-boundary` at lab tip
 
 | Part | Where | Status in Prime |
 | --- | --- | --- |
-| UID separation, single sudo rule, OpenShell 0.1.2 on rootless Podman | `host/`, `host/SETUP.md` | SOURCE-ONLY; lab run CLAIMED |
+| UID separation, single sudo rule, OpenShell 0.1.2 on rootless Podman | `host/`, `host/SETUP.md` | SOURCE-ONLY; a scoped live probe RAN on the lab box (commit `ad76485`); long-running lab operation CLAIMED |
 | Harness-side sandbox runner, egress probe, fail-closed self-check | `src/layout.mjs`, `src/sandbox.mjs`, `src/selfcheck.mjs` | SOURCE-ONLY, covered by `checks/` |
 | Owner-only approval gate: split PROPOSE/OWNER sockets, signed hash-chained ledger, single-use approval, signed receipts with HMAC approval evidence, crash reconciliation | `src/gate.mjs`, `src/ledger.mjs`, `src/secrets.mjs`, `src/server.mjs`, `bin/` | SOURCE-ONLY, covered by `checks/` |
+| Boundary: theme-only declarative allowlist, symlink-refusing atomic target store, revert as an owner-approved proposal, receipt verification against key and ledger, propose-only harness client and self-check gate probes | `src/targets.mjs`, `src/fs-store.mjs`, `src/receipts.mjs`, `src/gate-client.mjs`, `src/wiring.mjs` | SOURCE-ONLY, covered by `checks/`; one cross-UID scratch run RAN on the lab box (see commit) |
 | Round-3 hardening: owner page with all warnings, swatch and AFTER APPLY line, two-step typed approve, 12 h rotating bearer, global rate limits, note sanitising and lookalike/spoof/pressure warnings | `src/card.mjs`, `src/owner-page.mjs` | SOURCE-ONLY, covered by `checks/`; lab headless-browser runs CLAIMED |
 
 ## The gate
@@ -27,8 +28,22 @@ the base hash, writes bytes from the gate's own version store, verifies the resu
 Ed25519-signed receipt whose HMAC evidence binds id, base, result and approver. Every event is appended to
 a hash-chained, signed SQLite ledger with append-only triggers (`bin/gate.mjs verify`). Rate limits are
 global and per target: 1 pending, 3 per 10 minutes, 60 s cooldown after a reject, 10 minute dedupe of a
-rejected result. The production entry allowlists nothing until a reviewed declarative target registry is
-wired in (`src/wiring.mjs`); until then every proposal is refused.
+rejected result.
+
+## The boundary
+
+The allowlist (`src/targets.mjs`) has exactly one target: `plugins/auma-theme/theme.json`, accepted only as
+the canonical bytes `{"accent": "#RRGGBB"}` (uppercase hex) or `{"accent": "default"}` (at most 256 bytes,
+printable ASCII). Target names must be normalized relative paths under `plugins/`; code targets are refused
+by construction (the lab's earlier `plugins/user/<name>/index.js` target was removed and is not carried).
+The gate's store refuses any symlink component, opens with `O_NOFOLLOW`, writes via an exclusive temp file,
+fsync and rename, fsyncs the directory and leaves the file 0640 with the shared group (harness reads, cannot
+write). Revert proposes an earlier applied version's exact bytes and needs the same owner approval; it gets
+its own `revert-applied` receipt. `src/receipts.mjs` (`bin/gate.mjs verify-receipt`) accepts a receipt only
+if its signature and key fingerprint verify, the ledger is intact and the identical receipt is in an apply
+entry. The harness side uses `src/gate-client.mjs`, which has no approve function; its `gateProbes` plug
+into the self-check as `extraProbes` (owner socket connect, approve op, approving close: all must fail).
+The harness reads the theme with `readThemeText`, which falls back to `default` on any non-canonical bytes.
 
 Known limits carried from the lab: the owner bearer is a link secret (anyone holding it can approve until it
 expires); the operator who can become the gate user is trusted by construction; the model's chat text

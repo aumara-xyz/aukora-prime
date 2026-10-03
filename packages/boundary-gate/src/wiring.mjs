@@ -1,7 +1,7 @@
-// Which targets the production gate entry allowlists, and how it stores them. Empty until a reviewed,
-// declarative target registry is wired in: the gate then refuses every proposal (fail closed).
-export function gateTargets() { return {} }
-export function gateStore() {
-  const refuse = () => { throw new Error('no target store configured (fail closed)') }
-  return { read: refuse, write: refuse }
-}
+// Which targets the production gate entry allowlists, and how it stores them: the reviewed declarative
+// allowlist (theme accent only) on the gate-owned target root, through the symlink-refusing fs store.
+import { allowlist } from './targets.mjs'
+import { fsStore } from './fs-store.mjs'
+
+export function gateTargets(targetRoot) { return allowlist(targetRoot) }
+export function gateStore({ gid = 0 } = {}) { return fsStore({ gid }) }

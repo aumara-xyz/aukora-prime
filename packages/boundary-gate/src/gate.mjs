@@ -108,11 +108,12 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   function close({ id, outcome }) {
     if (typeof id !== 'string') throw new Error('id required')
     const p = db.prepare('SELECT * FROM proposals WHERE id=?').get(id)
-    if (!p) return { applied: false, state: 'unknown', message: 'unknown proposal id' }
+    // checked before the id lookup, so an approving close is refused (and recorded) even for unknown ids
     if (!CLOSE_OUTCOMES.includes(outcome)) {
-      append('decide-refused', { proposal: id, target: p.target, detail: { reason: 'approval is not possible on the propose channel', outcome: String(outcome).slice(0, 40), via: 'propose-close' } })
+      append('decide-refused', { proposal: p ? id : id.slice(0, 64), target: p?.target ?? null, detail: { reason: 'approval is not possible on the propose channel', outcome: String(outcome).slice(0, 40), via: 'propose-close', known_id: !!p } })
       throw new Error('refused: the harness channel cannot approve; approval happens only on the gate owner channel')
     }
+    if (!p) return { applied: false, state: 'unknown', message: 'unknown proposal id' }
     const to = outcome === 'rejected' ? 'refused' : 'expired'
     return tx(() => {
       if (!setState(id, 'pending', to, String(outcome))) { append('decide-refused', { proposal: id, target: p.target, detail: { reason: 'not pending', state: p.state, outcome, via: 'propose-close' } }); return { applied: false, state: p.state, message: `proposal is ${p.state}` } }
@@ -177,6 +178,29 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   }
   const signReceipt = (receipt) => sign(null, Buffer.from(JSON.stringify(receipt)), key.priv).toString('base64')
 
+  // Version history of a target from the ledger (applied, reverted and adopted versions, newest first).
+  function history(target) {
+    spec(target); const cur = readCur(target); const curSha = cur ? sha256(cur) : 'absent'
+    const rows = db.prepare(`SELECT seq, at, event, proposal, new_sha FROM ledger WHERE target=? AND event IN ${APPLIED_EVENTS} ORDER BY seq DESC LIMIT ?`).all(target, L.keepVersions)
+    const seen = new Set(), versions = []
+    for (const r of rows) {
+      if (seen.has(r.new_sha)) continue; seen.add(r.new_sha); const b = db.prepare('SELECT bytes FROM blobs WHERE sha=?').get(r.new_sha)
+      versions.push({ sha256: r.new_sha, last_applied_at: r.at, ledger_seq: r.seq, event: r.event, current: r.new_sha === curSha, available: !!b, content: b ? Buffer.from(b.bytes).toString('utf8') : null })
+    }
+    return { target, current_sha256: curSha, versions }
+  }
+  // Revert = a new proposal of an earlier applied version's exact bytes; it needs the same owner approval.
+  function revert({ target, to_sha, why, session, call_id }) {
+    spec(target); let to = to_sha
+    if (to === 'previous' || to == null) { const prev = history(target).versions.find(v => !v.current); if (!prev) throw new Error('nothing to revert: no earlier applied version recorded'); to = prev.sha256 }
+    if (typeof to !== 'string' || !SHA.test(to)) throw new Error('to_sha256 must be a 64-hex sha256 from change_log / read_target history')
+    if (!db.prepare(`SELECT 1 FROM ledger WHERE target=? AND new_sha=? AND event IN ${APPLIED_EVENTS} LIMIT 1`).get(target, to)) throw new Error(`refused: ${to} was never an applied version of ${target}`)
+    const b = db.prepare('SELECT bytes FROM blobs WHERE sha=?').get(to); if (!b) throw new Error(`refused: version ${to} is no longer kept`)
+    const stored = Buffer.from(b.bytes), text = stored.toString('utf8')
+    if (sha256(stored) !== to || !Buffer.from(text, 'utf8').equals(stored)) throw new Error(`refused: stored version ${to} does not round-trip byte-for-byte`)
+    return createProposal({ target, content: text, why: why ?? `revert ${target} to ${to}`, session, call_id }, 'revert', { revert_to: to })
+  }
+
   // Start-up: adopt valid current target bytes as revertable versions, reconcile approvals interrupted by a
   // crash (never replayed), expire stale pending proposals, and record a gate-start entry with the ledger state.
   function startup({ pid = process.pid, bearerInfo = null, extra = {} } = {}) {
@@ -217,6 +241,8 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     targets: () => Object.entries(TARGETS).map(([t, s]) => ({ target: t, schema: s.schema, entry: s.entry, maxBytes: s.maxBytes })),
     read: ({ target }) => { const s = spec(target); const b = readCur(target); return { target, sha256: b ? sha256(b) : 'absent', bytes: b ? b.length : 0, content: b ? b.toString('utf8') : null, schema: s.schema } },
     propose: (a) => createProposal({ ...a }, 'change'),
+    revert,
+    history: ({ target }) => history(target),
     close,
     state: ({ id }) => {
       const r = db.prepare('SELECT state, expires, updated FROM proposals WHERE id=?').get(String(id)); if (!r) return { state: 'unknown' }

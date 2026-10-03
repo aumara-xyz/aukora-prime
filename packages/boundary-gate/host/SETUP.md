@@ -54,7 +54,13 @@ Version tags are not digests. Record the image digests you actually pull before 
    `ensure-sandbox.sh` creates `auma-ws` with `--no-auto-providers`, keeps a host copy of `/sandbox`, and
    **refuses (exit 3) unless the container network mode is `none`**.
 5. Install `sbx-exec` as `/usr/local/lib/aukora-boundary/sbx-exec`, `root:root 0755`, and the sudo rule.
-6. Run the self-check as `aukora-host` before enabling any agent tool, and keep it running periodically.
+6. Gate (as `aukora-gate`, umask 027): `install -d -o aukora-gate -g skgate -m 0750` the run directory and the
+   target root (`targets/plugins/auma-theme/`, theme file 0640 group `skgate`), keep the gate home 0700, then
+   `node bin/gate.mjs serve --home <gate home> --run <run dir> --target-root <target root> --gid <skgate gid>`.
+   The PROPOSE socket comes up 0660 group `skgate`, the OWNER socket 0600. Publish the loopback owner page
+   only on a channel the harness cannot reach. Owner decisions: `bin/owner-cli.mjs --socket <run>/owner.sock`.
+7. Run the self-check as `aukora-host` (forbidden probes plus `gateProbes` as `extraProbes`) before enabling
+   any agent tool, and keep it running periodically.
 
 `openshell/gateway-metadata.json` is the client-side gateway registration (mTLS, loopback). Certificates
 and keys are not included and must stay in `auma`'s private state.
