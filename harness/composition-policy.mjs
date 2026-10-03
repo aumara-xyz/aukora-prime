@@ -1,6 +1,6 @@
 // Exact pinned services for a disposable preview. No user profile, patches, HMR or plugin administration.
 export const pinnedIds = Object.freeze(`
-timer llm deepseek-llm-api-extensions session session-log-deepseek typert typert-loader session-title
+timer llm llm-deepseek deepseek-llm-api-extensions session session-log-deepseek typert typert-loader session-title
 user-questions agent agent-default-model session-persistence-jsonl attachment-local
 session-query-sqlite session-projection storage storage-json storage-domain session-projection-cache
 sandbox-policy approval permission shell-env commands goal token-meter tools system-prompt agent-loop
@@ -16,6 +16,7 @@ export const ownedEntries=Object.freeze([
  {id:'prime-credentials',name:'./harness/preview-credentials.mjs'},
  {id:'prime-settings',name:'./harness/preview-settings.mjs'},
  {id:'prime-uploads',name:'./harness/preview-uploads.mjs'},
+ {id:'prime-deepseek-pilot',name:'./harness/deepseek-pilot.mjs'},
  {id:'prime-gateway',name:'./packages/api/gateway/lib/prime-host.mjs'},
  {id:'prime-connection',name:'./packages/client/connection/lib/prime-host.mjs',config:{trustedHosts:[],cookieMaxAgeDays:1,maxRequestBodyBytes:8388608}},
  {id:'prime-shell',name:'./harness/shell-unavailable.mjs'},

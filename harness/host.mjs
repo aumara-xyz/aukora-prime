@@ -51,7 +51,11 @@ export function apply(ctx){
    const current=()=>services===selected&&selected?.isOwnerMemoryActive?.()===true;
    const observed=await observeOwnerMemoryCapabilities(release.unavailable_capabilities,selected,current);
    if(res.destroyed||res.writableEnded)return;
-   const unavailable=current()?observed:release.unavailable_capabilities;
+   let unavailable=current()?observed:release.unavailable_capabilities;
+   // Source composition alone never makes paid inference available. Observe
+   // the actual native provider, private key metadata and persistent cap.
+   if(release.native_model_inference?.provider==='deepseek-official'&&web.get('primeNativeInference')?.status()===true)
+    unavailable=unavailable.filter(id=>id!=='model-inference');
    send(res,200,{version:1,source_commit:release.source_commit,runtime_pid:process.pid,release_digest:'sha256:'+process.env.PRIME_RELEASE_DIGEST,unavailable_capabilities:unavailable,phase:'disposable-preview',qualification:'PENDING'});
   })}),'prime observed preview capabilities');
   web.effect(()=>web.webServer.register({kind:'exact',path:'/api/prime/inference/catalog',handler:guarded((req,res)=>{

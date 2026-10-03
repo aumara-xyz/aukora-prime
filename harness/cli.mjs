@@ -35,6 +35,7 @@ else if(cmd==='boot'){
  privateDirectory(state,{create:true});for(const name of ['workspace','home','agents'])privateDirectory(resolve(state,name),{create:true});
  const env={PATH:process.env.PATH,HOME:resolve(state,'home'),DSH_HOME:resolve(state,'home'),DSH_AGENTS_HOME:resolve(state,'agents'),DSH_TELEMETRY_MODE:'DISABLED',DSH_TELEMETRY_DISABLED:'1',NODE_NO_WARNINGS:'1'};
  env.PRIME_RELEASE_DIGEST=releaseDigest;
+ for(const key of ['PRIME_DEEPSEEK_KEY_FILE','PRIME_DEEPSEEK_BUDGET_FILE'])if(process.env[key])env[key]=process.env[key];
  const p=spawn(process.execPath,['--max-old-space-size=1536',resolve(release,'harness/run.mjs'),state,value('--port','18731'),deploymentPath,anchor.manifest_sha256,resolve(packagesRoot,'ops/gates.mjs'),
   ...(ownerConfig?[ownerConfigPath,ownerConfig.config_sha256]:[])],{cwd:resolve(state,'workspace'),env,stdio:['ignore','pipe','pipe','ipc']});
  const r={status:'starting',pid:p.pid,version:manifest.version,source_commit:manifest.source_commit,ui_url:null,release_dir:release,release_digest:releaseDigest,unavailable_capabilities:manifest.unavailable_capabilities,started_at:new Date().toISOString()};

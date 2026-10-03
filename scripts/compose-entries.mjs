@@ -22,6 +22,8 @@ const entries=pinnedIds.map(id=>{
  if(id==='approval')entry.config={policy:'ask'};
  if(id==='permission')entry.config={presets:{'read-only':{sandbox:'read-only',approval:'ask'}}};
  if(id==='tools')entry.config={mode:'native'};
+ if(id==='session-log-deepseek')entry.config={enabled:false};
+ if(id==='llm-deepseek')entry.config={protocol:'chat-completions',baseURL:'https://api.deepseek.com',apiKeyEnv:'DEEPSEEK_API_KEY',thinking:'disabled',reasoningEffort:'off',maxTokens:1024,defaultContextWindow:32768,streamIdleTimeoutMs:60000,retryPolicy:{mode:'normal',maxRetries:0},models:[{id:'deepseek-flash',name:'DeepSeek Flash',inputModalities:['text'],maxTokens:1024,contextWindow:32768}]};
  if(id==='session-controller'||id==='settings-controller')entry.config={nativeOpen:false};
  if(JSON.stringify(entry).includes('prime_expression'))throw new Error('CONFIG_EXPRESSION_REFUSED:'+id);
  return entry;
