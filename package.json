@@ -10,7 +10,8 @@
   "scripts": {
     "build": "python3 scripts/build-dsh.py",
     "boot": "./prime boot",
-    "status": "./prime status"
+    "status": "./prime status",
+    "check:boundary-gate": "node --test packages/boundary-gate/checks/*.mjs"
   }
 }
 
