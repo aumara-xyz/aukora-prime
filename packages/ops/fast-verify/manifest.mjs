@@ -520,7 +520,7 @@ export const CASES = freeze([
     "id": "full-owner-forget-workflow",
     "property": "Full source owner-memory suite: owner-forget-workflow",
     "entry": "packages/runtime-bridge/test/owner-forget-workflow.test.mjs",
-    "expectedSha256": "7ab96f36a83e934a582434b279adf4cfd1fb950d74b7f66944424f996468d0be",
+    "expectedSha256": "fb405624515ee1a772a709abd7823c1d73a5880c3d81218a98086836e8c3fc03",
     "protocol": "tap",
     "timeoutMs": 120000,
     "nodeArgs": [
@@ -532,7 +532,7 @@ export const CASES = freeze([
     "requiredTitles": [
       "coalesced owner approval forgets once with the exact signed literals and genuine D receipt",
       "a lost actual forget reply recovers after server object remount without another effect or signature",
-      "an unsent forget recovers as known unsent and requires a fresh proposal and review"
+      "an unsent forget remains active unknown and refuses a fresh proposal and approval"
     ],
     "externalSkips": [],
     "args": [],

@@ -43,7 +43,7 @@ It updates 19 pin references across 13 selected paths, requires 275 TAP titles
 plus the external title, and raises the H client and transport counters to 95 and
 61. Previous source pins or assertion counts cannot satisfy this contract. The
 current manifest SHA256 is
-`c9491a181d601580c306501bf7734b758777149f11ef227118c9fb3450a98173`;
+`2bfcf3f2b185f331d37268570dfe475831efc1f22a7f24b3e4eb7194bbeb261b`;
 the evaluator engine remains
 `da653d511ebf30c821e07d4bf63c0731ce5f046a2eacaf694f66710fc3006535`.
 New NEXT checks outside the selected inventory require separately identified

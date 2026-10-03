@@ -19,7 +19,7 @@ The reviewed NEXT refresh preserves that 66-job inventory and selected-path scop
 updates 19 literal pin references across 13 changed selected paths, and requires
 two additional native-connection witness titles plus the expanded H assembly
 counters. Its current manifest is
-`c9491a181d601580c306501bf7734b758777149f11ef227118c9fb3450a98173`.
+`2bfcf3f2b185f331d37268570dfe475831efc1f22a7f24b3e4eb7194bbeb261b`.
 Pins were reviewed from source changes, rather than a received result. The released paired 66-job
 runs at `58a95f4` each recorded 65 PASS, 0 FAIL and 1 external PostgreSQL
 UNPERFORMED, exit 2; see the [evidence history](../../../docs/EVIDENCE-HISTORY.md#released-source-profile)

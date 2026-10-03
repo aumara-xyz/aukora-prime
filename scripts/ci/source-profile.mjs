@@ -11,7 +11,7 @@ import {CASES, UNPERFORMED} from '../../packages/ops/fast-verify/manifest.mjs';
 
 export const PROFILE = Object.freeze({
   engine: 'da653d511ebf30c821e07d4bf63c0731ce5f046a2eacaf694f66710fc3006535',
-  manifest: 'd6c5a126c8aa527b86c2c9318410bdfa0bf6e800f26ba9385e07e6751e3ab678',
+  manifest: '2bfcf3f2b185f331d37268570dfe475831efc1f22a7f24b3e4eb7194bbeb261b',
   externalId: 'memory-memory',
   externalTitle: 'PostgreSQL acceptance on an explicitly supplied disposable database',
   externalReason: 'UNPERFORMED: no disposable PostgreSQL runtime supplied'
