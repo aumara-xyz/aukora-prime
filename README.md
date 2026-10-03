@@ -16,7 +16,7 @@ From a checkout with [the prerequisites below](#check-it-yourself):
 
 **Released evidence:** at `58a95f4`, two 66-job runs each recorded **65 PASS / 0 FAIL / 1 PostgreSQL UNPERFORMED**, exit `2` ([paired receipt](https://github.com/aumara-xyz/aukora-prime/releases/download/prime-v1.2.1-research-review/prime-v1.2.1-research-review.paired-receipt.json)). This is scoped source evidence, not current runtime qualification; [history and exclusions](docs/EVIDENCE-HISTORY.md) remain visible.
 
-**Read:** [short overview](docs/READING-GUIDE.md) → [complete paper](docs/AUKORA-GOLDEN-BOUNDARY.md) → [evidence/source review](SHARE.md). **Participate:** [contributor front door](CONTRIBUTING.md).
+**Plan:** [North Star](plan/NORTH-STAR.md). **Read:** [short overview](docs/READING-GUIDE.md) → [complete paper](docs/AUKORA-GOLDEN-BOUNDARY.md) → [evidence/source review](SHARE.md). **Participate:** [contributor front door](CONTRIBUTING.md).
 
 ![AUKORA's intended human-first architecture](docs/assets/aukora-human-first.png)
 

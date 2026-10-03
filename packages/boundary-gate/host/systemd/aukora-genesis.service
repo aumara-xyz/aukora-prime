@@ -1,0 +1,26 @@
+# Genesis runtime (DSH launcher) as aukora-host, loopback only. Paths are the Nebius pilot's;
+# a materialized release embeds absolute paths, so materialize it in place under /opt/aukora-genesis.
+# --allow-unapproved waives the approved plugin set (L4 break-list item) until the gate self-check is wired.
+[Unit]
+Description=AUKORA Genesis runtime as aukora-host, loopback 127.0.0.1:18735
+After=network-online.target aukora-boundary-gate.service aukora-auma-sandbox.service
+Wants=aukora-boundary-gate.service aukora-auma-sandbox.service
+
+[Service]
+User=aukora-host
+Group=aukora-host
+Type=forking
+GuessMainPID=yes
+TimeoutStartSec=120
+UMask=0077
+WorkingDirectory=/opt/aukora-genesis/src
+Environment=PATH=/opt/aukora-node/bin:/usr/local/bin:/usr/bin:/bin
+Environment=AUKORA_SUPPORT_ROOT=/home/aukora-host/genesis/support
+Environment=AUKORA_STATE=/home/aukora-host/genesis/state
+ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release /opt/aukora-genesis/release-7ae564b --state-root /home/aukora-host/genesis/state --port 18735 --allow-unapproved --patch /opt/aukora-genesis/release-7ae564b/aukora-composition.patch.yml
+KillMode=control-group
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
