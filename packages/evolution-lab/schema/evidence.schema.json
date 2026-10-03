@@ -1,0 +1,758 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aukora:evolution-lab:evidence:1",
+  "title": "Evolution Lab inert sanitized evidence manifest",
+  "$comment": "Recognition does not execute evidence, fetch receipts, establish truth, certify safety or qualify a runtime. Input is JSON text of at most 65536 UTF-8 bytes, nesting depth at most 12, without duplicate decoded JSON keys. parseManifest additionally rejects common private paths, IPs, credential patterns, Unicode control/format characters and unpaired surrogates; these conservative checks are not complete DLP. The owner is responsible for upstream sanitation. Entry IDs are unique within entries; artifact IDs are globally unique within artifacts. Parent references stay in their own namespace, exist, and form acyclic graphs. Every metric and text list inherits the visible containing entry evidenceClass. Negative zero is rejected. Calendar-valid UTC dates are required. Measured entries require RAN; historical-reported entries require RECORDED; synthetic entries permit RAN, SOURCE-ONLY or RECORDED; proposed/unperformed entries require UNPERFORMED and null cost/wall-time. When both prediction preregisteredAt and outcome observedAt are present, the former must be strictly earlier; the parser refuses inconsistent reported chronology.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "title",
+    "availability",
+    "mode",
+    "reason",
+    "limits",
+    "entries"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "allOf": [
+        {
+          "pattern": "\\S"
+        },
+        {
+          "not": {
+            "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+          }
+        }
+      ]
+    },
+    "availability": {
+      "enum": [
+        "unavailable",
+        "empty",
+        "available"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "synthetic-fixture",
+        "sanitized-reference"
+      ]
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "not": {
+                "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+              }
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "limits": {
+      "$ref": "#/$defs/textList"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      },
+      "maxItems": 32
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "availability": {
+            "const": "available"
+          }
+        },
+        "required": [
+          "availability"
+        ]
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "entries": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "availability": {
+            "const": "unavailable"
+          }
+        },
+        "required": [
+          "availability"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "allOf": [
+              {
+                "pattern": "\\S"
+              },
+              {
+                "not": {
+                  "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "synthetic-fixture"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "items": {
+              "properties": {
+                "evidenceClass": {
+                  "const": "synthetic"
+                },
+                "artifacts": {
+                  "items": {
+                    "properties": {
+                      "evidenceClass": {
+                        "const": "synthetic"
+                      }
+                    }
+                  }
+                },
+                "modelProvenance": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "properties": {
+                        "evidenceClass": {
+                          "const": "synthetic"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "prediction": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "properties": {
+                        "evidenceClass": {
+                          "const": "synthetic"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "outcome": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "properties": {
+                        "evidenceClass": {
+                          "const": "synthetic"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$",
+      "minLength": 40,
+      "maxLength": 40
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "evidenceClass": {
+      "enum": [
+        "measured",
+        "synthetic",
+        "historical-reported",
+        "proposed",
+        "unperformed"
+      ]
+    },
+    "parentIds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/slug"
+      },
+      "maxItems": 8,
+      "uniqueItems": true
+    },
+    "metric": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000000
+    },
+    "utcDate": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$",
+      "format": "date-time",
+      "maxLength": 24
+    },
+    "textList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000,
+        "allOf": [
+          {
+            "pattern": "\\S"
+          },
+          {
+            "not": {
+              "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+            }
+          }
+        ]
+      },
+      "maxItems": 16
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "revision"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "pattern": "^(?:docs|research)/evidence/(?:[A-Za-z0-9][A-Za-z0-9_-]*/)*[A-Za-z0-9][A-Za-z0-9_-]*\\.(?:json|md|txt)$"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "parentIds",
+        "title",
+        "evidenceClass",
+        "sha256",
+        "receipt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/slug"
+        },
+        "parentIds": {
+          "$ref": "#/$defs/parentIds"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "not": {
+                "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+              }
+            }
+          ]
+        },
+        "evidenceClass": {
+          "$ref": "#/$defs/evidenceClass"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "modelProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "registration",
+        "evidenceClass"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "not": {
+                "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+              }
+            }
+          ]
+        },
+        "registration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "not": {
+                "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+              }
+            }
+          ]
+        },
+        "evidenceClass": {
+          "$ref": "#/$defs/evidenceClass"
+        }
+      }
+    },
+    "prediction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceClass",
+        "preregisteredAt",
+        "sourcePin",
+        "statement",
+        "receipt"
+      ],
+      "properties": {
+        "evidenceClass": {
+          "$ref": "#/$defs/evidenceClass"
+        },
+        "preregisteredAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/utcDate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourcePin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "not": {
+                "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+              }
+            }
+          ]
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceClass",
+        "observedAt",
+        "summary"
+      ],
+      "properties": {
+        "evidenceClass": {
+          "$ref": "#/$defs/evidenceClass"
+        },
+        "observedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/utcDate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "not": {
+                "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "parentIds",
+        "evidenceClass",
+        "execution",
+        "sourcePin",
+        "command",
+        "costUsd",
+        "wallTimeSeconds",
+        "modelProvenance",
+        "artifacts",
+        "prediction",
+        "outcome",
+        "failures",
+        "limits"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/slug"
+        },
+        "kind": {
+          "enum": [
+            "generation",
+            "experiment",
+            "source-check"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "allOf": [
+            {
+              "pattern": "\\S"
+            },
+            {
+              "not": {
+                "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+              }
+            }
+          ]
+        },
+        "parentIds": {
+          "$ref": "#/$defs/parentIds"
+        },
+        "evidenceClass": {
+          "$ref": "#/$defs/evidenceClass"
+        },
+        "execution": {
+          "enum": [
+            "RAN",
+            "SOURCE-ONLY",
+            "RECORDED",
+            "UNPERFORMED"
+          ]
+        },
+        "sourcePin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/revision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "allOf": [
+                {
+                  "pattern": "\\S"
+                },
+                {
+                  "not": {
+                    "pattern": "[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "costUsd": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "wallTimeSeconds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/metric"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modelProvenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/modelProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact"
+          },
+          "maxItems": 16
+        },
+        "prediction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/prediction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/outcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failures": {
+          "$ref": "#/$defs/textList"
+        },
+        "limits": {
+          "$ref": "#/$defs/textList"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidenceClass": {
+                "enum": [
+                  "proposed",
+                  "unperformed"
+                ]
+              }
+            },
+            "required": [
+              "evidenceClass"
+            ]
+          },
+          "then": {
+            "properties": {
+              "execution": {
+                "const": "UNPERFORMED"
+              },
+              "costUsd": {
+                "type": "null"
+              },
+              "wallTimeSeconds": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidenceClass": {
+                "const": "measured"
+              }
+            },
+            "required": [
+              "evidenceClass"
+            ]
+          },
+          "then": {
+            "properties": {
+              "execution": {
+                "enum": [
+                  "RAN"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidenceClass": {
+                "const": "historical-reported"
+              }
+            },
+            "required": [
+              "evidenceClass"
+            ]
+          },
+          "then": {
+            "properties": {
+              "execution": {
+                "enum": [
+                  "RECORDED"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidenceClass": {
+                "const": "synthetic"
+              }
+            },
+            "required": [
+              "evidenceClass"
+            ]
+          },
+          "then": {
+            "properties": {
+              "execution": {
+                "enum": [
+                  "RAN",
+                  "SOURCE-ONLY",
+                  "RECORDED"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

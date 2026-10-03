@@ -1,0 +1,27 @@
+{
+  "name": "@aukora/evolution-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./src/client/index.mjs",
+    "./schema": "./schema/evidence.schema.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "external": ["@aukora/face-layout/client"],
+      "inject": ["@aukora/face-layout", "@deepseek-ai/dsh-client-ui-renderer"]
+    }
+  },
+  "peerDependencies": {
+    "react": "18.3.1",
+    "@aukora/face-layout": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "scripts": {"check": "node checks/check.mjs"},
+  "files": ["src", "schema", "fixtures", "README.md"]
+}

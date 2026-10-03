@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "title": "Synthetic viewer fixture",
+  "availability": "available",
+  "mode": "synthetic-fixture",
+  "reason": "Invented input for source checks. No experiment or demo result is represented.",
+  "limits": ["All values below are synthetic. No model, owner, database or effect was used."],
+  "entries": [
+    {
+      "id": "fixture-parent",
+      "kind": "generation",
+      "title": "Synthetic parent",
+      "parentIds": [],
+      "evidenceClass": "synthetic",
+      "execution": "SOURCE-ONLY",
+      "sourcePin": null,
+      "command": "Inert fixture text; no command executed",
+      "costUsd": 0,
+      "wallTimeSeconds": null,
+      "modelProvenance": {"model": "Invented fixture model", "registration": "No registration performed", "evidenceClass": "synthetic"},
+      "artifacts": [{"id": "fixture-artifact", "parentIds": [], "title": "Invented parent artifact", "evidenceClass": "synthetic", "sha256": null, "receipt": null}],
+      "prediction": null,
+      "outcome": null,
+      "failures": [],
+      "limits": ["Zero cost is an invented fixture value. Wall time is unknown."]
+    },
+    {
+      "id": "fixture-child",
+      "kind": "generation",
+      "title": "Synthetic child",
+      "parentIds": ["fixture-parent"],
+      "evidenceClass": "synthetic",
+      "execution": "SOURCE-ONLY",
+      "sourcePin": null,
+      "command": null,
+      "costUsd": null,
+      "wallTimeSeconds": null,
+      "modelProvenance": null,
+      "artifacts": [{"id": "fixture-child-artifact", "parentIds": ["fixture-artifact"], "title": "Invented child artifact", "evidenceClass": "synthetic", "sha256": null, "receipt": null}],
+      "prediction": {"evidenceClass": "synthetic", "preregisteredAt": null, "sourcePin": null, "statement": "Invented prediction with no preregistration", "receipt": null},
+      "outcome": {"evidenceClass": "synthetic", "observedAt": null, "summary": "Invented outcome for the viewer only"},
+      "failures": ["Invented failure example"],
+      "limits": ["This parent-child lineage is invented for display validation."]
+    }
+  ]
+}

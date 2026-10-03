@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "title": "Recorded synthetic memory experiment",
+  "availability": "available",
+  "mode": "sanitized-reference",
+  "reason": "Optional reference derived only from the authorized sanitized repository summary. Loading it does not repeat the experiment.",
+  "limits": [
+    "Historical reported experiment on older source; current source and whole-product qualification remain unperformed.",
+    "Synthetic P-256 signer and synthetic data; no real owner enrollment, hardware custody, human identity or attendance established.",
+    "Original private artifacts are not loaded. Independent acceptance was not established."
+  ],
+  "entries": [
+    {
+      "id": "recorded-memory-experiment",
+      "kind": "experiment",
+      "title": "One historical synthetic save with PostgreSQL 16",
+      "parentIds": [],
+      "evidenceClass": "historical-reported",
+      "execution": "RECORDED",
+      "sourcePin": "0531653bc1440345bc46c93b8c1688e426eb0f84",
+      "command": null,
+      "costUsd": null,
+      "wallTimeSeconds": null,
+      "modelProvenance": null,
+      "artifacts": [
+        {
+          "id": "sanitized-memory-summary",
+          "parentIds": [],
+          "title": "Sanitized repository summary of the historical synthetic experiment",
+          "evidenceClass": "historical-reported",
+          "sha256": "b3badf5a31942ddfcdbf94a892a9eafa3a3e798579de0b329a89d3f4d4027f92",
+          "receipt": null
+        }
+      ],
+      "prediction": null,
+      "outcome": {
+        "evidenceClass": "historical-reported",
+        "observedAt": null,
+        "summary": "The summary records one approved synthetic save with PostgreSQL 16 and separated authority/memory users. Canonical bytes, citation and receipt were preserved across authority, memory and database restarts. Stored, with indexing pending; not indexed or searchable."
+      },
+      "failures": [],
+      "limits": [
+        "Original command, cost, wall time, prediction and outcome observation timestamp are absent from this sanitized summary.",
+        "Public routes, OpenShell, current complete product and live inference remain unqualified or unmeasured.",
+        "No claim of physical-media, WAL or backup erasure. Registration and model provenance are not safety certification.",
+        "Sanitized publication revision is not available in this source checkout. The repository receipt link is unavailable until H verifies and pins the retained summary on the sanitized base."
+      ]
+    }
+  ]
+}
