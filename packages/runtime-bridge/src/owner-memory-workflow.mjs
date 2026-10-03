@@ -364,6 +364,12 @@ export function createOwnerMemoryWorkflow({controller,memory,contracts}={}){
           if(!current(entry))return state
           if(recovered.state!=='unknown'&&request.operation_id!==null)requireValue(recovered.operation_id===request.operation_id,'OWNER_MEMORY_RECOVERY_REFERENCE_REQUIRED')
           if(blockedRef&&recovered.state!=='unknown')requireValue(recovered.operation_id===blockedRef.operation_id&&recovered.operation_digest===blockedRef.digest,'OWNER_MEMORY_RECOVERY_RETAINED_REFERENCE_REQUIRED')
+          // Factual recovery cannot retire the still-live local review. Its
+          // unattempted reference requires a separate explicit retirement;
+          // an inconsistent no-effect label must not discard that draft.
+          if(recovered.state==='known_unsent'&&active?.operation&&current(active)
+            &&active.attempted!==true&&recovered.operation_id===active.operation.operation_id)
+            throw fault('RECONCILIATION_REQUIRED','OWNER_MEMORY_RECOVERY_LIVE_PROPOSAL_UNSENT_CONFLICT')
           if(recovered.state==='unknown'||blocked&&recovered.state==='idle'){
             if(recovered.state==='unknown'&&!blockedRef)blockedRef={operation_id:recovered.operation_id,digest:recovered.operation_digest,owner_id:recovered.owner_id}
             blocked=true;publish({phase:'outcome_unknown',reconciliation_required:true,error_code:'RECONCILIATION_REQUIRED'});return state

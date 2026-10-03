@@ -325,6 +325,12 @@ export function createOwnerForgetWorkflow({controller,memory,contracts}={}){
           const recovered=await recoveryReply(value,entry,current,retained)
           if(!current(entry))return state
           ownerReady()
+          // A factual no-effect reply cannot end an unattempted live review.
+          // The same proposal must instead be retired by its explicit consent
+          // path; preserve it when the recovery label conflicts with that fact.
+          if(recovered.state==='known_unsent'&&active?.operation&&current(active)
+            &&active.invoked!==true&&recovered.operation_id===active.operation.operation_id)
+            throw fault('RECONCILIATION_REQUIRED','OWNER_FORGET_RECOVERY_LIVE_PROPOSAL_UNSENT_CONFLICT')
           const patch={recovery_status:recovered.state,recovery_operation_id:recovered.operation_id,recovery_operation_digest:recovered.operation_digest}
           if(recovered.state==='unknown'||recovered.action_type==='memory.save'||blocked&&(recovered.state==='idle'||!sameReference(recovered,blockedReference))){
             blocked=true

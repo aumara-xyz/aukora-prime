@@ -18,6 +18,11 @@ export function createRecovery({authority,memory,workflowStore,inFlight,authoriz
   const referenceOf=(host,row)=>validateUnsentReference(Object.fromEntries(
     ['owner_id','owner_subject','task_id','operation_id','operation_digest','action_type'].map(key=>[key,row[key]])),host)
   async function unsent(host,session_token,row,{create=false}={}) {
+    // A legacy reference journal cannot preflight the required retained D
+    // closure. Do not permanently close C before D can accept its own scope.
+    // The separate retained adapter persists genuine D progress before C;
+    // an explicitly selected non-retained source profile keeps its old path.
+    if(create&&retentionRequired)return null
     // The journal supplies lookup candidates, never absence evidence. C closes
     // the original operation permanently before D fences its actual writers.
     // A missing response at either boundary leaves the journal unresolved.
