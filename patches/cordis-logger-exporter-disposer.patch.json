@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "name": "cordis-logger-exporter-disposer",
+  "reason": "Dispose the logger exporter by its captured registration ID so unloading an earlier exporter cannot remove a later exporter. Narrow backport of official DSH ac2f890291a0c1f5b8bc785fca2ae39005343819; no Cordis API or configuration upgrade.",
+  "upstream": {
+    "repository": "https://github.com/deepseek-ai/deepseek-harness",
+    "baseCommit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+    "fixCommit": "ac2f890291a0c1f5b8bc785fca2ae39005343819",
+    "license": "MIT",
+    "licenseFiles": [
+      "licenses/DSH-MIT-LICENSE",
+      "provenance/harness-backports/Cordis-MIT-LICENSE"
+    ]
+  },
+  "edits": [
+    {
+      "path": "vendor/cordis/src/logger.ts",
+      "find": "      this.exporters.set(++this._snExporter, exporter)\n      return () => this.exporters.delete(this._snExporter)",
+      "replace": "      const id = ++this._snExporter\n      this.exporters.set(id, exporter)\n      return () => this.exporters.delete(id)",
+      "occurrences": 1
+    }
+  ],
+  "expectAfterApply": [
+    {
+      "path": "vendor/cordis/src/logger.ts",
+      "contains": "      const id = ++this._snExporter\n      this.exporters.set(id, exporter)\n      return () => this.exporters.delete(id)"
+    }
+  ],
+  "expectAfterBuild": [
+    {
+      "path": "vendor/cordis/lib/index.js",
+      "contains": "this.exporters.delete(id)"
+    }
+  ]
+}

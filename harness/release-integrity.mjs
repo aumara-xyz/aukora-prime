@@ -7,6 +7,14 @@ import {fileURLToPath,pathToFileURL} from 'node:url'
 const DONOR='645d3213b8aede3b544269b4224ae09df06b0a42'
 const DSH='0d1f50007f9bca3f52b06e1c3074fa14d5fb0720'
 const LOCK='ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1'
+const HARNESS_PATCHES=new Map([
+ ['patches/client-hmr-events-auth.patch.json','ec6959e6e4e944202c20151a70a9e731362b61ce65fa2c98e044c3852754f5a1'],
+ ['patches/host-build-heap-fits-the-rehearsal-container.patch.json','901b5b02ac89d68ce166efa6f618c9393ff5a0fbfbd12be7e6200e5f57f88c6e'],
+ ['patches/subprocess-output-tail-copy.patch.json','b116a442e173e37ae9054b6a0a8fc171c70ee408c7b99109d78f941bb4de4edf'],
+ ['patches/mandatory-agent-confinement.patch.json','d7091a14e87ab13116b5cdd5f772fef8d499a0a83396df391a0a79de5fc69c9f'],
+ ['patches/cordis-logger-exporter-disposer.patch.json','49b01ff3947d94bd928cfc1bbed697e53206daf33711e43f2225fdf736ce2ed6'],
+ ['patches/gateway-per-read-cancellation.patch.json','7ce8c512d3dab1a1d0e86af878944148f4b81217a56458dde85939f5fae337e1'],
+])
 const FACES=['layout','sidebar','threads','apps','messages','memory','aumlok','documents','settings']
 const HEX=/^[a-f0-9]{64}$/
 const fail=(reason,path='')=>{const error=new Error(`PRIME_UI_INTEGRITY:${reason}${path?':'+path:''}`);error.code='PRIME_UI_INTEGRITY';error.reason=reason;throw error}
@@ -153,9 +161,9 @@ function harnessDocument(bytes,binding){
  const identity=document.identity;keys(identity,['upstream','localPatches','compilerInputs','coverage','host','client'])
  keys(identity.upstream,['commit','archiveSha256','lockfileSha256','packageManager','cordisVersion'])
  if(identity.upstream.commit!==DSH||identity.upstream.archiveSha256!=='ae0968314dcd5e3c9d7e8f1f5748bbd289afc4ef5668187e0ef6524a7c64c87e'||identity.upstream.lockfileSha256!==LOCK||identity.upstream.packageManager!=='pnpm@11.7.0'||identity.upstream.cordisVersion!=='4.0.2')fail('owner-harness-upstream-pin')
- if(!Array.isArray(identity.localPatches)||identity.localPatches.length!==4)fail('owner-harness-patch-set')
+ if(!Array.isArray(identity.localPatches)||identity.localPatches.length!==HARNESS_PATCHES.size)fail('owner-harness-patch-set')
  const patchNames=new Set()
- for(const patch of identity.localPatches){keys(patch,['file','sha256']);pathName(patch.file);if(!HEX.test(patch.sha256)||patchNames.has(patch.file))fail('owner-harness-patch-set');patchNames.add(patch.file)}
+ for(const patch of identity.localPatches){keys(patch,['file','sha256']);pathName(patch.file);if(!HEX.test(patch.sha256)||patchNames.has(patch.file)||HARNESS_PATCHES.get(patch.file)!==patch.sha256)fail('owner-harness-patch-set');patchNames.add(patch.file)}
  items(identity.compilerInputs)
  keys(identity.coverage,['hostPatterns','clientPatterns','requiredEntries','excluded','sourceLockfile'])
  for(const key of ['hostPatterns','clientPatterns','requiredEntries','excluded'])if(!Array.isArray(identity.coverage[key])||identity.coverage[key].some(value=>typeof value!=='string'||!value))fail('owner-harness-coverage')

@@ -77,6 +77,8 @@ Real PostgreSQL and separate Linux users are not wholly unperformed: the bounded
 
 ## Known gaps
 
+- **SOURCE-ONLY:** the pinned harness recipe includes the captured-ID Cordis logger disposal fix and the per-read gateway cancellation fix, with exact patch digests and MIT notices. Production rebuilding and deployment of this six-patch recipe are pending; the earlier four-patch build receipts remain historical. No new tests were run for this intake.
+
 - The current complete source profile fails six owner workflow, hook, recovery, forget and adapter lifecycle jobs; [the exact CI result](docs/evidence/source-profile-ci-8fda787.json) remains retained. The required checks and counters stay in place.
 - An attempted pre-reservation refusal remains unknown until authoritative C/D non-consumption, absence of an intent/effect and writer closure can be established together. No UI callback or missing-effect exception clears that fence. The affected owner-effect runtime stays unavailable.
 - The retained-memory source protocol now includes authority preparation, request-bound dispatch and factual settlement. Its authenticated separated-worker phase adapter is not implemented or qualified here. Retained-profile restore refuses until its lineage is established; no stale checkpoint or success flag can replace that evidence.

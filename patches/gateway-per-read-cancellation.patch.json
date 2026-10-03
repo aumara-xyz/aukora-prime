@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "name": "gateway-per-read-cancellation",
+  "reason": "Create one cancellation promise per gateway iterator read so a long-lived Remote stream does not retain all completed Promise.race reactions. Backport only cancellableStream from official DSH 4cfd292a7ba6fcac697731da4252a5754d59c74a, preserving pinned remoteCancelled errors and iterator cleanup; no duplex transport or settings upgrade.",
+  "upstream": {
+    "repository": "https://github.com/deepseek-ai/deepseek-harness",
+    "baseCommit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+    "fixCommit": "4cfd292a7ba6fcac697731da4252a5754d59c74a",
+    "license": "MIT",
+    "licenseFiles": [
+      "licenses/DSH-MIT-LICENSE"
+    ],
+    "scope": "cancellableStream only; remoteCancelled name and original iterator.return cleanup retained"
+  },
+  "edits": [
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "async function *cancellableStream(\n  source: Iterable<unknown> | AsyncIterable<unknown>,\n  endpoint: string,\n  signal: AbortSignal,\n): AsyncGenerator {\n  const asyncFactory = Reflect.get(source, Symbol.asyncIterator) as unknown\n  const syncFactory = Reflect.get(source, Symbol.iterator) as unknown\n  const iterator = typeof asyncFactory === 'function'\n    ? Reflect.apply(asyncFactory, source, []) as AsyncIterator<unknown>\n    : Reflect.apply(syncFactory as (...args: never[]) => Iterator<unknown>, source, [])\n  let rejectAbort: ((error: unknown) => void) | undefined\n  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })\n  const onAbort = (): void => {\n    rejectAbort?.(remoteCancelled(endpoint, signal.reason))\n  }\n  signal.addEventListener('abort', onAbort, { once: true })\n  try {\n    if (signal.aborted) throw remoteCancelled(endpoint, signal.reason)\n    while (true) {\n      const next = await Promise.race([Promise.resolve(iterator.next()), aborted])\n      if (next.done === true) return\n      yield next.value\n    }\n  } finally {\n    signal.removeEventListener('abort', onAbort)\n    await iterator.return?.()\n  }\n}\n",
+      "replace": "async function *cancellableStream(\n  source: Iterable<unknown> | AsyncIterable<unknown>,\n  endpoint: string,\n  signal: AbortSignal,\n): AsyncGenerator {\n  const asyncFactory = Reflect.get(source, Symbol.asyncIterator) as unknown\n  const syncFactory = Reflect.get(source, Symbol.iterator) as unknown\n  const iterator = typeof asyncFactory === 'function'\n    ? Reflect.apply(asyncFactory, source, []) as AsyncIterator<unknown>\n    : Reflect.apply(syncFactory as (...args: never[]) => Iterator<unknown>, source, [])\n  let rejectAbort: ((error: unknown) => void) | undefined\n  const onAbort = (): void => {\n    rejectAbort?.(remoteCancelled(endpoint, signal.reason))\n  }\n  signal.addEventListener('abort', onAbort, { once: true })\n  try {\n    while (true) {\n      if (signal.aborted) throw remoteCancelled(endpoint, signal.reason)\n      // Reusing a pending cancellation promise retains every completed race.\n      const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })\n      // next() can abort and throw synchronously before the race subscribes.\n      void aborted.catch(() => undefined)\n      const next = await Promise.race([Promise.resolve(iterator.next()), aborted])\n      rejectAbort = undefined\n      if (next.done === true) return\n      yield next.value\n    }\n  } finally {\n    rejectAbort = undefined\n    signal.removeEventListener('abort', onAbort)\n    await iterator.return?.()\n  }\n}\n",
+      "occurrences": 1
+    }
+  ],
+  "expectAfterApply": [
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "async function *cancellableStream(\n  source: Iterable<unknown> | AsyncIterable<unknown>,\n  endpoint: string,\n  signal: AbortSignal,\n): AsyncGenerator {\n  const asyncFactory = Reflect.get(source, Symbol.asyncIterator) as unknown\n  const syncFactory = Reflect.get(source, Symbol.iterator) as unknown\n  const iterator = typeof asyncFactory === 'function'\n    ? Reflect.apply(asyncFactory, source, []) as AsyncIterator<unknown>\n    : Reflect.apply(syncFactory as (...args: never[]) => Iterator<unknown>, source, [])\n  let rejectAbort: ((error: unknown) => void) | undefined\n  const onAbort = (): void => {\n    rejectAbort?.(remoteCancelled(endpoint, signal.reason))\n  }\n  signal.addEventListener('abort', onAbort, { once: true })\n  try {\n    while (true) {\n      if (signal.aborted) throw remoteCancelled(endpoint, signal.reason)\n      // Reusing a pending cancellation promise retains every completed race.\n      const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })\n      // next() can abort and throw synchronously before the race subscribes.\n      void aborted.catch(() => undefined)\n      const next = await Promise.race([Promise.resolve(iterator.next()), aborted])\n      rejectAbort = undefined\n      if (next.done === true) return\n      yield next.value\n    }\n  } finally {\n    rejectAbort = undefined\n    signal.removeEventListener('abort', onAbort)\n    await iterator.return?.()\n  }\n}\n"
+    }
+  ],
+  "expectAfterBuild": [
+    {
+      "path": "packages/api/gateway/lib/index.js",
+      "contains": "aborted.catch"
+    }
+  ]
+}
