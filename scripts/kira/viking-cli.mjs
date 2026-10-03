@@ -34,6 +34,12 @@ async function main() {
   } else {
     if (!Array.isArray(result?.notes)) return fail('Viking door returned an invalid result.');
     if (result.state === 'undetermined') return fail('Memory search unavailable.');
+    if (result.reason === 'recall-paused') return fail('Memory recall paused.');
+    if (result.method === 'openviking-semantic' && result.semantic?.available === true && result.degraded !== true)
+      process.stdout.write('Recall: OpenViking semantic.\n');
+    else if (result.method === 'lexical-bm25-bigram' && result.semantic?.available === false)
+      process.stdout.write('Recall: lexical fallback; OpenViking semantic unavailable.\n');
+    else return fail('Viking door returned no recognized recall method.');
     if (!result.notes.length) process.stdout.write('No matching memories.\n');
     for (const hit of result.notes) process.stdout.write(`${plain(hit.text)}\nscore: ${Number(hit.score)}\nsource: ${plain(hit.uri)}\n\n`);
   }

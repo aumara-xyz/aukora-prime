@@ -360,5 +360,6 @@ authentication checks use synthetic inputs and mocked memory dependencies.
 Linux installation, model/server compatibility and actual UI tell -> backend
 restart -> semantic recall remain unperformed until the deployer records them.
 Acceptance must identify `openviking-semantic` and index ACKs separately from
-lexical fallback. No systemd activation, credential provisioning or backend
+lexical fallback; the CLI labels these two recall methods explicitly and refuses
+missing or conflicting method receipts. No systemd activation, credential provisioning or backend
 restart is performed by this lane.
