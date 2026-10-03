@@ -137,7 +137,7 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
     // ApprovalStateStore.load may retain a higher kernel witness count. Validate
     // the complete PREPARED history before returning bytes to that donor path;
     // malformed history must not advance the retained witness before refusal.
-    try {validatePreparationHistory(record)} catch {throw new TrustedStoreCorruptError('Prime kernel PREPARED history incomplete or incoherent; preserve history and refuse')}
+    try {validatePreparationHistory(record)} catch {throw Object.assign(new TrustedStoreCorruptError('Prime kernel PREPARED history incomplete or incoherent; preserve history and refuse'),{error_code:'RECONCILIATION_REQUIRED',primeRefusal:true,code:'RECONCILIATION_REQUIRED'})}
     try {validateUnconsumedClosureRows(record)} catch {throw new TrustedStoreCorruptError('Prime never-consumed closure metadata incoherent; preserve history and refuse')}
     this.bindIdentity(broker?.store_id)
     if(!this.closureRetentionProfile&&(Object.hasOwn(this.witnessRecord.heads,closureProfileKey({version:2,kind:'prime-authority-closure-retention/v2',expected_store_id:this.store_id}))||
@@ -159,7 +159,7 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
     // comparison but has no ApprovalStateStore witness promotion side effect.
     const record=this.closureRetentionProfile&&!this.closureProvisioning
       ?TrustedStateStore.prototype.load.call(this,genesis):super.load(genesis)
-    try {validatePreparationHistory(record)} catch {throw new TrustedStoreCorruptError('Prime kernel PREPARED history incomplete or incoherent; preserve history and refuse')}
+    try {validatePreparationHistory(record)} catch {throw Object.assign(new TrustedStoreCorruptError('Prime kernel PREPARED history incomplete or incoherent; preserve history and refuse'),{error_code:'RECONCILIATION_REQUIRED',primeRefusal:true,code:'RECONCILIATION_REQUIRED'})}
     const broker=record.broker??fresh(this.store_id)
     canonicalBytes(broker)
     if(broker.schema!=='prime-broker-state-v1'||broker.store_id!==this.store_id||!Number.isSafeInteger(broker.revision)||broker.revision<0||
@@ -236,7 +236,7 @@ export class PrimeApprovalStateStore extends ApprovalStateStore {
   commit(record) {
     this.assertClosureMutationAllowed()
     if(!this.broker||!this.brokerWitnessKey) throw new TrustedStoreCorruptError('Prime store must load before commit')
-    try {validatePreparationHistory(record)} catch {throw new TrustedStoreCorruptError('Prime kernel PREPARED history incomplete or incoherent; preserve history and refuse')}
+    try {validatePreparationHistory(record)} catch {throw Object.assign(new TrustedStoreCorruptError('Prime kernel PREPARED history incomplete or incoherent; preserve history and refuse'),{error_code:'RECONCILIATION_REQUIRED',primeRefusal:true,code:'RECONCILIATION_REQUIRED'})}
     let broker
     try {broker=compactRetainedRows(structuredClone(this.broker),record,{deferMemoryPayloads:this.retainedMemoryProfile,
       memorySettlementPermit:this.primeRetainedSettlement??null})} catch {throw new TrustedStoreCorruptError('Prime terminal retention evidence invalid; history preserved')}
