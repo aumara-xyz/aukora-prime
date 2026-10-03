@@ -52,7 +52,14 @@ export function apply(ctx){
   transaction(store,()=>{
    const row=store.prepare('SELECT * FROM native_deepseek_budget WHERE singleton=1').get(),now=Date.now();
    validateBudget(row);
-   if(row.closed||now<row.observed||now>=row.expires){store.prepare('UPDATE native_deepseek_budget SET closed=1 WHERE singleton=1').run();reason='The fixed provider window has ended.';return;}
+   // Legacy closed rows may record a clock rollback, so renewal never reopens them.
+   if(row.closed){reason='The retained provider budget is closed.';return;}
+   if(now<row.observed){store.prepare('UPDATE native_deepseek_budget SET closed=1 WHERE singleton=1').run();reason='The provider budget clock moved backwards.';return;}
+   if(now>=row.expires){
+    // Renew bookkeeping on the same ledger, never its lifetime $10 allowance.
+    // BEGIN IMMEDIATE serializes renewal and reservation across app processes.
+    store.prepare('UPDATE native_deepseek_budget SET starts=?,expires=?,observed=? WHERE singleton=1').run(now,now+DAY,now);
+   }
    if(row.charged+amount>CAP||available&&CAP-row.charged<(MAX_BODY+4096)*INPUT_RATE+MAX_OUTPUT*OUTPUT_RATE){reason='The aggregate $10 provider budget is exhausted.';return;}
    store.prepare('UPDATE native_deepseek_budget SET charged=charged+?,observed=? WHERE singleton=1').run(amount,now);
   });if(reason)fail(reason);
