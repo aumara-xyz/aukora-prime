@@ -1,12 +1,17 @@
 import sys
 #!/usr/bin/env python3
 """Launch only a new isolated loopback candidate; never stop an existing process."""
-import argparse, hashlib, json, os, re, socket, subprocess, threading, time, urllib.parse
+import argparse, hashlib, json, math, os, re, signal, socket, subprocess, tempfile, threading, time, urllib.parse
+from collections import deque
 from pathlib import Path
 parser=argparse.ArgumentParser()
 parser.add_argument('--release', required=True, type=Path)
 parser.add_argument('--state-root', required=True, type=Path)
 parser.add_argument('--port', default=3187, type=int)
+parser.add_argument('--foreground', action='store_true',
+                    help='Linux service supervision: retain the log pump, forward signals and return the backend exit status')
+parser.add_argument('--node', type=Path, help='foreground service: exact protected runtime executable')
+parser.add_argument('--approval-state-root', type=Path, help='foreground service: root-protected plugin approval cache')
 parser.add_argument('--patch', action='append', default=[], type=Path,
                     help='extra loader patch overlay applied after the profile layer (repeatable)')
 parser.add_argument('--approved-record-sha', action='append', default=[],
@@ -18,7 +23,32 @@ parser.add_argument('--allow-ungated', action='store_true',
 parser.add_argument('--allow-unapproved', action='store_true',
                     help='explicitly launch a release that has no approved record digest (previews and tests only)')
 a=parser.parse_args()
+if a.foreground and sys.platform != 'linux':
+    parser.error('foreground-linux-only: the existing desktop launch path is unchanged')
+if a.foreground and (a.allow_unapproved or a.allow_ungated):
+    parser.error('foreground-requires-approval: a persistent service cannot waive release or plugin admission')
+if not a.foreground and (a.node or a.approval_state_root):
+    parser.error('service-options-require-foreground')
+def _root_protected(path):
+    path=Path(path)
+    if not path.is_absolute() or path.resolve() != path:
+        parser.error('service-path-not-canonical')
+    for part in (path,*path.parents):
+        info=part.lstat()
+        if part.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+            parser.error('service-path-not-root-protected')
+    return path
+if a.foreground:
+    if a.node is None or a.approval_state_root is None:
+        parser.error('service-requires-exact-node-and-protected-approval-cache')
+    _root_protected(a.node); _root_protected(a.approval_state_root)
+    if not a.node.is_file() or not os.access(a.node,os.X_OK):
+        parser.error('service-node-not-executable')
 base=a.state_root.resolve(); release=a.release.resolve()
+if a.foreground and (base == release or release in base.parents):
+    parser.error('state-inside-release: service state must survive release replacement')
+if a.foreground and (base.stat().st_uid != os.getuid() or a.state_root != base):
+    parser.error('service-state-owner-or-canonical-path-invalid')
 patches=[p.resolve() for p in a.patch]
 for patch in patches:
     if not patch.is_file(): parser.error(f'missing-patch-overlay: {patch}')
@@ -33,6 +63,8 @@ if base.stat().st_mode & 0o077:
 # The backend's plugins read AUKORA_SUPPORT_ROOT (memory, action gate, messages) and fall back to
 # ~/Library/Application Support/AUKORA without it. Forwarded below only when it names a private directory of ours.
 support_root=os.environ.get('AUKORA_SUPPORT_ROOT')
+if a.foreground and support_root is None:
+    parser.error('service-support-root-required')
 if support_root is not None:
     try: _support=os.stat(support_root) if os.path.isabs(support_root) else None
     except OSError: _support=None
@@ -43,7 +75,7 @@ if support_root is not None:
                      'existing directory this user owns that no other user can write')
 entry=release/'apps/cli/lib/bin.js'
 if not entry.is_file(): parser.error('missing-built-entry: complete the pinned build first')
-node=subprocess.check_output(['which','node'],text=True).strip()
+node=str(a.node) if a.foreground else subprocess.check_output(['which','node'],text=True).strip()
 # Preflight: the tracked checker must accept the release bytes before any process
 # is created. A record digest is an attestation, so it is consumed here rather
 # than trusted later, and an unapproved release needs an explicit opt-in.
@@ -480,8 +512,11 @@ else:
     # printed, and nothing is refused. Decided here, before any gate-state write, so a refusal leaves the
     # state root untouched.
     plugin_set_file = release / '.dsh-build' / 'plugin-set.json'
-    plugin_set_approval = gate_state / 'plugin-set-approval.json'
-    plugin_set_pin = gate_state / 'plugin-set-approver.json'
+    approval_gate = a.approval_state_root / 'gate-state' if a.foreground else gate_state
+    plugin_set_approval = approval_gate / 'plugin-set-approval.json'
+    plugin_set_pin = approval_gate / 'plugin-set-approver.json'
+    if a.foreground:
+        _root_protected(plugin_set_approval); _root_protected(plugin_set_pin)
     plugin_set_fields = {}
     if plugin_set_file.is_file():
         plugin_set_mode = 'waived' if a.allow_unapproved else 'enforce'
@@ -605,6 +640,8 @@ try:
     startup_timeout=float(os.environ.get('AUKORA_LAUNCH_STARTUP_TIMEOUT','20'))
 except ValueError:
     parser.error('startup-timeout-invalid: AUKORA_LAUNCH_STARTUP_TIMEOUT must be a number of seconds')
+if a.foreground and (not math.isfinite(startup_timeout) or not 0 < startup_timeout <= 180):
+    parser.error('foreground-startup-timeout-invalid: choose a finite window in (0,180] seconds')
 # ── THE LAUNCH TOKEN MUST NOT REACH DISK (SECURITY.md:169-172) ───────────────────────────────────────────────
 # MEASURED: the harness prints its AUTHENTICATED url once it serves — `dsh web: http://127.0.0.1:PORT/?token=…` —
 # and this launcher pointed the child's stdout straight at `logs/server.log`, so every boot wrote the token to a file
@@ -618,16 +655,41 @@ def redact_token(text):
     """The one place the token is removed, so a log line cannot carry it by accident."""
     return TOKEN_IN_URL.sub(r'\1<redacted>', text)
 
-_live=[]   # the real lines, in memory only
+_live=deque(maxlen=256) if a.foreground else []   # foreground services retain a bounded startup tail
+_published_url=None
 # *** AND THE URL IS NOW WRITTEN DOWN, DELIBERATELY (aura-88). *** *This comment used to say "never written anywhere
 # unredacted", and the cost of that rule was a consumer that could not authenticate: the log is redacted BY DESIGN, so
 # the authenticated url existed only inside this process and died with it.* **So the launcher publishes it to ONE file it
 # owns -- `<state>/launch-url.json`, mode 0600, written atomically, naming ITS OWN child pid -- and nowhere else.**
 # *A reader can therefore tell a live url from a stale one by pid, which a bare url could never say.*
 def _publish_url(text):
+    global _published_url
     match=re.search(r'dsh web: (http\S+)', text)
     if match is None: return
     url=match.group(1)
+    if a.foreground:
+        parsed=urllib.parse.urlsplit(url)
+        query=urllib.parse.parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+        if (parsed.scheme != 'http' or parsed.hostname != '127.0.0.1' or parsed.port != a.port
+                or parsed.username or parsed.password or parsed.path != '/' or parsed.fragment
+                or len(query) != 1 or query[0][0] != 'token' or not query[0][1]):
+            raise ValueError('launch-url-invalid')
+        # The existing Prime Electron exchange accepts exactly these two fields.
+        body=json.dumps({'url':url,'pid':child.pid}).encode('utf-8')
+        fd, temporary=tempfile.mkstemp(prefix='.launch-url-', dir=base)
+        try:
+            with os.fdopen(fd,'wb') as output:
+                output.write(body)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary,base/'launch-url.json')
+            directory=os.open(base,os.O_RDONLY | os.O_DIRECTORY)
+            try: os.fsync(directory)
+            finally: os.close(directory)
+        finally:
+            if os.path.exists(temporary): os.unlink(temporary)
+        _published_url=text.strip()
+        return
     tok=re.search(r'[?&]token=([^\s&"\']+)', url)
     body=json.dumps({'url':url,'token':(tok.group(1) if tok else None),'pid':child.pid,'at':time.time()})
     tmp=base/'.launch-url.json.tmp'
@@ -644,6 +706,14 @@ log=log_path.open('ab')
 if True:
     child=subprocess.Popen(command,cwd=base/'workspace',env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
 
+if a.foreground:
+    def _forward_signal(signum, _frame):
+        if child.poll() is None:
+            try: os.killpg(child.pid,signum)
+            except ProcessLookupError: pass
+    for _signal in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP):
+        signal.signal(_signal,_forward_signal)
+
 def _pump():
     try:
         for raw in iter(child.stdout.readline, b''):
@@ -653,7 +723,9 @@ def _pump():
             # A FAILED PUBLISH OR LOG WRITE MUST NOT STOP THE DRAIN (2026-09-27, red team): either one used to
             # end this loop, and a pipe nobody reads stalls the backend on its next write.
             try: _publish_url(text)
-            except Exception: pass
+            except Exception:
+                # A service must never report a URL whose private descriptor was not published.
+                if a.foreground and 'dsh web: http' in text: continue
             # Seen by the readiness window only after the publish, so a launch reported ready has its launch-url.json.
             _live.append(text)
             try:
@@ -663,7 +735,8 @@ def _pump():
                 pass
     except Exception:
         pass
-threading.Thread(target=_pump,daemon=True).start()
+pump=threading.Thread(target=_pump,daemon=True)
+pump.start()
 
 def _new_log_text():
     # FROM MEMORY, NOT FROM THE LOG: the log is redacted, so the authenticated url no longer exists on disk. The
@@ -674,6 +747,10 @@ readiness='not-verified: startup window disabled'
 url=None
 deadline=time.monotonic()+startup_timeout if startup_timeout>0 else None
 while deadline is not None and time.monotonic()<deadline:
+    if a.foreground and _published_url is not None:
+        url=_published_url
+        readiness='ready: the child published its private descriptor inside the window'
+        break
     for line in _new_log_text().splitlines():
         if 'dsh web: http' in line:
             url=line.strip()
@@ -691,6 +768,14 @@ if url is None and child.poll() is not None:
 if url is None and deadline is not None:
     readiness=f'still-starting-or-hung: no URL after {startup_timeout:g}s and pid {child.pid} is still '
     readiness+=f'alive; nothing was killed, inspect {log_path}'
+if a.foreground and url is None:
+    if child.poll() is None:
+        os.killpg(child.pid,signal.SIGTERM)
+        try: child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(child.pid,signal.SIGKILL)
+            child.wait()
+    parser.error('foreground-startup-refused: no published launch descriptor inside the startup window; owned backend stopped')
 record={'pid':child.pid,'gate':({'hook':bound_authority['hook'],'hookSha256':gate['hookSha256'],
                                 'stateDir':str(base/'gate-state'),
                                 # The BOUND policy path and the governed ids actually written into the
@@ -708,6 +793,13 @@ if url:
           f'the authenticated URL is in {base/"launch-url.json"} (mode 0600)')
 else:
     print(f'Spawned Genesis PID {child.pid}; {readiness}. Readiness is NOT established: inspect {log_path}.')
+
+if a.foreground:
+    sys.stdout.flush(); sys.stderr.flush()
+    code=child.wait()
+    pump.join(timeout=5)
+    log.close()
+    raise SystemExit(code if code >= 0 else 128-code)
 
 # THE PUMP MUST OUTLIVE THIS PROCESS. The child's stdout is a pipe into this launcher, and the desktop shell waits for
 # the launcher to exit before it reads the URL. When the launcher exited, the pipe closed and the child died on its

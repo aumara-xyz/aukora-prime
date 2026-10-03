@@ -1,0 +1,33 @@
+[Unit]
+Description=AUKORA approved Linux backend
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=aukora-host
+Group=aukora-host
+WorkingDirectory=/var/lib/aukora-host/state/workspace
+Environment=HOME=/var/lib/aukora-host
+UMask=0077
+ExecStart=/usr/bin/python3 @SOURCE_ROOT@/scripts/linux/host-runtime.py --config /etc/aukora-host/host.json
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=30
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aukora-host
+TasksMax=256
+MemoryHigh=1536M
+MemoryMax=2048M
+CPUQuota=200%
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

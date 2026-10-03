@@ -476,6 +476,10 @@ async function heavily(floor, label) {
 }
 
 async function main() {
+  if (process.platform === 'linux') {
+    const { becomeLinux } = await import('./become-linux.mjs')
+    return becomeLinux(args)
+  }
   if (!commitArg) { process.stderr.write('usage: become.mjs --commit <sha> [--why "…"] [--plan]\n'); process.exit(2) }
   mkdirSync(HOME_DIR, { recursive: true, mode: 0o700 })
   if (!PLAN && process.env.AUKORA_BECOME_DETACHED !== '1') {
@@ -941,7 +945,12 @@ async function crashed(error) {
 }
 
 if (isMainModule(import.meta.url)) {
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { void crashed(new Error(`stopped by ${signal}`)) })
-  main().catch((error) => error instanceof BecomeOutcome
-    ? finishOutcome(error.outcome, error.message).catch(crashed) : crashed(error))
+  if (process.platform === 'linux') {
+    const { becomeLinux, linuxRefused } = await import('./become-linux.mjs')
+    await becomeLinux(args).catch(linuxRefused)
+  } else {
+    for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { void crashed(new Error(`stopped by ${signal}`)) })
+    main().catch((error) => error instanceof BecomeOutcome
+      ? finishOutcome(error.outcome, error.message).catch(crashed) : crashed(error))
+  }
 }

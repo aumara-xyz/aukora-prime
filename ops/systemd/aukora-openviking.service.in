@@ -1,0 +1,33 @@
+[Unit]
+Description=AUKORA local CPU memory service (L3 source contract)
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+# Template only: existing root.key, pinned model and qualified llama-server are prerequisites.
+Type=simple
+User=aukora-host
+Group=aukora-host
+WorkingDirectory=/var/lib/aukora-host/openviking
+Environment=HOME=/var/lib/aukora-host
+UMask=0077
+ExecStart=/bin/sh @SOURCE_ROOT@/scripts/openviking-setup.sh serve /var/lib/aukora-host/openviking
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aukora-host/openviking
+TasksMax=64
+MemoryHigh=1536M
+MemoryMax=2048M
+CPUQuota=100%
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "service": "aukora-host.service",
+  "source_root": "@SOURCE_ROOT@",
+  "runtime_root": "@RUNTIME_ROOT@",
+  "node_path": "@NODE_PATH@",
+  "support_root": "/var/lib/aukora-host",
+  "state_root": "/var/lib/aukora-host/state",
+  "releases_root": "/opt/aukora/releases",
+  "active_file": "/var/lib/aukora-host-control/deployment.json",
+  "port": 18735,
+  "startup_timeout_seconds": 60,
+  "source_commit": "@APPROVED_SOURCE_COMMIT@",
+  "node_sha256": "@NODE_SHA256@",
+  "control_root": "/var/lib/aukora-host-control"
+}
