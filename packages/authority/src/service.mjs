@@ -23,6 +23,7 @@ import {assertOperationUnconsumed} from './preparation-history.mjs'
 import {closureDigest,validateClosureRow} from './unconsumed-closure.mjs'
 import {validateClosureProfile} from './closure-retention.mjs'
 import {validateRetainedRestoreOperation,validateRetainedRestoreResult} from './retained-restore.mjs'
+import {preparePasskeyBootstrap,assertPasskeyBootstrapOwnerPin} from './passkey-enrollment.mjs'
 
 const hex = /^[a-f0-9]{64}$/
 const sha = value => createHash('sha256').update(value).digest('hex')
@@ -89,6 +90,7 @@ function authorityService(options, provisionNew) {
     if(pinned.has(id.owner_id)) throw new TypeError('INVALID: duplicate registered owner')
     pinned.set(id.owner_id,id)
   }
+  const passkeyBootstrap=preparePasskeyBootstrap(c.passkeyBootstrap,{identities,webauthn:c.webauthn,loginKinds:c.loginKinds})
   const inferenceProfile=configureInferenceProfile(c.inferenceProfile,pinned)
   const now = () => Date.now() // wire callers can never select an audit clock
   class ConfiguredStore extends PrimeApprovalStateStore {constructor(args){super({...args,maxStateBytes:c.limits.state_bytes,retainedMemoryProfile:!!retainedParticipant,closureProfile:c.closureProfile})}}
@@ -101,7 +103,7 @@ function authorityService(options, provisionNew) {
       store.open()
       if(store.protectedRead(store.stateFile)!==null) refuse('REPLAYED','STORE_ALREADY_PROVISIONED')
       store.load(structuredClone(EMPTY_KERNEL_STATE))
-      for(const id of identities) store.broker.owners[keyOf(id.owner_id)]={...id,revoked:false,passkey_counters:Object.fromEntries((c.webauthn?.credentials.filter(x=>x.owner_id===id.owner_id)??[]).map(x=>[keyOf(x.credential_id),x.sign_count]))}
+      for(const id of identities) store.broker.owners[keyOf(id.owner_id)]={...id,revoked:false,passkey_counters:Object.fromEntries((c.webauthn?.credentials.filter(x=>x.owner_id===id.owner_id)??[]).map(x=>[keyOf(x.credential_id),x.sign_count])),...(passkeyBootstrap?.owner_id===id.owner_id?{passkey_bootstrap_digest:passkeyBootstrap.binding_digest}:{})}
       store.commitBroker()
       return {ok:true,status:'PROVISIONED',store_id:store.store_id}
     } finally {store.close()}
@@ -199,6 +201,7 @@ function authorityService(options, provisionNew) {
     if(!id) refuse('UNAVAILABLE','TRUSTED_IDENTITY_UNAVAILABLE')
     if(id.revoked) refuse('REVOKED','OWNER_REVOKED')
     for(const field of ['subject','approval_key_did','control_digest']) if(id[field]!==pin[field]) refuse('REVOKED','CONTROL_PIN_CHANGED')
+    assertPasskeyBootstrapOwnerPin(id,passkeyBootstrap)
     return id
   }
   function session(store, token) {
