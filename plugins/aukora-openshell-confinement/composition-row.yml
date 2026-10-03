@@ -1,6 +1,11 @@
 # Handoff only: Grok owns shared composition and materializer registration.
-# Keep disabled until the wrapper's policy and lifecycle contract is joined.
-# Disable both stock sandbox and aukora-seatbelt on Linux before enabling.
+# Keep disabled until the root-owned wrapper's applied-policy interface is joined.
+# Grok's shared Linux rows must disable sandbox, aukora-seatbelt, bash-sandbox
+# and any bash-local provider, enable tool-bash, and set its config
+# enableRunInBackground: false. This plugin supplies the sole shell provider.
+# sandbox-policy: mode workspace-write, workspaceRoot /sandbox.
+# The calling session's immutable cwd must also be /sandbox; session cwd wins
+# over the sandbox-policy fallback. No host workspace mount is requested.
 - insert:
     - id: aukora-openshell-confinement
       name: ./plugins/aukora-openshell-confinement/lib/index.mjs

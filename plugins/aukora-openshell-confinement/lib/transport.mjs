@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Pure argv preparation for the existing boundary-gate wrapper. This is not
-// admission: index.mjs refuses execution while policy/lifecycle gaps remain.
+// Exact Bash transport for the guest filesystem namespace. Admission requires
+// a genuine applied-policy readback from the root-owned boundary wrapper.
+import { execFile } from 'node:child_process';
 export const GUEST_WORKSPACE = '/sandbox';
 export const MAX_COMMAND_BYTES = 256 * 1024;
-export const WRAPPER_LIMITS = Object.freeze([
-  'read-only file effects are not enforced',
-  'the guest workspace is not the host filesystem workspace',
-  'caller workdir and remaining deadline are absent from confine()',
-  'guest absence after cancellation is not established',
-  'cleanup exempts an agent-controlled argv marker',
-]);
+const WRITABLE_ROOTS = Object.freeze(['/sandbox', '/tmp', '/dev/null']);
 
 export function unavailable(reason, message) {
   return Object.assign(new Error(`aukora-openshell-confinement: ${message}`), {
@@ -63,6 +58,94 @@ export function validateRequest(argv, policy, settings, signal) {
   signal?.throwIfAborted();
 }
 
+function object(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function identity(value) {
+  return text(value) && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
+}
+
+/** Validate observed startup policy, including runtime-added writable roots. */
+export function validateConfinementInfo(info) {
+  const keys = ['version', 'openshell_version', 'sandbox', 'state', 'instance_id', 'policy_revision',
+    'applied_revision', 'workspace_root', 'network_mode', 'policy'];
+  if (!object(info) || Object.keys(info).length !== keys.length ||
+      Object.keys(info).some(key => !keys.includes(key)) || info.version !== 1 ||
+      info.openshell_version !== '0.1.2' ||
+      info.sandbox !== 'auma-ws' || info.state !== 'Ready' || !identity(info.instance_id) ||
+      !Number.isSafeInteger(info.policy_revision) || info.policy_revision < 1 ||
+      info.applied_revision !== info.policy_revision || info.workspace_root !== GUEST_WORKSPACE ||
+      info.network_mode !== 'none') {
+    throw unavailable('APPLIED_POLICY', 'the running sandbox policy is unavailable or unapplied');
+  }
+  const policy = info.policy;
+  const filesystem = policy?.filesystem_policy;
+  if (!object(policy) || policy.version !== 1 || !object(filesystem) ||
+      Object.keys(filesystem).some(key => !['include_workdir', 'read_only', 'read_write'].includes(key)) ||
+      filesystem.include_workdir !== false || !Array.isArray(filesystem.read_only) ||
+      filesystem.read_only.length > 256 || filesystem.read_only.some(path =>
+        !text(path) || !path.startsWith('/') || path.includes('..') || path.length > 4096) ||
+      !Array.isArray(filesystem.read_write) || filesystem.read_write.length !== WRITABLE_ROOTS.length ||
+      new Set(filesystem.read_write).size !== WRITABLE_ROOTS.length ||
+      filesystem.read_write.some(path => !WRITABLE_ROOTS.includes(path)) ||
+      !object(policy.landlock) || Object.keys(policy.landlock).length !== 1 ||
+      policy.landlock.compatibility !== 'hard_requirement' ||
+      !object(policy.network_policies) || Object.keys(policy.network_policies).length !== 0 ||
+      Object.keys(policy).some(key => !['version', 'filesystem_policy', 'landlock',
+        'process', 'network_policies', 'network_middlewares'].includes(key)) ||
+      (policy.network_middlewares !== undefined &&
+        (!object(policy.network_middlewares) || Object.keys(policy.network_middlewares).length !== 0))) {
+    throw unavailable('FILE_POLICY', 'the applied sandbox does not enforce the supported writable roots');
+  }
+  return info;
+}
+
+/** Preparation-only read: never launch the proposed command or inherit env. */
+export async function readConfinementInfo(layout, signal) {
+  signal?.throwIfAborted();
+  try {
+    const stdout = await new Promise((accept, reject) => {
+      let settled = false;
+      let timer;
+      const finish = (error, output) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
+        if (error !== undefined && error !== null) reject(error);
+        else accept(output);
+      };
+      const stopReader = () => {
+        child.kill('SIGKILL');
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+      };
+      const abort = () => { stopReader(); finish(signal.reason); };
+      const child = execFile('/usr/bin/sudo',
+        ['-n', '-u', layout.users.agent, layout.sbxExec, '--confinement-info'], {
+          cwd: '/', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
+          encoding: 'utf8', maxBuffer: 16 * 1024, killSignal: 'SIGKILL',
+        }, (error, output) => finish(error, output));
+      // Settlement does not wait indefinitely for inherited child pipes.
+      // The root-owned INFO path must separately bound its own backend queries.
+      timer = setTimeout(() => {
+        stopReader();
+        finish(unavailable('POLICY_READBACK', 'the applied-policy readback timed out'));
+      }, 5000);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+    });
+    signal?.throwIfAborted();
+    return validateConfinementInfo(JSON.parse(stdout));
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error?.code === 'SANDBOX_UNAVAILABLE') throw error;
+    // Raw child diagnostics can contain operator paths or command contents.
+    throw unavailable('POLICY_READBACK', 'the boundary wrapper supplied no valid applied-policy readback');
+  }
+}
+
 export function quoteGuestArg(value) {
   if (!text(value)) throw unavailable('ARGV', 'invalid argument encoding');
   return "'" + value.replaceAll("'", "'\\''") + "'";
@@ -91,11 +174,13 @@ export const RUNNER_FAILURE_RULES = Object.freeze([
       'sudo: a password is required',
       'sudo: unknown user auma',
       'sudo: unable to execute /usr/local/lib/aukora-boundary/sbx-exec',
+      'aukora-openshell-confinement: applied-policy-unavailable',
+      'aukora-openshell-confinement: sandbox-unavailable',
     ]),
   }),
 ]);
 
-/** Prepare a partial transport only; this result is never returned by confine(). */
+/** Prepare argv; confine returns it only after validating the applied policy. */
 export function prepareLabTransport(argv, policy, settings, sandboxArgv, layout, signal) {
   validateRequest(argv, policy, settings, signal);
   if (layout.users?.host !== 'aukora-host' || layout.users?.agent !== 'auma' ||
@@ -114,7 +199,6 @@ export function prepareLabTransport(argv, policy, settings, sandboxArgv, layout,
   return Object.freeze({
     // No caller-controlled host shell or inherited loader environment.
     argv: ['/usr/bin/env', '-i', 'PATH=/usr/bin:/bin', 'LC_ALL=C', program, ...args],
-    enforcement: 'partial',
     denialSignatures: DENIAL_SIGNATURES,
     runnerFailureRules: RUNNER_FAILURE_RULES,
   });
