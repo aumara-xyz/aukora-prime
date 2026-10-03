@@ -174,3 +174,7 @@ I/O, fault injection, actual PostgreSQL/IPC and host/effect qualification are
 UNPERFORMED. C `98dd`'s restore gate remains unavailable pending its actual narrow
 update. H's default/unqualified runtime remains unmounted. No public schema,
 permissions, provisioning, activation, guest route or authority fallback is added.
+
+## New-lineage-only reduced pilot setup
+
+[NEW_PILOT_SETUP.md](NEW_PILOT_SETUP.md) defines the separate D setup source for a genuinely new pilot lineage. It rejects existing/partial retained state and globally nonempty SQL state rather than recovering or rebaselining either. It preserves the five-field private profile, the full eleven-table v3 control snapshot, ordinary envelope domains and durable guards. The receipt explicitly leaves actual C identity qualification to C/H. Reduced-guarantee capture scope is bound in the existing record origin and six-field human-review metadata profile; it does not assert independent authority or hardware display. No setup, filesystem publication, PostgreSQL, keys, enrollment, activation or optional restore was performed for this increment.

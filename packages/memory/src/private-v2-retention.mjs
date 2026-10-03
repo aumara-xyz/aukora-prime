@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Explicit private-v2 extension of the existing protected retention file protocol.
 // The directory/file/lock custody algorithms below preserve control-retention.mjs.
-// This module has no bootstrap, provisioning, chmod/chown, legacy conversion or effect retry.
+// Ordinary factories do not bootstrap. The separate new-lineage factory below
+// requires an operator-provisioned empty protected directory and cannot adopt,
+// recover, rebaseline, provision, convert or retry an existing lineage.
 import fs from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -17,7 +19,7 @@ import { assertForwardControlV3, assertLineageCompletionsV2, assertRestoreEffect
 
 export const PRIVATE_V2_RETENTION_SCHEMA = 'aukora-prime-memory-retention/v2'
 const POINTER_SCHEMA = 'aukora-prime-memory-retention-current/v2'
-const readers = new WeakSet(), publishers = new WeakSet()
+const readers = new WeakSet(), publishers = new WeakSet(), bootstrapPublishers = new WeakSet()
 const HEX = /^[0-9a-f]{64}$/, DIGEST = /^sha256:[0-9a-f]{64}$/
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const HOST_KEYS = ['owner_id', 'owner_subject', 'authorization_epoch']
@@ -32,6 +34,14 @@ const CLEANUP_GUARD_SCHEMA = 'aukora-prime-memory-retention-cleanup-guard/v3'
 const CLEANUP_COMPLETION_SCHEMA = 'aukora-prime-memory-retention-cleanup-completion/v3'
 const CLEANUP_GUARD_KEYS = ['schema', 'pending', 'pending_sha256']
 const CLEANUP_COMPLETION_KEYS = ['schema', ...HOST_KEYS, 'pending_sha256', 'checkpoint_sha256']
+const BOOTSTRAP_INTENT_SCHEMA = 'aukora-prime-memory-retention-bootstrap-intent/v1'
+const BOOTSTRAP_PENDING_SCHEMA = 'aukora-prime-memory-retention-bootstrap-pending/v1'
+const BOOTSTRAP_GUARD_SCHEMA = 'aukora-prime-memory-retention-bootstrap-cleanup-guard/v1'
+const BOOTSTRAP_COMPLETION_SCHEMA = 'aukora-prime-memory-retention-bootstrap-completion/v2'
+const BOOTSTRAP_INTENT_KEYS = ['schema', 'host', 'profile', 'control_sha256', 'checkpoint_sha256']
+const BOOTSTRAP_PENDING_KEYS = ['schema', 'bootstrap_sha256', 'checkpoint_sha256']
+const BOOTSTRAP_GUARD_KEYS = ['schema', 'pending', 'pending_sha256']
+const BOOTSTRAP_COMPLETION_KEYS = ['schema', 'bootstrap_sha256', 'pending_sha256', 'checkpoint_sha256']
 const pointerLimit = 16384
 const encode = value => Buffer.from(canonicalJSON(value) + '\n')
 const fail = code => { throw new MemoryRefusal(`memory:private-v2-retention-${code}`) }
@@ -61,21 +71,28 @@ function configuration(input, role) {
     && !config.directory.endsWith(path.sep), 'directory-required')
   check([config.publisher_uid, config.reader_uid, config.retention_gid].every(uint)
     && config.publisher_uid !== config.reader_uid, 'distinct-uids-required')
-  check(config.contracts && typeof config.contracts === 'object' && !types.isProxy(config.contracts), 'contracts-required')
-  const contractDescriptors = Object.getOwnPropertyDescriptors(config.contracts)
+  const contracts = checkedContracts(config.contracts), profile = checkedProfile(config.profile)
+  const checked = Object.freeze({...config, contracts, profile, role})
+  roleIdentity(checked)
+  return checked
+}
+function checkedContracts(input) {
+  check(input && typeof input === 'object' && !types.isProxy(input), 'contracts-required')
+  const contractDescriptors = Object.getOwnPropertyDescriptors(input)
   const contracts = Object.fromEntries(['validateContract', 'operationDigest', 'canonicalJson'].map(key => {
     const descriptor = contractDescriptors[key]
     check(descriptor && Object.hasOwn(descriptor, 'value') && typeof descriptor.value === 'function', 'contracts-required')
     return [key, descriptor.value]
   }))
-  const profile = closedData(config.profile, PROFILE_KEYS, 'profile-required')
+  return Object.freeze(contracts)
+}
+function checkedProfile(input) {
+  const profile = closedData(input, PROFILE_KEYS, 'profile-required')
   check(profile.version === 2 && profile.kind === 'prime-private-unsent-closure/v2'
     && profile.retention_profile === 'required-retained/v2'
     && ['expected_authority_store_id', 'expected_memory_store_id'].every(key => typeof profile[key] === 'string'
       && HEX.test(profile[key])), 'profile-required')
-  const checked = Object.freeze({...config, contracts: Object.freeze(contracts), profile: Object.freeze(profile), role})
-  roleIdentity(checked)
-  return checked
+  return Object.freeze(profile)
 }
 function roleIdentity(config) {
   check(['getuid', 'geteuid', 'getgid', 'getegid', 'getgroups'].every(key => typeof process[key] === 'function'), 'unix-identity-required')
@@ -215,6 +232,163 @@ function checkpoint(body) {
   return sha256(Buffer.from('aukora-prime.memory-retention.v2\0' + canonicalJSON(body)))
 }
 function envelopeHost(host) { return Object.fromEntries(HOST_KEYS.map(key => [key, host[key]])) }
+/** Pure source helper. These bytes establish neither custody nor PG qualification. */
+export function makePrivateV2GenesisEnvelope(inputHost, inputControl, inputOptions) {
+  const options = closedData(inputOptions, ['contracts', 'profile'], 'genesis-options-required')
+  const host = checkedHost(inputHost), contracts = checkedContracts(options.contracts), profile = checkedProfile(options.profile)
+  const control_state = assertControlV3(inputControl, host, {contracts, profile})
+  check(Object.keys(control_state.heads).length === 0
+    && Object.values(control_state.tables).every(rows => rows.length === 0), 'genesis-not-empty')
+  const body = {schema: PRIVATE_V2_RETENTION_SCHEMA, ...envelopeHost(host), sequence: 1,
+    previous_checkpoint_sha256: null, control_state}
+  const envelope = {...body, checkpoint_sha256: checkpoint(body)}
+  check(encode(envelope).length <= MAX_BYTES, 'bytes-limit')
+  return parseOriginal(encode(envelope))
+}
+function bootstrapMarkerBinding(value, host, config) {
+  const marker = closedData(value, BOOTSTRAP_INTENT_KEYS, 'bootstrap-intent-fields-invalid')
+  const originalHost = checkedHost(marker.host), profile = checkedProfile(marker.profile)
+  check(marker.schema === BOOTSTRAP_INTENT_SCHEMA && originalHost.owner_id === host.owner_id
+    && originalHost.owner_subject === host.owner_subject && originalHost.authorization_epoch <= host.authorization_epoch
+    && same(profile, config.profile) && typeof marker.control_sha256 === 'string' && HEX.test(marker.control_sha256)
+    && typeof marker.checkpoint_sha256 === 'string' && HEX.test(marker.checkpoint_sha256), 'bootstrap-intent-binding-invalid')
+  return {...marker, host: originalHost, profile}
+}
+function bootstrapMarkerDigest(marker) {
+  return sha256(Buffer.from('aukora-prime.memory-retention-bootstrap-intent.v1\0' + canonicalJSON(marker)))
+}
+function bootstrapPending(marker) {
+  return {schema: BOOTSTRAP_PENDING_SCHEMA, bootstrap_sha256: bootstrapMarkerDigest(marker),
+    checkpoint_sha256: marker.checkpoint_sha256}
+}
+function bootstrapPendingDigest(pending) {
+  return sha256(Buffer.from('aukora-prime.memory-retention-bootstrap-pending.v1\0' + canonicalJSON(pending)))
+}
+function bootstrapPendingBinding(value, marker) {
+  const pending = closedData(value, BOOTSTRAP_PENDING_KEYS, 'bootstrap-pending-fields-invalid')
+  const expected = bootstrapPending(marker)
+  check(BOOTSTRAP_PENDING_KEYS.every(key => pending[key] === expected[key]), 'bootstrap-pending-binding-invalid')
+  return pending
+}
+function bootstrapGuardBinding(value, marker) {
+  const guard = closedData(value, BOOTSTRAP_GUARD_KEYS, 'bootstrap-guard-fields-invalid')
+  const pending = bootstrapPendingBinding(guard.pending, marker)
+  check(guard.schema === BOOTSTRAP_GUARD_SCHEMA && guard.pending_sha256 === bootstrapPendingDigest(pending),
+    'bootstrap-guard-binding-invalid')
+  return {...guard, pending}
+}
+function bootstrapCompletionBinding(value, marker, guard) {
+  const completion = closedData(value, BOOTSTRAP_COMPLETION_KEYS, 'bootstrap-completion-fields-invalid')
+  check(completion.schema === BOOTSTRAP_COMPLETION_SCHEMA
+    && completion.bootstrap_sha256 === bootstrapMarkerDigest(marker)
+    && completion.pending_sha256 === guard.pending_sha256
+    && completion.checkpoint_sha256 === marker.checkpoint_sha256, 'bootstrap-completion-binding-invalid')
+  return completion
+}
+/** Pure content inspection only; supplied nulls establish no protected absence. */
+export function assertPrivateV2BootstrapCleanupContent(input) {
+  const value = closedData(input, ['host', 'profile', 'intent', 'guard', 'pending', 'completion'], 'bootstrap-content-fields-invalid')
+  const host = checkedHost(value.host), profile = checkedProfile(value.profile)
+  const intent = bootstrapMarkerBinding(value.intent, host, {profile})
+  const guard = bootstrapGuardBinding(value.guard, intent)
+  const pending = value.pending === null ? null : bootstrapPendingBinding(value.pending, intent)
+  const completion = value.completion === null ? null : bootstrapCompletionBinding(value.completion, intent, guard)
+  return {host, profile, intent, guard, pending, completion}
+}
+async function bootstrapPrimary(config, host) {
+  const name = `${ownerKey(host)}.bootstrap.pending.json`
+  let before
+  try { before = await fs.lstat(path.join(config.directory, name), {bigint: true}) }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error }
+  const source = await readFile(config, name, pointerLimit)
+  check(identity(before) === source.identity, 'bootstrap-pending-changed')
+  return source
+}
+async function bootstrapPrimaryAbsent(config, host) {
+  try { await fs.lstat(path.join(config.directory, `${ownerKey(host)}.bootstrap.pending.json`)) }
+  catch (error) { if (error.code === 'ENOENT') return; throw error }
+  fail('bootstrap-incomplete')
+}
+async function optionalStat(config, name) {
+  try { return await fs.lstat(path.join(config.directory, name), {bigint: true}) }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error }
+}
+async function readBootstrapLinkedPair(config, stageName, finalName) {
+  // Private explicit-retirement inspection only. Ordinary regular/readFile
+  // remain unmodified and reject EVERY two-link file. Both fixed names must be
+  // the same protected inode with exactly these two links and canonical bytes.
+  const stageHandle = await fs.open(path.join(config.directory, stageName), constants.O_RDONLY | constants.O_NOFOLLOW)
+  let finalHandle
+  const protectedPair = stat => check(stat.isFile() && stat.nlink === 2n
+    && stat.uid === BigInt(config.publisher_uid) && stat.gid === BigInt(config.retention_gid)
+    && mode(stat) === 0o640 && stat.size > 0n && stat.size <= BigInt(pointerLimit), 'bootstrap-completion-protection-invalid')
+  try {
+    finalHandle = await fs.open(path.join(config.directory, finalName), constants.O_RDONLY | constants.O_NOFOLLOW)
+    const before = await stageHandle.stat({bigint: true}), finalBefore = await finalHandle.stat({bigint: true})
+    protectedPair(before); protectedPair(finalBefore)
+    check(identity(before) === identity(finalBefore), 'bootstrap-completion-changed')
+    const stagePath = await fs.lstat(path.join(config.directory, stageName), {bigint: true})
+    const finalPath = await fs.lstat(path.join(config.directory, finalName), {bigint: true})
+    check(identity(stagePath) === identity(before) && identity(finalPath) === identity(before), 'bootstrap-completion-changed')
+    const bytes = Buffer.alloc(Number(before.size)); let offset = 0
+    while (offset < bytes.length) {
+      const result = await stageHandle.read(bytes, offset, bytes.length - offset, offset)
+      check(result.bytesRead > 0, 'bootstrap-completion-changed'); offset += result.bytesRead
+    }
+    const after = await stageHandle.stat({bigint: true}), finalAfter = await finalHandle.stat({bigint: true})
+    protectedPair(after); protectedPair(finalAfter)
+    check(unchanged(before, after) && unchanged(finalBefore, finalAfter)
+      && identity(await fs.lstat(path.join(config.directory, stageName), {bigint: true})) === identity(after)
+      && identity(await fs.lstat(path.join(config.directory, finalName), {bigint: true})) === identity(after),
+    'bootstrap-completion-changed')
+    const value = parseOriginal(bytes)
+    check(encode(value).equals(bytes), 'file-not-canonical')
+    return {stage: {value, bytes, identity: identity(after)}, completion: {value, bytes: Buffer.from(bytes), identity: identity(after)}}
+  } finally {
+    try { if (finalHandle) await finalHandle.close() }
+    finally { await stageHandle.close() }
+  }
+}
+async function bootstrapFiles(config, host, {retirement = false} = {}) {
+  const key = ownerKey(host)
+  // Inspect the primary even when intent is missing: an orphan pending marker
+  // can never fall through to ordinary legacy lineage admission.
+  const primary = await bootstrapPrimary(config, host)
+  const intent = await readFile(config, `${key}.bootstrap.intent.json`, pointerLimit, {optional: true})
+  const guardSource = await readFile(config, `${key}.bootstrap.cleanup.json`, pointerLimit, {optional: true})
+  let pair = null
+  if (retirement && primary === null && intent !== null && guardSource !== null) {
+    const stageStat = await optionalStat(config, `${key}.bootstrap.complete.stage.json`)
+    const finalStat = await optionalStat(config, `${key}.bootstrap.complete.json`)
+    if (stageStat !== null && finalStat !== null && identity(stageStat) === identity(finalStat)
+      && stageStat.nlink === 2n && finalStat.nlink === 2n) {
+      const marker = bootstrapMarkerBinding(intent.value, host, config)
+      bootstrapGuardBinding(guardSource.value, marker)
+      pair = await readBootstrapLinkedPair(config, `${key}.bootstrap.complete.stage.json`, `${key}.bootstrap.complete.json`)
+    }
+  }
+  const stage = pair === null ? await readFile(config, `${key}.bootstrap.complete.stage.json`, pointerLimit, {optional: true}) : pair.stage
+  const completion = pair === null ? await readFile(config, `${key}.bootstrap.complete.json`, pointerLimit, {optional: true}) : pair.completion
+  if (intent === null) {
+    check(primary === null && guardSource === null && stage === null && completion === null, 'bootstrap-intent-missing')
+    return null
+  }
+  const marker = bootstrapMarkerBinding(intent.value, host, config)
+  check(guardSource !== null, 'bootstrap-incomplete')
+  const guard = bootstrapGuardBinding(guardSource.value, marker)
+  if (primary !== null) bootstrapPendingBinding(primary.value, marker)
+  if (stage !== null) bootstrapCompletionBinding(stage.value, marker, guard)
+  if (completion !== null) bootstrapCompletionBinding(completion.value, marker, guard)
+  return {intent, marker, guard: {...guardSource, value: guard}, primary, stage, completion}
+}
+async function bootstrapEvidence(config, host) {
+  const files = await bootstrapFiles(config, host)
+  if (files === null) return null
+  // Missing primary alone proves nothing. A permanent guard without the v2
+  // completion remains fail-closed across new factories until explicit cleanup.
+  check(files.primary === null && files.stage === null && files.completion !== null, 'bootstrap-incomplete')
+  return files
+}
 function envelopeBinding(value, host, config, {pastEpoch = false} = {}) {
   const envelope = closedData(value, ENVELOPE_KEYS, 'envelope-fields-invalid')
   check(envelope.schema === PRIVATE_V2_RETENTION_SCHEMA && envelope.owner_id === host.owner_id
@@ -283,6 +457,10 @@ async function publishedLineage(config, host, head) {
   const genesis = lineage.at(-1)
   check(genesis.sequence === 1 && Object.keys(genesis.control_state.heads).length === 0
     && Object.values(genesis.control_state.tables).every(rows => rows.length === 0), 'genesis-not-empty')
+  const bootstrap = await bootstrapEvidence(config, host)
+  if (bootstrap !== null) check(bootstrap.marker.checkpoint_sha256 === genesis.checkpoint_sha256
+    && bootstrap.marker.control_sha256 === genesis.control_state.control_sha256
+    && same(envelopeHost(bootstrap.marker.host), envelopeHost(genesis)), 'bootstrap-genesis-conflict')
   // Stored completion hashes are not accepted merely because they are well
   // formed. Authenticate every original completion against the first exact
   // marker A on this protected published chain and its predecessor's absence.
@@ -300,6 +478,7 @@ async function originalPendingAbsent(config, host) {
   fail('update-pending')
 }
 async function pendingAbsent(config, host) {
+  await bootstrapEvidence(config, host)
   await originalPendingAbsent(config, host)
   const cleanup = await cleanupGuard(config, host)
   if (cleanup === null) return null
@@ -766,5 +945,263 @@ export function createPrivateV2FileRetentionPublisher(input) {
       expected_authority_store_id: config.profile.expected_authority_store_id,
       expected_memory_store_id: config.profile.expected_memory_store_id})})
   publishers.add(adapter)
+  return adapter
+}
+
+export function isPrivateV2NewLineageBootstrapPublisher(adapter) { return bootstrapPublishers.has(adapter) }
+
+async function exactBootstrapFiles(config, directory, expected) {
+  const entries = await fs.readdir(config.directory)
+  check(entries.length === expected.length && entries.every(name => expected.includes(name)), 'bootstrap-directory-not-empty')
+  await directoryUnchanged(config, directory)
+}
+
+function bootstrapNames(host, checkpoint_sha256) {
+  const key = ownerKey(host)
+  return {lock: `${key}.lock`, intent: `${key}.bootstrap.intent.json`, pending: `${key}.bootstrap.pending.json`,
+    guard: `${key}.bootstrap.cleanup.json`, generation: `${key}.${checkpoint_sha256}.json`, current: `${key}.current.json`,
+    stage: `${key}.bootstrap.complete.stage.json`, completion: `${key}.bootstrap.complete.json`}
+}
+function bootstrapReceipt(marker) {
+  return Object.freeze({version: 1, kind: 'prime-memory-new-lineage-bootstrap/v1', host: marker.host, profile: marker.profile,
+    control_sha256: marker.control_sha256, checkpoint_sha256: marker.checkpoint_sha256, new_lineage_only: true})
+}
+function sameBootstrapFile(left, right) {
+  check(left !== null && right !== null && left.identity === right.identity && left.bytes.equals(right.bytes), 'bootstrap-artifact-changed')
+}
+function sameBootstrapSeed(before, after) {
+  check(after !== null, 'bootstrap-incomplete')
+  sameBootstrapFile(before.intent, after.intent); sameBootstrapFile(before.guard, after.guard)
+  sameBootstrapFile(before.stage ?? before.completion, after.stage ?? after.completion)
+}
+async function bootstrapCandidate(config, host, marker, directory) {
+  const names = bootstrapNames(host, marker.checkpoint_sha256)
+  const source = await readFile(config, names.generation, MAX_BYTES)
+  const envelope = envelopeBinding(source.value, host, config)
+  check(envelope.sequence === 1 && envelope.previous_checkpoint_sha256 === null
+    && envelope.checkpoint_sha256 === marker.checkpoint_sha256
+    && envelope.control_state.control_sha256 === marker.control_sha256, 'bootstrap-candidate-conflict')
+  const pointer = await readFile(config, names.current, pointerLimit)
+  const expected = {schema: POINTER_SCHEMA, ...envelopeHost(host), sequence: 1,
+    checkpoint_sha256: marker.checkpoint_sha256, generation_file: names.generation}
+  closedData(pointer.value, POINTER_KEYS, 'pointer-fields-invalid')
+  check(pointer.bytes.equals(encode(expected)), 'bootstrap-pointer-readback-conflict')
+  const repeated = await readFile(config, names.generation, MAX_BYTES)
+  sameBootstrapFile(source, repeated)
+  await directoryUnchanged(config, directory)
+  return {envelope, generation: repeated, pointer}
+}
+function sameBootstrapCandidate(before, after) {
+  sameBootstrapFile(before.generation, after.generation); sameBootstrapFile(before.pointer, after.pointer)
+  check(encode(before.envelope).equals(encode(after.envelope)), 'bootstrap-candidate-conflict')
+}
+async function bootstrapCensus(config, directory, names, files, locked) {
+  await exactBootstrapFiles(config, directory, [names.intent, names.guard, names.generation, names.current,
+    ...(files.primary !== null ? [names.pending] : []), ...(files.stage !== null ? [names.stage] : []),
+    ...(files.completion !== null ? [names.completion] : []), ...(locked ? [names.lock] : [])])
+}
+async function stageBootstrapFile(config, directory, name, bytes, before) {
+  const temporary = `${name}.${randomUUID()}.tmp`
+  await createDurableFile(config, temporary, bytes)
+  const privateFile = await readFile(config, temporary, pointerLimit)
+  check(privateFile.bytes.equals(bytes), 'bootstrap-stage-readback-conflict')
+  await exactBootstrapFiles(config, directory, [...before, temporary])
+  // Initial setup alone owns the lock and an empty, exact artifact census.
+  // No existing staged/guard/intent target can be adopted or overwritten.
+  await fs.rename(path.join(config.directory, temporary), path.join(config.directory, name))
+  await directory.handle.sync()
+  const published = await readFile(config, name, pointerLimit)
+  sameBootstrapFile(privateFile, published)
+  await directoryUnchanged(config, directory)
+  return published
+}
+function bootstrapContinuation(input) {
+  const request = closedData(input, ['host', 'checkpoint_sha256', 'bootstrap_sha256'], 'bootstrap-retirement-fields-invalid')
+  const host = checkedHost(request.host)
+  check(['checkpoint_sha256', 'bootstrap_sha256'].every(name => typeof request[name] === 'string' && HEX.test(request[name])),
+    'bootstrap-retirement-binding-invalid')
+  return {...request, host}
+}
+function matchingBootstrapRetirement(files, request) {
+  check(files !== null && same(files.marker.host, request.host)
+    && files.marker.checkpoint_sha256 === request.checkpoint_sha256
+    && bootstrapMarkerDigest(files.marker) === request.bootstrap_sha256, 'bootstrap-retirement-binding-conflict')
+  check(files.stage !== null || files.completion !== null, 'bootstrap-stage-required')
+  if (files.completion !== null) {
+    check(files.primary === null, 'bootstrap-pending-completion-conflict')
+    if (files.stage !== null) sameBootstrapFile(files.stage, files.completion)
+  }
+}
+async function retireBootstrapPending(config, host, request, directory) {
+  const names = bootstrapNames(host, request.checkpoint_sha256)
+  const files = await bootstrapFiles(config, host, {retirement: true})
+  matchingBootstrapRetirement(files, request)
+  const candidate = await bootstrapCandidate(config, host, files.marker, directory)
+  await bootstrapCensus(config, directory, names, files, true)
+  // Re-sync the existing protected guard/candidate/stage publication; the same
+  // original bytes/inodes are independently re-observed before removing primary.
+  await directory.handle.sync()
+  const repeated = await bootstrapFiles(config, host, {retirement: true})
+  matchingBootstrapRetirement(repeated, request); sameBootstrapSeed(files, repeated)
+  sameBootstrapCandidate(candidate, await bootstrapCandidate(config, host, repeated.marker, directory))
+  if (files.primary !== null) {
+    sameBootstrapFile(files.primary, repeated.primary)
+    const own = await fs.lstat(path.join(config.directory, names.pending), {bigint: true})
+    regular(own, config, 0o640, pointerLimit)
+    check(identity(own) === files.primary.identity, 'bootstrap-pending-changed')
+    await directoryUnchanged(config, directory)
+    await fs.unlink(path.join(config.directory, names.pending))
+  } else check(repeated.primary === null, 'bootstrap-pending-changed')
+  // Missing primary without this successful sync/absence convergence is never
+  // an admission boundary. The permanent guard and missing v2 cert fence it.
+  await directory.handle.sync()
+  await directoryUnchanged(config, directory)
+  await bootstrapPrimaryAbsent(config, host)
+  const retired = await bootstrapFiles(config, host, {retirement: true})
+  matchingBootstrapRetirement(retired, request); sameBootstrapSeed(files, retired)
+  check(retired.primary === null, 'bootstrap-incomplete')
+  const candidateAgain = await bootstrapCandidate(config, host, retired.marker, directory)
+  sameBootstrapCandidate(candidate, candidateAgain)
+  await bootstrapCensus(config, directory, names, retired, true)
+  return {files: retired, candidate: candidateAgain, names}
+}
+async function publishBootstrapRetirement(config, host, request, retired, directory) {
+  // This runs only AFTER ownerLock finally retired this call's exact lock inode.
+  // Both primary AND lock removal must be durably synced and absent BEFORE any
+  // final certificate name or nlink===1 eligibility can arise.
+  await directory.handle.sync()
+  await directoryUnchanged(config, directory)
+  check(await optionalStat(config, retired.names.lock) === null, 'bootstrap-lock-present')
+  await bootstrapPrimaryAbsent(config, host)
+  const before = await bootstrapFiles(config, host, {retirement: true})
+  matchingBootstrapRetirement(before, request); sameBootstrapSeed(retired.files, before)
+  sameBootstrapCandidate(retired.candidate, await bootstrapCandidate(config, host, before.marker, directory))
+  await bootstrapCensus(config, directory, retired.names, before, false)
+  if (before.stage !== null) {
+    if (before.completion === null) {
+      try { await fs.link(path.join(config.directory, retired.names.stage), path.join(config.directory, retired.names.completion)) }
+      catch (error) { if (error.code !== 'EEXIST') throw error }
+    }
+    // EEXIST never replaces anything. Only the exact own staged certificate
+    // paired with an identical final inode can be retired. A foreign orphan or
+    // extra hardlink refuses. This private path handles lost link replies while
+    // factual readFile retains its unconditional single-link requirement.
+    const linked = await bootstrapFiles(config, host, {retirement: true})
+    matchingBootstrapRetirement(linked, request); sameBootstrapSeed(before, linked)
+    check(linked.primary === null && linked.stage !== null && linked.completion !== null,
+      'bootstrap-completion-readback-conflict')
+    sameBootstrapFile(linked.stage, linked.completion)
+    const own = await fs.lstat(path.join(config.directory, retired.names.stage), {bigint: true})
+    const final = await fs.lstat(path.join(config.directory, retired.names.completion), {bigint: true})
+    check(own.isFile() && final.isFile() && own.nlink === 2n && final.nlink === 2n
+      && identity(own) === before.stage.identity && identity(final) === before.stage.identity,
+    'bootstrap-completion-changed')
+    await directoryUnchanged(config, directory)
+    await fs.unlink(path.join(config.directory, retired.names.stage))
+  } else check(before.completion !== null, 'bootstrap-stage-required')
+  // These prerequisites were already durably retired. A failure/reply loss in
+  // final certificate publication can now reduce crash availability, or leave
+  // an identical factual certificate visible; it cannot certify a failed
+  // primary/lock removal. Read-only readers do NOT attest an fsync observation.
+  await directory.handle.sync()
+  await directoryUnchanged(config, directory)
+  await bootstrapPrimaryAbsent(config, host)
+  check(await optionalStat(config, retired.names.lock) === null, 'bootstrap-lock-present')
+  const completed = await bootstrapEvidence(config, host)
+  check(completed !== null, 'bootstrap-incomplete')
+  sameBootstrapSeed(retired.files, completed)
+  sameBootstrapCandidate(retired.candidate, await bootstrapCandidate(config, host, completed.marker, directory))
+  await bootstrapCensus(config, directory, retired.names, completed, false)
+  const cleanup = await pendingAbsent(config, host), actual = await current(config, host, directory)
+  assertRetiredCurrent(actual, cleanup)
+  check(encode(actual).equals(encode(retired.candidate.envelope)), 'bootstrap-current-readback-conflict')
+  return bootstrapReceipt(completed.marker)
+}
+function decorateBootstrapUncertainty(error, request) {
+  if (error.code === 'memory:private-v2-retention-commit-uncertain') {
+    error.bootstrap_sha256 = request.bootstrap_sha256; error.checkpoint_sha256 = request.checkpoint_sha256
+    error.owner_id = request.host.owner_id; error.owner_subject = request.host.owner_subject
+    error.reconciliation_required = true; error.automatic_retry = false
+  }
+  return error
+}
+/** New lineage ONLY. No bootstrap retry or adoption exists. The separate explicit
+ * retireMatchingBootstrap command converges only the exact already-staged seed;
+ * it never creates/replaces a generation, pointer, logical store or SQL effect.
+ */
+export function createPrivateV2NewLineageBootstrapPublisher(input) {
+  const config = configuration(input, 'publisher')
+  let uncertain = false, uncertainRequest = null
+  const bootstrap = async inputRequest => {
+    if (uncertain) {
+      const error = new MemoryRefusal('memory:private-v2-retention-commit-uncertain')
+      throw uncertainRequest === null ? error : decorateBootstrapUncertainty(error, uncertainRequest)
+    }
+    const request = closedData(inputRequest, ['host', 'control_state', 'expected_checkpoint_sha256'], 'bootstrap-request-fields-invalid')
+    const host = checkedHost(request.host)
+    const envelope = makePrivateV2GenesisEnvelope(host, request.control_state, {contracts: config.contracts, profile: config.profile})
+    check(typeof request.expected_checkpoint_sha256 === 'string' && HEX.test(request.expected_checkpoint_sha256)
+      && request.expected_checkpoint_sha256 === envelope.checkpoint_sha256, 'bootstrap-checkpoint-conflict')
+    const names = bootstrapNames(host, envelope.checkpoint_sha256)
+    const marker = {schema: BOOTSTRAP_INTENT_SCHEMA, host, profile: config.profile,
+      control_sha256: envelope.control_state.control_sha256, checkpoint_sha256: envelope.checkpoint_sha256}
+    const pending = bootstrapPending(marker), guard = {schema: BOOTSTRAP_GUARD_SCHEMA, pending, pending_sha256: bootstrapPendingDigest(pending)}
+    const completion = {schema: BOOTSTRAP_COMPLETION_SCHEMA, bootstrap_sha256: bootstrapMarkerDigest(marker),
+      pending_sha256: guard.pending_sha256, checkpoint_sha256: envelope.checkpoint_sha256}
+    const continuation = {host, checkpoint_sha256: envelope.checkpoint_sha256, bootstrap_sha256: bootstrapMarkerDigest(marker)}
+    const pointer = {schema: POINTER_SCHEMA, ...envelopeHost(host), sequence: 1,
+      checkpoint_sha256: envelope.checkpoint_sha256, generation_file: names.generation}
+    check([marker, guard, pending, pointer, completion].every(value => encode(value).length <= pointerLimit), 'bootstrap-marker-limit')
+    try {
+      return await withDirectory(config, async directory => {
+        await exactBootstrapFiles(config, directory, [])
+        const retired = await ownerLock(config, host, async () => {
+          await exactBootstrapFiles(config, directory, [names.lock])
+          try {
+            await stageBootstrapFile(config, directory, names.intent, encode(marker), [names.lock])
+            await createDurableFile(config, names.pending, encode(pending)); await directory.handle.sync()
+            const primary = await readFile(config, names.pending, pointerLimit)
+            check(primary.bytes.equals(encode(pending)), 'bootstrap-pending-changed')
+            await stageBootstrapFile(config, directory, names.guard, encode(guard), [names.lock, names.intent, names.pending])
+            await createDurableFile(config, names.generation, encode(envelope)); await directory.handle.sync()
+            check(encode(await generation(config, host, envelope.checkpoint_sha256)).equals(encode(envelope)), 'bootstrap-generation-readback-conflict')
+            await exactBootstrapFiles(config, directory, [names.lock, names.intent, names.pending, names.guard, names.generation])
+            await createDurableFile(config, names.current, encode(pointer)); await directory.handle.sync()
+            const candidate = await bootstrapCandidate(config, host, marker, directory)
+            check(encode(candidate.envelope).equals(encode(envelope)), 'bootstrap-current-readback-conflict')
+            await stageBootstrapFile(config, directory, names.stage, encode(completion),
+              [names.lock, names.intent, names.pending, names.guard, names.generation, names.current])
+            return await retireBootstrapPending(config, host, continuation, directory)
+          } catch { fail('commit-uncertain') }
+        })
+        try { return await publishBootstrapRetirement(config, host, continuation, retired, directory) }
+        catch { fail('commit-uncertain') }
+      })
+    } catch (error) {
+      if (error.code === 'memory:private-v2-retention-commit-uncertain') {uncertain = true; uncertainRequest = continuation}
+      throw decorateBootstrapUncertainty(error, continuation)
+    }
+  }
+  const retireMatchingBootstrap = async inputRequest => {
+    const request = bootstrapContinuation(inputRequest), host = request.host
+    try {
+      return await withDirectory(config, async directory => {
+        const retired = await ownerLock(config, host, async () => {
+          try { return await retireBootstrapPending(config, host, request, directory) }
+          catch { fail('commit-uncertain') }
+        })
+        try { return await publishBootstrapRetirement(config, host, request, retired, directory) }
+        catch { fail('commit-uncertain') }
+      })
+    } catch (error) {
+      if (error.code === 'memory:private-v2-retention-commit-uncertain') {uncertain = true; uncertainRequest = request}
+      throw decorateBootstrapUncertainty(error, request)
+    }
+  }
+  const adapter = Object.freeze({bootstrap, retireMatchingBootstrap, status: Object.freeze({configured: true,
+    kind: 'private-v2-new-lineage-bootstrap-publisher', schema: PRIVATE_V2_RETENTION_SCHEMA,
+    expected_authority_store_id: config.profile.expected_authority_store_id,
+    expected_memory_store_id: config.profile.expected_memory_store_id})})
+  bootstrapPublishers.add(adapter)
   return adapter
 }

@@ -13,6 +13,7 @@ import { memoryAuthorization, memoryTarget, memoryStateVersion, memoryEffectDige
 import { requireRedactableChain } from './codecs.mjs'
 import { validateCaptureDraft, validateCaptureReview } from './capture-review.mjs'
 import { validatePilotCaptureMetadata } from './pilot-capture.mjs'
+import { validateCaptureOrigin, captureProfileForOrigin, validateCaptureScopeParity } from './reduced-pilot-scope.mjs'
 import { makeMemoryControlState, inspectMemoryControlState, MEMORY_CONTROL_TABLES, MEMORY_WRITER_CLOSURE_TABLE } from './control-state.mjs'
 import { createUnavailableControlRetention, isControlRetentionReader, MEMORY_RETENTION_SCHEMA } from './control-retention.mjs'
 import { isControlRetentionCoordinator } from './control-retention-coordinator.mjs'
@@ -209,14 +210,16 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     requireMemory(selected,'memory:capture-source-missing')
     const event=parseOriginal(selected.bytes)
     requireMemory(typeof event.text==='string' && event.text.length>0,'memory:capture-source-text-missing')
+    const origin=validateCaptureOrigin(host.origin ?? {by:'prime.capture/v1'})
+    const captureProfile=captureProfileForOrigin(origin)
     let reviewDraft
     try {reviewDraft=validateCaptureDraft({statement:input.statement,attributed_to:host.attributedTo,
-      capture_metadata:{profile:'prime-pilot-memory-capture/v1',category:input.category,valid_from:input.validFrom,
+      capture_metadata:{profile:captureProfile,category:input.category,valid_from:input.validFrom,
         observed_at:input.observedAt,confidence_percent:70,sensitivity:input.sensitivity},evidence_quote:event.text})}
     catch {requireMemory(false,'memory:capture-review-invalid')}
     const capture={input,subject:owner,task:host.task_id,source:host.source,
       evidence:host.evidence ?? null,attribution:host.attributedTo,scope:host.scope ?? 'owner',privacy:host.privacy,
-      origin:host.origin ?? {by:'prime.capture/v1'},bodyAtCapture:host.bodyAtCapture ?? null,events:events.map(e=>e.sha256)}
+      origin,bodyAtCapture:host.bodyAtCapture ?? null,events:events.map(e=>e.sha256)}
     return {host,input,owner,events,idempotencyKey,reviewDraft,requestDigest:sha256(Buffer.from(canonicalJSON(capture)))}
   }
   async function currentHeads(db,owner) {
@@ -230,6 +233,8 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
   }
   async function prepareCaptureWrite(db,context) {
     const {host,input,owner,events,idempotencyKey,requestDigest}=context
+    validatePilotCaptureMetadata(host,input)
+    const origin=validateCaptureScopeParity(host.origin ?? {by:'prime.capture/v1'},context.reviewDraft.capture_metadata.profile)
     const purges=await rows(db,'SELECT bytes FROM prime_memory_purges WHERE owner_subject=$1',[owner])
     const purgedSources=new Set(purges.flatMap(row=>parseOriginal(row.bytes).source_digests ?? []))
     requireMemory(!events.some(event=>purgedSources.has(event.sha256)), 'memory:purged-source-recapture')
@@ -260,17 +265,21 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     requireMemory(!SECRET_PATTERNS.some(pattern=>pattern.test(event.text)||pattern.test(input.statement)),'memory:capture-secret-shape')
     requireMemory(host.attributedTo==='agent' || ownerControlIn(event.text)===null,'memory:capture-owner-control')
     const note=buildRememberedNote({...input,attributedTo:host.attributedTo,subject:owner,scope:host.scope ?? 'owner',
-      privacy:host.privacy,source:host.source,origin:host.origin ?? {by:'prime.capture/v1'},
+      privacy:host.privacy,source:host.source,origin,
       evidence:host.evidence ?? [{log:host.source.sessionId,turn:host.source.seq,turnDigest:host.source.sha256,quote:event.text}]})
     const digest=sha256(Buffer.from(note.statement)),marker=sha256(Buffer.from(`${note.id}\0${digest}`))
     // Validate the complete byte/evidence closure before consuming any authority.
     const candidate={...note,contentHash:digest,aura:{index:0,entryHash:marker},bodyAtCapture:host.bodyAtCapture ?? null}
+    requireMemory(canonicalJSON(candidate.origin)===canonicalJSON(origin),'memory:capture-scope-changed')
+    validateCaptureScopeParity(candidate.origin,context.reviewDraft.capture_metadata.profile)
     const verdict=verifySources(validateOriginal(Buffer.from(JSON.stringify(candidate)),owner),new Map(events.map(e=>[e.sha256,e.bytes])))
     requireMemory(verdict.verdict==='VERIFIED','memory:capture-evidence-missing')
     return async()=>{
       const entry=await appendEntry(db,owner,'remembered',{op:'remember',id:note.id,at:note.observedAt,tier:'remembered',
         by:'prime.capture/v1',contentHash:digest,entryHash:marker,originKey:sha256(Buffer.from(idempotencyKey)),bodyAtCapture:host.bodyAtCapture ?? null})
       const stored={...candidate,aura:{index:entry.sequence-1,entryHash:marker}},bytes=Buffer.from(JSON.stringify(stored)+'\n'),meta=validateOriginal(bytes,owner)
+      requireMemory(canonicalJSON(meta.record.origin)===canonicalJSON(origin),'memory:capture-scope-changed')
+      validateCaptureScopeParity(meta.record.origin,context.reviewDraft.capture_metadata.profile)
       const required=new Set([note.source.sha256,...note.evidence.map(e=>e.turnDigest)])
       await storeEvents(db,owner,events.filter(e=>required.has(e.sha256)))
       await persistRecord(db,owner,meta,bytes,{taskId:host.task_id,revision:1,chainDomain:'remembered',chainSequence:entry.sequence})

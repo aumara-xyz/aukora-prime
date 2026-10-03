@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { validateCaptureLiterals } from './capture-review.mjs'
+import { validateCaptureOrigin } from './reduced-pilot-scope.mjs'
 
 // New pilot captures only. Import codecs retain historical metadata and exact original bytes.
 // Omitted links and explicit [] are both permitted fixed empty values; their request hashes remain distinct.
@@ -68,8 +69,7 @@ export function validatePilotCaptureMetadata(host, input) {
   defaultField(host, 'evidence', null)
   const origin = valueAt(host, 'origin')
   if (origin.present) {
-    closed(origin.value, ['by'])
-    if (origin.value.by !== 'prime.capture/v1') fail()
+    try {validateCaptureOrigin(origin.value)} catch {fail()}
   }
   // Attribution is shown and bound by the existing exact statement review helper.
   try { validateCaptureLiterals({ statement: input.statement, attributed_to: attribution.value }) }
