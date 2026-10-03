@@ -6,9 +6,120 @@ H owns the app mount and route qualification. C owns proof/session verification,
 reservation, dispatch and settlement. D owns transactional memory effects and
 the live target observation under its owner database lock.
 
+The explicit private v2 source adapter follows frozen decision v004 (SHA256
+`95fcc9d4fb4420e2dbc13ba28b8332968b4b36e71f069a233847c23932a1c3b9`).
+`createRetainedRuntimeBridge({authority,memory,closureProfile,taskRegistry,
+resolveHostContext})` uses the actual D service's `readRetainedWorkflowJournal`,
+`withRetainedWorkflowMutation` and `withRetainedJournalTransition`. Its profile
+is exactly `{version:2,kind:'prime-private-unsent-closure/v2',
+expected_authority_store_id,expected_memory_store_id,
+retention_profile:'required-retained/v2'}`. The two IDs come from protected
+pre-work configuration, never returned evidence. Missing methods, baseline,
+current epoch, guards or retained continuity refuse; there is no legacy fallback.
+
+This adapter preserves the original thirteen workflow columns and adds only the
+selected six-column `prime_runtime_workflow_closure_progress_v2`. D must install
+the exported fixed `RETAINED_JOURNAL_DESCRIPTORS` array on its branded live
+owner query facade. Each closed descriptor has `name`, unchanged SQL `text`, and
+ordered `parameters` selectors. Bridge mutators use only that facade and return `undefined`;
+D retains pending, prepares the full candidate before SQL commit, rereads actual
+SQL, publishes/readbacks it, and clears/verifies exact pending absence. Exported
+`RETAINED_JOURNAL_SCHEMA` is setup-only source; no factory runs those statements.
+The existing private v1 store, wire profiles and public input schemas are intact.
+The SQL `progress_bytes` column is `BYTEA`, and Bridge supplies and compares
+detached native `Buffer` bytes containing exact contracts `canonicalJson`.
+Retained v3 ancestry uses D's closed `{bytes_base64,sha256}` encoding of those
+same bytes. Text columns, alternate binary encodings, malformed UTF-8 and
+noncanonical byte sequences refuse; no schema installation or conversion runs
+inside a Bridge factory.
+
+D source `4219694` accepts these exact nine descriptors and derives prior-row
+CAS values, prior native progress bytes, and the target progress digest from
+its verified actual transaction prestate. Bridge's frozen eight/nine-field
+transition bodies remain unchanged. A private failure retains its original
+transition ID/digest; the existing wire refusal shape remains unchanged.
+
+Explicit owner recovery captures D's genuine participant, coordinator and
+protected pending reader before narrowing the service facade. It independently
+checks the current registered Task, owner/subject/epoch, configured profile,
+original transition UUID/digest and prepared candidate. It permits only normal
+workflow or closure journal publication cleanup, through D's existing exact
+recovery methods, then obtains a new factual census. Factual reads and admission
+never perform that cleanup. Another Task's pending marker, unsupported purpose,
+unprepared candidate, changed identity or missing genuine source remains unknown.
+This source join adds no marker fields, resolver or recovery endpoint to the wire;
+it replays neither SQL nor an original effect. Genuine composed pending recovery
+and PostgreSQL execution remain unperformed.
+
+All v2 journal reads use D's authoritative owner census, including every registered
+task and a verified empty history. C's authenticated proposal is confirmed before
+retained registration and owner delivery. The ordinary attempted transition is
+retained before D's actual reserve/dispatch/effect path. Saved/forgotten metadata
+requires the exact genuine receipt and factual C settlement. Explicit recovery
+retains started, then C2, then D's first published completion(A), then B, and
+atomically complete plus known_unsent at C. Each boundary finishes exact pending
+cleanup first. Fresh C and D factual reads revalidate every admission exemption;
+no cache or metadata label proves non-execution. Recovery never promotes a live
+proposed row into an attempted one or repeats an original effect.
+
+For D's separately authorized full restore, the fixed local
+`restoreRetainedJournal(tx, ancestry, closureProfile)` participant accepts only
+the ordered full v3 projections authenticated by D from the actual local ancestor
+to its current protected anchor. It checks each forward journal transition and
+uses the same fixed CAS templates, returning `undefined`. It does not choose or
+authenticate an anchor, touch other D tables, open a transaction, or publish a
+checkpoint. D must validate and retain the complete restore on its owner session.
+The selected C/D source at assembly `251fdb5` provides that authorized effect and
+multi-step journal scope. H must inject the source-owned `restoreRetainedJournal`
+as D's `journalRestore` when constructing `createPrivateV2Memory`; no caller may
+supply this callback.
+
+The retained Bridge exposes a separate local `bridge.restore` facade:
+
+```js
+const context = {request: authenticatedChannelAssociation, role: 'owner_control'}
+await bridge.restore.propose({session_token}, coldBundle, context)
+await bridge.restore.approvalChallenge({session_token, operation}, context)
+await bridge.restore.approvalComplete({session_token, operation, proof}, context)
+await bridge.restore.apply({session_token, operation, approval_proof}, coldBundle, context)
+await bridge.restore.reconcile({session_token, operation}, context)
+```
+
+`request` and `role` belong to H's authenticated local channel context; they do
+not come from the bundle or browser body. Every call reuses C's current durable
+owner session and the existing trusted Task/context registry. D derives the full
+restore proposal under its protected ancestor/anchor checks. Both approval calls
+hold D's exact target-observation scope; C receives its original input shapes.
+The unchanged full bundle is detached through D's historical-data helper, which
+preserves donor decimal data rather than applying the strict operation codec.
+
+Restore never enters the thirteen-column save/forget journal, ordinary admission
+census, or negative retirement flow. D alone reserves, claims once, restores SQL
+and journal state, retains the original pending identity, and settles its genuine
+receipt. Bridge checks the unchanged C/D result and receipt bindings, and reads
+C's factual completed status before reporting completed settlement. A pending
+result or uncertainty permits only explicit `reconcile`, which forwards D's
+original committed-receipt recovery; it never resubmits `apply`, claims again,
+chooses a new request ID or labels a restore known-unsent.
+
+H must own/drain these calls under the same lifetime as C, D and the Pool. This
+facade adds no public or IPC method and supplies no runtime qualification. The
+actual composed restore, PostgreSQL and cold-runtime checks remain unperformed.
+
+The v2 adapter remains source-only and public routes report unqualified. The
+legacy host acceptance record cannot qualify retained custody, PostgreSQL guards
+or the new lineage path. C/D owned successor implementation and actual composed
+PostgreSQL/retention/cold-runtime checks are separate evidence. The preserved
+original-six result remains 55 PASS / 2 FAIL: two unchanged fixtures ask recovery
+to close a merely proposed operation and provide SQLite rather than the required
+native PostgreSQL/retained boundary. These fixtures and their assertions remain
+unchanged; no passing source guard replaces their failures.
+
 The isolated next-development pilot adds workflow recall, refreshable completed
-save recovery and opt-in private outbox projection. W1 read-time closure remains
-off and retains reconciliation duties. Focused inference and exact controller-
+save recovery and opt-in private outbox projection. Known-unsent recovery now
+has a source join for permanent C closure and actual D writer fencing; its
+PostgreSQL guard and separated-runtime acceptance remain unperformed. A status
+read plus an absent effect still cannot close an operation. Focused inference and exact controller-
 witness checks ran after owner approval on isolated source snapshots; their
 commands and limits are in the handoff. Installed activation remains unperformed.
 See [the diagnostic pilot interfaces
@@ -140,19 +251,64 @@ calling D. Owner-scoped attempt admission refuses another unresolved attempt.
 The table grants no authority and never performs a memory effect. C and D remain
 the owners of consumption, durable intent, effect and settlement evidence.
 
-`memory.recover` discovers active references and reads actual C status and D
+`memory.recover` discovers unresolved references and reads actual C status and D
 `reconcileEffect`. D may resend only its retained committed receipt. An unresolved
 intent, uncertain attempted call, unavailable binding or missing effect stays
-unknown; fresh proposal/dispatch remains blocked. W1 read-time closure is off:
-matching C status and a missing D effect do not close a proposal. Legacy
-`known_unsent` journal labels also remain active unknown duties. Active reference
-overflow refuses without dropping unknown history.
+unknown; fresh proposal/dispatch remains blocked until permanent closure facts
+or a genuine completed effect are established. Ordinary admission preserves
+delivered live proposals, including their review and decline path.
+
+Explicit recovery may initiate closure only for an already durable interrupted
+`attempted` reference. A requested `proposed` reference remains unchanged and
+returns unknown; recovery does not manufacture an effect attempt or close a
+delivered live proposal. C then authenticates the existing session and
+resolves the complete original operation through the private six-field reference
+contract. Its permanent never-consumed closure precedes D's owner-locked writer
+closure. D must establish absent intent/effect/replay evidence, actual storage
+guards and any configured retained-control completion. The bridge checks both
+closed results, their distinct epoch meanings, exact operation correlation and
+NUL-delimited digests before atomically marking that journal attempt
+`known_unsent`. It never retries the original operation. An uncertain C or D
+response leaves the attempt blocking.
+
+Legacy `mark()` and `list()` remain reference-metadata methods. A legacy
+`known_unsent` label supplies no C/D proof: Bridge admission includes it in a
+separate candidate query. Cold labels require explicit recovery through both
+original services. This Bridge instance keeps only the validated immutable proof
+pair from its successful recovery, bound to the authenticated host epoch, and
+reads C's permanent proof before later admission. It never invokes D closure from
+ordinary proposal admission. Uncertain closure replies remain blocked for an
+explicit recovery call. Under the owner lock, strict proposal/effect admission
+rechecks attempted and legacy rows against the exact validated closure set.
+Newly concurrent unresolved rows are not exempt. Bounded candidate overflow
+refuses without dropping history.
+
+`knownUnsentProfile:{version:1,environment:'source-only',retention:'non-retained'}`
+is an explicit host-constructor option for the existing non-retained source
+profile. It permits D's null retention result only; it does not substitute for
+PostgreSQL guards and always prevents production-route qualification. Without
+that option, a retained-control result is required. The frozen SQLite fixtures
+do not supply the source profile or real PostgreSQL catalog/trigger enforcement;
+they cannot establish this closure path. No fixture bypass or guard simulation
+is provided.
+
+This private-v1 join is a partial source checkpoint. The journal does not yet
+persist a separate `CLOSING` protocol or the C/D closure digests, and the frozen
+proofs do not bind independently expected C/D store identities. Those need an
+explicit private-contract and journal-schema decision before implementation.
+Warm admission relies on D's permanent writer-fence/restore guarantee; a cold
+Bridge must explicitly recover its closed references again. More than 256
+retained closed candidates in one Task conservatively refuses admission.
+Actual PostgreSQL second-writer enforcement, crash/restore acceptance and
+separated-role custody remain unperformed. This checkpoint does not establish
+the full source or publication gate.
 
 The closed response is `{ok,owner_id,owner_subject,task_id,operation_id,
 operation_digest,action_type,state,reconciliation_required,result,receipt,
 receipt_digest,authority_settlement,citation,index}`. `state` is `idle`,
-`saved`, `forgotten` or `unknown`; null operation ID selects active
-blockers first, then the most recent reference. C/D completed receipt facts bind
+`known_unsent`, `saved`, `forgotten` or `unknown`; null operation ID selects
+interrupted blockers first, then the most recent reference, and does not close
+ordinary delivered drafts. C/D completed receipt facts bind
 the result. Citation/index reads may be unavailable without undoing a confirmed
 save. Recovery never reconstructs an operation/proof from that result, retries an
 effect, unconsumes an approval or accepts a browser receipt. Keep references
@@ -161,7 +317,8 @@ through worker restarts; a record snapshot alone cannot replace this journal.
 After ordinary owner login on remount, H calls `workflow.recover()` on its fresh
 controller/workflow binding. The helper validates owner/reference/digest and
 receipt bindings, exposes recovered saved facts, and retains unknown fences.
-The helper refuses legacy unsent labels as closure evidence. `refresh()` remains
+The helper accepts a no-effect closure only from the same authenticated Bridge
+recovery path; legacy journal labels remain insufficient. `refresh()` remains
 read-only, including after validated completed-save recovery; `recover()` can
 resend a factual settlement receipt through D. Recall is exposed separately by
 `getRecallSnapshot()` so B's closed approval/save result remains unchanged.
@@ -332,6 +489,18 @@ The immutable host module's default export is one of these closed records:
   resolveHostContext,initializeSchema?,indexTarget?,indexGeneration?}`.
 - Public memory: the same memory fields with `kind:'public-memory'` and mandatory
   `verifyHostQualification` from protected host configuration.
+
+The worker uses the fixed `prime-authority-unconsumed-closure/v1` private profile
+for C's `closeUnconsumedOperation` and `readUnconsumedClosure`. Only the existing
+`memory_effect` role accepts their MAC-covered versioned six-field wrappers.
+They carry `{session_token,reference}` with no caller operation or target
+observation. C resolves the original operation; the worker checks the exact
+proof and independently configured owner/Task before returning it. Legacy
+private, public and inference constructors keep their original allowlists.
+This source change provisions no transport, credential, schema, process or host
+qualification. The worker's current closed config does not select the optional
+non-retained constructor profile; its closure path therefore requires retained
+control evidence by default.
 
 `@aukora-prime/runtime-bridge/worker` exports `startPublicMemoryWorker` for H's
 explicit public-worker composition. Every RPC, including a call after capability

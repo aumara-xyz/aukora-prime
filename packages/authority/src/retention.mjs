@@ -6,7 +6,7 @@ import {assertData,detachContract,operationDigest} from './operation.mjs'
 import {DIGEST,UUID,executionReceiptDigest,validatedReceipt,settlementStatus} from './execution.mjs'
 import {memoryEffectReceipt,memoryEffectReceiptDigest} from './memory-effect.mjs'
 import {inferenceEffectReceiptDigest,validateInferenceReceiptBinding} from './inference-effect.mjs'
-import {retainedMemoryLineage,validateRetainedMemoryLineage} from './retained-memory.mjs'
+import {retainedMemoryLineage,validateRetainedMemoryLineage,validateRetainedMemoryRows} from './retained-memory.mjs'
 
 export const TERMINAL_SCHEMA='prime-terminal-operation-v1'
 export const RETAINED_TERMINAL_SCHEMA='prime-retained-terminal-operation-v1'
@@ -88,10 +88,15 @@ export function validateRetainedRows(operations) {
 }
 export function compactRetainedRows(broker,record,{deferMemoryPayloads=false,memorySettlementPermit=null}={}) {
  validateRetainedRows(broker.operations)
+ validateRetainedMemoryRows(broker.operations,{expectedAuthorityStoreId:broker.store_id})
  // Build all candidates before replacing any row. A malformed legacy terminal
  // record refuses the whole commit; no partial payload removal/history eviction.
  const candidates=Object.fromEntries(Object.entries(broker.operations).map(([key,row])=>{
   const candidate=compactTerminalRow(key,row,record,broker.owners)
+  // The existing v1 terminal projection cannot carry the captured private-v2
+  // profile and full P/I/E evidence. Validate the terminal candidate, retain the
+  // original full row, and let the original byte cap fail closed without eviction.
+  if(Object.hasOwn(row,'retained_memory_profile'))return [key,row]
   if(!isTerminalRecord(row)&&isTerminalRecord(candidate)&&candidate.dispatch.evidence_kind==='memory'
     &&(deferMemoryPayloads||row.retained_memory)) {
    // Validate every legacy candidate, but missing retained evidence never blocks logout.

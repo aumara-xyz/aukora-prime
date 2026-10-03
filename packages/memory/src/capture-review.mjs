@@ -3,6 +3,9 @@
 export const CAPTURE_STATEMENT_MAX = 4096
 export const CAPTURE_EVIDENCE_QUOTE_MAX = 4096
 export const CAPTURE_ATTRIBUTIONS = Object.freeze(['owner','owner-voice','owner-edit','backfill','lane-requester','dream','agent'])
+export const PILOT_CAPTURE_PROFILE = 'prime-pilot-memory-capture/v1'
+export const REDUCED_PILOT_CAPTURE_PROFILE = 'REDUCED-GUARANTEE/prime-pilot-memory-capture/v1'
+export const CAPTURE_METADATA_PROFILES = Object.freeze([PILOT_CAPTURE_PROFILE,REDUCED_PILOT_CAPTURE_PROFILE])
 export const CAPTURE_METADATA_FIELDS = Object.freeze(['profile','category','valid_from','observed_at','confidence_percent','sensitivity'])
 export const CAPTURE_DRAFT_FIELDS = Object.freeze(['statement','attributed_to','capture_metadata','evidence_quote'])
 export const CAPTURE_PARAMETER_FIELDS = Object.freeze(['capture_sha256','idempotency_key_sha256','heads',...CAPTURE_DRAFT_FIELDS])
@@ -46,7 +49,7 @@ export function validateCaptureLiterals(draft) {
 }
 export function validateCaptureMetadata(metadata) {
   object(metadata,CAPTURE_METADATA_FIELDS)
-  if(metadata.profile!=='prime-pilot-memory-capture/v1' || metadata.category!=='fact'
+  if(!CAPTURE_METADATA_PROFILES.includes(metadata.profile) || metadata.category!=='fact'
     || metadata.confidence_percent!==70 || metadata.sensitivity!=='none'
     || typeof metadata.valid_from!=='string' || typeof metadata.observed_at!=='string'
     || !/^\d{4}-\d{2}-\d{2}$/.test(metadata.valid_from)

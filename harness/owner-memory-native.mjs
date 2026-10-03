@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Optional trusted browser composition. No default entry imports this module.
+// Trusted browser composition. Importing alone creates no owner binding.
 import {createOwnerMemoryClient} from './owner-memory-client.mjs';
 
 /** Provide within the native composition's own lifetime. B's read-only exact
  * connection acknowledgement gates explicit attachment and each later use. */
-export function createOwnerMemoryNativeBinding(scope,{contracts,ownerBinding,fetcher,passkeySigner}={}) {
+export function createOwnerMemoryNativeBinding(scope,{contracts,ownerBinding,fetcher,passkeySigner,observeAuthorityCall,observeAuthorityReply}={}) {
  const controller=scope?.primeOwnerUi;
  const acknowledgement=scope?.primeOwnerNativeConnection;
  if(!controller||typeof scope?.reflect?.provide!=='function'||scope.primeAuthority!==undefined
@@ -13,7 +13,7 @@ export function createOwnerMemoryNativeBinding(scope,{contracts,ownerBinding,fet
  const isCurrentConnection=binding=>scope.primeOwnerUi===controller
   &&scope.primeOwnerNativeConnection===acknowledgement&&scope.primeAuthority===binding
   &&acknowledgement.isConnected(binding)===true;
- const client=createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner,isCurrentConnection});
+ const client=createOwnerMemoryClient({controller,contracts,ownerBinding,fetcher,passkeySigner,isCurrentConnection,observeAuthorityCall,observeAuthorityReply});
  let disposed=false,attached=false,attaching=false,disposing=false,removeAuthority;
  const current=()=>{
   if(disposed||scope.primeOwnerUi!==controller||scope.primeAuthority!==client.binding)

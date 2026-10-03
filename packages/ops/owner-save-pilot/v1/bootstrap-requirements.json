@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "kind": "prime-owner-save-pilot-bootstrap-requirements/v1",
+  "status": "SOURCE_PREPARATION_ONLY_NOT_A_RUNBOOK",
+  "guarantee_profile": "reduced-guarantee-owner-save-pilot/v1",
+  "scope_label": "REDUCED-GUARANTEE",
+  "missing_guarantees": ["independent_witness", "second_host_anchor", "hardware_hash_display"],
+  "public_qualified_factory": "closed",
+  "v03_conformance": "NOT_CLAIMED",
+  "qualification": "UNPERFORMED",
+  "grok_review": "PENDING_ACTUAL_BYTES_REVIEW",
+  "reviewed_source": {
+    "h_commit": "251fdb5776daa90aab37251e56b73758a633d67c",
+    "d_core1d_commit": "1d395db6c07551a7afc9382fce16799b03ab61de",
+    "evidence_kind": "SOURCE_ONLY_PINNED_GIT_SHOW",
+    "d_comparison": "NAMED_D_HELPER_FILES_IDENTICAL_AT_THE_TWO_PINS"
+  },
+  "helper_inventory": [
+    {
+      "path": "packages/authority/src/service.mjs",
+      "sha256": "120375aec4571fc1e42aa19b7f006796475741eff4895a741efa40b8fe5e1f0b",
+      "exports": ["createAuthorityService", "provisionNewAuthorityStore"],
+      "source_lines": [53, 59, 95, 106],
+      "provides": "Explicit local new C store setup with approved public owner configuration; ordinary runtime cannot initialize missing state.",
+      "limit": "Not registration, not remote setup, not permission to initialize this pilot. Expected-store profile ordering requires reviewed bootstrap."
+    },
+    {
+      "path": "packages/authority/src/webauthn.mjs",
+      "sha256": "d9cca3224a29eca68b511720f7eea68245b11133bf01ef3c774d631d57c2150c",
+      "exports": ["prepareWebauthnConfig", "webauthnOptions", "verifyWebauthnAssertion"],
+      "source_lines": [16, 28, 37, 42, 44],
+      "provides": "Validation of supplied enrolled ES256 public records and exact RP/origin assertion verification with UP/UV.",
+      "limit": "No registration or attestation verifier; localhost-pilot-v1 is exactly localhost/http://localhost:18731."
+    },
+    {
+      "path": "packages/authority/src/state-store.mjs",
+      "sha256": "16031a9e5d8f9b1c2317dd27330d90bc181925bab0b8eb875f58e8dc58b13dc7",
+      "exports": ["PrimeApprovalStateStore"],
+      "source_lines": [26, 33, 54, 55, 65, 85, 101],
+      "provides": "Existing normal v2 state/witness open, current-UID private directory guard and persisted store-identity binding.",
+      "limit": "No normal-open initialization or implicit migration; same UID owns C state and witness."
+    },
+    {
+      "path": "packages/memory/src/index.mjs",
+      "sha256": "5892b699fc953c32a5a0c508cc266d608b85724e8f1220f2cb57879ed7e0f780",
+      "exports": ["createPostgresMemory"],
+      "returned_methods": ["migrate", "migrateWriterClosureGuards"],
+      "source_lines": [110, 116],
+      "provides": "Explicit schema-only migration with genuine supplied Pool and PG durability checks; separate original writer-guard installation.",
+      "limit": "Does not establish new private-v2 logical metadata, retained genesis, protected custody or qualified owner save."
+    },
+    {
+      "path": "packages/memory/src/writer-closure-guards.mjs",
+      "sha256": "3ff56bcea092bc0592dba692ef8af0fffa304867ac2ce04e9805eccb5bfe31f7",
+      "exports": ["requireWriterClosureGuards", "installWriterClosureGuards"],
+      "source_lines": [141, 151, 156, 163],
+      "provides": "Observe original native guards; explicit installer manages its own READ COMMITTED transaction on existing tables.",
+      "limit": "No schema/role/credential creation or baseline; requires separate action-time DDL approval."
+    },
+    {
+      "path": "packages/memory/src/private-v2-guards.mjs",
+      "sha256": "c05c1b12d23568634803d703719ef86c5f0ab088db827d9259ac7b35d41532a5",
+      "exports": ["requirePrivateV2Guards", "migratePrivateV2Guards"],
+      "source_lines": [157, 208, 214, 218],
+      "provides": "Observe current native private-v2 metadata/guards; install guard SQL within caller-owned writable READ COMMITTED transaction on existing tables and original guards.",
+      "limit": "No BEGIN/COMMIT, tables, identities, logical-store metadata or genesis bootstrap. Metadata must already exist before its immutable guard is installed."
+    },
+    {
+      "path": "packages/memory/src/private-v2-control.mjs",
+      "sha256": "7260d710ba198f861299602b871923fed1b793a0d76806589e3191a642424d07",
+      "exports": ["createControlV3", "readControlV3"],
+      "source_lines": [467, 499, 500, 508],
+      "provides": "Canonical control serializer/validator and full actual projection from the supplied same live owner PoolClient.",
+      "limit": "Serializer is not observed database evidence; reader needs existing canonical singleton metadata and supplies no provisioning fallback."
+    },
+    {
+      "path": "packages/memory/src/private-v2-retention.mjs",
+      "sha256": "d79454d220e1671c4cdbe6c8a2ff94885f80c7ac99a95c48ac1c37a7c77f829d",
+      "exports": ["assertRetentionV2", "createPrivateV2FileRetentionReader", "createPrivateV2FileRetentionPublisher"],
+      "publisher_methods": ["beginTyped", "retainPrepared", "publishPrepared", "clearMatchingPending"],
+      "source_lines": [4, 56, 80, 233, 244, 258, 561, 565, 627, 640],
+      "provides": "Branded role-bound reader and local typed publisher with independent protected file readback and predecessor continuity.",
+      "limit": "No authenticated publisher transport or initial-genesis bootstrap; assertRetentionV2 is structural inspection. Current pointer/chain must preexist; sequence-one genesis is empty."
+    },
+    {
+      "path": "packages/memory/src/private-v2-coordinator.mjs",
+      "sha256": "13bd47ad9a3e7f974f5cad24506c5b03333978c2c3b3fd3e133340413ce13b4d",
+      "exports": ["createPrivateV2Coordinator"],
+      "source_lines": [79, 89, 93, 98],
+      "provides": "Closed four-method publisher interface capture and independently reread retained outcomes.",
+      "limit": "Interface shape does not authenticate the supplied transport; raw generic IPC client is not the required closed wrapper."
+    },
+    {
+      "path": "harness/retained-memory-composition.mjs",
+      "sha256": "1abe8516c3bfd7803d6c8af2191f7e9139fdaef60a3f55d82d6a37c9f6c7f311",
+      "exports": ["createRetainedMemoryComposition", "startRetainedMemoryIpc"],
+      "source_lines": [29, 34, 41, 59, 61, 79, 105],
+      "provides": "Explicit private H composition with real owned Pool, in-process C/D, protected retained reader and caller-provided publisher transport.",
+      "limit": "No discovery, setup, runtime qualification, default mount or public acceptance; rejects provisionTrustedState in runtime configuration."
+    },
+    {
+      "path": "packages/runtime-bridge/src/ipc.mjs",
+      "sha256": "f0ec9935333dd06f67d1aa1a9036c93059f22d7a4d22ed2e73223dade42a106d",
+      "source_lines": [14, 24, 33, 39],
+      "provides": "Existing fixed authenticated public/authority/closure/inference profiles.",
+      "limit": "No fixed private publisher profile for the four file-publication calls; credentials and socket custody are provisioner inputs."
+    }
+  ],
+  "blocking_stages": [
+    {"id": "pilot-envelope-capability-client", "status": "SOURCE_AGREEMENT_PENDING", "required": "Separate versioned H/Bridge/B pilot contract preserving the original public qualification guard and mandatory reduced-guarantee scope on every status/receipt.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "real-owner-registration", "status": "MISSING_VERSIONED_REGISTRATION_IMPLEMENTATION", "required": "Owner-approved real registration producer/verifier and pinned public record bound to exact RP/origin; existing C assertion verifier is not registration.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "new-c-store-and-profile-order", "status": "REVIEWED_BOOTSTRAP_ORDER_REQUIRED", "required": "Explicit new-lineage local provisionNewAuthorityStore wrapper with approved public owner inputs, absence checks and actual C/D expected-store binding. Never import or rebaseline existing history.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "new-d-logical-metadata", "status": "MISSING_VERSIONED_INITIALIZER", "required": "Genuine isolated empty pilot SQL namespace and canonical logical metadata initialized in a reviewed operator-owned transaction before immutable private-v2 metadata guards, followed by native readback.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "new-retained-genesis", "status": "MISSING_VERSIONED_INITIALIZER", "required": "Publisher995 source-owned publication of genuine empty sequence-one full-control genesis, pointer and complete observed predecessor basis; reader994 independently verifies actual retained bytes. No fixture or hand-authored baseline.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "private-publisher-profile", "status": "MISSING_VERSIONED_TRANSPORT_AND_ENTRYPOINTS", "required": "Fixed authenticated publisher-only four-method server and closed reader-side wrapper, exact process identities/custody, bounded lifetime and no generic method bypass.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "observed-host-inputs", "status": "UNPERFORMED", "required": "Bounded current identities/groups/ACLs, protected parents/configuration, private PG catalog/durability, selected process and existing historical-path confinement observations.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "real-owner-save-acceptance", "status": "UNPERFORMED", "required": "Separately approved real owner passkey and real PG save with exact byte/receipt evidence, unapproved/tampered/declined no-save behavior and retained uncertain outcomes.", "reviewed_source_or_helper": null, "action_time_approval_ref": null},
+    {"id": "grok-actual-frozen-bytes-review", "status": "PENDING_ACTUAL_BYTES_REVIEW", "required": "Grok review of the actual frozen pilot artifact bytes and scope/evidence limitations before DONE; secrets and private values excluded from external submission.", "reviewed_source_or_helper": null, "action_time_approval_ref": null}
+  ],
+  "receipt_sidecar_role": "SCOPE_ONLY_BINDING_TO_UNCHANGED_CANONICAL_PUBLIC_RECEIPT_BYTE_SHA_DOMAIN_RECEIPT_DIGEST_OPERATION_DIGEST_AND_EXTERNAL_SOURCE_RELEASE_MANIFEST_PINS",
+  "receipt_sidecar_limit": "NO_APPROVAL_MATERIAL_INPUT_SIGNATURE_VERIFICATION_AUTHORIZATION_VERIFIED_EFFECT_OR_COMPLETION_ASSERTION",
+  "runtime_action_status": "UNPERFORMED",
+  "historical_lineage_action_status": "OUT_OF_SCOPE_NO_MIGRATION_OR_REBASELINE",
+  "existing_evidence_status": "ORIGINAL_146_AND_TWO_RED_ROWS_FROZEN"
+}

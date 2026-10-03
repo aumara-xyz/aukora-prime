@@ -3,10 +3,14 @@ import type { Binding, Controller } from './controller.mjs';
 import type { ProviderCardExtrasOwnerProps } from './PrimeProviderEditor.tsx';
 import type { Controller as ProviderController, ProviderBinding } from './provider-controller.mjs';
 import type { MemoryPilotBinding } from './PilotMemoryPanel';
+import type { InferencePilotBinding } from './inference-controller.mjs';
 export { createPrimeOwnerController, createHttpAuthority } from './controller.mjs';
 export { OwnerSurface, CapabilityBadge } from './OwnerSurface.tsx';
 export { AumaReplyView } from './AumaReplyView.tsx';
 export type { PilotInferenceResult } from './AumaReplyView.tsx';
+export { PilotInferencePanel } from './PilotInferencePanel';
+export { createPilotInferenceController } from './inference-controller.mjs';
+export type { InferencePilotBinding, PilotInferenceController, PilotInferenceContext, PilotInferenceAvailability, PilotInferenceSnapshot } from './inference-controller.mjs';
 export { PilotMemoryPanel } from './PilotMemoryPanel';
 export type { MemoryPilotBinding } from './PilotMemoryPanel';
 export type { Binding, ConnectionWitness, Controller } from './controller.mjs';
@@ -24,6 +28,7 @@ declare module '@deepseek-ai/cordis' {
         primeProviderUi: ProviderController;
         primeProviderSettings: Omit<ProviderBinding, 'ownerController'>;
         primePilotMemory: MemoryPilotBinding;
+        primePilotInference: InferencePilotBinding;
         primeOwnerNativeConnection: NativeOwnerConnection;
     }
 }

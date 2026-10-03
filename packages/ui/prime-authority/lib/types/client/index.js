@@ -11,9 +11,12 @@ import { createPrimeOwnerController, createHttpAuthority, readHttpCapabilities }
 import { OwnerSurface, OwnerMenu, CapabilityBadge } from "./OwnerSurface.js";
 import { PrimeProviderEditor } from "./PrimeProviderEditor.js";
 import { createPrimeProviderController, createPublicProviderApi } from './provider-controller.mjs';
+import { createPilotInferenceController } from './inference-controller.mjs';
 export { createPrimeOwnerController, createHttpAuthority } from './controller.mjs';
 export { OwnerSurface, CapabilityBadge } from "./OwnerSurface.js";
 export { AumaReplyView } from "./AumaReplyView.js";
+export { PilotInferencePanel } from './PilotInferencePanel';
+export { createPilotInferenceController } from './inference-controller.mjs';
 export { PilotMemoryPanel } from './PilotMemoryPanel';
 export { createPrimeProviderController, createPublicProviderApi } from './provider-controller.mjs';
 export const inject = ['slots', 'layout', 'locale'];
@@ -28,9 +31,10 @@ export function apply(ctx) {
     const memorySubscribe = (listener) => { memoryListeners.add(listener); return () => { memoryListeners.delete(listener); }; };
     const setMemoryPilot = (value) => { memoryPilot = value; for (const listener of memoryListeners)
         listener(); };
+    let inference;
     function PilotOwnerSurface(props) {
         const current = useSyncExternalStore(memorySubscribe, memorySnapshot, memorySnapshot);
-        return createElement(OwnerSurface, { ...props, ...(current ? { memoryPilot: current } : {}) });
+        return createElement(OwnerSurface, { ...props, inference, ...(current ? { memoryPilot: current } : {}) });
     }
     let supplied = false;
     let nativeDisposed = false;
@@ -39,6 +43,9 @@ export function apply(ctx) {
         isConnected: (expected) => !nativeDisposed && nativeConnection?.active === true
             && nativeConnection.binding === expected && nativeConnection.witness?.isCurrent() === true,
     });
+    inference = createPilotInferenceController({ ownerController: controller,
+        isConnected: expected => nativeAcknowledgement.isConnected(expected) });
+    ctx.effect(() => () => { inference.dispose(); }, 'prime transient reply presentation');
     let providerSupplied = false;
     let providerContracts;
     const connectPublicProvider = () => {
@@ -59,6 +66,16 @@ export function apply(ctx) {
         setMemoryPilot(selected);
         binding.effect(() => () => { if (memoryPilot === selected)
             setMemoryPilot(undefined); }, 'prime pilot memory view binding');
+    });
+    ctx.inject(['primePilotInference'], binding => {
+        let active = true;
+        let disconnect;
+        binding.effect(() => () => { active = false; disconnect?.(); }, 'prime pilot reply view binding');
+        if (!active)
+            return;
+        disconnect = inference.connect(binding.primePilotInference);
+        if (!active)
+            disconnect();
     });
     ctx.inject(['primeProviderSettings'], binding => {
         providerSupplied = true;

@@ -7,8 +7,10 @@ import { MEMORY_AUDIENCE, memoryTarget, memoryReceiptDigest, memoryResultDigest 
 import { inspectMemoryControlState } from './control-state.mjs'
 import { isControlRetentionCoordinator } from './control-retention-coordinator.mjs'
 import { isMemoryOwnerSerializer } from './owner-serialization.mjs'
+import { createPrivateV2EffectController } from './private-v2-effect-participant.mjs'
 
 const participants = new WeakSet()
+const privateV2Profiles = new WeakMap()
 const HOST = ['owner_id', 'owner_subject', 'authorization_epoch']
 const HEX = /^[0-9a-f]{64}$/, DIGEST = /^sha256:[0-9a-f]{64}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -243,4 +245,19 @@ export function createRetainedMemoryParticipant(input) {
     return state.context
   }
   return Object.freeze({participant, runOperation, context, bindRecovered})
+}
+
+// Explicit private-v2 source selection. Only this internally constructed owned controller
+// can join C's existing participant brand; no caller can register an arbitrary object.
+export function createPrivateV2RetainedMemoryParticipant(input) {
+  const controller = createPrivateV2EffectController(input)
+  participants.add(controller.participant)
+  privateV2Profiles.set(controller.participant, controller.profile)
+  return controller
+}
+
+// Factual source identity only: the exact immutable profile belongs to this factory.
+// Legacy participants and caller-created proxies have no private-v2 profile/capability.
+export function privateV2RetainedMemoryParticipantProfile(participant) {
+  return privateV2Profiles.get(participant) ?? null
 }

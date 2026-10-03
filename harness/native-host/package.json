@@ -1,0 +1,5 @@
+{
+ "name":"@aukora-prime/native-host","version":"0.1.0","private":true,"type":"module","license":"AGPL-3.0-or-later",
+ "main":"index.mjs","exports":{".":"./index.mjs","./client":"./client.js"},
+ "dsh":{"client":{"platform":"web","inject":["@aukora/prime-authority-ui"]}}
+}

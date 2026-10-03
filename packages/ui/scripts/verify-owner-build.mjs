@@ -6,7 +6,64 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import {verifyOwnerTypeSources} from './publish-owner-types.mjs'
 
 export const OWNER_ID = '@aukora/prime-authority-ui'
-export const OWNER_CONFIG = `import { clientBundle } from '../tsdown.client.ts'\nexport default clientBundle(${JSON.stringify(OWNER_ID)}, [], { hostPhase: true })\n`
+// Exact generated build input. Only the two owned stylesheets gain a stable
+// hash root; upstream physical resolution, watch files and isolation stay intact.
+export const OWNER_CONFIG = String.raw`import { clientBundle } from '../tsdown.client.ts'
+import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { basename, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+const { transform } = createRequire(new URL('../tsdown.client.ts', import.meta.url))('lightningcss')
+const id = ${JSON.stringify(OWNER_ID)}
+const ownerRoot = dirname(fileURLToPath(import.meta.url))
+const projectRoot = resolve(ownerRoot, '../../..')
+const ownedCss = new Set(['OwnerSurface.module.css', 'PrimeProviderEditor.module.css']
+  .map(name => resolve(ownerRoot, 'src/client', name)))
+const prefix = '\0dsh-css:'
+const suffix = '.mjs'
+// Style injector and sorted class map follow the pinned DSH MIT preset
+// packages/client/tsdown.client.ts at 0d1f50007f9bca3f52b06e1c3074fa14d5fb0720.
+// Prime preserves its notice in licenses/DSH-MIT-LICENSE.
+function styleModule(fileId, css, classMap) {
+  return [
+    'const css = ' + JSON.stringify(css) + ';',
+    'const tagId = ' + JSON.stringify(id + '/' + basename(fileId)) + ';',
+    'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
+    '  const tag = document.createElement(\'style\');',
+    '  tag.dataset.plugin = ' + JSON.stringify(id) + ';',
+    '  tag.dataset.pluginCss = tagId;',
+    '  tag.textContent = css;',
+    '  document.head.appendChild(tag);',
+    '}',
+    'export default ' + JSON.stringify(classMap) + ';',
+  ].join('\n')
+}
+const upstream = clientBundle(id, [], { hostPhase: true })
+export default options => upstream(options).map(config => {
+  if (config.name !== id + '/client') return config
+  const matches = config.plugins.filter(plugin => plugin?.name === 'dsh-css-modules-inline')
+  if (matches.length !== 1 || typeof matches[0].load !== 'function') throw new Error('ui-build:css-preset-shape-mismatch')
+  const original = matches[0]
+  return { ...config, plugins: config.plugins.map(plugin => plugin !== original ? plugin : {
+    ...plugin,
+    async load(virtualId) {
+      const fileId = virtualId.startsWith(prefix) && virtualId.endsWith(suffix)
+        ? virtualId.slice(prefix.length, -suffix.length) : null
+      if (!ownedCss.has(fileId)) return original.load.call(this, virtualId)
+      this.addWatchFile(fileId)
+      const { code, exports: cssExports } = transform({
+        filename: fileId, projectRoot, code: await readFile(fileId),
+        cssModules: { pattern: '[hash]_[local]' }, minify: true,
+      })
+      const classMap = {}
+      const exportEntries = Object.entries(cssExports ?? {})
+        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      for (const [local, exp] of exportEntries) classMap[local] = exp.name
+      return styleModule(fileId, code.toString(), classMap)
+    },
+  }) }
+})
+`
 export const PINNED_BUILD_PATHS = Object.freeze([
   'pnpm-lock.yaml',
   'tsconfig.base.json', 'tsconfig.base.client.json',

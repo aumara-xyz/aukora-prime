@@ -407,7 +407,7 @@ export const CASES = freeze([
       },
       {
         "path": "harness/owner-memory-client.mjs",
-        "sha256": "3ae35c6d5a82b88bfec033aa46a911dc13fc178860f7ff7b3379fdcf2e1f8521"
+        "sha256": "eb4f28f384bfe2491628023c62454d4b34a6eda236d7207be68f803f5bf1313d"
       },
       {
         "path": "harness/owner-memory-transport.mjs",
@@ -740,7 +740,7 @@ export const CASES = freeze([
       },
       {
         "path": "packages/runtime-bridge/src/owner-forget-workflow.mjs",
-        "sha256": "fd2d5e52bbb0a6ece85235cfd53b49c89c70d4db1632e2d7379472eaa827e61a"
+        "sha256": "a95281f0f0f6291fc7eb2e7c18b5921e761d3dda0b38a56f3c724bd66d380f27"
       }
     ],
     "nodeArgs": [
@@ -842,7 +842,7 @@ export const CASES = freeze([
       },
       {
         "path": "harness/owner-memory-client.mjs",
-        "sha256": "3ae35c6d5a82b88bfec033aa46a911dc13fc178860f7ff7b3379fdcf2e1f8521"
+        "sha256": "eb4f28f384bfe2491628023c62454d4b34a6eda236d7207be68f803f5bf1313d"
       },
       {
         "path": "harness/owner-memory-transport.mjs",
@@ -1762,11 +1762,11 @@ export const CASES = freeze([
       },
       {
         "path": "packages/memory/src/control-retention.mjs",
-        "sha256": "5d0f283d451a06a48e40d21b2311c2c7c43257de1f4c68ba571601f8b05ef9d5"
+        "sha256": "68100a731ca1027fccf80d5384a9b046beee40bce082cdf02dba92dcc65b60d0"
       },
       {
         "path": "packages/memory/src/control-retention-coordinator.mjs",
-        "sha256": "f11063525752ca088db4d4e3a6217760ff3d5b5c8bf57bad4d9314fd4c805d3a"
+        "sha256": "a96394c6b664188921ae80bd7bb9db1ad3cb52156228114dcbbe16efeedd22f7"
       }
     ]
   },
@@ -1843,15 +1843,15 @@ export const CASES = freeze([
       },
       {
         "path": "packages/memory/src/control-retention.mjs",
-        "sha256": "5d0f283d451a06a48e40d21b2311c2c7c43257de1f4c68ba571601f8b05ef9d5"
+        "sha256": "68100a731ca1027fccf80d5384a9b046beee40bce082cdf02dba92dcc65b60d0"
       },
       {
         "path": "packages/memory/src/control-retention-coordinator.mjs",
-        "sha256": "f11063525752ca088db4d4e3a6217760ff3d5b5c8bf57bad4d9314fd4c805d3a"
+        "sha256": "a96394c6b664188921ae80bd7bb9db1ad3cb52156228114dcbbe16efeedd22f7"
       },
       {
         "path": "packages/memory/src/retained-memory-participant.mjs",
-        "sha256": "68e30bd1e2467213597316017a62f30cbff7cca98ec298eada98e86d172d0e9b"
+        "sha256": "621d2058b907cd5eb8126d99f2c94843914647b10e14a9c57275a7fb98b64b5d"
       }
     ]
   },
@@ -1889,11 +1889,11 @@ export const CASES = freeze([
       },
       {
         "path": "packages/runtime-bridge/src/ipc.mjs",
-        "sha256": "6413922a450452124883a8a3ee17c2aa9d24a79fe48d5bac04101619ae92a7c9"
+        "sha256": "f0ec9935333dd06f67d1aa1a9036c93059f22d7a4d22ed2e73223dade42a106d"
       },
       {
         "path": "packages/runtime-bridge/src/worker.mjs",
-        "sha256": "406fae4e98709e8b6d7c466ef1cafbc833e3c38bbfd96f399c8436692de93e88"
+        "sha256": "a2c98b8c49231702a44b68f03d782bb6ddceba81b1a2a2347cd01f4b07aaec15"
       }
     ]
   }

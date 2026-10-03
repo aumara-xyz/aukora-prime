@@ -6,7 +6,7 @@ import path from 'node:path'
 import { types } from 'node:util'
 import { canonicalJSON } from '../genesis/plugins/aukora-kira/lib/record.mjs'
 import { MAX_BYTES, MemoryRefusal, parseOriginal, requireMemory, sha256 } from './codecs.mjs'
-import { inspectMemoryControlState, MEMORY_CONTROL_TABLES } from './control-state.mjs'
+import { inspectMemoryControlState } from './control-state.mjs'
 import { assertMemoryControlAdvance } from './control-retention-advance.mjs'
 
 export const MEMORY_RETENTION_SCHEMA = 'aukora-prime-memory-retention/v1'
@@ -219,14 +219,24 @@ async function generation(config, host, digest, {pastEpoch = false} = {}) {
 function mutationIntent(envelope, marker, host, contracts) {
   const checked = inspectMemoryControlState(envelope.control_state, host, {contracts})
   const matches = row => ['operation_id', 'operation_digest', 'request_id', 'request_digest'].every(key => row[key] === marker[key])
-  check(checked.tables.intents.some(matches), 'mutation-intent-unretained')
+  check(checked.tables.intents.some(matches) || writerClosureRetained(checked, marker), 'mutation-intent-unretained')
   check(!checked.tables.effects.some(row => row.operation_id === marker.operation_id)
     && !checked.tables.replay_fences.some(row => row.operation_id === marker.operation_id), 'mutation-prepared-already-applied')
+}
+function writerClosureRetained(checked, marker) {
+  // A closing UUID/digest is a separate private purpose. It cannot satisfy a marker
+  // allocated for an effect request, even when the operation itself matches.
+  return checked.tables.unsent_closures.some(row => {
+    const closure = parseOriginal(row.closure_bytes)
+    return row.operation_id === marker.operation_id && row.operation_digest === marker.operation_digest
+      && closure.closure_id === marker.request_id && row.closure_digest === marker.request_digest
+  })
 }
 function retainedMutation(envelope, marker, host, contracts) {
   const checked = inspectMemoryControlState(envelope.control_state, host, {contracts})
   check(['intents', 'effects', 'replay_fences'].some(table => checked.tables[table].some(row =>
-    ['operation_id', 'operation_digest', 'request_id', 'request_digest'].every(key => row[key] === marker[key]))),
+    ['operation_id', 'operation_digest', 'request_id', 'request_digest'].every(key => row[key] === marker[key])))
+    || writerClosureRetained(checked, marker),
   'mutation-operation-unretained')
 }
 async function mutationFiles(config, host, directory) {
@@ -539,7 +549,7 @@ export function createFileControlRetentionPublisher(input) {
           retainedOperation({control_state}, pendingSource.marker, host, config.contracts)
         } else {
           await pendingAbsent(config, host)
-          check(Object.keys(control_state.heads).length === 0 && Object.keys(MEMORY_CONTROL_TABLES)
+          check(Object.keys(control_state.heads).length === 0 && Object.keys(control_state.tables)
             .every(table => control_state.tables[table].length === 0), 'bootstrap-nonempty')
         }
         const sequence = previous ? previous.sequence + 1 : 1

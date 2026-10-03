@@ -9,10 +9,11 @@ import { validateForgetReview } from '../../../adapters/forget-review.mjs'
 import { MemoryCaptureHints } from './MemoryCaptureHints'
 import { PilotMemoryPanel } from './PilotMemoryPanel'
 import type { MemoryPilotBinding } from './PilotMemoryPanel'
-import { AumaReplyView } from './AumaReplyView'
+import { PilotInferencePanel } from './PilotInferencePanel'
+import type { PilotInferenceController } from './inference-controller.mjs'
 import css from './OwnerSurface.module.css'
 
-export function OwnerSurface({ activeSurface, openSurface, controller, memoryPilot }: PropsRuntime<'shell.surface'> & {controller:Controller;memoryPilot?:MemoryPilotBinding}) {
+export function OwnerSurface({ activeSurface, openSurface, controller, memoryPilot, inference }: PropsRuntime<'shell.surface'> & {controller:Controller;memoryPilot?:MemoryPilotBinding;inference?:PilotInferenceController}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const busy = state.phase.endsWith('_pending') || state.approval_action_pending || state.logout_status === 'pending'
   const locked = busy || state.phase === 'outcome_unknown'
@@ -71,12 +72,7 @@ export function OwnerSurface({ activeSurface, openSurface, controller, memoryPil
           : state.logout_status === 'pending' ? 'Local access removed. Server logout is pending.' : 'Local access removed. Server logout is unconfirmed.'}
       </p>}
     </Panel>
-    <Panel className={css.card} data-auma-pilot>
-      <h2>One Auma reply</h2>
-      <AumaReplyView result={null} />
-      <div className={css.actions}><ActionButton disabled>Request one Auma reply</ActionButton></div>
-      <p>The owner-bound reply method is not supplied in this source preview. Model choice and a configured key alone do not enable a provider call.</p>
-    </Panel>
+    <PilotInferencePanel {...(inference ? {controller:inference} : {})} />
     <PilotMemoryPanel controller={controller} {...(memoryPilot ? {binding:memoryPilot} : {})} />
     <Panel className={css.card}>
       <h2>Exact operation</h2>

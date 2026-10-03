@@ -28,6 +28,14 @@ const PRIVATE_ROLES = Object.freeze(['memory_effect'])
 const PRIVATE_METHOD_ROLES = Object.freeze(Object.fromEntries(PRIVATE_AUTHORITY_METHODS.map(method=>[method,PRIVATE_ROLES])))
 const PUBLIC_PROFILE = Object.freeze({roles:ROLES,methods:IPC_METHOD_ROLES})
 const AUTHORITY_PROFILE = Object.freeze({roles:PRIVATE_ROLES,methods:PRIVATE_METHOD_ROLES})
+// The closure envelope is explicitly versioned and MAC-covered within wire v1.
+// Legacy private constructors retain their original fixed method profile.
+export const PRIVATE_AUTHORITY_CLOSURE_VERSION = 1
+export const PRIVATE_AUTHORITY_CLOSURE_PROFILE = 'prime-authority-unconsumed-closure/v1'
+const CLOSURE_METHODS = Object.freeze(['authority.closeUnconsumedOperation','authority.readUnconsumedClosure'])
+export const PRIVATE_AUTHORITY_CLOSURE_METHODS = Object.freeze([...PRIVATE_AUTHORITY_METHODS,...CLOSURE_METHODS])
+const CLOSURE_AUTHORITY_PROFILE = Object.freeze({roles:PRIVATE_ROLES,
+  methods:Object.freeze(Object.fromEntries(PRIVATE_AUTHORITY_CLOSURE_METHODS.map(method=>[method,PRIVATE_ROLES])))})
 // This is a separate fixed profile, never a union with memory/public privileges.
 export const INFERENCE_AUTHORITY_METHODS = Object.freeze(['authority.propose','authority.loginChallenge','authority.loginComplete',
   'authority.authenticateSession','authority.logoutSession','authority.approvalChallenge','authority.approvalComplete','authority.declineApproval',
@@ -35,7 +43,7 @@ export const INFERENCE_AUTHORITY_METHODS = Object.freeze(['authority.propose','a
 const INFERENCE_ROLES = Object.freeze(['inference_effect'])
 const INFERENCE_METHOD_ROLES = Object.freeze(Object.fromEntries(INFERENCE_AUTHORITY_METHODS.map(method=>[method,INFERENCE_ROLES])))
 const INFERENCE_PROFILE = Object.freeze({roles:INFERENCE_ROLES,methods:INFERENCE_METHOD_ROLES})
-const mutation = method => ![...reads,'authority.authenticateSession','authority.status'].includes(method)
+const mutation = method => ![...reads,'authority.authenticateSession','authority.status','authority.readUnconsumedClosure'].includes(method)
 const DEFAULTS = Object.freeze({maxFrameBytes:65_536, maxOutputBytes:65_536, maxConnections:8,
   maxInflight:8, maxInflightPerConnection:2, handshakeTimeoutMs:2_000,
   idleTimeoutMs:30_000, requestTimeoutMs:5_000, maxRequestsPerConnection:256})
@@ -66,6 +74,22 @@ function validMac(key,domain,value,signature) {
 function closed(value,keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).sort().join(',') !== [...keys].sort().join(',')) throw new TypeError('INVALID: closed IPC frame')
+}
+function closureEnvelope(value) {
+  closed(value,['version','profile','input','operation','operation_digest','observation'])
+  if(value.version!==PRIVATE_AUTHORITY_CLOSURE_VERSION||value.profile!==PRIVATE_AUTHORITY_CLOSURE_PROFILE
+    ||value.operation!==null||value.operation_digest!==null||value.observation!==null)
+    throw new TypeError('INVALID: private closure envelope')
+  closed(value.input,['session_token','reference'])
+  const reference=value.input.reference
+  closed(reference,['owner_id','owner_subject','task_id','operation_id','operation_digest','action_type'])
+  if(typeof value.input.session_token!=='string'||!HEX.test(value.input.session_token)
+    ||['owner_id','owner_subject','task_id','operation_id'].some(key=>typeof reference[key]!=='string'||!reference[key].length
+      ||Buffer.byteLength(reference[key],'utf8')>1024||/[\x00-\x1f\x7f]/u.test(reference[key]))
+    ||typeof reference.owner_subject!=='string'||!/^aukora:1:[a-f0-9]{64}$/.test(reference.owner_subject)
+    ||typeof reference.operation_digest!=='string'||!/^sha256:[a-f0-9]{64}$/.test(reference.operation_digest)
+    ||!['memory.save','memory.forget'].includes(reference.action_type))
+    throw new TypeError('INVALID: exact private closure reference')
 }
 const fail = (code,reason) => Object.assign(new Error(reason),{code,error_code:code})
 const refusal = (error_code,reason) => ({ok:false,error_code,reason})
@@ -137,6 +161,7 @@ async function socketPath(path,access,side) {
 // listeners cannot be configured to accept a union of roles or method sets.
 export const createIpcServer = options => createServer(options,PUBLIC_PROFILE)
 export const createAuthorityIpcServer = options => createServer(options,AUTHORITY_PROFILE)
+export const createAuthorityClosureIpcServer = options => createServer(options,CLOSURE_AUTHORITY_PROFILE)
 export const createInferenceAuthorityIpcServer = options => createServer(options,INFERENCE_PROFILE)
 async function createServer({socketPath:path,credentials,handlePublic,limits:inputLimits,socketAccess},profile) {
   const bounds = limits(inputLimits),access=await socketPath(path,socketAccess,'server')
@@ -191,6 +216,9 @@ async function createServer({socketPath:path,credentials,handlePublic,limits:inp
         send(value.seq,refusal('UNAUTHORIZED','IPC_METHOD_ROLE_REFUSED'));return
       }
       if (!value.input || typeof value.input !== 'object' || Array.isArray(value.input)) {send(value.seq,refusal('INVALID','IPC_REQUEST_OBJECT_REQUIRED'));return}
+      if(profile===CLOSURE_AUTHORITY_PROFILE&&CLOSURE_METHODS.includes(value.method)) {
+        try {closureEnvelope(value.input)} catch {send(value.seq,refusal('INVALID','IPC_PRIVATE_CLOSURE_PROFILE_REQUIRED'));return}
+      }
       if (inflight >= bounds.maxInflight || localInflight >= bounds.maxInflightPerConnection) {send(value.seq,refusal('UNAVAILABLE','IPC_INFLIGHT_BOUND'));return}
       inflight++;localInflight++
       let replied=false
@@ -225,6 +253,7 @@ async function createServer({socketPath:path,credentials,handlePublic,limits:inp
 
 export const createIpcClient = options => createClient(options,PUBLIC_PROFILE)
 export const createAuthorityIpcClient = options => createClient(options,AUTHORITY_PROFILE)
+export const createAuthorityClosureIpcClient = options => createClient(options,CLOSURE_AUTHORITY_PROFILE)
 export const createInferenceAuthorityIpcClient = options => createClient(options,INFERENCE_PROFILE)
 async function createClient({socketPath:path,credential,limits:inputLimits,socketAccess},profile) {
   const bounds=limits(inputLimits);await socketPath(path,socketAccess,'client')
@@ -275,6 +304,7 @@ async function createClient({socketPath:path,credential,limits:inputLimits,socke
     if (!input || typeof input !== 'object' || Array.isArray(input)) return Promise.reject(fail('INVALID','IPC_REQUEST_OBJECT_REQUIRED'))
     let request,signed
     try {
+      if(profile===CLOSURE_AUTHORITY_PROFILE&&CLOSURE_METHODS.includes(method))closureEnvelope(input)
       request={version:VERSION,type:'request',seq:sequence+1,method,input}
       signed={...request,mac:mac(key,'request',request)}
       if (Buffer.byteLength(canonicalJson(signed)) > bounds.maxFrameBytes) throw new Error('bound')

@@ -7,8 +7,9 @@
   "engines": { "node": ">=24.11.1" },
   "exports": { ".": {"types":"./src/index.d.mts","default":"./src/index.mjs"}, "./dsh": {"types":"./src/dsh-adapter.d.mts","default":"./src/dsh-adapter.mjs"},
     "./budget-binding": {"types":"./src/budget-binding.d.mts","default":"./src/budget-binding.mjs"},
+    "./private-transport": {"types":"./src/private-transport.d.mts","default":"./src/private-transport.mjs"},
     "./credential-service": {"types":"./src/credential-service.d.mts","default":"./src/credential-service.mjs"},
     "./credential-http": {"types":"./src/credential-http.d.mts","default":"./src/credential-http.mjs"},
     "./credential-entry": {"types":"./src/provider-http.d.mts","default":"./src/provider-http.mjs"} },
-  "scripts": { "check": "node --test check.mjs check-dispatch.mjs check-total-budget.mjs check-worker-outbox.mjs check-dispatch-expiry.mjs check-reserve-attempt.mjs check-worker-continuation.mjs" }
+  "scripts": { "check": "node --test check.mjs check-dispatch.mjs check-total-budget.mjs check-worker-outbox.mjs check-dispatch-expiry.mjs check-reserve-attempt.mjs check-worker-continuation.mjs check-private-transport.mjs check-dsh-cancellation.mjs" }
 }

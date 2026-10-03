@@ -5,6 +5,7 @@ import { AURA_RECORD_DOMAIN, CHAIN_DOMAINS, MAX_BYTES, parseOriginal, requireMem
 import { MEMORY_AUDIENCE, memoryEffectDigest, memoryResultDigest, memoryTarget } from './authorization.mjs'
 
 export const MEMORY_CONTROL_SCHEMA = 'aukora-prime-memory-control-state/v1'
+export const MEMORY_CONTROL_SCHEMA_V2 = 'aukora-prime-memory-control-state/v2'
 const spec = (name, key, columns, byteColumns = []) => Object.freeze({
   table: `prime_memory_${name}`, key: Object.freeze(key),
   columns: Object.freeze(['owner_subject', ...columns]), byteColumns: Object.freeze(byteColumns),
@@ -24,7 +25,14 @@ export const MEMORY_CONTROL_TABLES = Object.freeze({
   replay_fences: spec('replay_fences', ['operation_id'], ['operation_id', 'operation_digest', 'grant_id', 'action',
     'request_id', 'request_digest', 'status']),
 })
+// The historical eight-table profile remains exact. Writer closure adds a new profile
+// only when there is an actual durable closure; stored original JSON is never rewritten.
+export const MEMORY_WRITER_CLOSURE_TABLE = spec('unsent_closures', ['operation_id'], ['owner_id', 'task_id',
+  'operation_id', 'operation_digest', 'action_type', 'authorization_epoch', 'reference_bytes', 'closure_bytes',
+  'closure_digest'], ['reference_bytes', 'closure_bytes'])
+const TABLES_V2 = Object.freeze({...MEMORY_CONTROL_TABLES, unsent_closures: MEMORY_WRITER_CLOSURE_TABLE})
 const TABLE_NAMES = Object.keys(MEMORY_CONTROL_TABLES)
+const TABLE_NAMES_V2 = Object.keys(TABLES_V2)
 const ACTIONS = ['memory.save', 'memory.import', 'memory.restore', 'memory.backup', 'memory.forget', 'memory.purge', 'memory.erase-owner']
 const HEX = /^[0-9a-f]{64}$/
 const DIGEST = /^sha256:[0-9a-f]{64}$/
@@ -36,9 +44,10 @@ const instant = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:
 const same = (left, right) => canonicalJSON(left) === canonicalJSON(right)
 const exact = (value, keys, code) => requireMemory(value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key)), code)
-const keyOf = (row, table) => canonicalJSON(MEMORY_CONTROL_TABLES[table].key.map(key => row[key]))
+const keyOf = (row, table) => canonicalJSON(TABLES_V2[table].key.map(key => row[key]))
 const compare = (left, right) => left < right ? -1 : left > right ? 1 : 0
-const commitment = value => sha256(Buffer.from('aukora-prime.memory-control-state.v1\0' + canonicalJSON(value)))
+const commitment = value => sha256(Buffer.from((value.schema === MEMORY_CONTROL_SCHEMA_V2
+  ? 'aukora-prime.memory-control-state.v2\0' : 'aukora-prime.memory-control-state.v1\0') + canonicalJSON(value)))
 function ownData(object, key) {
   requireMemory(object && typeof object === 'object' && !types.isProxy(object), 'memory:control-state-inert-json-required')
   const descriptor = Object.getOwnPropertyDescriptor(object, key)
@@ -131,17 +140,50 @@ function validateIntent(row, host, contracts) {
   return {operation, grant}
 }
 
+function validateWriterClosure(row, host) {
+  requireMemory(row.owner_id === host.owner_id && nonempty(row.task_id) && nonempty(row.operation_id)
+    && typeof row.operation_digest === 'string' && DIGEST.test(row.operation_digest)
+    && ['memory.save', 'memory.forget'].includes(row.action_type)
+    && Number.isSafeInteger(row.authorization_epoch) && row.authorization_epoch >= 0
+    && typeof row.closure_digest === 'string' && DIGEST.test(row.closure_digest), 'memory:control-state-writer-closure-invalid')
+  // The cold workflow retains this exact six-field reference, not original proposal bytes.
+  // Its opaque operation digest joins C's authoritative never-consumed observation;
+  // this private control-state parser cannot manufacture that authority or a proposal.
+  const reference = parseOriginal(row.reference_bytes), closure = parseOriginal(row.closure_bytes)
+  const referenceFields = ['owner_id', 'owner_subject', 'task_id', 'operation_id', 'operation_digest', 'action_type']
+  exact(reference, referenceFields, 'memory:control-state-writer-closure-reference-fields')
+  requireMemory(referenceFields.every(key => typeof reference[key] === 'string' && reference[key] === row[key])
+    && row.reference_bytes.equals(Buffer.from(canonicalJSON(reference))), 'memory:control-state-writer-closure-reference-binding')
+  const bindingFields = ['owner_id', 'task_id', 'operation_id', 'action_type', 'authorization_epoch']
+  exact(closure, ['version', 'kind', 'owner_id', 'owner_subject', 'task_id', 'operation_id', 'operation_digest',
+    'action_type', 'authorization_epoch', 'closure_id', 'writer_closed', 'intent_absent', 'effect_absent', 'grants_authority'],
+  'memory:control-state-writer-closure-fields')
+  requireMemory(closure.version === 1 && closure.kind === 'prime-memory-writer-closure/v1'
+    && [...bindingFields, 'owner_subject', 'operation_digest'].every(key => closure[key] === row[key])
+    && typeof closure.closure_id === 'string' && UUID.test(closure.closure_id)
+    && closure.writer_closed === true && closure.intent_absent === true && closure.effect_absent === true
+    && closure.grants_authority === false, 'memory:control-state-writer-closure-binding')
+  requireMemory(row.closure_bytes.equals(Buffer.from(canonicalJSON(closure)))
+    && row.closure_digest === 'sha256:' + sha256(Buffer.from('aukora-prime.memory-writer-closure.v1\0'
+    + canonicalJSON(closure))), 'memory:control-state-writer-closure-digest')
+  return closure
+}
+
 /** Encode native durable rows without rewriting any stored JSON bytes. No authority is created. */
 export function makeMemoryControlState(host, state, {contracts} = {}) {
   const checkedHost = binding(host)
   const heads = ownData(state, 'heads'), tables = ownData(state, 'tables')
-  requireMemory(!types.isProxy(tables), 'memory:control-state-inert-json-required')
-  exact(tables, TABLE_NAMES, 'memory:control-state-tables-invalid')
+  requireMemory(tables && typeof tables === 'object' && !Array.isArray(tables) && !types.isProxy(tables),
+    'memory:control-state-inert-json-required')
+  const suppliedClosures = Object.hasOwn(tables, 'unsent_closures') ? ownData(tables, 'unsent_closures') : []
+  requireMemory(Array.isArray(suppliedClosures) && !types.isProxy(suppliedClosures), 'memory:control-state-row-limit')
+  exact(tables, Object.hasOwn(tables, 'unsent_closures') ? TABLE_NAMES_V2 : TABLE_NAMES, 'memory:control-state-tables-invalid')
+  const tableNames = suppliedClosures.length ? TABLE_NAMES_V2 : TABLE_NAMES
   const encoded = {}
-  for (const table of TABLE_NAMES) {
+  for (const table of tableNames) {
     const source = ownData(tables, table)
     requireMemory(Array.isArray(source) && !types.isProxy(source) && source.length <= 10000, 'memory:control-state-row-limit')
-    const {columns, byteColumns} = MEMORY_CONTROL_TABLES[table]
+    const {columns, byteColumns} = TABLES_V2[table]
     encoded[table] = Array.from({length: source.length}, (_, index) => {
       const row = ownData(source, String(index))
       requireMemory(!types.isProxy(row), 'memory:control-state-inert-json-required')
@@ -159,7 +201,8 @@ export function makeMemoryControlState(host, state, {contracts} = {}) {
       }))
     }).sort((a, b) => compare(keyOf(a, table), keyOf(b, table)))
   }
-  const body = {schema: MEMORY_CONTROL_SCHEMA, owner_subject: checkedHost.owner_subject, owner_id: checkedHost.owner_id,
+  const body = {schema: suppliedClosures.length ? MEMORY_CONTROL_SCHEMA_V2 : MEMORY_CONTROL_SCHEMA,
+    owner_subject: checkedHost.owner_subject, owner_id: checkedHost.owner_id,
     heads, tables: encoded}
   // Inspect the same portable representation that the independent retention provider will return.
   const inert = inertCopy(body), bundle = {...inert, control_sha256: commitment(inert)}
@@ -171,16 +214,21 @@ export function makeMemoryControlState(host, state, {contracts} = {}) {
 export function inspectMemoryControlState(bundle, host, {contracts} = {}) {
   const checked = inertCopy(bundle), checkedHost = binding(host)
   exact(checked, ['schema', 'owner_subject', 'owner_id', 'heads', 'tables', 'control_sha256'], 'memory:control-state-fields-invalid')
-  requireMemory(checked.schema === MEMORY_CONTROL_SCHEMA && checked.owner_subject === checkedHost.owner_subject
+  requireMemory([MEMORY_CONTROL_SCHEMA, MEMORY_CONTROL_SCHEMA_V2].includes(checked.schema)
+    && checked.owner_subject === checkedHost.owner_subject
     && checked.owner_id === checkedHost.owner_id, 'memory:control-state-owner-schema')
   validateHeads(checked.heads)
   const {control_sha256: digest, ...body} = checked
   requireMemory(typeof digest === 'string' && HEX.test(digest) && commitment(body) === digest, 'memory:control-state-changed')
-  exact(checked.tables, TABLE_NAMES, 'memory:control-state-tables-invalid')
+  const tableNames = checked.schema === MEMORY_CONTROL_SCHEMA_V2 ? TABLE_NAMES_V2 : TABLE_NAMES
+  exact(checked.tables, tableNames, 'memory:control-state-tables-invalid')
+  if (checked.schema === MEMORY_CONTROL_SCHEMA_V2)
+    requireMemory(Array.isArray(checked.tables.unsent_closures) && checked.tables.unsent_closures.length > 0,
+      'memory:control-state-writer-closure-required')
   const tables = {}
   let total = 0, count = 0
-  for (const table of TABLE_NAMES) {
-    const source = checked.tables[table], {columns, byteColumns} = MEMORY_CONTROL_TABLES[table], keys = new Set()
+  for (const table of tableNames) {
+    const source = checked.tables[table], {columns, byteColumns} = TABLES_V2[table], keys = new Set()
     requireMemory(Array.isArray(source) && (count += source.length) <= 10000, 'memory:control-state-row-limit')
     tables[table] = source.map(row => {
       exact(row, columns, 'memory:control-state-row-fields')
@@ -274,6 +322,13 @@ export function inspectMemoryControlState(bundle, host, {contracts} = {}) {
     requireMemory(!intents.has(row.operation_id) && !requestIds.has(row.request_id) && !grantIds.has(row.grant_id),
       'memory:control-state-replay-binding-conflict')
     requestIds.set(row.request_id, row.operation_id); grantIds.set(row.grant_id, row.operation_id)
+  }
+  tables.unsent_closures ??= []
+  const effectOperations = new Set(['intents', 'effects', 'replay_fences'].flatMap(table =>
+    tables[table].map(row => row.operation_id)))
+  for (const row of tables.unsent_closures) {
+    validateWriterClosure(row, checkedHost)
+    requireMemory(!effectOperations.has(row.operation_id), 'memory:control-state-writer-closure-effect-conflict')
   }
   return {digest, heads: checked.heads, tables}
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {canonicalJson,validateContract,operationDigest} from '../../contracts/src/runtime.mjs'
+import {getUnsentClosureCertificate} from './unsent-closure.mjs'
 
 const stores=new WeakSet()
 const DIGEST=/^sha256:[a-f0-9]{64}$/
@@ -110,8 +111,31 @@ export function createPostgresWorkflowStore({pool}={}) {
     await transaction(db=>db.query(WORKFLOW_SCHEMA_SQL))
     return Object.freeze({migrated:true})
   }
-  async function insert(host,input) {
+  function admissionClosures(host,certificates) {
+    if(!Array.isArray(certificates)||certificates.length>256)refuse('WORKFLOW_CLOSURE_CERTIFICATES_REQUIRED')
+    return certificates.map(certificate=>{
+      const facts=getUnsentClosureCertificate(certificate)
+      if(facts.reference.owner_id!==host.owner_id||facts.reference.owner_subject!==host.owner_subject
+        ||facts.host.authorization_epoch!==host.authorization_epoch)refuse('WORKFLOW_CLOSURE_BINDING_REQUIRED')
+      return facts.reference
+    })
+  }
+  async function guardAdmission(db,owner,certified,{exclude=null}={}) {
+    const unresolved=await rows(db,`SELECT ${COLUMNS} FROM prime_runtime_workflows
+      WHERE owner_subject=$1 AND phase IN ('attempted','known_unsent')`,[owner.owner_subject])
+    for(const row of unresolved) {
+      if(row.operation_id===exclude)continue
+      // A metadata-only legacy mark creates no exemption. Only exact C/D
+      // facts validated before this owner lock may exempt a closed reference.
+      if(row.phase==='known_unsent'&&certified.some(reference=>
+        ['owner_subject','owner_id','task_id','operation_id','operation_digest','action_type']
+          .every(key=>reference[key]===row[key])))continue
+      refuse('WORKFLOW_OWNER_RECONCILIATION_REQUIRED','RECONCILIATION_REQUIRED')
+    }
+  }
+  async function insertReference(host,input,{admission=false,closures=[]}={}) {
     const owner=identity(host)
+    const certified=admission?admissionClosures(host,closures):[]
     closed(input,['operation','idempotency_key_sha256','record_id'])
     // Detach before the first wait, while preserving the fixed v1 digest profile.
     const operation=JSON.parse(canonicalJson(input.operation))
@@ -128,6 +152,13 @@ export function createPostgresWorkflowStore({pool}={}) {
       &&(record===null||operation.canonical_parameters.record_id!==record||key!==null))refuse('WORKFLOW_FORGET_REFERENCE_INVALID')
     const created=new Date().toISOString()
     return transaction(async db=>{
+      if(admission) {
+        // The Bridge's final proposal admission shares the effect-attempt
+        // writer lock. A draft read taken before a competing attempt cannot
+        // admit a new proposal after that unresolved attempt has committed.
+        await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',[owner.owner_subject])
+        await guardAdmission(db,owner,certified)
+      }
       const values=[owner.owner_subject,owner.owner_id,owner.task_id,operation.operation_id,hash,operation.action_type,key,record,created]
       const [inserted]=await rows(db,`INSERT INTO prime_runtime_workflows
         (${COLUMNS}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'proposed',NULL,NULL,NULL,$9)
@@ -141,7 +172,9 @@ export function createPostgresWorkflowStore({pool}={}) {
       return result
     })
   }
-  async function list(host,input) {
+  const insert=(host,input)=>insertReference(host,input)
+  const insertForAdmission=(host,input,{closures=[]}={})=>insertReference(host,input,{admission:true,closures})
+  async function listReferences(host,input,{admission=false}={}) {
     const owner=identity(host)
     closed(input,['active'],['limit'])
     if(typeof input.active!=='boolean')refuse('WORKFLOW_ACTIVE_BOOLEAN_REQUIRED')
@@ -150,13 +183,17 @@ export function createPostgresWorkflowStore({pool}={}) {
     return transaction(async db=>{
       const found=await rows(db,`SELECT ${COLUMNS} FROM prime_runtime_workflows
         WHERE owner_subject=$1 AND owner_id=$2 AND task_id=$3
-        ${active?"AND phase NOT IN ('saved','forgotten')":''}
+        ${active?(admission?"AND phase NOT IN ('saved','forgotten')":"AND phase NOT IN ('known_unsent','saved','forgotten')"):''}
         ORDER BY created_at${active?'':' DESC'},operation_id${active?'':' DESC'} LIMIT $4`,[owner.owner_subject,owner.owner_id,owner.task_id,limit+1])
       const overflow=found.length>limit
       if(active&&overflow)refuse('WORKFLOW_LIST_OVERFLOW','UNAVAILABLE',{overflow:true})
       return Object.freeze({items:Object.freeze(found.slice(0,limit).map(row=>resultRow(row,owner))),overflow})
     },{readOnly:true})
   }
+  // Legacy list/mark are reference metadata APIs. Safety admission separately
+  // includes known_unsent labels and revalidates original C/D closure facts.
+  const list=(host,input)=>listReferences(host,input)
+  const admissionCandidates=host=>listReferences(host,{active:true},{admission:true})
   async function get(host,operation_id) {
     const owner=identity(host),id=text(operation_id)
     return transaction(async db=>{
@@ -166,12 +203,14 @@ export function createPostgresWorkflowStore({pool}={}) {
       return resultRow(row,owner)
     },{readOnly:true})
   }
-  async function attempt(host,operation_id,operation_digest) {
+  async function attemptReference(host,operation_id,operation_digest,{admission=false,closures=[]}={}) {
     const owner=identity(host),id=text(operation_id),hash=digest(operation_digest)
+    const certified=admission?admissionClosures(host,closures):[]
     return transaction(async db=>{
       // Serialize admission across this owner's tasks. This transaction ends
       // before the caller invokes C or D; no authority/effect callback is held.
       await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',[owner.owner_subject])
+      if(admission)await guardAdmission(db,owner,certified,{exclude:id})
       const [other]=await rows(db,`SELECT operation_id FROM prime_runtime_workflows
         WHERE owner_subject=$1 AND phase='attempted' AND operation_id<>$2 LIMIT 1`,[owner.owner_subject,id])
       if(other)refuse('WORKFLOW_OWNER_RECONCILIATION_REQUIRED','RECONCILIATION_REQUIRED')
@@ -180,6 +219,23 @@ export function createPostgresWorkflowStore({pool}={}) {
           AND operation_digest=$5 AND phase='proposed' RETURNING ${COLUMNS}`,
       [owner.owner_subject,owner.owner_id,owner.task_id,id,hash])
       if(!row)refuse('WORKFLOW_ATTEMPT_REFUSED','REPLAYED')
+      return resultRow(row,owner)
+    })
+  }
+  const attempt=(host,id,digest)=>attemptReference(host,id,digest)
+  const attemptForAdmission=(host,id,digest,{closures=[]}={})=>attemptReference(host,id,digest,{admission:true,closures})
+  async function markClosed(host,certificate) {
+    const owner=identity(host),[reference]=admissionClosures(host,[certificate])
+    if(reference.task_id!==owner.task_id)refuse('WORKFLOW_CLOSURE_BINDING_REQUIRED')
+    return transaction(async db=>{
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',[owner.owner_subject])
+      const [row]=await rows(db,`UPDATE prime_runtime_workflows SET phase='known_unsent'
+        WHERE owner_subject=$1 AND owner_id=$2 AND task_id=$3 AND operation_id=$4
+          AND operation_digest=$5 AND action_type=$6
+          AND phase IN ('attempted','known_unsent')
+          AND request_id IS NULL AND request_digest IS NULL AND receipt_digest IS NULL
+        RETURNING ${COLUMNS}`,['owner_subject','owner_id','task_id','operation_id','operation_digest','action_type'].map(key=>reference[key]))
+      if(!row)refuse('WORKFLOW_CLOSURE_MARK_REFUSED','RECONCILIATION_REQUIRED')
       return resultRow(row,owner)
     })
   }
@@ -209,7 +265,7 @@ export function createPostgresWorkflowStore({pool}={}) {
       return resultRow(row,owner)
     })
   }
-  const store=Object.freeze({migrate,insert,list,get,attempt,mark})
+  const store=Object.freeze({migrate,insert,insertForAdmission,list,admissionCandidates,get,attempt,attemptForAdmission,mark,markClosed})
   stores.add(store);return store
 }
 export function isWorkflowStore(value) {return stores.has(value)}

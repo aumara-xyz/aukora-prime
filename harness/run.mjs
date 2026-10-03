@@ -7,12 +7,16 @@ import {privateDirectory,writePrivateJson} from './private-state.mjs';
 import {pathToFileURL} from 'node:url';
 import {verifyReleaseUi} from './release-integrity.mjs';
 import {readPreviewDeploymentManifest} from './deployment-manifest.mjs';
+import {readOwnerMemoryBootConfig,provideOwnerMemoryBootServices} from './owner-memory-boot.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const anchor=readPreviewDeploymentManifest({manifestPath:process.argv[4],releaseRoot:root,expectedManifestSha256:process.argv[5]});
 const expected=anchor.manifest.release_digest;
 const {fullTreeDigest}=await import(pathToFileURL(process.argv[6]));
 if((await fullTreeDigest(root)).digest!==expected)throw new Error('PRIME_RELEASE_DIGEST_MISMATCH');
 await verifyReleaseUi({releaseRoot:root,expectedSnapshotSha256:anchor.manifest.ui_integrity_sha256});
+if(process.argv.length!==7&&process.argv.length!==9)throw new Error('PRIME_BOOT_ARGUMENTS_REFUSED');
+const ownerConfig=process.argv[7]===undefined?undefined:readOwnerMemoryBootConfig({configPath:process.argv[7],releaseRoot:root,
+ expectedConfigSha256:process.argv[8],appDeployment:{source_commit:anchor.manifest.source_commit,release_digest:'sha256:'+expected}});
 const {boot}=await import('../packages/boot/app-boot/lib/index.js');
 const {provideCmdline}=await import('../packages/boot/cmdline/lib/index.js');
 const {createLaunchEnvironmentSnapshot,DSH_LAUNCH_ENVIRONMENT_KEY}=await import('../packages/util/launch-environment/lib/index.js');
@@ -39,6 +43,7 @@ const exit=async code=>{await ctx?.fiber.dispose();process.exitCode=code;};
 ctx=await boot('prime',config,[],host=>{
  host.provide(DSH_LAUNCH_ENVIRONMENT_KEY,createLaunchEnvironmentSnapshot([{source:'process',values:{...process.env}}]));
  provideCmdline(host,{args:[],exit});
+ if(ownerConfig)provideOwnerMemoryBootServices(host,ownerConfig.config);
 });
 const actual=[...ctx.loader.entries()].filter(e=>e.options.id!=='include');
 const expectedEntries=new Map(entries.map(e=>[e.id,e.name]));

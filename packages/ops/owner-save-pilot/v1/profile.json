@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "prime-owner-save-pilot-profile/v1",
+  "guarantee_profile": "reduced-guarantee-owner-save-pilot/v1",
+  "scope_label": "REDUCED-GUARANTEE",
+  "missing_guarantees": [
+    "independent_witness",
+    "second_host_anchor",
+    "hardware_hash_display"
+  ],
+  "intended_effect": "memory.save",
+  "approval_material": "passkey",
+  "storage_backend": "postgresql",
+  "entry_surface": "existing-owner-application",
+  "public_qualified_factory": "closed",
+  "v03_conformance": "NOT_CLAIMED",
+  "grok_review": "PENDING_ACTUAL_BYTES_REVIEW",
+  "setup_mode": "action-time-approved-only"
+}
