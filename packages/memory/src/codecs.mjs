@@ -17,6 +17,9 @@ export const closedKeys = (value, keys, code) => requireMemory(value && typeof v
 const HEX64 = /^[0-9a-f]{64}$/
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u
+export function requireMemoryUnicode(value, code = 'memory:json-string-invalid') {
+  requireMemory(typeof value === 'string' && !LONE_SURROGATE.test(value), code)
+}
 const nonempty = value => typeof value === 'string' && value.length > 0
 const digestHex = value => typeof value === 'string' && HEX64.test(value)
 const instant = value => typeof value === 'string' && INSTANT.test(value)
@@ -94,9 +97,9 @@ export function parseOriginal(bytes) {
     const finite = node => {
       if (typeof node === 'number') requireMemory(Number.isFinite(node)
         && (!Number.isInteger(node) || Number.isSafeInteger(node)), 'memory:json-number-invalid')
-      else if (typeof node === 'string') requireMemory(!LONE_SURROGATE.test(node), 'memory:json-string-invalid')
+      else if (typeof node === 'string') requireMemoryUnicode(node)
       else if (node && typeof node === 'object') for (const [key, child] of Object.entries(node)) {
-        requireMemory(!LONE_SURROGATE.test(key), 'memory:json-string-invalid'); finite(child)
+        requireMemoryUnicode(key); finite(child)
       }
     }
     finite(value)

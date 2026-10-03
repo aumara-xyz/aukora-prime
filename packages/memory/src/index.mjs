@@ -7,7 +7,7 @@ import { contentFreeTombstone } from '../genesis/plugins/aukora-kira/lib/memory-
 import { CONTROLS, ownerControlIn } from '../genesis/plugins/aukora-kira/lib/memory-forget.mjs'
 import { SECRET_PATTERNS } from './capture-policy.mjs'
 import { AURA_RECORD_DOMAIN, sha256, parseOriginal, validateOriginal, auraEntryHash,
-  requireMemory, MemoryRefusal, verifyChain, verifyMembership, verifySources } from './codecs.mjs'
+  requireMemory, requireMemoryUnicode, MemoryRefusal, verifyChain, verifyMembership, verifySources } from './codecs.mjs'
 import { makeSnapshot, inspectSnapshot, recordCommitment } from './snapshot.mjs'
 import { memoryAuthorization, memoryTarget, memoryStateVersion, memoryEffectDigest, memoryResultDigest, memoryReceiptDigest } from './authorization.mjs'
 import { requireRedactableChain } from './codecs.mjs'
@@ -203,6 +203,7 @@ export function createPostgresMemory({ pool, indexTarget = 'postgres:fts:simple:
     const owner=ownerOf(host)
     requireMemory(typeof host.task_id==='string' && host.task_id,'memory:host-task-required')
     requireMemory(typeof idempotencyKey==='string' && idempotencyKey.length>0 && idempotencyKey.length<=1024,'memory:idempotency-key-required')
+    requireMemoryUnicode(idempotencyKey,'memory:idempotency-key-required')
     requireMemory(host.offTheRecord!==true && host.paused!==true && host.privacy==='local'
       && !Object.entries(CONTROLS).some(([key,value])=>value.stopsCapture && host.controls?.[key]),'memory:capture-policy-blocked')
     requireMemory(['owner','owner-voice','owner-edit','backfill','lane-requester','dream','agent'].includes(host.attributedTo),'memory:host-attribution-required')

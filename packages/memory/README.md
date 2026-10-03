@@ -1,5 +1,14 @@
 # Prime memory source
 
+**SOURCE-ONLY Unicode hardening:** direct capture rejects lone surrogates in its
+idempotency key before UTF-8 hashing or persistence. The copied strict reader now
+checks decoded object keys as well as values. One shared diagnostic prefix helper
+preserves the existing UTF-16-unit limit without splitting a valid surrogate pair;
+it neither repairs malformed text nor normalizes stored bytes. The citation
+diagnostic remains unmounted. Original donor hashes and current edited hashes are
+recorded separately in [PROVENANCE.json](PROVENANCE.json). Tests, module imports
+and deployment of this increment are UNPERFORMED.
+
 The explicit private-v2 source components and their unavailable service joins are
 documented in [PRIVATE_V2.md](PRIVATE_V2.md). The default successor factory remains
 closed pending H qualification; the existing v1 service below keeps its behavior.

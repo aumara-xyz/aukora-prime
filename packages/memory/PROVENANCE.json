@@ -1,6 +1,6 @@
 {
   "genesisCommit": "645d3213b8aede3b544269b4224ae09df06b0a42",
-  "extraction": "selected source closure, unchanged bytes",
+  "extraction": "selected source closure; unchanged donor bytes except the explicit owned adaptations below",
   "files": [
     {
       "source": "LICENSE",
@@ -20,7 +20,8 @@
     {
       "source": "plugins/aukora-kira/lib/cite-service.mjs",
       "path": "genesis/plugins/aukora-kira/lib/cite-service.mjs",
-      "sha256": "de52bafdece2ff76544d97587f116b734a4d05d35980561cf151614cf701cb5c"
+      "sha256": "bb374896ab3f5f84545855a8a8ec4b5d829026cb23d2162ecc494054587dccaf",
+      "sourceSha256": "de52bafdece2ff76544d97587f116b734a4d05d35980561cf151614cf701cb5c"
     },
     {
       "source": "plugins/aukora-kira/lib/memory-law.mjs",
@@ -45,7 +46,8 @@
     {
       "source": "plugins/aukora-kira/lib/strict-read.mjs",
       "path": "genesis/plugins/aukora-kira/lib/strict-read.mjs",
-      "sha256": "1d9ed9eec4b38675af91d01e09d64136b6634cfebf682ebfb68e7659d1a04be8"
+      "sha256": "98be86d89096818c56f01d43ccb51c1ee112b086394f29f52664ee966461eeda",
+      "sourceSha256": "1d9ed9eec4b38675af91d01e09d64136b6634cfebf682ebfb68e7659d1a04be8"
     },
     {
       "source": "vendor/aukora-packages/lib/packages/memory/src/envelope.js",
@@ -201,6 +203,24 @@
       "selected": "AURA_RECORD_DOMAIN, auraEntryHash, auraEntryPreimage",
       "destination": "src/codecs.mjs",
       "note": "Functions and canonical preimage copied unchanged; SQL chain/storage adapter added separately."
+    },
+    {
+      "source": "plugins/aukora-kira/lib/cite-service.mjs",
+      "sourceSha256": "de52bafdece2ff76544d97587f116b734a4d05d35980561cf151614cf701cb5c",
+      "selected": "owned Unicode hardening of the copied module",
+      "destination": "genesis/plugins/aukora-kira/lib/cite-service.mjs",
+      "destinationSha256": "bb374896ab3f5f84545855a8a8ec4b5d829026cb23d2162ecc494054587dccaf",
+      "note": "Diagnostic UTF-16 prefix uses the owned surrogate-safe helper in src/text.mjs; no mounting or write authority added.",
+      "qualification": "SOURCE-ONLY; no tests, imports or runtime execution"
+    },
+    {
+      "source": "plugins/aukora-kira/lib/strict-read.mjs",
+      "sourceSha256": "1d9ed9eec4b38675af91d01e09d64136b6634cfebf682ebfb68e7659d1a04be8",
+      "selected": "owned Unicode hardening of the copied module",
+      "destination": "genesis/plugins/aukora-kira/lib/strict-read.mjs",
+      "destinationSha256": "98be86d89096818c56f01d43ccb51c1ee112b086394f29f52664ee966461eeda",
+      "note": "Post-parse scalar validation includes decoded object keys as well as values; existing named refusal preserved.",
+      "qualification": "SOURCE-ONLY; no tests, imports or runtime execution"
     }
   ]
 }

@@ -23,6 +23,8 @@
  *               facts and collapsing them would hide a typo behind a doubt.
  */
 
+import { truncateUtf16 } from '../../../../src/text.mjs'
+
 /** The only outcome strings this module emits. Named once so a consumer cannot match on a typo. */
 export const CITE_VERIFIED = 'VERIFIED'
 export const CITE_UNVERIFIED = 'UNVERIFIED'
@@ -177,7 +179,7 @@ export function provideKiraCite(ctx, deps) {
     // `createCiteService` refuses a missing stateDir, a subject that is not an aukora identifier, and an
     // absent `createMemoryOwner` — each of them a configuration fault, and each named through here.
     deps?.logger?.warn?.(`aura.cite not mounted (${String(error?.message ?? error)})`)
-    return { provided: false, reason: `cite-not-constructible: ${String(error?.message ?? error).slice(0, 120)}` }
+    return { provided: false, reason: `cite-not-constructible: ${truncateUtf16(String(error?.message ?? error), 120)}` }
   }
   const offenders = Object.keys(service).filter(name => FORBIDDEN_CITE_MEMBER.test(name))
   if (offenders.length > 0) {

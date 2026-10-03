@@ -554,7 +554,11 @@ function refuseUnsafeIntegers(value, label) {
     // THAT DID NOT COME FROM ONE — the depth bound could not save a walk that revisited a node forever.
     if (seen.has(node)) continue
     seen.add(node)
-    for (const child of Array.isArray(node) ? node : Object.values(node)) stack.push(child)
+    if (Array.isArray(node)) {
+      for (const child of node) stack.push(child)
+    } else {
+      for (const [key, child] of Object.entries(node)) stack.push(key, child)
+    }
   }
 }
 
