@@ -1,0 +1,16 @@
+# Gate as aukora-gate with primary group skgate, so /run/aukora-gate and the PROPOSE socket are group skgate
+# (0750 / 0660) and the OWNER socket stays 0600. Replace SKGATE_GID with `getent group skgate | cut -d: -f3`.
+[Unit]
+Description=AUKORA lab: boundary gate (owner-only approvals, signed ledger and receipts)
+After=network.target
+[Service]
+User=aukora-gate
+Group=skgate
+UMask=0027
+RuntimeDirectory=aukora-gate
+RuntimeDirectoryMode=0750
+ExecStart=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/gate.mjs serve --home /home/aukora-gate --run /run/aukora-gate --target-root /var/lib/aukora-boundary/targets --port 17792 --gid SKGATE_GID --time-zone Asia/Makassar
+Restart=on-failure
+NoNewPrivileges=yes
+[Install]
+WantedBy=multi-user.target

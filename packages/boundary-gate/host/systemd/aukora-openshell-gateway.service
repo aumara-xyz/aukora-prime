@@ -1,0 +1,11 @@
+[Unit]
+Description=AUKORA lab: NVIDIA OpenShell 0.1.2 gateway (podman driver, 127.0.0.1:17690, mTLS) for auma
+After=aukora-auma-podman.service
+Requires=aukora-auma-podman.service
+[Service]
+User=auma
+Group=auma
+ExecStart=/usr/local/lib/aukora-boundary/openshell/gateway.sh
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target

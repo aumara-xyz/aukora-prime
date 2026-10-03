@@ -1,0 +1,13 @@
+[Unit]
+Description=AUKORA lab: ensure OpenShell sandbox auma-ws (refuses unless network mode is none)
+After=aukora-openshell-gateway.service
+Requires=aukora-openshell-gateway.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=auma
+Group=auma
+TimeoutStartSec=900
+ExecStart=/usr/local/lib/aukora-boundary/openshell/ensure-sandbox.sh
+[Install]
+WantedBy=multi-user.target

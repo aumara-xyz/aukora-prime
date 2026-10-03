@@ -13,7 +13,10 @@ snapshot() { local v; v=$(vol); [ -n "$v" ] || return 0
 phase() { openshell sandbox list 2>/dev/null | awk '$1=="auma-ws"{print $NF}'; }
 waitready() { for i in $(seq 1 90); do [ "$(phase)" = Ready ] && return 0; sleep 1; done; return 1; }
 for i in $(seq 1 30); do openshell status >/dev/null 2>&1 && break; sleep 1; done
-openshell gateway list 2>/dev/null | grep -q openshell || openshell gateway add https://127.0.0.1:17690 --local --name openshell
+# Register by config file, not by grepping `gateway list`: with no gateway registered, its hint text
+# ("Register a gateway with: openshell gateway add ...") contains "openshell", so the old grep skipped the add.
+[ -f "$HOME/.config/openshell/gateways/openshell/metadata.json" ] || openshell gateway add https://127.0.0.1:17690 --local --name openshell
+openshell gateway select openshell >/dev/null
 ph=$(phase); created=0
 case "$ph" in
   Ready) ;;
