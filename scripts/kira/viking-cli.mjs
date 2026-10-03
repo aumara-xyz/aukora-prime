@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// This client only calls the loopback door; it never reads app configuration or keys.
+// This client only calls the authenticated loopback door with an existing private credential.
+import { readDoorCredential, VikingCredentialError } from './viking-auth.mjs'
 const [route, ...args] = process.argv.slice(2);
 const from = process.env.ROOM_ME;
 const fail = message => { process.stderr.write(`${message}\n`); process.exitCode = 1; };
@@ -18,12 +19,15 @@ async function main() {
   }
   const json = JSON.stringify(body);
   if (Buffer.byteLength(json) > 16 * 1024) return fail('Request exceeds 16 KiB.');
+  const authToken = readDoorCredential(process.env.AUKORA_VIKING_DOOR_KEY_FILE);
+  if (json.includes(authToken)) return fail('Request refused.');
   const response = await fetch(`http://127.0.0.1:8766/${route}`, {
-    method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-aukora-memory-version': '2' },
+    method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-aukora-memory-version': '2', authorization: `Bearer ${authToken}` },
     body: json, signal: AbortSignal.timeout(120_000),
   });
   if (!response.ok) return fail(`Viking door refused the request (HTTP ${response.status}).`);
   const result = await response.json();
+  if (JSON.stringify(result).includes(authToken)) return fail('Viking door response suppressed.');
   if (route === 'remember') {
     if (!Number.isInteger(result?.remembered)) return fail('Viking door returned an invalid result.');
     process.stdout.write(`${result.ids?.length ? 'Remembered' : 'Not captured'}${result.index?.pending ? '; indexing pending retry' : ''}.\n`);
@@ -34,4 +38,5 @@ async function main() {
     for (const hit of result.notes) process.stdout.write(`${plain(hit.text)}\nscore: ${Number(hit.score)}\nsource: ${plain(hit.uri)}\n\n`);
   }
 }
-main().catch(() => fail('Viking door unavailable or returned an invalid response; no request details printed.'));
+main().catch(error => fail(error instanceof VikingCredentialError ? error.code
+  : 'Viking door unavailable or returned an invalid response; no request details printed.'));

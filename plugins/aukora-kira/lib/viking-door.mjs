@@ -1,11 +1,22 @@
 /** Maintained source of the loopback Viking door. Imports have no side effects. */
 import http from 'node:http'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { createTrackedMemory, validExternalOrigin } from './tracked-memory.mjs'
 import { contentUri, SEMANTIC_DEFAULTS } from './recall-openviking.mjs'
 const MAX_BODY = 16 * 1024
 class DoorError extends Error { constructor(status, message) { super(message); this.status = status } }
 
-export function createVikingDoor({ memory, stateDir, subject, config, fetch, port = 8766, logger } = {}) {
+export function createVikingDoor({ memory, stateDir, subject, config, authToken = config?.key, fetch, port = 8766, logger } = {}) {
+  // Reuse an operator-provisioned credential; this boundary never creates one.
+  if (typeof authToken !== 'string' || !(authToken.length <= 4096 && /^[A-Za-z0-9._~+\/-]+=*$/u.test(authToken))) {
+    const error = new Error('viking.door:credential-missing: existing door credential required')
+    error.code = 'viking.door:credential-missing'
+    throw error
+  }
+  const tokenDigest = createHash('sha256').update(authToken, 'utf8').digest()
+  const secrets = [authToken, config?.key].filter(value => typeof value === 'string' && value !== '')
+  const secretIn = text => secrets.some(secret => text.includes(secret)
+    || text.includes(JSON.stringify(secret).slice(1, -1)))
   memory ??= createTrackedMemory({ stateDir, subject, config, fetch })
   const remember = async body => {
     if (!validExternalOrigin(body.from) || typeof body.text !== 'string' || !body.text.trim())
@@ -25,14 +36,13 @@ export function createVikingDoor({ memory, stateDir, subject, config, fetch, por
     res.once('finish', () => logger?.(`${method} ${route} ${res.statusCode} ${length}`));
     const send = (status, value) => {
       let data = JSON.stringify(value);
-      if ((config?.key && data.includes(config.key))) { status = 502; data = '{"error":"Response suppressed."}'; }
+      if (secretIn(data)) { status = 502; data = '{"error":"Response suppressed."}'; }
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8',
         'content-length': Buffer.byteLength(data), 'cache-control': 'no-store', 'connection': 'close' });
       res.end(data);
     };
     try {
-      // NOT FROM A BROWSER. Local CLIs send no Origin, the exact loopback Host and a JSON body. A web page can reach
-      // 127.0.0.1 too, but it always sends an Origin, and a JSON content type forces a CORS preflight this door never answers.
+      // Loopback and browser checks complement authentication; they cannot replace it.
       const host = String(req.headers.host ?? '');
       const ctype = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
       if (req.headers.origin !== undefined || req.headers.referer !== undefined
@@ -44,6 +54,16 @@ export function createVikingDoor({ memory, stateDir, subject, config, fetch, por
       if (req.method !== 'POST' || route === '<other>') {
         req.resume();
         return send(404, { error: 'Not found.' });
+      }
+      const authorizationCount = req.rawHeaders.reduce((count, value, i) =>
+        i % 2 === 0 && value.toLowerCase() === 'authorization' ? count + 1 : count, 0)
+      const authorization = req.headers.authorization
+      const candidate = typeof authorization === 'string' && authorization.startsWith('Bearer ')
+        ? authorization.slice(7) : ''
+      if (authorizationCount !== 1 || !(candidate.length <= 4096 && /^[A-Za-z0-9._~+\/-]+=*$/u.test(candidate))
+          || !timingSafeEqual(createHash('sha256').update(candidate, 'utf8').digest(), tokenDigest)) {
+        req.resume()
+        return send(401, { error: 'Authentication required.' })
       }
       const declared = Number(req.headers['content-length']);
       if (Number.isFinite(declared) && declared > MAX_BODY) {
@@ -57,12 +77,12 @@ export function createVikingDoor({ memory, stateDir, subject, config, fetch, por
         chunks.push(chunk);
       }
       const raw = Buffer.concat(chunks).toString('utf8');
-      if ((config?.key && raw.includes(config.key))) throw new DoorError(400, 'Request refused.');
+      if (secretIn(raw)) throw new DoorError(400, 'Request refused.');
       let body;
       try { body = JSON.parse(raw); } catch { throw new DoorError(400, 'Expected a JSON object.'); }
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw new DoorError(400, 'Expected a JSON object.');
       // Also refuse JSON-escaped credential text without reflecting it anywhere.
-      if ((config?.key && JSON.stringify(body).includes(config.key))) throw new DoorError(400, 'Request refused.');
+      if (secretIn(JSON.stringify(body))) throw new DoorError(400, 'Request refused.');
       const value = await (route === '/remember' ? remember(body) : recall(body));
       // Existing private CLIs consume a boolean write receipt and an array of hits.
       // Maintained callers opt into the richer envelope without breaking those CLIs.

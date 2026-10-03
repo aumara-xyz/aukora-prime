@@ -37,6 +37,7 @@ import { createTrackedMemory, readTrackedMemory } from './tracked-memory.mjs'
 import { captureRoom, defaultRoomLog } from './room-capture.mjs'
 import { readCaptureEventStreamed } from './session-read.mjs'
 import { verifyRecord } from './memory-verify.mjs'
+import { resolveMemoryIdentity } from './memory-identity.mjs'
 
 /** Cordis plugin name. */
 export const name = 'aukora-kira'
@@ -135,19 +136,19 @@ export function readConfig(config) {
           'memoryOwner carries a field outside stateDir, subject, policyRevision, permittedPrivacy, grantFile, approvalFile, approverDid, activeControlDigest, queueDir')
       }
     }
-    if (typeof memoryRecord.stateDir !== 'string' || memoryRecord.stateDir === '') {
-      refuse('memory-owner-invalid', 'memoryOwner.stateDir must be a non-empty path')
-    }
-    if (typeof memoryRecord.subject !== 'string' || memoryRecord.subject === '') {
-      refuse('memory-owner-invalid', 'memoryOwner.subject must be a non-empty string: the owner supplies the subject, never the model')
-    }
+    // A complete explicit composition stays isolated from the implicit Mac
+    // installation. Explicit AUKORA_STATE is still checked by the resolver.
+    const needsInstalledIdentity = memoryRecord.subject === undefined || memoryRecord.subject === ''
+      || memoryRecord.subject === UNLINKED_SUBJECT
+    const identity = resolveMemoryIdentity({ stateDir: memoryRecord.stateDir, subject: memoryRecord.subject,
+      installed: needsInstalledIdentity, allowLegacyPlaceholder: true })
     // Historical operator fields are accepted for overlay compatibility, never required for memory.
     return Object.freeze({
       retrieval,
       maxSessions,
       memoryOwner: Object.freeze({
-        stateDir: memoryRecord.stateDir,
-        subject: memoryRecord.subject,
+        stateDir: identity.stateDir,
+        subject: identity.subject,
         approvalFile: memoryRecord.approvalFile,
         ...(memoryRecord.queueDir === undefined ? {} : { queueDir: memoryRecord.queueDir }),
         ...(memoryRecord.approverDid === undefined ? {} : { approverDid: memoryRecord.approverDid }),
