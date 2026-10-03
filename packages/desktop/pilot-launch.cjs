@@ -40,7 +40,7 @@ for(const [signal,code]of [['SIGINT',130],['SIGTERM',143]])process.on(signal,()=
  if(!config||Object.keys(config).sort().join(',')!==required.sort().join(',')||config.version!==1
   ||!/^[A-Za-z0-9.-]+$/.test(config.host)||!/^[a-z_][a-z0-9_-]*$/.test(config.user)
   ||!['identity_file','known_hosts_file','remote_access_file','electron_runtime'].every(k=>typeof config[k]==='string'&&path.isAbsolute(config[k])&&!/[\x00-\x1f\x7f]/u.test(config[k]))
-  ||!/^\/[A-Za-z0-9._/-]+$/.test(config.remote_access_file)||![18731,18732].includes(config.remote_port))fail();
+  ||!/^\/[A-Za-z0-9._/-]+$/.test(config.remote_access_file)||!Number.isSafeInteger(config.remote_port)||config.remote_port<1024||config.remote_port>65535)fail();
  temporary=fs.mkdtempSync(path.join(os.tmpdir(),'prime-cpu-launch-'));fs.chmodSync(temporary,0o700);
  const control=path.join(temporary,'ssh-control'),target=config.user+'@'+config.host;
  const common=['-F','/dev/null','-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes',

@@ -2,20 +2,26 @@ import {createRequire} from 'node:module';
 import {installStrictGatewayWebSocketIngress} from './ingress.mjs';
 import {parseStrictJson} from '../prime-packages/contracts/src/runtime.mjs';
 // Restricted first-party adapters; no environment credentials, YAML, file intake or host spawning.
-import {CredentialProvider} from '../packages/credentials/credentials/lib/index.js';
+import {LocalCredentialProvider} from '../packages/credentials/credentials-local/lib/index.js';
+import {isAbsolute} from 'node:path';
 import {SettingsProvider} from '../packages/settings/settings/lib/index.js';
 import {TypertGatewayService} from '../packages/api/gateway/lib/index.js';
 import {Service} from '../vendor/cordis/lib/index.js';
-import {resolvePilotCredential,describePilotCredential} from './deepseek-pilot.mjs';
 const require=createRequire(new URL('../packages/api/gateway/package.json',import.meta.url));
 installStrictGatewayWebSocketIngress(require('ws').WebSocketServer,parseStrictJson);
 const unavailable=()=>{throw Object.assign(new Error('UNAVAILABLE: preview capability not qualified'),{code:'UNAVAILABLE'});};
 const browserKey='client-connection/browser-session';
-export class PreviewCredentials extends CredentialProvider {
+export class PreviewCredentials extends LocalCredentialProvider {
  #record;
- resolve(ref){return Promise.resolve(resolvePilotCredential(ref));}
- describe(ref){return Promise.resolve(describePilotCredential(ref));}
- set(){return unavailable();} unset(){return unavailable();}
+ constructor(ctx){
+  const path=process.env.PRIME_DEEPSEEK_KEY_FILE;
+  if(typeof path!=='string'||!isAbsolute(path))unavailable();
+  super(ctx,{path,watch:true});
+ }
+ resolve(ref){return ref==='DEEPSEEK_API_KEY'?super.resolve(ref):Promise.resolve(undefined);}
+ describe(ref){return ref==='DEEPSEEK_API_KEY'?super.describe(ref):Promise.resolve({configured:false,writable:false});}
+ set(ref,value){return ref==='DEEPSEEK_API_KEY'?super.set(ref,value):unavailable();}
+ unset(ref){return ref==='DEEPSEEK_API_KEY'?super.unset(ref):unavailable();}
  readRecord=key=>{if(key!==browserKey)return unavailable();return Promise.resolve(structuredClone(this.#record));};
  describeRecord(){return unavailable();}listRecords(){return unavailable();}deleteRecord(){return unavailable();}
  modifyRecord=async(key,mutate)=>{if(key!==browserKey||this.#record!==undefined)return unavailable();const next=await mutate(undefined);if(next?.kind!=='grant'||next?.payload?.version!==1||typeof next.payload.secret!=='string')return unavailable();this.#record=structuredClone(next);return structuredClone(this.#record);};
@@ -46,6 +52,7 @@ export class UnavailableUploads extends Service {
 export const previewReads=new Set(['session/list','session/search','session/modelCatalog','session/page','session/canOpenWorkspacePath','settings/describe','settings/canOpenAgentPresetDirectory','settings/canOpenDocument','llm/listProviders','llm/listConfigurableProviders','credentials/describe']);
 export function previewRpcAllowed(endpoint,payload) {
  if(previewReads.has(endpoint))return true;
+ if(['credentials/set','credentials/unset'].includes(endpoint))return payload?.args?.ref==='DEEPSEEK_API_KEY';
  if(['session/create','session/selectModel','session/prompt','session/cancel','session/updateQueue','session/rename'].includes(endpoint))return true;
  if(['settings/update','settings/mutate'].includes(endpoint))return ['ui-onboarding','ui-theme','locale','llm-deepseek','agent-default-model'].includes(payload?.args?.ns);
  return false;

@@ -54,7 +54,7 @@ export function apply(ctx){
    let unavailable=current()?observed:release.unavailable_capabilities;
    // Source composition alone never makes paid inference available. Observe
    // the actual native provider, private key metadata and persistent cap.
-   if(release.native_model_inference?.provider==='deepseek-official'&&web.get('primeNativeInference')?.status()===true)
+   if(release.native_model_inference?.provider==='deepseek-official'&&await web.get('primeNativeInference')?.status()===true)
     unavailable=unavailable.filter(id=>id!=='model-inference');
    send(res,200,{version:1,source_commit:release.source_commit,runtime_pid:process.pid,release_digest:'sha256:'+process.env.PRIME_RELEASE_DIGEST,unavailable_capabilities:unavailable,phase:'disposable-preview',qualification:'PENDING'});
   })}),'prime observed preview capabilities');

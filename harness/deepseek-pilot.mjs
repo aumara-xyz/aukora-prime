@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Native harness provider pilot. This is app-process custody, not C/E admission.
-import {constants,lstatSync,openSync,closeSync,fstatSync,readFileSync} from 'node:fs';
+import {constants,lstatSync,openSync,closeSync,fstatSync} from 'node:fs';
 import {isAbsolute,dirname} from 'node:path';
 import {existsSync} from 'node:fs';
 const owned=existsSync(new URL('../prime-release.json',import.meta.url))?'../prime-packages/':'../packages/';
@@ -10,30 +10,16 @@ const CAP=10_000_000,DAY=86400000,MAX_BODY=65536,MAX_OUTPUT=1024;
 // https://api-docs.deepseek.com/quick_start/pricing/ (2026-10-03).
 const INPUT_RATE=1,OUTPUT_RATE=2;
 const fail=reason=>{throw Object.assign(new Error(reason),{code:'PRIME_DEEPSEEK_PILOT_UNAVAILABLE'});};
-function privateFile(path,{read=false}={}){
+function privateFile(path){
  if(typeof path!=='string'||!isAbsolute(path)||typeof process.getuid!=='function')fail('Private provider file is not configured.');
  const uid=process.getuid(),parent=lstatSync(dirname(path));
  if(!parent.isDirectory()||parent.isSymbolicLink()||parent.uid!==uid||(parent.mode&0o077))fail('Provider directory must be owner-private.');
  const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
- let bytes;
  try{
   const stat=fstatSync(fd);
   if(!stat.isFile()||stat.nlink!==1||stat.uid!==uid||(stat.mode&0o777)!==0o600||stat.size<1||stat.size>4096)fail('Provider key must be an owner-owned 0600 file.');
-  if(!read)return true;
-  bytes=readFileSync(fd);
-  if(bytes.length!==stat.size)fail('Provider key changed during read.');
-  const value=new TextDecoder('utf-8',{fatal:true}).decode(bytes).trim();
-  if(!/^[^\s\x00-\x1f\x7f]{16,4096}$/u.test(value))fail('Provider key format is invalid.');
-  return value;
- }finally{bytes?.fill(0);closeSync(fd);}
-}
-export function resolvePilotCredential(ref){
- if(ref!=='DEEPSEEK_API_KEY')return undefined;
- return {value:privateFile(process.env.PRIME_DEEPSEEK_KEY_FILE,{read:true}),source:'private-owner-file'};
-}
-export function describePilotCredential(ref){
- let configured=false;if(ref==='DEEPSEEK_API_KEY')try{configured=privateFile(process.env.PRIME_DEEPSEEK_KEY_FILE);}catch{}
- return {configured,writable:false,...configured?{source:'private-owner-file'}:{}};
+  return true;
+ }finally{closeSync(fd);}
 }
 export const name='prime-deepseek-pilot';
 export const inject=['llm','credentials'];
@@ -71,11 +57,17 @@ export function apply(ctx){
    store.prepare('UPDATE native_deepseek_budget SET charged=charged+?,observed=? WHERE singleton=1').run(amount,now);
   });if(reason)fail(reason);
  }
+ async function configuredCredential(){
+  const described=await ctx.credentials.describe('DEEPSEEK_API_KEY');
+  if(!described.configured||described.source!=='file')fail('Configure the native DeepSeek key in Models.');
+  privateFile(process.env.PRIME_DEEPSEEK_KEY_FILE);
+ }
  const guarded=async(input,init)=>{
   const url=new URL(typeof input==='string'||input instanceof URL?input:input.url);
   if(url.hostname!=='api.deepseek.com')return previous(input,init);
   if(!active||url.origin!=='https://api.deepseek.com'||url.search||url.hash||url.username||url.password)fail('Provider pilot is withdrawn.');
-  privateFile(process.env.PRIME_DEEPSEEK_KEY_FILE);
+  await configuredCredential();
+  if(!active||globalThis.fetch!==guarded)fail('Provider pilot is withdrawn.');
   const method=(init?.method??input?.method??'GET').toUpperCase();
   if(method==='GET'&&url.pathname==='/models'){reserve();return previous(input,{...init,redirect:'error'});}
   if(method!=='POST'||url.pathname!=='/chat/completions'||typeof init?.body!=='string')fail('Only the selected native chat endpoint is enabled.');
@@ -94,9 +86,10 @@ export function apply(ctx){
   return previous(input,{...init,redirect:'error'});
  };
  globalThis.fetch=guarded;
- const status=()=>{try{
+ const status=async()=>{try{
   if(!active||globalThis.fetch!==guarded||!ctx.llm.listProviders().some(p=>p.id==='deepseek-official'))return false;
-  privateFile(process.env.PRIME_DEEPSEEK_KEY_FILE);reserve(0,{available:true});return true;
+  await configuredCredential();if(!active||globalThis.fetch!==guarded)return false;
+  reserve(0,{available:true});return true;
  }catch{return false;}};
  ctx.provide('primeNativeInference',Object.freeze({status}));
  ctx.effect(()=>()=>{active=false;db?.close();db=undefined;},'native DeepSeek $10 budget');
