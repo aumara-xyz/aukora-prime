@@ -208,7 +208,17 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     const review_expires = Math.min(p.expires, now() + REVIEW_TTL_MS)
     reviews.set(p.id, { challenge: review_challenge, expires: review_expires, base_sha: p.base_sha, new_sha: p.new_sha })
     append('review-issued', { proposal: p.id, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, detail: { via: 'owner', review_expires: new Date(review_expires).toISOString() } })
-    return { version: 1, id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: blobText(p.new_sha), diff: p.diff,
+    // v2 (owner card, 2026-10-04): the GATE'S OWN from->to line (computed here from the stored base and new bytes by the
+    // target's spec, never from model text) and the model's note, returned SEPARATELY and labelled as model-authored, so the
+    // card can put the gate's facts and diff first and fence the model's words. The note is the sanitised why (<=120 ASCII).
+    const s = TARGETS[p.target], newText = blobText(p.new_sha)
+    let oldText = ''
+    if (p.base_sha !== 'absent') { try { oldText = blobText(p.base_sha) } catch { oldText = '' } }
+    let from_to = null
+    try { from_to = s?.plain ? String(s.plain(oldText, newText)) : null } catch { from_to = null }
+    if (from_to !== null && !/^[\x20-\x7e]{1,400}$/.test(from_to)) from_to = null
+    return { version: 2, id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: newText, diff: p.diff,
+      from_to, model_note: p.why ?? null,
       displayable: !!p.displayable, created: p.created, expires: p.expires, review_challenge, review_expires, pubkey_fp: key.fp }
   }
   function decideReview(args, approver) {

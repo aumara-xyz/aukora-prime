@@ -90,6 +90,15 @@
     -webkit-user-select: text; user-select: text;
   }
   #facts { display: flex; flex-direction: column; gap: 8px; }
+  /* THE OWNER CARD (2026-10-04): gate facts first, the exact change behind one reveal, the model's words fenced last. */
+  #gate-change { display: flex; flex-direction: column; gap: 6px; }
+  #gate-reveal { align-self: flex-start; }
+  #gate-diff { max-height: min(30vh, 220px); }
+  #gate-reveal-state { margin: 0; font-size: 12px; color: var(--approval-muted); }
+  .model-fence { padding: 10px 12px; border: 1px dashed var(--approval-muted); border-radius: 8px; color: var(--approval-muted); }
+  .model-fence h2 { margin: 0 0 2px; font-size: 11px; letter-spacing: .12em; }
+  .model-fence p { margin: 0 0 6px; font-size: 11px; }
+  .model-fence pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; font-style: italic; }
   #f-words-note { margin: 0; padding: 10px; font-size: 12px; color: var(--approval-red); border: 1px solid currentColor; border-radius: 8px; }
   .operation-summary { padding: 14px; border: 2px solid var(--approval-blue); border-radius: var(--approval-radius);
     background: var(--approval-raised); display: flex; flex-direction: column; gap: 10px; }
@@ -207,6 +216,16 @@
   <section id="facts" hidden>
     <div id="f-words" class="words" tabindex="0" role="region" aria-label="Exact operation text">—</div>
     <p id="f-words-note" hidden></p>
+    <div id="gate-change" hidden>
+      <button id="gate-reveal" type="button">Show the exact change (from &rarr; to)</button>
+      <pre id="gate-diff" class="words" tabindex="0" role="region" aria-label="Exact stored gate diff, from to" hidden></pre>
+      <p id="gate-reveal-state">Approve stays off until you have opened the change and seen all of it.</p>
+    </div>
+    <section id="gate-model" class="model-fence" hidden aria-label="Model-authored text">
+      <h2>MODEL-AUTHORED</h2>
+      <p>Written by the model. The gate did not verify it. It is not a reason to approve or to refuse.</p>
+      <pre id="gate-model-text"></pre>
+    </section>
     <details class="more">
       <summary>Details</summary>
       <dl>
@@ -281,6 +300,9 @@
     var gateMode = false
     var gateDisplayOk = false
     var gateReviewExpires = 0
+    // THE OWNER MUST SEE THE ACTUAL FROM -> TO BEFORE APPROVE ARMS: opened, scrolled to its end, then a short dwell.
+    var gateRevealed = false
+    var GATE_REVEAL_DWELL_MS = 1500
     // WHAT THIS WINDOW WAS ALREADY SHOWING. When a submit comes back routed by a daemon, the refusal from the
     // ANSWER handler carries no digest and no operation — that handler froze no proposal — so the only digest and
     // the only description this window can honestly put beside the waiting line are the ones it was already
@@ -296,7 +318,7 @@
     var shownAt = null
     function approveEligible() {
       if (gateMode) return settled !== true && challenge !== null && gateDisplayOk === true
-        && Date.now() < gateReviewExpires
+        && gateRevealed === true && Date.now() < gateReviewExpires
       return settled !== true && challenge !== null && witness !== null
         && witness.ok === true && witness.truncated === false
     }
@@ -1019,6 +1041,45 @@
       })
     }
 
+    /**
+     * THE CARD'S THREE SECTIONS, FROM THE VERIFIED TEXT ONLY (apps/aukora-desktop/aumlok-signer-airlock.mjs GATE_CARD).
+     * Exact header lines, in this order, each once: facts, diff..end, model..end. Fact lines start with two spaces, diff
+     * lines with ' ', '-' or '+', the model line with '> ', so nothing inside a section can be read as a header. Any other
+     * shape is refused, and Approve never arms.
+     */
+    function splitGateCard(text) {
+      var H = { facts: 'GATE FACTS (written by the gate, not by the model)',
+        diff: 'GATE DIFF (the exact stored change, from -> to)', diffEnd: 'END OF GATE DIFF',
+        model: 'MODEL-AUTHORED (written by the model, NOT verified by the gate; not a reason to approve or to refuse)',
+        modelEnd: 'END OF MODEL-AUTHORED' }
+      var lines = text.split('\n')
+      var d = lines.indexOf(H.diff), de = lines.indexOf(H.diffEnd), m = lines.indexOf(H.model), me = lines.indexOf(H.modelEnd)
+      if (lines[0] !== H.facts || d < 2 || de <= d + 1 || m !== de + 1 || me !== m + 2 || me !== lines.length - 1) return null
+      var facts = lines.slice(1, d), diff = lines.slice(d + 1, de), model = lines[m + 1]
+      if (!facts.every(function (l) { return l.slice(0, 2) === '  ' })) return null
+      if (!diff.every(function (l) { return /^[ +-]/.test(l) })) return null
+      if (model.slice(0, 2) !== '> ') return null
+      return { facts: facts.map(function (l) { return l.slice(2) }).join('\n'), diff: diff.join('\n'), model: model.slice(2) }
+    }
+    /** Approve arms only after the owner opened the diff AND reached its end, plus a short dwell. Never automatic. */
+    function armGateReveal() {
+      var btn = document.getElementById('gate-reveal'), pre = document.getElementById('gate-diff')
+      var note = document.getElementById('gate-reveal-state'), seen = false
+      function atEnd() { return pre.scrollHeight - pre.scrollTop - pre.clientHeight <= 2 }
+      function seenNow() {
+        if (seen || pre.hidden) return
+        if (!atEnd()) { note.textContent = 'Scroll to the end of the change to enable Approve.'; return }
+        seen = true
+        note.textContent = 'Change seen.'
+        setTimeout(function () { if (!settled) { gateRevealed = true; applyEligibility() } }, GATE_REVEAL_DWELL_MS)
+      }
+      btn.addEventListener('click', function () {
+        pre.hidden = false; btn.hidden = true
+        requestAnimationFrame(seenNow)
+      })
+      pre.addEventListener('scroll', seenNow)
+    }
+
     function send(decision) {
       if (settled || challenge === null) return
       // **AND IT ASKS THE ELIGIBILITY QUESTION, NOT JUST WHETHER THE WINDOW IS STILL OPEN.** MEASURED: this
@@ -1038,6 +1099,7 @@
         challenge: challenge,
         approve: decision,
         wordsOk: gateMode ? gateDisplayOk : witness === null ? null : witness.ok === true,
+        revealed: gateMode ? gateRevealed === true : undefined,
         dwellMs: shownAt === null ? null : Math.max(0, Date.now() - shownAt),
       }).then(function (reply) {
         if (gateMode) {
@@ -1155,8 +1217,15 @@
             if (checks[0].ok !== true || contentSha !== pending.new_sha || review.displayable !== true
               || !Number.isSafeInteger(review.review_expires) || review.review_expires > pending.expires
               || Date.now() >= review.review_expires) { say('gate:review-display-unverified', true); return }
-            document.getElementById('f-words').textContent = checks[0].text
-            document.getElementById('f-words').setAttribute('aria-label', 'Exact stored gate proposal bytes and diff')
+            var card = splitGateCard(checks[0].text)
+            if (card === null) { say('gate:review-display-unverified', true); return }
+            document.getElementById('f-words').textContent = card.facts
+            document.getElementById('f-words').setAttribute('aria-label', 'Gate facts, written by the gate')
+            document.getElementById('gate-diff').textContent = card.diff
+            document.getElementById('gate-model-text').textContent = card.model
+            document.getElementById('gate-change').hidden = false
+            document.getElementById('gate-model').hidden = false
+            armGateReveal()
             show('headline', 'Review gate proposal')
             show('f-challenge', review.review_challenge)
             if (questionLabel) questionLabel.textContent = 'Gate review challenge'
@@ -1165,7 +1234,7 @@
               + 'The gate rechecks base, expiry and resulting hash; no Aumlok signature is produced.'
             gateDisplayOk = true
             gateReviewExpires = review.review_expires
-            say('Approve applies these exact stored bytes. Refuse rejects this proposal.')
+            say('Read the gate facts, then open the exact change. Approve applies these stored bytes; Refuse rejects.')
             applyEligibility()
             setTimeout(function () { applyEligibility() }, Math.max(0, gateReviewExpires - Date.now()) + 1)
           }, function () { say('gate:review-display-unverified', true) })

@@ -22,6 +22,7 @@
     "check:gate-ledger-anchor": "node --test tests/gate-ledger-anchor.test.mjs",
     "check:gate-selfcheck": "node --test packages/boundary-gate/checks/selfcheck-bin.mjs",
     "check:gate-plugin-set-signer": "node --test tests/aukora-plugin-set-gate-signer.test.mjs",
+    "check:owner-card-model-fence": "node --test tests/aukora-owner-card-model-fence.test.mjs",
     "check:kira-ask-recall": "node --test tests/aukora-kira-ask-recall.test.mjs"
   }
 }

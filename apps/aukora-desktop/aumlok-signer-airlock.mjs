@@ -156,11 +156,13 @@ function gatePending(value) {
 }
 
 function gateReview(value, pending, now) {
-  const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff',
+  const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff', 'from_to', 'model_note',
     'displayable', 'created', 'expires', 'review_challenge', 'review_expires', 'pubkey_fp']
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))
-    || value.version !== 1 || JSON.stringify(gatePending(value)) !== JSON.stringify(pending)
+    || value.version !== 2 || JSON.stringify(gatePending(value)) !== JSON.stringify(pending)
+    || !(value.from_to === null || (typeof value.from_to === 'string' && /^[\x20-\x7e]{1,400}$/u.test(value.from_to)))
+    || !(value.model_note === null || (typeof value.model_note === 'string' && /^[\x20-\x7e]{0,200}$/u.test(value.model_note)))
     || !gateSha(value.review_challenge) || !Number.isSafeInteger(value.review_expires)
     || value.review_expires <= now() || value.review_expires > value.expires
     || value.displayable !== true || typeof value.content !== 'string'
@@ -174,13 +176,30 @@ function gateReview(value, pending, now) {
   return Object.freeze({ ...value })
 }
 
-function gateReviewText(review) {
-  return ['GATE: EXACT STORED-BYTE REVIEW', 'Proposal: ' + review.id, 'Kind: ' + review.kind,
-    'Target: ' + review.target, 'Base SHA-256: ' + review.base_sha, 'New SHA-256: ' + review.new_sha,
-    'Gate review challenge: ' + review.review_challenge, 'Proposal expires (unix ms): ' + review.expires,
-    'Review expires (unix ms): ' + review.review_expires, 'Receipt key fingerprint: ' + review.pubkey_fp,
-    'Exact stored content (' + review.content.length + ' ASCII bytes):', review.content,
-    'Exact stored diff:', review.diff].join('\n')
+// THE OWNER CARD'S ORDER (Peter, 2026-10-04, after a half-awake approval of a card whose model note said "safe to
+// refuse"): the GATE'S facts and its exact from->to diff come FIRST; the model's words come LAST, inside a fence labelled
+// MODEL-AUTHORED. Section headers are whole lines no other section can produce: every fact line starts with two spaces,
+// every diff line with ' ', '-' or '+' (lineDiff), and the model's note with '> ' (it is one sanitised ASCII line), so
+// model text cannot forge a header or move itself above the gate's facts. The card parses exactly these headers.
+export const GATE_CARD = Object.freeze({
+  facts: 'GATE FACTS (written by the gate, not by the model)',
+  diff: 'GATE DIFF (the exact stored change, from -> to)',
+  diffEnd: 'END OF GATE DIFF',
+  model: 'MODEL-AUTHORED (written by the model, NOT verified by the gate; not a reason to approve or to refuse)',
+  modelEnd: 'END OF MODEL-AUTHORED',
+})
+export function gateReviewText(review) {
+  return [GATE_CARD.facts,
+    '  Change (gate-computed): ' + (review.from_to ?? '(this target has no gate summary; read the diff)'),
+    '  Target: ' + review.target, '  Kind: ' + review.kind,
+    '  Base SHA-256: ' + review.base_sha, '  New SHA-256: ' + review.new_sha,
+    '  New stored content (' + review.content.length + ' ASCII bytes): ' + review.content,
+    '  Proposal: ' + review.id, '  Receipt key fingerprint: ' + review.pubkey_fp,
+    '  Gate review challenge: ' + review.review_challenge,
+    '  Proposal expires (unix ms): ' + review.expires, '  Review expires (unix ms): ' + review.review_expires,
+    GATE_CARD.diff, ...review.diff.split('\n').map(line => /^[ +-]/u.test(line) ? line : ' ' + line), GATE_CARD.diffEnd,
+    GATE_CARD.model, '> ' + (review.model_note === null || review.model_note === '' ? '(no note)' : review.model_note),
+    GATE_CARD.modelEnd].join('\n')
 }
 
 export function createGateOwnerAdapter({ socketPath, call = exchangeGateOwner, now = Date.now } = {}) {

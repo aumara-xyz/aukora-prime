@@ -770,7 +770,8 @@ export function installApprovalBridge(deps) {
     const gateEntry = pendingQueue.find(entry => entry.challenge === payload?.challenge && entry.gateDecide)
     if (gateEntry) {
       if (typeof payload?.approve !== 'boolean'
-        || (payload.approve && (gateEntry.facts.approveAvailable !== true || payload.wordsOk !== true))) {
+        || (payload.approve && (gateEntry.facts.approveAvailable !== true || payload.wordsOk !== true
+          || payload.revealed !== true))) {
         return { ok: false, reason: 'gate:stored-byte-review-unavailable' }
       }
       if (gateEntry.answering) return { ok: false, reason: 'gate:question-already-answered' }
