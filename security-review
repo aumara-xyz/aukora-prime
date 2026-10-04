@@ -1,4 +1,13 @@
 #!/bin/sh
 set -eu
+# Reject preloads and external fixture selectors before starting Node.
+if [ "${NODE_OPTIONS+x}" = x ]; then
+    printf '%s\n' 'FAIL: review:node-options-forbidden' >&2
+    exit 1
+fi
+if [ "${AUKORA_TEST_KIRA_SOURCE+x}" = x ] || [ "${AUKORA_TEST_AURA_SOURCE+x}" = x ]; then
+    printf '%s\n' 'FAIL: review:source-override-forbidden' >&2
+    exit 1
+fi
 cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 exec node scripts/audit/security-review.mjs "$@"

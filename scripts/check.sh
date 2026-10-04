@@ -2,6 +2,15 @@
 # The README reviewer packet. Each independent check gets 55 seconds, including
 # its subprocesses. Logs and timings are collected separately, printed in order.
 set -eu
+# Reject preloads and external fixture selectors before starting any Node child.
+if [ "${NODE_OPTIONS+x}" = x ]; then
+    printf '%s\n' 'FAIL: review:node-options-forbidden' >&2
+    exit 1
+fi
+if [ "${AUKORA_TEST_KIRA_SOURCE+x}" = x ] || [ "${AUKORA_TEST_AURA_SOURCE+x}" = x ]; then
+    printf '%s\n' 'FAIL: review:source-override-forbidden' >&2
+    exit 1
+fi
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
 for tool in perl python3 node ssh-keygen; do
@@ -146,6 +155,7 @@ run_check() {
             delete $ENV{$_} for grep { /_MUTANT\z/ } keys %ENV;
             delete @ENV{qw(AUKORA_RECORDS_MODULE AUKORA_PRIME_CHECK_GIT)};
             delete @ENV{qw(AUKORA_AURA_CHECK_GIT AUKORA_AURA_CITATION_BASE NODE_TEST_CONTEXT)};
+            delete @ENV{qw(NODE_OPTIONS AUKORA_TEST_KIRA_SOURCE AUKORA_TEST_AURA_SOURCE)};
             $ENV{GIT_NO_LAZY_FETCH} = "1";
             exec "sh", "-c", $run;
             die "exec: $!";
@@ -337,10 +347,11 @@ check 'node tests/aukora-fence-r2.test.mjs'
 check 'node tests/aukora-fence-r3.test.mjs'
 check 'node tests/aukora-fence-r4.test.mjs'
 check 'node tests/aukora-auma-theme.test.mjs'
-check 'node tests/aukora-openshell-confinement.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-openshell-confinement.test.mjs'
 check 'node tests/gate-ledger-anchor.test.mjs'
 check_tap 'node --test --test-reporter=tap packages/boundary-gate/checks/selfcheck-bin.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-plugin-set-gate-signer.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/kira-gate-capture-host.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-plugin-set-trusted-verifier.test.mjs'
 check 'node plugins/aukora-nostr/checks/records.mjs'
 check 'node scripts/audit/security-review.mjs --source-prerequisite aura && node scripts/aura/checks/collector.mjs'

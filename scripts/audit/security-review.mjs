@@ -69,6 +69,8 @@ export const REVIEW_PROFILE = Object.freeze([
     'Synthetic releases; service assertions do not observe installed units.'),
   tapCheck('gate-plugin-set-signer', 'tests/aukora-plugin-set-gate-signer.test.mjs',
     'Synthetic gate/keys; no owner enrollment or installed approval.'),
+  tapCheck('host-capture-retention', 'tests/kira-gate-capture-host.test.mjs',
+    'Actual host capture source with synthetic receipts and local pinned helpers; no installed host, owner or private custody.'),
   tapCheck('sequence-floor', 'packages/boundary-gate/src/vendor/check-sequence-floor.mjs',
     'Source ordering/filesystem fixtures; no live floor migration or release activation.'),
   tapCheck('ordered-approval', 'packages/boundary-gate/src/vendor/check-ordered-approval.mjs',
@@ -96,7 +98,7 @@ export const REVIEW_PROFILE = Object.freeze([
     'Stubbed runner/RPC; no sandbox egress or host probes.'),
   tapCheck('review-runner-contract', 'tests/security-review-runner.test.mjs',
     'Runner outcome/dispatch regressions with disposable children; no product qualification.'),
-  nodeCheck('containment-verdict-firewall', ['--test', '--test-reporter=tap', 'tests/aukora-containment.test.mjs', 'tests/aukora-auma-firewall.test.mjs'],
+  nodeCheck('containment-verdict-firewall', ['--test', '--test-reporter=tap', 'tests/aukora-containment.test.mjs', 'tests/aukora-auma-firewall.test.mjs', 'tests/aukora-openshell-confinement.test.mjs'],
     'Offline pure/mock verdict and firewall checks only; no live probe, rootless Podman, guest userns-root or detecting-control qualification.', 'tap'),
   nodeCheck('l2-signed-export', ['docs/evidence/l2-demo-2026-10-04/verify.mjs'],
     'Historical signed prefix only; no fetched anchor/current tip/human identity proof.'),
@@ -176,10 +178,19 @@ export function reviewCommand(row) {
   return Object.freeze([row.executable === 'node' ? process.execPath : row.executable, ...row.args])
 }
 
+function assertReviewEnvironment() {
+  // This rejects direct/imported acceptance after startup. The shell launchers
+  // provide the separate guard that prevents NODE_OPTIONS preloads executing.
+  if (Object.hasOwn(process.env, 'NODE_OPTIONS')) throw Error('review:node-options-forbidden')
+  if (['AUKORA_TEST_KIRA_SOURCE', 'AUKORA_TEST_AURA_SOURCE'].some(name => Object.hasOwn(process.env, name)))
+    throw Error('review:source-override-forbidden')
+}
+
 export function runReviewChecks({ list = false, logs = null } = {}) {
+  assertReviewEnvironment()
   const env = { ...process.env, PYTHONDONTWRITEBYTECODE: '1', GIT_NO_LAZY_FETCH: '1' }
   const cleared = Object.keys(env).filter(key => key.endsWith('_MUTANT')
-    || ['AUKORA_RECORDS_MODULE', 'AUKORA_PRIME_CHECK_GIT', 'AUKORA_AURA_CHECK_GIT', 'AUKORA_AURA_CITATION_BASE', 'NODE_TEST_CONTEXT'].includes(key))
+    || ['AUKORA_RECORDS_MODULE', 'AUKORA_PRIME_CHECK_GIT', 'AUKORA_AURA_CHECK_GIT', 'AUKORA_AURA_CITATION_BASE', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'AUKORA_TEST_KIRA_SOURCE', 'AUKORA_TEST_AURA_SOURCE'].includes(key))
   for (const key of cleared) delete env[key]
   if (logs) mkdirSync(logs, { recursive: true, mode: 0o700 })
   const checks = REVIEW_PROFILE.map(entry => {
@@ -217,6 +228,7 @@ function git(args) {
   return r.stdout.trim()
 }
 function main(argv) {
+  assertReviewEnvironment()
   if (argv.length === 2 && argv[0] === '--source-prerequisite') {
     const result = verifyPhysicalSource(argv[1])
     console.log(JSON.stringify({ scope: 'physical current source prerequisite only; no check child executed', ...result }))

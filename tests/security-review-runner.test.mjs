@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { REVIEW_PROFILE, reviewCommand, classifyCheckResult, summarizeReview, runReviewChecks } from '../scripts/audit/security-review.mjs'
 
 const scratch = mkdtempSync(join(tmpdir(), 'aukora-runner-check-'))
@@ -31,6 +32,64 @@ const fixtureEnvironment = source => {
 }
 const nodeChild = name => spawnSync(process.execPath, nodeArgs(name), { timeout: 10000, env: fixtureEnvironment(process.env) })
 const runnerSource = readFileSync(new URL('../scripts/audit/security-review.mjs', import.meta.url), 'utf8')
+const startupSelectors = ['NODE_OPTIONS', 'AUKORA_TEST_KIRA_SOURCE', 'AUKORA_TEST_AURA_SOURCE']
+const startupEnvironment = () => {
+  const env = fixtureEnvironment(process.env)
+  for (const name of startupSelectors) delete env[name]
+  return env
+}
+const preload = join(scratch, 'startup-preload.cjs')
+writeFileSync(preload, "require('node:fs').writeFileSync(process.env.AUKORA_RUNNER_STARTUP_MARKER,'loaded');process.exit(73)\n", { mode: 0o600 })
+const sentinelBin = join(scratch, 'startup-bin')
+mkdirSync(sentinelBin)
+writeFileSync(join(sentinelBin, 'node'), '#!/bin/sh\nprintf loaded > "$AUKORA_RUNNER_STARTUP_MARKER"\nexit 73\n', { mode: 0o700 })
+for (const path of ['scripts/check.sh', 'security-review']) {
+  for (const selector of startupSelectors) {
+    test(`actual ${path} refuses ${selector} before starting Node`, () => {
+      const configured = selector === 'NODE_OPTIONS' ? `--require ${JSON.stringify(preload)}` : '/synthetic/off-tree/source.mjs'
+      for (const value of [configured, '']) {
+        const marker = join(scratch, `startup-${path.replaceAll('/', '-')}-${selector}-${value ? 'configured' : 'empty'}`)
+        const env = { ...startupEnvironment(), AUKORA_RUNNER_STARTUP_MARKER: marker, [selector]: value }
+        // The sentinel stops an unfixed empty-option/source-override launcher
+        // before any full profile. A nonempty NODE_OPTIONS uses real preloading.
+        if (selector !== 'NODE_OPTIONS' || value === '') env.PATH = `${sentinelBin}:${env.PATH}`
+        const child = spawnSync('/bin/sh', [fileURLToPath(new URL(`../${path}`, import.meta.url)), '--help'],
+          { timeout: 10000, env })
+        assert.equal(child.error, undefined)
+        assert.throws(() => readFileSync(marker), { code: 'ENOENT' }, 'Node must not start')
+        assert.equal(child.status, 1)
+        assert.match(child.stderr.toString(), selector === 'NODE_OPTIONS'
+          ? /review:node-options-forbidden/u : /review:source-override-forbidden/u)
+      }
+    })
+  }
+}
+test('the actual imported review runner refuses startup/source overrides before dispatch', () => {
+  for (const name of startupSelectors) {
+    const previous = process.env[name]
+    try {
+      for (const value of ['synthetic forbidden override', '']) {
+        process.env[name] = value
+        assert.throws(() => runReviewChecks({ list: true }), name === 'NODE_OPTIONS'
+          ? /review:node-options-forbidden/u : /review:source-override-forbidden/u)
+      }
+    } finally {
+      if (previous === undefined) delete process.env[name]; else process.env[name] = previous
+    }
+  }
+})
+test('the actual direct review CLI refuses contaminated acceptance after interpreter startup', () => {
+  for (const name of startupSelectors) {
+    const child = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/audit/security-review.mjs', import.meta.url)), '--help'],
+      { timeout: 10000, env: { ...startupEnvironment(), [name]: '' } })
+    assert.equal(child.error, undefined)
+    assert.equal(child.status, 1)
+    const report = JSON.parse(child.stdout)
+    assert.equal(report.reason, name === 'NODE_OPTIONS' ? 'review:node-options-forbidden' : 'review:source-override-forbidden')
+    assert.equal(report.summary.fail, 1)
+    assert.equal(report.summary.unperformed, REVIEW_PROFILE.length)
+  }
+})
 function disposableRunner(name) {
   const root = join(scratch, name), path = join(root, 'scripts/audit/security-review.mjs')
   mkdirSync(join(root, 'scripts/audit'), { recursive: true }); writeFileSync(path, runnerSource)
@@ -49,6 +108,7 @@ test('fixed profile wires the named checks with the actual Node/Python runtimes'
     ['owner-card-clarity', 'tests/aukora-owner-card-clarity.test.mjs'],
     ['plugin-set-floor-card', 'tests/aukora-plugin-set-floor-card.test.mjs'],
     ['owner-key', 'packages/owner-key/checks/owner-key.test.mjs'],
+    ['host-capture-retention', 'tests/kira-gate-capture-host.test.mjs'],
     ['aura-lifecycle-citation', 'scripts/aura/checks/collector.mjs'],
     ['kira-aura-recall', 'tests/kira-aura-recall.test.mjs'],
     ['containment-verdict-firewall', 'tests/aukora-containment.test.mjs'],
@@ -59,6 +119,8 @@ test('fixed profile wires the named checks with the actual Node/Python runtimes'
   const bootstrap = byId.get('protected-bootstrap')
   assert.deepEqual(reviewCommand(bootstrap), ['/usr/bin/python3', '-I', '-S', 'packages/boundary-gate/host/install/check-bootstrap.py'])
   assert.equal(bootstrap.report, 'unittest')
+  assert.deepEqual(byId.get('containment-verdict-firewall').args, ['--test', '--test-reporter=tap',
+    'tests/aukora-containment.test.mjs', 'tests/aukora-auma-firewall.test.mjs', 'tests/aukora-openshell-confinement.test.mjs'])
   for (const row of REVIEW_PROFILE) {
     assert(Object.isFrozen(row)); assert(Object.isFrozen(row.args))
     if (row.report === 'tap') assert(row.args.includes('--test-reporter=tap'))
@@ -222,6 +284,7 @@ test('shell runner executes the same mandatory checks exactly once', () => {
     'host/install/check-bootstrap.py', 'tests/aukora-owner-card-clarity.test.mjs', 'packages/owner-key/checks/owner-key.test.mjs',
     'tests/aukora-plugin-set-floor-card.test.mjs',
     'tests/aukora-containment.test.mjs', 'tests/aukora-auma-firewall.test.mjs',
+    'tests/aukora-openshell-confinement.test.mjs', 'tests/kira-gate-capture-host.test.mjs',
     'scripts/aura/checks/collector.mjs', 'tests/kira-aura-recall.test.mjs', 'tests/security-review-runner.test.mjs']) {
     const rows = shell.split('\n').filter(line => /^check(?:_tap|_unittest)? /u.test(line) && line.includes(path))
     assert.equal(rows.length, 1, path)
@@ -248,8 +311,10 @@ test('shell watchdog only times out its own fixture and redacts failure output/s
   const privacyCode = "console.log('authorization=synthetic-private-sentinel');process.exit(1)"
   const privateResult = shellChild('privacy', [process.execPath, '--eval', privacyCode].map(quote).join(' '))
   assert.equal(privateResult.status, 'FAIL'); assert(!privateResult.row.includes('synthetic-private-sentinel'))
-  const envCode = "process.exit(['FIXTURE_MUTANT','AUKORA_RECORDS_MODULE','AUKORA_PRIME_CHECK_GIT','AUKORA_AURA_CHECK_GIT','AUKORA_AURA_CITATION_BASE','NODE_TEST_CONTEXT'].some(k=>k in process.env)||process.env.GIT_NO_LAZY_FETCH!=='1'?1:0)"
+  const envCode = "process.exit(['FIXTURE_MUTANT','AUKORA_RECORDS_MODULE','AUKORA_PRIME_CHECK_GIT','AUKORA_AURA_CHECK_GIT','AUKORA_AURA_CITATION_BASE','NODE_TEST_CONTEXT','NODE_OPTIONS','AUKORA_TEST_KIRA_SOURCE','AUKORA_TEST_AURA_SOURCE'].some(k=>k in process.env)||process.env.GIT_NO_LAZY_FETCH!=='1'?1:0)"
   const cleared = shellChild('environment', [process.execPath, '--eval', envCode].map(quote).join(' '), 'plain', perl,
-    { ...process.env, FIXTURE_MUTANT: 'synthetic', AUKORA_RECORDS_MODULE: 'synthetic', AUKORA_PRIME_CHECK_GIT: 'synthetic', AUKORA_AURA_CHECK_GIT: 'synthetic', AUKORA_AURA_CITATION_BASE: 'synthetic' })
+    { ...process.env, FIXTURE_MUTANT: 'synthetic', AUKORA_RECORDS_MODULE: 'synthetic', AUKORA_PRIME_CHECK_GIT: 'synthetic', AUKORA_AURA_CHECK_GIT: 'synthetic', AUKORA_AURA_CITATION_BASE: 'synthetic',
+      NODE_OPTIONS: `--require ${JSON.stringify(preload)}`, AUKORA_TEST_KIRA_SOURCE: 'synthetic', AUKORA_TEST_AURA_SOURCE: 'synthetic',
+      AUKORA_RUNNER_STARTUP_MARKER: join(scratch, 'child-environment-preload') })
   assert.equal(cleared.status, 'PASS', cleared.row)
 })
