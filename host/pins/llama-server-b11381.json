@@ -1,0 +1,256 @@
+{
+  "name": "llama.cpp llama-server (CPU embedder for openviking, 127.0.0.1:1934)",
+  "version": "b11381",
+  "upstream_commit": "836d57176",
+  "version_output": "version: 0.5.0-dev (build 11381, commit 836d57176)",
+  "install_dir": "/opt/llama.cpp/b11381",
+  "owner": "root:root",
+  "mode": "0755",
+  "entry": "llama-server",
+  "entry_sha256": "ba06d25b4fea342dd057cc2efd480d45d80d1de646ad3f98eb9d33255b88d34c",
+  "symlinks": [
+    {
+      "path": "libggml-base.so",
+      "target": "libggml-base.so.0"
+    },
+    {
+      "path": "libggml-base.so.0",
+      "target": "libggml-base.so.0.25.3"
+    },
+    {
+      "path": "libggml.so",
+      "target": "libggml.so.0"
+    },
+    {
+      "path": "libggml.so.0",
+      "target": "libggml.so.0.25.3"
+    },
+    {
+      "path": "libllama-common.so",
+      "target": "libllama-common.so.0"
+    },
+    {
+      "path": "libllama-common.so.0",
+      "target": "libllama-common.so.0.5.0"
+    },
+    {
+      "path": "libllama.so",
+      "target": "libllama.so.0"
+    },
+    {
+      "path": "libllama.so.0",
+      "target": "libllama.so.0.5.0"
+    },
+    {
+      "path": "libmtmd.so",
+      "target": "libmtmd.so.0"
+    },
+    {
+      "path": "libmtmd.so.0",
+      "target": "libmtmd.so.0.5.0"
+    }
+  ],
+  "verify": "every files[].sha256 must match under install_dir and no other file may be present; the runtime must refuse any other llama-server",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+    },
+    {
+      "path": "ggml-rpc-server",
+      "sha256": "b124141282ccf73695f6ce723c383fc4297eafcce8cb1e1f313b2d7898bbb2c1"
+    },
+    {
+      "path": "libggml-base.so.0.25.3",
+      "sha256": "ccbc14474bd4c9a26355f834fd5e52af7138b2ef469a7fd2422a206c58ed8209"
+    },
+    {
+      "path": "libggml-cpu-alderlake.so",
+      "sha256": "f61b5572c5335791a3ecf1257f7731a0224e98bc575ddb7584b75760fdac0606"
+    },
+    {
+      "path": "libggml-cpu-cannonlake.so",
+      "sha256": "eeb0e4d92338d5422cbe6fd2a8ac341d18ddc3be353c9fc3a18185017dab4cf0"
+    },
+    {
+      "path": "libggml-cpu-cascadelake.so",
+      "sha256": "035badb60e6795258da986a413456c1f0b433a61bf8f778eac7b66b65f959399"
+    },
+    {
+      "path": "libggml-cpu-cooperlake.so",
+      "sha256": "6214a7d1818490bb334b53f2e4988f9021f809a5b75b01299ab3c2ba49297d45"
+    },
+    {
+      "path": "libggml-cpu-haswell.so",
+      "sha256": "e33722c998d99613c1be1a430282baa1a82a1ead13dca3953d9084fd202abef6"
+    },
+    {
+      "path": "libggml-cpu-icelake.so",
+      "sha256": "bbf5418d476fc8a2061d5e83a0aa4a874d5463630713dc46daff14c6c9382ace"
+    },
+    {
+      "path": "libggml-cpu-ivybridge.so",
+      "sha256": "bde5f278a8df1753812700188bca35c2119fac702db939f1f1e3bb469e2d9d83"
+    },
+    {
+      "path": "libggml-cpu-piledriver.so",
+      "sha256": "51ca2fc37c2154292d6a24aab82fcb9a6a202db4a143fb62740ed42e26957b0e"
+    },
+    {
+      "path": "libggml-cpu-sandybridge.so",
+      "sha256": "41d80d38967900be9bb50dde9b8d1db5e16b0852534384b018d8b3cd054f12d9"
+    },
+    {
+      "path": "libggml-cpu-sapphirerapids.so",
+      "sha256": "3120f1780970edc077c1d841d6709b92bc6a9301bf740890118027176df173c6"
+    },
+    {
+      "path": "libggml-cpu-skylakex.so",
+      "sha256": "3c3fcc2f43b3654ea9f63957b40b69c7793a10a1567fee0abbe7fd6453e8c2ad"
+    },
+    {
+      "path": "libggml-cpu-sse42.so",
+      "sha256": "15ccc2e4d415b5d236a3e14f04661b3b0f8c3607dd8174b1212351eb02d13d81"
+    },
+    {
+      "path": "libggml-cpu-x64.so",
+      "sha256": "c435f2ba677e1dc332ee15ec8449c27dc4dd03bebf8f8817efe056935621ed2b"
+    },
+    {
+      "path": "libggml-cpu-zen4.so",
+      "sha256": "b745d19c139747400166a7f8bc5be2919964b6e063210ea693cb8cc431e4bd27"
+    },
+    {
+      "path": "libggml-rpc.so",
+      "sha256": "674f64cd4561acc0cb75043da84edc25a22a1aef1083ee963cb2879e4463c672"
+    },
+    {
+      "path": "libggml.so.0.25.3",
+      "sha256": "354c630e37df7982af7b2d032aafdb0548f8e2f3a255ff0778027e531a357b82"
+    },
+    {
+      "path": "libllama-batched-bench-impl.so",
+      "sha256": "0478b7603ebe3bd08ef7796460ca4f7e78e2d3f5370fe20ffa034708b65e92c9"
+    },
+    {
+      "path": "libllama-bench-impl.so",
+      "sha256": "9a162d9cdf37cc76e0711d9af68cbb51b9b0db8be7f385bb3650383223983d09"
+    },
+    {
+      "path": "libllama-cli-impl.so",
+      "sha256": "cf2ccbab9fb5aa25138fb96762253655f104f1e50f38b5b9c706bd6fff503d0b"
+    },
+    {
+      "path": "libllama-common.so.0.5.0",
+      "sha256": "44b1d53571d391985e22f70f2bd4933fe9834555eaec0d551c710dae346e58fa"
+    },
+    {
+      "path": "libllama-completion-impl.so",
+      "sha256": "3b0385e3050f9bbea3a7eda23b19d846c3e2c1a36b4f14dc371f64594e2fe405"
+    },
+    {
+      "path": "libllama-fit-params-impl.so",
+      "sha256": "3295a44b3ae5e81dadef42f69f4ed17e19c79796bd252a1c129bc405a0791801"
+    },
+    {
+      "path": "libllama-perplexity-impl.so",
+      "sha256": "fdf7a088fb9ee2d415f725ac4063cf288a8e24df8c0b49bb727e7b4650a3e387"
+    },
+    {
+      "path": "libllama-quantize-impl.so",
+      "sha256": "510e169cfd384703bd504c92be4871959530f593ad5f7dbd32e04fcec6eaf3d5"
+    },
+    {
+      "path": "libllama-server-impl.so",
+      "sha256": "a3bb33003cdacb208d423b03edf935eb0d970d09e459af0ef14d36006e763342"
+    },
+    {
+      "path": "libllama.so.0.5.0",
+      "sha256": "f116f14903cdf46ea4fa8f162908cbfe2231001dbbbd54d084c15010c3997fc3"
+    },
+    {
+      "path": "libmtmd.so.0.5.0",
+      "sha256": "73018e85b4f11665025686dad28809777dcf0d1a7e65965e62f0b869d417dbea"
+    },
+    {
+      "path": "llama",
+      "sha256": "5588711cbf4c2f0b4227f2f08ce84792dc2b3d24fb70811d78984074340a8f9a"
+    },
+    {
+      "path": "llama-batched-bench",
+      "sha256": "3b70e62c5c5cf43c8c436622a845ad4b80c01837d6ba3a10c90e39b219bbd2ab"
+    },
+    {
+      "path": "llama-bench",
+      "sha256": "c559535ea10841f9b3ad04a7605f3cef6a08fe8829e023db0f1ce705dc1d65db"
+    },
+    {
+      "path": "llama-cli",
+      "sha256": "4bda8fbeae6171218425abc12321c243b5d778ffb8d22453d7658911c2936bf3"
+    },
+    {
+      "path": "llama-completion",
+      "sha256": "7119bef261611b26f326f7c4da4dc3fdeb7bb28e2faf1ec392bda7b21215ef52"
+    },
+    {
+      "path": "llama-fit-params",
+      "sha256": "b2ad073a0c093706e5dfdfe2c9864d199ed921e49ea0383a7d0013e2ad8a81c8"
+    },
+    {
+      "path": "llama-gemma3-cli",
+      "sha256": "053ff1b820407b8a1836b0b05d1ffcc91e56b6531f08d9b00b8dfb97a41de294"
+    },
+    {
+      "path": "llama-gguf-split",
+      "sha256": "d371cd59cb824765a02ba4e9eb2d4590f80d866e47558a3426778d66836f1d33"
+    },
+    {
+      "path": "llama-imatrix",
+      "sha256": "6800e90eb0841c28d05e20081e7d9d9bd2497c68abb4c062eee08946479dade0"
+    },
+    {
+      "path": "llama-llava-cli",
+      "sha256": "053ff1b820407b8a1836b0b05d1ffcc91e56b6531f08d9b00b8dfb97a41de294"
+    },
+    {
+      "path": "llama-minicpmv-cli",
+      "sha256": "053ff1b820407b8a1836b0b05d1ffcc91e56b6531f08d9b00b8dfb97a41de294"
+    },
+    {
+      "path": "llama-mtmd-cli",
+      "sha256": "1e062a9e75f294f782f310fd3656cc385c37eca95968b18c4e9fac4078fb5cdb"
+    },
+    {
+      "path": "llama-mtmd-debug",
+      "sha256": "77ee16216fa579d41b908ce4aecbc3944168de246601252368982e41f1da8d42"
+    },
+    {
+      "path": "llama-perplexity",
+      "sha256": "1c06240ed8594fd377d655aef2dab0865431e3e779c06638474c96b38e6d74a0"
+    },
+    {
+      "path": "llama-quantize",
+      "sha256": "46bdebebf26e85e03771bb103505b950cb53ac184d4241dd0df2b88c9e5212ad"
+    },
+    {
+      "path": "llama-qwen2vl-cli",
+      "sha256": "053ff1b820407b8a1836b0b05d1ffcc91e56b6531f08d9b00b8dfb97a41de294"
+    },
+    {
+      "path": "llama-results",
+      "sha256": "94d9d9367b317a0294dca14629efe638606838ec44603e28c9191b2f60528e1e"
+    },
+    {
+      "path": "llama-server",
+      "sha256": "ba06d25b4fea342dd057cc2efd480d45d80d1de646ad3f98eb9d33255b88d34c"
+    },
+    {
+      "path": "llama-tokenize",
+      "sha256": "2de709d8b6a2a2844b0cedc6989e86de278ad8580d5406479ba8ae458bed8a85"
+    },
+    {
+      "path": "llama-tts",
+      "sha256": "3d07a7c6812c0041e06b261bb2894deed4cac850d00ac882b9c5ffeac631fcf0"
+    }
+  ]
+}
