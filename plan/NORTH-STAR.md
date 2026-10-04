@@ -24,22 +24,27 @@ THE BODY (where each organ lives in Prime main; status = RAN on Nebius / SOURCE 
 - [SOURCE] NOSTR (her voice to the world): the Aumlok identity's public key; encrypted messages and contacts with safety
   numbers; next: identity backup and home-anywhere sync.
 - KERNEL + ACTION GATE + PHI-GUARD + PATH FENCES: every tool call judged before it runs; one-use authority.
-  [RAN] action gate + file/shell secret-path fences (fence-r2) on Nebius; [SOURCE] phi-guard.
+  [RAN] action gate + file fence + literal shell secret-path tripwire (fence-r2..r4) on Nebius; [SOURCE] phi-guard.
 - [SOURCE] WASM CELL: proposals run in a sealed WebAssembly cell before they become effects (plugins/aukora-box/.../wasm-proposal-cell).
 - SELF-CHANGE: Auma proposes a change to herself -> owner approves -> Cordis hot-reload -> receipt. Theme-only first.
   [RAN] gate propose -> OWNER review -> approve applies exact bytes -> signed receipt (dry run, harness-channel TEST proposal);
-  [NOT YET] a tool for Auma to propose to the gate; [NOT YET] hot-reload of the applied theme.
+  [RAN 2026-10-04 11:08 UTC+8] Auma's own gate tool proposed accent #FFD700 (b9187db9), the owner approved it in the
+  popup, the gate applied it and signed the receipt, and the running interface picked it up without a restart (hot-reload).
 - THE MIND (later): today DeepSeek [RAN]; next the Nebius recursion model (Ornith) as a model provider, trained on her
   own verified life [NOT YET]; routes to other models through a host-held, capped ask_model tool. The walls stay outside the model.
 
 TARGET DEMO (the plane), each step tagged with 2026-10-04 truth:
 - [RAN] Auma chats in the Genesis UI on Nebius
-- [NOT YET] her shell runs in OpenShell as `auma` (L1)
-- [RAN] she cannot read the host or approve her own change
-- [RAN, dry run] owner approves a theme change in the popup (Auma-originated proposal NOT YET)
-- [NOT YET] hot-reload; [RAN] signed receipt
+- [RAN, partial] her one-shot bash runs in OpenShell as `auma` (L1-a, live since 9ed4380); run_code, terminals and
+  background bash (L1 R2) are refused until the guest carrier is qualified
+- [NOT YET] she cannot read the host: her file tools still run on the host inside the file fence; claimed only when L1 is
+  complete
+- [RAN] she cannot approve her own change
+- [RAN 11:08] owner approves Auma's own theme proposal in the popup
+- [RAN 11:08] hot-reload; [RAN] signed receipt
 - [RAN] she remembers across a restart
-- [NOT YET] a stranger verifies the receipts with minimal/verify.py
+- [RAN] a stranger verifies the receipt and the signed ledger (docs/evidence/l2-demo-2026-10-04/verify.mjs), and since
+  08a602d against the ledger head anchored outside the pilot (branch ledger-anchor)
 
 AFTER THE DEMO (waves, one family per bee, queen merges, live on Nebius after each):
 1. Wire every organ above that is SOURCE-only on Nebius into the running app (Nostr, WASM cell, membrane verifier
