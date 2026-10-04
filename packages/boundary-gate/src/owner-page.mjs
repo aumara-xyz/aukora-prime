@@ -67,7 +67,14 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
       const want = (s?.accentOf?.(gate.blobText(p.new_sha)) ?? '').replace(/^#/, '').toUpperCase(), typed = String(f.get('typed') ?? '').trim().replace(/^#/, '').toUpperCase()
       if (!c || c.id !== id || c.base !== p.base_sha || c.new !== p.new_sha || now() > c.exp) msg = 'not applied: confirmation expired or invalid - start again with Approve (step 1).'
       else if (!want || typed !== want) msg = `not applied: typed confirmation "${typed.slice(0, 20)}" does not match the result. Nothing changed.`
-      else { const r = gate.ownerOps.approve({ id }, PAGE_APPROVER); msg = r.applied ? `APPLIED ${p.target} — ledger #${r.ledger_seq}` : `not applied: ${r.message}` }
+      else {
+        // The one ceremony: a fresh review challenge over the exact base/new, then decide_review (no direct approve).
+        try {
+          const rv = gate.ownerOps.review({ id })
+          const r = gate.ownerOps.decide_review({ id, base_sha: rv.base_sha, new_sha: rv.new_sha, review_challenge: rv.review_challenge, outcome: 'allowed-once' }, PAGE_APPROVER)
+          msg = r.applied ? `APPLIED ${p.target} — ledger #${r.ledger_seq}` : `not applied: ${r.message}`
+        } catch (e) { msg = `not applied: ${String(e?.message ?? e).slice(0, 200)}` }
+      }
     } else msg = 'unknown action; nothing done'
     return { status: 200, body: pageHtml(msg, confirmFor) }
   }

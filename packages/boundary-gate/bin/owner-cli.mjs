@@ -25,5 +25,12 @@ if (!['approve', 'reject'].includes(op) || !pre || pre.length < 8) { console.err
 const m = pending.filter(p => p.id.startsWith(pre)); if (m.length !== 1) { console.error(`refused: ${m.length} pending proposals match ${pre}`); process.exit(3) }
 const p = m[0]
 if (op === 'approve' && (!sha || sha.length < 12 || !p.new_sha.startsWith(sha))) { console.error(`refused: expected result sha256 prefix (>=12 hex) must match the pending proposal (${p.new_sha.slice(0, 12)}…)`); process.exit(4) }
-const r = await call(sock, op, { id: p.id })
+// approve runs the one ceremony: review (fresh challenge, exact base/new; must still be the sha the operator named) ->
+// decide_review. There is no direct approve on the owner socket.
+let r
+if (op === 'approve') {
+  const rv = await call(sock, 'review', { id: p.id })
+  if (rv.new_sha !== p.new_sha || !rv.new_sha.startsWith(sha)) { console.error('refused: the reviewed proposal is not the one named'); process.exit(4) }
+  r = await call(sock, 'decide_review', { id: p.id, base_sha: rv.base_sha, new_sha: rv.new_sha, review_challenge: rv.review_challenge, outcome: 'allowed-once' })
+} else r = await call(sock, op, { id: p.id })
 console.log(JSON.stringify({ proposal: p.id.slice(0, 8), result: r.state, applied: r.applied, message: r.message, ledger_seq: r.ledger_seq ?? null, approver: r.receipt?.approver ?? null, evidence_hmac: r.receipt?.approval_evidence_hmac ? r.receipt.approval_evidence_hmac.slice(0, 16) + '…' : null }))

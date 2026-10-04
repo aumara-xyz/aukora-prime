@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { tmpHome } from './support/fixture.mjs'
+import { tmpHome, approveViaReview } from './support/fixture.mjs'
 import { createGate } from '../src/gate.mjs'
 import { loadOwnerSecret, rotateBearer } from '../src/secrets.mjs'
 import { openDb, sha256 } from '../src/ledger.mjs'
@@ -83,7 +83,7 @@ test('approve: bytes written by the gate, receipt verifies against key and ledge
   assert.ok(gate.db.prepare("SELECT 1 FROM ledger WHERE event='genesis-target'").get())
   const p = propose(gate, '#1E90FF', 'Switch accent to blue.')
   assert.equal(fs.readFileSync(file, 'utf8'), theme('#FFD700'))
-  const r = gate.ownerOps.approve({ id: p.id }, 'owner test')
+  const r = approveViaReview(gate, p.id)
   assert.equal(r.applied, true); assert.equal(fs.readFileSync(file, 'utf8'), theme('#1E90FF'))
   assert.equal(r.receipt.new_sha, sha256(theme('#1E90FF'))); assert.equal(r.receipt.base_sha, sha256(theme('#FFD700')))
   const db = openDb(path.join(home, 'gate.db'), { readOnly: true })
@@ -103,7 +103,7 @@ test('approve: bytes written by the gate, receipt verifies against key and ledge
 
 test('reject and revert: owner reject is ledgered and signed; revert is a new owner-approved proposal with its own receipt', () => {
   const { gate, clock, home, file } = realGate()
-  const p = propose(gate, '#1E90FF'); gate.ownerOps.approve({ id: p.id }, 'owner test')
+  const p = propose(gate, '#1E90FF'); approveViaReview(gate, p.id)
   clock.t += 61_000
   const q = propose(gate, '#FF0000'); assert.equal(gate.ownerOps.reject({ id: q.id }, 'owner test').state, 'refused')
   assert.equal(fs.readFileSync(file, 'utf8'), theme('#1E90FF'))
@@ -116,7 +116,7 @@ test('reject and revert: owner reject is ledgered and signed; revert is a new ow
   const rv = gate.proposeOps.revert({ target: THEME_TARGET, to_sha: 'previous', why: 'back to gold' })
   assert.equal(rv.kind, 'revert'); assert.equal(fs.readFileSync(file, 'utf8'), theme('#1E90FF'))
   assert.throws(() => gate.proposeOps.close({ id: rv.id, outcome: 'allowed-once' }), /cannot approve/)
-  const r = gate.ownerOps.approve({ id: rv.id }, 'owner test')
+  const r = approveViaReview(gate, rv.id)
   assert.equal(r.applied, true); assert.equal(r.receipt.kind, 'revert'); assert.equal(fs.readFileSync(file, 'utf8'), theme('#FFD700'))
   assert.equal(gate.db.prepare('SELECT event FROM ledger WHERE seq=?').get(r.ledger_seq).event, 'revert-applied')
   assert.equal(verifyReceipt(openDb(path.join(home, 'gate.db'), { readOnly: true }), r.receipt, r.receipt_sig, gate.pubPem).ok, true)
@@ -131,7 +131,7 @@ test('start-up: non-canonical current bytes are not adopted; symlink swap at app
   const p = propose(gate, '#1E90FF')
   const decoy = path.join(root, 'decoy'); fs.mkdirSync(decoy); fs.writeFileSync(path.join(decoy, 'theme.json'), theme('#FFD700'))
   const dir = path.dirname(file); fs.renameSync(dir, dir + '.moved'); fs.symlinkSync(decoy, dir)
-  assert.throws(() => gate.ownerOps.approve({ id: p.id }, 'owner test'), /symlink in target path/)
+  assert.throws(() => approveViaReview(gate, p.id), /symlink in target path/)
   assert.equal(fs.readFileSync(path.join(decoy, 'theme.json'), 'utf8'), theme('#FFD700'))
   assert.equal(gate.proposeOps.state({ id: p.id }).state, 'pending')   // refused before spending; nothing written
 })
@@ -159,7 +159,7 @@ test('harness client over the real PROPOSE socket has no approve path; self-chec
 
 test('bin: serve requires a target root; verify-receipt accepts a real receipt and refuses a forged one', () => {
   const { gate, home } = realGate()
-  const p = propose(gate, '#1E90FF'); const r = gate.ownerOps.approve({ id: p.id }, 'owner test')
+  const p = propose(gate, '#1E90FF'); const r = approveViaReview(gate, p.id)
   gate.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
   const pub = path.join(home, 'pub.pem'); fs.writeFileSync(pub, gate.pubPem)
   const good = path.join(home, 'r.json'); fs.writeFileSync(good, JSON.stringify({ receipt: r.receipt, receipt_sig: r.receipt_sig }))

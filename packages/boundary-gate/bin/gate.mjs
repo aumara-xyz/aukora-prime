@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Boundary gate entry (run as the gate user, e.g. `sudo -n -u aukora-gate -H node bin/gate.mjs serve ...`).
-//   serve  --home DIR --run DIR --target-root DIR [--port 17792] [--gid N] [--time-zone Area/City]
+//   serve  --home DIR --run DIR --target-root DIR [--owner-page [--port 17792]] [--gid N] [--time-zone Area/City]
+//          The owner web page is OFF unless --owner-page; the popup (owner socket review -> decide_review) is the ceremony.
 //   verify --home DIR | --db FILE --pub FILE      (ledger chain + signatures; exit 0 ok / 1 broken)
 //   verify-receipt --db FILE --pub FILE --receipt FILE   (receipt JSON {receipt, receipt_sig}; exit 0 ok / 1 not)
 // umask 027 is applied before anything is created. The allowlist is the reviewed declarative registry in
@@ -19,7 +20,7 @@ import { verifyReceipt } from '../src/receipts.mjs'
 process.umask(0o027)
 const [cmd, ...rest] = process.argv.slice(2)
 const { values: o } = parseArgs({ args: rest, options: { home: { type: 'string' }, run: { type: 'string' }, port: { type: 'string' }, gid: { type: 'string' },
-  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, receipt: { type: 'string' } }, strict: true })
+  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' } }, strict: true })
 const abs = (label, p) => { if (!p || !path.isAbsolute(p)) { console.error(`--${label} must be an absolute path`); process.exit(2) } return p }
 
 if (cmd === 'verify') {
@@ -39,8 +40,8 @@ if (cmd === 'verify') {
   const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root'])), store: gateStore({ gid: Number(o.gid) || 0 }) })
   const v = gate.startup({ bearerInfo })
   if (!v.ok) console.error('LEDGER VERIFY FAILED', v.errors)
-  const srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC' })
-  console.log(`boundary-gate PROPOSE ${srv.proposeSocket} OWNER ${srv.ownerSocket} (0600) OWNER-HTTP loopback:${srv.port} pubkey ${gate.fp} targets ${Object.keys(gate.targets).length}`)
+  const srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC', ownerPage: o['owner-page'] === true })
+  console.log(`boundary-gate PROPOSE ${srv.proposeSocket} OWNER ${srv.ownerSocket} (0600) OWNER-HTTP ${srv.port === null ? 'off' : 'loopback:' + srv.port} pubkey ${gate.fp} targets ${Object.keys(gate.targets).length}`)
   const stop = () => srv.close().finally(() => { gate.close(); process.exit(0) })
   process.on('SIGTERM', stop); process.on('SIGINT', stop)
 } else {

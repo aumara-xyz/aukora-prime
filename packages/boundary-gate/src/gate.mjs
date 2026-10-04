@@ -319,13 +319,14 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   const ownerOps = {
     pending: () => ({ pubkey_fp: key.fp, pending: pendingRows().map(p => ({ ...p, ...cardView(p) })) }),
     rotate_bearer: () => { const r = rotateBearer(home, owner, now); append('owner-bearer-rotated', { detail: { fp8: r.fp, expires: r.expires, via: 'owner.sock' } }); return { rotated: true, expires: r.expires } },
-    approve: ({ id }, approver) => ownerDecide({ id, outcome: 'allowed-once' }, approver),
     reject: ({ id }, approver) => ownerDecide({ id, outcome: 'rejected' }, approver),
     review: (a) => review(a),
     decide_review: (a, approver) => decideReview(a, approver),
     status: proposeOps.status, log: proposeOps.log, verify: proposeOps.verify,
   }
   if (['approve', 'decide', 'review', 'decide_review'].some(op => Object.hasOwn(proposeOps, op))) throw new Error('invariant: the propose channel must not expose approval')
+  // ONE approval ceremony: review (fresh single-use challenge over exact base/new) -> decide_review. No direct approve.
+  if (['approve', 'decide'].some(op => Object.hasOwn(ownerOps, op))) throw new Error('invariant: the owner channel approves only through review -> decide_review')
 
   return Object.freeze({
     proposeOps: Object.freeze(proposeOps), ownerOps: Object.freeze(ownerOps), startup, cardView, pendingRows, blobText, spec,

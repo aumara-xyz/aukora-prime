@@ -35,3 +35,9 @@ export function makeGate({ initial = { [ACCENT]: accent('#FFD700') }, limits = {
   gate.startup({ pid: 1 })
   return { gate, store, clock, home, owner }
 }
+
+// The one approval ceremony, as the popup runs it: review (single-use challenge) -> decide_review with exact base/new.
+export function approveViaReview(gate, id, approver = 'owner test') {
+  const rv = gate.ownerOps.review({ id })
+  return gate.ownerOps.decide_review({ id, base_sha: rv.base_sha, new_sha: rv.new_sha, review_challenge: rv.review_challenge, outcome: 'allowed-once' }, approver)
+}

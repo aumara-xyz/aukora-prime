@@ -22,9 +22,12 @@ Source: `aumara-xyz/aukora-genesis`, `labs/deepseek-harness-boundary` at lab tip
 The gate runs as `aukora-gate` (`bin/gate.mjs serve --home DIR --run DIR`). The harness reaches only the
 PROPOSE socket (0660, group `skgate`): it can read targets, propose exact new bytes against a required
 base sha256, read the audit log and close (reject/cancel) a pending proposal. It has no approve operation;
-an approving `close` is refused and recorded. Approval exists only on the OWNER socket (0600, gate user)
-and on the gate-served owner page (loopback, bearer link rotated on every start and expiring after 12 h,
-two-step typed confirmation). An approval is single use (pending to applying before any write), rechecks
+an approving `close` is refused and recorded. Approval exists only on the OWNER socket (0600, gate user) and
+only as ONE ceremony: `review` (a fresh single-use challenge over the exact base/new, 120 s) then `decide_review`
+echoing it. There is no direct `approve` op (the gate refuses to start if one is added). The owner's popup runs
+this ceremony through the Mac bridge; `bin/owner-cli.mjs approve` (pilot break-glass) runs the same two steps. The
+gate-served owner page is OFF unless `--owner-page` is given (then loopback, 12 h rotating bearer, two-step typed
+confirmation, and its approval also runs review -> decide_review). An approval is single use (pending to applying before any write), rechecks
 the base hash, writes bytes from the gate's own version store, verifies the result and returns an
 Ed25519-signed receipt whose HMAC evidence binds id, base, result and approver. Every event is appended to
 a hash-chained, signed SQLite ledger with append-only triggers (`bin/gate.mjs verify`). Rate limits are

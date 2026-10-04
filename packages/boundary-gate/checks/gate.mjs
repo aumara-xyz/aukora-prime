@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHmac, verify as edVerify } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { makeGate, accent, ACCENT, accentTarget, memoryStore, tmpHome } from './support/fixture.mjs'
+import { makeGate, accent, ACCENT, accentTarget, memoryStore, tmpHome, approveViaReview } from './support/fixture.mjs'
 import { createGate } from '../src/gate.mjs'
 import { sha256, verifyLedger, openDb } from '../src/ledger.mjs'
 import { rotateBearer, bearerOk } from '../src/secrets.mjs'
@@ -21,7 +21,7 @@ const events = (g) => g.db.prepare('SELECT event FROM ledger ORDER BY seq').all(
 
 test('ledger: hash chain and Ed25519 signatures verify; append-only; offline tamper detected', () => {
   const { gate, home } = makeGate()
-  const p = propose(gate, '#1E90FF'); gate.ownerOps.approve({ id: p.id }, 'owner test')
+  const p = propose(gate, '#1E90FF'); approveViaReview(gate, p.id)
   const v = gate.verify(); assert.equal(v.ok, true); assert.ok(v.entries >= 4)
   assert.throws(() => gate.db.exec("UPDATE ledger SET event='x' WHERE seq=1"), /append-only/)
   assert.throws(() => gate.db.exec('DELETE FROM ledger WHERE seq=1'), /append-only/)
@@ -43,31 +43,34 @@ test('propose channel can never approve: no approve op, every non-closing outcom
   assert.equal(store.writes, 0)
   assert.equal(events(gate).filter(e => e === 'decide-refused').length, 8)
   assert.equal(gate.proposeOps.close({ id: p.id, outcome: 'cancelled' }).state, 'expired')
-  assert.equal(gate.ownerOps.approve({ id: p.id }, 'owner test').applied, false)
+  assert.throws(() => approveViaReview(gate, p.id), /only a pending proposal can be reviewed/)
   assert.equal(store.writes, 0)
 })
 
 test('owner approval: single use, signed receipt with HMAC evidence, replay/expiry/stale/truncation refused', () => {
   const { gate, store, clock, owner } = makeGate()
-  assert.throws(() => gate.ownerOps.approve({ id: 'x' }), /approver/)
+  assert.equal(Object.hasOwn(gate.ownerOps, 'approve'), false, 'no direct approve on the owner channel')
+  assert.equal(Object.hasOwn(gate.ownerOps, 'decide'), false)
+  { const g0 = makeGate().gate; const p0 = propose(g0, '#00FFFF'); const rv0 = g0.ownerOps.review({ id: p0.id })
+    assert.throws(() => g0.ownerOps.decide_review({ id: p0.id, base_sha: rv0.base_sha, new_sha: rv0.new_sha, review_challenge: rv0.review_challenge, outcome: 'allowed-once' }), /approver/) }
   const p = propose(gate, '#1E90FF')
-  const r = gate.ownerOps.approve({ id: p.id }, 'owner test')
+  const r = approveViaReview(gate, p.id)
   assert.equal(r.applied, true); assert.equal(store.read(ACCENT).toString(), accent('#1E90FF'))
   assert.equal(r.receipt.v, 2); assert.equal(r.receipt.approver, 'owner test'); assert.equal(r.receipt.pubkey_fp, gate.fp)
   assert.ok(edVerify(null, Buffer.from(JSON.stringify(r.receipt)), gate.pub, Buffer.from(r.receipt_sig, 'base64')))
   const hm = createHmac('sha256', Buffer.from(owner.hmacKey, 'hex')).update(`${p.id}\n${p.base_sha}\n${p.new_sha}\nowner test`).digest('base64')
   assert.equal(r.receipt.approval_evidence_hmac, hm)
-  assert.match(gate.ownerOps.approve({ id: p.id }, 'owner test').message, /replay refused/)
+  assert.throws(() => approveViaReview(gate, p.id), /only a pending proposal can be reviewed/)
   clock.t += 61_000
   const p2 = propose(gate, '#FF0000'); clock.t += 5 * 60 * 1000 + 1
-  const r2 = gate.ownerOps.approve({ id: p2.id }, 'owner test'); assert.equal(r2.state, 'expired')
+  assert.throws(() => approveViaReview(gate, p2.id), /proposal expired/)
   clock.t += 61_000
   const p3 = propose(gate, '#008000'); store.files.set(ACCENT, Buffer.from(accent('#000000')))
-  assert.equal(gate.ownerOps.approve({ id: p3.id }, 'owner test').state, 'stale')
+  assert.equal(approveViaReview(gate, p3.id).state, 'stale')
   assert.equal(store.read(ACCENT).toString(), accent('#000000'))
   const big = makeGate({ limits: { popupLimit: 10 } })
   const p4 = propose(big.gate, '#1E90FF'); assert.equal(p4.displayable, false)
-  assert.match(big.gate.ownerOps.approve({ id: p4.id }, 'owner test').message, /too large/)
+  assert.throws(() => approveViaReview(big.gate, p4.id), /too large/)
   assert.equal(big.store.writes, 0)
   assert.equal(gate.verify().ok, true)
 })
@@ -192,7 +195,7 @@ test('a gate with an empty registry refuses every proposal (fail closed)', () =>
 test('sockets: propose 0660 without approval, owner 0600 with fixed approver, owner HTTP on loopback', async () => {
   const { gate, store, owner } = makeGate()
   const runDir = path.join(tmpHome(), 'run')
-  const srv = await serveGate(gate, { runDir, ownerHttpPort: 0 })
+  const srv = await serveGate(gate, { runDir, ownerHttpPort: 0, ownerPage: true })
   try {
     assert.equal(fs.statSync(srv.proposeSocket).mode & 0o777, 0o660)
     assert.equal(fs.statSync(srv.ownerSocket).mode & 0o777, 0o600)
@@ -203,11 +206,24 @@ test('sockets: propose 0660 without approval, owner 0600 with fixed approver, ow
     await assert.rejects(call(srv.proposeSocket, 'close', { id: p.id, outcome: 'allowed-once' }), /cannot approve/)
     const st = await call(srv.proposeSocket, 'status', {}); assert.match(st.proposals[0].id, /…$/)
     const pend = await call(srv.ownerSocket, 'pending', {}); assert.equal(pend.pending.length, 1); assert.ok(pend.pending[0].warnings)
-    const r = await call(srv.ownerSocket, 'approve', { id: p.id }); assert.equal(r.applied, true); assert.equal(r.receipt.approver, OWNER_SOCKET_APPROVER)
+    await assert.rejects(call(srv.ownerSocket, 'approve', { id: p.id }), /unknown op/)
+    const rv = await call(srv.ownerSocket, 'review', { id: p.id })
+    const r = await call(srv.ownerSocket, 'decide_review', { id: p.id, base_sha: rv.base_sha, new_sha: rv.new_sha, review_challenge: rv.review_challenge, outcome: 'allowed-once' })
+    assert.equal(r.applied, true); assert.equal(r.receipt.approver, OWNER_SOCKET_APPROVER)
     assert.equal(store.read(ACCENT).toString(), accent('#1E90FF'))
     const res401 = await fetch(`http://127.0.0.1:${srv.port}/?k=nope`); assert.equal(res401.status, 401)
     const ok = await fetch(`http://127.0.0.1:${srv.port}/?k=${encodeURIComponent(owner.bearer)}`); assert.equal(ok.status, 200)
     assert.match(ok.headers.get('content-security-policy'), /frame-ancestors 'none'/)
     assert.equal(fs.readFileSync(path.join(runDir, 'receipt-ed25519.pub'), 'utf8'), gate.pubPem)
+  } finally { await srv.close() }
+})
+
+test('owner web page is OFF unless asked for: no HTTP listener, no port file', async () => {
+  const { gate } = makeGate()
+  const runDir = path.join(tmpHome(), 'run')
+  const srv = await serveGate(gate, { runDir, ownerHttpPort: 0 })
+  try {
+    assert.equal(srv.port, null); assert.equal(srv.page, null)
+    assert.equal(fs.existsSync(path.join(runDir, 'owner-http.port')), false)
   } finally { await srv.close() }
 })
