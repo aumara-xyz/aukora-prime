@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { guestBashExecutor, guestSpec } from '../lib/index.mjs';
-import { readSettings } from '../lib/transport.mjs';
+import { readSettings, validateConfinementInfo } from '../lib/transport.mjs';
 import { validateGuestPolicy } from '../lib/subprocess.mjs';
 
 const HOST = '/host/workspace';
@@ -26,6 +26,37 @@ class FakeExecutor {
     return resolved;
   }
 }
+
+test('applied profile admits the approved terminal devices and refuses other device grants', () => {
+  const approved = ['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx'];
+  const info = readWrite => ({
+    version: 1, openshell_version: '0.1.2', sandbox: 'auma-ws', state: 'Ready',
+    instance_id: 'synthetic-instance', policy_revision: 1, applied_revision: 1,
+    workspace_root: GUEST, network_mode: 'none',
+    policy: {
+      version: 1,
+      filesystem_policy: {
+        include_workdir: false, read_only: ['/usr', '/proc'], read_write: readWrite,
+      },
+      landlock: { compatibility: 'hard_requirement' }, network_policies: {},
+    },
+  });
+  for (const roots of [approved, [...approved].reverse()]) {
+    const observed = info(roots);
+    assert.equal(validateConfinementInfo(observed), observed);
+  }
+  for (const roots of [
+    approved.slice(0, 3),
+    approved.filter(path => path !== '/dev/pts'),
+    approved.filter(path => path !== '/dev/ptmx'),
+    ['/sandbox', '/tmp', '/dev/null', '/dev', '/dev/ptmx'],
+    [...approved, '/dev/tty'],
+    ['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/pts'],
+  ]) {
+    assert.throws(() => validateConfinementInfo(info(roots)),
+      error => unavailable(error) && error.reason === 'FILE_POLICY');
+  }
+});
 
 test('host workspace configuration must declare one normalized absolute root', () => {
   const settings = readSettings({ hostWorkspaceRoot: HOST });

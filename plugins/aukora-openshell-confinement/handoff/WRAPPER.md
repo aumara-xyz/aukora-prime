@@ -31,7 +31,7 @@ The following closed version-1 envelope is required:
     "filesystem_policy": {
       "include_workdir": false,
       "read_only": ["/bin", "/usr", "/lib", "/etc", "/proc", "/dev/urandom"],
-      "read_write": ["/sandbox", "/tmp", "/dev/null"]
+      "read_write": ["/sandbox", "/tmp", "/dev/null", "/dev/pts", "/dev/ptmx"]
     },
     "landlock": {"compatibility": "hard_requirement"},
     "network_policies": {}
@@ -103,10 +103,11 @@ absence evidence. The guest subreaper/retained-child cleanup cannot independentl
 absence after same-UID carrier destruction. Grok must qualify trusted supervision
 and loss handling on the actual installed path; unknown cleanup remains fenced.
 
-The currently accepted writable paths remain `/sandbox`, `/tmp`, `/dev/null`.
-Measure PTY device access under that actual applied policy. Any necessary device
-grant needs exact operator approval and a separately agreed narrow descriptor;
-this handoff neither adds `/dev` access nor treats source support as permission.
+The accepted writable paths are exactly `/sandbox`, `/tmp`, `/dev/null`,
+`/dev/pts` and `/dev/ptmx`. Peter approved the two terminal device paths inside
+the sandbox. Missing devices, broader `/dev` access and extra device grants
+refuse. Measure PTY and stream behavior under the actual applied policy;
+the approval and this source profile do not establish installed acceptance.
 
 `workspace-write-policy.yml` is a source setup proposal for the startup policy.
 OpenShell's default `best_effort` may run without filesystem rules on enforcement

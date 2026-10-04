@@ -64,13 +64,15 @@ must not be applied to the completed R2 composition. No new DSH API is introduce
 `confine()` makes one bounded, cancellable preparation read through
 `sudo -n -u auma sbx-exec --confinement-info`. It returns `full` file enforcement
 only when the running instance's applied policy has `include_workdir:false`,
-exactly `/sandbox`, `/tmp`, `/dev/null` writable, and Landlock `hard_requirement`.
+exactly `/sandbox`, `/tmp`, `/dev/null`, `/dev/pts` and `/dev/ptmx` writable,
+and Landlock `hard_requirement`.
 Missing, unapplied, broader and `best_effort` policies refuse. No configuration
 flag substitutes for real policy readback. The wrapper must repeat that check
-immediately before every stream admission. The accepted writable roots are not
-widened for PTY setup. Guest Python/waitid/subreaper, PTY device access and syscall
-inspection must be measured under the actual applied policy. Any required new
-device permission needs Peter's separate approval.
+immediately before every stream admission. Peter approved these two terminal
+device paths inside the sandbox; broader or extra device grants refuse. Guest
+Python/waitid/subreaper, PTY device access and syscall inspection must be measured
+under the actual applied policy. Source admission of that approved profile does
+not establish installed execution or lifecycle acceptance.
 
 DSH retains its existing execution deadlines and PTC protocol/output limits.
 Preparation is cancellable. Policy readback has a 25-second deadline; the default
