@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Boundary gate entry (run as the gate user, e.g. `sudo -n -u aukora-gate -H node bin/gate.mjs serve ...`).
-//   serve  --home DIR --run DIR --target-root DIR [--owner-page [--port 17792]] [--gid N] [--time-zone Area/City]
+//   serve  --home DIR --run DIR --target-root DIR [--owner-page [--port 17792]] [--gid N] [--time-zone Area/City] [--journal-id aukora-gate-pilot]
 //          The owner web page is OFF unless --owner-page; the popup (owner socket review -> decide_review) is the ceremony.
 //   verify --home DIR | --db FILE --pub FILE      (ledger chain + signatures; exit 0 ok / 1 broken)
 //   verify-receipt --db FILE --pub FILE --receipt FILE   (receipt JSON {receipt, receipt_sig}; exit 0 ok / 1 not)
@@ -19,8 +19,14 @@ import { verifyReceipt } from '../src/receipts.mjs'
 
 process.umask(0o027)
 const [cmd, ...rest] = process.argv.slice(2)
-const { values: o } = parseArgs({ args: rest, options: { home: { type: 'string' }, run: { type: 'string' }, port: { type: 'string' }, gid: { type: 'string' },
-  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, 'releases-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' } }, strict: true })
+const { values: o, tokens } = parseArgs({ args: rest, options: { home: { type: 'string' }, run: { type: 'string' }, port: { type: 'string' }, gid: { type: 'string' },
+  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, 'releases-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' }, 'journal-id': { type: 'string' } }, strict: true, tokens: true })
+// This fixed public journal is an operator startup binding, never a request or
+// model value. Reject incompatible commands before opening any gate state.
+if (o['journal-id'] !== undefined && (cmd !== 'serve' || o['journal-id'] !== 'aukora-gate-pilot'
+  || tokens.filter(token => token.kind === 'option' && token.name === 'journal-id').length !== 1)) {
+  console.error('--journal-id requires serve and the fixed aukora-gate-pilot journal'); process.exit(2)
+}
 const abs = (label, p) => { if (!p || !path.isAbsolute(p)) { console.error(`--${label} must be an absolute path`); process.exit(2) } return p }
 
 if (cmd === 'verify') {
@@ -37,7 +43,8 @@ if (cmd === 'verify') {
   const home = abs('home', o.home), runDir = abs('run', o.run)
   const owner = loadOwnerSecret(home)
   const bearerInfo = rotateBearer(home, owner)
-  const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }) })
+  const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }),
+    ...(o['journal-id'] === undefined ? {} : { journalId: o['journal-id'] }) })
   const v = gate.startup({ bearerInfo })
   if (!v.ok) console.error('LEDGER VERIFY FAILED', v.errors)
   const srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC', ownerPage: o['owner-page'] === true })
@@ -45,5 +52,5 @@ if (cmd === 'verify') {
   const stop = () => srv.close().finally(() => { gate.close(); process.exit(0) })
   process.on('SIGTERM', stop); process.on('SIGINT', stop)
 } else {
-  console.error('usage: gate.mjs serve --home DIR --run DIR --target-root DIR [--port N] [--gid N] [--time-zone TZ] | verify (--home DIR | --db FILE --pub FILE) | verify-receipt --db FILE --pub FILE --receipt FILE'); process.exit(2)
+  console.error('usage: gate.mjs serve --home DIR --run DIR --target-root DIR [--port N] [--gid N] [--time-zone TZ] [--journal-id aukora-gate-pilot] | verify (--home DIR | --db FILE --pub FILE) | verify-receipt --db FILE --pub FILE --receipt FILE'); process.exit(2)
 }
