@@ -263,7 +263,8 @@ test('actual install interruption cannot admit an uncommitted or stale approval 
 test('explicit migration binds actual owner proof to legacy current floor; no ordinary reset', async () => {
   const w=world(), floor=path.join(w.tmp,'floor.json')
   const old={kind:'aukora-release-floor/v1',release:w.fields.release,release_dir:w.fields.release_dir,record:w.fields.record,applied_at:w.receipt.applied_at,history:[]}
-  fs.writeFileSync(floor,JSON.stringify(old))
+  fs.writeFileSync(floor,JSON.stringify(old),{mode:0o600})
+  assert.equal(fs.statSync(floor).mode & 0o022,0,'legacy fixture floor starts protected under every umask')
   await assert.rejects(cli(w,'install'),/release-floor-migration-required/)
   await cli(w,'migrate-clock-floor'); await cli(w,'check',{floor:true})
   assert.equal(JSON.parse(fs.readFileSync(floor)).ledger_seq,7)

@@ -42,7 +42,7 @@ const approval = (rel, set, rec) => targetsMod.pluginSetApprovalText({ release: 
 const R1 = '7561a97f270e34768dc271f083e091574f7078d2', R2 = '524b8f52906240799ff2ff4727caed637b2dfd73'
 
 test('gate fact: "plugin set unchanged since your approval of <release>" only when the set digest is byte-equal', () => {
-  const spec = targetsMod.pluginSetTarget('/var/lib/x', { releasesRoot: '/nonexistent' })
+  const spec = targetsMod.pluginSetTarget('/var/lib/x', { releasesRoot: '/nonexistent', floorFile: path.join(tmpHome(), 'release-floor.json') })
   assert.equal(spec.approvalTier, undefined, 'no typed-approval tier on the plugin-set target')
   const prev = approval(R1, h('a'), h('c')), same = approval(R2, h('a'), h('d')), changed = approval(R2, h('e'), h('d'))
   assert.match(spec.plain(prev, same), /^GATE FACT: plugin set UNCHANGED since your approval of release-7561a97 \(7561a97f270e\), operation unchanged \| ADMIT/)
@@ -56,7 +56,7 @@ test('gate + adapter: review v2 has no tier; a plain Approve applies with no typ
   rotateBearer(home, owner, () => clock.t)
   // A test target whose from->to is the real (long) plugin-set fact line, applied through the normal owner path.
   const LONG = 'test/long.json'
-  const longTarget = { ...accentTarget, entry: 'test-long', plain: () => targetsMod.pluginSetTarget('/x', { releasesRoot: '/nonexistent' }).plain(approval(R1, h('a'), h('c')), approval(R2, h('a'), h('d'))) }
+  const longTarget = { ...accentTarget, entry: 'test-long', plain: () => targetsMod.pluginSetTarget('/x', { releasesRoot: '/nonexistent', floorFile: path.join(home, 'release-floor.json') }).plain(approval(R1, h('a'), h('c')), approval(R2, h('a'), h('d'))) }
   const store = memoryStore({ [ACCENT]: accent('#00BFFF'), [LONG]: accent('#111111') })
   const gate = createGate({ home, owner, targets: { [ACCENT]: accentTarget, [LONG]: longTarget }, store, now: () => clock.t })
   gate.startup({ pid: 1 })

@@ -76,8 +76,14 @@ class World:
             self.ancestors.add((metadata.st_dev, metadata.st_ino))
 
     def put(self, name, data, root=None):
-        path = (self.root if root is None else root) / name
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        base = self.root if root is None else root
+        path = base / name
+        # Each fixture component must start protected under permissive umasks.
+        # Never chmod an existing directory: deliberate mode faults must refuse.
+        directory = base
+        for component in Path(name).parts[:-1]:
+            directory /= component
+            directory.mkdir(mode=0o700, exist_ok=True)
         path.write_text(data)
         path.chmod(0o600)
         return path
@@ -161,6 +167,23 @@ class BootstrapChecks(unittest.TestCase):
     def test_matching_complete_inventory_reaches_fixture_dispatch(self):
         self.world.launch()
         self.assertEqual(self.world.marker.read_text(), "executed")
+
+    def test_fixture_custody_stays_protected_under_permissive_umasks(self):
+        for mask in (0o000, 0o002):
+            with self.subTest(umask=mask):
+                previous = os.umask(mask)
+                world = None
+                try:
+                    world = World()
+                    for base in (world.root, world.owner_root, world.launcher_root, world.aura_root):
+                        for directory in [base, *(p for p in base.rglob("*") if p.is_dir())]:
+                            self.assertEqual(directory.stat().st_mode & 0o022, 0)
+                    world.launch()
+                    self.assertEqual(world.marker.read_text(), "executed")
+                finally:
+                    os.umask(previous)
+                    if world is not None:
+                        world.close()
 
     def test_changed_entry_and_transitive_helpers_never_execute_marker(self):
         for name in ("bin/gate.mjs", "bin/release-floor.mjs", "bin/plugin-set-approval.mjs", "src/helper.mjs", "host/aura/trusted-context.mjs", "package.json"):
@@ -515,6 +538,7 @@ class BootstrapChecks(unittest.TestCase):
         epoch_path = self.world.root.parent / "epochs.json"
         epoch_path.write_text(json.dumps({"version": 1, "kind": "aukora-signer-epochs/v1",
                                          "epochs": [{"epoch": 1, "gate_pubkey_sha256": "0" * 64}]}))
+        epoch_path.chmod(0o600)
         fixed_to_fixture = {SOURCE["SIGNER_EPOCHS"]: epoch_path}
         pins = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in fixed_to_fixture.items()}
         def fixture_read(path, limit):
@@ -656,6 +680,7 @@ class BootstrapChecks(unittest.TestCase):
         removed.unlink()
         self.assert_aura_refuses_before_dispatch(manifest, epochs, "package-inventory")
         removed.write_bytes(original)
+        removed.chmod(0o600)
         original = self.world.configuration.read_bytes()
         value = self.world.aura_configuration()
         value["source"]["source_id"] = "different-but-syntactically-valid"
