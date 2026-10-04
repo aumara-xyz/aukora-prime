@@ -9,7 +9,8 @@ Group=skgate
 UMask=0027
 RuntimeDirectory=aukora-gate
 RuntimeDirectoryMode=0750
-ExecStart=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/gate.mjs serve --home /home/aukora-gate --run /run/aukora-gate --target-root /var/lib/aukora-boundary/targets --port 17792 --gid SKGATE_GID --time-zone Asia/Makassar
+UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
+ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap serve --home /home/aukora-gate --run /run/aukora-gate --target-root /var/lib/aukora-boundary/targets --port 17792 --gid SKGATE_GID --time-zone Asia/Makassar
 Restart=on-failure
 NoNewPrivileges=yes
 [Install]

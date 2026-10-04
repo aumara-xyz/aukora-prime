@@ -15,7 +15,7 @@
 import path from 'node:path'
 import { ownerCardClarity } from './targets.mjs'
 import { createHmac, randomUUID, randomBytes, sign, timingSafeEqual } from 'node:crypto'
-import { sha256, SHA, loadOrCreateKey, openDb, createLedger } from './ledger.mjs'
+import { sha256, SHA, loadOrCreateKey, openDb, createLedger, signedEntryData } from './ledger.mjs'
 import { loadOwnerSecret, rotateBearer } from './secrets.mjs'
 import { lineDiff, cleanNote, noteMeta, cardWarnings, swatchText, noteDisplay } from './card.mjs'
 
@@ -357,7 +357,16 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     raise: (a) => raise(a),
     review: (a) => review(a),
     decide_review: (a, approver) => decideReview(a, approver),
-    status: proposeOps.status, log: proposeOps.log, verify: proposeOps.verify,
+    status: proposeOps.status,
+    log: ({ limit, target }) => {
+      const checked = ledger.verify()
+      if (!checked.ok) throw new Error('signed-ledger-export-unverified')
+      const n = Math.max(1, Math.min(200, Number(limit) || 30))
+      const rows = target ? db.prepare('SELECT * FROM ledger WHERE target=? ORDER BY seq DESC LIMIT ?').all(String(target), n)
+        : db.prepare('SELECT * FROM ledger ORDER BY seq DESC LIMIT ?').all(n)
+      return { verify: checked, pubkey_fp: key.fp, entries: rows.map(r => ({ ...r, detail: r.detail ? JSON.parse(r.detail) : null, signed_entry: signedEntryData(r) })) }
+    },
+    verify: proposeOps.verify,
   }
   if (['approve', 'decide', 'review', 'decide_review', 'raise'].some(op => Object.hasOwn(proposeOps, op))) throw new Error('invariant: the propose channel must not expose approval')
   // ONE approval ceremony: review (fresh single-use challenge over exact base/new) -> decide_review. No direct approve.

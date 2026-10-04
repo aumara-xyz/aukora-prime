@@ -17,6 +17,7 @@ import { mkdir, chmod, stat, open, access, readFile, rm, writeFile, link } from 
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
+import { assertDesktopLaunchConfig } from './resolve.mjs'
 
 export const STATE_DIRS = ['home', 'agents', 'workspace', 'logs']
 const TOKEN_URL = /http:\/\/127\.0\.0\.1:(\d+)\/\?token=[A-Za-z0-9_-]+/
@@ -208,7 +209,8 @@ async function logSize(logPath) {
  * @param {number} [o.portWaitMs] how long to wait for a PINNED port to be released (court knob)
  * @param {string[]} [o.patch] extra composition patch overlays
  * @param {string[]} [o.approvedRecordSha] approved artifact record digests
- * @param {boolean} [o.allowUnapproved] launch a release with no approved record
+ * @param {'production'|'disposable-preview'} [o.launchProfile] defaults to production
+ * @param {boolean} [o.unsafePreviewAllowUnapproved] explicit disposable-preview waiver only
  * @param {(line: string) => void} [o.onDiagnostic]
  */
 /**
@@ -264,7 +266,17 @@ export function defaultProcessReader(pid) {
   return { ppid: Number.isFinite(ppid) ? ppid : null, dshHome, command: line };
 }
 
+/** The production argument path refuses preview settings before any state or process work. */
+export function launcherProfileArguments(o) {
+  const launchProfile = Object.hasOwn(o, 'launchProfile') ? o.launchProfile : 'production'
+  assertDesktopLaunchConfig(o, launchProfile, 'supervisor options')
+  const argv = ['--launch-profile', launchProfile]
+  if (Object.hasOwn(o, 'unsafePreviewAllowUnapproved') && o.unsafePreviewAllowUnapproved === true) argv.push('--unsafe-preview-allow-unapproved')
+  return argv
+}
+
 export async function startHarness(o) {
+  launcherProfileArguments(o)
   // REFUSE BEFORE PREPARING ANYTHING. A state root with a live process in its record is
   // somebody's running deployment — possibly this shell's own from a session that did not
   // quit cleanly. Either way the answer is the same: do not put a second writer on it.
@@ -332,7 +344,7 @@ async function spawnHarness(o, claim) {
   ]
   for (const patch of o.patch ?? []) argv.push('--patch', patch)
   for (const sha of o.approvedRecordSha ?? []) argv.push('--approved-record-sha', sha)
-  if (o.allowUnapproved) argv.push('--allow-unapproved')
+  argv.push(...launcherProfileArguments(o))
 
   const nodeBin = await findNode(o.nodePath)
   if (nodeBin === null) {

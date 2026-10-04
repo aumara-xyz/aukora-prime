@@ -37,6 +37,7 @@ import { zstdDecompressSync } from 'node:zlib';
 
 import { readHolder } from '../lib/heavy-run.mjs';
 import { isMainModule } from '../lib/is-main.mjs'
+import { assertDesktopLaunchConfig } from '../../apps/aukora-desktop/resolve.mjs'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HEAVY = join(REPO, 'scripts', 'heavy-run.sh');
@@ -410,10 +411,16 @@ function repointLines(text, oldRoot, newRoot, label, refusals, seen) {
   }
   return out.join('\n');
 }
+export function assertProductionCutoverConfig(config, source = 'desktop cutover configuration') {
+  try { assertDesktopLaunchConfig(config, 'production', source); }
+  catch (error) { refuse('desktop-config-refused', error.message); }
+}
+
 function configPlan(support, facts) {
   const path = assertInside(support, join(support, 'config.json'));
   const before = readText(path);
   const config = readJson(path);
+  assertProductionCutoverConfig(config, path);
   const declared = Array.isArray(config.patch) ? [...config.patch] : [];
   const wanted = join(facts.release, COMPOSITION_PATCH);
   // ── EVERY COMPOSITION PATCH THAT IS NOT THE TARGET'S IS A STALE PATCH FROM A PREVIOUS RELEASE ──────
@@ -985,12 +992,10 @@ async function apply(opts) {
     refuse('prepare-receipt-stale', `the release has changed since it was prepared, so this cutover would stage bytes nobody validated:\n  ${stale.join('\n  ')}\n  Run \`prepare ${facts.release}\` again. NOTHING has been written`);
   }
   // ── THE AUKORA PLUGIN SET MUST BE APPROVED BEFORE THE SWITCH ─────────────────────────────────────
-  // A release that records its plugin set is launched with the set ENFORCED unless config.json says
-  // `"allowUnapproved": true`, and the launcher refuses to start it with no installed approval. So a switch
-  // without one would take the app down. The check is the RELEASE's own verifier, the code that will run.
+  // Production enforces a release's recorded plugin set and refuses to start it without installed
+  // approval. A cutover cannot waive that requirement. The check is the RELEASE's own verifier.
   const setRecordPath = join(facts.release, '.dsh-build', 'plugin-set.json');
-  const configPath = join(opts.support, 'config.json');
-  if (exists(setRecordPath) && !(exists(configPath) && readJson(configPath).allowUnapproved === true)) {
+  if (exists(setRecordPath)) {
     const gateState = join(opts.support, 'state', 'gate-state');
     const readOr = (path) => (exists(path) ? readJson(path) : null);
     const { verifySetApproval } = await import(pathToFileURL(
@@ -1128,6 +1133,10 @@ export function classifyBootFailure(text) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   try {
+    if (opts.command === 'prepare' || opts.command === 'apply') {
+      const configPath = join(opts.support, 'config.json');
+      assertProductionCutoverConfig(readJson(configPath), configPath);
+    }
     if (opts.command === 'prepare') { if (opts.release === null) refuse('bad-usage', USAGE); await prepare(opts); } else if (opts.command === 'apply') {
       if (opts.release === null) refuse('bad-usage', USAGE); await apply(opts);
     } else if (opts.command === 'rollback') { rollback(opts); } else { refuse('bad-usage', USAGE); }
