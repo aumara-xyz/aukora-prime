@@ -81,7 +81,14 @@ function world() {
 test('root tools import only the root-owned gate install; nothing under a release directory is imported', () => {
   for (const f of ['packages/boundary-gate/bin/plugin-set-approval.mjs', 'packages/boundary-gate/bin/release-floor.mjs', 'packages/boundary-gate/src/plugin-set-canon.mjs', 'packages/boundary-gate/src/release-floor.mjs']) {
     const s = read(f)
-    assert.doesNotMatch(s, /\bimport\s*\(/u, `${f}: no dynamic import`)
+    // H b44f35c: the root CLIs execute ONLY hash-checked buffers, as data: URLs, after the pin manifest verified them;
+    // no dynamic import names a path. The verifier modules themselves have no dynamic import at all.
+    const dyn = s.split('\n').filter(l => /\bimport\s*\(/u.test(l)).map(l => l.trim())
+    if (f.includes('/bin/')) {
+      assert.equal(dyn.length, 1, `${f}: one dynamic import site`)
+      assert.equal(dyn[0], 'const checkedModule = bytes => import(`data:text/javascript;base64,${bytes.toString(\'base64\')}`)', `${f}: dynamic import only of checked bytes`)
+    }
+    else assert.deepEqual(dyn, [], `${f}: no dynamic import`)
     assert.doesNotMatch(s, /pathToFileURL|createRequire|\brequire\(/u, `${f}: no runtime module loading`)
     for (const m of s.matchAll(/^import .* from '([^']+)'/gmu)) assert.ok(m[1].startsWith('node:') || m[1].startsWith('./') || m[1].startsWith('../src/'), `${f} imports ${m[1]}`)
   }
@@ -93,9 +100,11 @@ test('trusted verifier = composition gate verdict, on the same approval and ever
   assert.equal(canon.setOperationContent(w.record), ps.setOperationContent(w.record))
   assert.equal(canon.operationDigestOf('x'), ps.operationDigestOf('x'))
   // the real root CLI, on a release whose own verifier throws if executed
+  // H b44f35c: a checkout copy of the root CLI refuses before any local import (only the fixed root-owned install runs);
+  // the in-VM run of the real CLI over trap candidates is packages/boundary-gate/src/vendor/check-trusted-verifier.mjs.
   const cli = spawnSync(process.execPath, [new URL('packages/boundary-gate/bin/plugin-set-approval.mjs', root).pathname, 'show', '--release-dir', rel.dir], { encoding: 'utf8' })
-  assert.equal(cli.status, 0, cli.stderr); assert.doesNotMatch(cli.stdout + cli.stderr, /CANDIDATE CODE EXECUTED/u)
-  assert.match(cli.stdout, new RegExp(`OPERATION    ${rel.fields.operation}`, 'u'))
+  assert.equal(cli.status, 1, cli.stdout); assert.match(cli.stderr, /REFUSED: trusted-entrypoint/u)
+  assert.doesNotMatch(cli.stdout + cli.stderr, /CANDIDATE CODE EXECUTED/u)
   const { approval } = w.approve(rel)
   const a = canon.verifyGateSetApproval({ record: w.record, approval, pin: w.pin }), b = ps.verifySetApproval({ record: w.record, receipt: approval, pin: w.pin })
   for (const k of ['setDigest', 'operationDigest', 'approverDid', 'approvalClass', 'release', 'record', 'count']) assert.equal(a[k], b[k], k)

@@ -22,7 +22,7 @@
     "check:gate-ledger-anchor": "node --test tests/gate-ledger-anchor.test.mjs",
     "check:gate-selfcheck": "node --test packages/boundary-gate/checks/selfcheck-bin.mjs",
     "check:gate-plugin-set-signer": "node --test tests/aukora-plugin-set-gate-signer.test.mjs",
-    "check:plugin-set-trusted-verifier": "node --test tests/aukora-plugin-set-trusted-verifier.test.mjs",
+    "check:plugin-set-trusted-verifier": "node --test tests/aukora-plugin-set-trusted-verifier.test.mjs && node packages/boundary-gate/src/vendor/check-trusted-verifier.mjs --mutations",
     "check:nostr-records": "node plugins/aukora-nostr/checks/records.mjs",
     "check:aura-collector": "node scripts/aura/checks/collector.mjs",
     "check:pq-hybrid": "node labs/pq-hybrid/checks/hybrid.mjs",
