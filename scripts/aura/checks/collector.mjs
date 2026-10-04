@@ -55,7 +55,15 @@ const mutants = {
   'capture-receipt': ['context.mjs', 'canonicalJson(detail.receipt) !== receiptBytes', 'false'],
   'citation-reentrant': ['collect-gate.mjs', /!synchronousTrue\(isLive\) \|\| disposed/g, '!synchronousTrue(isLive)'],
   'provider-reentrant': ['records-provider.mjs', /!synchronousTrue\(isLive\) \|\| disposed/g, '!synchronousTrue(isLive)'],
-  'capture-reentrant': ['context.mjs', '!trueSync(isLive) || disposed)', '!trueSync(isLive))'],
+  'scope-disposal': ['records-provider.mjs', 'const assertOpen = () => { if (revoked !== null) refuse(revoked) }', 'const assertOpen = () => {}'],
+  'scope-expiry': ['records-provider.mjs', "if (time >= grant.expires_at_ms) fail('read-grant-expired')", 'void 0'],
+  'scope-lifecycle': ['records-provider.mjs', 'lifecycle.genesis_instance_id !== bound.genesis_instance_id', 'false'],
+  'scope-summary': ['records-provider.mjs', 'const verification = publicColdSummary(envelope.verification, bound)',
+    'const verification = envelope.verification'],
+  'scope-failure-summary': ['records-provider.mjs', 'const verification = envelope.verification === null ? null : publicColdSummary(envelope.verification, scope.bound)',
+    'const verification = envelope.verification'],
+  'capture-getter': ['context.mjs', "const receiptProposal = Object.getOwnPropertyDescriptor(selected.receipt, 'proposal')",
+    'const receiptProposal = { value: selected.receipt.proposal, enumerable: true }'],
 }
 if (mutant && !mutants[mutant]) throw Error('Unknown focused mutant')
 let mutationApplied = false
@@ -103,10 +111,13 @@ registerHooks({
 const { collectGateOnce, createNostrCollectorCodec, createCollectorCitationReader, openCollectorStore } = await import('../collect-gate.mjs')
 const { readGateSnapshot, gateEntryBody, gateEntryHash, gatePublicKeySha256 } = await import('../gate-snapshot.mjs')
 const { verifyCollectorStore, verifyCollected } = await import('../verify-collected.mjs')
-const { parseAuraConfiguration, createAuraCollectorContext, createConfiguredAuraRecords, readProtectedAuraData,
-  createGateCaptureReferenceResolver } =
+const { parseAuraConfiguration, createAuraCollectorContext, createConfiguredAuraRecords, createRetainedAuraReadScope, readProtectedAuraData,
+  createGateCaptureReferenceResolver, auraConfigurationSha256, createProtectedAuraProposalReadScope,
+  validateAuraPublicProposalReadScope } =
   await import('../../../packages/boundary-gate/host/aura/context.mjs')
-const { createAuraRecordsProvider } = await import('../../../packages/boundary-gate/host/aura/records-provider.mjs')
+const { createAuraRecordsProvider, createRetainedProposalReadScope, createProposalScopedAuraRecordsProvider } =
+  await import('../../../packages/boundary-gate/host/aura/records-provider.mjs')
+const { canonicalJson } = await import('../../../packages/contracts/src/json.mjs')
 const { runAuraAction } = await import('../../../packages/boundary-gate/host/aura/entry.mjs')
 // Missing sparse source is read from the exact current Git checkpoint in memory.
 // No library files are materialized, and no structural-codec fallback is accepted.
@@ -151,7 +162,7 @@ try {
   const entries = []
   function appendSource(event = 'refused', changed = false) {
     const e = { seq: entries.length + 1, at: '2026-01-01T00:00:00Z', event,
-      proposal: `fixture-action-${entries.length + 1}`, target: 'fixture.json', base_sha: null, new_sha: null,
+      proposal: `00000000-0000-4000-8000-${String(entries.length + 1).padStart(12, '0')}`, target: 'fixture.json', base_sha: null, new_sha: null,
       detail: JSON.stringify({ fixture: true, observed: event, changed }), prev: entries.at(-1)?.hash ?? 'GENESIS' }
     e.hash = gateEntryHash(gateEntryBody(e)); e.sig = sign(null, Buffer.from(e.hash, 'hex'), gatePrivate).toString('base64')
     insert.run(...Object.values(e)); entries.push(e); return e
@@ -381,13 +392,20 @@ try {
   const memoryRecordId = `rem:${'a'.repeat(64)}` // Synthetic association only; never installed provenance.
   let providerLive = true, providerGranted = true, associationsRead = 0
   const providerGuards = { isLive: () => providerLive, hasReadGrant: subject => subject === ownerSubject && providerGranted }
-  const provider = createConfiguredAuraRecords(loadedContext, { ...providerGuards,
+  // Keep generic provider mechanics in explicitly synthetic owner/read guards.
+  // Production configured publication below requires a retained proposal scope.
+  const fixtureOwnerProvider = (loaded, { referenceForRecord = null, ...guards }) =>
+    createAuraRecordsProvider({ ownerSubject, referenceForRecord, ...guards,
+      reader: createCollectorCitationReader(loaded.collectorContext, guards) })
+  assert.throws(() => createConfiguredAuraRecords(loadedContext, providerGuards),
+    error => error.code === 'aura-context:proposal-grant-unconfigured')
+  const provider = fixtureOwnerProvider(loadedContext, { ...providerGuards,
     referenceForRecord: id => { associationsRead++; return id === memoryRecordId ? selected : null } })
   const cachedReference = provider.service.referenceForRecord, cachedCitation = provider.service.readCitation
   assert.deepEqual(await cachedReference(memoryRecordId), selected)
   assert.equal((await cachedCitation(selected)).citation.record_id, savedEvents[1].id)
   assert.equal(await cachedReference(`rem:${'b'.repeat(64)}`), null)
-  const absentAssociation = createConfiguredAuraRecords(loadedContext, providerGuards)
+  const absentAssociation = fixtureOwnerProvider(loadedContext, providerGuards)
   assert.equal(await absentAssociation.service.referenceForRecord(memoryRecordId), null)
   providerLive = false
   if (mutant === 'provider-live') {
@@ -404,7 +422,7 @@ try {
   await assert.rejects(cachedReference(memoryRecordId), error => error.code === 'aura-citation:read-grant-unavailable')
   providerGranted = true
   let releaseAssociation
-  const duringAssociation = createConfiguredAuraRecords(loadedContext, { ...providerGuards,
+  const duringAssociation = fixtureOwnerProvider(loadedContext, { ...providerGuards,
     referenceForRecord: () => new Promise(resolve => { releaseAssociation = resolve }) })
   const pendingAssociation = duringAssociation.service.referenceForRecord(memoryRecordId)
   duringAssociation.dispose(); releaseAssociation(selected)
@@ -443,7 +461,7 @@ try {
   assert.equal((await cachedCitation(selected)).reason, 'aura-citation:owner-inactive')
   assert.equal(associationsRead, beforeAssociationsRead)
   let getterCalls = 0
-  const malformedLookup = createConfiguredAuraRecords(loadedContext, { ...providerGuards,
+  const malformedLookup = fixtureOwnerProvider(loadedContext, { ...providerGuards,
     referenceForRecord: () => Object.defineProperty({}, 'source', { enumerable: true, get() { getterCalls++; return selected.source } }) })
   await assert.rejects(malformedLookup.service.referenceForRecord(memoryRecordId),
     error => error.code === 'aura-citation:association-invalid')
@@ -476,19 +494,56 @@ try {
   db.prepare('UPDATE ledger SET detail=?,hash=?,sig=? WHERE seq=?').run(
     appliedEntry.detail, appliedEntry.hash, appliedEntry.sig, appliedEntry.seq)
   const laterEntry = appendSource('fixture-later-head')
-  const captureConfiguration = parseAuraConfiguration(JSON.stringify({ ...configuration,
-    store_dir: join(testRoot, 'capture-output') }))
+  const captureConfigurationText = JSON.stringify({ ...configuration, store_dir: join(testRoot, 'capture-output') })
+  const captureConfiguration = parseAuraConfiguration(captureConfigurationText)
   const captureContext = await createAuraCollectorContext(captureConfiguration, { authorSecretKeyHex })
-  const captureResolver = createGateCaptureReferenceResolver(captureContext, providerGuards)
+  const hashText = text => createHash('sha256').update(text, 'utf8').digest('hex')
+  const captureBinding = Object.freeze({ owner_subject: ownerSubject, proposal_id: appliedEntry.proposal,
+    source: Object.freeze({ journal_id: snapshotOptions.sourceId, position: appliedEntry.seq, hash: appliedEntry.hash,
+      key_sha256: snapshotOptions.expectedKeySha256 }),
+    receipt_sha256: hashText(canonicalJson(appliedReceipt)),
+    context_sha256: hashText(captureConfigurationText), release_sha: '1'.repeat(40),
+    genesis_instance_id: '00000000-0000-4000-8000-000000000001' })
+  const fixtureNow = 1767225600000
+  const fixtureGrant = { ...captureBinding, version: 1, kind: 'aukora-aura-proposal-read-grant/v1',
+    issued_at_ms: fixtureNow - 1000, expires_at_ms: fixtureNow + 299000, grants_authority: false, custody: 'INTERIM' }
+  const fixtureLifecycle = { version: 1, kind: 'aukora-aura-read-lifecycle/v1',
+    context_sha256: captureBinding.context_sha256, release_sha: captureBinding.release_sha,
+    genesis_instance_id: captureBinding.genesis_instance_id }
+  // Invented issuer data for disposable source checks only. No root grant is
+  // issued, no file custody/installed authorization is inferred from this seam.
+  const makeFixtureScope = (overrides = {}) => createRetainedProposalReadScope(captureBinding, {
+    readGrant: () => structuredClone(fixtureGrant), readLifecycle: () => structuredClone(fixtureLifecycle),
+    isLive: () => providerLive && providerGranted, now: () => fixtureNow, ...overrides })
+  const captureScope = makeFixtureScope()
+  assert.equal(auraConfigurationSha256(captureConfiguration), hashText(captureConfigurationText))
+  assert.throws(() => parseAuraConfiguration('\ufeff' + captureConfigurationText), error => error.code === 'aura-context:configuration-invalid')
+  const newlineConfiguration = parseAuraConfiguration(captureConfigurationText + '\n')
+  assert.equal(auraConfigurationSha256(newlineConfiguration), hashText(captureConfigurationText + '\n'))
+  assert.notEqual(auraConfigurationSha256(newlineConfiguration), auraConfigurationSha256(captureConfiguration),
+    'accepted whitespace is part of exact retained protected context bytes')
+  assert.equal(validateAuraPublicProposalReadScope(captureConfiguration, captureScope), true,
+    'public validator checks actual signed row without loading an author key')
+  assert.throws(() => auraConfigurationSha256({ ...captureConfiguration }), error => error.code === 'aura-context:configuration-unrecognized')
+  assert.throws(() => createProtectedAuraProposalReadScope(captureConfiguration, captureBinding,
+    { isLive: () => true, now: () => fixtureNow }), error => /^aura-(citation|context):/u.test(error.code))
+  const captureResolver = createGateCaptureReferenceResolver(captureContext, { proposalScope: captureScope })
   const actionResult = { applied: true, state: 'applied', receipt: appliedReceipt, receipt_sig: appliedReceiptSig,
     ledger_seq: appliedEntry.seq, ledger_hash: appliedEntry.hash, message: 'fixture' }
+  let receiptGetterCalls = 0
+  const getterReceipt = { ...appliedReceipt }
+  Object.defineProperty(getterReceipt, 'proposal', { enumerable: true, get() { receiptGetterCalls++; return appliedEntry.proposal } })
+  assert.throws(() => captureResolver.referenceForAppliedAction({ ...actionResult, receipt: getterReceipt }),
+    error => error.code === 'aura-context:capture-result-invalid')
+  if (mutant === 'capture-getter') console.log(`MUTANT-OBSERVATION nested receipt getter invoked=${receiptGetterCalls}`)
+  assert.equal(receiptGetterCalls, 0, 'nested receipt accessor must refuse without invocation')
   const resolvedCapture = captureResolver.referenceForAppliedAction(actionResult)
   assert.deepEqual(resolvedCapture, { source: { journal_id: snapshotOptions.sourceId,
     position: appliedEntry.seq, hash: appliedEntry.hash } })
   assert.notEqual(resolvedCapture.source.position, laterEntry.seq, 'capture must retain its specific action, never latest head')
   const captureDbBytes = readFileSync(dbPath), captureWalBytes = readFileSync(`${dbPath}-wal`)
   assert.equal((await runAuraAction('collect', captureContext)).ok, true)
-  const captureProvider = createConfiguredAuraRecords(captureContext, { ...providerGuards,
+  const captureProvider = createConfiguredAuraRecords(captureContext, { proposalScope: captureScope,
     referenceForRecord: id => id === memoryRecordId ? resolvedCapture : null })
   const actualAssociation = await captureProvider.service.referenceForRecord(memoryRecordId)
   const actualCaptureCitation = await captureProvider.service.readCitation(actualAssociation)
@@ -496,18 +551,184 @@ try {
   assert.deepEqual(actualCaptureCitation.citation.source, resolvedCapture.source)
   const captureEvents = readFileSync(join(testRoot, 'capture-output/gate-observations.nostr.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
   assert.equal(actualCaptureCitation.citation.record_id, captureEvents[appliedEntry.seq - 1].id)
-  let reentrantResolver, captureLiveCalls = 0
+  // A root-retained grant is a production precondition; these tests deliberately
+  // cannot provision its fixed files or infer protected custody from callback data.
+  assert.throws(() => createRetainedAuraReadScope(captureContext, captureBinding,
+    { isLive: () => true, now: () => fixtureNow }), error => /^aura-(citation|context):/u.test(error.code))
+  for (const field of ['owner_subject', 'proposal_id', 'receipt_sha256', 'context_sha256', 'release_sha', 'genesis_instance_id']) {
+    const changed = structuredClone(fixtureGrant)
+    changed[field] = field === 'owner_subject' ? `aukora:1:${'2'.repeat(64)}`
+      : field === 'proposal_id' || field === 'genesis_instance_id' ? '00000000-0000-4000-8000-000000000002'
+        : field === 'release_sha' ? '2'.repeat(40) : '2'.repeat(64)
+    assert.throws(() => makeFixtureScope({ readGrant: () => changed }), error => error.code === 'aura-citation:read-grant-mismatch', field)
+  }
+  for (const change of [grant => { grant.source.hash = '2'.repeat(64) }, grant => { grant.source.key_sha256 = '2'.repeat(64) },
+    grant => { grant.source.position++ }, grant => { grant.source.journal_id = 'another-journal' },
+    grant => { grant.expires_at_ms = grant.issued_at_ms + 300001 }, grant => { grant.grants_authority = true },
+    grant => { grant.custody = 'ENROLLED' }, grant => { grant.extra = true }]) {
+    const changed = structuredClone(fixtureGrant); change(changed)
+    assert.throws(() => makeFixtureScope({ readGrant: () => changed }), error => /^aura-citation:/u.test(error.code))
+  }
+  assert.throws(() => makeFixtureScope({ readGrant: () => null }), error => error.code === 'aura-citation:read-grant-invalid')
+  assert.throws(() => makeFixtureScope({ readGrant: () => { throw Error('synthetic missing grant') } }),
+    error => error.code === 'aura-citation:read-grant-unavailable')
+  assert.throws(() => makeFixtureScope({ readGrant: async () => fixtureGrant }), error => error.code === 'aura-citation:read-grant-invalid')
+  let grantGetterCalls = 0
+  const getterGrant = { ...fixtureGrant }
+  Object.defineProperty(getterGrant, 'source', { enumerable: true, get() { grantGetterCalls++; return fixtureGrant.source } })
+  assert.throws(() => makeFixtureScope({ readGrant: () => getterGrant }), error => error.code === 'aura-citation:read-grant-invalid')
+  assert.equal(grantGetterCalls, 0, 'protected grant data accessor must not run')
+  assert.throws(() => makeFixtureScope({ now: () => fixtureGrant.expires_at_ms }), error => error.code === 'aura-citation:read-grant-expired')
+  assert.throws(() => makeFixtureScope({ now: () => fixtureGrant.issued_at_ms - 1 }), error => error.code === 'aura-citation:read-grant-not-yet-valid')
+  assert.throws(() => createConfiguredAuraRecords(captureContext, { proposalScope: { ...captureScope } }),
+    error => error.code === 'aura-context:proposal-grant-unconfigured')
+  for (const alter of [value => { value.proposal_id = '00000000-0000-4000-8000-000000000002' },
+    value => { value.receipt_sha256 = '2'.repeat(64) }, value => { value.context_sha256 = '2'.repeat(64) }]) {
+    const changedBinding = structuredClone(captureBinding); alter(changedBinding)
+    const changedScope = createRetainedProposalReadScope(changedBinding, {
+      readGrant: () => ({ ...structuredClone(fixtureGrant), ...changedBinding }),
+      readLifecycle: () => ({ ...fixtureLifecycle, context_sha256: changedBinding.context_sha256 }),
+      isLive: () => true, now: () => fixtureNow })
+    assert.throws(() => createConfiguredAuraRecords(captureContext, { proposalScope: changedScope }),
+      error => error.code === 'aura-context:proposal-binding-mismatch')
+    assert.throws(() => validateAuraPublicProposalReadScope(captureConfiguration, changedScope),
+      error => error.code === 'aura-context:proposal-binding-mismatch')
+  }
+  console.log('PASS configured scope requires retained grant, exact canonical owner/proposal/source/context/receipt and bounded INTERIM data')
+
+  let scopedRawReads = 0
+  const scopedReader = { dispose() {}, async readCitation() { scopedRawReads++; return structuredClone(actualCaptureCitation) } }
+  const scopedProvider = createProposalScopedAuraRecordsProvider({ ownerSubject, scope: makeFixtureScope(), reader: scopedReader,
+    referenceForRecord: () => ({ source: { ...resolvedCapture.source, hash: '2'.repeat(64) } }) })
+  assert.equal(await scopedProvider.service.referenceForRecord(memoryRecordId), null)
+  const wrongScopedRead = await scopedProvider.service.readCitation({ source: { ...resolvedCapture.source, hash: '2'.repeat(64) } })
+  assert.equal(wrongScopedRead.citation, null); assert.equal(scopedRawReads, 0)
+  assert.equal((await scopedProvider.service.readCitation(actualAssociation)).ok, true); assert.equal(scopedRawReads, 1)
+  const mutableResult = structuredClone(actualCaptureCitation)
+  const mutableProvider = createProposalScopedAuraRecordsProvider({ ownerSubject, scope: makeFixtureScope(), referenceForRecord: null,
+    reader: { dispose() {}, async readCitation() { return mutableResult } } })
+  const detachedResult = await mutableProvider.service.readCitation(actualAssociation)
+  assert.equal(detachedResult.ok, true)
+  assert(Object.isFrozen(detachedResult) && Object.isFrozen(detachedResult.citation) && Object.isFrozen(detachedResult.citation.source))
+  assert(Object.isFrozen(detachedResult.verification) && Object.isFrozen(detachedResult.verification.source)
+    && Object.isFrozen(detachedResult.verification.coverage) && Object.isFrozen(detachedResult.verification.aura_head))
+  mutableResult.citation.source.hash = '2'.repeat(64); mutableResult.verification.source.journal_id = 'changed-source'
+  mutableResult.verification.coverage.position = 0
+  assert.deepEqual(detachedResult, actualCaptureCitation, 'result must retain detached public evidence, not adapter-owned mutable references')
+  let verificationGetterCalls = 0
+  const getterResult = structuredClone(actualCaptureCitation)
+  Object.defineProperty(getterResult.verification, 'source', { enumerable: true,
+    get() { verificationGetterCalls++; return actualCaptureCitation.verification.source } })
+  const getterProvider = createProposalScopedAuraRecordsProvider({ ownerSubject, scope: makeFixtureScope(), referenceForRecord: null,
+    reader: { dispose() {}, async readCitation() { return getterResult } } })
+  const getterDenied = await getterProvider.service.readCitation(actualAssociation)
+  assert.equal(getterDenied.ok, false); assert.equal(getterDenied.verification, null); assert.equal(verificationGetterCalls, 0)
+  const secretSummary = { ...structuredClone(actualCaptureCitation), verification: { ...structuredClone(actualCaptureCitation.verification),
+    private_payload: { note: 'synthetic forbidden summary data' } } }
+  const secretProvider = createProposalScopedAuraRecordsProvider({ ownerSubject, scope: makeFixtureScope(), referenceForRecord: null,
+    reader: { dispose() {}, async readCitation() { return secretSummary } } })
+  assert.equal((await secretProvider.service.readCitation(actualAssociation)).verification, null)
+  const incompleteGetter = { ok: false, status: 'incomplete', reason: 'aura-citation:source-not-found', grants_authority: false,
+    citation: null, verification: getterResult.verification }
+  const incompleteProvider = createProposalScopedAuraRecordsProvider({ ownerSubject, scope: makeFixtureScope(), referenceForRecord: null,
+    reader: { dispose() {}, async readCitation() { return incompleteGetter } } })
+  assert.equal((await incompleteProvider.service.readCitation(actualAssociation)).verification, null); assert.equal(verificationGetterCalls, 0)
+  const actualFailedSummary = structuredClone(noAnchorCitation)
+  const failedSummaryProvider = createProposalScopedAuraRecordsProvider({ ownerSubject, scope: makeFixtureScope(), referenceForRecord: null,
+    reader: { dispose() {}, async readCitation() { return actualFailedSummary } } })
+  const detachedFailure = await failedSummaryProvider.service.readCitation(actualAssociation)
+  assert.deepEqual(detachedFailure, noAnchorCitation, 'actual incomplete cold evidence remains public and accurate')
+  assert(Object.isFrozen(detachedFailure.verification) && Object.isFrozen(detachedFailure.verification.coverage))
+  actualFailedSummary.verification.coverage.position = 0
+  assert.deepEqual(detachedFailure, noAnchorCitation, 'incomplete summary must also detach from adapter-owned data')
+  const detachedScope = makeFixtureScope()
+  assert.throws(() => detachedScope.checkOwner(`aukora:1:${'2'.repeat(64)}`), error => error.code === 'aura-citation:owner-mismatch')
+  assert.equal(detachedScope.checkOwner(ownerSubject), true, 'a wrong caller cannot revoke another owner grant')
+  for (const lifecycleField of ['release_sha', 'genesis_instance_id', 'context_sha256']) {
+    const lifecycle = structuredClone(fixtureLifecycle)
+    const changingScope = makeFixtureScope({ readLifecycle: () => lifecycle })
+    lifecycle[lifecycleField] = lifecycleField === 'genesis_instance_id' ? '00000000-0000-4000-8000-000000000002'
+      : lifecycleField === 'release_sha' ? '2'.repeat(40) : '2'.repeat(64)
+    assert.throws(() => changingScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-lifecycle-mismatch')
+    Object.assign(lifecycle, fixtureLifecycle)
+    assert.throws(() => changingScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-lifecycle-mismatch', 'restore cannot revive revoked instance')
+  }
+  const changedGrant = structuredClone(fixtureGrant)
+  const retainedScope = makeFixtureScope({ readGrant: () => changedGrant })
+  changedGrant.expires_at_ms--
+  assert.throws(() => retainedScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-grant-changed')
+  changedGrant.expires_at_ms++
+  assert.throws(() => retainedScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-grant-changed')
+  let scopedClock = fixtureNow
+  const rollbackScope = makeFixtureScope({ now: () => scopedClock })
+  scopedClock--
+  assert.throws(() => rollbackScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-clock-rollback')
+  scopedClock = fixtureNow
+  assert.throws(() => rollbackScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-clock-rollback')
+  let callbackScope, callbackArmed = false
+  callbackScope = makeFixtureScope({ isLive() { if (callbackArmed) callbackScope.dispose(); return true } })
+  callbackArmed = true
+  assert.throws(() => callbackScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-scope-disposed',
+    'callback disposal must latch before a synchronous true can authorize')
+  let recursiveScope, recursiveArmed = false
+  recursiveScope = makeFixtureScope({ readGrant() {
+    if (recursiveArmed) recursiveScope.checkOwner(ownerSubject)
+    return structuredClone(fixtureGrant)
+  } })
+  recursiveArmed = true
+  assert.throws(() => recursiveScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-scope-reentrant')
+  recursiveArmed = false
+  assert.throws(() => recursiveScope.checkOwner(ownerSubject), error => error.code === 'aura-citation:read-scope-reentrant',
+    'reentrant attempt permanently revokes its retained scope')
+  console.log('PASS source refusal precedes raw read; grant edits, restart/release/context change and clock rollback permanently revoke')
+  console.log('PASS public signed-row validator refuses receipt getters; scoped citation and public cold summary detach/freeze and refuse arbitrary fields')
+
+  for (const adverse of ['expiry', 'restart', 'missing', 'dispose']) {
+    let clock = fixtureNow, missing = false, reads = 0, releaseScopedRead
+    const epoch = structuredClone(fixtureLifecycle)
+    const scope = makeFixtureScope({ now: () => clock,
+      readGrant() { if (missing) throw Error('synthetic removed grant'); return structuredClone(fixtureGrant) },
+      readLifecycle: () => epoch })
+    const inFlight = createProposalScopedAuraRecordsProvider({ ownerSubject, scope, referenceForRecord: null,
+      reader: { dispose() {}, async readCitation() {
+        reads++; await new Promise(resolve => { releaseScopedRead = resolve }); return structuredClone(actualCaptureCitation)
+      } } })
+    const pending = inFlight.service.readCitation(actualAssociation)
+    while (!releaseScopedRead) await new Promise(resolve => setImmediate(resolve))
+    if (adverse === 'expiry') clock = fixtureGrant.expires_at_ms
+    if (adverse === 'restart') epoch.genesis_instance_id = '00000000-0000-4000-8000-000000000002'
+    if (adverse === 'missing') missing = true
+    if (adverse === 'dispose') inFlight.dispose()
+    releaseScopedRead()
+    const denied = await pending
+    assert.equal(denied.ok, false, adverse); assert.equal(denied.citation, null, adverse); assert.equal(denied.verification, null, adverse)
+    clock = fixtureNow; missing = false; Object.assign(epoch, fixtureLifecycle)
+    assert.equal((await inFlight.service.readCitation(actualAssociation)).ok, false, 'expired/revoked state cannot revive')
+    assert.equal(reads, 1, 'no second raw read after revoke'); inFlight.dispose()
+  }
+  assert.equal((await verifyCollectorStore(captureContext.collectorContext)).ok, true,
+    'retained evidence cold verification remains distinct from a revoked live grant')
+  console.log('PASS in-flight expiry/restart/missing/disposal discards actual citation; fresh grant required after restart, cold evidence remains intact')
+
+  let probeLiveCalls = 0
+  const probeResolver = createGateCaptureReferenceResolver(captureContext, {
+    proposalScope: makeFixtureScope({ isLive() { probeLiveCalls++; return true } }) })
+  probeLiveCalls = 0; probeResolver.referenceForAppliedAction(actionResult)
+  const finalCaptureLiveCall = probeLiveCalls; probeResolver.dispose()
+  let reentrantResolver, captureLiveCalls = 0, capturePhase = 'construction'
   reentrantResolver = createGateCaptureReferenceResolver(captureContext, {
-    isLive() { if (++captureLiveCalls === 6) reentrantResolver.dispose(); return true },
-    hasReadGrant: subject => subject === ownerSubject,
-  })
+    proposalScope: makeFixtureScope({ isLive() {
+      if (capturePhase === 'read' && ++captureLiveCalls === finalCaptureLiveCall) reentrantResolver.dispose()
+      return true
+    } }) })
+  capturePhase = 'read'
   let reentrantCapture, reentrantCaptureError
   try { reentrantCapture = reentrantResolver.referenceForAppliedAction(actionResult) }
   catch (error) { reentrantCaptureError = error }
   if (mutant === 'capture-reentrant') console.log(`MUTANT-OBSERVATION reentrant disposed capture: accepted=${!!reentrantCapture}`)
   assert.equal(reentrantCaptureError?.code, 'aura-context:capture-read-unavailable')
   assert.equal(reentrantCapture, undefined)
-  assert.equal(captureLiveCalls, 6, 'disposal must happen after exact signed-row and receipt verification')
+  assert.equal(captureLiveCalls, finalCaptureLiveCall, 'disposal must happen in the final live callback after exact signed-row and receipt verification')
   const alteredHashResult = { ...actionResult, ledger_hash: 'c'.repeat(64) }
   if (mutant === 'capture-source') console.log(`MUTANT-OBSERVATION altered action hash: accepted=${!!captureResolver.referenceForAppliedAction(alteredHashResult)}`)
   assert.throws(() => captureResolver.referenceForAppliedAction(alteredHashResult), error => error.code === 'aura-context:capture-source-mismatch')
