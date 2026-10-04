@@ -1,10 +1,10 @@
 /**
  * What a shell or code string SAYS it will do, read without running it.
  *
- * THIS IS A TRIPWIRE, NOT A PARSER OF INTENT. Deciding what a shell string will touch is undecidable in general —
- * `eval`, `$(…)`, base64, a script file, an alias, a git hook all defeat it — so this module reads the command TEXT
- * the model sent and refuses what that text plainly names. What the text does not show is not seen, and the gate's
- * ceilings say so. It exists because the plain spellings (`git push origin HEAD:main`, `security find-generic-password`,
+ * THIS IS A TRIPWIRE, NOT A PARSER OF INTENT. Deciding what a shell string will touch is undecidable in general.
+ * This module refuses undetermined operands in modeled write forms and computed shell/eval command strings,
+ * then checks the paths the command TEXT plainly names. Encoded code, script files, aliases and hooks remain
+ * outside that model; the gate's ceilings say so. It exists because the plain spellings (`git push origin HEAD:main`, `security find-generic-password`,
  * `cat …/state/aumlok/machine-seed-v3.json`) are the ones a model actually writes.
  *
  * @module @aukora/dsh-plugin-action-gate/shell
@@ -17,39 +17,47 @@ const SEPARATORS = new Set([';', '&&', '||', '|', '&', '\n', '(', ')', '$(', '`'
 
 /**
  * Split a command string into simple commands, each a list of words with quotes removed.
- * Single quotes are literal, double quotes allow `\` escapes, and `$(`/backticks start a nested command whose words
- * are scanned like any other.
+ * Preserve whether each cooked operand is literal. Single quotes and shell escapes protect pathname bytes;
+ * expansions remain undetermined. `$(`/backticks also start a nested command whose words are scanned.
  * @param {string} text - the command text.
- * @returns {{words: string[], redirects: string[]}[]} simple commands and literal output operands.
+ * @returns {{words: string[], redirects: string[], wordLiterals: boolean[], redirectLiterals: boolean[], undeterminedWrite: boolean}[]}
  */
 export function shellCommands(text) {
   const commands = []
   let words = []
   let redirects = []
+  let wordLiterals = []
+  let redirectLiterals = []
+  let undeterminedWrite = false
   const heredocs = []
   let redirect = null
   let word = ''
   let inWord = false
+  let wordLiteral = true
   const endWord = () => {
     if (!inWord) return
     if (redirect !== null) {
       if (redirect === '<<' || redirect === '<<-') heredocs.push({ delimiter: word, tabs: redirect === '<<-' })
       if (['>', '>>', '>|', '&>', '&>>', '<>'].includes(redirect)
-        || (redirect === '>&' && !/^(?:\d+|-)$/u.test(word))) redirects.push(word)
+        || (redirect === '>&' && !/^(?:\d+|-)$/u.test(word))) {
+        redirects.push(word); redirectLiterals.push(wordLiteral)
+      }
       redirect = null
-    } else words.push(word)
-    word = ''; inWord = false
+    } else { words.push(word); wordLiterals.push(wordLiteral) }
+    word = ''; inWord = false; wordLiteral = true
   }
   const endCommand = () => {
     endWord()
-    if (words.length > 0 || redirects.length > 0) commands.push({ words, redirects })
-    words = []; redirects = []; redirect = null
+    if (redirect !== null && ['>', '>>', '>|', '&>', '&>>', '<>', '>&'].includes(redirect)) undeterminedWrite = true
+    if (words.length > 0 || redirects.length > 0 || undeterminedWrite) commands.push({ words, redirects, wordLiterals, redirectLiterals, undeterminedWrite })
+    words = []; redirects = []; redirect = null; wordLiterals = []; redirectLiterals = []; undeterminedWrite = false
   }
   const s = String(text)
   for (let i = 0; i < s.length; i += 1) {
     const c = s[i]
     if (c === "'") {
       const close = s.indexOf("'", i + 1)
+      if (close === -1) wordLiteral = false
       word += close === -1 ? s.slice(i + 1) : s.slice(i + 1, close)
       inWord = true
       i = close === -1 ? s.length : close
@@ -58,7 +66,13 @@ export function shellCommands(text) {
     if (c === '"') {
       inWord = true
       for (i += 1; i < s.length && s[i] !== '"'; i += 1) {
-        if (s[i] === '\\' && i + 1 < s.length) { i += 1; word += s[i]; continue }
+        if (s[i] === '\\' && i + 1 < s.length) {
+          const next = s[i + 1]
+          if (next === '\n') { i += 1; continue }
+          if ('$`"\\'.includes(next)) { i += 1; word += s[i]; continue }
+          word += '\\'; continue
+        }
+        if (s[i] === '$' || s[i] === '`') wordLiteral = false
         // A substitution inside double quotes is still a command; scan it on its own as well.
         if (s[i] === '$' && s[i + 1] === '(') {
           const end = s.indexOf(')', i)
@@ -66,6 +80,7 @@ export function shellCommands(text) {
         }
         word += s[i]
       }
+      if (i === s.length) wordLiteral = false
       continue
     }
     if (c === '\\' && i + 1 < s.length) {
@@ -74,6 +89,7 @@ export function shellCommands(text) {
     }
     // Keep substitutions in their containing word: their computed pathname is not a literal target.
     if ((c === '$' && s[i + 1] === '(') || c === '`') {
+      wordLiteral = false
       const start = i + (c === '`' ? 1 : 2)
       const close = s.indexOf(c === '`' ? '`' : ')', start)
       const end = close === -1 ? s.length : close + 1
@@ -83,9 +99,23 @@ export function shellCommands(text) {
     // Only unquoted operators are redirects; quoted '>' and interpreter source remain ordinary words.
     const operator = /^(?:&>>|&>|>>|>\||>&|>|<<<|<<-?|<>|<&|<)/u.exec(s.slice(i))?.[0]
     if (operator !== undefined) {
+      if (redirect !== null && !inWord && ['>', '>>', '>|', '&>', '&>>', '<>', '>&'].includes(redirect)) undeterminedWrite = true
       if (inWord && /^\d+$/u.test(word)) { word = ''; inWord = false }
       endWord(); redirect = operator; i += operator.length - 1; continue
     }
+    // Brace/parameter expansions in an operand are not command groups. A standalone opening group has
+    // whitespace after it; a brace word can start an argument, so it must not disappear at a separator.
+    if (c === '{' && (inWord || !/\s/u.test(s[i + 1] ?? ''))) {
+      const close = s.indexOf('}', i + 1)
+      word += s.slice(i, close === -1 ? s.length : close + 1)
+      wordLiteral = false; inWord = true; i = close === -1 ? s.length : close; continue
+    }
+    // Unsupported extglob syntax must not turn its prefix into a seemingly literal target.
+    if ('@+?!*'.includes(c) && s[i + 1] === '(') {
+      word += c; wordLiteral = false; inWord = true; continue
+    }
+    // A closing brace inside a word is filename data; only a standalone brace closes a command group.
+    if (c === '}' && inWord) { word += c; continue }
     const two = s.slice(i, i + 2)
     if (two === '&&' || two === '||' || two === '$(' || two === '|&') { endCommand(); i += 1; continue }
     if (SEPARATORS.has(c)) {
@@ -112,6 +142,7 @@ export function shellCommands(text) {
     }
     if (c === ' ' || c === '\t' || c === '\r') { endWord(); continue }
     word += c
+    if ('$*?['.includes(c) || c === '~' || (c === '\\' && i + 1 === s.length)) wordLiteral = false
     inWord = true
   }
   endCommand()
@@ -127,6 +158,25 @@ export function simpleCommands(text) {
 const WRAPPERS = new Set(['sudo', 'command', 'exec', 'nohup', 'time', 'nice', 'caffeinate', 'xargs', 'doas', 'timeout', 'gtimeout', 'stdbuf'])
 /** Shells whose `-c` string is itself a command to scan. */
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'])
+const WRAPPER_VALUES = {
+  sudo: new Set(['-u', '--user', '-g', '--group', '-h', '--host']),
+  doas: new Set(['-u', '-C']), exec: new Set(['-a']),
+  nice: new Set(['-n', '--adjustment']),
+  timeout: new Set(['-s', '--signal', '-k', '--kill-after']),
+  gtimeout: new Set(['-s', '--signal', '-k', '--kill-after']),
+  stdbuf: new Set(['-i', '--input', '-o', '--output', '-e', '--error']),
+  caffeinate: new Set(['-t', '-w']),
+  xargs: new Set(['-a', '--arg-file', '-d', '--delimiter', '-E', '--eof', '-I', '--replace', '-L', '--max-lines', '-n', '--max-args', '-P', '--max-procs', '-s', '--max-chars']),
+}
+const WRAPPER_FLAGS = {
+  sudo: new Set(['-n', '--non-interactive', '-E', '--preserve-env', '-H', '--set-home', '-S', '--stdin']),
+  doas: new Set(['-n']), command: new Set(['-p']), exec: new Set(['-c', '-l']),
+  time: new Set(['-p', '-v', '--verbose']),
+  timeout: new Set(['-v', '--verbose', '--preserve-status', '--foreground']),
+  gtimeout: new Set(['-v', '--verbose', '--preserve-status', '--foreground']),
+  caffeinate: new Set(['-i', '-d', '-m', '-s', '-u']),
+  xargs: new Set(['-0', '--null', '-r', '--no-run-if-empty', '-t', '--verbose', '-x', '--exit']),
+}
 
 /**
  * The words of a simple command with leading assignments and wrappers removed; `sh -c '…'` and `eval …` expand into
@@ -134,33 +184,71 @@ const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'])
  * @param {{words: string[], redirects: string[]}} command - one simple command.
  * @returns {{words: string[], redirects: string[]}[]} the effective commands (usually one).
  */
-export function effectiveShellCommands({ words, redirects = [] }) {
+export function effectiveShellCommands({ words, redirects = [], wordLiterals, redirectLiterals = [], undeterminedWrite = false }) {
   let rest = [...words]
+  let literals = wordLiterals ?? words.map(word => !/[$`*?\[{}]/u.test(word))
+  let runtimeArguments = false
+  const strip = count => { rest = rest.slice(count); literals = literals.slice(count) }
+  const result = extra => ({ words: rest, redirects, wordLiterals: literals, redirectLiterals,
+    undeterminedWrite: undeterminedWrite || (runtimeArguments && (rest.length === 0 || WRITE_PROGRAMS.has(basename(rest[0])))), ...extra })
   for (let guard = 0; guard < 16 && rest.length > 0; guard += 1) {
     const head = rest[0]
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(head)) { rest = rest.slice(1); continue }
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(head)) { strip(1); continue }
+    if (literals[0] !== true) return [result({ undeterminedWrite: true })]
     const program = basename(head)
     if (program === 'env') {
-      rest = rest.slice(1)
-      while (rest.length > 0 && (rest[0].startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(rest[0]))) rest = rest.slice(1)
+      strip(1)
+      while (rest.length > 0) {
+        if (literals[0] !== true) return [result({ undeterminedWrite: true })]
+        if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(rest[0])) { strip(1); continue }
+        if (rest[0] === '--') { strip(1); break }
+        if (['-i', '--ignore-environment', '-0', '--null', '-v', '--debug'].includes(rest[0]) || rest[0].startsWith('--unset=')) { strip(1); continue }
+        if (rest[0] === '-u' || rest[0] === '--unset') {
+          if (literals[1] !== true) return [result({ undeterminedWrite: true })]
+          strip(2); continue
+        }
+        // -C changes cwd; -S splits another command string. Neither is a transparent wrapper.
+        if (rest[0].startsWith('-')) return [result({ undeterminedWrite: true })]
+        break
+      }
       continue
     }
     if (WRAPPERS.has(program)) {
-      rest = rest.slice(1)
-      // `timeout 30 git …`, `nice -n 5 git …`, `xargs -I{} git …`: drop options and one numeric operand.
-      while (rest.length > 0 && rest[0].startsWith('-')) rest = rest.slice(rest[0] === '-n' || rest[0] === '-I' ? 2 : 1)
-      if (rest.length > 0 && /^\d+[smhd]?$/u.test(rest[0])) rest = rest.slice(1)
+      if (program === 'xargs') runtimeArguments = true
+      strip(1)
+      while (rest.length > 0 && rest[0].startsWith('-')) {
+        if (literals[0] !== true) return [result({ undeterminedWrite: true })]
+        if (rest[0] === '--') { strip(1); break }
+        if (WRAPPER_VALUES[program]?.has(rest[0])) {
+          if (literals[1] !== true) return [result({ undeterminedWrite: true })]
+          strip(2); continue
+        }
+        const inline = (rest[0].startsWith('--') && rest[0].includes('=') && WRAPPER_VALUES[program]?.has(rest[0].split('=')[0]))
+          || (program === 'nice' && /^-n.+/u.test(rest[0]))
+          || (program === 'stdbuf' && /^-[ioe].+/u.test(rest[0]))
+          || (program === 'xargs' && /^-[adEILnPs].+/u.test(rest[0]))
+        if (inline || WRAPPER_FLAGS[program]?.has(rest[0])) { strip(1); continue }
+        // Unknown options may add a target, change cwd, or evaluate another command. Refuse rather than skip.
+        return [result({ undeterminedWrite: true })]
+      }
+      if ((program === 'timeout' || program === 'gtimeout') && /^\d+(?:\.\d+)?[smhd]?$/u.test(rest[0] ?? '')) strip(1)
       continue
     }
     if (SHELLS.has(program)) {
       const at = rest.findIndex(word => /^-[a-z]*c[a-z]*$/u.test(word))
-      if (at !== -1 && rest[at + 1] !== undefined) return [{ words: [], redirects }, ...shellCommands(rest[at + 1]).flatMap(effectiveShellCommands)]
-      return [{ words: rest, redirects }]
+      if (at !== -1 && rest[at + 1] !== undefined) {
+        if (runtimeArguments || literals[at + 1] !== true) return [result({ undeterminedWrite: true })]
+        return [result({ words: [], wordLiterals: [] }), ...shellCommands(rest[at + 1]).flatMap(effectiveShellCommands)]
+      }
+      return [result()]
     }
-    if (program === 'eval') return [{ words: [], redirects }, ...shellCommands(rest.slice(1).join(' ')).flatMap(effectiveShellCommands)]
-    return [{ words: rest, redirects }]
+    if (program === 'eval') {
+      if (runtimeArguments || literals.slice(1).some(literal => literal !== true)) return [result({ undeterminedWrite: true })]
+      return [result({ words: [], wordLiterals: [] }), ...shellCommands(rest.slice(1).join(' ')).flatMap(effectiveShellCommands)]
+    }
+    return [result()]
   }
-  return [{ words: rest, redirects }]
+  return [result(rest.length > 0 ? { undeterminedWrite: true } : {})]
 }
 
 export function effectiveCommands(words) {
@@ -168,6 +256,8 @@ export function effectiveCommands(words) {
 }
 
 // ── LITERAL WRITES ───────────────────────────────────────────────────────────────────────────────────────────────
+
+const WRITE_PROGRAMS = new Set(['rm', 'touch', 'mkdir', 'rmdir', 'chmod', 'tee', 'dd', 'truncate', 'sed', 'cp', 'mv', 'install', 'ditto', 'rsync', 'ln'])
 
 /** No expansion or code evaluation: only a literal spelling against a known working directory. */
 export function literalPath(raw, workdir, home) {
@@ -177,15 +267,15 @@ export function literalPath(raw, workdir, home) {
   return isAbsolute(raw) ? resolve(raw) : workdir === undefined ? null : resolve(workdir, raw)
 }
 
-/** Separate operands from ordinary options without mistaking an option's value for a filename. */
+/** Operand indices preserve quoting marks, including when equal cooked words occur elsewhere. */
 function operands(words, values = new Set()) {
   const out = []
   for (let i = 1; i < words.length; i += 1) {
     const word = words[i]
-    if (word === '--') { out.push(...words.slice(i + 1)); break }
+    if (word === '--') { for (let at = i + 1; at < words.length; at += 1) out.push(at); break }
     if (values.has(word)) { i += 1; continue }
     if (word.startsWith('-') && word !== '-') continue
-    out.push(word)
+    out.push(i)
   }
   return out
 }
@@ -207,7 +297,7 @@ function chmodOperands(words) {
       if (word.startsWith('-') && !/^-[rwxXstugo]*(?:[+=-][rwxXstugo]*)*(?:,[ugoa]*(?:[+=-][rwxXstugo]*)+)*$/u.test(word)) continue
     }
     if (mode) mode = false
-    else files.push(word)
+    else files.push(i)
   }
   return files
 }
@@ -245,56 +335,79 @@ function codeWriteTargets(code, python) {
 }
 
 /** The concrete file paths named by the modeled shell write forms. Every result goes to the seed guard. */
-export function literalWriteTargets({ words, redirects }, workdir, home) {
-  const targets = [...redirects]
+export function shellWriteTargets({ words, redirects = [], wordLiterals = [], redirectLiterals = [], undeterminedWrite = false }, workdir, home) {
+  let undetermined = undeterminedWrite
+  const targets = new Set()
+  const operand = (raw, literal) => ({ raw, literal: literal ?? (typeof raw === 'string' && !/[$`*?\[{}~]/u.test(raw)) })
+  const word = index => operand(words[index], wordLiterals[index])
+  const path = ({ raw, literal }) => {
+    if (typeof raw !== 'string' || raw === '' || raw.includes('\0') || !literal) { undetermined = true; return null }
+    // Quoting/escaping provenance proves these bytes literal, including $/*.
+    // Unquoted home expansion was marked unknown by the command reader.
+    if (!isAbsolute(raw) && workdir === undefined) { undetermined = true; return null }
+    return isAbsolute(raw) ? resolve(raw) : resolve(workdir, raw)
+  }
+  const add = value => { const target = path(value); if (target !== null) targets.add(target) }
+  for (let i = 0; i < redirects.length; i += 1) add(operand(redirects[i], redirectLiterals[i]))
   const program = basename(words[0] ?? '')
-  if (program === 'rm') targets.push(...operands(words))
-  if (program === 'chmod') targets.push(...chmodOperands(words))
-  if (program === 'tee') targets.push(...operands(words).filter(word => word !== '-'))
-  if (program === 'dd') targets.push(...words.slice(1).filter(word => word.startsWith('of=')).map(word => word.slice(3)))
-  if (program === 'truncate') targets.push(...operands(words, new Set(['-s', '--size', '-r', '--reference'])))
+  // A computed argument may become an option (for example dd's of= or cp's --target-directory),
+  // changing which bytes name a write target. Do not trust the pre-expansion operand positions.
+  if (WRITE_PROGRAMS.has(program) && words.slice(1).some((_raw, index) => !word(index + 1).literal)) undetermined = true
+  if (program === 'rm') for (const at of operands(words)) add(word(at))
+  if (program === 'touch') for (const at of operands(words, new Set(['-d', '--date', '-t', '-r', '--reference']))) add(word(at))
+  if (program === 'mkdir') for (const at of operands(words, new Set(['-m', '--mode']))) add(word(at))
+  if (program === 'rmdir') for (const at of operands(words)) add(word(at))
+  if (program === 'chmod') for (const at of chmodOperands(words)) add(word(at))
+  if (program === 'tee') for (const at of operands(words)) if (words[at] !== '-') add(word(at))
+  if (program === 'dd') for (let i = 1; i < words.length; i += 1) {
+    if (words[i].startsWith('of=')) add({ ...word(i), raw: words[i].slice(3) })
+  }
+  if (program === 'truncate') for (const at of operands(words, new Set(['-s', '--size', '-r', '--reference']))) add(word(at))
   if (program === 'sed') {
     let inPlace = false
     let script = false
     const files = []
     for (let i = 1; i < words.length; i += 1) {
       const word = words[i]
-      if (word === '--') { files.push(...words.slice(i + 1)); break }
+      if (word === '--') { for (let at = i + 1; at < words.length; at += 1) files.push(at); break }
       if (/^--in-place(?:=|$)|^-[^-]*i/u.test(word)) {
         inPlace = true
         if (word === '-i' && words[i + 1] === '') i += 1
       } else if (['-e', '-f', '--expression', '--file'].includes(word)) { script = true; i += 1 }
       else if (/^-[ef].|^--(?:expression|file)=/u.test(word)) script = true
-      else if (!word.startsWith('-')) { if (!script) script = true; else files.push(word) }
+      else if (!word.startsWith('-')) { if (!script) script = true; else files.push(i) }
     }
-    if (inPlace) targets.push(...files)
+    if (inPlace) for (const at of files) add(word(at))
   }
   if (['cp', 'mv', 'install', 'ditto', 'rsync', 'ln'].includes(program)) {
     const values = new Set(['-t', '--target-directory', '-S', '--suffix'])
     if (program === 'install') for (const flag of ['-m', '--mode', '-o', '--owner', '-g', '--group']) values.add(flag)
     if (program === 'rsync') for (const flag of ['-e', '--rsh', '--exclude', '--include', '--filter', '--exclude-from', '--include-from', '--files-from', '--chmod', '--chown', '--bwlimit', '--timeout']) values.add(flag)
-    const files = operands(words, values)
+    const files = operands(words, values).map(word)
     let destination
     for (let i = 1; i < words.length && words[i] !== '--'; i += 1) {
-      if (words[i] === '-t' || words[i] === '--target-directory') destination = words[++i]
-      else if (words[i].startsWith('--target-directory=')) destination = words[i].slice('--target-directory='.length)
-      else if (/^-t./u.test(words[i])) destination = words[i].slice(2)
+      if (words[i] === '-t' || words[i] === '--target-directory') destination = word(++i)
+      else if (words[i].startsWith('--target-directory=')) {
+        destination = { ...word(i), raw: words[i].slice('--target-directory='.length) }
+      } else if (/^-t./u.test(words[i])) {
+        destination = { ...word(i), raw: words[i].slice(2) }
+      }
     }
     const targetDirectory = destination !== undefined
-    if (!targetDirectory) destination = files.length === 1 && program === 'ln' ? '.' : files.pop()
-    const dest = literalPath(destination, workdir, home)
+    if (!targetDirectory) destination = files.length === 1 && program === 'ln' ? operand('.', true) : files.pop()
+    const dest = path(destination ?? operand(undefined, false))
     if (dest !== null) {
-      let directory = targetDirectory || destination.endsWith('/') || files.length > 1
+      let directory = targetDirectory || destination.raw.endsWith('/') || files.length > 1
       try { directory ||= statSync(dest).isDirectory() } catch { /* missing destination */ }
       if (words.includes('-T') || words.includes('--no-target-directory')) directory = false
-      if (program === 'install' && words.includes('-d')) targets.push(...files, destination)
-      else if (!directory) targets.push(dest)
+      if (program === 'install' && words.includes('-d')) for (const value of [...files, destination]) add(value)
+      else if (!directory) targets.add(dest)
       else for (const source of files) {
-        const file = literalPath(source, workdir, home)
+        const file = path(source)
         if (file === null) continue
         // ditto and rsync source/ copy contents into the destination. The source basename is still checked,
         // but this text-only adapter does not enumerate recursively copied trees (see index.mjs ceilings).
-        targets.push(join(dest, basename(file)))
+        targets.add(join(dest, basename(file)))
       }
     }
   }
@@ -305,9 +418,14 @@ export function literalWriteTargets({ words, redirects }, workdir, home) {
     const at = options.findIndex(word => word === '-e' || word === '--eval')
     const code = python ? pythonCommand(words)
       : at === -1 ? options.find(word => word.startsWith('--eval='))?.slice(7) : options[at + 1]
-    if (code !== undefined) targets.push(...codeWriteTargets(code, python))
+    if (code !== undefined) for (const target of codeWriteTargets(code, python)) add(operand(target))
   }
-  return [...new Set(targets.map(target => literalPath(target, workdir, home)).filter(target => target !== null))]
+  return { targets: [...targets], undetermined }
+}
+
+/** Compatibility view; admission must also check shellWriteTargets.undetermined. */
+export function literalWriteTargets(command, workdir, home) {
+  return shellWriteTargets(command, workdir, home).targets
 }
 
 // ── GIT ───────────────────────────────────────────────────────────────────────────────────────────────────────────

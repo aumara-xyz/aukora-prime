@@ -29,7 +29,7 @@ import { REASON, decide } from '../../../vendor/seed/src/guard.mjs'
 import { compileAll, judge } from '../../../vendor/seed/src/law.mjs'
 import { analyse, realpathish } from '../../../vendor/seed/src/paths.mjs'
 import { SELF_CHANGE_ROUTE, routedRefusal } from './routes.mjs'
-import { authorityRefusal, credentialRefusal, effectiveShellCommands, gitMainRefusal, hostsNamed, literalPath, literalWriteTargets, shellCommands } from './shell.mjs'
+import { authorityRefusal, credentialRefusal, effectiveShellCommands, gitMainRefusal, hostsNamed, shellWriteTargets, shellCommands } from './shell.mjs'
 import { decidePartialFailure } from '../../aukora-kira/lib/partial-failure.mjs'
 import { plainPath, worktreePath } from './self-change-tool.mjs'
 
@@ -503,15 +503,20 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       for (const command of shellCommands(source).flatMap(effectiveShellCommands)) {
         const { words } = command
         const program = basename(words[0] ?? '')
-        for (const target of literalWriteTargets(command, dir, home)) {
+        const writes = shellWriteTargets(command, dir, home)
+        if (writes.undetermined) return deny('write:undetermined-target', 'a shell write target or evaluated command is not a determined literal path; expansions and computed targets need an enforced execution path')
+        for (const target of writes.targets) {
           const verdict = judgePath(target, 'write', call)
           if (verdict.decision === 'deny') return verdict
         }
         if (program === 'cd' || program === 'pushd') {
           // `cd` changes the directory the next git in this text runs in, so it is followed; an unknown one stays unknown.
-          const target = words.find((w, i) => i > 0 && !w.startsWith('-'))
-          if (target === undefined) dir = home
-          else dir = literalPath(target, dir, home) ?? undefined
+          const afterOptions = words.indexOf('--')
+          const at = afterOptions === -1 ? words.findIndex((w, i) => i > 0 && !w.startsWith('-')) : afterOptions + 1
+          const target = words[at]
+          if (target === undefined) dir = program === 'cd' && words.length === 1 ? home : undefined
+          else if (command.wordLiterals[at] !== true || target === '-' || (!isAbsolute(target) && dir === undefined)) dir = undefined
+          else dir = isAbsolute(target) ? resolve(target) : resolve(dir, target)
           continue
         }
         const refusal = routedRefusal(words) ?? credentialRefusal(words) ?? authorityRefusal(words) ?? (program === 'git' ? gitMainRefusal(words, dir, mainBranch, home) : null)
