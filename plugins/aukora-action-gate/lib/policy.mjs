@@ -56,6 +56,30 @@ export const KEY_MENTIONS = Object.freeze([
   '.git-credentials', '.ssh/id_', 'library/keychains', 'aumlok-signer.sock', '.netrc',
 ])
 
+/**
+ * THE LINUX HOST'S OWN SECRETS AND AUTHORITY, rooted at `/` (2026-10-04, red-team on the Nebius pilot). Auma's file
+ * tools run as the backend user, which OWNS the provider credential and the launch token, so file permissions cannot
+ * keep them from her; only this gate can. Refused for read, list, search and write, inside any root.
+ */
+export const LINUX_HOST_PATTERNS = Object.freeze([
+  ['**/.credentials.yaml', 'provider-credentials', "the harness's stored provider credential (the model API key)"],
+  ['**/launch-url.json', 'launch-token', "the backend's launch URL, whose token opens the owner's session"],
+  ['home/aukora-gate', 'gate-home', "the boundary gate's home: its owner secret, receipt signing key and ledger"],
+  ['var/lib/aukora-boundary', 'gate-targets', "the boundary gate's approved targets"],
+  ['run/aukora-gate', 'gate-sockets', "the boundary gate's sockets"],
+  ['etc/aukora*', 'aukora-config', 'host AUKORA configuration'],
+  ['etc/sudoers', 'sudoers', 'the sudo policy'],
+  ['etc/sudoers.d', 'sudoers-d', 'the sudo policy'],
+  ['etc/shadow', 'shadow', 'the password hashes'],
+  ['etc/gshadow', 'gshadow', 'the group password hashes'],
+  ['root', 'root-home', "root's home"],
+  ['proc/*/environ', 'proc-environ', "a process's environment"],
+  ['proc/*/mem', 'proc-mem', "a process's memory"],
+  ['proc/*/cmdline', 'proc-cmdline', "a process's command line"],
+  ['proc/*/task/*/environ', 'proc-environ', "a thread's environment"],
+  ['proc/*/task/*/mem', 'proc-mem', "a thread's memory"],
+])
+
 /** The rows `aukora-core-read-deny` refused to a CORE session, carried so this gate supersedes that `fs` swap. */
 export const CORE_PATTERNS = Object.freeze([
   '**/state/launch.json', '**/state/lane-door', '**/state/eye', '**/gate-state', '**/kira-approve-queue',
@@ -200,10 +224,15 @@ export const DEFAULT_ALLOW_TOOLS = Object.freeze([
  * @returns {{judge: (call: object) => {decision: 'allow'|'deny', rule: string, message: string|null}}}
  */
 export function createPolicy(settings, { definitionOf = null, partialFailureOf = () => undefined } = {}) {
-  const { home, supportRoot, dshHome, auraDir, repoRoots, releaseRoots, extraWritableRoots, networkAllow, allowLoopback, mainBranch } = settings
+  const { home, supportRoot, dshHome, auraDir, repoRoots, releaseRoots, extraWritableRoots, readRoots = [], confineReads = false, networkAllow, allowLoopback, mainBranch } = settings
   const governingRoots = [...new Set([...repoRoots, ...releaseRoots])]
   const keyLaw = { root: '/', rules: compileAll(KEY_PATTERNS.map(([pattern]) => pattern)) }
   const keyById = new Map(KEY_PATTERNS.map(([pattern, id, why]) => [pattern, { id, why }]))
+  const hostLaw = { root: '/', rules: compileAll(LINUX_HOST_PATTERNS.map(([pattern]) => pattern)) }
+  const hostById = new Map(LINUX_HOST_PATTERNS.map(([pattern, id, why]) => [pattern, { id, why }]))
+  // THE HARNESS STATE ROOT (`<state>/home`'s parent) holds the credential, the launch token, every session and the
+  // receipts. Only the session workspace inside it is the agent's.
+  const stateRoot = resolve(dshHome, '..')
   const anchoredKeyLaws = [
     { law: law(supportRoot, ['**/*.sock']), id: 'support-socket', why: "a live door into one of the owner's processes" },
     { law: law(home, ['.npmrc', '.pypirc']), id: 'registry-token', why: 'a stored registry token' },
@@ -269,6 +298,13 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
     return [...out]
   }
 
+  /** The session workspace, when the call names one. */
+  const workspaceOf = call => (typeof call.workspace === 'string' && call.workspace !== '' ? [call.workspace] : [])
+  /** Whether `abs` is one of `roots` or beneath it, by the seed guard's own containment (lexical and real forms). */
+  function insideAny(roots, abs) {
+    return roots.some(root => { const a = analyse(root, abs); return a.ok && !a.outside })
+  }
+
   /** Judge one declared path for an operation kind: read, list, search, dir or write. */
   function judgePath(raw, kind, call) {
     // The shell's conventional discard sink is a device, not a filesystem write root.
@@ -286,6 +322,15 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       for (const anchored of anchoredKeyLaws) {
         if (protectedBy(anchored.law, abs)?.rule !== undefined) return deny(`key-material:${anchored.id}`, `${raw} is ${anchored.why}. Agents never read or write it`)
       }
+      const host = protectedBy(hostLaw, abs)
+      if (host?.unresolvable) return deny('path:unresolvable', `${host.unresolvable} (seed guard)`)
+      if (host !== null) {
+        const { id, why } = hostById.get(host.rule)
+        return deny(`host-secret:${id}`, `${raw} is ${why}. Agents never read or write it; if a task needs it, ask Peter`)
+      }
+      if (confineReads && insideAny([stateRoot], abs) && !insideAny(workspaceOf(call), abs)) {
+        return deny('host-secret:harness-state', `${raw} is inside the harness state (${stateRoot}), which holds the provider credential, the launch token and every session. Only the session workspace is the agent's`)
+      }
       if (kind !== 'write' && protectedBy(coreLaw, abs)?.rule !== undefined && isCore(call)) {
         return deny('core-read', `${raw} is withheld from a CORE session (the rows aukora-core-read-deny carried)`)
       }
@@ -295,7 +340,19 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       const reached = anchoredKeys.find(keyPath => forms.some(root => { const a = analyse(root, keyPath); return a.ok && !a.outside }))
       if (reached !== undefined) return deny('key-material:search-root', `a content search rooted at ${raw} reaches ${reached}. Pass a narrower path that does not contain key material`)
     }
-    if (kind !== 'write') return allow()
+    if (kind !== 'write') {
+      // FAIL CLOSED ON LINUX (2026-10-04): a read, list or search lands only inside the session workspace, the
+      // repository and release roots, or a root the deployment names. Everything else on the host is refused.
+      if (confineReads && kind !== 'dir') {
+        const readable = [...workspaceOf(call), settings.defaultWorkspace, ...repoRoots, ...releaseRoots, ...extraWritableRoots, ...readRoots]
+        for (const landing of new Set(forms.map(form => realpathish(form)))) {
+          if (!insideAny(readable, landing)) {
+            return deny('read:outside-workspace', `${raw} resolves outside the session workspace${call.workspace ? ` (${call.workspace})` : ''} and the roots this deployment allows reading. On this host the agent reads only inside those`)
+          }
+        }
+      }
+      return allow()
+    }
 
     for (const abs of forms) {
       if (protectedBy(gitLaw, abs)?.rule !== undefined) {

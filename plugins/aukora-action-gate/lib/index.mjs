@@ -74,7 +74,7 @@ export const LOADED_FROM_ROOT = resolve(dirname(fileURLToPath(import.meta.url)),
 
 export const CONFIG_FIELDS = Object.freeze([
   'auraDir', 'supportRoot', 'dshHome', 'home', 'repoRoots', 'releaseRoots', 'extraWritableRoots', 'networkAllow',
-  'allowLoopback', 'mainBranch', 'defaultWorkspace', 'rotateBytes', 'allowTools', 'worktreesRoot',
+  'allowLoopback', 'mainBranch', 'defaultWorkspace', 'rotateBytes', 'allowTools', 'worktreesRoot', 'readRoots', 'confineReads',
 ])
 
 /**
@@ -128,6 +128,9 @@ export function readSettings(config = {}) {
     repoRoots: list(config.repoRoots, 'repoRoots'),
     releaseRoots: config.releaseRoots === undefined ? [LOADED_FROM_ROOT] : list(config.releaseRoots, 'releaseRoots'),
     extraWritableRoots: list(config.extraWritableRoots, 'extraWritableRoots'),
+    readRoots: list(config.readRoots, 'readRoots'),
+    // FAIL CLOSED ON LINUX: reads confined to the workspace and named roots unless the row says `confineReads: false`.
+    confineReads: config.confineReads === undefined ? process.platform === 'linux' : config.confineReads === true,
     networkAllow: Object.freeze([...networkAllow]),
     allowLoopback: config.allowLoopback !== false,
     mainBranch: typeof config.mainBranch === 'string' && config.mainBranch !== '' ? config.mainBranch : 'main',

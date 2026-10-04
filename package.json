@@ -11,7 +11,7 @@
     "build": "python3 scripts/build-dsh.py",
     "boot": "./prime boot",
     "status": "./prime status",
-    "check:boundary-gate": "node --test packages/boundary-gate/checks/*.mjs"
+    "check:boundary-gate": "node --test packages/boundary-gate/checks/*.mjs",
+    "check:read-fence": "node tests/aukora-linux-read-fence.test.mjs"
   }
 }
-
