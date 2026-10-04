@@ -30,8 +30,9 @@
 # handoff; that fixed workspace-patch alias uses the macOS box launch path.
 # Retain the existing mandatory-agent-confinement patch. Do NOT apply historical
 # handoff/linux-unsupported-consumers.patch.json to R2: it intentionally refused
-# the routes this implementation now carries. Actual nodeExecutable/bootstrapPath
-# values must be supplied by Grok; this disabled source row does not infer them.
+# the routes this implementation now carries. The paths below are Grok's selected
+# guest-image paths; the existing native PTC row must use the same two values.
+# This disabled handoff does not activate the image or broaden its policy.
 - insert:
     - id: aukora-openshell-confinement
       name: ./plugins/aukora-openshell-confinement/lib/index.mjs
@@ -41,3 +42,5 @@
       config:
         workspaceRoot: /sandbox
         timeoutSeconds: 60
+        nodeExecutable: /usr/lib/aukora/node/bin/node
+        bootstrapPath: /usr/lib/aukora/ptc/process.js

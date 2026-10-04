@@ -3,12 +3,15 @@
 Grok owns `packages/boundary-gate/host/sbx-exec`, installation, sandbox startup
 policy and shared composition. This lane changes only its plugin directory.
 The ordinary wrapper at historical reference
-`1ebe7539b0dd6e3bd8767fe173021595f69861dc` lacked the interfaces below. The R2
-adapter remains disabled until Grok joins the current stream and policy contract
-and qualifies the actual installed path.
+`1ebe7539b0dd6e3bd8767fe173021595f69861dc` lacked the interfaces below. Current
+wrapper source at `50a49522fd34e7fbbaf42391767a4a029ab94a3e`, unchanged at
+`edd910a7bcc0e4d93602697ed6583b8ae83fb5a6`, implements the
+stream and policy contract. Grok reported an installed lookup with clean carrier
+close, followed by a process launch refused because `pidfd_open` returned
+`ENOSYS`. That result does not establish PTC or terminal acceptance.
 
 The legacy ordinary command and `sandboxArgv()` are outside the R2 stream route.
-Add `sbx-exec --confinement-info`: read-only, no proposed
+`sbx-exec --confinement-info` is read-only, with no proposed
 command or guest user code, bounded to 16 KiB JSON, nonzero on unavailable data.
 The following closed version-1 envelope is required:
 
@@ -66,7 +69,11 @@ sbx-exec --stream <timeout-seconds>
 Accept one integer from 1 to 300 for this mode. Select the existing configured
 OpenShell gateway/proxy and a fixed read-only installed guest Python/carrier path
 inside the wrapper. Run `guest/exec.py` inside that admitted OpenShell session.
-Grok must supply the actual paths; caller argv, environment, proxy options and
+The selected image paths are `/usr/bin/python3`, `/usr/lib/aukora/exec.py`,
+`/usr/lib/aukora/node/bin/node` and `/usr/lib/aukora/ptc/process.js`. Both the
+native PTC row and the confinement row must select the same Node and bootstrap
+paths; configuring only the confinement row leaves incompatible native defaults.
+Caller argv, environment, proxy options and
 model input must not select the host command or transport. Missing backend,
 applied policy, guest carrier or required primitive refuses without host fallback.
 
@@ -79,13 +86,20 @@ The guest carrier itself creates the process pipes, raw duplex FD7 socketpair
 and genuine PTY. Its launch and request schema is implemented in `guest/exec.py`
 and `lib/stream.mjs`; no caller-controlled host command string is accepted here.
 
+The current wrapper separately bounds lock admission to 30 seconds, each of five
+initial policy queries to 4 seconds, SSH admission to 30 seconds, and the second
+policy check to 30 seconds. The adapter's default carrier startup deadline is
+120 seconds, with a maximum of 120 seconds; its independent policy read has a
+25-second deadline. Caller cancellation still applies throughout admission, and
+the configured 1–300 second wrapper execution bound begins after admission.
+
 Executions must remain independent: an outer `run_code` worker can await a nested
 Bash launch, and terminals can coexist. No lifetime serialization lock or
 before/after global process cleanup may cover this stream route. Cleanup and
 trusted deadlines must target only the admitted execution's owned guest range.
 Carrier quiescence plus clean carrier close is the plugin's completion condition;
 host SSH exit, killing a local carrier or a gateway timeout alone is not guest
-absence evidence. The guest subreaper/pidfd cleanup cannot independently prove
+absence evidence. The guest subreaper/retained-child cleanup cannot independently prove
 absence after same-UID carrier destruction. Grok must qualify trusted supervision
 and loss handling on the actual installed path; unknown cleanup remains fenced.
 

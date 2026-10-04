@@ -47,9 +47,13 @@ export function readSettings(input = {}) {
       throw unavailable('CONFIG', 'guest executable and bootstrap paths must be explicit absolute paths');
     }
   }
-  const startupTimeoutMs = input.startupTimeoutMs ?? 5000;
+  // The selected wrapper bounds lock admission (30s), the first INFO (five
+  // 4s queries), SSH admission (30s), and the second INFO (30s) separately.
+  // Allow that complete bounded admission before declaring carrier loss.
+  const startupTimeoutMs = input.startupTimeoutMs ?? 120000;
   const cleanupTimeoutMs = input.cleanupTimeoutMs ?? 10000;
-  if (![startupTimeoutMs, cleanupTimeoutMs].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 30000)) {
+  if (!Number.isSafeInteger(startupTimeoutMs) || startupTimeoutMs < 1000 || startupTimeoutMs > 120000 ||
+      !Number.isSafeInteger(cleanupTimeoutMs) || cleanupTimeoutMs < 1000 || cleanupTimeoutMs > 30000) {
     throw unavailable('CONFIG', 'invalid bounded carrier deadline');
   }
   return Object.freeze({ workspaceRoot, hostWorkspaceRoot, timeoutSeconds, nodeExecutable, bootstrapPath,
@@ -162,7 +166,7 @@ export async function readConfinementInfo(layout, signal) {
       timer = setTimeout(() => {
         stopReader();
         finish(unavailable('POLICY_READBACK', 'the applied-policy readback timed out'));
-      }, 5000);
+      }, 25000);
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort();
     });

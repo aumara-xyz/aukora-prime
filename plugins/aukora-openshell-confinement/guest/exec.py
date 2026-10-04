@@ -15,7 +15,6 @@ import errno
 import fcntl
 import json
 import os
-import select
 import selectors
 import signal
 import socket
@@ -198,9 +197,13 @@ def child_pids(pid):
                     raise Refused("OWNERSHIP_LIMIT")
                 children.update(int(entry) for entry in data.split())
             except (FileNotFoundError, ProcessLookupError):
+                if pid == os.getpid() and int(thread) == pid:
+                    raise Refused("OWNERSHIP_UNKNOWN")
                 continue
         return children
     except (FileNotFoundError, ProcessLookupError):
+        if pid == os.getpid():
+            raise Refused("OWNERSHIP_UNKNOWN")
         return set()
     except (OSError, ValueError):
         raise Refused("OWNERSHIP_UNKNOWN")
@@ -208,8 +211,8 @@ def child_pids(pid):
 
 class OwnedTree:
     def __init__(self):
-        if sys.platform != "linux" or not hasattr(os, "pidfd_open") or \
-                not hasattr(signal, "pidfd_send_signal"):
+        if sys.platform != "linux" or any(not hasattr(os, name) for name in
+                ("waitid", "WNOWAIT", "WEXITED", "WNOHANG", "P_PID")):
             raise Refused("GUEST_UNAVAILABLE")
         self.libc = ctypes.CDLL(None, use_errno=True)
         self.libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong,
@@ -217,127 +220,167 @@ class OwnedTree:
         self.libc.prctl.restype = ctypes.c_int
         if self.libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
             raise Refused("OWNERSHIP_UNAVAILABLE")
+        # Ignored SIGCHLD/SA_NOCLDWAIT could recycle a child pid without a wait.
+        # The carrier is single-threaded and installs no other reaping handler.
+        signal.signal(signal.SIGCHLD, signal.SIG_DFL)
         self.pid = os.getpid()
         self.records = {}
         self.root = None
         self.root_status = None
+        self.signaling_closed = False
+        self.finalized = False
 
-    def add(self, pid, parents):
-        before = proc_stat(pid)
-        if before is None or before["parent"] not in parents:
-            return
-        current = self.records.get(pid)
-        if current is not None:
-            if current["started"] != before["started"]:
-                raise Refused("OWNERSHIP_UNKNOWN")
-            return
-        if len(self.records) >= MAX_PROCESSES:
-            raise Refused("OWNERSHIP_LIMIT")
+    def wait_child(self, pid):
+        """Prove current direct-child custody without freeing its kernel pid."""
         try:
-            descriptor = os.pidfd_open(pid, 0)
-        except ProcessLookupError:
-            return
+            # __WALL includes clone children with a non-SIGCHLD exit signal;
+            # these are still our direct children and must not disappear from
+            # the kernel custody check merely because of their clone flags.
+            event = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT | 0x40000000)
+        except ChildProcessError:
+            raise Refused("OWNERSHIP_UNKNOWN")
         except OSError:
             raise Refused("OWNERSHIP_UNAVAILABLE")
-        after = proc_stat(pid)
-        if after is None or after["started"] != before["started"] or after["parent"] not in parents:
-            os.close(descriptor)
-            return
-        self.records[pid] = {**after, "fd": descriptor, "term_sent": False}
+        if event is not None:
+            if event.si_pid != pid or event.si_code not in (os.CLD_EXITED, os.CLD_KILLED, os.CLD_DUMPED):
+                raise Refused("OWNERSHIP_UNKNOWN")
+            if pid == self.root:
+                status_value = event.si_status << 8 if event.si_code == os.CLD_EXITED else \
+                    event.si_status | (0x80 if event.si_code == os.CLD_DUMPED else 0)
+                if self.root_status is not None and self.root_status != status_value:
+                    raise Refused("OUTCOME_UNKNOWN")
+                self.root_status = status_value
+        return event
+
+    def retain(self, pid):
+        if self.signaling_closed:
+            raise Refused("OWNERSHIP_CLOSED")
+        event = self.wait_child(pid)
+        record = self.records.get(pid)
+        if record is None:
+            if len(self.records) >= MAX_PROCESSES:
+                raise Refused("OWNERSHIP_LIMIT")
+            record = {"pid": pid, "started": None, "term_sent": False}
+            self.records[pid] = record
+        fact = proc_stat(pid)
+        if fact is None or fact["parent"] != self.pid:
+            raise Refused("OWNERSHIP_UNKNOWN")
+        if record["started"] is not None and record["started"] != fact["started"]:
+            raise Refused("OWNERSHIP_UNKNOWN")
+        record.update(fact)
+        return record, event
 
     def set_root(self, pid):
-        # A successful fork gives an owned child identity even if /proc is
-        # denied. Keep its pidfd before a fallible observation so cleanup can
-        # still target that exact child, without claiming the rest is known.
+        # The unreaped direct fork child cannot be recycled. Only kernel
+        # wait-child proof may subsequently permit a numeric-pid signal.
         self.root = pid
-        try:
-            descriptor = os.pidfd_open(pid, 0)
-        except OSError:
-            # This is still our unreaped direct fork child. Its pid cannot be
-            # recycled until waitpid, so this narrow startup fallback is safe.
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            raise Refused("OWNERSHIP_UNAVAILABLE")
-        record = {"pid": pid, "started": None, "fd": descriptor, "term_sent": False}
-        self.records[pid] = record
-        fact = proc_stat(pid)
-        if fact is not None:
-            if fact["parent"] != self.pid:
-                raise Refused("OWNERSHIP_UNKNOWN")
-            record.update(fact)
+        self.records[pid] = {"pid": pid, "started": None, "term_sent": False}
+        self.retain(pid)
 
-    def alive(self, record):
-        try:
-            return not select.select([record["fd"]], [], [], 0)[0]
-        except (OSError, ValueError):
-            raise Refused("OWNERSHIP_UNKNOWN")
-
-    def reap(self):
+    def reap_final(self):
+        """Close signalling permanently, then release only proved-dead children."""
+        if self.signaling_closed:
+            return self.finalized
+        children = child_pids(self.pid)
+        if children != set(self.records):
+            return False
+        for pid in children:
+            if self.wait_child(pid) is None:
+                return False
+        # Descendants are reparented before Linux reports their owner's exit.
+        if child_pids(self.pid) != children:
+            return False
+        self.signaling_closed = True
+        reaped = set()
         while True:
             try:
-                pid, status_value = os.waitpid(-1, os.WNOHANG)
+                pid, status_value = os.waitpid(-1, os.WNOHANG | 0x40000000)
             except ChildProcessError:
+                if reaped != set(self.records) or child_pids(self.pid):
+                    raise Refused("OWNERSHIP_UNKNOWN")
+                self.records.clear()
+                self.finalized = True
                 return True
             except InterruptedError:
                 continue
+            except OSError:
+                raise Refused("OWNERSHIP_UNKNOWN")
             if pid == 0:
-                return False
-            if pid == self.root:
-                self.root_status = status_value
+                raise Refused("OWNERSHIP_UNKNOWN")
+            if pid not in self.records or pid in reaped:
+                raise Refused("OWNERSHIP_UNKNOWN")
+            if pid == self.root and self.root_status != status_value:
+                raise Refused("OUTCOME_UNKNOWN")
+            reaped.add(pid)
 
     def census(self):
-        self.reap()
-        seen = {self.pid}
-        pending = collections.deque([self.pid])
-        # Kept identities also cover descendants between reparenting observations.
-        for pid, record in list(self.records.items()):
-            if self.alive(record):
-                pending.append(pid)
+        if self.signaling_closed:
+            return [], self.finalized
+        # No early reap or descendant signal from a stat/start-time snapshot.
+        # Descendants become retained direct children as their owners die.
+        children = child_pids(self.pid)
+        live = []
+        for pid in children | set(self.records):
+            record, event = self.retain(pid)
+            if event is None:
+                live.append(record)
+        if live:
+            return live, False
+        return [], self.reap_final()
+
+    def observations(self):
+        """Read-only descendant facts; these never grant numeric-pid signalling."""
+        live, _ = self.census()
+        pending = collections.deque(record["pid"] for record in live)
+        facts = {record["pid"]: dict(record) for record in live}
+        seen = set()
         while pending:
             pid = pending.popleft()
-            if pid != self.pid:
-                if pid in seen:
-                    continue
-                record = self.records.get(pid)
-                if record is None or not self.alive(record):
-                    continue
-                fact = proc_stat(pid)
-                if fact is None:
-                    continue
-                if fact["started"] != record["started"]:
-                    raise Refused("OWNERSHIP_UNKNOWN")
-                record.update(fact)
-                seen.add(pid)
+            if pid in seen:
+                continue
+            seen.add(pid)
             for child in child_pids(pid):
-                self.add(child, {pid, self.pid})
-                if child in self.records and child not in seen:
+                before = proc_stat(child)
+                if before is None or before["parent"] != pid:
+                    continue
+                after = proc_stat(child)
+                if after is None or after["started"] != before["started"] or after["parent"] != pid:
+                    continue
+                if len(facts) >= MAX_PROCESSES and child not in facts:
+                    raise Refused("OWNERSHIP_LIMIT")
+                facts[child] = after
+                if child not in seen:
                     pending.append(child)
-        self.reap()
-        live = []
-        for pid, record in list(self.records.items()):
-            if self.alive(record):
-                live.append(record)
-            else:
-                os.close(record["fd"])
-                del self.records[pid]
-        # No children in the kernel plus no retained live identity is the fence.
-        no_children = self.reap()
-        return live, not live and no_children and not child_pids(self.pid)
+        return [fact for fact in facts.values() if fact["state"] not in (b"Z", b"X", b"x")]
 
     def deliver(self, record, number):
+        pid = record["pid"]
+        if self.signaling_closed or self.records.get(pid) is not record or pid == self.pid:
+            raise Refused("OWNERSHIP_CLOSED")
+        # WNOWAIT also retains exited identities. If this child exits after
+        # proof, no reap can recycle it before this signal attempt finishes.
+        if self.wait_child(pid) is not None:
+            return
         try:
-            signal.pidfd_send_signal(record["fd"], number, None, 0)
+            os.kill(pid, number)
         except ProcessLookupError:
-            pass
+            if self.wait_child(pid) is None:
+                raise Refused("SIGNAL_UNAVAILABLE")
         except OSError:
             raise Refused("SIGNAL_UNAVAILABLE")
 
     def close(self):
-        for record in self.records.values():
-            os.close(record["fd"])
+        # Unknown cleanup never releases identities before a possible signal.
+        self.signaling_closed = True
         self.records.clear()
+
+
+def tty_signal_ioctl():
+    if hasattr(termios, "TIOCSIG"):
+        return termios.TIOCSIG
+    if os.uname().machine in ("x86_64", "aarch64", "arm64"):
+        return 0x40045436  # Linux asm-generic _IOW('T', 0x36, int)
+    raise Refused("SIGNAL_UNAVAILABLE")
 
 
 def copy_fd(descriptor):
@@ -566,13 +609,47 @@ class Carrier:
                 return None
         except OSError:
             return None
-        live, _ = self.tree.census()
-        members = [record for record in live if record["group"] == group and
+        facts = self.tree.observations()
+        if self.tree.root_status is not None:
+            return None
+        members = [record for record in facts if record["group"] == group and
                    record["session"] == self.tree.root]
         if not members:
             return None
         waiting = any(self.stdin_waiting(record) for record in members)
         return {"processGroupId": group, "inputWaiting": waiting}
+
+    def signal_foreground(self, name):
+        foreground = self.foreground()
+        if foreground is None:
+            raise Refused("FOREGROUND_UNAVAILABLE")
+        group = foreground["processGroupId"]
+        descriptor = next((fd for fd, channel in self.channels.items() if channel["kind"] == "output"), None)
+        if descriptor is None or os.tcgetpgrp(descriptor) != group:
+            raise Refused("FOREGROUND_CHANGED")
+        if name in ("SIGINT", "SIGTSTP"):
+            # Linux pty_signal selects the slave's current foreground group
+            # using its kernel pid reference, never a reusable numeric PGID.
+            # The returned group is the preceding driver observation, not an
+            # atomic certificate of which group the ioctl selected.
+            fcntl.ioctl(descriptor, tty_signal_ioctl(), SIGNALS[name])
+            return group
+        facts = [fact for fact in self.tree.observations() if fact["group"] == group and
+                 fact["session"] == self.tree.root]
+        if not facts:
+            raise Refused("FOREGROUND_UNAVAILABLE")
+        selected = []
+        for fact in facts:
+            record = self.tree.records.get(fact["pid"])
+            if record is None or fact["parent"] != self.tree.pid or \
+                    record["started"] != fact["started"] or self.tree.wait_child(record["pid"]) is not None:
+                raise Refused("FOREGROUND_SIGNAL_UNAVAILABLE")
+            selected.append(record)
+        if os.tcgetpgrp(descriptor) != group:
+            raise Refused("FOREGROUND_CHANGED")
+        for record in selected:
+            self.tree.deliver(record, SIGNALS[name])
+        return group
 
     def stdin_waiting(self, record):
         # Prove a blocked read/readv on this PTY. Denied syscall inspection,
@@ -641,23 +718,7 @@ class Carrier:
             else:
                 if not exact(args, {"signal"}) or not isinstance(args["signal"], str) or args["signal"] not in SIGNALS:
                     raise Refused("PROTOCOL")
-                foreground = self.foreground()
-                if foreground is None:
-                    raise Refused("FOREGROUND_UNAVAILABLE")
-                group = foreground["processGroupId"]
-                live, _ = self.tree.census()
-                selected = []
-                for record in live:
-                    fact = proc_stat(record["pid"])
-                    if fact is not None and fact["started"] == record["started"] and \
-                            fact["group"] == group and fact["session"] == self.tree.root:
-                        selected.append(record)
-                if not selected:
-                    raise Refused("FOREGROUND_UNAVAILABLE")
-                for record in selected:
-                    # pidfds keep a recycled pid/group from targeting other work.
-                    self.tree.deliver(record, SIGNALS[args["signal"]])
-                result = group
+                result = self.signal_foreground(args["signal"])
             self.emit({"type": "reply", "id": request_id, "result": result})
         except Refused as error:
             self.emit({"type": "reply", "id": request_id, "error": error.code})

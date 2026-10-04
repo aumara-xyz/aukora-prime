@@ -5,6 +5,7 @@ import { EventEmitter, once } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import test from 'node:test';
 import { openGuestStream } from '../lib/stream.mjs';
+import { readSettings } from '../lib/transport.mjs';
 
 const MAX_PENDING_BYTES = 1024 * 1024;
 const CHUNK = 32 * 1024;
@@ -64,6 +65,22 @@ function complete(child) {
   child.frame({ type: 'outcome', exitCode: 0, signal: null });
   child.frame({ type: 'quiescent' });
 }
+
+test('bounded slow wrapper admission can finish before the guest startup deadline', { timeout: 2000 }, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const child = carrier(t);
+  const session = openGuestStream(launch(), readSettings(), layout, undefined, child.spawn);
+  await turn();
+  // Lock, policy queries and SSH admission can legitimately outlast 30s.
+  // Simulate that delay without starting a wrapper or waiting on wall time.
+  t.mock.timers.tick(95000);
+  assert.deepEqual(child.kills, [], 'healthy bounded admission must not be killed early');
+  child.frame({ type: 'ready', pid: 41 });
+  assert.equal(await session.ready, 41);
+  complete(child);
+  child.close(0);
+  assert.equal(await session.empty, true);
+});
 
 test('byte echo and FD7 half-close use only the fixed sanitized as-auma carrier', { timeout: 2000 }, async t => {
   const child = carrier(t, (frame, peer) => {
