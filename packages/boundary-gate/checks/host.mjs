@@ -63,15 +63,20 @@ test('host scripts: bash syntax, fixed sandbox identity, network-none refusal', 
 })
 
 // A copy of sbx-exec whose /usr/bin/openshell is a stub. mode 'args' prints the argv; mode 'exec' runs the
-// inner `bash -c <cleanup script> SKSBX <cmd>` locally (only ever inside a private PID namespace).
-function stubWrapper(mode) {
+// inner `bash -c <cleanup script> aukora-boundary exec <cmd>` locally (only ever inside a private PID namespace).
+// The applied-policy check (`info check`) queries the real OpenShell/Podman and is observed on the pilot and pinned
+// by tests/aukora-openshell-confinement.test.mjs; here it is replaced, and the host lock goes to a temp directory.
+function stubWrapper(mode, { guestRoot } = {}) {
   const d = tmp(), stub = path.join(d, 'openshell'), w = path.join(d, 'sbx-exec')
   fs.writeFileSync(stub, mode === 'args'
     ? '#!/bin/bash\nfor a in "$@"; do printf "%s\\0" "$a"; done\n'
     : '#!/bin/bash\nwhile [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done; shift; exec "$@"\n', { mode: 0o755 })
   const src = read('host/sbx-exec')
-  assert.equal(src.split('/usr/bin/openshell').length, 2, 'exactly one openshell invocation')
-  fs.writeFileSync(w, src.replace('/usr/bin/openshell', stub), { mode: 0o755 })
+  assert.equal(src.split('/usr/bin/openshell sandbox exec').length, 3, 'one exec for the command, one for cancel cleanup')
+  assert.equal(src.split('info check || exit 125').length, 2, 'exactly one applied-policy check before the command')
+  fs.writeFileSync(w, src.replaceAll('/usr/bin/openshell sandbox exec', stub + ' sandbox exec')
+    .replace('info check || exit 125', 'true').replace('"$XDG_RUNTIME_DIR/aukora-sbx-exec.lock"', JSON.stringify(path.join(d, 'lock')))
+    .replace('cd /sandbox ||', guestRoot ? `cd ${guestRoot} ||` : 'cd /sandbox ||'), { mode: 0o755 })
   return w
 }
 
@@ -83,14 +88,25 @@ test('sbx-exec: timeout validation and clamping, fixed flags, command passed as 
   for (const [t, want] of [['20', '20'], ['300', '300'], ['301', '300'], ['0', '1'], ['99999999999999999999', '300']]) {
     const a = argv(t)
     assert.deepEqual(a.slice(0, 10), ['sandbox', 'exec', '--name', 'auma-ws', '--no-tty', '--no-login-shell', '--timeout', want, '--', 'bash'], `timeout ${t}`)
-    assert.equal(a.at(-2), 'SKSBX'); assert.equal(a.at(-1), 'echo "a b"; id')
+    assert.deepEqual(a.slice(-3), ['aukora-boundary', 'exec', 'echo "a b"; id'])
   }
+  // order in the real wrapper: host lock, then the applied-policy re-check, then the one command exec
+  const src = read('host/sbx-exec')
+  const lock = src.indexOf('/usr/bin/flock -w'), check = src.indexOf('info check || exit 125'), exec = src.indexOf('aukora-boundary exec "$2"')
+  assert.ok(lock > 0 && check > lock && exec > check)
+  assert.ok(!src.includes('SKSBX'), 'no argv marker an agent could forge')
 })
 
 const userns = spawnSync('unshare', ['--user', '--map-current-user', '--pid', '--fork', '--mount-proc', 'true']).status === 0
 
-test('sbx-exec cleanup script: leftovers killed, OpenShell login shell and concurrent calls spared', { skip: userns ? false : 'unprivileged user+PID namespaces unavailable (SKIPPED, not passed)' }, () => {
-  const w = stubWrapper('exec')
+test('sbx-exec cleanup script: leftovers killed, OpenShell login shell spared, calls serialized by the host lock', { skip: userns ? false : 'unprivileged user+PID namespaces unavailable (SKIPPED, not passed)' }, () => {
+  // the guest workspace is checked: without /sandbox the command never runs
+  const missing = spawnSync('unshare', ['--user', '--map-current-user', '--pid', '--fork', '--mount-proc', 'bash', stubWrapper('exec'), '5', 'echo RAN'], { encoding: 'utf8', timeout: 30000 })
+  if (!fs.existsSync('/sandbox')) {
+    assert.equal(missing.status, 125); assert.doesNotMatch(missing.stdout, /RAN/)
+    assert.match(missing.stderr, /aukora-openshell-confinement: guest-workspace-unavailable/)
+  }
+  const w = stubWrapper('exec', { guestRoot: tmp() })
   // Runs as PID 1 of a fresh PID namespace, so the wrapper's process sweep only ever sees this test's processes.
   // Every wrapper call is started directly by PID 1 (no command-substitution subshell in between), matching
   // OpenShell's exec layout; output goes to files.
@@ -104,10 +120,9 @@ bash ${W} 30 'setsid sleep 500 & nohup sleep 501 >/dev/null 2>&1 & (sleep 502 &)
 echo "err=$(cat /tmp/e0)"
 echo "leftover=$(pgrep -c -x sleep)"
 kill -0 $infra 2>/dev/null && echo infra=alive || echo infra=dead
-bash ${W} 30 'sleep 2; echo first-done' >/tmp/o1 2>/dev/null & a=$!
-sleep 0.7
+bash ${W} 30 'sleep 1; echo first-done' >/tmp/o1 2>/dev/null
 bash ${W} 30 'echo second-done' >/tmp/o2 2>/dev/null
-wait $a; echo "c1=$(cat /tmp/o1) c2=$(cat /tmp/o2)"
+echo "c1=$(cat /tmp/o1) c2=$(cat /tmp/o2)"
 bash ${W} 30 'exit 7' >/dev/null 2>&1; echo "code=$?"
 bash ${W} 30 'head -c 3000000 /dev/zero | tr "\\\\0" x' >/tmp/o3 2>/dev/null; echo "big=$(wc -c < /tmp/o3)"
 bash ${W} 30 'head -c 30000000 /dev/zero > /tmp/f; echo "w=$?"; stat -c %s /tmp/f' >/tmp/o4 2>/dev/null; echo "fsz=$(tr '\\n' ' ' < /tmp/o4)"
