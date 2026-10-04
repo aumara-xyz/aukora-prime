@@ -327,6 +327,7 @@ try {
     inputForCompletion: execution => ({ text: 'Synthetic observer completion retained as ordinary memory.',
       from: 'gate-observer-fixture', scope: execution.scope, at: instant }),
     isLive: () => true,
+    isCaptureScopeLive: () => true,
     verifyCompletedGateCapture: () => ({ source: { ...sourceCoordinates } }),
     capturePins: Object.freeze({ fixture: 'toy' }),
     referenceForAppliedAction: () => ({ source: { ...sourceCoordinates } }),
@@ -492,6 +493,80 @@ try {
     assert.equal(networkCalls, 0);
   });
 
+  await functional('capture scope is revalidated after actual policy await before durable persistence', async () => {
+    const { createGateCaptureIngestion } = await import('../plugins/aukora-kira/lib/index.js');
+    const directory = join(scratch, 'capture-revoked-policy'), entered = deferred(), released = deferred();
+    let scopeLive = true, checks = 0;
+    const completed = Object.freeze({ fixture: 'same-completed-result' });
+    const memory = makeMemory('capture-revoked-policy', { policyOf: async () => {
+      entered.resolve(); await released.promise; return {};
+    } });
+    const adapter = createGateCaptureIngestion({ memoryFor: () => memory,
+      verifyCompletedGateCapture: () => ({ source: fixtureSource(110) }),
+      isCaptureScopeLive: value => { assert.equal(value, completed); checks++; return scopeLive; },
+    });
+    const before = bytesIn(directory);
+    const flight = adapter.remember({ text: 'Synthetic capture revoked during awaited owner policy.', from: 'fixture' }, completed);
+    try {
+      await bounded(entered.promise);
+      assert.equal(checks, 0, 'scope must be checked after the pending policy read');
+      scopeLive = false; released.resolve();
+      const result = await bounded(flight);
+      assert.equal(result.remembered, 0);
+      assert.deepEqual(result.ids, []);
+      assert.equal(checks, 1);
+      assert.equal(result.auraCapture.reason, 'capture-paused');
+      assert.deepEqual(bytesIn(directory), before, 'no directory or durable note may be created');
+    } finally { released.resolve(); await bounded(flight); }
+  });
+
+  await functional('final capture scope requires synchronous exact true and stable memory identity', async () => {
+    const { createGateCaptureIngestion } = await import('../plugins/aukora-kira/lib/index.js');
+    assert.throws(() => createGateCaptureIngestion({ memoryFor: () => undefined,
+      verifyCompletedGateCapture: () => ({ source: fixtureSource(110) }) }), /host-unconfigured/);
+    const completed = Object.freeze({ fixture: 'final-scope-result' });
+    const cases = [
+      ['revoked', () => false], ['missing', () => undefined], ['truthy', () => ({})],
+      ['async', () => Promise.resolve(true)], ['unavailable', () => { throw Error('synthetic scope unavailable'); }],
+      ['identity-changed', changeMemory => { changeMemory(); return true; }],
+    ];
+    for (const [label, check] of cases) {
+      const name = `capture-final-${label}`, directory = join(scratch, name), memory = makeMemory(name);
+      let current = memory;
+      const adapter = createGateCaptureIngestion({ memoryFor: () => current,
+        verifyCompletedGateCapture: () => ({ source: fixtureSource(110) }),
+        isCaptureScopeLive: value => {
+          assert.equal(value, completed);
+          return check(() => { current = undefined; });
+        },
+      });
+      const before = bytesIn(directory);
+      const result = await adapter.remember({ text: `Synthetic final capture scope ${label}.`, from: 'fixture' }, completed);
+      assert.equal(result.remembered, 0, label); assert.deepEqual(result.ids, [], label);
+      assert.deepEqual(bytesIn(directory), before, label);
+    }
+  });
+
+  await functional('native observer verification revocation never falls back to unassociated remember', async () => {
+    const directory = join(scratch, 'observer-revoked-verification'), memory = makeMemory('observer-revoked-verification');
+    const observer = observerFixture();
+    let verifications = 0, writes = 0;
+    const observedMemory = { ...memory, remember: (...args) => { writes++; return memory.remember(...args); } };
+    const handle = registerGateCaptureIngestion(observer.ctx, mockHostOptions(observedMemory, fixtureSource(110), {
+      verifyCompletedGateCapture: () => {
+        if (++verifications === 3) throw Error('synthetic retained grant revoked');
+        return { source: fixtureSource(110) };
+      },
+    }));
+    const before = bytesIn(directory);
+    try {
+      observer.emit('tools/result', nativeExecution(), nativeToolResult(fixtureUuid(22)));
+      await bounded(handle.whenIdle());
+      assert.equal(verifications, 3); assert.equal(writes, 0);
+      assert.deepEqual(bytesIn(directory), before);
+    } finally { handle.dispose(); observer.dispose(); }
+  });
+
   await functional('unmounted ingestion reports only current eligible associations after dedup', async () => {
     const { createGateCaptureIngestion } = await import('../plugins/aukora-kira/lib/index.js');
     const directory = join(scratch, 'ingestion'), memory = makeMemory('ingestion');
@@ -511,7 +586,7 @@ try {
     };
     const adapter = createGateCaptureIngestion({ memoryFor: () => memory,
       verifyCompletedGateCapture: verifyProjection, capturePins: fixturePins,
-      referenceForAppliedAction: resolveProjection });
+      referenceForAppliedAction: resolveProjection, isCaptureScopeLive: () => true });
     const hiddenInput = { text: 'Synthetic ingestion duplicate selected for hide.', from: 'fixture' };
     const fresh = await adapter.remember(hiddenInput, completedResult);
     assert.equal(fresh.remembered, 1);
@@ -553,6 +628,7 @@ try {
       memoryFor: () => mismatchedMemory,
       verifyCompletedGateCapture: verifyProjection, capturePins: fixturePins,
       referenceForAppliedAction: resolveProjection,
+      isCaptureScopeLive: () => true,
     });
     const wrongCurrent = await mismatched.remember({ text: 'Synthetic mismatched current selector.', from: 'fixture' },
       completedResult);
@@ -560,7 +636,7 @@ try {
     assert.equal(wrongCurrent.auraCapture.reason, 'kira-aura-capture:association-unavailable');
     const unavailable = createGateCaptureIngestion({ memoryFor: () => undefined,
       verifyCompletedGateCapture: verifyProjection, capturePins: fixturePins,
-      referenceForAppliedAction: resolveProjection });
+      referenceForAppliedAction: resolveProjection, isCaptureScopeLive: () => true });
     const missing = await unavailable.remember({ text: 'Synthetic absent memory host.', from: 'fixture' }, completedResult);
     assert.equal(missing.remembered, 0);
     assert.deepEqual(missing.auraCapture, { status: 'undetermined',
@@ -573,18 +649,19 @@ try {
       ['source-disagreement', verifyProjection, () => ({ source: fixtureSource(113) }),
         'kira-aura-capture:source-mismatch'],
     ]) {
-      const existingObjects = new Map(memory.read().notes.map(note => [note.id, objectBytes(directory, note.id)]));
-      const rejectedAssociation = createGateCaptureIngestion({ memoryFor: () => memory,
-        verifyCompletedGateCapture: verify, capturePins: fixturePins, referenceForAppliedAction: resolve });
-      const retained = await rejectedAssociation.remember({ text: `Synthetic ${label} preserves body without an association.`,
+      const before = bytesIn(directory);
+      let writes = 0;
+      const observedMemory = { ...memory, remember: (...args) => { writes++; return memory.remember(...args); } };
+      const rejectedAssociation = createGateCaptureIngestion({ memoryFor: () => observedMemory,
+        verifyCompletedGateCapture: verify, capturePins: fixturePins, referenceForAppliedAction: resolve,
+        isCaptureScopeLive: () => true });
+      const retained = await rejectedAssociation.remember({ text: `Synthetic ${label} cannot fall back to an ordinary note.`,
         from: 'fixture' }, completedResult);
-      assert.equal(retained.remembered, 1, 'ordinary remembered content remains available');
+      assert.equal(writes, 0, 'failed capture must not call memory.remember');
+      assert.equal(retained.remembered, 0);
+      assert.deepEqual(retained.ids, []);
       assert.deepEqual(retained.auraCapture, { status: 'undetermined', reason: expectedReason, grantsAuthority: false });
-      const persisted = JSON.parse(objectBytes(directory, retained.ids[0]));
-      assert.equal(Object.hasOwn(persisted, 'auraAssociation'), false);
-      assert.equal(Object.hasOwn(persisted.source, 'aura_source'), false);
-      assert.equal(await memory.referenceForRecord(persisted.id), null);
-      for (const [id, bytes] of existingObjects) assert.equal(objectBytes(directory, id), bytes);
+      assert.deepEqual(bytesIn(directory), before);
     }
     assert.equal(networkCalls, 0);
   });
@@ -594,7 +671,7 @@ try {
     const observer = observerFixture(), id = fixtureUuid(1), coordinates = fixtureSource(121);
     const stateIds = [], states = ['pending', 'applying', 'applied'];
     let snapshot;
-    for (const missing of ['stateForProposal', 'proposalFromToolResult', 'inputForCompletion', 'isLive']) {
+    for (const missing of ['stateForProposal', 'proposalFromToolResult', 'inputForCompletion', 'isLive', 'isCaptureScopeLive']) {
       assert.throws(() => registerGateCaptureIngestion(observer.ctx,
         { ...mockHostOptions(memory, coordinates), [missing]: undefined }), /host-unconfigured/);
     }

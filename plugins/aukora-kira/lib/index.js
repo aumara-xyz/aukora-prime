@@ -44,8 +44,8 @@ import { parseAuraSourceProjection, referenceForAssociatedNote, sourceIdentity }
 /** Direct trusted-host adapter, never a model tool or RPC method. H supplies its
  * actual completion verifier/pins; D supplies its guarded exact-row resolver.
  * The runtime composition owns delivery of the SAME completed action result. */
-export function createGateCaptureIngestion({ memoryFor, verifyCompletedGateCapture, capturePins, referenceForAppliedAction } = {}) {
-  if (typeof memoryFor !== 'function' || typeof verifyCompletedGateCapture !== 'function'
+export function createGateCaptureIngestion({ memoryFor, verifyCompletedGateCapture, capturePins, referenceForAppliedAction, isCaptureScopeLive } = {}) {
+  if (typeof memoryFor !== 'function' || typeof verifyCompletedGateCapture !== 'function' || typeof isCaptureScopeLive !== 'function'
     || (referenceForAppliedAction !== undefined && typeof referenceForAppliedAction !== 'function')) throw new Error('kira-aura-capture:host-unconfigured')
   return Object.freeze({
     async remember(input, completedResult) {
@@ -73,12 +73,20 @@ export function createGateCaptureIngestion({ memoryFor, verifyCompletedGateCaptu
         if (signed && included && current && sourceIdentity(signed) === sourceIdentity(included)
           && sourceIdentity(signed) === sourceIdentity(current)) auraSource = { source: signed }
         else reason = 'kira-aura-capture:source-mismatch'
-      } catch { /* Reader/verifier failures leave remembered content unassociated. */ }
+      } catch { /* A failed capture cannot fall back to an ordinary note write. */ }
+      if (!auraSource) return {
+        remembered: 0, ids: [], auraCapture: { status: 'undetermined', reason, grantsAuthority: false },
+      }
       const memory = memoryFor()
       if (!memory || typeof memory.remember !== 'function') {
         return { remembered: 0, ids: [], auraCapture: { status: 'undetermined', reason: 'kira-aura-capture:host-unavailable', grantsAuthority: false } }
       }
-      const remembered = await memory.remember(capturedInput, { auraSource, isCaptureLive: () => memoryFor() === memory })
+      const remembered = await memory.remember(capturedInput, { auraSource, isCaptureLive: () => {
+        // The store invokes this after its policy await, before synchronous
+        // persistence. A revoked retained scope must prevent the note itself.
+        try { return memoryFor() === memory && isCaptureScopeLive(completedResult) === true && memoryFor() === memory }
+        catch { return false }
+      } })
       // Deduplication can return IDs whose notes have since been hidden or
       // forgotten. Report association only from the current selected-note read.
       let associated = Boolean(auraSource && remembered.ids?.length && typeof memory.referenceForRecord === 'function')
@@ -125,10 +133,10 @@ function snapshotGateResult(value, depth = 0, seen = new Set()) {
  * from execution arguments or the model-facing content projection. */
 export function registerGateCaptureIngestion(ctx, {
   memoryFor, stateForProposal, proposalFromToolResult, inputForCompletion, isLive,
-  verifyCompletedGateCapture, capturePins, referenceForAppliedAction,
+  verifyCompletedGateCapture, capturePins, referenceForAppliedAction, isCaptureScopeLive,
   pollIntervalMs = 1000, maxWaitMs = 86_400_000, maxPending = 32, now = Date.now,
 } = {}) {
-  if (typeof ctx?.on !== 'function' || [stateForProposal, proposalFromToolResult, inputForCompletion, isLive, now]
+  if (typeof ctx?.on !== 'function' || [stateForProposal, proposalFromToolResult, inputForCompletion, isLive, isCaptureScopeLive, now]
     .some(value => typeof value !== 'function') || !Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 1
     || !Number.isSafeInteger(maxWaitMs) || maxWaitMs < 1 || maxWaitMs > 86_400_000
     || !Number.isSafeInteger(maxPending) || maxPending < 1 || maxPending > 32) {
@@ -137,7 +145,7 @@ export function registerGateCaptureIngestion(ctx, {
   let disposed = false
   const flights = new Map(), seen = new Set()
   const live = () => !disposed && isLive() === true
-  createGateCaptureIngestion({ memoryFor, verifyCompletedGateCapture, capturePins, referenceForAppliedAction })
+  createGateCaptureIngestion({ memoryFor, verifyCompletedGateCapture, capturePins, referenceForAppliedAction, isCaptureScopeLive })
   const pause = (ms, signal) => new Promise(resolve => {
     if (signal.aborted) return resolve()
     const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve() }
@@ -174,6 +182,7 @@ export function registerGateCaptureIngestion(ctx, {
     const verify = (result, pins) => bounded(() => verifyCompletedGateCapture(result, pins))
     const ingestion = createGateCaptureIngestion({ memoryFor: () => active() ? memoryFor() : undefined,
       verifyCompletedGateCapture: verify, capturePins,
+      isCaptureScopeLive: result => active() && isCaptureScopeLive(result) === true && active(),
       ...(referenceForAppliedAction === undefined ? {} : {
         referenceForAppliedAction: result => bounded(() => referenceForAppliedAction(result)),
       }) })
