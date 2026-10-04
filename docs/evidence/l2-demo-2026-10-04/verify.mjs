@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Stranger's verifier for AUKORA boundary-gate evidence. No dependencies, no network: Node 18+ only.
 //   node verify.mjs            (run inside this folder)
-// Checks, against the PUBLISHED gate public key (gate-ed25519.pub.pem):
+// Checks, against the PUBLISHED gate public key (gate-ed25519.pub):
 //   1. the apply receipt's Ed25519 signature over its exact JSON bytes (receipt.json + receipt.sig);
 //   2. every exported ledger entry: hash = sha256(entry body), Ed25519 signature over that hash, and the hash chain
 //      (#1 starts the chain; every next entry's prev = the previous entry's hash, with NO missing seq) — this
@@ -11,7 +11,7 @@ import { createHash, createPublicKey, verify } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 const here = new URL('./', import.meta.url)
 const read = f => readFileSync(new URL(f, here), 'utf8')
-const pub = createPublicKey(read('gate-ed25519.pub.pem'))
+const pub = createPublicKey(read('gate-ed25519.pub'))
 const fp = createHash('sha256').update(pub.export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 16)
 let bad = 0; const ok = (cond, msg) => { console.log(`${cond ? 'OK  ' : 'FAIL'} ${msg}`); if (!cond) bad++ }
 console.log(`gate key fingerprint ${fp}`)

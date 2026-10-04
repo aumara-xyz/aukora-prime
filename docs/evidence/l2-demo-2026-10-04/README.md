@@ -15,7 +15,7 @@ What happened, live on the pilot (times UTC+8):
 
     node verify.mjs
 
-It checks against `gate-ed25519.pub.pem` (fingerprint `6cdce2bbeb7b725c`): the receipt's Ed25519 signature over its
+It checks against `gate-ed25519.pub` (fingerprint `6cdce2bbeb7b725c`): the receipt's Ed25519 signature over its
 exact bytes; every ledger entry's hash (sha256 of `[seq, at, event, proposal, target, base_sha, new_sha, detail, prev]`)
 and Ed25519 signature; the chain from #1 (`prev = "GENESIS"`) with no missing entry; and that the signed apply
 entry matches the receipt. Changing any byte of the receipt, its signature or an entry, or removing an entry, makes
