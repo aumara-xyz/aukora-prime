@@ -17,6 +17,17 @@ guest commands do not receive host DSH context or `DSH_HOME`. The native executo
 spawns the transport at host cwd `/` while keeping policy and command cwd at
 guest `/sandbox`; it does not mount a host project.
 
+`run_code` and terminal are separate consumers, not Bash aliases. Patched Node
+PTC, persistent terminal and browser terminal already require
+`aukoraConfinement`; this provider refuses their unsupported launch argv before
+transport preparation. Node PTC needs bidirectional FD7 control frames. Terminal
+needs live PTY input/output, resize and guest foreground observations. The current
+wrapper closes stdin, buffers output and uses `--no-tty`. Its whole-sandbox lock
+and cleanup also cannot support persistent terminals or a PTC worker awaiting a
+nested `tools.bash()` call. The shared-consumer guard handoff refuses these routes
+on Linux regardless of custom shell argv; it does not widen this provider's
+supported contract. See [the path-by-path source map](handoff/ROUTES.md).
+
 `confine()` makes one bounded, cancellable preparation read through
 `sudo -n -u auma sbx-exec --confinement-info`. It returns `full` file enforcement
 only when the running instance's applied policy has `include_workdir:false`,

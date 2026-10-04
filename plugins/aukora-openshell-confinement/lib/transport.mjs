@@ -53,6 +53,14 @@ export function validateRequest(argv, policy, settings, signal) {
   // No terminal, PowerShell, native SDK or run_code compatibility is inferred.
   if (!Array.isArray(argv) || argv.length !== 3 || argv[0] !== 'bash' ||
       argv[1] !== '-c' || !text(argv[2])) {
+    const executable = Array.isArray(argv) && typeof argv[0] === 'string'
+      ? argv[0].split('/').at(-1) : undefined;
+    if (executable === 'node' || executable === 'node.exe') {
+      throw unavailable('RUN_CODE_CONTROL_CHANNEL', 'run_code requires an unsupported guest FD7 control transport');
+    }
+    if (['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'pwsh', 'powershell'].includes(executable)) {
+      throw unavailable('TERMINAL_TRANSPORT', 'interactive and alternate shell argv require an unsupported guest terminal transport');
+    }
     throw unavailable('ARGV', 'only the exact Bash command argv shape is supported by this transport');
   }
   signal?.throwIfAborted();
