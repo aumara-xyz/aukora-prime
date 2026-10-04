@@ -320,7 +320,7 @@
         "full_TAP_job_count_status": "COMPLETE_SOURCE_REVIEW",
         "inference_mock_case_ms": 20000,
         "non_TAP_case_max_ms": 60000,
-        "authority_core_case_ms": 180000,
+        "authority_core_case_ms": 60000,
         "existing_short_case_ms": [
           15000,
           20000,
@@ -329,8 +329,7 @@
         "output_bytes": 65536,
         "direct_Node_heap_MiB": 512,
         "wall_target_ms": null,
-        "scope": "Frozen cooperative budgets; existing shorter cases retained; no kernel or descendant enforcement",
-        "authority_core_exception": "Only exact reviewed authority-core-only id/entry/entrySHA/args/nodeArgs/counter permits180s; other non-TAP maxima60s unchanged"
+        "scope": "Frozen cooperative budgets; existing shorter cases retained; no kernel or descendant enforcement"
       },
       "runtime_measurement": "UNMEASURED",
       "completed_product_suite": "UNPERFORMED",
