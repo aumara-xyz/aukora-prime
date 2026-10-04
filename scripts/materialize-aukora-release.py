@@ -151,14 +151,9 @@ VENDORED = (ROOT / 'vendor/append-only', ROOT / 'vendor/receipt', ROOT / 'vendor
 #: `apps/aukora-desktop/resolve.mjs` + its relative imports `url-policy.mjs` and `install-settings.mjs` (2026-10-04):
 #: `scripts/aukora/desktop-cutover.mjs` imports `assertDesktopLaunchConfig` from resolve.mjs (H signed-ordering change);
 #: resolve.mjs also imports plugins/aukora-aumlok/lib/plugin-set-content.mjs, carried with that plugin.
-#: `packages/boundary-gate/host/aura/{context,entry,records-provider}.mjs` (2026-10-04): the Aura collector check
-#: (`scripts/aura/checks/collector.mjs`, carried by `scripts/aura/**`) imports them (D fixed-context change); their own
-#: relative imports (contracts json, aukora-nostr lib, scripts/aura) are already carried.
 RELEASE_IMPORT_FILES = ('apps/aukora-desktop/card-chain.mjs', 'scripts/aukora/desktop-cutover.mjs',
                         'packages/contracts/src/json.mjs', 'apps/aukora-desktop/resolve.mjs',
-                        'apps/aukora-desktop/url-policy.mjs', 'apps/aukora-desktop/install-settings.mjs',
-                        'packages/boundary-gate/host/aura/context.mjs', 'packages/boundary-gate/host/aura/entry.mjs',
-                        'packages/boundary-gate/host/aura/records-provider.mjs')
+                        'apps/aukora-desktop/url-policy.mjs', 'apps/aukora-desktop/install-settings.mjs')
 # `target/` is build output, never vendored bytes — the same exception the pin checker declares.
 BUILD_OUTPUT_DIRS = {'target'}
 # Runtime debris, never authored bytes. `__pycache__` appears the moment anyone imports a script
@@ -223,6 +218,19 @@ def COPY_IGNORE(directory, names):
         return skipped
     if os.path.basename(os.path.normpath(str(directory))) == 'voice' and 'models' in names:
         skipped.add('models')
+    return skipped
+
+def AURA_COPY_IGNORE(directory, names):
+    """`COPY_IGNORE` plus the source-only `scripts/aura/checks/` directory.
+
+    The Aura source checks run from the checkout (`scripts/check.sh`, `./security-review`), never from a release, and
+    since the D fixed-context change `checks/collector.mjs` imports the gate host's `packages/boundary-gate/host/aura/`,
+    which is installed with the gate package, not with a release. Carrying the check would open the release import
+    closure onto gate-host code; leaving it out keeps the release to the commands an operator runs from it.
+    """
+    skipped = COPY_IGNORE(directory, names)
+    if os.path.normpath(str(directory)) == os.path.normpath(str(AURA)) and 'checks' in names:
+        skipped.add('checks')
     return skipped
 
 # Lanes whose SOURCE ships. Their lib bytes are covered automatically by the release's own
@@ -1128,7 +1136,7 @@ def main() -> int:
         if not source_dir.is_dir():
             fail(f'missing-composition-source: {source_dir}')
         shutil.copytree(source_dir, target / relative, dirs_exist_ok=True, symlinks=True,
-                        ignore=COPY_IGNORE)
+                        ignore=AURA_COPY_IGNORE if source_dir == AURA else COPY_IGNORE)
 
     # The acceptance command that verifies the release travels with the release it accepts. One
     # file rather than a directory, so it is copied by name; the strip keeps it because it is a
