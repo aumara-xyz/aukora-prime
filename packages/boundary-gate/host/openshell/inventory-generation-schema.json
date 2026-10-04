@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "expected_workload_config": {
+    "Tmpfs": {
+      "/run/openshell-supervisor-ca": "rw,noexec,nosuid,nodev,mode=0777,size=1m,rprivate,tmpcopyup"
+    },
+    "Devices": [],
+    "IpcMode": "shareable",
+    "PidMode": "private",
+    "ReadonlyRootfs": false
+  },
+  "expected_supervisor_config": {
+    "Tmpfs": {
+      "/run": "rw,noexec,nosuid,nodev,mode=0777,size=64m,rprivate,tmpcopyup",
+      "/tmp": "rw,noexec,nosuid,nodev,mode=0777,size=64m,rprivate,tmpcopyup",
+      "/var/log": "rw,noexec,nosuid,nodev,mode=0777,size=64m,rprivate,tmpcopyup"
+    },
+    "Devices": [],
+    "IpcMode": "shareable",
+    "PidMode": "private",
+    "ReadonlyRootfs": false
+  },
+  "workload_mount_constraints": [
+    {
+      "Type": "volume",
+      "Destination": "/sandbox",
+      "Driver": "local",
+      "Mode": "",
+      "Options": [
+        "nosuid",
+        "nodev",
+        "rbind"
+      ],
+      "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "volume",
+      "Destination": "/.openshell/channel",
+      "Driver": "local",
+      "Mode": "z",
+      "Options": [
+        "nosuid",
+        "nodev",
+        "rbind"
+      ],
+      "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "bind",
+      "Destination": "/opt/openshell/bin/openshell-sandbox",
+      "Driver": "",
+      "Mode": "",
+      "Options": [
+        "rbind"
+      ],
+      "RW": false,
+      "Propagation": "rprivate"
+    }
+  ],
+  "supervisor_mount_constraints": [
+    {
+      "Type": "volume",
+      "Destination": "/.openshell/channel",
+      "Driver": "local",
+      "Mode": "z",
+      "Options": [
+        "nosuid",
+        "nodev",
+        "rbind"
+      ],
+      "RW": false,
+      "Propagation": "rprivate"
+    }
+  ],
+  "uid_ranges": [
+    {
+      "host_id": 165536,
+      "size": 65536
+    }
+  ],
+  "gid_ranges": [
+    {
+      "host_id": 165536,
+      "size": 65536
+    }
+  ],
+  "forbidden_host_ids": [
+    1001
+  ]
+}

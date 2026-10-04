@@ -78,7 +78,7 @@ function helperFixture() {
   return { e, sid, profile, container, supervisor, process, supervisor_process: supervisorProcess }
 }
 
-function helperPython(code) {
+function helperPython(code, fixture = helperFixture()) {
   const prelude = `
 import copy, importlib.util, json, subprocess, sys
 def forbidden_process(*a, **kw):
@@ -95,7 +95,7 @@ def refusal(fn):
 `
   return execFileSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', prelude + '\n' + code,
     fileURLToPath(new URL('packages/boundary-gate/host/openshell/sandbox-inventory.py', root))],
-  { input: JSON.stringify(helperFixture()), encoding: 'utf8', timeout: 3000, maxBuffer: 64 * 1024 })
+  { input: JSON.stringify(fixture), encoding: 'utf8', timeout: 3000, maxBuffer: 64 * 1024 })
 }
 
 test('only the EXACT session workspace maps to the guest /sandbox', () => {
@@ -401,8 +401,7 @@ print(json.dumps({'ok':True}))
   assert.equal(result.ok, true)
 })
 
-test('mocked fresh admission emits the exact v2 envelope and refuses replaced or ambiguous observations', () => {
-  const result = JSON.parse(helperPython(`
+const admissionMockPrelude = `
 names = [f['container']['Name'], f['supervisor']['Name']]
 policy = {'policy':f['e']['policy'],'status':'effective','scope':'sandbox','policy_source':'sandbox','config_revision':1,'sandbox':'auma-ws','active_version':1,'hash':'d'*64}
 sandbox = {'id':f['sid'],'name':'auma-ws','phase':'Ready','current_policy_version':1,
@@ -469,6 +468,10 @@ def proc_read(pid,leaf):
     raise AssertionError('unexpected mocked proc leaf')
 m.query, m.read_profile, m.proc_read = query, profile, proc_read
 m.binary_digest = lambda path, deadline, pid: f['profile']['workload_binary_digest']
+`
+
+test('mocked fresh admission emits the exact v2 envelope and refuses replaced or ambiguous observations', () => {
+  const result = JSON.parse(helperPython(admissionMockPrelude + `
 good = m.admission('auma-ws','print')
 assert good['version'] == 2 and good['inventory_digest'] == f['e']['inventory_digest']
 for case in ('malformed','duplicate','nonzero_query','replaced_pid','changed_mount','reused_pid',
@@ -484,6 +487,123 @@ print(json.dumps(good,separators=(',',':'),ensure_ascii=False))
   validateConfinementInfo(result)
   assert.equal(result.isolation.uid, 166536)
   assert.equal(result.supervisor_inventory.length, 1)
+})
+
+test('mocked profile generation requires protected pin and ranges and never adopts stale installed volume identities', () => {
+  const fixture = helperFixture()
+  fixture.generation_schema = JSON.parse(read('packages/boundary-gate/host/openshell/inventory-generation-schema.json'))
+  fixture.generation_pin = JSON.parse(read('packages/boundary-gate/host/openshell/workload-pin.json')).workload_binary_digest
+  const result = JSON.parse(helperPython(admissionMockPrelude + `
+schema, pin = f['generation_schema'], f['generation_pin']
+old_profile = copy.deepcopy(f['profile'])
+def mounts(constraints):
+    out = []
+    for constraint in constraints:
+        row = copy.deepcopy(constraint)
+        row['Source'] = '/synthetic/new-generation/' + ('binary' if row['Type']=='bind' else row['Destination'].rsplit('/',1)[1])
+        if row['Type'] == 'volume': row['Name'] = 'synthetic-new-uuid-' + row['Destination'].rsplit('/',1)[1]
+        out.append(row)
+    return out
+f['container']['Mounts'] = mounts(schema['workload_mount_constraints'])
+f['supervisor']['Mounts'] = mounts(schema['supervisor_mount_constraints'])
+f['container']['HostConfig'].update(copy.deepcopy(schema['expected_workload_config']))
+f['supervisor']['HostConfig'].update(copy.deepcopy(schema['expected_supervisor_config']))
+inputs = (pin, schema['uid_ranges'], schema['gid_ranges'], 1001, schema)
+m.read_generation_inputs = lambda: copy.deepcopy(inputs)
+def missing_profile(): raise ValueError('synthetic missing installed profile')
+m.read_profile = missing_profile
+m.binary_digest = lambda path, deadline, pid: pin
+assert m.admission('auma-ws','bootstrap') is None
+good = m.admission('auma-ws','generate')
+assert set(good) == set(old_profile) and len(good) == 9
+assert good['workload_binary_digest'] == pin
+assert good['expected_mounts'] != old_profile['expected_mounts']
+assert all('/synthetic/new-generation/' in row['Source'] for row in good['expected_mounts'])
+refusal(lambda: m.admission('auma-ws','print'))
+m.read_profile = lambda: copy.deepcopy(old_profile)
+refusal(lambda: m.admission('auma-ws','print'))
+saved = copy.deepcopy(f['process'])
+f['process']['uid_map'][0]['host_id'] = 1001
+refusal(lambda: m.admission('auma-ws','generate'))
+f['process'] = saved
+m.binary_digest = lambda path, deadline, pid: 'sha256:'+'0'*64
+refusal(lambda: m.admission('auma-ws','generate'))
+m.binary_digest = lambda path, deadline, pid: pin
+for bad_inputs in [('sha256:'+'0'*64,inputs[1],inputs[2],1001,schema),
+                   (pin,[{'host_id':1001,'size':65536}],inputs[2],1001,schema),
+                   (pin,inputs[1],[{'host_id':165536,'size':65537}],1001,schema),
+                   (pin,inputs[1],inputs[2],1002,schema)]:
+    m.read_generation_inputs = lambda: copy.deepcopy(bad_inputs)
+    refusal(lambda: m.admission('auma-ws','generate'))
+m.read_generation_inputs = lambda: copy.deepcopy(inputs)
+print(json.dumps({'ok':True,'profile':good}))
+`, fixture))
+  assert.equal(result.ok, true)
+  assert.equal(Object.keys(result.profile).length, 9)
+})
+
+test('explicit bootstrap prepares only after protected inputs and exits before final admission or workspace publication', () => {
+  const source = read('packages/boundary-gate/host/openshell/ensure-sandbox.sh')
+  const create = source.indexOf('openshell sandbox create'), profile = source.indexOf('"$INVENTORY" auma-ws profile')
+  const bootstrap = source.indexOf('"$INVENTORY" auma-ws bootstrap'), persist = source.indexOf('mkdir -p "$P"')
+  assert.ok(profile > 0 && bootstrap > 0 && profile < create && bootstrap < create && profile < persist && bootstrap < persist)
+  assert.match(source, /if \[ "\$bootstrap" = 1 \]; then[\s\S]*auma-ws bootstrap[\s\S]*else\n\s*\/usr\/bin\/python3 -I -S "\$INVENTORY" auma-ws profile/)
+  const policy = source.lastIndexOf('policy_ok ||'), refusal = source.indexOf('REFUSING: bootstrap prepared; fresh reviewed inventory binding required')
+  const exit = source.indexOf('exit 7', refusal), check = source.indexOf('"$INVENTORY" auma-ws check')
+  assert.ok(policy < refusal && refusal < exit && exit < check && check < source.indexOf('ln -sfn'))
+  assert.match(source.slice(policy, check), /if \[ "\$bootstrap" = 1 \]; then[\s\S]*exit 7\nfi/)
+})
+
+test('generation input files reject altered pins and ranges, and candidate output is private and exclusive', () => {
+  const fixture = helperFixture()
+  fixture.generation_schema = JSON.parse(read('packages/boundary-gate/host/openshell/inventory-generation-schema.json'))
+  fixture.generation_pin = JSON.parse(read('packages/boundary-gate/host/openshell/workload-pin.json')).workload_binary_digest
+  const result = JSON.parse(helperPython(`
+import os, stat, tempfile
+from types import SimpleNamespace
+pin = {'version':1,'workload_binary_digest':f['generation_pin']}
+files = {m.PIN_PATH:json.dumps(pin),m.GENERATION_SCHEMA_PATH:json.dumps(f['generation_schema']),
+         '/etc/subuid':'auma:165536:65536\\n','/etc/subgid':'auma:165536:65536\\n'}
+m._read_protected = lambda path: files[path]
+m.pwd.getpwnam = lambda name: SimpleNamespace(pw_uid=1001,pw_name='auma')
+assert m.read_generation_inputs()[0] == f['generation_pin']
+for bad in [{'version':True,'workload_binary_digest':f['generation_pin']},
+            {'version':1,'workload_binary_digest':'sha256:'+'0'*64},
+            {'version':1,'workload_binary_digest':f['generation_pin'],'extra':True}]:
+    files[m.PIN_PATH] = json.dumps(bad); refusal(m.read_generation_inputs)
+files[m.PIN_PATH] = json.dumps(pin)
+for path in ('/etc/subuid','/etc/subgid'):
+    saved = files[path]
+    for raw in ('auma:1001:65536\\n','auma:165536:65537\\n','auma:165536:65536\\nauma:165536:65536\\n','malformed'):
+        files[path] = raw; refusal(m.read_generation_inputs)
+    files[path] = saved
+m.pwd.getpwnam = lambda name: SimpleNamespace(pw_uid=1002,pw_name='auma')
+refusal(m.read_generation_inputs)
+with tempfile.TemporaryDirectory(dir=os.path.realpath(tempfile.gettempdir())) as parent:
+    path = parent+'/candidate.json'
+    previous = os.umask(0)
+    try: m.write_candidate(path,f['profile'])
+    finally: os.umask(previous)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    with open(path,'rb') as stream: original = stream.read()
+    assert json.loads(original) == f['profile']
+    try: m.write_candidate(path,f['profile'])
+    except FileExistsError: pass
+    else: raise AssertionError('existing candidate overwritten')
+    with open(path,'rb') as stream: assert stream.read() == original
+    os.symlink(path,parent+'/leaf-link')
+    try: m.write_candidate(parent+'/leaf-link',f['profile'])
+    except FileExistsError: pass
+    else: raise AssertionError('symlink output followed')
+    os.mkdir(parent+'/directory'); os.symlink(parent+'/directory',parent+'/directory-link')
+    try: m.write_candidate(parent+'/directory-link/new.json',f['profile'])
+    except OSError: pass
+    else: raise AssertionError('symlink ancestor followed')
+    assert not os.path.exists(parent+'/directory/new.json')
+    assert not any(name.startswith('.openshell-inventory-') for name in os.listdir(parent))
+print(json.dumps({'ok':True}))
+`, fixture))
+  assert.equal(result.ok, true)
 })
 
 test('sbx-exec re-checks the applied policy under its lock before every command, with no forgeable marker', () => {

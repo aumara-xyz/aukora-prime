@@ -2,7 +2,8 @@
 """Exact deployment-profile validation and bounded read-only admission.
 
 Import is effect-free. The fixed host CLI obtains fresh observations; it never
-creates a profile or launches a guest command. Missing custody/evidence refuses.
+installs a profile or launches a guest command. Explicit generation only emits
+an operator proposal from protected invariants. Missing custody/evidence refuses.
 """
 
 import hashlib
@@ -27,6 +28,7 @@ SAFE_INTEGER_MAX = (1 << 53) - 1
 APPROVED_HOST_RANGE = {"host_id": 165536, "size": 65536}
 PROFILE_KEYS = frozenset(("version", "expected_mounts", "expected_supervisor_mounts", "expected_workload_config", "expected_supervisor_config", "workload_binary_digest", "uid_ranges", "gid_ranges", "forbidden_host_ids"))
 CONFIG_KEYS = frozenset(("Tmpfs", "Devices", "IpcMode", "PidMode", "ReadonlyRootfs"))
+GENERATION_SCHEMA_KEYS = frozenset(("version", "expected_workload_config", "expected_supervisor_config", "workload_mount_constraints", "supervisor_mount_constraints", "uid_ranges", "gid_ranges", "forbidden_host_ids"))
 PROCESS_KEYS = frozenset(("pid", "start_time", "uid", "uid_map", "gid_map", "cap_eff", "cap_prm", "cap_bnd", "no_new_privs", "seccomp"))
 MOUNT_KEYS = frozenset(("Type", "Name", "Source", "Destination", "Driver", "Mode", "Options", "RW", "Propagation"))
 MOUNT_REQUIRED = frozenset(("Type", "Source", "Destination", "RW"))
@@ -406,7 +408,85 @@ def _configuration(container, expected):
         _fail("container configuration differs from deployment profile")
 
 
+def _constraints(value, roles):
+    if type(value) is not list or len(value) != len(roles):
+        _fail("generation mount constraint length mismatch")
+    keys, out = MOUNT_KEYS - {"Name", "Source"}, {}
+    for row in value:
+        _object(row, keys, keys)
+        destination = _path(row["Destination"])
+        if destination not in roles or destination in out:
+            _fail("generation mount constraint role mismatch")
+        kind, writable = roles[destination]
+        if row["Type"] != kind or type(row["RW"]) is not bool or row["RW"] is not writable:
+            _fail("generation mount constraint type mismatch")
+        for key in ("Type", "Driver", "Mode", "Propagation"):
+            _text(row[key])
+        options = row["Options"]
+        if type(options) is not list or len(options) > 256:
+            _fail("generation mount options unavailable")
+        for option in options:
+            _text(option, True)
+        if len(set(options)) != len(options):
+            _fail("duplicate generation mount option")
+        out[destination] = row
+    return out
+
+
+def _generation_schema(schema):
+    _object(schema, GENERATION_SCHEMA_KEYS, GENERATION_SCHEMA_KEYS)
+    if type(schema["version"]) is not int or schema["version"] != 1:
+        _fail("unsupported generation schema")
+    for key in ("expected_workload_config", "expected_supervisor_config"):
+        _config(schema[key])
+    for key in ("uid_ranges", "gid_ranges"):
+        _ranges(schema[key])
+        if schema[key] != [APPROVED_HOST_RANGE]:
+            _fail("generation identity range differs from approved deployment")
+    forbidden = schema["forbidden_host_ids"]
+    if type(forbidden) is not list or any(type(value) is not int for value in forbidden) or forbidden != [1001]:
+        _fail("generation forbidden identity differs from approved deployment")
+    return (_constraints(schema["workload_mount_constraints"], MOUNT_ROLES),
+            _constraints(schema["supervisor_mount_constraints"], SUPERVISOR_MOUNT_ROLES))
+
+
+def generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pin, schema):
+    """Propose fresh identities while retaining every protected invariant.
+
+    This pure derivation grants no admission. The CLI separately requires fresh
+    policy/process evidence and content+kernel-executable binding before output.
+    """
+    constraints, supervisor_constraints = _generation_schema(schema)
+    if (_uint(owner_uid, True) != 1001 or uid_ranges != schema["uid_ranges"] or
+            gid_ranges != schema["gid_ranges"] or _digest(pin) != APPROVED_BINARY_DIGEST):
+        _fail("generation custody inputs differ from approved deployment")
+    # Validate types before equality so bool/int aliases cannot pass identity data.
+    _ranges(uid_ranges)
+    _ranges(gid_ranges)
+    actual = _mounts(_object(workload).get("Mounts"))
+    supervisor_actual = _mounts(_object(supervisor).get("Mounts"), SUPERVISOR_MOUNT_ROLES)
+    for mounts, expected in ((actual, constraints), (supervisor_actual, supervisor_constraints)):
+        for destination, row in mounts.items():
+            if {key: value for key, value in row.items() if key not in ("Name", "Source")} != expected[destination]:
+                _fail("generation mount metadata differs from protected constraints")
+    _configuration(workload, schema["expected_workload_config"])
+    _configuration(supervisor, schema["expected_supervisor_config"])
+    proposed = strict_json(json.dumps({
+        "version": 1, "expected_mounts": _readback_mounts(actual),
+        "expected_supervisor_mounts": _readback_mounts(supervisor_actual),
+        "expected_workload_config": schema["expected_workload_config"],
+        "expected_supervisor_config": schema["expected_supervisor_config"],
+        "workload_binary_digest": pin, "uid_ranges": uid_ranges, "gid_ranges": gid_ranges,
+        "forbidden_host_ids": [owner_uid],
+    }, ensure_ascii=False, allow_nan=False))
+    _profile(proposed)
+    return proposed
+
+
 PROFILE_PATH = "/etc/aukora-boundary-gate/openshell-inventory.json"
+PIN_PATH = "/usr/local/lib/aukora-boundary/openshell/workload-pin.json"
+GENERATION_SCHEMA_PATH = "/usr/local/lib/aukora-boundary/openshell/inventory-generation-schema.json"
+APPROVED_BINARY_DIGEST = "sha256:5b2178f3b64a6c96eff9ed61bd7feeada4b4a4b3c68f3664e3b8f4f2b264a9b1"
 MAX_QUERY_BYTES = 1024 * 1024
 MAX_READ_BYTES = 256 * 1024
 MAX_BINARY_BYTES = 256 * 1024 * 1024
@@ -464,8 +544,8 @@ def _read_fd(fd, limit):
     _fail("observation byte limit")
 
 
-def read_profile():
-    fd, initial = _anchored_file(PROFILE_PATH, protected=True)
+def _read_protected(path):
+    fd, initial = _anchored_file(path, protected=True)
     try:
         raw = _read_fd(fd, MAX_READ_BYTES)
         final = os.fstat(fd)
@@ -474,9 +554,104 @@ def read_profile():
             _fail("profile changed during observation")
     finally:
         os.close(fd)
-    profile = strict_json(raw.decode("utf-8", "strict"))
+    return raw.decode("utf-8", "strict")
+
+
+def read_profile():
+    profile = strict_json(_read_protected(PROFILE_PATH))
     _profile(profile)
     return profile
+
+
+def read_pin():
+    pin = strict_json(_read_protected(PIN_PATH))
+    keys = frozenset(("version", "workload_binary_digest"))
+    _object(pin, keys, keys)
+    if (type(pin["version"]) is not int or pin["version"] != 1 or
+            _digest(pin["workload_binary_digest"]) != APPROVED_BINARY_DIGEST):
+        _fail("protected binary pin differs from committed pin")
+    return pin["workload_binary_digest"]
+
+
+def read_ranges(owner_name, owner_uid):
+    _text(owner_name, True)
+    _uint(owner_uid, True)
+    result = []
+    for path in ("/etc/subuid", "/etc/subgid"):
+        rows = []
+        for line in _read_protected(path).splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            fields = line.split(":")
+            if len(fields) != 3 or any(re.fullmatch(r"[0-9]+", value) is None for value in fields[1:]):
+                _fail("protected subordinate identity file malformed")
+            if fields[0] in (owner_name, str(owner_uid)):
+                rows.append({"host_id": int(fields[1]), "size": int(fields[2])})
+        _ranges(rows)
+        if rows != [APPROVED_HOST_RANGE]:
+            _fail("protected subordinate range differs from approved deployment")
+        result.append(rows)
+    return tuple(result)
+
+
+def read_generation_inputs():
+    owner = pwd.getpwnam("auma")
+    if owner.pw_uid != 1001:
+        _fail("sandbox owner differs from approved deployment")
+    pin = read_pin()
+    uid_ranges, gid_ranges = read_ranges(owner.pw_name, owner.pw_uid)
+    schema = strict_json(_read_protected(GENERATION_SCHEMA_PATH))
+    _generation_schema(schema)
+    if uid_ranges != schema["uid_ranges"] or gid_ranges != schema["gid_ranges"]:
+        _fail("protected generation identity inputs disagree")
+    return pin, uid_ranges, gid_ranges, owner.pw_uid, schema
+
+
+def write_candidate(path, profile):
+    """Publish one private proposal exclusively; never install or overwrite it."""
+    _path(path)
+    if path in (PROFILE_PATH, PIN_PATH, GENERATION_SCHEMA_PATH):
+        _fail("candidate output cannot be an installed authority input")
+    _profile(profile)
+    raw = json.dumps(profile, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    if len(raw) > MAX_READ_BYTES:
+        _fail("candidate profile byte limit")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    parent = os.open("/", flags)
+    temporary, fd = None, None
+    try:
+        for part in path.split("/")[1:-1]:
+            child = os.open(part, flags, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        custody = os.fstat(parent)
+        if custody.st_uid != os.getuid() or custody.st_mode & 0o077:
+            _fail("candidate parent must be caller-owned and private")
+        leaf = path.rsplit("/", 1)[1]
+        temporary = ".openshell-inventory-" + os.urandom(16).hex()
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     0o600, dir_fd=parent)
+        os.fchmod(fd, 0o600)
+        remaining = raw
+        while remaining:
+            count = os.write(fd, remaining)
+            if count <= 0:
+                _fail("candidate output unavailable")
+            remaining = remaining[count:]
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        # Hard-link publication is atomic and fails if the output leaf exists.
+        os.link(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+        os.unlink(temporary, dir_fd=parent)
+        temporary = None
+        os.fsync(parent)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=parent)
+        os.close(parent)
 
 
 def _binary_fd_digest(fd, initial, deadline):
@@ -642,10 +817,13 @@ def _inspect(names, deadline):
 
 
 def admission(sb, mode):
-    if sb != "auma-ws" or mode not in ("check", "print", "id", "policy", "profile"):
+    if sb != "auma-ws" or mode not in ("check", "print", "id", "policy", "profile", "bootstrap", "generate"):
         _fail("unsupported admission arguments")
     if mode == "profile":
         read_profile()
+        return None
+    if mode == "bootstrap":
+        read_generation_inputs()
         return None
     deadline = time.monotonic() + QUERY_SECONDS
     p = strict_json(query(["/usr/bin/openshell", "policy", "get", sb, "--full", "-o", "json"], deadline))
@@ -664,7 +842,8 @@ def admission(sb, mode):
     local_policy(p)
     if mode == "policy":
         return None
-    profile = read_profile()
+    generation_inputs = read_generation_inputs() if mode == "generate" else None
+    profile = None if mode == "generate" else read_profile()
     ver = query(["/usr/bin/openshell", "--version"], deadline).split()
     s = strict_json(query(["/usr/bin/openshell", "sandbox", "get", sb, "-o", "json"], deadline))
     sid = s.get("id")
@@ -675,6 +854,9 @@ def admission(sb, mode):
     if any(listed.count(name) != 1 for name in names):
         _fail("running container identity unavailable")
     workload, supervisor = _inspect(names, deadline)
+    if mode == "generate":
+        pin, uid_ranges, gid_ranges, owner_uid, schema = generation_inputs
+        profile = generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pin, schema)
     process, supervisor_process = observe_process(workload, workload=True), observe_process(supervisor)
     source = _mounts(workload["Mounts"])["/opt/openshell/bin/openshell-sandbox"]["Source"]
     observed_digest = binary_digest(source, deadline, process["pid"])
@@ -688,7 +870,10 @@ def admission(sb, mode):
             "config": {key: value.get("Config", {}).get(key) for key in ("Image", "User")}}
         if _canonical_digest(stable(initial)) != _canonical_digest(stable(final)) or proc["start_time"] != start_time(proc["pid"]):
             _fail("container changed during observation")
-    if read_profile() != profile:
+    if mode == "generate":
+        if read_generation_inputs() != generation_inputs:
+            _fail("generation custody inputs changed during observation")
+    elif read_profile() != profile:
         _fail("deployment profile changed during observation")
     cond = {}
     for condition in s.get("conditions", []):
@@ -741,13 +926,24 @@ def admission(sb, mode):
         _fail("admission readback byte limit")
     if time.monotonic() >= deadline:
         _fail("admission deadline")
+    if mode == "generate":
+        if read_generation_inputs() != generation_inputs:
+            _fail("generation custody inputs changed during final observation")
+        if time.monotonic() >= deadline:
+            _fail("generation deadline")
+        return profile
     return envelope
 
 
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     try:
-        if len(args) != 2:
+        generating = len(args) == 4 and args[0:3] == ["auma-ws", "generate", "--out"]
+        if generating:
+            result = admission(args[0], args[1])
+            write_candidate(args[3], result)
+            return 0
+        if len(args) != 2 or args[1] == "generate":
             _fail("unsupported admission arguments")
         result = admission(*args)
         if args[1] == "print":
