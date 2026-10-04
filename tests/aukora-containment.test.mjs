@@ -3,8 +3,11 @@
 // privileged launch plans, firewall/service tools or production endpoints.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { validateConfinementInfo } from '../plugins/aukora-openshell-confinement/lib/transport.mjs'
 
 const probe = fileURLToPath(new URL('../scripts/audit/containment/probe.py', import.meta.url))
 const runner = fileURLToPath(new URL('../scripts/audit/containment/run.py', import.meta.url))
@@ -27,6 +30,7 @@ function check(body, sources = []) {
   })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 0, result.stderr)
+  return result.stdout
 }
 
 // Source-only sensitivity: actual owned local descriptors cross the production
@@ -429,3 +433,115 @@ with patch.object(r,'_read_json_file',side_effect=[(raw,plan),(b'{}',{}),OSError
     code=r.main(['--plan','/fixture/plan','--plan-sha256',digest,'--execute-reviewed-plan'])
 assert code==1 and json.loads(out.getvalue())['status']=='FAIL',out.getvalue()
 `))
+
+// Auma profile join against F's afb8ac3 v3 interface. These are source controls:
+// no kernel mount, ctx.shell service, host bind observer or receipt is fabricated.
+// Mounted A/B and C1-C4 remain UNPERFORMED pending the actual owned Linux route.
+const profileWorkspace = '/synthetic/auma/é workspace'
+const compact = value => Array.isArray(value) ? '[' + value.map(compact).join(',') + ']' :
+  value !== null && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key =>
+    JSON.stringify(key) + ':' + compact(value[key])).join(',') + '}' : JSON.stringify(value)
+const profileDigest = value => 'sha256:' + createHash('sha256').update(compact(value), 'utf8').digest('hex')
+const sealProfile = value => {
+  value.inventory_digest = profileDigest(value.mount_inventory)
+  value.supervisor_inventory_digest = profileDigest(value.supervisor_inventory)
+  value.mountinfo_digest = profileDigest(value.mountinfo)
+  return value
+}
+const kernelRow = (mount_id, parent_id, device, root, mountpoint, writable, filesystem, source, superWritable = writable) => ({
+  mount_id, parent_id, device, root, mountpoint, options: [writable ? 'rw' : 'ro'], optional: [],
+  filesystem, source, super_options: [superWritable ? 'rw' : 'ro'],
+})
+function profileReadback() {
+  const channel = { Type: 'volume', Name: 'owned-source-channel', Source: '/synthetic/channel',
+    Destination: '/.openshell/channel', Driver: 'local', Mode: 'nosuid,nodev',
+    Options: ['nosuid', 'nodev'], RW: true, Propagation: 'rprivate' }
+  const isolation = { uid: 166535, uid_map: [{ container_id: 0, host_id: 165536, size: 65536 }],
+    gid_map: [{ container_id: 0, host_id: 165536, size: 65536 }], cap_eff: '0000000000000000',
+    cap_prm: '0000000000000000', cap_bnd: '0000000000000000', no_new_privs: 1, seccomp: 2,
+    process_start_time: 12345, workload_binary_digest: 'sha256:' + 'a'.repeat(64) }
+  const supervisor = { ...structuredClone(isolation),
+    uid_map: [{ container_id: 0, host_id: 0, size: 4294967295 }],
+    gid_map: [{ container_id: 0, host_id: 0, size: 4294967295 }] }
+  delete supervisor.workload_binary_digest
+  return sealProfile({ version: 3, openshell_version: '0.1.2', sandbox: 'auma-ws', state: 'Ready',
+    instance_id: 'owned-source-instance', policy_revision: 1, applied_revision: 1,
+    workspace_root: '/sandbox', network_mode: 'none',
+    policy: { version: 1, filesystem_policy: { include_workdir: false,
+      read_only: ['/bin', '/usr', '/lib', '/lib64', '/etc', '/proc', '/dev/urandom'],
+      read_write: ['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx'] },
+      landlock: { compatibility: 'hard_requirement' }, network_policies: {} },
+    mount_inventory: [channel,
+      { Type: 'bind', Source: '/synthetic/runtime', Destination: '/opt/openshell/bin/openshell-sandbox',
+        Driver: '', Mode: 'ro', Options: ['ro'], RW: false, Propagation: 'rprivate' },
+      { Type: 'bind', Source: profileWorkspace, Destination: '/sandbox', Driver: '', Mode: 'nosuid,nodev',
+        Options: ['nosuid', 'nodev'], RW: true, Propagation: 'rprivate' },
+      { Type: 'bind', Source: profileWorkspace + '/.git', Destination: '/sandbox/.git', Driver: '',
+        Mode: 'ro,nosuid,nodev', Options: ['ro', 'nosuid', 'nodev'], RW: false, Propagation: 'rprivate' }],
+    profile_digest: 'sha256:' + 'b'.repeat(64), isolation,
+    supervisor_inventory: [{ ...structuredClone(channel), RW: false, Mode: 'ro,nosuid,nodev' }],
+    supervisor_isolation: supervisor,
+    mountinfo: [kernelRow('1', '0', '0:40', '/', '/', false, 'overlay', 'overlay'),
+      kernelRow('2', '1', '8:1', profileWorkspace, '/sandbox', true, 'ext4', '/dev/source'),
+      // RO bind flags differ from the shared writable ext4 superblock flags.
+      kernelRow('3', '2', '8:1', profileWorkspace + '/.git', '/sandbox/.git', false, 'ext4', '/dev/source', true),
+      kernelRow('4', '1', '0:41', '/', '/tmp', true, 'tmpfs', 'tmpfs'),
+      kernelRow('5', '1', '8:2', '/synthetic/channel', '/.openshell/channel', true, 'ext4', '/dev/channel'),
+      kernelRow('6', '1', '8:1', '/synthetic/runtime', '/opt/openshell/bin/openshell-sandbox', false, 'ext4', '/dev/source', true),
+      kernelRow('7', '1', '0:43', '/', '/proc', false, 'proc', 'proc')],
+    workspace_binding: { workspace_source: profileWorkspace, git_source: profileWorkspace + '/.git',
+      workspace_device: '8:1', workspace_inode: '2001', git_device: '8:1', git_inode: '2002',
+      mount_namespace: 'mnt:[4000]' } })
+}
+function probeMountRows(rows) {
+  const escape = value => value.replaceAll('\\', '\\134').replaceAll(' ', '\\040')
+    .replaceAll('\t', '\\011').replaceAll('\n', '\\012')
+  const raw = rows.map(row => [row.mount_id, row.parent_id, row.device, escape(row.root),
+    escape(row.mountpoint), row.options.join(','), ...row.optional, '-', row.filesystem,
+    escape(row.source), row.super_options.join(',')].join(' ')).join('\n') + '\n'
+  return JSON.parse(check("print(json.dumps(p.mountinfo_rows(sys.argv[3]),ensure_ascii=False))\n", [raw]))
+}
+
+test('Auma v3 source join preserves the complete ordered probe mount table and trusted workspace binding', () => {
+  const info = profileReadback()
+  validateConfinementInfo(info, profileWorkspace)
+  assert.deepEqual(info.mountinfo[2].options, ['ro'])
+  assert.deepEqual(info.mountinfo[2].super_options, ['rw'])
+  const parsed = probeMountRows(info.mountinfo)
+  assert.deepEqual(parsed, info.mountinfo)
+  assert.equal(profileDigest(parsed), info.mountinfo_digest)
+  validateConfinementInfo({ ...info, mountinfo: parsed }, profileWorkspace)
+  // A digest of a partial table is still insufficient evidence.
+  const partial = structuredClone(info)
+  partial.mountinfo = parsed.filter(row => row.mountpoint !== '/sandbox/.git')
+  sealProfile(partial)
+  assert.throws(() => validateConfinementInfo(partial, profileWorkspace),
+    error => error.code === 'SANDBOX_UNAVAILABLE' && error.reason === 'WORKSPACE_BINDING')
+  assert.throws(() => validateConfinementInfo(info, '/synthetic/other-session'),
+    error => error.code === 'SANDBOX_UNAVAILABLE' && error.reason === 'WORKSPACE_BINDING')
+})
+
+test('Auma C5 source join refuses a second RW workspace after parsing and resealing, with guard-removal sensitivity', async () => {
+  const info = profileReadback()
+  validateConfinementInfo(info, profileWorkspace)
+  info.mountinfo.push(kernelRow('8', '1', '8:1', profileWorkspace, '/sandbox2', true, 'ext4', '/dev/source'))
+  info.mountinfo = probeMountRows(info.mountinfo)
+  sealProfile(info)
+  assert.deepEqual(info.policy.filesystem_policy.read_write,
+    ['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx'])
+  assert.throws(() => validateConfinementInfo(info, profileWorkspace),
+    error => error.code === 'SANDBOX_UNAVAILABLE' && error.reason === 'WORKSPACE_BINDING')
+  const source = readFileSync(new URL('../plugins/aukora-openshell-confinement/lib/transport.mjs', import.meta.url), 'utf8')
+  const guard = 'if (!role || row.filesystem !== role[0] || writable !== role[1]) return false;'
+  assert.equal(source.split(guard).length, 2, 'one actual production extra-mount guard required')
+  const removed = source.replace(guard,
+    'if (!role) continue; if (row.filesystem !== role[0] || writable !== role[1]) return false;')
+  const mutant = await import('data:text/javascript;base64,' + Buffer.from(removed, 'utf8').toString('base64'))
+  mutant.validateConfinementInfo(profileReadback(), profileWorkspace)
+  mutant.validateConfinementInfo(info, profileWorkspace)
+  // The independent FILE_POLICY fence still refuses a sixth declared RW root.
+  const sixth = profileReadback()
+  sixth.policy.filesystem_policy.read_write.push('/sandbox2')
+  assert.throws(() => mutant.validateConfinementInfo(sixth, profileWorkspace),
+    error => error.code === 'SANDBOX_UNAVAILABLE' && error.reason === 'FILE_POLICY')
+})
