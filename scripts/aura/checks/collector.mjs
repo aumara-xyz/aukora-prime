@@ -42,6 +42,9 @@ const mutants = {
   'citation-source': ['verify-collected.mjs', '&& record.source.position === requested.position && record.source.hash === requested.hash', '&& record.source.position === requested.position'],
   'citation-id': ['verify-collected.mjs', 'if (record_id !== null && match.record_id !== record_id)', 'if (false)'],
   'citation-anchor': ['verify-collected.mjs', "if (anchorResult.anchor_status === 'unperformed')", 'if (false)'],
+  'citation-live': ['collect-gate.mjs', /if \(disposed \|\| !synchronousTrue\(isLive\)\)/g, 'if (false)'],
+  'citation-grant': ['collect-gate.mjs', 'if (!synchronousTrue(hasReadGrant, authenticatedOwnerSubject))', 'if (false)'],
+  'citation-final-access': ['collect-gate.mjs', 'if (after !== null) return refused(after)', 'void 0'],
 }
 if (mutant && !mutants[mutant]) throw Error('Unknown focused mutant')
 let mutationApplied = false
@@ -109,6 +112,9 @@ const scalar = n => n.toString(16).padStart(64, '0')
 const authorSecretKeyHex = scalar(3), ownerSecretKeyHex = scalar(4)
 const authorPubkeyHex = eventTools.publicKeyOf(authorSecretKeyHex), ownerPubkeyHex = eventTools.publicKeyOf(ownerSecretKeyHex)
 const ownerSubject = `aukora:1:${'1'.repeat(64)}`
+// Explicit disposable host lifecycle and read grant; these are never production defaults.
+const testReadGuards = Object.freeze({ isLive: () => true,
+  hasReadGrant: subject => subject === ownerSubject || subject === `aukora:1:${'2'.repeat(64)}` })
 const statement = { subject: ownerSubject, npub: identity.npubEncode(authorPubkeyHex), nostrPubkeyHex: authorPubkeyHex,
   handle: 'TEST', createdAt: '2026-01-01T00:00:00Z', safetyVersion: 2 }
 const binding = { domain: identity.NOSTR_BINDING_DOMAIN, statement,
@@ -168,7 +174,7 @@ try {
   const citationContext = { storeDir, snapshotOptions, codec, anchors }
   const citationDbBytes = readFileSync(dbPath), citationWalBytes = readFileSync(`${dbPath}-wal`)
   const citationLog = readFileSync(logPath), citationCheckpoint = readFileSync(cpPath)
-  const citationReader = createCollectorCitationReader(citationContext)
+  const citationReader = createCollectorCitationReader(citationContext, testReadGuards)
   const selected = { source: { journal_id: snapshotOptions.sourceId, position: 2, hash: entries[1].hash } }
   const savedEvents = readFileSync(logPath, 'utf8').trimEnd().split('\n').map(JSON.parse)
   const cited = await citationReader.readCitation(ownerSubject, selected)
@@ -192,7 +198,7 @@ try {
   }
   const wrongId = await citationReader.readCitation(ownerSubject, { ...selected, record_id: savedEvents[0].id })
   assert.equal(wrongId.reason, 'aura-citation:record-id-mismatch'); assert.equal(wrongId.citation, null)
-  const noAnchorReader = createCollectorCitationReader({ storeDir, snapshotOptions, codec })
+  const noAnchorReader = createCollectorCitationReader({ storeDir, snapshotOptions, codec }, testReadGuards)
   const noAnchorCitation = await noAnchorReader.readCitation(ownerSubject, selected)
   assert.equal(noAnchorCitation.status, 'incomplete'); assert.equal(noAnchorCitation.citation, null)
   assert.equal(noAnchorCitation.verification.anchor_status, 'unperformed')
@@ -202,9 +208,74 @@ try {
   assert.throws(() => createCollectorCitationReader({ ...citationContext, codec: countedCodec }), error => error.code === 'aura-citation:owner-scope-unavailable')
   let codecAccesses = 0
   const capturedReader = createCollectorCitationReader({ storeDir, snapshotOptions, anchors,
-    get codec() { codecAccesses++; return codecAccesses === 1 ? codec : countedCodec } })
+    get codec() { codecAccesses++; return codecAccesses === 1 ? codec : countedCodec } }, testReadGuards)
   assert.equal(codecAccesses, 1, 'owner brand and verifier must retain the same captured codec')
   assert.equal((await capturedReader.readCitation(ownerSubject, selected)).ok, true)
+  assert.throws(() => createCollectorCitationReader(citationContext),
+    error => error.code === 'aura-citation:read-guard-unconfigured')
+  let live = true, granted = true, decrypts = 0
+  const guardedCodec = await createNostrCollectorCodec({ records: { ...records,
+    decryptRecord(...args) { decrypts++; return records.decryptRecord(...args) } },
+    authorSecretKeyHex, binding, controllerKeyHex: controllerHex,
+    ownerSubject, authorPubkeyHex, ownerPubkeyHex })
+  const guardedContext = { storeDir, snapshotOptions, anchors, codec: guardedCodec }
+  const retainedGrant = Object.freeze({ fixture: 'original-read-grant' })
+  let currentGrant = retainedGrant
+  const readGuards = { isLive: () => live,
+    hasReadGrant: subject => subject === ownerSubject && granted && currentGrant === retainedGrant }
+  const guardedReader = createCollectorCitationReader(guardedContext, readGuards)
+  const cachedRead = guardedReader.readCitation
+  assert.equal((await cachedRead(ownerSubject, selected)).ok, true)
+  let beforeDecrypts = decrypts
+  live = false
+  const inactiveRead = await cachedRead(ownerSubject, selected)
+  if (mutant === 'citation-live') console.log(`MUTANT-OBSERVATION cached inactive read: ok=${inactiveRead.ok}, status=${inactiveRead.status}`)
+  assert.equal(inactiveRead.reason, 'aura-citation:owner-inactive')
+  assert.equal(decrypts, beforeDecrypts, 'inactive cached handle must refuse before actual B decryption')
+  live = true; granted = false
+  const revokedRead = await cachedRead(ownerSubject, selected)
+  if (mutant === 'citation-grant') console.log(`MUTANT-OBSERVATION cached revoked-grant read: ok=${revokedRead.ok}, status=${revokedRead.status}`)
+  assert.equal(revokedRead.reason, 'aura-citation:read-grant-unavailable')
+  assert.equal(decrypts, beforeDecrypts, 'revoked read grant must refuse before actual B decryption')
+  granted = true; currentGrant = Object.freeze({ fixture: 'replacement-read-grant' })
+  assert.equal((await cachedRead(ownerSubject, selected)).reason, 'aura-citation:read-grant-unavailable')
+  currentGrant = retainedGrant
+  const pendingCitation = cachedRead(ownerSubject, selected)
+  guardedReader.dispose()
+  const disposedDuringRead = await pendingCitation
+  if (mutant === 'citation-final-access') console.log(`MUTANT-OBSERVATION disposed in-flight read: ok=${disposedDuringRead.ok}, status=${disposedDuringRead.status}`)
+  assert.equal(disposedDuringRead.reason, 'aura-citation:owner-inactive')
+  assert.equal(disposedDuringRead.citation, null); assert.equal(disposedDuringRead.verification, null)
+  beforeDecrypts = decrypts
+  assert.equal((await cachedRead(ownerSubject, selected)).reason, 'aura-citation:owner-inactive')
+  assert.equal(decrypts, beforeDecrypts)
+  const revokeReader = createCollectorCitationReader(guardedContext, readGuards)
+  const pendingRevocation = revokeReader.readCitation(ownerSubject, selected)
+  granted = false
+  assert.equal((await pendingRevocation).reason, 'aura-citation:read-grant-unavailable')
+  granted = true
+  for (const badGuards of [
+    { isLive: () => 'true', hasReadGrant: () => true },
+    { isLive: () => true, hasReadGrant: () => Promise.resolve(true) },
+    { isLive() { throw Error('private fixture diagnostic') }, hasReadGrant: () => true },
+  ]) {
+    const rejected = await createCollectorCitationReader(guardedContext, badGuards).readCitation(ownerSubject, selected)
+    assert.equal(rejected.ok, false); assert.equal(rejected.citation, null); assert.equal(rejected.verification, null)
+    assert(!JSON.stringify(rejected).includes('private fixture diagnostic'))
+  }
+  let unhandledGuardRejection = false
+  const observeUnhandledGuard = () => { unhandledGuardRejection = true }
+  process.on('unhandledRejection', observeUnhandledGuard)
+  try {
+    const badAsyncReader = createCollectorCitationReader(guardedContext, {
+      isLive: () => true, hasReadGrant: () => Promise.reject(Error('private fixture diagnostic')) })
+    const rejected = await badAsyncReader.readCitation(ownerSubject, selected)
+    assert.equal(rejected.reason, 'aura-citation:read-grant-unavailable')
+    assert.equal(rejected.citation, null); assert.equal(rejected.verification, null)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(unhandledGuardRejection, false, 'misconfigured async guard must not leak its rejected diagnostic')
+  } finally { process.removeListener('unhandledRejection', observeUnhandledGuard) }
+  console.log('PASS cached handle disposal, exact retained read grant, in-flight revocation and strict host guard refusals')
   // Caller-context mutation cannot redirect a retained owner-bound reader.
   citationContext.storeDir = join(testRoot, 'missing-output'); citationContext.snapshotOptions = {}
   assert.equal((await citationReader.readCitation(ownerSubject, selected)).ok, true)
@@ -246,7 +317,7 @@ try {
   const wrongOwnerCodec = await createNostrCollectorCodec({ records, authorSecretKeyHex, binding,
     controllerKeyHex: controllerHex, ownerSubject: `aukora:1:${'2'.repeat(64)}`, authorPubkeyHex, ownerPubkeyHex })
   assert.equal((await verifyCollected({ events, snapshot: source, codec: wrongOwnerCodec, gatePublicKey: gatePem, anchors })).ok, false)
-  const misboundReader = createCollectorCitationReader({ storeDir, snapshotOptions, codec: wrongOwnerCodec, anchors })
+  const misboundReader = createCollectorCitationReader({ storeDir, snapshotOptions, codec: wrongOwnerCodec, anchors }, testReadGuards)
   assert.equal((await misboundReader.readCitation(`aukora:1:${'2'.repeat(64)}`, selected)).citation, null)
   const held = await openCollectorStore(storeDir)
   try { assert.equal((await run()).reason, 'aura-collector:busy') } finally { await held.close() }
