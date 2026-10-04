@@ -5,7 +5,7 @@
 //   proposeOps  (PROPOSE socket, group skgate, 0660): ping/targets/read/propose/close(reject only)/state/
 //               harness_start/selfcheck/log/verify/status. There is no approve operation on this channel;
 //               `close` refuses every outcome except rejected/cancelled/unavailable/expired and records the try.
-//   ownerOps    (OWNER socket 0600 gate-only, and the bearer-protected owner page): pending/approve/reject/
+//   ownerOps    (OWNER socket 0600 gate-only, and the bearer-protected owner page): pending/approve/reject/review/decide_review/
 //               rotate_bearer. The kernel's socket-file permission check is the enforcement (Node has no
 //               SO_PEERCRED), hence split sockets.
 // Approval is single use: pending -> applying (spent) BEFORE any write, base hash rechecked, bytes come from the
@@ -13,7 +13,7 @@
 // (id, base, new, approver) as approval evidence. Rate limits are global and per target, never per
 // harness-chosen session label. Targets are injected; with an empty allowlist every proposal is refused.
 import path from 'node:path'
-import { createHmac, randomUUID, randomBytes, sign } from 'node:crypto'
+import { createHmac, randomUUID, randomBytes, sign, timingSafeEqual } from 'node:crypto'
 import { sha256, SHA, loadOrCreateKey, openDb, createLedger } from './ledger.mjs'
 import { loadOwnerSecret, rotateBearer } from './secrets.mjs'
 import { lineDiff, cleanNote, noteMeta, cardWarnings, swatchText, noteDisplay } from './card.mjs'
@@ -176,6 +176,46 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       throw e
     }
   }
+  // OWNER REVIEW (L2 popup, 2026-10-04). review() hands the owner the FULL stored bytes and diff plus a fresh
+  // gate-made challenge; decide_review() approves or refuses only with that exact challenge for the same immutable
+  // id/base/new. The challenge lives in gate memory (one latest per id), is never on the PROPOSE channel, and is
+  // CONSUMED BEFORE VALIDATION, so a failed or replayed decision cannot be retried with it. Approval still goes
+  // through ownerDecide (spent-before-write, base recheck, version-store bytes, post-hash, signed receipt).
+  const REVIEW_TTL_MS = 120000
+  const reviews = new Map()
+  const exactKeys = (a, keys) => a !== null && typeof a === 'object' && !Array.isArray(a) && Object.keys(a).length === keys.length && keys.every(k => Object.hasOwn(a, k))
+  function review(args) {
+    if (!exactKeys(args, ['id']) || typeof args.id !== 'string') throw new Error('review takes exactly {id}')
+    const p = db.prepare('SELECT * FROM proposals WHERE id=?').get(args.id)
+    if (!p) throw new Error('unknown proposal id')
+    if (p.state !== 'pending') throw new Error(`proposal is ${p.state}; only a pending proposal can be reviewed`)
+    if (now() > p.expires) throw new Error('proposal expired')
+    const review_challenge = randomBytes(32).toString('hex')
+    const review_expires = Math.min(p.expires, now() + REVIEW_TTL_MS)
+    reviews.set(p.id, { challenge: review_challenge, expires: review_expires, base_sha: p.base_sha, new_sha: p.new_sha })
+    append('review-issued', { proposal: p.id, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, detail: { via: 'owner', review_expires: new Date(review_expires).toISOString() } })
+    return { version: 1, id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: blobText(p.new_sha), diff: p.diff,
+      displayable: !!p.displayable, created: p.created, expires: p.expires, review_challenge, review_expires, pubkey_fp: key.fp }
+  }
+  function decideReview(args, approver) {
+    const id = args && typeof args === 'object' && typeof args.id === 'string' ? args.id : null
+    const stored = id === null ? undefined : reviews.get(id)
+    if (id !== null) reviews.delete(id)
+    const refuse = (reason) => { append('decide-refused', { proposal: id === null ? null : id.slice(0, 64), detail: { reason, via: 'owner-review' } }); throw new Error(`refused: ${reason}`) }
+    if (!exactKeys(args, ['id', 'base_sha', 'new_sha', 'review_challenge', 'outcome'])) refuse('decide_review takes exactly {id, base_sha, new_sha, review_challenge, outcome}')
+    if (!['allowed-once', 'rejected'].includes(args.outcome)) refuse('outcome must be allowed-once or rejected')
+    if (!stored) refuse('no live review challenge for this id (review first; a challenge is single use)')
+    if (typeof args.review_challenge !== 'string' || !/^[0-9a-f]{64}$/.test(args.review_challenge) ||
+        !timingSafeEqual(Buffer.from(args.review_challenge, 'hex'), Buffer.from(stored.challenge, 'hex'))) refuse('review challenge mismatch')
+    if (now() > stored.expires) refuse('review challenge expired')
+    const p = db.prepare('SELECT * FROM proposals WHERE id=?').get(id)
+    if (!p) refuse('unknown proposal id')
+    if (args.base_sha !== stored.base_sha || args.new_sha !== stored.new_sha || p.base_sha !== stored.base_sha || p.new_sha !== stored.new_sha) refuse('base/new do not match the reviewed proposal')
+    if (p.state !== 'pending') refuse(`proposal is ${p.state}`)
+    if (now() > p.expires) refuse('proposal expired')
+    if (!p.displayable) refuse('proposal too large to show in full; approval disabled')
+    return ownerDecide({ id, outcome: args.outcome }, approver)
+  }
   const signReceipt = (receipt) => sign(null, Buffer.from(JSON.stringify(receipt)), key.priv).toString('base64')
 
   // Version history of a target from the ledger (applied, reverted and adopted versions, newest first).
@@ -273,9 +313,11 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     rotate_bearer: () => { const r = rotateBearer(home, owner, now); append('owner-bearer-rotated', { detail: { fp8: r.fp, expires: r.expires, via: 'owner.sock' } }); return { rotated: true, expires: r.expires } },
     approve: ({ id }, approver) => ownerDecide({ id, outcome: 'allowed-once' }, approver),
     reject: ({ id }, approver) => ownerDecide({ id, outcome: 'rejected' }, approver),
+    review: (a) => review(a),
+    decide_review: (a, approver) => decideReview(a, approver),
     status: proposeOps.status, log: proposeOps.log, verify: proposeOps.verify,
   }
-  if (Object.hasOwn(proposeOps, 'approve') || Object.hasOwn(proposeOps, 'decide')) throw new Error('invariant: the propose channel must not expose approval')
+  if (['approve', 'decide', 'review', 'decide_review'].some(op => Object.hasOwn(proposeOps, op))) throw new Error('invariant: the propose channel must not expose approval')
 
   return Object.freeze({
     proposeOps: Object.freeze(proposeOps), ownerOps: Object.freeze(ownerOps), startup, cardView, pendingRows, blobText, spec,
