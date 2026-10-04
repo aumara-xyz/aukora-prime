@@ -21,10 +21,25 @@ and Ed25519 signature; the chain from #1 (`prev = "GENESIS"`) with no missing en
 entry matches the receipt. Changing any byte of the receipt, its signature or an entry, or removing an entry, makes
 it print `NOT VERIFIED`.
 
+## The head anchor (dropping entries off the end is detectable)
+
+After every gate decision the owner's machine — not the pilot — publishes the gate's verified ledger head to the
+public branch `ledger-anchor`, file `anchors/gate-ledger.jsonl` (one line `{seq, head, gate_fp, entry_at, anchored_at}`
+per new head; publisher: `packages/boundary-gate/anchor/publish-anchor.py`). Check this export against it:
+
+    curl -sO https://raw.githubusercontent.com/aumara-xyz/aukora-prime/ledger-anchor/anchors/gate-ledger.jsonl
+    node verify.mjs --anchor gate-ledger.jsonl --whole
+
+Every anchor inside the export must equal the exported entry's hash (a rewritten entry fails). An anchor past #24
+means the gate's ledger grew after this export: printed as a prefix note, and a FAILURE under `--whole`. The
+publisher itself refuses, and publishes nothing, if the live gate ever shows fewer entries than the last anchor or a
+different hash at an anchored seq.
+
 ## What this does NOT prove
 
-- Not that this is the gate's whole ledger: entries after #24 are not here, and dropping entries off the END is not
-  detectable from these files alone (no head hash is published elsewhere).
+- Not that the anchor is independent of the owner: the `ledger-anchor` branch is written by the same GitHub account
+  that owns the repository. Its commit history (GitHub's timestamps) is the witness; a force-push would be visible to
+  anyone who kept a copy, but is not prevented by this file.
 - Not who sat at the desktop: "owner" means the owner socket (0600, gate user/root) reached through the owner's popup.
 - The key is the pilot gate's own key; publishing it here is what lets a stranger check, not an outside attestation.
 

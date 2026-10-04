@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Owner-Mac LaunchAgent: one anchor round every 60 s (and on kickstart from the owner bridge after a decision).
+     Install: copy publish-anchor.py to ~/.aukora-nebius/gate/, this file to ~/Library/LaunchAgents/ (replace HOME),
+     then: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/xyz.aumara.aukora.ledger-anchor.plist -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>xyz.aumara.aukora.ledger-anchor</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/python3</string><string>HOME/.aukora-nebius/gate/publish-anchor.py</string></array>
+  <key>StartInterval</key><integer>60</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>Umask</key><integer>63</integer>
+  <key>StandardOutPath</key><string>HOME/.aukora-nebius/gate/anchor.log</string>
+  <key>StandardErrorPath</key><string>HOME/.aukora-nebius/gate/anchor.log</string>
+</dict></plist>
