@@ -48,7 +48,15 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   const blobText = (sha) => { const b = db.prepare('SELECT bytes FROM blobs WHERE sha=?').get(sha); return b ? Buffer.from(b.bytes).toString('utf8') : '' }
   const setState = (id, from, to, note) => db.prepare('UPDATE proposals SET state=?, note=?, updated=? WHERE id=? AND state=?').run(to, note ?? null, now(), id, from).changes === 1
 
+  // LIVE EXPIRY SWEEP (2026-10-04). A pending proposal past its TTL is closed as expired the moment anyone looks
+  // (propose rate check, OWNER pending list, owner page), not only at gate start: a stale row must neither block the
+  // next proposal (max 1 pending) nor be put in front of the owner as if it were still decidable.
+  function sweepExpired() {
+    for (const r of db.prepare("SELECT id, target FROM proposals WHERE state='pending' AND expires < ?").all(now()))
+      tx(() => { if (setState(r.id, 'pending', 'expired', 'expired (ttl elapsed, live sweep)')) append('expire', { proposal: r.id, target: r.target, detail: { reason: 'ttl elapsed' } }) })
+  }
   function rateCheck(target, newSha) {
+    sweepExpired()
     const pend = db.prepare("SELECT COUNT(*) n FROM proposals WHERE state IN ('pending','applying')").get().n
     if (pend >= L.maxPendingGlobal) throw new Error(`refused (rate limit): ${pend} proposal already pending (max ${L.maxPendingGlobal} in total). Resolve it before proposing again.`)
     const winT = db.prepare('SELECT COUNT(*) n FROM proposals WHERE target=? AND created>?').get(target, now() - L.windowMs).n
@@ -274,7 +282,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     return { plain: s?.plain ? s.plain(oldText, newText) : '', after_apply: s?.after ? s.after(newText) : '', warnings: cardWarnings(s, oldText, newText, p.why, meta),
       note_display: noteDisplay(p.why, meta), note_meta: meta, swatch: swatchText(s, oldText, newText), base_accent: s?.accentOf?.(oldText) ?? null, new_accent: s?.accentOf?.(newText) ?? null }
   }
-  const pendingRows = () => db.prepare("SELECT id,kind,target,base_sha,new_sha,why,session,created,expires FROM proposals WHERE state='pending' ORDER BY created DESC").all()
+  const pendingRows = () => { sweepExpired(); return db.prepare("SELECT id,kind,target,base_sha,new_sha,why,session,created,expires FROM proposals WHERE state='pending' ORDER BY created DESC").all() }
 
   const proposeOps = {
     ping: () => ({ ok: true, pubkey_fp: key.fp, pubkey_pem: key.pubPem }),

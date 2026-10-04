@@ -15,6 +15,7 @@ async function loadCreateGate() {
   if (mutant === 'consume-late') src = src.replace('    if (id !== null) reviews.delete(id)\n', '').replace('    return ownerDecide({ id, outcome: args.outcome }, approver)\n  }', '    reviews.delete(id)\n    return ownerDecide({ id, outcome: args.outcome }, approver)\n  }')
   else if (mutant === 'no-challenge-check') src = src.replace("!timingSafeEqual(Buffer.from(args.review_challenge, 'hex'), Buffer.from(stored.challenge, 'hex'))", 'false')
   else if (mutant === 'no-sha-check') src = src.replace("if (args.base_sha !== stored.base_sha || args.new_sha !== stored.new_sha || p.base_sha !== stored.base_sha || p.new_sha !== stored.new_sha) refuse('base/new do not match the reviewed proposal')", '')
+  else if (mutant === 'no-live-sweep') src = src.replace('  function rateCheck(target, newSha) {\n    sweepExpired()\n', '  function rateCheck(target, newSha) {\n').replace('const pendingRows = () => { sweepExpired(); return', 'const pendingRows = () => { return')
   else throw new Error('unknown mutant')
   assert.notEqual(src, orig, 'mutant must change the source')
   src = src.replace(/from (['"])(\.[^'"]+)\1/gu, (_m, _q, rel) => `from ${JSON.stringify(new URL(rel, gateUrl).href)}`)
@@ -77,4 +78,18 @@ test('the propose channel has no review or decide_review, and cannot approve', (
   for (const op of ['review', 'decide_review', 'approve', 'decide']) assert.equal(Object.hasOwn(gate.proposeOps, op), false, op)
   const p = propose(gate, '#1E90FF')
   assert.throws(() => gate.proposeOps.close({ id: p.id, outcome: 'allowed-once' }), /cannot approve/)
+})
+
+test('an expired pending proposal is swept live: not listed to the owner, does not block the next proposal, cannot be reviewed', () => {
+  const { gate, store, clock } = makeGate()
+  const before = store.read(ACCENT).toString()
+  const p = propose(gate, '#1E90FF')
+  clock.t = p.expires + 1
+  assert.equal(gate.ownerOps.pending().pending.length, 0, 'expired proposal is not offered to the owner')
+  assert.equal(gate.proposeOps.state({ id: p.id }).state, 'expired')
+  assert.throws(() => gate.ownerOps.review({ id: p.id }), /proposal is expired/)
+  const p2 = propose(gate, '#00FF7F')
+  assert.equal(gate.ownerOps.pending().pending[0].id, p2.id, 'a new proposal is accepted after the stale one expired')
+  assert.equal(store.read(ACCENT).toString(), before)
+  assert.equal(gate.verify().ok, true)
 })
