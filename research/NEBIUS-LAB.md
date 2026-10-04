@@ -1,6 +1,6 @@
 # Nebius Lab: research record
 
-> **Update 2026-10-04 (rev 2).** The H200 work described below as HELD has since run (Oct 3–4) under per-run preregistrations. Results are summarised in the next section; the original offline snapshot follows unchanged below it. Full code, preregistrations and receipts: `aumara-xyz/aukora-genesis` branch `labs/sokoban-recursion-r1` (sealed test sets, weights and raw transcripts withheld).
+> **Update 2026-10-04 (rev 3).** The H200 work described below as HELD has since run (Oct 3–4) under per-run preregistrations. Results are summarised in the next section; the original offline snapshot follows unchanged below it. Full code, preregistrations and receipts: `aumara-xyz/aukora-genesis` branch `labs/sokoban-recursion-r1` (sealed test sets, weights and raw transcripts withheld).
 
 ## GPU-run results (Oct 3–4, 2026)
 
@@ -18,7 +18,7 @@ Domain: 8x8 two-box Sokoban with an exact simulator/BFS verifier; model Ornith-1
 | Second generation (gen-2 with coach hints) did not beat gen-1; hint text leaked into targets | qualified GPU run (negative) | RAN — AMENDMENTS.md |
 | 1.9M-param policy/value CNN trained on solver labels: 98.3% best-move accuracy; with search 200/200 fresh puzzles | supervised, not self-improvement | RAN (CPU/MPS) — lab/p1_REPORT.md |
 | Sob-Zero self-play on DeepMind Boxoban (10x10, 4 boxes), no solver labels: sealed 800-level solve rate 68.9% → 86.0% (champion), best 88.9%, p≈6e-34 | demonstrated multi-generation self-improvement (one seed; started from the supervised net) | RAN — prereg/SOBZERO-RESULT.json |
-| v9: interactive training of Ornith, turn-by-turn System-1 guidance | in progress | SOURCE-ONLY until its receipt lands |
+| v9: Ornith LoRA-trained on winning interactive turns (incl. System-1-guided games, guidance removed + leak-gated); sealed holdout_v9 interactive: v9 88/288 vs v7 136/288 (12 boards up / 53 down), 17-32 band 45 → 15; verdict NO_PROMOTE | qualified GPU run (negative) | RAN — prereg/V9-RESULT.json |
 | Dream-RSI-style replay ("dreaming"): search configs tuned offline on recorded Sob-Zero search trees, confirmed live on held-out gate levels (transfer ratio 0.89), then one preregistered sealed run: 688 → 718 of 800 (86.0% → 89.75%), 36 up / 6 down, p=1.4e-6, 3.4x fewer expansions per solve | demonstrated improvement (planner, not network; one seed) | RAN — prereg/DREAM-RESULT.json |
 | v7 interactive baseline on new sealed set holdout_v9: 136/288; turn-by-turn System-1 guidance during collection: 741/1280 wins vs 206/640 unguided (different pools — exploratory) | qualified GPU run / exploratory | RAN — v9 receipts (in progress) |
 | Compounding multi-generation gains in the LLM itself; transfer to a second game | not shown | CLAIMED-NOT-YET |
