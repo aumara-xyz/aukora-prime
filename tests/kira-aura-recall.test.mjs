@@ -12,8 +12,11 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const primeBase = 'e84d3f3c5edd242025b29517666ca410144d55e4'
+const primeBase = 'f6c398869f709000233a2fe7962837d5ee2e2a13'
+// Isolated source fixtures read only already-owned E and immutable D Git objects.
+const citationBase = process.env.AUKORA_AURA_CITATION_BASE ?? 'c3f07af37d8e5dd291a655d0ba22f67115288d36'
 const git = process.env.AUKORA_PRIME_CHECK_GIT ?? root
+const citationGit = process.env.AUKORA_AURA_CHECK_GIT ?? git
 const mutant = process.argv.includes('--mutant') ? process.argv[process.argv.indexOf('--mutant') + 1] : null
 const mutations = {
   source: ["|| !sameSource(query.source, cited.source)", ''],
@@ -50,9 +53,20 @@ registerHooks({
       const path = missingPath
       if (path.includes('..') || !git) throw Error('pinned Git source required')
       loaded = { format: path.endsWith('.json') ? 'json' : 'module', shortCircuit: true,
-        source: execFileSync('git', ['show', primeBase + ':' + path],
-          { cwd: git, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }) }
+        source: execFileSync('git', ['show', (path === 'scripts/aura/collect-gate.mjs' ? citationBase : primeBase) + ':' + path],
+          { cwd: path === 'scripts/aura/collect-gate.mjs' ? citationGit : git, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
+            env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } }) }
     } else loaded = next(url, context)
+    if (url.endsWith('/lib/index.js')) {
+      // Disposable scheduling seam for a changed note/provider during the
+      // existing final owner reread. Production files are never modified.
+      const original = typeof loaded.source === 'string' ? loaded.source : Buffer.from(loaded.source).toString('utf8')
+      const before = 'const currentRecords = async () => {\n              const currentPolicy = readOwnerPolicy(await owner.describe())'
+      const after = before.replace('async () =>', 'async phase =>') + '\n              await globalThis.__kiraAuraFinalReadFixture?.(phase)'
+      assert(original.includes(before), 'actual final reread seam must exist')
+      loaded = { ...loaded, source: original.replace(before, after)
+        .replace('new Map((await currentRecords()).map', "new Map((await currentRecords('outer')).map") }
+    }
     if (mutant && ((['wiring', 'report', 'annotations'].includes(mutant) && url.endsWith('/lib/index.js'))
       || (!['wiring', 'report', 'annotations'].includes(mutant) && url.endsWith('/lib/aura-recall.mjs')))) {
       const [before, after] = mutations[mutant]
@@ -68,9 +82,12 @@ const { recallAuraCitations, AURA_RECALL_PROVIDER } = await import('../plugins/a
 const subject = 'aukora:1:' + '1'.repeat(64)
 const h = n => String(n).repeat(64)
 const note = { id: 'rem:' + h('a'), subject, statement: 'Synthetic gate observation for citation tests.',
-  contentHash: h('b'), entryHash: h('c'), source: { state: 'UNLINKED' }, aura: { index: 1, entryHash: h('c') } }
-const query = { source: { journal_id: 'fixture-gate', position: 1, hash: h('d') }, record_id: h('e') }
-const summary = { ok: true, status: 'complete', source: { journal_id: 'fixture-gate', key_sha256: h('f') },
+  contentHash: h('b'), entryHash: h('c'), grantsAuthority: false,
+  source: { state: 'UNLINKED', aura_source: { journal_id: 'aukora-gate-pilot', position: 1, hash: h('d') } },
+  auraAssociation: { v: 1, kind: 'aukora-kira-aura-association/v1', note_id: 'rem:' + h('a'),
+    source: { journal_id: 'aukora-gate-pilot', position: 1, hash: h('d') } }, aura: { index: 1, entryHash: h('c') } }
+const query = { source: { journal_id: 'aukora-gate-pilot', position: 1, hash: h('d') }, record_id: h('e') }
+const summary = { ok: true, status: 'complete', source: { journal_id: 'aukora-gate-pilot', key_sha256: h('f') },
   aura_head: { sequence: 1, id: h('e') }, coverage: { position: 1, hash: h('d') }, grants_authority: false,
   selected_head: { position: 1, hash: h('d') }, anchor_scope: 'provided-data-consistency-only; retrieval, provenance and witness independence unperformed',
   anchor_status: 'verified', anchors_checked: 1, anchored_head: { position: 1, hash: h('d') } }
@@ -144,7 +161,8 @@ try {
   const memory = createTrackedMemory({ stateDir, subject })
   const remembered = await memory.remember({ text: 'The synthetic gate fixture records a refused action for citation testing.', from: 'fixture' })
   assert.equal(remembered.remembered, 1)
-  const tracked = memory.read().notes[0]
+  let tracked = memory.read().notes[0]
+  const historicalId = tracked.id
   const foreignMemory = createTrackedMemory({ stateDir, subject: 'aukora:1:' + h('9') })
   await foreignMemory.remember({ text: 'Foreign synthetic record must be excluded by the existing owner read policy.', from: 'fixture' })
   const services = new Map()
@@ -194,47 +212,120 @@ try {
     target: 'fixture.json', base_sha: null, new_sha: null, detail: '{"fixture":true}', prev: 'GENESIS' }
   entry.hash = gateEntryHash(gateEntryBody(entry)); entry.sig = sign(null, Buffer.from(entry.hash, 'hex'), gatePrivate).toString('base64')
   db.prepare('INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(...Object.values(entry))
-  const snapshotOptions = { dbPath, sourceId: 'gate-fixture', publicKeyPem: gatePublic.export({ type: 'spki', format: 'pem' }).toString(),
+  const snapshotOptions = { dbPath, sourceId: 'aukora-gate-pilot', publicKeyPem: gatePublic.export({ type: 'spki', format: 'pem' }).toString(),
     expectedKeySha256: gatePublicKeySha256(gatePublic) }
   const storeDir = join(scratch, 'collector')
   assert.equal((await collectGateOnce({ snapshotOptions, storeDir, codec, now: () => 1767225600 })).ok, true)
   const record = JSON.parse(readFileSync(join(storeDir, 'gate-observations.nostr.jsonl'), 'utf8').trim())
   const anchors = [{ seq: 1, head: entry.hash, gate_fp: snapshotOptions.expectedKeySha256.slice(0, 16),
     entry_at: entry.at, anchored_at: '2026-01-01T00:01:00Z' }]
-  const reader = createCollectorCitationReader({ storeDir, snapshotOptions, codec, anchors })
+  // These are explicit disposable fixture capabilities, never production grants.
+  const fixtureReadGuards = { isLive: () => true, hasReadGrant: owner => owner === subject }
+  const reader = createCollectorCitationReader({ storeDir, snapshotOptions, codec, anchors }, fixtureReadGuards)
   const selected = { source: { journal_id: snapshotOptions.sourceId, position: 1, hash: entry.hash }, record_id: record.id }
+  const associated = await memory.remember({ text: 'The synthetic gate fixture records a refused action for citation testing.', from: 'fixture' },
+    { auraSource: { source: selected.source } })
+  tracked = memory.read().notes.find(note => note.id === associated.ids[0])
+  assert.notEqual(tracked.id, historicalId, 'new source-bound identity must not rewrite historical memory')
+  const citeFor = result => result.auraCitations.find(citation => citation.recordId === tracked.id)
   mountedProvider = Object.freeze({
-    referenceForRecord: id => id === tracked.id ? selected : null,
+    referenceForRecord: id => memory.referenceForRecord(id),
     readCitation: selector => reader.readCitation(subject, selector),
   })
   const found = await recall.recall('synthetic gate fixture')
-  assert.equal(found.auraCitations.length, 1)
-  assert.equal(found.auraCitations[0].status, 'verified', found.auraCitations[0].reason)
-  assert.equal(found.auraCitations[0].citation.record_id, record.id)
-  assert.deepEqual(found.auraCitations[0].citation.source, selected.source)
-  assert.equal(found.auraCitations[0].ownerStatus, 'INTERIM')
-  assert.equal(found.auraCitations[0].citation.grants_authority, false)
-  assert.deepEqual(found.records[0].rememberedChain, tracked.aura)
+  assert.equal(found.auraCitations.length, 2)
+  assert.equal(found.auraCitations.find(citation => citation.recordId === historicalId).status, 'undetermined')
+  assert.equal(citeFor(found).status, 'verified', citeFor(found).reason)
+  assert.equal(citeFor(found).citation.record_id, record.id)
+  assert.deepEqual(citeFor(found).citation.source, selected.source)
+  assert.equal(citeFor(found).ownerStatus, 'INTERIM')
+  assert.equal(citeFor(found).citation.grants_authority, false)
+  assert.deepEqual(found.records.find(note => note.id === tracked.id).rememberedChain, tracked.aura)
   assert(!JSON.stringify(found.auraCitations).includes('entry_body'))
   console.log('PASS active Kira -> actual pinned D/B cold reader, exact record and gate entry')
 
-  const unanchored = createCollectorCitationReader({ storeDir, snapshotOptions, codec })
-  mountedProvider = { referenceForRecord: () => selected, readCitation: s => unanchored.readCitation(subject, s) }
+  // A remembered note remains valid when its advisory association disappears.
+  // The final reread must retain the note and downgrade its earlier sidecar.
+  const notePath = join(stateDir, 'remembered', tracked.id.slice(4) + '.json')
+  const noteBytes = readFileSync(notePath)
+  for (const change of ['association', 'provider']) {
+    let stage = 'idle', selectedReads = 0
+    mountedProvider = { referenceForRecord: async id => {
+      const reference = await memory.referenceForRecord(id)
+      if (id === tracked.id && ++selectedReads === 2) stage = 'helper-final'
+      return reference
+    }, readCitation: s => reader.readCitation(subject, s) }
+    globalThis.__kiraAuraFinalReadFixture = () => {
+      if (stage === 'helper-final') { stage = 'outer-final'; return }
+      if (stage !== 'outer-final') return
+      stage = 'changed'
+      if (change === 'provider') mountedProvider = undefined
+      else {
+        const stored = JSON.parse(noteBytes)
+        delete stored.auraAssociation
+        writeFileSync(notePath, JSON.stringify(stored) + '\n')
+      }
+    }
+    try {
+      const finalChanged = await recall.recall('synthetic gate fixture')
+      assert.equal(stage, 'changed', 'fixture change occurs in the outer final reread')
+      assert(finalChanged.records.some(note => note.id === tracked.id), 'ordinary remembered note survives')
+      assert.equal(citeFor(finalChanged).status, 'undetermined')
+      assert.equal(citeFor(finalChanged).citation, null)
+      assert.equal(citeFor(finalChanged).reason, change === 'provider' ? 'aura-recall:provider-changed' : 'aura-recall:reference-changed')
+    } finally {
+      delete globalThis.__kiraAuraFinalReadFixture
+      writeFileSync(notePath, noteBytes)
+    }
+  }
+  console.log('PASS final reread retains memory and downgrades changed association/provider sidecars')
+
+  const churnChainPath = join(stateDir, 'remembered/aura.jsonl')
+  const churnJournalPath = join(stateDir, 'remembered/journal.jsonl')
+  const churnChain = readFileSync(churnChainPath), churnJournal = readFileSync(churnJournalPath)
+  const secondAssociation = await memory.remember({ text: 'A second synthetic gate fixture observation tests a provider remount.', from: 'fixture-second' },
+    { auraSource: { source: selected.source } })
+  let secondProviderReads = 0
+  const secondProvider = { referenceForRecord: id => memory.referenceForRecord(id),
+    readCitation: s => { secondProviderReads++; return reader.readCitation(subject, s) } }
+  const firstProvider = { referenceForRecord: id => memory.referenceForRecord(id), readCitation: async s => {
+    const result = await reader.readCitation(subject, s)
+    mountedProvider = secondProvider
+    return result
+  } }
+  mountedProvider = firstProvider
+  globalThis.__kiraAuraFinalReadFixture = phase => {
+    if (phase === 'outer') mountedProvider = firstProvider
+  }
+  try {
+    const churn = await recall.recall('synthetic gate fixture')
+    assert.equal(secondProviderReads, 0, 'one recall batch must not select a remounted provider')
+    assert(churn.records.some(note => note.id === secondAssociation.ids[0]))
+    assert(churn.auraCitations.every(citation => citation.status === 'undetermined'))
+  } finally {
+    delete globalThis.__kiraAuraFinalReadFixture
+    for (const id of secondAssociation.ids) rmSync(join(stateDir, 'remembered', id.slice(4) + '.json'))
+    writeFileSync(churnChainPath, churnChain); writeFileSync(churnJournalPath, churnJournal)
+  }
+  console.log('PASS one recall batch stays on one provider during remount and return')
+
+  const unanchored = createCollectorCitationReader({ storeDir, snapshotOptions, codec }, fixtureReadGuards)
+  mountedProvider = { referenceForRecord: id => memory.referenceForRecord(id), readCitation: s => unanchored.readCitation(subject, s) }
   const missingAnchor = await recall.recall('synthetic gate fixture')
   assert.equal(missingAnchor.status, 'match')
-  assert.equal(missingAnchor.auraCitations[0].status, 'undetermined')
-  assert.equal(missingAnchor.auraCitations[0].citation, null)
-  assert.equal(missingAnchor.auraCitations[0].verification.anchor_status, 'unperformed')
-  const missingStore = createCollectorCitationReader({ storeDir: join(scratch, 'absent-store'), snapshotOptions, codec, anchors })
-  mountedProvider = { referenceForRecord: () => selected, readCitation: s => missingStore.readCitation(subject, s) }
-  assert.equal((await recall.recall('synthetic gate fixture')).auraCitations[0].status, 'undetermined')
+  assert.equal(citeFor(missingAnchor).status, 'undetermined')
+  assert.equal(citeFor(missingAnchor).citation, null)
+  assert.equal(citeFor(missingAnchor).verification.anchor_status, 'unperformed')
+  const missingStore = createCollectorCitationReader({ storeDir: join(scratch, 'absent-store'), snapshotOptions, codec, anchors }, fixtureReadGuards)
+  mountedProvider = { referenceForRecord: id => memory.referenceForRecord(id), readCitation: s => missingStore.readCitation(subject, s) }
+  assert.equal(citeFor(await recall.recall('synthetic gate fixture')).status, 'undetermined')
   assert(!existsSync(join(scratch, 'absent-store')))
   console.log('PASS actual cold missing anchor/store preserves memory and explicit incomplete provenance')
 
   const { nextEntry } = await import('../plugins/aukora-kira/lib/memory-journal.mjs')
   const journalPath = join(stateDir, 'remembered/journal.jsonl')
   let expireOnRead = true
-  mountedProvider = { referenceForRecord: () => selected, readCitation: async s => {
+  mountedProvider = { referenceForRecord: id => memory.referenceForRecord(id), readCitation: async s => {
     const checked = await reader.readCitation(subject, s)
     if (expireOnRead) {
       expireOnRead = false
@@ -247,8 +338,8 @@ try {
     return checked
   } }
   const stale = await recall.recall('synthetic gate fixture')
-  assert.equal(stale.records[0].staleness.flagged, true)
-  assert.equal(stale.auraCitations[0].status, 'verified', 'verification does not promote stale text to truth')
+  assert.equal(stale.records.find(note => note.id === tracked.id).staleness.flagged, true)
+  assert.equal(citeFor(stale).status, 'verified', 'verification does not promote stale text to truth')
   const chainPath = join(stateDir, 'remembered/aura.jsonl')
   const chainBytes = readFileSync(chainPath)
   mountedProvider = { referenceForRecord: () => selected, readCitation: async s => {
@@ -263,12 +354,13 @@ try {
     assert.equal(unreadable.records.length, 0)
   } finally { writeFileSync(chainPath, chainBytes) }
   mountedProvider = { referenceForRecord: () => selected, readCitation: s => reader.readCitation(subject, s) }
-  assert.equal((await recall.recall('synthetic gate fixture')).auraCitations[0].status, 'verified')
+  assert.equal(citeFor(await recall.recall('synthetic gate fixture')).status, 'verified')
   console.log('PASS filtered-note handling, fresh stale annotations, reread failure and unchanged recovery')
 } finally {
   db?.close()
+  delete globalThis.__kiraAuraFinalReadFixture
   for (const [name, value] of savedEnv) { if (value === undefined) delete process.env[name]; else process.env[name] = value }
   rmSync(scratch, { recursive: true, force: true })
 }
 if (mutant) assert(applied, 'focused mutation must be applied')
-console.log('PASS 7 functional groups; source fixture only, host association/provider still required')
+console.log('PASS 9 functional groups; source fixture only, host association/provider still required')

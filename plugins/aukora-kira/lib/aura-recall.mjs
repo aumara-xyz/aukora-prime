@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Read-only consumer of D's cold citation reader. The host supplies the association;
 // this module creates no identity, record, approval, source mapping or transport.
+import { referenceForAssociatedNote } from './aura-association.mjs'
 export const AURA_RECALL_PROVIDER = 'aura.records'
 export const AURA_RECALL_LIMIT = 50
 const HEX = /^[0-9a-f]{64}$/u
@@ -81,8 +82,14 @@ export async function recallAuraCitations(records, { getProvider, currentRecord 
       if (!sameRecallRecord(record, initial) || typeof initial.subject !== 'string') {
         answers.push(answer('aura-recall:record-changed')); continue
       }
+      const captured = selector(referenceForAssociatedNote(initial))
+      if (!captured) { answers.push(answer('aura-recall:source-association-unavailable')); continue }
       const query = selector(await provider.referenceForRecord(record.id))
       if (!query) { answers.push(answer('aura-recall:source-association-unavailable')); continue }
+      if (!sameSource(captured.source, query.source)
+        || (captured.record_id !== undefined && captured.record_id !== query.record_id)) {
+        answers.push(answer('aura-recall:reference-changed')); continue
+      }
       const result = await provider.readCitation(query)
       if (getProvider?.() !== provider) {
         answers.push(answer('aura-recall:record-changed')); continue
@@ -92,6 +99,9 @@ export async function recallAuraCitations(records, { getProvider, currentRecord 
       const finalRecord = await currentRecord(record.id)
       if (getProvider?.() !== provider || !sameRecallRecord(record, finalRecord)) {
         answers.push(answer('aura-recall:record-changed')); continue
+      }
+      if (!sameSelector(captured, selector(referenceForAssociatedNote(finalRecord)))) {
+        answers.push(answer('aura-recall:reference-changed')); continue
       }
       if (!closed(result, RESULT) || result.grants_authority !== false) {
         answers.push(answer('aura-recall:invalid-result')); continue

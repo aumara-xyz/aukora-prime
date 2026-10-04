@@ -39,6 +39,208 @@ import { readCaptureEventStreamed } from './session-read.mjs'
 import { verifyRecord } from './memory-verify.mjs'
 import { resolveMemoryIdentity } from './memory-identity.mjs'
 import { AURA_RECALL_PROVIDER, recallAuraCitations, sameRecallRecord } from './aura-recall.mjs'
+import { parseAuraSourceProjection, referenceForAssociatedNote, sourceIdentity } from './aura-association.mjs'
+
+/** Direct trusted-host adapter, never a model tool or RPC method. H supplies its
+ * actual completion verifier/pins; D supplies its guarded exact-row resolver.
+ * The runtime composition owns delivery of the SAME completed action result. */
+export function createGateCaptureIngestion({ memoryFor, verifyCompletedGateCapture, capturePins, referenceForAppliedAction } = {}) {
+  if (typeof memoryFor !== 'function' || typeof verifyCompletedGateCapture !== 'function'
+    || (referenceForAppliedAction !== undefined && typeof referenceForAppliedAction !== 'function')) throw new Error('kira-aura-capture:host-unconfigured')
+  return Object.freeze({
+    async remember(input, completedResult) {
+      // Snapshot the note's plain primitive fields before asynchronous host work.
+      // Source and association parameters are never part of this input surface.
+      if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) {
+        throw new Error('kira-aura-capture:note-input-invalid')
+      }
+      const descriptors = Object.getOwnPropertyDescriptors(input), capturedInput = {}
+      for (const key of Reflect.ownKeys(descriptors)) {
+        const descriptor = descriptors[key]
+        if (!['text', 'from', 'scope', 'at'].includes(key) || !descriptor.enumerable
+          || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string') {
+          throw new Error('kira-aura-capture:note-input-invalid')
+        }
+        capturedInput[key] = descriptor.value
+      }
+      if (!Object.hasOwn(capturedInput, 'text')) throw new Error('kira-aura-capture:note-input-invalid')
+      let auraSource = null, reason = 'kira-aura-capture:unavailable'
+      try {
+        const signed = parseAuraSourceProjection(await verifyCompletedGateCapture(completedResult, capturePins))
+        const included = referenceForAppliedAction === undefined ? signed
+          : parseAuraSourceProjection(await referenceForAppliedAction(completedResult))
+        const current = parseAuraSourceProjection(await verifyCompletedGateCapture(completedResult, capturePins))
+        if (signed && included && current && sourceIdentity(signed) === sourceIdentity(included)
+          && sourceIdentity(signed) === sourceIdentity(current)) auraSource = { source: signed }
+        else reason = 'kira-aura-capture:source-mismatch'
+      } catch { /* Reader/verifier failures leave remembered content unassociated. */ }
+      const memory = memoryFor()
+      if (!memory || typeof memory.remember !== 'function') {
+        return { remembered: 0, ids: [], auraCapture: { status: 'undetermined', reason: 'kira-aura-capture:host-unavailable', grantsAuthority: false } }
+      }
+      const remembered = await memory.remember(capturedInput, { auraSource, isCaptureLive: () => memoryFor() === memory })
+      // Deduplication can return IDs whose notes have since been hidden or
+      // forgotten. Report association only from the current selected-note read.
+      let associated = Boolean(auraSource && remembered.ids?.length && typeof memory.referenceForRecord === 'function')
+      if (auraSource) reason = 'kira-aura-capture:association-unavailable'
+      if (associated) {
+        try {
+          for (const id of remembered.ids) {
+            const current = parseAuraSourceProjection(await memory.referenceForRecord(id))
+            if (!current || sourceIdentity(current) !== sourceIdentity(auraSource.source)) { associated = false; break }
+          }
+        } catch { associated = false }
+      }
+      if (memoryFor() !== memory) { associated = false; reason = 'kira-aura-capture:host-unavailable' }
+      return { ...remembered, auraCapture: { status: associated ? 'associated' : 'undetermined',
+        reason: associated ? null : remembered.reason ?? reason, grantsAuthority: false } }
+    },
+  })
+}
+
+// The client's completed DTO is JSON data. Own its exact property order and
+// primitive bytes before any await; all later callbacks see the same snapshot.
+function snapshotGateResult(value, depth = 0, seen = new Set()) {
+  if (value === null || typeof value === 'boolean') return value
+  if (typeof value === 'string' && value.length <= 65_536) return value
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return value
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 12 || seen.has(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw new Error('kira-aura-capture:completion-invalid')
+  const descriptors = Object.getOwnPropertyDescriptors(value), entries = []
+  if (Reflect.ownKeys(descriptors).length > 64) throw new Error('kira-aura-capture:completion-invalid')
+  seen.add(value)
+  for (const key of Reflect.ownKeys(descriptors)) {
+    const field = descriptors[key]
+    if (typeof key !== 'string' || !field.enumerable || !Object.hasOwn(field, 'value')) throw new Error('kira-aura-capture:completion-invalid')
+    entries.push([key, snapshotGateResult(field.value, depth + 1, seen)])
+  }
+  seen.delete(value)
+  return Object.freeze(Object.fromEntries(entries))
+}
+
+/** Observe the existing DSH final tool result and await that exact proposal's
+ * retained completion. All client, public pins and selector bindings belong to
+ * the trusted host caller; this module creates no service, RPC or credentials.
+ * The selector must extract a full UUID from the canonical tool return, never
+ * from execution arguments or the model-facing content projection. */
+export function registerGateCaptureIngestion(ctx, {
+  memoryFor, stateForProposal, proposalFromToolResult, inputForCompletion, isLive,
+  verifyCompletedGateCapture, capturePins, referenceForAppliedAction,
+  pollIntervalMs = 1000, maxWaitMs = 86_400_000, maxPending = 32, now = Date.now,
+} = {}) {
+  if (typeof ctx?.on !== 'function' || [stateForProposal, proposalFromToolResult, inputForCompletion, isLive, now]
+    .some(value => typeof value !== 'function') || !Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 1
+    || !Number.isSafeInteger(maxWaitMs) || maxWaitMs < 1 || maxWaitMs > 86_400_000
+    || !Number.isSafeInteger(maxPending) || maxPending < 1 || maxPending > 32) {
+    throw new Error('kira-aura-capture:host-unconfigured')
+  }
+  let disposed = false
+  const flights = new Map(), seen = new Set()
+  const live = () => !disposed && isLive() === true
+  createGateCaptureIngestion({ memoryFor, verifyCompletedGateCapture, capturePins, referenceForAppliedAction })
+  const pause = (ms, signal) => new Promise(resolve => {
+    if (signal.aborted) return resolve()
+    const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve() }
+    const timer = setTimeout(done, ms)
+    timer.unref?.()
+    signal.addEventListener('abort', done, { once: true })
+  })
+  const poll = async (selected, execution, controller) => {
+    const deadline = Math.min(selected.expires, now() + maxWaitMs)
+    const active = () => live() && !controller.signal.aborted && now() < deadline
+    // Existing read-only client operations are bounded. A broken injected
+    // callback must not retain a flight after its deadline or host disposal.
+    const bounded = action => new Promise((resolve, reject) => {
+      if (!active()) return reject(new Error('kira-aura-capture:inactive'))
+      let timer
+      const done = (error, value) => {
+        clearTimeout(timer); controller.signal.removeEventListener('abort', abort)
+        error ? reject(error) : resolve(value)
+      }
+      const abort = () => done(new Error('kira-aura-capture:inactive'))
+      timer = setTimeout(() => {
+        // Retire write eligibility before releasing a timed-out flight. Its
+        // underlying callback may settle later, including an existing policy read.
+        controller.abort()
+        done(new Error('kira-aura-capture:callback-timeout'))
+      }, Math.max(1, Math.min(10_000, deadline - now())))
+      timer.unref?.()
+      controller.signal.addEventListener('abort', abort, { once: true })
+      Promise.resolve().then(() => {
+        if (!active()) throw new Error('kira-aura-capture:inactive')
+        return action()
+      }).then(value => done(null, value), error => done(error))
+    })
+    const verify = (result, pins) => bounded(() => verifyCompletedGateCapture(result, pins))
+    const ingestion = createGateCaptureIngestion({ memoryFor: () => active() ? memoryFor() : undefined,
+      verifyCompletedGateCapture: verify, capturePins,
+      ...(referenceForAppliedAction === undefined ? {} : {
+        referenceForAppliedAction: result => bounded(() => referenceForAppliedAction(result)),
+      }) })
+    while (live() && !controller.signal.aborted && now() < deadline) {
+      let completed
+      try { completed = snapshotGateResult(await bounded(() => stateForProposal(selected.id))) }
+      catch {
+        if (!live() || controller.signal.aborted) return
+        await pause(Math.min(pollIntervalMs, Math.max(1, deadline - now())), controller.signal)
+        continue
+      }
+      if (!live() || controller.signal.aborted || now() >= deadline) return
+      if (completed?.state === 'applied') {
+        // H's verifier checks the original receipt/capture bytes. The retained
+        // receipt must also name the proposal selected by this actual tool call.
+        if (completed.applied !== true || completed.receipt?.proposal !== selected.id) return
+        try {
+          if (!parseAuraSourceProjection(await verify(completed, capturePins))) return
+          if (!live() || controller.signal.aborted) return
+          const input = inputForCompletion(execution, selected, completed)
+          await bounded(() => ingestion.remember(input, completed))
+        } catch { ctx.logger?.warn?.('aukora-kira: gate completion association unavailable') }
+        return
+      }
+      if (!['pending', 'applying'].includes(completed?.state)) return
+      await pause(Math.min(pollIntervalMs, Math.max(1, deadline - now())), controller.signal)
+    }
+  }
+  const removeObserver = ctx.on('tools/result', (execution, result) => {
+    // Pinned createProposeTool returns a JSON STRING as lossless result.value.
+    // A contained REFUSED result can still have outer isError=false.
+    if (!live() || execution?.name !== 'aukora_gate_propose' || result?.isError !== false
+      || typeof result.value !== 'string' || result.value.length > 65_536) return
+    let selected
+    try {
+      const returned = JSON.parse(result.value)
+      if (!returned || returned.ok !== true || returned.state !== 'PENDING_OWNER') return
+      selected = proposalFromToolResult(returned, execution)
+      if (!selected || typeof selected.id !== 'string' || selected.id.length !== 36
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(selected.id)
+        || !Number.isSafeInteger(selected.expires) || selected.expires <= now()) return
+      selected = Object.freeze({ id: selected.id, expires: selected.expires })
+    } catch { return }
+    if (seen.has(selected.id) || flights.size >= maxPending) return
+    if (seen.size >= 128) seen.delete(seen.values().next().value)
+    seen.add(selected.id)
+    const capturedExecution = Object.freeze({ callId: execution.callId, rootCallId: execution.rootCallId,
+      scope: projectScopeOf(execution.agent) ?? 'owner' })
+    const controller = new AbortController()
+    // The native observer does not await returned promises. Retain and dispose
+    // every flight here, without blocking the tool or its conversation turn.
+    const flight = Promise.resolve().then(() => poll(selected, capturedExecution, controller))
+      .catch(() => ctx.logger?.warn?.('aukora-kira: gate completion polling unavailable'))
+      .finally(() => flights.delete(selected.id))
+    flights.set(selected.id, { controller, flight })
+  })
+  return Object.freeze({
+    pending: () => flights.size,
+    whenIdle: async () => { await Promise.all([...flights.values()].map(value => value.flight)) },
+    dispose: () => {
+      if (disposed) return
+      disposed = true
+      removeObserver?.()
+      for (const value of flights.values()) value.controller.abort()
+    },
+  })
+}
 
 /** Cordis plugin name. */
 export const name = 'aukora-kira'
@@ -196,7 +398,7 @@ export function readConfig(config) {
  * @param {unknown} config - composition-supplied configuration.
  * @returns {Promise<void>} resolves once both tools are registered.
  */
-export async function apply(ctx, config) {
+export async function apply(ctx, config, gateCaptureHost) {
   const normalized = readConfig(config)
   // ── NOT LINKED YET: MEMORY STAYS OFF, POLITELY, AND SAYS SO ─────────────────────────────────────
   // A fresh install carries the release's placeholder subject until the desktop's first Aumlok link
@@ -219,6 +421,7 @@ export async function apply(ctx, config) {
   // Normal memory uses the remembered chain and the deployment's plain data policy.
   // Explicit readOwner modules retain their isolated historical compatibility path.
   const memoryOwner = normalized.memoryOwner
+  let associationHostLive = true
   const owner = memoryOwner === undefined ? await loadReadOwner(normalized.readOwner) : {
     describe: async () => ({ subject: memoryOwner.subject, policyRevision: memoryOwner.policyRevision,
       permittedPrivacy: memoryOwner.permittedPrivacy }),
@@ -259,6 +462,18 @@ export async function apply(ctx, config) {
     }
     return memory
   }
+  // A trusted composition supplies actual H callbacks/public pins directly;
+  // ordinary Cordis configuration/model arguments cannot configure this join.
+  if (gateCaptureHost !== undefined) {
+    const capture = registerGateCaptureIngestion(ctx, { ...gateCaptureHost,
+      memoryFor: () => associationHostLive ? memoryFor() : undefined,
+      isLive: () => associationHostLive,
+      inputForCompletion: (execution, selected, completed) => ({
+        text: `Boundary gate applied proposal ${selected.id} for ${completed.receipt.target}.`,
+        from: 'gate-apply', scope: execution.scope, at: completed.receipt.applied_at,
+      }) })
+    ctx.effect(() => () => capture.dispose(), 'aukora-kira: gate completion capture')
+  }
   const recallContext = agent => ({ sessionId: sessionIdOfAgent(agent), attachedProjects: [projectScopeOf(agent)].filter(Boolean) })
   // Every Room post joins tracked memory on the same tick, whichever program posted it; a failed pass never blocks the index.
   const roomLog = defaultRoomLog()
@@ -273,7 +488,7 @@ export async function apply(ctx, config) {
   initialRetry?.unref?.()
   const retryTimer = normalized.memoryOwner ? setInterval(semanticIndex, 30_000) : null
   retryTimer?.unref?.()
-  ctx.effect(() => () => { if (initialRetry) clearImmediate(initialRetry); if (retryTimer) clearInterval(retryTimer) }, 'aukora-kira: memory index retry')
+  ctx.effect(() => () => { associationHostLive = false; if (initialRetry) clearImmediate(initialRetry); if (retryTimer) clearInterval(retryTimer) }, 'aukora-kira: memory index retry')
   const withSemanticForget = deps => ({ ...deps, forgetNote: async args => {
     const answer = await deps.forgetNote(args)
     if (!answer.forgotten) return answer
@@ -325,6 +540,21 @@ export async function apply(ctx, config) {
         ctx.provide('kira.recall', Object.freeze({
           describe: () => ({ ...policy, grantsAuthority: false }),
           read: async () => ({ status: 'match', records: memoryFor().read().notes }),
+          // D's guarded host provider asks for one selected association. Only
+          // current governed metadata leaves Kira; no note body is returned.
+          referenceForRecord: async (id, session) => {
+            if (!associationHostLive || typeof id !== 'string' || !/^rem:[0-9a-f]{64}$/u.test(id)) return null
+            try {
+              const currentPolicy = readOwnerPolicy(await owner.describe())
+              if (!associationHostLive) return null
+              const hostSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
+              const live = readTrackedMemory(memoryOwner.stateDir)
+              const note = governRecords(live.notes, { ...currentPolicy,
+                ...(hostSession ? recallContext({ session: hostSession }) : {}), nowMs: Date.now(),
+                forgotten: live.forgotten, states: live.states }, { dropped: 0, reasons: {} }).find(note => note.id === id)
+              return associationHostLive ? referenceForAssociatedNote(note) : null
+            } catch { return null }
+          },
           recall: async (question, session) => {
             // The face may pass a live host Session, never client-authored scopes or owner claims. Identity with
             // the current session store also refuses stale objects after a remount and lookalike metadata.
@@ -341,8 +571,12 @@ export async function apply(ctx, config) {
                 ...(currentSession ? recallContext({ session: currentSession }) : {}),
                 nowMs: Date.now(), forgotten: live.forgotten, states: live.states }, { dropped: 0, reasons: {} })
             }
+            const getProvider = () => ctx.reflect?.get?.(AURA_RECALL_PROVIDER, false)
+            const citationProvider = getProvider()
             const auraCitations = await recallAuraCitations(result.notes, {
-              getProvider: () => ctx.reflect?.get?.(AURA_RECALL_PROVIDER, false),
+              // One recall uses one provider instance even if the host remounts
+              // it between selected notes. The final reread checks it again.
+              getProvider: () => getProvider() === citationProvider ? citationProvider : undefined,
               currentRecord: async id => (await currentRecords()).find(note => note.id === id),
             })
             let current
@@ -351,11 +585,23 @@ export async function apply(ctx, config) {
               reason: 'aura-recall:memory-unavailable', notes: [], records: [], auraCitations: [] } }
             const notes = result.notes.filter(note => sameRecallRecord(note, current.get(note.id)))
               .map(note => ({ ...note, ...recallAnnotations(current.get(note.id)) }))
+            // The last owner/store reread also crosses an await. A citation
+            // retained from the earlier read must still match this association.
+            const currentProvider = getProvider()
+            const currentCitations = auraCitations.filter(one => notes.some(note => note.id === one.recordId)).map(one => {
+              if (one.status !== 'verified') return one
+              const reference = referenceForAssociatedNote(current.get(one.recordId))
+              const reason = currentProvider !== citationProvider ? 'aura-recall:provider-changed'
+                : !reference || sourceIdentity(reference.source) !== sourceIdentity(one.citation?.source)
+                  || (reference.record_id !== undefined && reference.record_id !== one.citation?.record_id)
+                  ? 'aura-recall:reference-changed' : null
+              return reason ? Object.freeze({ ...one, status: 'undetermined', reason, citation: null, verification: null }) : one
+            })
             const changed = notes.length !== result.notes.length
             return { ...result, ...(changed && notes.length === 0
                 ? { state: 'undetermined', status: 'undetermined', reason: 'aura-recall:recall-changed' }
                 : { status: result.state === 'found' ? 'match' : result.state }),
-              notes, records: notes, auraCitations: auraCitations.filter(one => notes.some(note => note.id === one.recordId)) }
+              notes, records: notes, auraCitations: currentCitations }
           },
           citeRemembered: async (recordId, session) => {
             const unverified = reason => ({ verdict: 'UNVERIFIED', namespace: 'kira.remembered', reason })
