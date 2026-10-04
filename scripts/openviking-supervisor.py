@@ -212,6 +212,20 @@ class LinuxMemory:
         return False
 
 
+def load_mode_args(help_text):
+    """The memory-mapped load flag this llama-server accepts.
+
+    llama.cpp replaced `--mmap` with `--load-mode MODE` (measured: b11381 refuses `--mmap` with
+    "invalid argument", so the embedder exited on every start). Both keep the model memory-mapped;
+    an unrecognised help text refuses rather than guessing.
+    """
+    if "--load-mode" in help_text:
+        return ["--load-mode", "mmap"]
+    if "--mmap" in help_text:
+        return ["--mmap"]
+    raise SetupError("llama-server offers neither --load-mode nor --mmap; cannot keep the model memory-mapped")
+
+
 def memory_monitor():
     if sys.platform == "darwin":
         return MacMemory()
@@ -245,6 +259,8 @@ class Supervisor:
         self.limit = positive_integer(os.environ.get("AUKORA_OPENVIKING_EMBED_RSS_MIB", "1536"),
                                       "AUKORA_OPENVIKING_EMBED_RSS_MIB") * 1024
         self.llama = command("llama-server")
+        probe = capture([self.llama, "--help"])
+        self.load_mode = load_mode_args((probe.stdout or "") + (probe.stderr or ""))
         self.memory = memory_monitor()
         if sys.platform == "darwin":
             command("lsof")
@@ -344,7 +360,7 @@ class Supervisor:
         # slot's prefix KV stays context-bounded. Keep mmap and f16 KV quality.
         args = [self.llama, "-m", self.model, "--embedding", "--pooling", "last",
                 "--host", "127.0.0.1", "--port", str(self.port), "-c", str(self.context),
-                "-b", batch, "-ub", batch, "--parallel", "1", "--cache-ram", "0", "--mmap",
+                "-b", batch, "-ub", batch, "--parallel", "1", "--cache-ram", "0", *self.load_mode,
                 "--cache-type-k", "f16", "--cache-type-v", "f16", "--alias", "qwen3-embedding-0.6b"]
         if sys.platform == "linux":
             # The existing CPU release supplies llama-server; never download/build
