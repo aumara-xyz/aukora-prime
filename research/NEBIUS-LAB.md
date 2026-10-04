@@ -1,6 +1,6 @@
 # Nebius Lab: research record
 
-> **Update 2026-10-04.** The H200 work described below as HELD has since run (Oct 3–4) under per-run preregistrations. Results are summarised in the next section; the original offline snapshot follows unchanged below it. Full code, preregistrations and receipts: `aumara-xyz/aukora-genesis` branch `labs/sokoban-recursion-r1` (sealed test sets, weights and raw transcripts withheld).
+> **Update 2026-10-04 (rev 2).** The H200 work described below as HELD has since run (Oct 3–4) under per-run preregistrations. Results are summarised in the next section; the original offline snapshot follows unchanged below it. Full code, preregistrations and receipts: `aumara-xyz/aukora-genesis` branch `labs/sokoban-recursion-r1` (sealed test sets, weights and raw transcripts withheld).
 
 ## GPU-run results (Oct 3–4, 2026)
 
@@ -19,7 +19,8 @@ Domain: 8x8 two-box Sokoban with an exact simulator/BFS verifier; model Ornith-1
 | 1.9M-param policy/value CNN trained on solver labels: 98.3% best-move accuracy; with search 200/200 fresh puzzles | supervised, not self-improvement | RAN (CPU/MPS) — lab/p1_REPORT.md |
 | Sob-Zero self-play on DeepMind Boxoban (10x10, 4 boxes), no solver labels: sealed 800-level solve rate 68.9% → 86.0% (champion), best 88.9%, p≈6e-34 | demonstrated multi-generation self-improvement (one seed; started from the supervised net) | RAN — prereg/SOBZERO-RESULT.json |
 | v9: interactive training of Ornith, turn-by-turn System-1 guidance | in progress | SOURCE-ONLY until its receipt lands |
-| Dream-RSI-style replay ("dreaming") | planned | SOURCE-ONLY |
+| Dream-RSI-style replay ("dreaming"): search configs tuned offline on recorded Sob-Zero search trees, confirmed live on held-out gate levels (transfer ratio 0.89), then one preregistered sealed run: 688 → 718 of 800 (86.0% → 89.75%), 36 up / 6 down, p=1.4e-6, 3.4x fewer expansions per solve | demonstrated improvement (planner, not network; one seed) | RAN — prereg/DREAM-RESULT.json |
+| v7 interactive baseline on new sealed set holdout_v9: 136/288; turn-by-turn System-1 guidance during collection: 741/1280 wins vs 206/640 unguided (different pools — exploratory) | qualified GPU run / exploratory | RAN — v9 receipts (in progress) |
 | Compounding multi-generation gains in the LLM itself; transfer to a second game | not shown | CLAIMED-NOT-YET |
 
 Costs (approximate, public $5.40/GPU-h): Oct 3 ≈ $51 GPU + $11.48 API (API use stopped); Oct 4 in progress. Provider STOPPED was confirmed at the end of Oct 3.
