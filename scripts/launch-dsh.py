@@ -525,7 +525,32 @@ else:
                          f'no owner approval of that set is installed in {gate_state}. Every AUKORA plugin would '
                          'be refused at import, so nothing is started. The owner approves the set in ONE Aumlok '
                          f'popup: node scripts/aukora/plugin-set.mjs approve --release {release} '
-                         f'--support "{base.parent}"')
+                         f'--support "{base.parent}", or in the boundary gate popup (packages/boundary-gate/bin/'
+                         'plugin-set-approval.mjs raise, then install after the owner approves)')
+        # THE GATE AS ACCEPTED SIGNER: when the root-installed pin names the boundary gate's key, the approval is the
+        # gate's signed receipt over canonical bytes that name ONE release. The composition gate verifies the signature
+        # and the set/operation digests at import; HERE the named release must be the one being launched: its tip
+        # (aukora-release.json tipSha) and its approved record digest (genesis-artifacts.json, the --approved-record-sha).
+        if plugin_set_mode == 'enforce':
+            try:
+                _pin = json.loads(plugin_set_pin.read_text())
+            except (OSError, ValueError):
+                _pin = None
+            if isinstance(_pin, dict) and _pin.get('kind') == 'aukora-boundary-gate-owner/v1':
+                try:
+                    _content = json.loads(plugin_set_approval.read_text())['content']
+                    _named = json.loads(_content)
+                    _tip = json.loads((release / '.dsh-build' / 'aukora-release.json').read_text())['tipSha']
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    parser.error(f'plugin-set-gate-approval-unreadable: {error}')
+                if _named.get('release') != _tip or _named.get('release_dir') != 'release-' + str(_tip)[:7]:
+                    parser.error(f'plugin-set-gate-approval-for-other-release: the gate approval names {_named.get("release")} '
+                                 f'and this release is {_tip}')
+                if _named.get('record') != record_sha or record_sha not in (a.approved_record_sha or []):
+                    parser.error(f'plugin-set-gate-approval-for-other-record: the gate approval names record {_named.get("record")}; '
+                                 f'this release record is {record_sha} and it must also be passed as --approved-record-sha')
+                print(f'launcher: AUKORA plugin set approved by the boundary gate (owner review) for release {_tip[:12]} '
+                      f'record {record_sha[:12]}; signature and set digest are verified by the composition gate at import')
         plugin_set_fields = {
             'pluginSetPath': str(plugin_set_file),
             'pluginSetRoot': str(release),

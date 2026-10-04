@@ -20,7 +20,7 @@ import { verifyReceipt } from '../src/receipts.mjs'
 process.umask(0o027)
 const [cmd, ...rest] = process.argv.slice(2)
 const { values: o } = parseArgs({ args: rest, options: { home: { type: 'string' }, run: { type: 'string' }, port: { type: 'string' }, gid: { type: 'string' },
-  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' } }, strict: true })
+  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, 'releases-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' } }, strict: true })
 const abs = (label, p) => { if (!p || !path.isAbsolute(p)) { console.error(`--${label} must be an absolute path`); process.exit(2) } return p }
 
 if (cmd === 'verify') {
@@ -37,7 +37,7 @@ if (cmd === 'verify') {
   const home = abs('home', o.home), runDir = abs('run', o.run)
   const owner = loadOwnerSecret(home)
   const bearerInfo = rotateBearer(home, owner)
-  const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root'])), store: gateStore({ gid: Number(o.gid) || 0 }) })
+  const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }) })
   const v = gate.startup({ bearerInfo })
   if (!v.ok) console.error('LEDGER VERIFY FAILED', v.errors)
   const srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC', ownerPage: o['owner-page'] === true })

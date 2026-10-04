@@ -21,6 +21,7 @@
     "check:openshell-confinement": "node --test tests/aukora-openshell-confinement.test.mjs",
     "check:gate-ledger-anchor": "node --test tests/gate-ledger-anchor.test.mjs",
     "check:gate-selfcheck": "node --test packages/boundary-gate/checks/selfcheck-bin.mjs",
+    "check:gate-plugin-set-signer": "node --test tests/aukora-plugin-set-gate-signer.test.mjs",
     "check:kira-ask-recall": "node --test tests/aukora-kira-ask-recall.test.mjs"
   }
 }

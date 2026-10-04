@@ -182,6 +182,9 @@ const RECEIPT_FIELDS = ['domain', 'verdict', 'approvalKeyDid', 'subject', 'activ
  * @returns {{setDigest: string, operationDigest: string, approverDid: string, approvalClass: string, issuedAt: number, count: number}}
  */
 export function verifySetApproval({ record, receipt, pin }) {
+  // THE GATE AS ACCEPTED SIGNER: a pin of kind GATE_PIN_KIND (root-installed, names the boundary gate's Ed25519 key)
+  // admits a gate receipt instead of an Aumlok receipt. Which signer is accepted is the PIN's choice, never the receipt's.
+  if (pin !== null && typeof pin === 'object' && pin.kind === GATE_PIN_KIND) return verifyGateSetApproval({ record, approval: receipt, pin })
   const content = setOperationContent(record)
   const operationDigest = operationDigestOf(content)
   const { setDigest, count } = checkPluginSetRecord(record)
@@ -254,4 +257,69 @@ export function mountedPluginRows(patchText) {
     if (nameMatch && id !== null) { rows.push({ id, entry: nameMatch[1].slice(2) }); id = null }
   }
   return rows
+}
+
+
+// ── THE GATE AS ACCEPTED SIGNER (2026-10-04) ─────────────────────────────────────────────────────────────────
+// The owner approves the plugin set in the ONE owner ceremony (gate review -> decide_review, the Mac popup). The gate
+// then applies the canonical approval bytes to its operator-only target and signs a v2 receipt with its Ed25519 key:
+//   receipt = {v:2, kind:'change', proposal, target, base_sha, new_sha, applied_at, approver, approval_evidence_hmac, pubkey_fp}
+//   receipt_sig = Ed25519(JSON.stringify(receipt)) under the gate key.
+// Accepted here only when ALL hold: the pin (root-installed) names the gate key and the target and the owner-channel
+// approver; the key's fingerprint is the receipt's; the signature verifies; sha256(content) is receipt.new_sha; the
+// content is canonical and names THIS set's recomputed setDigest and operation digest. The HMAC evidence needs the
+// gate's owner secret and is NOT checked here (it is the gate's own record); the signature binds the approver string.
+export const GATE_PIN_KIND = 'aukora-boundary-gate-owner/v1'
+export const GATE_APPROVAL_KIND = 'aukora-plugin-set-gate-approval/v1'
+export const GATE_PLUGIN_SET_TARGET = 'plugins/aukora-plugin-set/approval.json'
+const GATE_CONTENT = /^\{"v":1,"kind":"aukora-plugin-set-approval\/v1","release":"([0-9a-f]{40})","release_dir":"(release-[0-9a-f]{7})","plugin_set":"([0-9a-f]{64})","operation":"([0-9a-f]{64})","record":"([0-9a-f]{64})"\}$/u
+const GATE_RECEIPT_KEYS = ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha', 'applied_at', 'approver', 'approval_evidence_hmac', 'pubkey_fp']
+
+/** The approval's named release fields, or null when the content is not the canonical bytes. */
+export function parseGateApprovalContent(content) {
+  const m = GATE_CONTENT.exec(typeof content === 'string' ? content : '')
+  return m ? { release: m[1], release_dir: m[2], plugin_set: m[3], operation: m[4], record: m[5] } : null
+}
+
+export function verifyGateSetApproval({ record, approval, pin }) {
+  const content = setOperationContent(record)
+  const operationDigest = operationDigestOf(content)
+  const { setDigest, count } = checkPluginSetRecord(record)
+  if (typeof pin.gatePubkeyPem !== 'string' || !/^[0-9a-f]{16}$/u.test(String(pin.gatePubkeyFp))
+    || pin.target !== GATE_PLUGIN_SET_TARGET || typeof pin.approver !== 'string' || !pin.approver.startsWith('owner via owner.sock')) {
+    throw refuse(SET_REFUSE.PIN_ABSENT, 'the gate pin does not name a gate key, the plugin-set target and the owner-channel approver')
+  }
+  if (approval === null || approval === undefined) {
+    throw refuse(SET_REFUSE.APPROVAL_ABSENT, `no gate approval is installed for set ${setDigest.slice(0, 16)}…`)
+  }
+  const receipt = approval?.receipt
+  if (typeof approval !== 'object' || approval.kind !== GATE_APPROVAL_KIND || typeof approval.content !== 'string'
+    || typeof approval.receipt_sig !== 'string' || receipt === null || typeof receipt !== 'object'
+    || Object.keys(receipt).join(',') !== GATE_RECEIPT_KEYS.join(',') || receipt.v !== 2 || receipt.kind !== 'change') {
+    throw refuse(SET_REFUSE.APPROVAL_MALFORMED, `the approval is not a complete ${GATE_APPROVAL_KIND} record with a v2 gate receipt`)
+  }
+  let key
+  try { key = createPublicKey(pin.gatePubkeyPem) } catch { throw refuse(SET_REFUSE.PIN_ABSENT, 'the pinned gate key is not a public key') }
+  const fp = digestOf(key.export({ type: 'spki', format: 'der' })).slice(0, 16)
+  if (key.asymmetricKeyType !== 'ed25519' || fp !== pin.gatePubkeyFp) {
+    throw refuse(SET_REFUSE.PIN_ABSENT, `the pinned gate key is not the Ed25519 key with fingerprint ${String(pin.gatePubkeyFp)}`)
+  }
+  if (receipt.pubkey_fp !== fp) throw refuse(SET_REFUSE.NOT_PINNED_KEY, `the receipt names gate key ${String(receipt.pubkey_fp)} and the pinned gate key is ${fp}`)
+  if (receipt.target !== pin.target || receipt.approver !== pin.approver) {
+    throw refuse(SET_REFUSE.OTHER_IDENTITY, 'the receipt is for another target or another approver than the pinned owner channel')
+  }
+  let ok = false
+  try { ok = cryptoVerify(null, Buffer.from(JSON.stringify(receipt), 'utf8'), key, Buffer.from(approval.receipt_sig, 'base64')) } catch { ok = false }
+  if (!ok) throw refuse(SET_REFUSE.SIGNATURE_INVALID, `the gate receipt's signature does not verify under gate key ${fp}`)
+  if (digestOf(Buffer.from(approval.content, 'utf8')) !== receipt.new_sha) {
+    throw refuse(SET_REFUSE.APPROVAL_MALFORMED, 'the approval content is not the bytes the gate receipt signed (new_sha)')
+  }
+  const named = parseGateApprovalContent(approval.content)
+  if (named === null) throw refuse(SET_REFUSE.APPROVAL_MALFORMED, 'the approved content is not the canonical plugin-set approval')
+  if (named.plugin_set !== setDigest || named.operation !== operationDigest) {
+    throw refuse(SET_REFUSE.OTHER_SET, `the gate approval names set ${named.plugin_set.slice(0, 16)}… / operation ${named.operation.slice(0, 16)}… and `
+      + `this record derives set ${setDigest.slice(0, 16)}… / operation ${operationDigest.slice(0, 16)}…`)
+  }
+  return { setDigest, operationDigest, approverDid: `gate:${fp}`, approvalClass: 'gate-owner-review', keyClass: 'gate-ed25519',
+    issuedAt: Date.parse(receipt.applied_at), count, release: named.release, record: named.record }
 }

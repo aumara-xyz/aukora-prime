@@ -473,6 +473,10 @@ app.whenReady().then(async () => {
           const shown = await aumlok.askGate(question,
             (id, approve, stillVisible) => gateOwner.decide(id, approve, stillVisible))
           if (shown?.unavailable === true) gateSeen.delete(question.pending.id) // Not admitted, no decision sent.
+          // AN ABSENT OWNER (2026-10-04): a card left open past its 2-minute review challenge answers 'expired' WITHOUT
+          // sending a decision. The question is still pending at the gate, so it is asked again on the next poll with a
+          // FRESH gate challenge and needs a fresh click. Nothing is approved or retried on the owner's behalf.
+          else if (shown?.result?.state === 'expired' && shown?.result?.applied === false) gateSeen.delete(question.pending.id)
         } catch { console.warn('aukora-desktop: gate:owner-unavailable (no decision retried)') }
         finally {
           if (question) gateOwner.forget(question.uiQuestionId)

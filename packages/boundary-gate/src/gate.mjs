@@ -57,7 +57,10 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   }
   function rateCheck(target, newSha) {
     sweepExpired()
-    const pend = db.prepare("SELECT COUNT(*) n FROM proposals WHERE state IN ('pending','applying')").get().n
+    // ONE PENDING PER CLASS: agent targets share one slot; the operator-only plugin-set approval has its own, so a
+    // 24 h owner-release wait never blocks the agent's theme and an agent proposal never blocks the owner's release.
+    const cls = TARGETS[target]?.pendingClass ?? 'agent'
+    const pend = db.prepare("SELECT target FROM proposals WHERE state IN ('pending','applying')").all().filter(r => (TARGETS[r.target]?.pendingClass ?? 'agent') === cls).length
     if (pend >= L.maxPendingGlobal) throw new Error(`refused (rate limit): ${pend} proposal already pending (max ${L.maxPendingGlobal} in total). Resolve it before proposing again.`)
     const winT = db.prepare('SELECT COUNT(*) n FROM proposals WHERE target=? AND created>?').get(target, now() - L.windowMs).n
     const winG = db.prepare('SELECT COUNT(*) n FROM proposals WHERE created>?').get(now() - L.windowMs).n
@@ -101,7 +104,10 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     rateCheck(target, newSha)
     const diff = lineDiff(cur ? cur.toString('utf8') : '', content, target)
     const displayable = diff.length + content.length <= L.popupLimit ? 1 : 0
-    const id = randomUUID(), created = now(), expires = created + L.ttlMs
+    // Pending lifetime: the global TTL, or a target's own (only the operator-only plugin-set approval sets one). This is
+    // how long the QUESTION waits for the owner; the decision window (review challenge, REVIEW_TTL_MS) is not lengthened.
+    const ttl = Number.isInteger(s.ttlMs) && s.ttlMs > 0 && s.operatorOnly === true ? s.ttlMs : L.ttlMs
+    const id = randomUUID(), created = now(), expires = created + ttl
     const w = cleanNote(why), meta = noteMeta(why)
     return tx(() => {
       if (cur) putBlob(target, cur); putBlob(target, bytes)
@@ -282,14 +288,31 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     return { plain: s?.plain ? s.plain(oldText, newText) : '', after_apply: s?.after ? s.after(newText) : '', warnings: cardWarnings(s, oldText, newText, p.why, meta),
       note_display: noteDisplay(p.why, meta), note_meta: meta, swatch: swatchText(s, oldText, newText), base_accent: s?.accentOf?.(oldText) ?? null, new_accent: s?.accentOf?.(newText) ?? null }
   }
+  // OPERATOR-ONLY TARGETS (the plugin-set approval) are never raised from the PROPOSE channel: an agent cannot put a
+  // release admission in front of the owner. They are raised on the OWNER socket (root/gate user only) by `raise`.
+  function refuseOperatorOnly(target, op) {
+    if (typeof target === 'string' && Object.hasOwn(TARGETS, target) && TARGETS[target].operatorOnly === true) {
+      append('reject', { target, detail: { reason: 'operator-only target', via: `propose-channel ${op}` } })
+      throw new Error(`refused: ${target} is operator-only; it is raised on the owner channel, never proposed by an agent`)
+    }
+  }
+  // RAISE (owner channel): create the pending question for an operator-only target. It approves NOTHING: the same
+  // review -> decide_review ceremony is the only way it can apply. The base is the current bytes (rechecked at decide).
+  function raise(args) {
+    if (!exactKeys(args, ['target', 'content', 'why'])) throw new Error('raise takes exactly {target, content, why}')
+    const s = spec(args.target)
+    if (s.operatorOnly !== true) throw new Error('raise is only for operator-only targets; agent targets are proposed on the propose channel')
+    const cur = readCur(args.target)
+    return createProposal({ target: args.target, content: args.content, why: args.why, claimed_base: cur ? sha256(cur) : 'absent', session: 'owner-raise' }, 'change')
+  }
   const pendingRows = () => { sweepExpired(); return db.prepare("SELECT id,kind,target,base_sha,new_sha,why,session,created,expires FROM proposals WHERE state='pending' ORDER BY created DESC").all() }
 
   const proposeOps = {
     ping: () => ({ ok: true, pubkey_fp: key.fp, pubkey_pem: key.pubPem }),
     targets: () => Object.entries(TARGETS).map(([t, s]) => ({ target: t, schema: s.schema, entry: s.entry, maxBytes: s.maxBytes })),
     read: ({ target }) => { const s = spec(target); const b = readCur(target); return { target, sha256: b ? sha256(b) : 'absent', bytes: b ? b.length : 0, content: b ? b.toString('utf8') : null, schema: s.schema } },
-    propose: (a) => createProposal({ ...a }, 'change'),
-    revert,
+    propose: (a) => { refuseOperatorOnly(a?.target, 'propose'); return createProposal({ ...a }, 'change') },
+    revert: (a) => { refuseOperatorOnly(a?.target, 'revert'); return revert(a) },
     history: ({ target }) => history(target),
     close,
     state: ({ id }) => {
@@ -320,11 +343,12 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     pending: () => ({ pubkey_fp: key.fp, pending: pendingRows().map(p => ({ ...p, ...cardView(p) })) }),
     rotate_bearer: () => { const r = rotateBearer(home, owner, now); append('owner-bearer-rotated', { detail: { fp8: r.fp, expires: r.expires, via: 'owner.sock' } }); return { rotated: true, expires: r.expires } },
     reject: ({ id }, approver) => ownerDecide({ id, outcome: 'rejected' }, approver),
+    raise: (a) => raise(a),
     review: (a) => review(a),
     decide_review: (a, approver) => decideReview(a, approver),
     status: proposeOps.status, log: proposeOps.log, verify: proposeOps.verify,
   }
-  if (['approve', 'decide', 'review', 'decide_review'].some(op => Object.hasOwn(proposeOps, op))) throw new Error('invariant: the propose channel must not expose approval')
+  if (['approve', 'decide', 'review', 'decide_review', 'raise'].some(op => Object.hasOwn(proposeOps, op))) throw new Error('invariant: the propose channel must not expose approval')
   // ONE approval ceremony: review (fresh single-use challenge over exact base/new) -> decide_review. No direct approve.
   if (['approve', 'decide'].some(op => Object.hasOwn(ownerOps, op))) throw new Error('invariant: the owner channel approves only through review -> decide_review')
 

@@ -3,5 +3,5 @@
 import { allowlist } from './targets.mjs'
 import { fsStore } from './fs-store.mjs'
 
-export function gateTargets(targetRoot) { return allowlist(targetRoot) }
+export function gateTargets(targetRoot, opts = {}) { return allowlist(targetRoot, opts) }
 export function gateStore({ gid = 0 } = {}) { return fsStore({ gid }) }

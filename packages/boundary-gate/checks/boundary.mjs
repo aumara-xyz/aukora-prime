@@ -35,9 +35,12 @@ function realGate({ initial = theme('#FFD700') } = {}) {
 const base = (g) => g.proposeOps.read({ target: THEME_TARGET }).sha256
 const propose = (g, hex, why = 'Accent update.') => g.proposeOps.propose({ target: THEME_TARGET, content: theme(hex), why, claimed_base: base(g) })
 
-test('allowlist: exactly one declarative target; names under plugins/ only; code targets refused', () => {
+test('allowlist: exactly two declarative targets (theme; operator-only plugin-set approval); names under plugins/ only; code targets refused', () => {
   const reg = allowlist('/srv/aukora-boundary/targets')
-  assert.deepEqual(Object.keys(reg), [THEME_TARGET]); assert.ok(Object.isFrozen(reg))
+  assert.deepEqual(Object.keys(reg), [THEME_TARGET, 'plugins/aukora-plugin-set/approval.json']); assert.ok(Object.isFrozen(reg))
+  assert.equal(reg['plugins/aukora-plugin-set/approval.json'].operatorOnly, true, 'the release admission target is operator-only')
+  assert.equal(reg[THEME_TARGET].operatorOnly, undefined, 'the agent theme target is not operator-only and keeps the global TTL')
+  assert.equal(reg[THEME_TARGET].ttlMs, undefined)
   assert.equal(reg[THEME_TARGET].file, '/srv/aukora-boundary/targets/plugins/auma-theme/theme.json')
   for (const bad of ['../x', '/etc/passwd', 'plugins/../x/y', 'plugins//y', 'plugins/./a/b', 'plugins/a', 'other/a/b', 'plugins/a\\b/c', 'plugins/a/b\n', ''])
     assert.throws(() => assertTargetName(bad), /target name refused/, JSON.stringify(bad))
