@@ -4,7 +4,7 @@ import { resolve, isAbsolute, dirname } from 'node:path';
 import { mkdirSync, statSync } from 'node:fs';
 import { loadAuthenticator } from './auth.mjs';
 import { createStore } from './store.mjs';
-import { LIMITS, RelayError, requireCondition, validateMessage, validateStatus, parsePage, scopesFor } from './contract.mjs';
+import { LIMITS, RelayError, requireCondition, validateMessage, validateStatus, parsePage, scopesFor, requestsPerMinuteFor, bodyBytesFor, requireScope } from './contract.mjs';
 
 async function readJson(req) {
   requireCondition(req.headers['content-type']?.split(';')[0].trim().toLowerCase() === 'application/json', 415, 'json_required');
@@ -32,21 +32,23 @@ export function createRelay({ authenticate, store }) {
       const now = Date.now(); const priorRate = rates.get(author);
       const rate = !priorRate || now - priorRate.started >= 60000 ? { started: now, count: 0 } : priorRate;
       rate.count += 1; rates.set(author, rate);
-      requireCondition(rate.count <= LIMITS.requestsPerMinute, 429, 'rate_limited');
+      requireCondition(rate.count <= requestsPerMinuteFor(author), 429, 'rate_limited');
       requireCondition(req.url.length <= 2048, 414, 'url_too_long');
       const url = new URL(req.url, 'http://localhost');
-      if (req.method === 'GET' && url.pathname === '/v1/messages') return json(res, 200, store.read(parsePage(url.searchParams)));
+      if (req.method === 'GET' && url.pathname === '/v1/messages') { requireScope(author, 'messages:read'); return json(res, 200, store.read(parsePage(url.searchParams))); }
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
         requireCondition(url.search === '', 400, 'invalid_query');
         const input = validateMessage(await readJson(req));
         requireCondition(input.kind !== 'decision' || author === 'peter', 403, 'peter_only_decision');
+        requireScope(author, `messages:post:${input.kind}`);
+        requireCondition(Buffer.byteLength(input.body, 'utf8') <= bodyBytesFor(author), 413, 'body_too_large_for_author');
         const result = store.post(author, input); return json(res, result.replayed ? 200 : 201, result);
       }
       if (req.method === 'GET' && url.pathname === '/v1/status') {
-        requireCondition(url.search === '', 400, 'invalid_query'); return json(res, 200, store.status());
+        requireCondition(url.search === '', 400, 'invalid_query'); requireScope(author, 'status:read'); return json(res, 200, store.status());
       }
       if (req.method === 'PUT' && url.pathname === '/v1/status') {
-        requireCondition(url.search === '', 400, 'invalid_query');
+        requireCondition(url.search === '', 400, 'invalid_query'); requireScope(author, 'status:write:self');
         const input = validateStatus(await readJson(req)); return json(res, 200, store.setStatus(author, input.doing));
       }
       if (req.method === 'GET' && url.pathname === '/v1/whoami' && url.search === '') return json(res, 200, { author, scopes: scopesFor(author) });

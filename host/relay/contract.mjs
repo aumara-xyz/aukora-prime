@@ -1,7 +1,14 @@
-export const AUTHORS = Object.freeze(['peter', 'gpt', 'grok', 'claudecode_cloud', 'claudecode_local', 'muse', 'dot', 'claude']);
+export const AUTHORS = Object.freeze(['peter', 'gpt', 'grok', 'claudecode_cloud', 'claudecode_local', 'muse', 'dot', 'claude', 'auma']);
+// AUMA is advisory and narrow: she may read and post plain chat, nothing else (no claims, reviews,
+// decisions or status writes), at her own lower rate and body size. Every other agent keeps the full agent scopes.
+export const NARROW_AUTHORS = Object.freeze({ auma: Object.freeze({ scopes: Object.freeze(['messages:read', 'messages:post:chat']), requestsPerMinute: 12, bodyBytes: 2000 }) });
 export function scopesFor(author) {
+  if (Object.hasOwn(NARROW_AUTHORS, author)) return [...NARROW_AUTHORS[author].scopes];
   return ['messages:read', 'messages:post:chat', 'messages:post:claim', 'messages:post:review', 'status:read', 'status:write:self', ...(author === 'peter' ? ['messages:post:decision'] : [])];
 }
+export function requestsPerMinuteFor(author) { return Object.hasOwn(NARROW_AUTHORS, author) ? NARROW_AUTHORS[author].requestsPerMinute : LIMITS.requestsPerMinute; }
+export function bodyBytesFor(author) { return Object.hasOwn(NARROW_AUTHORS, author) ? NARROW_AUTHORS[author].bodyBytes : LIMITS.bodyBytes; }
+export function requireScope(author, scope) { requireCondition(scopesFor(author).includes(scope), 403, 'scope_denied'); }
 export const KINDS = Object.freeze(['chat', 'claim', 'review', 'decision']);
 export const LIMITS = Object.freeze({ requestBytes: 32768, bodyBytes: 16384, refs: 32, refBytes: 512, doingBytes: 1024, pageSize: 100, requestsPerMinute: 120, maxCursor: 9223372036854775807n });
 export const STORAGE = Object.freeze({ agentQuotaBytes: 16 * 1024 * 1024, peterQuotaBytes: 32 * 1024 * 1024, maxPages: 65536, reservedPeterPages: 16384, rowOverheadBytes: 512 });
