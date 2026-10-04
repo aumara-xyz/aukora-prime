@@ -146,7 +146,10 @@ VENDORED = (ROOT / 'vendor/append-only', ROOT / 'vendor/receipt', ROOT / 'vendor
 #: (`ERR_MODULE_NOT_FOUND`). `scripts/aura/release-boot-smoke.mjs` imports `../aukora/desktop-cutover.mjs` the same way.
 #: Each is copied to the same release-relative path; their own imports are `plugins/aukora-kira/lib` and `scripts/lib`, both
 #: carried. `release_import_gaps` below is what keeps this list honest: a missing file refuses the release by name.
-RELEASE_IMPORT_FILES = ('apps/aukora-desktop/card-chain.mjs', 'scripts/aukora/desktop-cutover.mjs')
+#: `packages/contracts/src/json.mjs` (2026-10-04): the Aura collector (`scripts/aura/collect-gate.mjs`,
+#: `verify-collected.mjs`, carried by `scripts/aura/**`) imports it; it has no imports of its own.
+RELEASE_IMPORT_FILES = ('apps/aukora-desktop/card-chain.mjs', 'scripts/aukora/desktop-cutover.mjs',
+                        'packages/contracts/src/json.mjs')
 # `target/` is build output, never vendored bytes — the same exception the pin checker declares.
 BUILD_OUTPUT_DIRS = {'target'}
 # Runtime debris, never authored bytes. `__pycache__` appears the moment anyone imports a script

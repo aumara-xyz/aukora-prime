@@ -308,6 +308,11 @@ const protectedCases = [
     check: candidate => assert.throws(() => candidate.buildRecord(baseInput({ type: ['aura'] }))),
   },
 ]
+// The plugin-local canonical JSON is a byte copy of packages/contracts/src/json.mjs, so the plugin closes
+// inside a release (where it lives at <release>/aukora-nostr/) without forking the encoding.
+assert.deepEqual(await readFile(new URL('../lib/canonical-json.mjs', import.meta.url)),
+  await readFile(new URL('../../../packages/contracts/src/json.mjs', import.meta.url)),
+  'plugins/aukora-nostr/lib/canonical-json.mjs must stay byte-identical to packages/contracts/src/json.mjs')
 for (const { guard, replacement, name, check } of protectedCases) {
   check(module)
   const mutant = await mutatedModule(source, guard, replacement)

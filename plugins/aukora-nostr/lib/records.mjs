@@ -3,7 +3,7 @@
 import { eventId, publicKeyOf, signEvent, verifyEvent } from './event.mjs'
 import { calcPaddedLen, conversationKey, encrypt, decrypt, NIP44_VERSION } from './nip44.mjs'
 import { signerKeyOf, verifyBindingWithKey } from './identity.mjs'
-import { canonicalJson, parseStrictJson } from '../../../packages/contracts/src/json.mjs'
+import { canonicalJson, parseStrictJson } from './canonical-json.mjs'
 
 export const RECORD_VERSION = 1
 export const ZERO_ID = '0'.repeat(64)

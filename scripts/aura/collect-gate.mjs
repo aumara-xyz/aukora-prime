@@ -22,8 +22,9 @@ const incomplete = reason => Object.assign(new Error(reason), { code: reason })
 /** B's frozen API, with mandatory independent public pins; no alternate codec. */
 export async function createNostrCollectorCodec({ records, authorSecretKeyHex,
   binding, controllerKeyHex, ownerSubject, authorPubkeyHex, ownerPubkeyHex } = {}) {
-  try { records ??= await import('../../plugins/aukora-nostr/lib/records.mjs') }
-  catch { throw incomplete('aura-collector:record-library-unavailable') }
+  // The record library is passed in by the operator's trusted context (no default path): the repo
+  // carries it at plugins/aukora-nostr/lib, a release at aukora-nostr/lib.
+  if (records === null || typeof records !== 'object') throw incomplete('aura-collector:record-library-unavailable')
   for (const name of ['buildRecord', 'signRecord', 'verifyRecord', 'encryptPrivateContent', 'decryptRecord'])
     if (typeof records[name] !== 'function') throw incomplete('aura-collector:record-library-unavailable')
   if (typeof authorSecretKeyHex !== 'string' || !/^[0-9a-f]{64}$/u.test(authorSecretKeyHex))
