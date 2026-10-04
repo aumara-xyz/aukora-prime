@@ -12,6 +12,7 @@
     "boot": "./prime boot",
     "status": "./prime status",
     "check:boundary-gate": "node --test packages/boundary-gate/checks/*.mjs",
-    "check:read-fence": "node tests/aukora-linux-read-fence.test.mjs"
+    "check:read-fence": "node tests/aukora-linux-read-fence.test.mjs",
+    "check:l3-memory": "node tests/aukora-l3-memory-linux.test.mjs"
   }
 }

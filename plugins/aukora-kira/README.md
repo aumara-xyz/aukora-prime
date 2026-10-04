@@ -316,3 +316,50 @@ path is `lib/memory-owner.mjs`; the adapter instead builds canonical records, ob
 bodies, key projections and a real `aura.jsonl` hash chain on temporary state,
 and `verifyStore` re-derives every citation digest from those bytes. The plugin
 never imports it.
+# Linux deployment source (L3)
+
+The Linux adapter retains Genesis Kira's tracked remembered chain, index ACKs
+and retry outbox. Ordinary capture uses no per-memory approval. OpenViking is a
+retrieval index; recalled notes are still verified against the durable Kira
+chain. PostgreSQL is outside this runtime path.
+
+`lib/memory-identity.mjs` reads the existing block-style
+`kira-deployment-overlay.patch.yml` under the explicit `AUKORA_STATE` or support
+root, scoped to `aukora-kira.config.memoryOwner`. Linux requires an existing
+canonical `aukora:1:<64 lowercase hex>` subject and an absolute durable
+`stateDir`. Missing fields and conflicting explicit/installed values refuse
+by name. No owner identity, credential or private memory import is created.
+Complete explicit Mac compositions retain isolation from the implicit installed
+overlay; an explicit `AUKORA_STATE` still receives mismatch checks.
+
+Run the pair with `sh scripts/openviking-setup.sh serve EXISTING_OV_HOME`.
+Linux requires an explicit home, existing private service-owned `root.key`,
+Python 3.11, glibc >=2.31 and an existing compatible `llama-server`. Installation
+keeps OpenViking 0.4.21 and the unchanged hash-locked Genesis closure, with binary
+artifacts only. The exact Qwen3-Embedding-0.6B-Q8_0 model is checked by SHA-256.
+Genesis leaves `llama-server` and the Python interpreter unpinned; this adapter
+does not invent their provenance or install replacements. Disk and available
+RAM are checked before downloads. The supervisor uses CPU only, two threads by
+default (maximum four), context <=2048, loopback ports 1933/1934, owned process
+groups and sampled RSS+swap protection. The outer launcher owns a hard memory
+cap and complete service cleanup; sampled protection can overshoot.
+
+The separate HTTP door is
+`node scripts/kira/viking-door.mjs --installed --support-root STATE_ROOT`, on
+127.0.0.1:8766. It authenticates a single Bearer header before reading the body
+or calling memory. The server reuses the existing OpenViking bridge key unless
+`AUKORA_VIKING_DOOR_KEY_FILE` names another existing private service-owned key.
+`scripts/kira/viking-cli.mjs` requires that key-file environment variable;
+tokens are never passed in argv. Reads refuse nonregular files, leaf symlinks,
+shared permissions and another UID's key. The door's token authenticates HTTP
+clients; direct stdio MCP and same-UID store access retain their OS boundary.
+The CLI trusts the fixed local endpoint, rather than proving its server identity.
+
+This is a source adapter, not an activation receipt. Scoped identity and HTTP
+authentication checks use synthetic inputs and mocked memory dependencies.
+Linux installation, model/server compatibility and actual UI tell -> backend
+restart -> semantic recall remain unperformed until the deployer records them.
+Acceptance must identify `openviking-semantic` and index ACKs separately from
+lexical fallback; the CLI labels these two recall methods explicitly and refuses
+missing or conflicting method receipts. No systemd activation, credential provisioning or backend
+restart is performed by this lane.

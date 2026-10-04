@@ -2,7 +2,7 @@ Superseded by plan/NORTH-STAR.md on 2026-10-04
 
 > Source: "AUKORA Prime Master Plan v4", prepared by Dot, status cutoff 2026-10-02 21:17 WITA (UTC+8); committed 2026-10-03 as Peter's reference plan.
 > Reproduced verbatim except for redactions marked [REDACTED: ...] (credential-endpoint paths); no other text was changed.
-> This is reference material. The current front page is [CONVERGENCE.md](CONVERGENCE.md); where they differ, CONVERGENCE.md wins.
+> This is reference material. The current front page is [NORTH-STAR.md](NORTH-STAR.md); where they differ, NORTH-STAR.md wins.
 
 # AUKORA Prime Master Plan v4
 

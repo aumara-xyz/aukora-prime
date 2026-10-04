@@ -3,6 +3,7 @@
 
 import ctypes
 import errno
+import hashlib
 import http.client
 import json
 import os
@@ -11,10 +12,12 @@ import re
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
 
 
 class SetupError(Exception):
@@ -44,10 +47,10 @@ def capture(args):
                           text=True, timeout=2, check=False)
 
 
-def stop_child(child, immediate=False):
+def stop_child(child, immediate=False, memory=None):
     if child is None or child.returncode is not None:
         return
-    memory = MacMemory()
+    memory = memory or memory_monitor()
 
     def send(sig):
         try:
@@ -126,6 +129,96 @@ class MacMemory:
         usage = self.usage(pid)
         return usage.resident_size // 1024, usage.phys_footprint // 1024
 
+    def listener_owned(self, pid, port):
+        owner = capture([command("lsof"), "-nP", "-a", "-p", str(pid),
+                         f"-iTCP@127.0.0.1:{port}", "-sTCP:LISTEN", "-t"])
+        return owner.returncode == 0 and owner.stdout.strip() == str(pid)
+
+
+class LinuxMemory:
+    """Read our unreaped process group from procfs; never adopt another server."""
+
+    @staticmethod
+    def process(pid):
+        # comm may contain spaces and parentheses. Fields after its final ')' start
+        # with state, ppid and pgrp. A zombie leader keeps our group ID reserved.
+        text = Path(f"/proc/{pid}/stat").read_text()
+        fields = text[text.rindex(")") + 2:].split()
+        return fields[0], int(fields[2])
+
+    def members(self, pgid):
+        members = []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdecimal():
+                continue
+            try:
+                state, group = self.process(int(entry.name))
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+            if group == pgid and state != "Z":
+                members.append(int(entry.name))
+                if len(members) > 4096:
+                    raise OSError("child process group exceeds sampling bound")
+        return members
+
+    def group_alive(self, pgid):
+        return bool(self.members(pgid))
+
+    def exited(self, child):
+        if child.returncode is not None:
+            return True
+        try:
+            return self.process(child.pid)[0] == "Z"
+        except (FileNotFoundError, ProcessLookupError):
+            return True
+
+    def sample(self, pid):
+        rss, swap = 0, 0
+        for member in self.members(pid):
+            try:
+                fields = {}
+                for line in Path(f"/proc/{member}/status").read_text().splitlines():
+                    name, _, value = line.partition(":")
+                    if name in ("VmRSS", "VmSwap"):
+                        parts = value.split()
+                        if len(parts) != 2 or parts[1] != "kB":
+                            raise OSError("unexpected procfs memory units")
+                        fields[name] = int(parts[0])
+                # Fail closed for a live process whose memory cannot be measured.
+                rss += fields["VmRSS"]
+                swap += fields["VmSwap"]
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            except (KeyError, ValueError):
+                raise OSError("could not sample child memory") from None
+        return rss, rss + swap
+
+    @staticmethod
+    def listener_owned(pid, port):
+        inodes = set()
+        for entry in Path(f"/proc/{pid}/fd").iterdir():
+            try:
+                link = os.readlink(entry)
+            except FileNotFoundError:
+                continue
+            match = re.fullmatch(r"socket:\[([0-9]+)\]", link)
+            if match:
+                inodes.add(match.group(1))
+        endpoint = f"0100007F:{port:04X}"
+        for line in Path(f"/proc/{pid}/net/tcp").read_text().splitlines()[1:]:
+            fields = line.split()
+            if len(fields) >= 10 and fields[1] == endpoint and fields[3] == "0A" and fields[9] in inodes:
+                return True
+        return False
+
+
+def memory_monitor():
+    if sys.platform == "darwin":
+        return MacMemory()
+    if sys.platform == "linux":
+        return LinuxMemory()
+    raise SetupError("only macOS and Linux supervisors are supported")
+
 
 class Supervisor:
     def __init__(self, home):
@@ -141,10 +234,27 @@ class Supervisor:
         self.model = embedding["model"]
         if not isinstance(self.model, str) or not self.model or not Path(self.model).is_file():
             raise SetupError("embedding.model must name an existing model file")
+        # An operator may point at the existing shared model instead of copying it.
+        # Preserve the exact Genesis model pin at serve time too, not just install.
+        digest = hashlib.sha256()
+        with Path(self.model).open("rb") as model:
+            for block in iter(lambda: model.read(1024 * 1024), b""):
+                digest.update(block)
+        if digest.hexdigest() != "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439":
+            raise SetupError("embedding.model differs from the pinned Qwen3-Embedding-0.6B-Q8_0.gguf")
         self.limit = positive_integer(os.environ.get("AUKORA_OPENVIKING_EMBED_RSS_MIB", "1536"),
                                       "AUKORA_OPENVIKING_EMBED_RSS_MIB") * 1024
-        self.llama, self.lsof = (command(name) for name in ("llama-server", "lsof"))
-        self.memory = MacMemory()
+        self.llama = command("llama-server")
+        self.memory = memory_monitor()
+        if sys.platform == "darwin":
+            command("lsof")
+        self.threads = positive_integer(os.environ.get("AUKORA_OPENVIKING_EMBED_THREADS", "2"),
+                                        "AUKORA_OPENVIKING_EMBED_THREADS")
+        if self.threads > 4:
+            raise SetupError("AUKORA_OPENVIKING_EMBED_THREADS must be at most 4")
+        if self.context > 2048:
+            raise SetupError("embedding.context must be at most 2048")
+        self.validate_server()
         self.embed = self.ov = None
         self.readiness = threading.Event()
         self.ready_cancel = threading.Event()
@@ -153,6 +263,63 @@ class Supervisor:
         self.exit_signal = 0
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, self.on_signal)
+
+    def validate_server(self):
+        key_path = self.home / "root.key"
+        key_stat = key_path.lstat()
+        if (not stat.S_ISREG(key_stat.st_mode) or key_stat.st_mode & 0o077 or
+                key_stat.st_uid != os.getuid() or not 1 <= key_stat.st_size <= 4096):
+            raise SetupError("root.key must be an existing private regular file owned by the service user")
+        key = key_path.read_text().strip()
+        if not key or "\n" in key or "\r" in key:
+            raise SetupError("root.key must contain the existing single-line credential")
+        with (self.home / "ov.conf").open() as source:
+            config = json.load(source)
+        server = config["server"]
+        if server.get("host") != "127.0.0.1" or server.get("auth_mode") != "trusted":
+            raise SetupError("ov.conf server must bind 127.0.0.1 with trusted authentication")
+        if server.get("root_api_key") != "${AUKORA_OPENVIKING_ROOT_KEY}":
+            raise SetupError("ov.conf server.root_api_key must use the existing runtime credential")
+        if server.get("cors_origins") != []:
+            raise SetupError("ov.conf server.cors_origins must be empty")
+        server_port = positive_integer(server["port"], "server.port")
+        if server_port > 65535 or server_port == self.port:
+            raise SetupError("server.port must be distinct from embedding.port and at most 65535")
+        with (self.home / "aukora-bridge.json").open() as source:
+            bridge = json.load(source)
+        if bridge.get("url") != f"http://127.0.0.1:{server_port}":
+            raise SetupError("aukora-bridge.json url must match the loopback server.port")
+        dense = config["embedding"]["dense"]
+        if dense.get("api_base") != f"http://127.0.0.1:{self.port}/v1":
+            raise SetupError("ov.conf embedding.dense.api_base must match the loopback embedding.port")
+        if (dense.get("provider") != "openai" or dense.get("api_key") != "local" or
+                dense.get("model") != "qwen3-embedding-0.6b" or dense.get("dimension") != 1024 or
+                dense.get("encoding_format") != "float"):
+            raise SetupError("ov.conf embedding.dense must use the pinned local Qwen embedding profile")
+        # Match Kira's modelsOffMachine boundary for optional model sections too.
+        # Dense-only validation would let an existing optional provider send note
+        # text off-machine. Diagnostics name only the field, never its endpoint/key.
+        for name, section in (("embedding.sparse", config["embedding"].get("sparse")),
+                              ("vlm", config.get("vlm")), ("rerank", config.get("rerank")),
+                              ("query_planner", config.get("query_planner"))):
+            if section is None:
+                continue
+            if not isinstance(section, dict):
+                raise SetupError(f"ov.conf {name} must be a model configuration object")
+            base = section.get("api_base")
+            if base is not None and not isinstance(base, str):
+                raise SetupError(f"ov.conf {name}.api_base must be a loopback HTTP endpoint")
+            if isinstance(base, str) and base != "":
+                try:
+                    endpoint = urlsplit(base)
+                    local = endpoint.scheme in ("http", "https") and endpoint.hostname in (
+                        "127.0.0.1", "localhost", "::1")
+                except ValueError:
+                    local = False
+                if not local:
+                    raise SetupError(f"ov.conf {name}.api_base must be a loopback HTTP endpoint")
+            elif section.get("provider") not in (None, "", "local"):
+                raise SetupError(f"ov.conf {name} must not use a provider default endpoint")
 
     def on_signal(self, sig, _frame):
         # Do not raise between Popen and assignment: every child must reach cleanup.
@@ -179,6 +346,11 @@ class Supervisor:
                 "--host", "127.0.0.1", "--port", str(self.port), "-c", str(self.context),
                 "-b", batch, "-ub", batch, "--parallel", "1", "--cache-ram", "0", "--mmap",
                 "--cache-type-k", "f16", "--cache-type-v", "f16", "--alias", "qwen3-embedding-0.6b"]
+        if sys.platform == "linux":
+            # The existing CPU release supplies llama-server; never download/build
+            # another copy here or inherit generation-server GPU/thread settings.
+            args += ["--n-gpu-layers", "0", "--threads", str(self.threads),
+                     "--threads-batch", str(self.threads)]
         # Explicit arguments govern the service. Inherited generation-server
         # defaults such as mlock or a different load mode must not undo the bound.
         env = {key: value for key, value in os.environ.items() if not key.startswith("LLAMA_ARG_")}
@@ -205,11 +377,9 @@ class Supervisor:
         finally:
             connection.close()
         try:
-            owner = capture([self.lsof, "-nP", "-a", "-p", str(pid),
-                             f"-iTCP@127.0.0.1:{self.port}", "-sTCP:LISTEN", "-t"])
+            return self.memory.listener_owned(pid, self.port)
         except (OSError, subprocess.TimeoutExpired):
             return False
-        return owner.returncode == 0 and owner.stdout.strip() == str(pid)
 
     def wait_ready(self, pid, ready, cancel):
         # HTTP and lsof can block. Keep them off the memory-sampling loop, and
@@ -222,7 +392,7 @@ class Supervisor:
 
     def stop_embed(self, immediate=False):
         self.ready_cancel.set()
-        stop_child(self.embed, immediate=immediate)
+        stop_child(self.embed, immediate=immediate, memory=self.memory)
         if self.ready_thread is not None:
             self.ready_thread.join(timeout=4)
         self.ready_thread = None
@@ -242,7 +412,7 @@ class Supervisor:
         failures, start_at, restart = 0, 0, None
         while not self.stopping.is_set():
             if self.ov is not None and self.memory.exited(self.ov):
-                stop_child(self.ov)
+                stop_child(self.ov, memory=self.memory)
                 say(f"OpenViking exited (status {self.ov.returncode})")
                 return self.ov.returncode if self.ov.returncode >= 0 else 128 - self.ov.returncode
             now = time.monotonic()
@@ -311,7 +481,7 @@ class Supervisor:
                 if child is self.embed:
                     self.stop_embed()
                 else:
-                    stop_child(child)
+                    stop_child(child, memory=self.memory)
             except (OSError, subprocess.TimeoutExpired):
                 failed = True
                 say(f"cleanup failed for pid={child.pid}; no replacement started")

@@ -78,6 +78,11 @@ export const LINUX_HOST_PATTERNS = Object.freeze([
   ['proc/*/cmdline', 'proc-cmdline', "a process's command line"],
   ['proc/*/task/*/environ', 'proc-environ', "a thread's environment"],
   ['proc/*/task/*/mem', 'proc-mem', "a thread's memory"],
+  // L3 memory (2026-10-04): the owner's Kira deployment config and the OpenViking home (root key, bridge
+  // credential, door credential, index data). Recall goes through the Kira tools, never through file reads.
+  ['**/kira-deployment-overlay.patch.yml', 'kira-owner-config', "the owner's Kira deployment configuration"],
+  ['**/openviking', 'openviking-home', "OpenViking's home: its root key, bridge and door credentials and index"],
+  ['**/viking-door.key', 'viking-door-key', "the Viking door's credential"],
 ])
 
 /** The rows `aukora-core-read-deny` refused to a CORE session, carried so this gate supersedes that `fs` swap. */
