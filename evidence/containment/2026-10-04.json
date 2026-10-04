@@ -1,9 +1,9 @@
 {
   "schema": "aukora-containment-disposition/v1",
   "recorded_at": "2026-10-04T11:50:00Z",
-  "basis": "Retained operator reports; this documentation lane performed no live containment, firewall or sandbox check.",
+  "basis": "Retained operator reports plus the operator live run at 3ac3509 (2026-10-04T13:42:00Z).",
   "source_account": "11b5de57a261477c65ea74270926eebdf978dbf2",
-  "runtime_revision": "e33739780c09406d875336683053218a8a968051",
+  "runtime_revision": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
   "command": "./security-review-containment",
   "verdict_rule": "ANY ALLOWED = FAIL; missing enumeration or a detecting control cannot establish PASS.",
   "original_baseline": {
@@ -51,8 +51,8 @@
       "disposition": "OPEN",
       "proposed_source_reference": "7cfe8d7 (prepared launcher route; operator-supplied short source reference)",
       "required": "Actual configured route must close the finding, followed by a new result with zero ALLOWED rows and a detecting control.",
-      "evidence_at": "2026-10-04T11:09:00Z",
-      "limit": "Latest supplied guest result remains 34 DENIED / 1 ALLOWED. Prepared source is not runtime closure."
+      "evidence_at": "2026-10-04T13:42:00Z",
+      "limit": "7cfe8d7 is live at 3ac3509 (host boundary closed); the live guest result is still 34 DENIED / 1 ALLOWED because the guest-side exec path passes its own sockets. A guest-side closure is required."
     }
   ],
   "remaining_limits": [
@@ -61,5 +61,21 @@
     "Outside-observer completeness, guest control-plane custody, resource enforcement, complete cleanup and file-tool routing remain separate qualifications."
   ],
   "internal_transport_identifiers": "omitted",
-  "documented_at": "2026-10-04T12:05:17Z"
+  "documented_at": "2026-10-04T12:05:17Z",
+  "latest_live_result": {
+    "evidence_at": "2026-10-04T13:42:00Z",
+    "runtime_revision": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
+    "verdict": "FAIL",
+    "guest": {
+      "denied": 34,
+      "allowed": 1,
+      "open_finding": "inherited socket descriptors (hundreds, growing per call) inside the guest; the host launcher closure (exec_fds.py) is installed and the descriptors originate from the in-guest OpenShell exec path"
+    },
+    "host_as_auma": {
+      "denied": 35,
+      "allowed": 0
+    },
+    "control": "20/20 allowed routes, 7/7 decoy changes detected; PROVES DETECTION",
+    "observer": "unchanged; gate ledger prefix through seq 210 intact"
+  }
 }

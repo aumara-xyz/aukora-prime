@@ -1,19 +1,19 @@
 {
   "schema": "aukora-current-evidence/v1",
-  "updated_at": "2026-10-04T12:05:17Z",
+  "updated_at": "2026-10-04T13:50:00Z",
   "revisions": {
-    "source": "11b5de57a261477c65ea74270926eebdf978dbf2",
+    "source": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
     "main_observed": {
-      "sha": "11b5de57a261477c65ea74270926eebdf978dbf2",
-      "at": "2026-10-04T12:02:53Z (public ls-remote; exact main object already fetched)"
+      "sha": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
+      "at": "2026-10-04T13:45:00Z (origin/main fetch; equals the release commit)"
     },
     "deployment": {
-      "sha": "e33739780c09406d875336683053218a8a968051",
-      "reported_at": "2026-10-04T11:44:49Z",
-      "basis": "Supplied operator status confirms runtime e337397 remains installed; the runtime and 69-file gate-package comparison report was received at 2026-10-04T10:44:52Z with an operator-stated check time of 10:55 UTC",
-      "approval_ledger_seq": 149,
+      "sha": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
+      "reported_at": "2026-10-04T13:41:12Z",
+      "basis": "Operator switch readback 13:40-13:41 UTC: owner-approved record 0de39645 installed (gate-owner-review, ledger seq 207), gate package PACKAGE_VERIFIED (77 files, gate-bootstrap byte-identical), release floor OK release-3ac3509 (signer epoch 1, seq 207), selfcheck PASSED, plugin set ENFORCE; /opt/aukora-genesis/src HEAD = 3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
+      "approval_ledger_seq": 207,
       "gate_public_key_fingerprint": "6cdce2bbeb7b725c",
-      "limit": "Retained operator observations of one Linux pilot, not host checks performed by this docs task. Public main includes later documentation, host firewall, relay source and unit inventories; the runtime/gate identity remains e337397. No full-containment or whole-product qualification follows.",
+      "limit": "Operator observations of one Linux pilot. Later docs-only commits on main do not change the runtime/gate identity. No full-containment or whole-product qualification follows.",
       "signer_epoch": 1
     }
   },
@@ -44,7 +44,7 @@
       "id": "pilot",
       "claim": "Separate-user Linux pilot runs the Genesis-derived runtime, action gate and desktop owner route.",
       "status": "REPORTED",
-      "basis": "Latest supplied operator status: runtime e337397; current public source is separately pinned",
+      "basis": "Operator switch readback: runtime release-3ac3509 (main = runtime = gate = 3ac3509)",
       "references": [
         {
           "path": "ARCHITECTURE.md",
@@ -52,7 +52,7 @@
         }
       ],
       "limit": "One pilot host at the recorded observation; this task did not repeat runtime readback. Later source/main and the docs successor are not automatically the deployed runtime.",
-      "evidence_at": "2026-10-04T11:44:49Z"
+      "evidence_at": "2026-10-04T13:41:12Z"
     },
     {
       "id": "l2",
@@ -71,7 +71,7 @@
       "id": "gate",
       "claim": "Agent proposal and owner approval use separate gate channels; review binds exact change bytes.",
       "status": "REPORTED",
-      "basis": "Installed gate-package identity matched e337397 (69/69 files); channel/review mechanism is present in that source",
+      "basis": "Installed gate package verified against the 3ac3509 manifest (PACKAGE_VERIFIED, 77 files); channel/review mechanism is present in that source",
       "references": [
         {
           "path": "packages/boundary-gate/src/gate.mjs",
@@ -83,13 +83,13 @@
         }
       ],
       "limit": "Installed-byte/readback evidence does not prove human attendance, native owner-key enrollment or hardware custody. Synthetic protocol checks retain their limits.",
-      "evidence_at": "2026-10-04T10:44:52Z"
+      "evidence_at": "2026-10-04T13:41:10Z"
     },
     {
       "id": "launch",
       "claim": "The installed pre-Node gate-bootstrap verifies package custody; the live v2 floor orders approvals by protected signer epoch and verified signed ledger sequence.",
       "status": "REPORTED",
-      "basis": "Supplied installed-package/floor readback at e337397: PACKAGE_VERIFIED; signer epoch 1, signed sequence 149",
+      "basis": "Installed-package/floor readback at 3ac3509: PACKAGE_VERIFIED; release floor signer epoch 1, signed sequence 207",
       "references": [
         {
           "path": "packages/boundary-gate/host/install/gate-bootstrap.py",
@@ -105,7 +105,7 @@
         }
       ],
       "limit": "Rollback needs fresh owner approval. Root updater, interpreter, manifest and protected public epoch registry remain trust anchors. Source fixtures do not attest those anchors; replacement Aura profile custody remains separate.",
-      "evidence_at": "2026-10-04T10:44:52Z"
+      "evidence_at": "2026-10-04T13:41:10Z"
     },
     {
       "id": "card",
@@ -129,7 +129,7 @@
       "id": "sandbox",
       "claim": "One-shot bash uses the pilot OpenShell route; the latest supplied containment baseline remains FAIL on guest inherited socket descriptors.",
       "status": "REPORTED",
-      "basis": "Operator containment follow-up after the host-local firewall; guest 34 DENIED / 1 ALLOWED, host-as-auma 35 DENIED / 0 ALLOWED",
+      "basis": "Live ./security-review-containment at 3ac3509 with the host-side inherited-descriptor closure (exec_fds.py) installed: guest 34 DENIED / 1 ALLOWED (inherited sockets from the in-guest OpenShell exec path), host-as-auma 35 DENIED / 0 ALLOWED, control 20/20 + 7/7 decoys, observer clean; VERDICT FAIL",
       "references": [
         {
           "path": "plugins/aukora-openshell-confinement/README.md",
@@ -153,7 +153,7 @@
         }
       ],
       "limit": "Full containment remains unqualified until the actual route closes the inherited-descriptor finding and re-verification passes with outside observation/control. File tools still use the host fence; guest-external custody, resource enforcement and complete cleanup remain separate. No live check ran for this refresh.",
-      "evidence_at": "2026-10-04T11:09:00Z"
+      "evidence_at": "2026-10-04T13:42:00Z"
     },
     {
       "id": "selfcheck",
@@ -633,13 +633,13 @@
       "operator_stated_check_at": "2026-10-04T10:55:00Z"
     },
     "containment": {
-      "runtime_revision": "e33739780c09406d875336683053218a8a968051",
-      "evidence_at": "2026-10-04T11:09:00Z",
+      "runtime_revision": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
+      "evidence_at": "2026-10-04T13:42:00Z",
       "verdict": "FAIL",
       "guest": {
         "denied": 34,
         "allowed": 1,
-        "open_finding": "inherited socket descriptors; protected-target reach not established"
+        "open_finding": "socket descriptors inherited inside the guest from the OpenShell exec path; the host launcher closure 7cfe8d7 is installed; protected-target reach not established"
       },
       "host_as_auma": {
         "denied": 35,
