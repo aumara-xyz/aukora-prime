@@ -151,9 +151,14 @@ VENDORED = (ROOT / 'vendor/append-only', ROOT / 'vendor/receipt', ROOT / 'vendor
 #: `apps/aukora-desktop/resolve.mjs` + its relative imports `url-policy.mjs` and `install-settings.mjs` (2026-10-04):
 #: `scripts/aukora/desktop-cutover.mjs` imports `assertDesktopLaunchConfig` from resolve.mjs (H signed-ordering change);
 #: resolve.mjs also imports plugins/aukora-aumlok/lib/plugin-set-content.mjs, carried with that plugin.
+#: `packages/boundary-gate/host/aura/{context,entry,records-provider}.mjs` (2026-10-04): the Aura collector check
+#: (`scripts/aura/checks/collector.mjs`, carried by `scripts/aura/**`) imports them (D fixed-context change); their own
+#: relative imports (contracts json, aukora-nostr lib, scripts/aura) are already carried.
 RELEASE_IMPORT_FILES = ('apps/aukora-desktop/card-chain.mjs', 'scripts/aukora/desktop-cutover.mjs',
                         'packages/contracts/src/json.mjs', 'apps/aukora-desktop/resolve.mjs',
-                        'apps/aukora-desktop/url-policy.mjs', 'apps/aukora-desktop/install-settings.mjs')
+                        'apps/aukora-desktop/url-policy.mjs', 'apps/aukora-desktop/install-settings.mjs',
+                        'packages/boundary-gate/host/aura/context.mjs', 'packages/boundary-gate/host/aura/entry.mjs',
+                        'packages/boundary-gate/host/aura/records-provider.mjs')
 # `target/` is build output, never vendored bytes — the same exception the pin checker declares.
 BUILD_OUTPUT_DIRS = {'target'}
 # Runtime debris, never authored bytes. `__pycache__` appears the moment anyone imports a script
