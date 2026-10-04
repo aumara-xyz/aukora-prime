@@ -12,7 +12,8 @@
     "./nip44": "./lib/nip44.mjs",
     "./giftwrap": "./lib/giftwrap.mjs",
     "./relay": "./lib/relay.mjs",
-    "./contact": "./lib/contact.mjs"
+    "./contact": "./lib/contact.mjs",
+    "./records": "./lib/records.mjs"
   },
   "bin": {
     "aukora-reissue-binding": "./bin/reissue-binding.mjs"

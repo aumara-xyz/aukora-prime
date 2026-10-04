@@ -2,6 +2,10 @@
 
 A Nostr identity per node, and the binding that says which AUKORA subject owns it.
 
+The source-only [Nostr-shaped records library](RECORDS.md) adds closed record
+construction, verification, NIP-44 v2 content and chain checks through `./records`.
+It does not establish journal coverage, owner authority or installed collection.
+
 
 ## contentDigest is local; the EVENT ID is the identity
 
