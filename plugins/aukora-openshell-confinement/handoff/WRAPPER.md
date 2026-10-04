@@ -26,7 +26,7 @@ The following closed version-1 envelope is required:
     "filesystem_policy": {
       "include_workdir": false,
       "read_only": ["/bin", "/usr", "/lib", "/etc", "/proc", "/dev/urandom"],
-      "read_write": ["/sandbox", "/tmp", "/dev/null"]
+      "read_write": ["/sandbox", "/tmp", "/dev/null", "/dev/pts", "/dev/ptmx"]
     },
     "landlock": {"compatibility": "hard_requirement"},
     "network_policies": {}

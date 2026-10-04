@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process';
 export const GUEST_WORKSPACE = '/sandbox';
 export const MAX_COMMAND_BYTES = 256 * 1024;
-const WRITABLE_ROOTS = Object.freeze(['/sandbox', '/tmp', '/dev/null']);
+const WRITABLE_ROOTS = Object.freeze(['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx']);
 
 export function unavailable(reason, message) {
   return Object.assign(new Error(`aukora-openshell-confinement: ${message}`), {

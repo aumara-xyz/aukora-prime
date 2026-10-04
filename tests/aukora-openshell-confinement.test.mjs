@@ -71,7 +71,7 @@ test('the transport is the boundary runner: env -i, sudo -n -u auma sbx-exec, qu
 test('the wrapper envelope format is what the adapter accepts, and nothing weaker', () => {
   const e = { version: 1, openshell_version: '0.1.2', sandbox: 'auma-ws', state: 'Ready', instance_id: '3cdf6774-267d-4a67-b680-91d998b89cdd',
     policy_revision: 1, applied_revision: 1, workspace_root: '/sandbox', network_mode: 'none',
-    policy: { filesystem_policy: { include_workdir: false, read_only: ['/bin', '/usr', '/lib', '/lib64', '/etc', '/proc', '/dev/urandom'], read_write: ['/sandbox', '/tmp', '/dev/null'] },
+    policy: { filesystem_policy: { include_workdir: false, read_only: ['/bin', '/usr', '/lib', '/lib64', '/etc', '/proc', '/dev/urandom'], read_write: ['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx'] },
       landlock: { compatibility: 'hard_requirement' }, version: 1, network_policies: {} } }
   validateConfinementInfo(e)
   for (const f of [x => { x.policy.landlock.compatibility = 'best_effort' }, x => { x.policy.filesystem_policy.include_workdir = true },
@@ -93,7 +93,7 @@ test('sbx-exec re-checks the applied policy under its lock before every command,
   assert.match(w, /names\.count\(cname\) != 1/)
   assert.match(w, /trap on_cancel TERM INT HUP/)
   const s = read('packages/boundary-gate/host/openshell/ensure-sandbox.sh')
-  assert.equal((s.match(/--policy "\$POLICY"/g) || []).length, 3, 'every create passes the hard startup policy')
+  assert.equal((s.match(/--policy "\$POLICY"/g) || []).length, 4, 'every create passes the hard startup policy')
   assert.match(s, /policy_ok \|\| \{ echo "REFUSING/)
   assert.match(read('packages/boundary-gate/host/openshell/sandbox-policy.yml'), /compatibility: hard_requirement/)
 })
@@ -118,4 +118,24 @@ test('the caged worker refuses on Linux before any filesystem work or spawn', ()
   const i = read('plugins/aukora-caged-worker/lib/index.mjs'), r = read('plugins/aukora-caged-worker/lib/run.mjs')
   const g = i.indexOf("process.platform === 'linux'"); assert.ok(g > 0 && g < i.indexOf('mkdirSync(workspace'))
   const h = r.indexOf("process.platform === 'linux'"); assert.ok(h > 0 && h < r.indexOf('captureWorkspacePatchArgs(input)', r.indexOf('export async function runPatch')))
+})
+
+test('PTY grant (2026-10-04): exactly /dev/pts + /dev/ptmx join the writable roots, in all four places, and nothing broader', () => {
+  const want = ['/dev/null', '/dev/ptmx', '/dev/pts', '/sandbox', '/tmp']
+  const yml = read('packages/boundary-gate/host/openshell/sandbox-policy.yml').match(/^\s*read_write: \[([^\]]*)\]$/m)
+  assert.ok(yml, 'policy file names read_write')
+  assert.deepEqual(yml[1].split(',').map(s => s.trim()).sort(), want)
+  assert.ok(read('packages/boundary-gate/host/sbx-exec').includes("sorted(['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx'])"))
+  assert.ok(read('packages/boundary-gate/host/openshell/ensure-sandbox.sh').includes('sorted(["/sandbox","/tmp","/dev/null","/dev/pts","/dev/ptmx"])'))
+  assert.ok(read('plugins/aukora-openshell-confinement/lib/transport.mjs').includes("['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx']"))
+  const e = { version: 1, openshell_version: '0.1.2', sandbox: 'auma-ws', state: 'Ready', instance_id: 'x', policy_revision: 1, applied_revision: 1,
+    workspace_root: '/sandbox', network_mode: 'none', policy: { filesystem_policy: { include_workdir: false,
+      read_only: ['/bin', '/usr', '/lib', '/lib64', '/etc', '/proc', '/dev/urandom'], read_write: [...want] },
+      landlock: { compatibility: 'hard_requirement' }, version: 1, network_policies: {} } }
+  validateConfinementInfo(e)
+  for (const f of [x => { x.policy.filesystem_policy.read_write = ['/sandbox', '/tmp', '/dev/null', '/dev', '/dev/ptmx'] },
+    x => { x.policy.filesystem_policy.read_write = ['/sandbox', '/tmp', '/dev/null', '/dev/pts'] },
+    x => { x.policy.filesystem_policy.read_write.push('/dev/tty') }]) {
+    const c = structuredClone(e); f(c); refuses(() => validateConfinementInfo(c))
+  }
 })

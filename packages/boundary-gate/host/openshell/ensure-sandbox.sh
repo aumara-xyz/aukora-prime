@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run as auma: make sure OpenShell sandbox "auma-ws" is Ready with network mode none AND runs the hard startup policy in
 # sandbox-policy.yml (beside this script: Landlock hard_requirement, include_workdir false, writable /sandbox /tmp
-# /dev/null only); a running sandbox reporting any other effective policy is snapshotted, deleted and recreated. And that the agent's
+# /dev/null, plus /dev/pts + /dev/ptmx so a PTY opens INSIDE the sandbox; nothing else); a running sandbox reporting any other effective policy is snapshotted, deleted and recreated. And that the agent's
 # /sandbox workspace survives Podman restarts AND sandbox recreation:
 #   * a host copy lives in ~auma/sandbox-persist (0700, outside every container)
 #   * it is refreshed from the live volume on every run and right before any delete
@@ -24,7 +24,7 @@ txt=open(want).read()
 # the policy file is tiny, flat YAML written by us: compare the fields that matter exactly
 ok=(d.get("status")=="effective" and p.get("version")==1 and p.get("landlock")=={"compatibility":"hard_requirement"}
  and p.get("network_policies")=={} and (p.get("filesystem_policy") or {}).get("include_workdir") is False
- and sorted((p.get("filesystem_policy") or {}).get("read_write") or [])==sorted(["/sandbox","/tmp","/dev/null"])
+ and sorted((p.get("filesystem_policy") or {}).get("read_write") or [])==sorted(["/sandbox","/tmp","/dev/null","/dev/pts","/dev/ptmx"])
  and "hard_requirement" in txt)
 sys.exit(0 if ok else 1)' "$POLICY"; }
 phase() { openshell sandbox list 2>/dev/null | awk '$1=="auma-ws"{print $NF}'; }

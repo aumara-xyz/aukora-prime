@@ -86,7 +86,7 @@ ok = (env['openshell_version'] == '0.1.2' and env['sandbox'] == sb and env['stat
       env['applied_revision'] == env['policy_revision'] and env['workspace_root'] == '/sandbox' and
       env['network_mode'] == 'none' and pol.get('version') == 1 and fs.get('include_workdir') is False and
       set(fs) <= {'include_workdir', 'read_only', 'read_write'} and
-      sorted(fs.get('read_write') or []) == sorted(['/sandbox', '/tmp', '/dev/null']) and
+      sorted(fs.get('read_write') or []) == sorted(['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx']) and
       pol.get('landlock') == {'compatibility': 'hard_requirement'} and pol.get('network_policies') == {} and
       set(pol) <= {'version', 'filesystem_policy', 'landlock', 'process', 'network_policies', 'network_middlewares'} and
       pol.get('network_middlewares', {}) == {})

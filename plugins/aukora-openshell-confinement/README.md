@@ -31,7 +31,7 @@ supported contract. See [the path-by-path source map](handoff/ROUTES.md).
 `confine()` makes one bounded, cancellable preparation read through
 `sudo -n -u auma sbx-exec --confinement-info`. It returns `full` file enforcement
 only when the running instance's applied policy has `include_workdir:false`,
-exactly `/sandbox`, `/tmp`, `/dev/null` writable, and Landlock `hard_requirement`.
+exactly `/sandbox`, `/tmp`, `/dev/null`, `/dev/pts`, `/dev/ptmx` writable (the last two let a PTY open inside the sandbox), and Landlock `hard_requirement`.
 Missing, unapplied, broader and `best_effort` policies refuse. No configuration
 flag substitutes for real policy readback. The wrapper must repeat that check
 under its execution lock before every ordinary two-argument command launch.
