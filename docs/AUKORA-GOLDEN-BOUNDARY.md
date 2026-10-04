@@ -72,6 +72,8 @@ The idea can be expressed without any project vocabulary. The request says what 
 
 These distinctions sound obvious when stated separately. Their disappearance inside an automated workflow is less obvious. The assistant reads a document. The document asks it to use a tool. The tool has credentials inherited from the host. The resulting action is logged, and the log becomes evidence that the assistant followed its workflow. Every step can look locally reasonable while the central question—who permitted this particular effect—was never answered.
 
+Security engineers know this failure as the confused deputy: a component holding someone's credentials is steered by input it cannot distinguish from that person's intent. Filters that read a model's text cannot repair it, because they are probabilistic judgments about a probabilistic system. The repair is structural: a system should not be the proposer of an action, the executor of it, and the judge of its own authority at the same time.
+
 A small boundary should make that question unavoidable. It should accept a precisely defined operation or refuse it, without accepting the proposer's confidence as a substitute for authority. Its trusted inputs must come from a source the proposal cannot appoint for itself. A request carrying its own newly created approving key has not established that the owner approved anything.
 
 Smallness helps people inspect such a mechanism. It is not a security theorem. A tiny verifier can check a narrow mathematical relation very well while knowing nothing about the operating system, the person at the keyboard, or the truth of the events described. The claim must fit the instrument.
@@ -408,6 +410,8 @@ Yet technical non-authority does not eliminate psychological influence. A system
 
 This is why sovereignty cannot be reduced to the existence of an approval button. A signature may accurately record the person's decision while leaving open how that decision was produced. The architecture should distinguish possession of a key, a recorded interaction, understanding of consequences, and freedom from coercion. No single receipt proves all four.
 
+The first live owner gate showed this directly. On its first day its owner, half-awake, approved a proposal whose model-written note called it safe to refuse. Nothing crossed the boundary without that click; the click was the weak point. The response was not more friction but more clarity: the approval card states the gate's own facts and the exact change first, marks routine and critical changes plainly, and fences the model's words as unverified. Persuasion can still reach the person; it should not be able to reach the effect without the person's visible decision.
+
 An ethical companion should make room for distance. A person may want a different model's view, a human friend's judgment, an unpersonalized explanation, or silence. Switching away from a familiar persona should not require losing the underlying memory that the person has chosen to retain. Leaving a service should not be framed as betrayal.
 
 Care can also mean resisting inappropriate certainty. A memory system should preserve the person's corrections rather than protecting its own narrative. An assistant should be able to say that it cannot establish what happened. It should not turn a plausible account of the person's life into an unquestionable biography.
@@ -447,6 +451,8 @@ The operating system also remains part of the account. Moving a key into another
 The relevant unit is the whole reachable authority, not the name of a process. If a model cannot read a key but can alter the daemon that uses it, replace its policy, or ask another privileged tool to sign, the authority has not been separated in the intended sense. Shells, child processes, plugins, update paths, credentials, and control-plane settings belong in that reachability question.
 
 Network architecture has its own pressures. A relay can censor or disappear. A discoverability service can bury a person without changing any signatures. A witness committee can share a provider that fails all at once. A gateway can become a legal or economic choke point. Stateless design and portable identity can reduce some forms of capture without abolishing these dependencies.
+
+Distribution also changes what an attack can win. When each person's authority rests on their own key and, ultimately, their own device, there is no master key and no central store of everyone's authority to take. Any one installation can still be compromised; what disappears is the single point whose failure would own all of them. A breach should not scale.
 
 Open source is valuable because it permits inspection, modification, and alternative implementations under its terms. It does not automatically distribute control of domains, signing keys, release channels, branding, or default discovery. Companies, foundations, jurisdictions, and funding still influence what people can practically use.
 
