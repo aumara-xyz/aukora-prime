@@ -8,13 +8,21 @@
 # sandbox-policy: mode workspace-write, workspaceRoot /sandbox.
 # Web disables its host tool-bash row; enabling that host row alone does not
 # establish the selected preset's tool config. Do not select minimal's bash.
-# The calling session's immutable cwd must also be /sandbox; session cwd wins
-# over the sandbox-policy fallback. No host workspace mount is requested.
+# The calling session's immutable cwd must be /sandbox or the explicitly declared
+# exact hostWorkspaceRoot (Grok's L1-a mapping). No host workspace mount is requested.
 # The base/standard one-shot tool-bash row is the supported 'bash' alias.
 # Minimal's persistent-bash row (dsh-tool-bash-persistent) also calls itself
 # 'bash'; it is unsupported. Package names and row ids are not interchangeable.
-# R2 mounts the existing guest subprocess interface. Disable subprocess-local in
-# the selected execution scope. Node PTC must use the actual configured guest
+# R2 mounts the existing guest subprocess interface in a named Cordis realm.
+# KEEP the base subprocess-local row and tool-fs-search in the native root realm.
+# Tag this provider and existing ptc-runtime, SINGLE agent-loop, and enabled
+# terminal-bash backend/group with isolate: { subprocess: aukora-model-exec }.
+# A string joins that named realm; true would create separate realms and break
+# the join. Exactly one provider writes it. The agent-loop tag is necessary for
+# browser terminal's agent.ctx lookup. Preserve any existing terminals isolation.
+# Do not isolate ptcRuntime or shell: host consumers must find those services.
+# An empty guest realm must not inherit native subprocess. No argv-based host fallback.
+# Node PTC must use the actual configured guest
 # nodeExecutable and bootstrapPath; the default host identity mapping is invalid.
 # Enable the selected existing Node PTC, Bash terminal and browser terminal rows
 # only after actual guest FD7/PTY/cleanup acceptance. PowerShell remains unsupported.
@@ -28,6 +36,8 @@
     - id: aukora-openshell-confinement
       name: ./plugins/aukora-openshell-confinement/lib/index.mjs
       disabled: true
+      isolate:
+        subprocess: aukora-model-exec
       config:
         workspaceRoot: /sandbox
         timeoutSeconds: 60

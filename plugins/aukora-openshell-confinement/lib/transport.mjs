@@ -19,12 +19,21 @@ function text(value) {
 
 export function readSettings(input = {}) {
   if (input === null || typeof input !== 'object' || Array.isArray(input) ||
-      Object.keys(input).some(key => !['workspaceRoot', 'timeoutSeconds', 'nodeExecutable', 'bootstrapPath',
+      Object.keys(input).some(key => !['workspaceRoot', 'hostWorkspaceRoot', 'timeoutSeconds', 'nodeExecutable', 'bootstrapPath',
         'startupTimeoutMs', 'cleanupTimeoutMs'].includes(key))) {
     throw unavailable('CONFIG', 'unsupported configuration');
   }
   const workspaceRoot = input.workspaceRoot ?? GUEST_WORKSPACE;
   const timeoutSeconds = input.timeoutSeconds ?? 60;
+  // Grok's explicit L1-a identity maps only the exact session root to the
+  // independent guest workspace. It grants no host mount or directory sharing.
+  const hostWorkspaceRoot = input.hostWorkspaceRoot;
+  if (hostWorkspaceRoot !== undefined && (!text(hostWorkspaceRoot) || !hostWorkspaceRoot.startsWith('/') ||
+      hostWorkspaceRoot === '/' || hostWorkspaceRoot.length > 1024 || hostWorkspaceRoot.endsWith('/') ||
+      hostWorkspaceRoot.split('/').some(part => part === '.' || part === '..') || hostWorkspaceRoot.includes('//') ||
+      hostWorkspaceRoot === GUEST_WORKSPACE)) {
+    throw unavailable('CONFIG', 'hostWorkspaceRoot must be a normalized absolute host path');
+  }
   // No host-to-guest mapping is inferred. The existing wrapper only knows /sandbox.
   if (workspaceRoot !== GUEST_WORKSPACE) {
     throw unavailable('WORKSPACE', 'only the explicit guest workspace /sandbox can be prepared');
@@ -43,7 +52,7 @@ export function readSettings(input = {}) {
   if (![startupTimeoutMs, cleanupTimeoutMs].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 30000)) {
     throw unavailable('CONFIG', 'invalid bounded carrier deadline');
   }
-  return Object.freeze({ workspaceRoot, timeoutSeconds, nodeExecutable, bootstrapPath,
+  return Object.freeze({ workspaceRoot, hostWorkspaceRoot, timeoutSeconds, nodeExecutable, bootstrapPath,
     startupTimeoutMs, cleanupTimeoutMs });
 }
 

@@ -30,8 +30,22 @@ independent OpenShell/root-wrapper supervision for installed qualification.
 
 Grok must configure actual guest Node and built PTC `process.js` paths through
 `nodeExecutable` and `bootstrapPath`, preserve those paths in the existing Node
-runtime configuration, disable the conflicting local subprocess provider in the
-selected execution scope, and retain mandatory confinement at every consumer.
+runtime configuration, and retain mandatory confinement at every consumer.
+Keep the native `subprocess` provider and `tool-fs-search` outside the named
+`aukora-model-exec` subprocess realm. Tag this guest provider, the selected
+`ptc-runtime`, the single `agent-loop`, and enabled `terminal-bash` backend with
+`isolate: { subprocess: aukora-model-exec }`. Exactly one guest provider writes
+that realm. PTC and terminal backends capture their plugin context; browser
+terminal resolves the agent's context, which inherits the scoped agent loop.
+An unmounted isolated realm refuses instead of falling back to the native one.
+Leave `ptcRuntime` and `shell` visible to existing host consumers. This preserves
+trusted file-search helpers without routing model code to a host executor by argv.
+Actual selected rows and installed behavior still require Grok's acceptance.
+
+The explicit `hostWorkspaceRoot` option preserves Grok's L1-a mapping: only that
+exact configured session root maps to `/sandbox`, and policy mode is preserved.
+No subdirectory or unrelated root is inferred. The two workspaces remain
+independent; this is neither a host mount nor a shared-file assertion.
 The older Linux unsupported-consumer patch is historical refusal-only work and
 must not be applied to the completed R2 composition. No new DSH API is introduced.
 
@@ -61,7 +75,8 @@ activation instruction. Linux host users, OpenShell, Podman and the sudo rule ne
 separate operator authorization; this plugin creates none.
 
 Bash is disabled in the selected core preset; Grok must deliberately enable the
-Linux row with `enableRunInBackground:false` and use a session cwd `/sandbox`.
+Linux row with `enableRunInBackground:false` and use `/sandbox` or the exact
+explicitly declared host session root.
 In-process filesystem tools remain outside this provider. Registration and source
 checks do not qualify the installed system. See [the wrapper interface and policy
 handoff](handoff/WRAPPER.md) for the exact owner boundary and remaining evidence.

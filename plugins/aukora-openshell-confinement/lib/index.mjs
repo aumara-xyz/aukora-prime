@@ -33,6 +33,17 @@ export function createConfinement(settings, boundary) {
   });
 }
 
+/** Preserve Grok's explicit exact-root L1-a mapping; never infer a host mount. */
+export function guestSpec(spec, settings) {
+  const policy = spec?.sandboxPolicy;
+  const host = settings.hostWorkspaceRoot;
+  if (host === undefined || policy === null || typeof policy !== 'object' || policy.workspaceRoot !== host) return spec;
+  if (spec.workdir !== host && spec.workdir !== settings.workspaceRoot) {
+    throw unavailable('WORKSPACE', 'only the session workspace itself maps to the guest /sandbox; cd inside the command instead of passing workdir');
+  }
+  return { ...spec, workdir: settings.workspaceRoot, sandboxPolicy: { ...policy, workspaceRoot: settings.workspaceRoot } };
+}
+
 /** Keep native foreground mechanics, replacing only the transport workdir. */
 export function guestBashExecutor(Executor, settings, guestWorld = false) {
   return class GuestBashExecutor extends Executor {
@@ -40,7 +51,7 @@ export function guestBashExecutor(Executor, settings, guestWorld = false) {
       if (request.stdin !== undefined || request.env !== undefined) {
         throw unavailable('TRANSPORT', 'stdin and caller environment transport are unsupported');
       }
-      const spec = super.resolve(request);
+      const spec = guestSpec(super.resolve(request), settings);
       validateRequest(['bash', '-c', spec.command], spec.sandboxPolicy, settings, spec.signal);
       if (spec.workdir !== settings.workspaceRoot) {
         throw unavailable('WORKSPACE', 'only the exact guest workdir /sandbox is supported');
@@ -48,6 +59,7 @@ export function guestBashExecutor(Executor, settings, guestWorld = false) {
       return spec;
     }
     async run(spec) {
+      spec = guestSpec(spec, settings);
       validateRequest(['bash', '-c', spec.command], spec.sandboxPolicy, settings, spec.signal);
       if (spec.workdir !== settings.workspaceRoot || spec.stdin !== undefined || spec.env !== undefined) {
         throw unavailable('TRANSPORT', 'unsupported guest workdir, stdin or caller environment');

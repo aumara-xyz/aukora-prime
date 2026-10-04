@@ -34,7 +34,8 @@ function guestEnvironment(input) {
 export function validateGuestPolicy(policy, settings, signal) {
   signal?.throwIfAborted();
   if (!ownObject(policy) || Object.keys(policy).some(key => !['mode', 'workspaceRoot', 'sessionId'].includes(key))
-    || policy.mode !== 'workspace-write' || policy.workspaceRoot !== settings.workspaceRoot
+    || policy.mode !== 'workspace-write' || (policy.workspaceRoot !== settings.workspaceRoot
+      && (settings.hostWorkspaceRoot === undefined || policy.workspaceRoot !== settings.hostWorkspaceRoot))
     || policy.sessionId !== undefined && (!text(policy.sessionId) || !policy.sessionId || policy.sessionId.length > 256)) {
     throw unavailable('POLICY', 'the exact supported guest policy is required');
   }
@@ -91,7 +92,9 @@ export function createGuestExecution(settings, layout) {
     // Consume before validating or starting a carrier. A failed launch cannot replay.
     admissions.delete(spec.argv);
     validateGuestPolicy(policy, settings, spec.signal); validateGuestArgv(spec.argv, settings, paths);
-    if (spec.cwd !== settings.workspaceRoot || !Number.isFinite(spec.graceMs)
+    const sameWorkspace = spec.cwd === settings.workspaceRoot || (settings.hostWorkspaceRoot !== undefined
+      && policy.workspaceRoot === settings.hostWorkspaceRoot && spec.cwd === settings.hostWorkspaceRoot);
+    if (!sameWorkspace || !Number.isFinite(spec.graceMs)
       || spec.graceMs <= 0 || spec.graceMs > 10_000) throw unavailable('WORKSPACE', 'invalid guest launch scope');
     return guestEnvironment(spec.env);
   };
