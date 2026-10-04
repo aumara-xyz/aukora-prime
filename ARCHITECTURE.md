@@ -23,9 +23,9 @@ The repository holds two layers. Keep them apart while reading:
 <!-- BEGIN GENERATED current-revisions -->
 | Identity | Revision / observation | Meaning |
 | --- | --- | --- |
-| Source account | `3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e` | Base reviewed for this documentation snapshot; the review command emits the received HEAD and dirty state. |
-| Public main observed | `3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e`, 2026-10-04T13:45:00Z (origin/main fetch; equals the release commit) | Read/fetch observation, not a deployment proof; main may advance. |
-| Pilot deployment | `3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e`, 2026-10-04T13:41:12Z · **REPORTED** | Operator observations of one Linux pilot. Later docs-only commits on main do not change the runtime/gate identity. No full-containment or whole-product qualification follows. |
+| Source account | `03adf90c40225e823b1bf0282aff1be2728e9f69` | Base reviewed for this documentation snapshot; the review command emits the received HEAD and dirty state. |
+| Public main observed | `03adf90c40225e823b1bf0282aff1be2728e9f69`, 2026-10-04T16:00:00Z (integration tree before this evidence commit; SOURCE, ahead of the deployment) | Read/fetch observation, not a deployment proof; main may advance. |
+| Pilot deployment | `cdfb55ff2ed5d3f4ceb8d6734cc4997241a1f2ff`, 2026-10-04T15:41:11Z · **REPORTED** | INSTALLED = cdfb55f (R2: E-R6 llama pin + OpenViking unit lockdown). SOURCE ONLY, NOT INSTALLED: H owner/capture, E193, D e41017b/206fac9, F 8c02c9c/424fdd5, A 1fdabb9, voice sidecar source; each ships INACTIVE until a later owner-approved release. Operator observations of one Linux pilot; no full-containment or whole-product qualification follows (guest containment at 3ac3509: 34 DENIED / 1 ALLOWED). |
 | Tested revision | Per-check HEAD and file digests from `./security-review` | No current test result is inferred from a commit message or this table. Historical results stay in [evidence history](docs/EVIDENCE-HISTORY.md). |
 <!-- END GENERATED current-revisions -->
 

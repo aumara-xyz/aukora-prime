@@ -1,19 +1,19 @@
 {
   "schema": "aukora-current-evidence/v1",
-  "updated_at": "2026-10-04T13:50:00Z",
+  "updated_at": "2026-10-04T16:00:00Z",
   "revisions": {
-    "source": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
+    "source": "03adf90c40225e823b1bf0282aff1be2728e9f69",
     "main_observed": {
-      "sha": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
-      "at": "2026-10-04T13:45:00Z (origin/main fetch; equals the release commit)"
+      "sha": "03adf90c40225e823b1bf0282aff1be2728e9f69",
+      "at": "2026-10-04T16:00:00Z (integration tree before this evidence commit; SOURCE, ahead of the deployment)"
     },
     "deployment": {
-      "sha": "3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
-      "reported_at": "2026-10-04T13:41:12Z",
-      "basis": "Operator switch readback 13:40-13:41 UTC: owner-approved record 0de39645 installed (gate-owner-review, ledger seq 207), gate package PACKAGE_VERIFIED (77 files, gate-bootstrap byte-identical), release floor OK release-3ac3509 (signer epoch 1, seq 207), selfcheck PASSED, plugin set ENFORCE; /opt/aukora-genesis/src HEAD = 3ac3509a25fbfd03fd50a670f1fcdfef2aa5470e",
-      "approval_ledger_seq": 207,
+      "sha": "cdfb55ff2ed5d3f4ceb8d6734cc4997241a1f2ff",
+      "reported_at": "2026-10-04T15:41:11Z",
+      "basis": "Operator switch readback 15:40-15:41 UTC: owner-approved record 802a88e8 installed (gate-owner-review, ledger seq 228), gate package PACKAGE_VERIFIED (unchanged from 3ac3509), release floor OK release-cdfb55f (signer epoch 1, seq 228), selfcheck PASSED, plugin set ENFORCE, hardened aukora-openviking.service byte-identical to main; /opt/aukora-genesis/src HEAD = cdfb55ff2ed5d3f4ceb8d6734cc4997241a1f2ff",
+      "approval_ledger_seq": 228,
       "gate_public_key_fingerprint": "6cdce2bbeb7b725c",
-      "limit": "Operator observations of one Linux pilot. Later docs-only commits on main do not change the runtime/gate identity. No full-containment or whole-product qualification follows.",
+      "limit": "INSTALLED = cdfb55f (R2: E-R6 llama pin + OpenViking unit lockdown). SOURCE ONLY, NOT INSTALLED: H owner/capture, E193, D e41017b/206fac9, F 8c02c9c/424fdd5, A 1fdabb9, voice sidecar source; each ships INACTIVE until a later owner-approved release. Operator observations of one Linux pilot; no full-containment or whole-product qualification follows (guest containment at 3ac3509: 34 DENIED / 1 ALLOWED).",
       "signer_epoch": 1
     }
   },
