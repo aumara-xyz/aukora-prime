@@ -10,8 +10,10 @@
 #   - aukora-seatbelt (macOS Seatbelt; refuses Linux) and bash-sandbox (the stock `shell` provider) are disabled:
 #     the adapter must be the ONLY `sandbox`, `aukoraConfinement` and `shell` provider and refuses to mount otherwise;
 #   - the adapter is inserted. `hostWorkspaceRoot` is the declared host->guest identity: a session whose cwd is EXACTLY
-#     the process cwd (the same root the base sandbox-policy row uses) runs its bash in the guest /sandbox. The guest
-#     /sandbox is the sandbox's own volume: it does NOT share files with the host workspace.
+#     the process cwd (the same root the base sandbox-policy row uses) runs its bash in the guest /sandbox only when
+#     protected registration and kernel readback prove that exact workspace bind, with a read-only .git submount.
+#     A configured identity alone does not establish a bind or grant host-directory access. The pinned producer
+#     remains unavailable until its workspace replacement and mount identity mapping are qualified.
 # Refused by the adapter: background bash, run_code (needs a guest FD7 control channel), terminals and the web terminal
 # (need a guest PTY), any mode but workspace-write, any workdir but the session root, stdin and caller environment.
 - id: aukora-seatbelt

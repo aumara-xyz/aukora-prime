@@ -33,11 +33,39 @@ PROCESS_KEYS = frozenset(("pid", "start_time", "uid", "uid_map", "gid_map", "cap
 MOUNT_KEYS = frozenset(("Type", "Name", "Source", "Destination", "Driver", "Mode", "Options", "RW", "Propagation"))
 MOUNT_REQUIRED = frozenset(("Type", "Source", "Destination", "RW"))
 MOUNT_ROLES = {
-    "/sandbox": ("volume", True),
+    "/sandbox": ("bind", True),
+    "/sandbox/.git": ("bind", False),
     "/.openshell/channel": ("volume", True),
     "/opt/openshell/bin/openshell-sandbox": ("bind", False),
 }
 SUPERVISOR_MOUNT_ROLES = {"/.openshell/channel": ("volume", False)}
+MOUNTINFO_KEYS = frozenset(("mount_id", "parent_id", "device", "root", "mountpoint", "options", "optional", "filesystem", "source", "super_options"))
+WORKSPACE_BINDING_KEYS = frozenset(("workspace_source", "git_source", "workspace_device", "workspace_inode", "git_device", "git_inode", "mount_namespace"))
+# Proposed required infrastructure shapes, not a qualified runtime baseline.
+# A new mountpoint/filesystem or unproven origin must refuse qualification.
+INFRASTRUCTURE_MOUNTS = {
+    "/proc": ("proc", False),
+    "/dev": ("tmpfs", True),
+    "/dev/pts": ("devpts", True),
+    "/dev/shm": ("tmpfs", True),
+    "/dev/mqueue": ("mqueue", True),
+    "/sys": ("sysfs", False),
+    "/sys/fs/cgroup": ("cgroup2", False),
+    "/proc/bus": ("proc", False),
+    "/proc/fs": ("proc", False),
+    "/proc/irq": ("proc", False),
+    "/proc/sys": ("proc", False),
+    "/proc/sysrq-trigger": ("proc", False),
+    "/proc/acpi": ("tmpfs", False),
+    "/proc/scsi": ("tmpfs", False),
+    "/sys/firmware": ("tmpfs", False),
+    "/sys/devices/virtual/powercap": ("tmpfs", False),
+    "/proc/kcore": ("tmpfs", True),
+    "/proc/keys": ("tmpfs", True),
+    "/proc/timer_list": ("tmpfs", True),
+    "/proc/latency_stats": ("tmpfs", True),
+    "/proc/sched_debug": ("tmpfs", True),
+}
 
 
 def _fail(message):
@@ -273,9 +301,13 @@ def _profile(profile):
     if profile["uid_ranges"] != [APPROVED_HOST_RANGE] or profile["gid_ranges"] != [APPROVED_HOST_RANGE]:
         _fail("subordinate identity ranges differ from approved deployment")
     expected = _mounts(profile["expected_mounts"])
+    if expected["/sandbox/.git"]["Source"] != expected["/sandbox"]["Source"] + "/.git":
+        _fail("git source is not the direct workspace metadata directory")
     supervisor = _mounts(profile["expected_supervisor_mounts"], SUPERVISOR_MOUNT_ROLES)
     for key in ("expected_workload_config", "expected_supervisor_config"):
         _config(profile[key])
+    if profile["expected_workload_config"]["ReadonlyRootfs"] is not True or "/tmp" not in profile["expected_workload_config"]["Tmpfs"]:
+        _fail("workload needs a read-only image and a private tmpfs")
     channel = expected["/.openshell/channel"]
     supervisor_channel = supervisor["/.openshell/channel"]
     if set(channel) != set(supervisor_channel) or any(
@@ -323,6 +355,178 @@ def _readback_mounts(mounts):
 
 def _mount_digest(mounts):
     return _canonical_digest([mounts[path] for path in sorted(mounts)])
+
+
+def _decimal(value, positive=False):
+    if type(value) is not str or re.fullmatch(r"(?:0|[1-9][0-9]*)", value) is None:
+        _fail("canonical decimal string required")
+    number = int(value)
+    if number < (1 if positive else 0) or number >= 1 << 64:
+        _fail("decimal identity outside supported range")
+    return number
+
+
+def _device(value):
+    if type(value) is not str or re.fullmatch(r"(?:0|[1-9][0-9]*):(?:0|[1-9][0-9]*)", value) is None:
+        _fail("kernel device identity unavailable")
+    if any(int(part) > UINT32_MAX for part in value.split(":")):
+        _fail("kernel device identity overflow")
+    return value
+
+
+def _binding(binding):
+    _object(binding, WORKSPACE_BINDING_KEYS, WORKSPACE_BINDING_KEYS)
+    source = _path(binding["workspace_source"])
+    if source == "/" or _path(binding["git_source"]) != source + "/.git":
+        _fail("workspace metadata source mismatch")
+    for key in ("workspace_device", "git_device"):
+        _device(binding[key])
+    for key in ("workspace_inode", "git_inode"):
+        _decimal(binding[key], True)
+    if type(binding["mount_namespace"]) is not str or re.fullmatch(r"mnt:\[[1-9][0-9]*\]", binding["mount_namespace"]) is None:
+        _fail("kernel mount namespace unavailable")
+    _decimal(binding["mount_namespace"][5:-1], True)
+    if (binding["workspace_device"], binding["workspace_inode"]) == (binding["git_device"], binding["git_inode"]):
+        _fail("workspace and metadata directory identities alias")
+
+
+def parse_mountinfo(raw):
+    """Preserve kernel table order, IDs/topology and all ten mount fields."""
+    _text(raw, True)
+    if len(raw.encode("utf-8")) > MAX_READ_BYTES:
+        _fail("kernel mount table byte limit")
+    def unescape(value):
+        if re.search(r"\\(?!040|011|012|134)", value):
+            _fail("unsupported kernel mount escape")
+        return re.sub(r"\\(040|011|012|134)", lambda match: chr(int(match[1], 8)), value)
+    rows = []
+    for line in raw.splitlines():
+        if line.count(" - ") != 1 or len(rows) >= 512:
+            _fail("kernel mount table malformed or truncated")
+        left, right = line.split(" - ", 1)
+        fields, tail = left.split(), right.split()
+        if len(fields) < 6 or len(tail) != 3:
+            _fail("kernel mount table malformed")
+        rows.append({"mount_id": fields[0], "parent_id": fields[1], "device": fields[2],
+                     "root": unescape(fields[3]), "mountpoint": unescape(fields[4]),
+                     "options": sorted(fields[5].split(",")), "optional": sorted(fields[6:]),
+                     "filesystem": tail[0], "source": unescape(tail[1]),
+                     "super_options": sorted(tail[2].split(","))})
+    if not rows:
+        _fail("kernel mount table empty")
+    return rows
+
+
+def validate_mountinfo(rows, binding, mounts, *, host_tmp_device=None):
+    """Refuse unknown mounts and verify effective image/git/tmp confinement."""
+    _binding(binding)
+    expected = _mounts(mounts)
+    if (expected["/sandbox"]["Source"] != binding["workspace_source"] or
+            expected["/sandbox/.git"]["Source"] != binding["git_source"]):
+        _fail("kernel workspace binding differs from mount source inventory")
+    if type(rows) is not list or not rows or len(rows) > 512:
+        _fail("kernel mount table unavailable")
+    by_path, by_id = {}, {}
+    for row in rows:
+        _object(row, MOUNTINFO_KEYS, MOUNTINFO_KEYS)
+        mount_id, parent_id = _decimal(row["mount_id"], True), _decimal(row["parent_id"])
+        if mount_id > UINT32_MAX or parent_id > UINT32_MAX or mount_id == parent_id:
+            _fail("invalid kernel mount topology")
+        _device(row["device"])
+        _path(row["root"])
+        path = _path(row["mountpoint"])
+        if path in by_path or row["mount_id"] in by_id:
+            _fail("duplicate kernel mount identity or mountpoint")
+        for key in ("filesystem", "source"):
+            _text(row[key], True)
+        for key in ("options", "optional", "super_options"):
+            value = row[key]
+            if type(value) is not list or len(value) > 256:
+                _fail("kernel mount options unavailable")
+            for option in value:
+                _text(option, True)
+            if value != sorted(value) or len(set(value)) != len(value):
+                _fail("ambiguous kernel mount option inventory")
+        if len(set(row["options"]) & {"ro", "rw"}) != 1 or len(set(row["super_options"]) & {"ro", "rw"}) != 1:
+            _fail("kernel mount access flags unavailable")
+        by_path[path], by_id[row["mount_id"]] = row, row
+    required = {"/", "/tmp", "/proc", *MOUNT_ROLES}
+    if not required <= set(by_path):
+        _fail("required kernel mount missing")
+    root = by_path["/"]
+    if root["filesystem"] not in ("overlay", "fuse.overlayfs", "fuse-overlayfs") or "ro" not in root["options"]:
+        _fail("guest image root is not a supported read-only image mount")
+    for row in rows:
+        visited = set()
+        current = row
+        while current["parent_id"] in by_id:
+            if current["mount_id"] in visited:
+                _fail("cyclic kernel mount topology")
+            visited.add(current["mount_id"])
+            current = by_id[current["parent_id"]]
+        if current is not root:
+            _fail("kernel mount is outside the guest image hierarchy")
+        path = row["mountpoint"]
+        writable = "rw" in row["options"]
+        if path == "/":
+            continue
+        ancestors = [point for point in by_path if point == "/" or path.startswith(point + "/")]
+        parent = by_path[max(ancestors, key=len)]
+        if row["parent_id"] != parent["mount_id"]:
+            _fail("kernel parent is not the nearest visible ancestor mount")
+        if path in expected:
+            if writable is not expected[path]["RW"]:
+                _fail("effective kernel mount access differs from Podman inventory")
+            if row["optional"]:
+                _fail("payload mount is not private")
+            if path == "/sandbox" and row["device"] != binding["workspace_device"]:
+                _fail("workspace kernel mount device mismatch")
+            if path == "/sandbox/.git" and row["device"] != binding["git_device"]:
+                _fail("git kernel mount device mismatch")
+            continue
+        if path == "/tmp":
+            if not writable or row["filesystem"] != "tmpfs" or row["root"] != "/" or row["source"] != "tmpfs" or row["optional"]:
+                _fail("guest temporary directory is not a private writable tmpfs")
+            if host_tmp_device is None or row["device"] == _device(host_tmp_device):
+                _fail("guest temporary mount aliases the host temporary filesystem")
+            continue
+        if path == "/run/openshell-supervisor-ca":
+            if (row["filesystem"] != "tmpfs" or row["root"] != "/" or row["source"] != "tmpfs" or
+                    not writable or row["optional"] or row["device"] in {
+                        binding["workspace_device"], binding["git_device"], root["device"], by_path["/tmp"]["device"]} or
+                    ("/dev" in by_path and row["device"] == by_path["/dev"]["device"])):
+                _fail("supervisor CA mount differs from the required tmpfs shape")
+            continue
+        role = INFRASTRUCTURE_MOUNTS.get(path)
+        if role is None or row["filesystem"] != role[0] or writable is not role[1]:
+            _fail("unknown or unapproved kernel mount")
+        if row["filesystem"] == "tmpfs":
+            masked = path.startswith("/proc/") and role[1] is True
+            if row["source"] != "tmpfs" or row["root"] != ("/null" if masked else "/") or row["optional"]:
+                _fail("infrastructure tmpfs identity is not an approved shape")
+            if masked and ("/dev" not in by_path or row["device"] != by_path["/dev"]["device"]):
+                _fail("masked proc device does not come from guest dev tmpfs")
+            if not masked and row["device"] in {binding["workspace_device"], binding["git_device"]}:
+                _fail("infrastructure tmpfs aliases a payload filesystem")
+        if row["filesystem"] == "proc":
+            expected_root = "/" if path == "/proc" else path[len("/proc"):]
+            if row["source"] != "proc" or row["root"] != expected_root:
+                _fail("proc subtree identity mismatch")
+            if path != "/proc" and ("/proc" not in by_path or row["device"] != by_path["/proc"]["device"]):
+                _fail("proc subtree differs from the proved guest proc mount")
+    workspace, git = by_path["/sandbox"], by_path["/sandbox/.git"]
+    if git["mount_id"] == workspace["mount_id"] or git["parent_id"] != workspace["mount_id"]:
+        _fail("git is not a distinct child kernel mount")
+    distinct = {binding["workspace_device"], binding["git_device"], by_path["/"]["device"]}
+    if by_path["/tmp"]["device"] in distinct:
+        _fail("scratch tmpfs aliases a payload filesystem")
+    if "/dev" in by_path:
+        device = by_path["/dev"]["device"]
+        if device in distinct or device == by_path["/tmp"]["device"]:
+            _fail("dev tmpfs aliases a payload/scratch filesystem")
+        for path in ("/dev/shm", "/run/openshell-supervisor-ca"):
+            if path in by_path and by_path[path]["device"] in distinct | {device, by_path["/tmp"]["device"]}:
+                _fail("infrastructure tmpfs aliases another filesystem")
 
 
 def validate_snapshot(container, process, profile, *, workload_binary_digest=None):
@@ -439,6 +643,8 @@ def _generation_schema(schema):
         _fail("unsupported generation schema")
     for key in ("expected_workload_config", "expected_supervisor_config"):
         _config(schema[key])
+    if schema["expected_workload_config"]["ReadonlyRootfs"] is not True or "/tmp" not in schema["expected_workload_config"]["Tmpfs"]:
+        _fail("workload needs a read-only image and a private tmpfs")
     for key in ("uid_ranges", "gid_ranges"):
         _ranges(schema[key])
         if schema[key] != [APPROVED_HOST_RANGE]:
@@ -450,7 +656,7 @@ def _generation_schema(schema):
             _constraints(schema["supervisor_mount_constraints"], SUPERVISOR_MOUNT_ROLES))
 
 
-def generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pin, schema):
+def generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pin, schema, *, trusted_workspace_source):
     """Propose fresh identities while retaining every protected invariant.
 
     This pure derivation grants no admission. The CLI separately requires fresh
@@ -463,7 +669,12 @@ def generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pi
     # Validate types before equality so bool/int aliases cannot pass identity data.
     _ranges(uid_ranges)
     _ranges(gid_ranges)
+    source = _path(trusted_workspace_source)
+    if source == "/":
+        _fail("workspace root cannot be the host root")
     actual = _mounts(_object(workload).get("Mounts"))
+    if actual["/sandbox"]["Source"] != source or actual["/sandbox/.git"]["Source"] != source + "/.git":
+        _fail("proposed workspace does not match trusted registration")
     supervisor_actual = _mounts(_object(supervisor).get("Mounts"), SUPERVISOR_MOUNT_ROLES)
     for mounts, expected in ((actual, constraints), (supervisor_actual, supervisor_constraints)):
         for destination, row in mounts.items():
@@ -486,9 +697,11 @@ def generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pi
 PROFILE_PATH = "/etc/aukora-boundary-gate/openshell-inventory.json"
 PIN_PATH = "/usr/local/lib/aukora-boundary/openshell/workload-pin.json"
 GENERATION_SCHEMA_PATH = "/usr/local/lib/aukora-boundary/openshell/inventory-generation-schema.json"
+WORKSPACE_REGISTRATION_PATH = "/etc/aukora-boundary-gate/openshell-workspace.json"
 APPROVED_BINARY_DIGEST = "sha256:5b2178f3b64a6c96eff9ed61bd7feeada4b4a4b3c68f3664e3b8f4f2b264a9b1"
 MAX_QUERY_BYTES = 1024 * 1024
 MAX_READ_BYTES = 256 * 1024
+MAX_READBACK_BYTES = 64 * 1024
 MAX_BINARY_BYTES = 256 * 1024 * 1024
 QUERY_SECONDS = 4.0
 
@@ -563,6 +776,28 @@ def read_profile():
     return profile
 
 
+def read_workspace_registration():
+    """Read only the root-reviewed registration, never a model/env path choice."""
+    registration = strict_json(_read_protected(WORKSPACE_REGISTRATION_PATH))
+    keys = frozenset(("version", "workspace_id", "workspace_source", "git_source"))
+    _object(registration, keys, keys)
+    if (type(registration["version"]) is not int or registration["version"] != 1 or
+            type(registration["workspace_id"]) is not str or
+            re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", registration["workspace_id"]) is None):
+        _fail("workspace registration identity unavailable")
+    source = _path(registration["workspace_source"])
+    if source == "/" or _path(registration["git_source"]) != source + "/.git":
+        _fail("workspace registration metadata source mismatch")
+    return registration
+
+
+def _registered_sources(profile, registration):
+    mounts = _mounts(profile["expected_mounts"])
+    if (mounts["/sandbox"]["Source"] != registration["workspace_source"] or
+            mounts["/sandbox/.git"]["Source"] != registration["git_source"]):
+        _fail("deployment profile differs from reviewed workspace registration")
+
+
 def read_pin():
     pin = strict_json(_read_protected(PIN_PATH))
     keys = frozenset(("version", "workload_binary_digest"))
@@ -604,13 +839,14 @@ def read_generation_inputs():
     _generation_schema(schema)
     if uid_ranges != schema["uid_ranges"] or gid_ranges != schema["gid_ranges"]:
         _fail("protected generation identity inputs disagree")
-    return pin, uid_ranges, gid_ranges, owner.pw_uid, schema
+    registration = read_workspace_registration()
+    return pin, uid_ranges, gid_ranges, owner.pw_uid, schema, registration
 
 
 def write_candidate(path, profile):
     """Publish one private proposal exclusively; never install or overwrite it."""
     _path(path)
-    if path in (PROFILE_PATH, PIN_PATH, GENERATION_SCHEMA_PATH):
+    if path in (PROFILE_PATH, PIN_PATH, GENERATION_SCHEMA_PATH, WORKSPACE_REGISTRATION_PATH):
         _fail("candidate output cannot be an installed authority input")
     _profile(profile)
     raw = json.dumps(profile, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -757,6 +993,201 @@ def proc_read(pid, leaf):
     return raw.decode("utf-8", "strict")
 
 
+def _open_directory(path):
+    """Anchor every component; workspace/git symlinks and gitdir files refuse."""
+    _path(path)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open("/", flags)
+    try:
+        for component in path.split("/")[1:]:
+            if not component:
+                continue
+            child = os.open(component, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        result, fd = fd, None
+        return result
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _directory_identity(fd):
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode):
+        _fail("workspace source is not a directory")
+    device = _device(str(os.major(info.st_dev)) + ":" + str(os.minor(info.st_dev)))
+    inode = str(info.st_ino)
+    _decimal(inode, True)
+    return device, inode
+
+
+def _source_directory_identities(source):
+    workspace = _open_directory(source)
+    git = None
+    try:
+        git = os.open(".git", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                      dir_fd=workspace)
+        return _directory_identity(workspace), _directory_identity(git)
+    finally:
+        if git is not None:
+            os.close(git)
+        os.close(workspace)
+
+
+def _kernel_directory_identities(pid):
+    """Follow only the deliberate kernel root link of the already-bound PID."""
+    proc = _open_directory("/proc/" + str(_uint(pid, True)))
+    root = workspace = git = None
+    try:
+        # /proc/<pid>/root is the kernel namespace reference, not an input symlink.
+        # There is no sudo/guest-exec fallback if observing it lacks authority.
+        root = os.open("root", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=proc)
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        workspace = os.open("sandbox", flags, dir_fd=root)
+        git = os.open(".git", flags, dir_fd=workspace)
+        return _directory_identity(workspace), _directory_identity(git)
+    finally:
+        for fd in (git, workspace, root, proc):
+            if fd is not None:
+                os.close(fd)
+
+
+def _mount_namespace(pid):
+    value = os.readlink("/proc/" + str(_uint(pid, True)) + "/ns/mnt")
+    if re.fullmatch(r"mnt:\[[1-9][0-9]*\]", value) is None:
+        _fail("kernel mount namespace unavailable")
+    return value
+
+
+def _read_proc_at(directory, leaf):
+    """Read a bounded, fixed kernel metadata leaf through a retained directory."""
+    if leaf not in ("stat", "status"):
+        _fail("unsupported anchored process observation")
+    fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+    try:
+        return _read_fd(fd, MAX_READ_BYTES).decode("utf-8", "strict")
+    finally:
+        os.close(fd)
+
+
+def _stat_identity(raw):
+    # The command name can contain spaces and closing parentheses; the last
+    # closing delimiter separates it from the fixed kernel numeric fields.
+    if type(raw) is not str or " (" not in raw or ") " not in raw:
+        _fail("process stat identity unavailable")
+    pid_text = raw.split(" (", 1)[0]
+    if re.fullmatch(r"[1-9][0-9]*", pid_text) is None:
+        _fail("process stat identity unavailable")
+    pid = _uint(int(pid_text), True)
+    fields = raw.rsplit(") ", 1)[1].split()
+    if len(fields) < 20 or re.fullmatch(r"[1-9][0-9]*", fields[19]) is None:
+        _fail("process stat start time unavailable")
+    started = int(fields[19])
+    if started > SAFE_INTEGER_MAX:
+        _fail("process stat start time unavailable")
+    return pid, started
+
+
+def _nspid(raw):
+    values = []
+    for line in raw.splitlines():
+        key, separator, value = line.partition(":")
+        if separator and key == "NSpid":
+            values.append(value.split())
+    if len(values) != 1 or not 1 <= len(values[0]) <= 128:
+        _fail("process PID namespace identity unavailable")
+    if any(re.fullmatch(r"[1-9][0-9]*", value) is None for value in values[0]):
+        _fail("process PID namespace identity unavailable")
+    return tuple(_uint(int(value), True) for value in values[0])
+
+
+def _pid_namespace(value):
+    if type(value) is not str or re.fullmatch(r"pid:\[[1-9][0-9]*\]", value) is None:
+        _fail("kernel PID namespace unavailable")
+    _decimal(value[5:-1], True)
+    return value
+
+
+def prove_private_proc(pid, expected_start):
+    """Bind the mounted guest procfs to this live PID's private namespace.
+
+    The root and namespace links below are explicit kernel references. Every
+    ordinary directory and metadata leaf remains no-follow. Missing read
+    authority refuses admission; no guest command or privilege fallback exists.
+    """
+    pid = _uint(pid, True)
+    if type(expected_start) is not int or not 0 < expected_start <= SAFE_INTEGER_MAX:
+        _fail("process start time unavailable")
+    host = _open_directory("/proc/" + str(pid))
+    root = guest_proc = guest_one = host_ns = guest_ns = None
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+        root = os.open("root", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=host)
+        guest_proc = os.open("proc", flags, dir_fd=root)
+        guest_one = os.open("1", flags, dir_fd=guest_proc)
+        host_ns = os.open("ns", flags, dir_fd=host)
+        guest_ns = os.open("ns", flags, dir_fd=guest_one)
+
+        def snapshot():
+            bound_namespace = _pid_namespace(os.readlink("pid", dir_fd=host_ns))
+            guest_namespace = _pid_namespace(os.readlink("pid", dir_fd=guest_ns))
+            collector_namespace = _pid_namespace(os.readlink("/proc/self/ns/pid"))
+            host_identity = _stat_identity(_read_proc_at(host, "stat"))
+            guest_identity = _stat_identity(_read_proc_at(guest_one, "stat"))
+            namespace_pids = _nspid(_read_proc_at(host, "status"))
+            if (bound_namespace == collector_namespace or guest_namespace != bound_namespace or
+                    host_identity != (pid, expected_start) or guest_identity != (1, expected_start) or
+                    namespace_pids[0] != pid or namespace_pids[-1] != 1):
+                _fail("mounted procfs does not belong to the workload PID namespace")
+            return bound_namespace, guest_namespace, collector_namespace, host_identity, guest_identity, namespace_pids
+
+        initial = snapshot()
+        if snapshot() != initial:
+            _fail("mounted procfs identity changed during observation")
+    finally:
+        for fd in (guest_ns, host_ns, guest_one, guest_proc, root, host):
+            if fd is not None:
+                os.close(fd)
+
+
+def observe_workspace(container, profile, deadline):
+    """Fresh kernel mount table and anchored source/destination inode binding."""
+    if time.monotonic() >= deadline:
+        _fail("workspace observation deadline")
+    mounts = _mounts(profile["expected_mounts"])
+    source, git_source = mounts["/sandbox"]["Source"], mounts["/sandbox/.git"]["Source"]
+    if git_source != source + "/.git":
+        _fail("workspace metadata source mismatch")
+    pid = _uint(_object(container.get("State")).get("Pid"), True)
+    before, namespace = start_time(pid), _mount_namespace(pid)
+    if namespace == os.readlink("/proc/self/ns/mnt"):
+        _fail("workload uses the host mount namespace")
+    prove_private_proc(pid, before)
+    host_workspace, host_git = _source_directory_identities(source)
+    if _kernel_directory_identities(pid) != (host_workspace, host_git):
+        _fail("mounted workspace does not match registered source inodes")
+    rows = parse_mountinfo(proc_read(pid, "mountinfo"))
+    binding = {"workspace_source": source, "git_source": git_source,
+               "workspace_device": host_workspace[0], "workspace_inode": host_workspace[1],
+               "git_device": host_git[0], "git_inode": host_git[1], "mount_namespace": namespace}
+    temporary = _open_directory("/tmp")
+    try:
+        host_tmp_device = _directory_identity(temporary)[0]
+    finally:
+        os.close(temporary)
+    validate_mountinfo(rows, binding, container["Mounts"], host_tmp_device=host_tmp_device)
+    if (before != start_time(pid) or namespace != _mount_namespace(pid) or
+            rows != parse_mountinfo(proc_read(pid, "mountinfo")) or
+            (host_workspace, host_git) != _source_directory_identities(source) or
+            (host_workspace, host_git) != _kernel_directory_identities(pid)):
+        _fail("workspace/mount observation changed")
+    prove_private_proc(pid, before)
+    if time.monotonic() >= deadline:
+        _fail("workspace observation deadline")
+    return {"mountinfo": rows, "mountinfo_digest": _canonical_digest(rows), "workspace_binding": binding}
+
+
 def start_time(pid):
     raw = proc_read(pid, "stat")
     fields = raw.rsplit(") ", 1)[1].split()
@@ -820,7 +1251,8 @@ def admission(sb, mode):
     if sb != "auma-ws" or mode not in ("check", "print", "id", "policy", "profile", "bootstrap", "generate"):
         _fail("unsupported admission arguments")
     if mode == "profile":
-        read_profile()
+        profile = read_profile()
+        _registered_sources(profile, read_workspace_registration())
         return None
     if mode == "bootstrap":
         read_generation_inputs()
@@ -844,6 +1276,9 @@ def admission(sb, mode):
         return None
     generation_inputs = read_generation_inputs() if mode == "generate" else None
     profile = None if mode == "generate" else read_profile()
+    registration = generation_inputs[-1] if mode == "generate" else read_workspace_registration()
+    if profile is not None:
+        _registered_sources(profile, registration)
     ver = query(["/usr/bin/openshell", "--version"], deadline).split()
     s = strict_json(query(["/usr/bin/openshell", "sandbox", "get", sb, "-o", "json"], deadline))
     sid = s.get("id")
@@ -855,13 +1290,16 @@ def admission(sb, mode):
         _fail("running container identity unavailable")
     workload, supervisor = _inspect(names, deadline)
     if mode == "generate":
-        pin, uid_ranges, gid_ranges, owner_uid, schema = generation_inputs
-        profile = generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pin, schema)
+        pin, uid_ranges, gid_ranges, owner_uid, schema, registration = generation_inputs
+        profile = generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pin, schema,
+                                   trusted_workspace_source=registration["workspace_source"])
+    _registered_sources(profile, registration)
     process, supervisor_process = observe_process(workload, workload=True), observe_process(supervisor)
     source = _mounts(workload["Mounts"])["/opt/openshell/bin/openshell-sandbox"]["Source"]
     observed_digest = binary_digest(source, deadline, process["pid"])
     observed = validate_snapshot(workload, process, profile, workload_binary_digest=observed_digest)
     observed.update(validate_supervisor(supervisor, supervisor_process, profile))
+    observed.update(observe_workspace(workload, profile, deadline))
     after = _inspect(names, deadline)
     # Reject replacement/configuration drift and PID reuse across observation.
     for initial, final, proc in zip((workload, supervisor), after, (process, supervisor_process)):
@@ -875,6 +1313,8 @@ def admission(sb, mode):
             _fail("generation custody inputs changed during observation")
     elif read_profile() != profile:
         _fail("deployment profile changed during observation")
+    if read_workspace_registration() != registration:
+        _fail("workspace registration changed during observation")
     cond = {}
     for condition in s.get("conditions", []):
         key = condition.get("type")
@@ -919,10 +1359,15 @@ def admission(sb, mode):
         if (_canonical_digest(stable(initial)) != _canonical_digest(stable(final)) or
                 _canonical_digest(fresh_process) != _canonical_digest(old_process)):
             _fail("final workload observation changed")
-    envelope = {"version": 2, "openshell_version": "0.1.2", "sandbox": sb, "state": "Ready",
+    fresh_workspace = observe_workspace(final_containers[0], profile, deadline)
+    if any(fresh_workspace[key] != observed[key] for key in fresh_workspace):
+        _fail("final workspace binding changed")
+    if read_workspace_registration() != registration:
+        _fail("workspace registration changed during final observation")
+    envelope = {"version": 3, "openshell_version": "0.1.2", "sandbox": sb, "state": "Ready",
                 "instance_id": generation, "policy_revision": revision, "applied_revision": revision,
                 "workspace_root": "/sandbox", "network_mode": "none", "policy": pol, **observed}
-    if len(json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode()) > 16384:
+    if len(json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode()) > MAX_READBACK_BYTES:
         _fail("admission readback byte limit")
     if time.monotonic() >= deadline:
         _fail("admission deadline")
@@ -932,6 +1377,12 @@ def admission(sb, mode):
         if time.monotonic() >= deadline:
             _fail("generation deadline")
         return profile
+    if read_profile() != profile:
+        _fail("deployment profile changed during final observation")
+    if read_workspace_registration() != registration:
+        _fail("workspace registration changed during final observation")
+    if time.monotonic() >= deadline:
+        _fail("admission deadline")
     return envelope
 
 

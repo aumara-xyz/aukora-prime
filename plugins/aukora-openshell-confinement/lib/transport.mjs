@@ -5,6 +5,11 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 export const GUEST_WORKSPACE = '/sandbox';
 export const MAX_COMMAND_BYTES = 256 * 1024;
+export const CONFINEMENT_INFO_VERSION = 3;
+export const CONFINEMENT_INFO_KEYS = Object.freeze(['version', 'openshell_version', 'sandbox', 'state',
+  'instance_id', 'policy_revision', 'applied_revision', 'workspace_root', 'network_mode', 'policy',
+  'mount_inventory', 'inventory_digest', 'profile_digest', 'isolation', 'supervisor_inventory',
+  'supervisor_inventory_digest', 'supervisor_isolation', 'mountinfo', 'mountinfo_digest', 'workspace_binding']);
 const WRITABLE_ROOTS = Object.freeze(['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx']);
 const READ_ONLY_ROOTS = Object.freeze(['/bin', '/usr', '/lib', '/lib64', '/etc', '/proc', '/dev/urandom']);
 const MAX_INFO_BYTES = 64 * 1024;
@@ -27,9 +32,8 @@ export function readSettings(input = {}) {
   }
   const workspaceRoot = input.workspaceRoot ?? GUEST_WORKSPACE;
   const timeoutSeconds = input.timeoutSeconds ?? 60;
-  // EXPLICIT host->guest identity (Grok's join, 2026-10-04): a session whose immutable cwd is EXACTLY this host path
-  // has its bash commands run in the guest /sandbox. It is a declared mapping, never inferred, and it does NOT mean
-  // the two directories share files: /sandbox is the OpenShell guest's own workspace volume.
+  // The trusted session workspace must match the protected wrapper's observed
+  // /sandbox bind source. A configured name alone is not a mount or its proof.
   const hostWorkspaceRoot = input.hostWorkspaceRoot;
   if (hostWorkspaceRoot !== undefined && (!text(hostWorkspaceRoot) || !hostWorkspaceRoot.startsWith('/') ||
       hostWorkspaceRoot === '/' || hostWorkspaceRoot.length > 1024 || hostWorkspaceRoot.endsWith('/') ||
@@ -120,6 +124,166 @@ function canonicalJson(value) {
 
 function inventoryDigest(value) {
   return 'sha256:' + createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex');
+}
+
+export const MOUNTINFO_KEYS = Object.freeze(['mount_id', 'parent_id', 'device', 'root', 'mountpoint',
+  'options', 'optional', 'filesystem', 'source', 'super_options']);
+export const WORKSPACE_BINDING_KEYS = Object.freeze(['workspace_source', 'git_source', 'workspace_device',
+  'workspace_inode', 'git_device', 'git_inode', 'mount_namespace']);
+// Keep these proposed required infrastructure shapes aligned with sandbox-inventory.py.
+// Actual runtime sources still require qualification by the protected collector;
+// an unlisted mount, including a second writable workspace, is unavailable.
+const INFRASTRUCTURE_MOUNTS = Object.freeze({
+  '/proc': ['proc', false],
+  '/dev': ['tmpfs', true],
+  '/dev/pts': ['devpts', true],
+  '/dev/shm': ['tmpfs', true],
+  '/dev/mqueue': ['mqueue', true],
+  '/sys': ['sysfs', false],
+  '/sys/fs/cgroup': ['cgroup2', false],
+  '/proc/bus': ['proc', false],
+  '/proc/fs': ['proc', false],
+  '/proc/irq': ['proc', false],
+  '/proc/sys': ['proc', false],
+  '/proc/sysrq-trigger': ['proc', false],
+  '/proc/acpi': ['tmpfs', false],
+  '/proc/scsi': ['tmpfs', false],
+  '/sys/firmware': ['tmpfs', false],
+  '/sys/devices/virtual/powercap': ['tmpfs', false],
+  '/proc/kcore': ['tmpfs', true],
+  '/proc/keys': ['tmpfs', true],
+  '/proc/timer_list': ['tmpfs', true],
+  '/proc/latency_stats': ['tmpfs', true],
+  '/proc/sched_debug': ['tmpfs', true],
+});
+const MASKED_PROC_FILES = new Set(['/proc/kcore', '/proc/keys', '/proc/timer_list',
+  '/proc/latency_stats', '/proc/sched_debug']);
+
+function decimal(value, positive, ceiling) {
+  return typeof value === 'string' && /^(?:0|[1-9][0-9]*)(?![\s\S])/.test(value) &&
+    value.length <= 20 && BigInt(value) >= (positive ? 1n : 0n) && BigInt(value) < ceiling;
+}
+
+function device(value) {
+  return typeof value === 'string' && /^(?:0|[1-9][0-9]*):(?:0|[1-9][0-9]*)(?![\s\S])/.test(value) &&
+    value.split(':').every(part => decimal(part, false, 1n << 32n));
+}
+
+function workspaceBinding(value) {
+  return closed(value, WORKSPACE_BINDING_KEYS) &&
+    absolutePath(value.workspace_source) && value.workspace_source !== '/' &&
+    absolutePath(value.git_source) && value.git_source === value.workspace_source + '/.git' &&
+    device(value.workspace_device) && device(value.git_device) &&
+    decimal(value.workspace_inode, true, 1n << 64n) && decimal(value.git_inode, true, 1n << 64n) &&
+    typeof value.mount_namespace === 'string' && /^mnt:\[[1-9][0-9]*\](?![\s\S])/.test(value.mount_namespace) &&
+    decimal(value.mount_namespace.slice(5, -1), true, 1n << 64n) &&
+    (value.workspace_device !== value.git_device || value.workspace_inode !== value.git_inode);
+}
+
+function sortedOptions(value) {
+  // UTF-8 lexical order matches the Python producer's Unicode codepoint order.
+  return Array.isArray(value) && value.length <= 256 &&
+    Array.from(value).every(option => text(option) && option.length > 0) && new Set(value).size === value.length &&
+    value.every((option, index) => index === 0 ||
+      Buffer.compare(Buffer.from(value[index - 1], 'utf8'), Buffer.from(option, 'utf8')) < 0);
+}
+
+function kernelMounts(rows, binding, mounts, claimedDigest) {
+  if (!workspaceBinding(binding) || !Array.isArray(rows) || rows.length < 1 || rows.length > 512 ||
+      !digest(claimedDigest) || inventoryDigest(rows) !== claimedDigest) return false;
+  const byPath = new Map();
+  const byId = new Map();
+  for (const row of rows) {
+    if (!closed(row, MOUNTINFO_KEYS) || !decimal(row.mount_id, true, 1n << 32n) ||
+        !decimal(row.parent_id, false, 1n << 32n) || row.mount_id === row.parent_id ||
+        !device(row.device) || !absolutePath(row.root) || !absolutePath(row.mountpoint) ||
+        byPath.has(row.mountpoint) || byId.has(row.mount_id) ||
+        !text(row.filesystem) || row.filesystem.length === 0 || !text(row.source) || row.source.length === 0 ||
+        !['options', 'optional', 'super_options'].every(key => sortedOptions(row[key])) ||
+        !['options', 'super_options'].every(key =>
+          row[key].includes('ro') !== row[key].includes('rw'))) return false;
+    byPath.set(row.mountpoint, row);
+    byId.set(row.mount_id, row);
+  }
+  const expected = new Map(mounts.map(mount => [mount.Destination, mount]));
+  const root = byPath.get('/');
+  if (!root || !['overlay', 'fuse.overlayfs', 'fuse-overlayfs'].includes(root.filesystem) ||
+      !root.options.includes('ro') || !byPath.has('/tmp') || !byPath.has('/proc') ||
+      mounts.some(mount => !byPath.has(mount.Destination))) return false;
+  for (const row of rows) {
+    const visited = new Set();
+    let current = row;
+    while (byId.has(current.parent_id)) {
+      if (visited.has(current.mount_id)) return false;
+      visited.add(current.mount_id);
+      current = byId.get(current.parent_id);
+    }
+    if (current !== root) return false;
+    const path = row.mountpoint;
+    const writable = row.options.includes('rw');
+    if (path === '/') continue;
+    // Every visible child belongs to its closest visible mounted ancestor.
+    // Merely naming the root (or /sandbox for .git) is not sufficient topology.
+    let ancestor = path.slice(0, path.lastIndexOf('/')) || '/';
+    while (!byPath.has(ancestor)) ancestor = ancestor.slice(0, ancestor.lastIndexOf('/')) || '/';
+    if (row.parent_id !== byPath.get(ancestor).mount_id) return false;
+    const payload = expected.get(path);
+    if (payload) {
+      if (writable !== payload.RW || row.optional.length !== 0 ||
+          (path === '/sandbox' && row.device !== binding.workspace_device) ||
+          (path === '/sandbox/.git' && row.device !== binding.git_device)) return false;
+      continue;
+    }
+    if (path === '/tmp') {
+      if (!writable || row.filesystem !== 'tmpfs' || row.root !== '/' || row.source !== 'tmpfs' ||
+          row.optional.length !== 0 || row.device === binding.workspace_device ||
+          row.device === binding.git_device || row.device === byPath.get('/dev')?.device) return false;
+      // The protected collector also compares this device with host /tmp and
+      // proves host/guest inode equality. Structural JSON cannot observe either.
+      continue;
+    }
+    if (path === '/run/openshell-supervisor-ca') {
+      if (!writable || row.filesystem !== 'tmpfs' || row.root !== '/' || row.source !== 'tmpfs' ||
+          row.optional.length !== 0 || row.device === binding.workspace_device ||
+          row.device === binding.git_device || row.device === byPath.get('/dev')?.device ||
+          row.device === root.device || row.device === byPath.get('/tmp').device) return false;
+      continue;
+    }
+    if (['/etc/hosts', '/etc/hostname', '/etc/resolv.conf'].includes(path)) {
+      // No exact externally anchored engine-file identity is in this contract.
+      // Read-only alone cannot distinguish configuration from a host secret.
+      return false;
+    }
+    const role = Object.hasOwn(INFRASTRUCTURE_MOUNTS, path) ? INFRASTRUCTURE_MOUNTS[path] : undefined;
+    if (!role || row.filesystem !== role[0] || writable !== role[1]) return false;
+    if (row.filesystem === 'proc') {
+      const proc = byPath.get('/proc');
+      const expectedRoot = path === '/proc' ? '/' : path.slice('/proc'.length);
+      if (!proc || row.source !== 'proc' || row.root !== expectedRoot || row.device !== proc.device) return false;
+    }
+    if (row.filesystem === 'tmpfs') {
+      if (row.source !== 'tmpfs' || row.optional.length !== 0) return false;
+      if (MASKED_PROC_FILES.has(path)) {
+        if (row.root !== '/null' || row.device !== byPath.get('/dev')?.device) return false;
+      } else if (row.root !== '/' || row.device === binding.workspace_device ||
+          row.device === binding.git_device) return false;
+    }
+  }
+  const workspace = byPath.get('/sandbox');
+  const git = byPath.get('/sandbox/.git');
+  if (git.mount_id === workspace.mount_id || git.parent_id !== workspace.mount_id) return false;
+  const distinct = new Set([binding.workspace_device, binding.git_device, root.device]);
+  const temporaryDevice = byPath.get('/tmp').device;
+  if (distinct.has(temporaryDevice)) return false;
+  const dev = byPath.get('/dev');
+  if (dev) {
+    if (distinct.has(dev.device) || dev.device === temporaryDevice) return false;
+    for (const path of ['/dev/shm', '/run/openshell-supervisor-ca']) {
+      const row = byPath.get(path);
+      if (row && (distinct.has(row.device) || row.device === dev.device || row.device === temporaryDevice)) return false;
+    }
+  }
+  return true;
 }
 
 function validMount(record) {
@@ -252,11 +416,8 @@ export function parseConfinementInfoJson(source) {
 
 /** Validate full readback. The protected host profile comparator establishes
  * approved source/options identities; a self-supplied digest is not that proof. */
-export function validateConfinementInfo(info) {
-  const keys = ['version', 'openshell_version', 'sandbox', 'state', 'instance_id', 'policy_revision',
-    'applied_revision', 'workspace_root', 'network_mode', 'policy', 'mount_inventory', 'inventory_digest',
-    'profile_digest', 'isolation', 'supervisor_inventory', 'supervisor_inventory_digest', 'supervisor_isolation'];
-  if (!closed(info, keys) || info.version !== 2 ||
+export function validateConfinementInfo(info, expectedWorkspace) {
+  if (!closed(info, CONFINEMENT_INFO_KEYS) || info.version !== CONFINEMENT_INFO_VERSION ||
       info.openshell_version !== '0.1.2' ||
       info.sandbox !== 'auma-ws' || info.state !== 'Ready' || !identity(info.instance_id) ||
       !Number.isSafeInteger(info.policy_revision) || info.policy_revision < 1 ||
@@ -286,7 +447,8 @@ export function validateConfinementInfo(info) {
       !mountInventory(info.mount_inventory, [
         ['/.openshell/channel', 'volume', true],
         ['/opt/openshell/bin/openshell-sandbox', 'bind', false],
-        ['/sandbox', 'volume', true],
+        ['/sandbox', 'bind', true],
+        ['/sandbox/.git', 'bind', false],
       ], info.inventory_digest) ||
       !mountInventory(info.supervisor_inventory, [['/.openshell/channel', 'volume', false]],
         info.supervisor_inventory_digest) ||
@@ -299,12 +461,25 @@ export function validateConfinementInfo(info) {
       canonicalJson(channel[key]) !== canonicalJson(supervisorChannel[key]))) {
     throw unavailable('SANDBOX_INVENTORY', 'the supervisor channel identity does not match the workload');
   }
+  const binding = info.workspace_binding;
+  if (!kernelMounts(info.mountinfo, binding, info.mount_inventory, info.mountinfo_digest) ||
+      info.mount_inventory[2].Source !== binding.workspace_source ||
+      info.mount_inventory[3].Source !== binding.git_source ||
+      (expectedWorkspace !== undefined && (!absolutePath(expectedWorkspace) || expectedWorkspace === '/' ||
+        expectedWorkspace !== binding.workspace_source))) {
+    throw unavailable('WORKSPACE_BINDING', 'the exact workspace bind and read-only metadata mount are unavailable');
+  }
   return info;
 }
 
 /** Preparation-only read: never launch the proposed command or inherit env. */
-export async function readConfinementInfo(layout, signal) {
+export async function readConfinementInfo(layout, signal, expectedWorkspace) {
   signal?.throwIfAborted();
+  // Real preparation must bind the root-custody readback to its trusted session
+  // workspace. A source supplied only by that readback cannot appoint itself.
+  if (!absolutePath(expectedWorkspace) || expectedWorkspace === '/') {
+    throw unavailable('WORKSPACE_BINDING', 'a trusted host workspace is required for policy readback');
+  }
   try {
     const stdout = await new Promise((accept, reject) => {
       let settled = false;
@@ -338,7 +513,7 @@ export async function readConfinementInfo(layout, signal) {
       if (signal?.aborted) abort();
     });
     signal?.throwIfAborted();
-    return validateConfinementInfo(parseConfinementInfoJson(stdout));
+    return validateConfinementInfo(parseConfinementInfoJson(stdout), expectedWorkspace);
   } catch (error) {
     signal?.throwIfAborted();
     if (error?.code === 'SANDBOX_UNAVAILABLE') throw error;

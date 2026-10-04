@@ -1,20 +1,20 @@
 // L1 on Linux: Auma's one-shot bash through OpenShell as `auma` (plugins/aukora-openshell-confinement + sbx-exec).
-// Source checks of the join; the installed behaviour (refusals, timeout, detached children, cancel) is observed on the
-// pilot and recorded in the commit, not claimed here.
+// Source/protocol checks use synthetic Linux metadata and disposable files.
+// They do not establish actual kernel mounts, EROFS, network containment or runtime qualification.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { readSettings, validateConfinementInfo, parseConfinementInfoJson, validateRequest, prepareLabTransport } from '../plugins/aukora-openshell-confinement/lib/transport.mjs'
+import { readSettings, readConfinementInfo, validateConfinementInfo, parseConfinementInfoJson, validateRequest, prepareLabTransport } from '../plugins/aukora-openshell-confinement/lib/transport.mjs'
 import { guestSpec, guestBashExecutor } from '../plugins/aukora-openshell-confinement/lib/index.mjs'
 import { sandboxArgv } from '../packages/boundary-gate/src/sandbox.mjs'
 import { resolveLayout } from '../packages/boundary-gate/src/layout.mjs'
 
 const root = new URL('../', import.meta.url)
 const read = p => readFileSync(new URL(p, root), 'utf8')
-const HOST = '/home/aukora-host/genesis/state/workspace'
+const HOST = '/synthetic/registered/workspace'
 const settings = readSettings({ workspaceRoot: '/sandbox', hostWorkspaceRoot: HOST, timeoutSeconds: 60 })
 const pol = (workspaceRoot, mode = 'workspace-write') => ({ mode, workspaceRoot, sessionId: 's1' })
 const refuses = (fn, reason) => assert.throws(fn, e => e.code === 'SANDBOX_UNAVAILABLE' && (!reason || e.reason === reason))
@@ -25,7 +25,21 @@ const digest = value => 'sha256:' + createHash('sha256').update(canonical(value)
 const reseal = value => {
   value.inventory_digest = digest(value.mount_inventory)
   value.supervisor_inventory_digest = digest(value.supervisor_inventory)
+  value.mountinfo_digest = digest(value.mountinfo)
   return value
+}
+const kernelMount = (mount_id, parent_id, device, root, mountpoint, writable, filesystem, source) => ({
+  mount_id, parent_id, device, root, mountpoint, options: [writable ? 'rw' : 'ro'], optional: [],
+  filesystem, source, super_options: [writable ? 'rw' : 'ro'],
+})
+function mountinfo() {
+  return [kernelMount('1', '0', '0:40', '/', '/', false, 'overlay', 'overlay'),
+    kernelMount('2', '1', '8:1', HOST, '/sandbox', true, 'ext4', '/dev/synthetic'),
+    kernelMount('3', '2', '8:1', HOST + '/.git', '/sandbox/.git', false, 'ext4', '/dev/synthetic'),
+    kernelMount('4', '1', '0:41', '/', '/tmp', true, 'tmpfs', 'tmpfs'),
+    kernelMount('5', '1', '8:2', '/synthetic/volumes/channel/_data', '/.openshell/channel', true, 'ext4', '/dev/channel'),
+    kernelMount('6', '1', '8:1', '/synthetic/runtime/openshell-sandbox', '/opt/openshell/bin/openshell-sandbox', false, 'ext4', '/dev/synthetic'),
+    kernelMount('7', '1', '0:43', '/', '/proc', false, 'proc', 'proc')]
 }
 function envelope() {
   const channel = { Type: 'volume', Name: 'synthetic-channel', Source: '/synthetic/volumes/channel/_data',
@@ -38,7 +52,7 @@ function envelope() {
   const supervisor = { ...structuredClone(isolation), uid_map: [{ container_id: 0, host_id: 0, size: 4294967295 }],
     gid_map: [{ container_id: 0, host_id: 0, size: 4294967295 }] }
   delete supervisor.workload_binary_digest
-  return reseal({ version: 2, openshell_version: '0.1.2', sandbox: 'auma-ws', state: 'Ready',
+  return reseal({ version: 3, openshell_version: '0.1.2', sandbox: 'auma-ws', state: 'Ready',
     instance_id: 'synthetic-instance', policy_revision: 1, applied_revision: 1, workspace_root: '/sandbox', network_mode: 'none',
     policy: { filesystem_policy: { include_workdir: false,
       read_only: ['/bin', '/usr', '/lib', '/lib64', '/etc', '/proc', '/dev/urandom'],
@@ -47,17 +61,22 @@ function envelope() {
     mount_inventory: [channel,
       { Type: 'bind', Source: '/synthetic/runtime/openshell-sandbox', Destination: '/opt/openshell/bin/openshell-sandbox',
         Driver: '', Mode: 'ro', Options: ['ro'], RW: false, Propagation: 'rprivate' },
-      { Type: 'volume', Name: 'synthetic-workspace', Source: '/synthetic/volumes/workspace/_data',
-        Destination: '/sandbox', Driver: 'local', Mode: 'nosuid,nodev', Options: ['nosuid', 'nodev'], RW: true, Propagation: 'rprivate' }],
+      { Type: 'bind', Source: HOST, Destination: '/sandbox', Driver: '', Mode: 'nosuid,nodev',
+        Options: ['nosuid', 'nodev'], RW: true, Propagation: 'rprivate' },
+      { Type: 'bind', Source: HOST + '/.git', Destination: '/sandbox/.git', Driver: '', Mode: 'ro,nosuid,nodev',
+        Options: ['ro', 'nosuid', 'nodev'], RW: false, Propagation: 'rprivate' }],
     profile_digest: 'sha256:' + 'b'.repeat(64), isolation,
     supervisor_inventory: [{ ...structuredClone(channel), RW: false, Mode: 'ro,nosuid,nodev' }],
-    supervisor_isolation: supervisor })
+    supervisor_isolation: supervisor, mountinfo: mountinfo(),
+    workspace_binding: { workspace_source: HOST, git_source: HOST + '/.git', workspace_device: '8:1',
+      workspace_inode: '2001', git_device: '8:1', git_inode: '2002', mount_namespace: 'mnt:[4000]' } })
 }
 
 function helperFixture() {
   const e = envelope(), sid = '11111111-2222-4333-8444-555555555555'
-  const workloadConfig = { Tmpfs: { '/run': 'rw,nosuid,nodev,size=65536k' }, Devices: [],
-    IpcMode: 'shareable', PidMode: 'private', ReadonlyRootfs: false }
+  const workloadConfig = { Tmpfs: { '/run/openshell-supervisor-ca': 'rw,noexec,nosuid,nodev,mode=0777,size=1m,rprivate,tmpcopyup',
+    '/tmp': 'rw,nosuid,nodev,mode=1777' }, Devices: [],
+    IpcMode: 'shareable', PidMode: 'private', ReadonlyRootfs: true }
   const supervisorConfig = { Tmpfs: {}, Devices: [], IpcMode: 'shareable', PidMode: 'private', ReadonlyRootfs: false }
   const profile = { version: 1, expected_mounts: structuredClone(e.mount_inventory),
     expected_supervisor_mounts: structuredClone(e.supervisor_inventory),
@@ -75,7 +94,9 @@ function helperFixture() {
     cap_bnd: e.isolation.cap_bnd, no_new_privs: 1, seccomp: 2 }
   const supervisorProcess = { ...structuredClone(process), pid: 4322,
     uid_map: structuredClone(e.supervisor_isolation.uid_map), gid_map: structuredClone(e.supervisor_isolation.gid_map) }
-  return { e, sid, profile, container, supervisor, process, supervisor_process: supervisorProcess }
+  const registration = { version: 1, workspace_id: sid, workspace_source: HOST, git_source: HOST + '/.git' }
+  return { e, sid, profile, container, supervisor, process, supervisor_process: supervisorProcess, registration,
+    host_tmp_device: '9:1' }
 }
 
 function helperPython(code, fixture = helperFixture()) {
@@ -92,6 +113,10 @@ def refusal(fn):
     try: fn()
     except (ValueError, KeyError, TypeError, IndexError): return
     raise AssertionError('unsafe fixture accepted')
+def protocol_refusal(fn):
+    try: fn()
+    except ValueError: return
+    raise AssertionError('unsafe protocol fixture accepted')
 `
   return execFileSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', prelude + '\n' + code,
     fileURLToPath(new URL('packages/boundary-gate/host/openshell/sandbox-inventory.py', root))],
@@ -209,13 +234,13 @@ test('the wrapper envelope format is what the adapter accepts, and nothing weake
   validateConfinementInfo(process)
 })
 
-test('v2 readback binds the entire closed mount records and companion channel inventory', () => {
+test('v3 readback binds the entire closed mount records and companion channel inventory', () => {
   // Frozen independent Python json.dumps(sort_keys=True, separators=(',', ':'),
   // ensure_ascii=False) vectors cover compact UTF8 canonicalization.
   const vector = envelope()
-  assert.equal(vector.inventory_digest, 'sha256:4c53a9a999ebab88dd48e51daae676c2c90bdf9f6be4a23cc0fe885ab9b81f8f')
+  assert.equal(vector.inventory_digest, 'sha256:e8d1965dd453e52169f7163104ecfc8740f65d3612bf49d81dea0d71b2f0e275')
   vector.mount_inventory[1].Source = '/synthetic/runtime/é-sandbox'
-  vector.inventory_digest = 'sha256:80e5262b9023749370dc3d0c118d4b75cb64b4a3721bcb0a9e84480e20e2d463'
+  vector.inventory_digest = 'sha256:80f1a7cea61d2867a5c617f609b22e4dbe34184ac31b4309da4b6e06b761a255'
   validateConfinementInfo(vector)
   for (const mutate of [
     x => { x.extra = true }, x => { delete x.profile_digest },
@@ -223,7 +248,7 @@ test('v2 readback binds the entire closed mount records and companion channel in
     x => { x.mount_inventory.pop() }, x => { x.mount_inventory.reverse() },
     x => { delete x.mount_inventory[1] },
     x => { x.mount_inventory[0].Destination = '/unexpected' },
-    x => { x.mount_inventory[2].Type = 'bind' },
+    x => { x.mount_inventory[2].Type = 'volume'; x.mount_inventory[2].Name = 'unapproved-workspace' },
     x => { x.mount_inventory[1].RW = true },
     x => { x.mount_inventory[1].Name = 'unapproved-bind-name' },
     x => { delete x.mount_inventory[0].Driver },
@@ -258,7 +283,7 @@ test('v2 readback binds the entire closed mount records and companion channel in
   validateConfinementInfo(reorderedKeys)
 })
 
-test('v2 readback refuses host-user mappings, map overlaps, capability bits and weakened process isolation', () => {
+test('v3 readback refuses host-user mappings, map overlaps, capability bits and weakened process isolation', () => {
   for (const mutate of [
     x => { delete x.isolation }, x => { x.isolation.extra = true },
     x => { x.isolation.uid = true }, x => { x.isolation.uid = 1001 },
@@ -339,7 +364,7 @@ for edit in [lambda c: c['Mounts'].append(copy.deepcopy(c['Mounts'][0])),
              lambda c: c['Mounts'][0].update(Source='/synthetic/different'),
              lambda c: c['HostConfig']['Tmpfs'].update({'/extra':'rw'}),
              lambda c: c['HostConfig'].update(Devices=[{}]),
-             lambda c: c['HostConfig'].update(ReadonlyRootfs=True),
+             lambda c: c['HostConfig'].update(ReadonlyRootfs=False),
              lambda c: c['HostConfig'].update(Privileged=True),
              lambda c: c['HostConfig'].update(SecurityOpt=[]),
              lambda c: c['State'].update(Pid=9999)]:
@@ -447,6 +472,7 @@ def profile():
     global profile_calls
     profile_calls += 1; p = copy.deepcopy(f['profile'])
     if scenario == 'changed_profile' and profile_calls > 1: p['expected_mounts'][0]['Mode'] = 'changed'
+    if scenario == 'late_profile_change' and workspace_calls > 1: p['expected_mounts'][0]['Mode'] = 'changed'
     return p
 stat_calls = {}
 def proc_read(pid,leaf):
@@ -468,19 +494,37 @@ def proc_read(pid,leaf):
     raise AssertionError('unexpected mocked proc leaf')
 m.query, m.read_profile, m.proc_read = query, profile, proc_read
 m.binary_digest = lambda path, deadline, pid: f['profile']['workload_binary_digest']
+registration_calls = 0
+def registration():
+    global registration_calls
+    registration_calls += 1; r = copy.deepcopy(f['registration'])
+    if scenario == 'changed_registration' and registration_calls > 1: r['workspace_id'] = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    return r
+workspace_calls = 0
+def workspace(container, profile, deadline):
+    global workspace_calls
+    workspace_calls += 1
+    result = {key:copy.deepcopy(f['e'][key]) for key in ('mountinfo','mountinfo_digest','workspace_binding')}
+    if scenario == 'changed_namespace' and workspace_calls > 1: result['workspace_binding']['mount_namespace'] = 'mnt:[4001]'
+    if scenario == 'changed_workspace_inode' and workspace_calls > 1: result['workspace_binding']['workspace_inode'] = '2003'
+    return result
+m.read_workspace_registration, m.observe_workspace = registration, workspace
 `
 
-test('mocked fresh admission emits the exact v2 envelope and refuses replaced or ambiguous observations', () => {
+test('mocked fresh admission emits the exact v3 envelope and refuses replaced or ambiguous observations', () => {
   const result = JSON.parse(helperPython(admissionMockPrelude + `
 good = m.admission('auma-ws','print')
-assert good['version'] == 2 and good['inventory_digest'] == f['e']['inventory_digest']
+assert good['version'] == 3 and good['inventory_digest'] == f['e']['inventory_digest']
 for case in ('malformed','duplicate','nonzero_query','replaced_pid','changed_mount','reused_pid',
              'changed_profile','changed_policy','changed_sandbox','saved_gid','supplementary_group',
              'missing_hash','bool_active','bool_admission','global_policy','global_revision',
-             'missing_config_revision','bool_config_revision','different_config_revision','missing_provider_revision','changed_provider_revision'):
-    scenario = case; counts.clear(); stat_calls.clear(); profile_calls = 0
-    refusal(lambda: m.admission('auma-ws','print'))
-scenario = 'volatile_health'; counts.clear(); stat_calls.clear(); profile_calls = 0
+             'missing_config_revision','bool_config_revision','different_config_revision','missing_provider_revision','changed_provider_revision',
+             'changed_registration','changed_namespace','changed_workspace_inode','late_profile_change'):
+    scenario = case; counts.clear(); stat_calls.clear(); profile_calls = registration_calls = workspace_calls = 0
+    if case in ('changed_registration','changed_namespace','changed_workspace_inode','late_profile_change'):
+        protocol_refusal(lambda: m.admission('auma-ws','print'))
+    else:refusal(lambda: m.admission('auma-ws','print'))
+scenario = 'volatile_health'; counts.clear(); stat_calls.clear(); profile_calls = registration_calls = workspace_calls = 0
 m.admission('auma-ws','print')
 print(json.dumps(good,separators=(',',':'),ensure_ascii=False))
 `))
@@ -500,7 +544,9 @@ def mounts(constraints):
     out = []
     for constraint in constraints:
         row = copy.deepcopy(constraint)
-        row['Source'] = '/synthetic/new-generation/' + ('binary' if row['Type']=='bind' else row['Destination'].rsplit('/',1)[1])
+        if row['Destination'] == '/sandbox': row['Source'] = f['registration']['workspace_source']
+        elif row['Destination'] == '/sandbox/.git': row['Source'] = f['registration']['git_source']
+        else: row['Source'] = '/synthetic/new-generation/' + ('binary' if row['Type']=='bind' else row['Destination'].rsplit('/',1)[1])
         if row['Type'] == 'volume': row['Name'] = 'synthetic-new-uuid-' + row['Destination'].rsplit('/',1)[1]
         out.append(row)
     return out
@@ -508,7 +554,7 @@ f['container']['Mounts'] = mounts(schema['workload_mount_constraints'])
 f['supervisor']['Mounts'] = mounts(schema['supervisor_mount_constraints'])
 f['container']['HostConfig'].update(copy.deepcopy(schema['expected_workload_config']))
 f['supervisor']['HostConfig'].update(copy.deepcopy(schema['expected_supervisor_config']))
-inputs = (pin, schema['uid_ranges'], schema['gid_ranges'], 1001, schema)
+inputs = (pin, schema['uid_ranges'], schema['gid_ranges'], 1001, schema, f['registration'])
 m.read_generation_inputs = lambda: copy.deepcopy(inputs)
 def missing_profile(): raise ValueError('synthetic missing installed profile')
 m.read_profile = missing_profile
@@ -518,7 +564,9 @@ good = m.admission('auma-ws','generate')
 assert set(good) == set(old_profile) and len(good) == 9
 assert good['workload_binary_digest'] == pin
 assert good['expected_mounts'] != old_profile['expected_mounts']
-assert all('/synthetic/new-generation/' in row['Source'] for row in good['expected_mounts'])
+assert all('/synthetic/new-generation/' in row['Source'] for row in good['expected_mounts'] if row['Destination'] not in ('/sandbox','/sandbox/.git'))
+assert next(row for row in good['expected_mounts'] if row['Destination']=='/sandbox')['Source']==f['registration']['workspace_source']
+assert next(row for row in good['expected_mounts'] if row['Destination']=='/sandbox/.git')['Source']==f['registration']['git_source']
 refusal(lambda: m.admission('auma-ws','print'))
 m.read_profile = lambda: copy.deepcopy(old_profile)
 refusal(lambda: m.admission('auma-ws','print'))
@@ -529,10 +577,11 @@ f['process'] = saved
 m.binary_digest = lambda path, deadline, pid: 'sha256:'+'0'*64
 refusal(lambda: m.admission('auma-ws','generate'))
 m.binary_digest = lambda path, deadline, pid: pin
-for bad_inputs in [('sha256:'+'0'*64,inputs[1],inputs[2],1001,schema),
-                   (pin,[{'host_id':1001,'size':65536}],inputs[2],1001,schema),
-                   (pin,inputs[1],[{'host_id':165536,'size':65537}],1001,schema),
-                   (pin,inputs[1],inputs[2],1002,schema)]:
+for bad_inputs in [('sha256:'+'0'*64,inputs[1],inputs[2],1001,schema,inputs[5]),
+                   (pin,[{'host_id':1001,'size':65536}],inputs[2],1001,schema,inputs[5]),
+                   (pin,inputs[1],[{'host_id':165536,'size':65537}],1001,schema,inputs[5]),
+                   (pin,inputs[1],inputs[2],1002,schema,inputs[5]),
+                   (pin,inputs[1],inputs[2],1001,schema,{**inputs[5],'workspace_source':'/synthetic/other','git_source':'/synthetic/other/.git'})]:
     m.read_generation_inputs = lambda: copy.deepcopy(bad_inputs)
     refusal(lambda: m.admission('auma-ws','generate'))
 m.read_generation_inputs = lambda: copy.deepcopy(inputs)
@@ -542,16 +591,18 @@ print(json.dumps({'ok':True,'profile':good}))
   assert.equal(Object.keys(result.profile).length, 9)
 })
 
-test('explicit bootstrap prepares only after protected inputs and exits before final admission or workspace publication', () => {
+test('explicit bootstrap checks protected inputs then refuses; ordinary preparation is admission-only under the lock', () => {
   const source = read('packages/boundary-gate/host/openshell/ensure-sandbox.sh')
-  const create = source.indexOf('openshell sandbox create'), profile = source.indexOf('"$INVENTORY" auma-ws profile')
-  const bootstrap = source.indexOf('"$INVENTORY" auma-ws bootstrap'), persist = source.indexOf('mkdir -p "$P"')
-  assert.ok(profile > 0 && bootstrap > 0 && profile < create && bootstrap < create && profile < persist && bootstrap < persist)
-  assert.match(source, /if \[ "\$bootstrap" = 1 \]; then[\s\S]*auma-ws bootstrap[\s\S]*else\n\s*\/usr\/bin\/python3 -I -S "\$INVENTORY" auma-ws profile/)
-  const policy = source.lastIndexOf('policy_ok ||'), refusal = source.indexOf('REFUSING: bootstrap prepared; fresh reviewed inventory binding required')
-  const exit = source.indexOf('exit 7', refusal), check = source.indexOf('"$INVENTORY" auma-ws check')
-  assert.ok(policy < refusal && refusal < exit && exit < check && check < source.indexOf('ln -sfn'))
-  assert.match(source.slice(policy, check), /if \[ "\$bootstrap" = 1 \]; then[\s\S]*exit 7\nfi/)
+  const profile = source.indexOf('"$INVENTORY" auma-ws profile'), bootstrap = source.indexOf('"$INVENTORY" auma-ws bootstrap')
+  const refusal = source.indexOf('REFUSING: registered workspace requires a qualified mount producer and fresh reviewed inventory')
+  const exit = source.indexOf('exit 7', refusal), lock = source.indexOf('/usr/bin/flock -w'), check = source.indexOf('"$INVENTORY" auma-ws check')
+  assert.ok(bootstrap > 0 && bootstrap < refusal && refusal < exit && exit < profile && profile < lock && lock < check)
+  assert.match(source, /if \[ "\$bootstrap" = 1 \]; then[\s\S]*auma-ws bootstrap[\s\S]*exit 7\nfi/)
+  assert.match(source, /auma-ws profile \|\| \{[\s\S]*exit 7\n\}/)
+  assert.match(source, /auma-ws check \|\| \{[\s\S]*exit 7\n\}/)
+  // The former four managed-volume create paths are removed: applying their
+  // archive restore/chown to a host bind would alter the registered workspace.
+  assert.ok(!/openshell (?:sandbox (?:create|delete)|gateway register)|podman volume|snapshot_workspace|restore_workspace|ln -sfn|mkdir -p "\$P"/.test(source))
 })
 
 test('generation input files reject altered pins and ranges, and candidate output is private and exclusive', () => {
@@ -563,6 +614,7 @@ import os, stat, tempfile
 from types import SimpleNamespace
 pin = {'version':1,'workload_binary_digest':f['generation_pin']}
 files = {m.PIN_PATH:json.dumps(pin),m.GENERATION_SCHEMA_PATH:json.dumps(f['generation_schema']),
+         m.WORKSPACE_REGISTRATION_PATH:json.dumps(f['registration']),
          '/etc/subuid':'auma:165536:65536\\n','/etc/subgid':'auma:165536:65536\\n'}
 m._read_protected = lambda path: files[path]
 m.pwd.getpwnam = lambda name: SimpleNamespace(pw_uid=1001,pw_name='auma')
@@ -579,6 +631,18 @@ for path in ('/etc/subuid','/etc/subgid'):
     files[path] = saved
 m.pwd.getpwnam = lambda name: SimpleNamespace(pw_uid=1002,pw_name='auma')
 refusal(m.read_generation_inputs)
+m.pwd.getpwnam = lambda name: SimpleNamespace(pw_uid=1001,pw_name='auma')
+for edit in (lambda r:r.update(version=True), lambda r:r.update(extra=True),
+             lambda r:r.update(workspace_id='not-an-id'), lambda r:r.update(workspace_source='/'),
+             lambda r:r.update(workspace_source='/synthetic/../alias'),
+             lambda r:r.update(git_source='/synthetic/other/.git')):
+    registration=copy.deepcopy(f['registration']);edit(registration)
+    files[m.WORKSPACE_REGISTRATION_PATH]=json.dumps(registration)
+    protocol_refusal(m.read_generation_inputs)
+files[m.WORKSPACE_REGISTRATION_PATH]=json.dumps(f['registration'])
+assert m.read_generation_inputs()[5]==f['registration']
+for protected in (m.PROFILE_PATH,m.PIN_PATH,m.GENERATION_SCHEMA_PATH,m.WORKSPACE_REGISTRATION_PATH):
+    protocol_refusal(lambda:m.write_candidate(protected,f['profile']))
 with tempfile.TemporaryDirectory(dir=os.path.realpath(tempfile.gettempdir())) as parent:
     path = parent+'/candidate.json'
     previous = os.umask(0)
@@ -615,8 +679,8 @@ test('sbx-exec re-checks the applied policy under its lock before every command,
   assert.match(w, /\/usr\/bin\/python3 -I -S \/usr\/local\/lib\/aukora-boundary\/openshell\/sandbox-inventory\.py "\$SB" "\$1"/)
   assert.match(w, /trap on_cancel TERM INT HUP/)
   const s = read('packages/boundary-gate/host/openshell/ensure-sandbox.sh')
-  assert.equal((s.match(/--policy "\$POLICY"/g) || []).length, 4, 'every create passes the hard startup policy')
-  assert.match(s, /policy_ok \|\| \{ echo "REFUSING/)
+  assert.equal((s.match(/openshell sandbox create/g) || []).length, 0, 'preparation cannot auto-create an unqualified host binding')
+  assert.match(s, /auma-ws check \|\| \{[\s\S]*echo "REFUSING/)
   assert.match(read('packages/boundary-gate/host/openshell/sandbox-policy.yml'), /compatibility: hard_requirement/)
 })
 
@@ -650,7 +714,7 @@ test('PTY grant (2026-10-04): exactly /dev/pts + /dev/ptmx join the writable roo
   assert.match(read('packages/boundary-gate/host/openshell/sandbox-inventory.py'), /["']\/dev\/ptmx["']/)
   const ensure = read('packages/boundary-gate/host/openshell/ensure-sandbox.sh')
   assert.match(ensure, /INVENTORY=\/usr\/local\/lib\/aukora-boundary\/openshell\/sandbox-inventory\.py/)
-  assert.match(ensure, /\/usr\/bin\/python3 -I -S "\$INVENTORY" auma-ws policy/)
+  assert.match(ensure, /\/usr\/bin\/python3 -I -S "\$INVENTORY" auma-ws profile/)
   assert.match(ensure, /\/usr\/bin\/python3 -I -S "\$INVENTORY" auma-ws check/)
   assert.ok(read('plugins/aukora-openshell-confinement/lib/transport.mjs').includes("['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx']"))
   const e = envelope(); e.policy.filesystem_policy.read_write = [...want]
@@ -660,4 +724,313 @@ test('PTY grant (2026-10-04): exactly /dev/pts + /dev/ptmx join the writable roo
     x => { x.policy.filesystem_policy.read_write.push('/dev/tty') }]) {
     const c = structuredClone(e); f(c); refuses(() => validateConfinementInfo(c))
   }
+})
+
+test('v3 kernel metadata refuses C1/C2/C4/C5, malformed topology and an unbound session source', () => {
+  const corruptions = [
+    ['C1 git writable', e => { e.mountinfo[2].options = ['rw']; e.mountinfo[2].super_options = ['rw'] }],
+    ['C2 host temporary bind', e => { Object.assign(e.mountinfo[3], { filesystem: 'ext4', root: '/synthetic/host-tmp', source: '/dev/host' }) }],
+    ['C4 protected extra mount', e => { e.mountinfo.push(kernelMount('8', '1', '8:3', '/synthetic/protected', '/genesis', false, 'ext4', '/dev/protected')) }],
+    ['C5 second writable workspace', e => { e.mountinfo.push(kernelMount('8', '1', '8:1', HOST, '/sandbox2', true, 'ext4', '/dev/synthetic')) }],
+    ['root writable', e => { e.mountinfo[0].options = ['rw']; e.mountinfo[0].super_options = ['rw'] }],
+    ['git missing', e => { e.mountinfo.splice(2, 1) }],
+    ['temporary mount missing', e => { e.mountinfo.splice(3, 1) }],
+    ['private proc missing', e => { e.mountinfo.splice(6, 1) }],
+    ['git not child', e => { e.mountinfo[2].parent_id = '1' }],
+    ['duplicate kernel ID', e => { e.mountinfo[3].mount_id = '2' }],
+    ['duplicate kernel path', e => { e.mountinfo[3].mountpoint = '/sandbox' }],
+    ['disconnected mount', e => { e.mountinfo[5].parent_id = '999' }],
+    ['cyclic hierarchy', e => { e.mountinfo[0].parent_id = '2' }],
+    ['self parent', e => { e.mountinfo[2].parent_id = '3' }],
+    ['device mismatch', e => { e.mountinfo[1].device = '8:9' }],
+    ['unknown field', e => { e.mountinfo[0].extra = true }],
+    ['numeric kernel ID', e => { e.mountinfo[0].mount_id = 1 }],
+    ['aliased kernel ID', e => { e.mountinfo[0].mount_id = '01' }],
+    ['overflow kernel ID', e => { e.mountinfo[0].mount_id = '4294967296' }],
+    ['duplicate options', e => { e.mountinfo[1].options = ['rw', 'rw'] }],
+    ['unsorted options', e => { e.mountinfo[1].options = ['rw', 'nodev'] }],
+    ['ambiguous access', e => { e.mountinfo[1].options = ['ro', 'rw'] }],
+    ['unavailable super access', e => { e.mountinfo[1].super_options = [] }],
+    ['namespace absent', e => { delete e.workspace_binding.mount_namespace }],
+    ['namespace malformed', e => { e.workspace_binding.mount_namespace = 'mnt:[0]' }],
+    ['inode aliased', e => { e.workspace_binding.git_inode = e.workspace_binding.workspace_inode }],
+    ['inode unsafe', e => { e.workspace_binding.git_inode = '18446744073709551616' }],
+    ['git source escaped', e => { e.workspace_binding.git_source = HOST + '/elsewhere/.git' }],
+    ['workspace source altered', e => { e.workspace_binding.workspace_source = '/synthetic/other' }],
+  ]
+  const invalid = []
+  for (const [name, edit] of corruptions) {
+    const e = envelope(); edit(e); reseal(e)
+    assert.throws(() => validateConfinementInfo(e, HOST), error => error.reason === 'WORKSPACE_BINDING', name)
+    invalid.push({ name, e })
+  }
+  const fixture = helperFixture(); fixture.invalid = invalid
+  assert.equal(JSON.parse(helperPython(`
+m.validate_mountinfo(f['e']['mountinfo'],f['e']['workspace_binding'],f['container']['Mounts'],host_tmp_device=f['host_tmp_device'])
+for case in f['invalid']:
+    e=case['e']
+    protocol_refusal(lambda:m.validate_mountinfo(e['mountinfo'],e['workspace_binding'],e['mount_inventory'],host_tmp_device=f['host_tmp_device']))
+print(json.dumps({'rejected':len(f['invalid'])}))
+`, fixture)).rejected, corruptions.length)
+  const stale = envelope(); stale.mountinfo.reverse()
+  refuses(() => validateConfinementInfo(stale, HOST), 'WORKSPACE_BINDING')
+  reseal(stale); validateConfinementInfo(stale, HOST)
+  const other = envelope(), source = '/synthetic/other'
+  other.workspace_binding.workspace_source = other.mount_inventory[2].Source = other.mountinfo[1].root = source
+  other.workspace_binding.git_source = other.mount_inventory[3].Source = other.mountinfo[2].root = source + '/.git'
+  reseal(other); validateConfinementInfo(other)
+  refuses(() => validateConfinementInfo(other, HOST), 'WORKSPACE_BINDING')
+})
+
+test('host network and an added payload root fail before admission; missing trusted workspace fails before a reader can spawn', async () => {
+  const fixture = helperFixture()
+  fixture.container.HostConfig.NetworkMode = 'host'
+  assert.equal(JSON.parse(helperPython(`
+protocol_refusal(lambda:m.validate_snapshot(f['container'],f['process'],f['profile'],workload_binary_digest=f['profile']['workload_binary_digest']))
+f['container']['HostConfig']['NetworkMode']='none'
+f['container']['Mounts'].append({**f['container']['Mounts'][2],'Destination':'/sandbox2'})
+protocol_refusal(lambda:m.validate_snapshot(f['container'],f['process'],f['profile'],workload_binary_digest=f['profile']['workload_binary_digest']))
+print(json.dumps({'ok':True}))
+`, fixture)).ok, true)
+  const e = envelope(); e.network_mode = 'host'
+  refuses(() => validateConfinementInfo(e), 'APPLIED_POLICY')
+  // An inaccessible layout is safe here only because absence/aliases are refused
+  // before readConfinementInfo obtains any field used to launch its owned reader.
+  const noReader = new Proxy({}, { get() { assert.fail('reader path reached without a trusted workspace') } })
+  for (const source of [undefined, '/', 'relative', HOST + '/../alias', HOST + '/']) {
+    await assert.rejects(readConfinementInfo(noReader, undefined, source), error => error.reason === 'WORKSPACE_BINDING')
+  }
+})
+
+test('actual mountinfo parser preserves ordered records and refuses unsupported escapes and ambiguous kernel fields', () => {
+  const result = JSON.parse(helperPython(`
+def raw(rows):
+    return '\\n'.join(' '.join([r['mount_id'],r['parent_id'],r['device'],r['root'],r['mountpoint'],','.join(r['options']),*r['optional']])+ ' - '+ ' '.join([r['filesystem'],r['source'],','.join(r['super_options'])]) for r in rows)
+table=raw(f['e']['mountinfo'])
+assert m.parse_mountinfo(table)==f['e']['mountinfo']
+escaped='7 1 8:1 /synthetic/with\\\\040space /space ro - ext4 /dev/synthetic ro'
+assert m.parse_mountinfo(escaped)[0]['root']=='/synthetic/with space'
+for source in ('',table+' - malformed','1 0 8:1 / / ro - overlay overlay',
+               '1 0 8:1 /bad\\\\041escape / ro - overlay overlay ro'):
+    protocol_refusal(lambda:m.parse_mountinfo(source))
+private=copy.deepcopy(f['e']['mountinfo']);private[3]['device']=f['host_tmp_device']
+protocol_refusal(lambda:m.validate_mountinfo(private,f['e']['workspace_binding'],f['container']['Mounts'],host_tmp_device=f['host_tmp_device']))
+protocol_refusal(lambda:m.validate_mountinfo(f['e']['mountinfo'],f['e']['workspace_binding'],f['container']['Mounts']))
+print(json.dumps({'ok':True}))
+`))
+  assert.equal(result.ok, true)
+})
+
+test('actual workspace collector refuses PID, namespace, mount-table and inode races without a guest-exec fallback', () => {
+  const result = JSON.parse(helperPython(`
+from unittest.mock import patch
+def raw(rows):
+    return '\\n'.join(' '.join([r['mount_id'],r['parent_id'],r['device'],r['root'],r['mountpoint'],','.join(r['options']),*r['optional']])+ ' - '+ ' '.join([r['filesystem'],r['source'],','.join(r['super_options'])]) for r in rows)
+table=raw(f['e']['mountinfo']); identities=(('8:1','2001'),('8:1','2002'))
+def collect(case):
+    times=[12345,12346] if case=='pid' else [12345,12345]
+    namespaces=['mnt:[4000]','mnt:[4001]'] if case=='namespace' else ['mnt:[4000]','mnt:[4000]']
+    sources=[identities,(('8:1','2003'),identities[1])] if case=='source_inode' else [identities,identities]
+    kernels=[(('8:1','2003'),identities[1])] if case=='wrong_initial_inode' else [identities,identities]
+    changed=copy.deepcopy(f['e']['mountinfo']);changed.append({**changed[1],'mount_id':'8','mountpoint':'/sandbox2'})
+    tables=[table,raw(changed)] if case=='table' else [table,table]
+    host_namespace='mnt:[4000]' if case=='host_namespace' else 'mnt:[9000]'
+    kernel_args={'side_effect':PermissionError('synthetic authority missing')} if case=='proc_authority' else {'side_effect':kernels}
+    with patch.object(m,'prove_private_proc',return_value=None,create=True) as private_proc,patch.object(m,'start_time',side_effect=times),patch.object(m,'_mount_namespace',side_effect=namespaces),patch.object(m.os,'readlink',return_value=host_namespace),patch.object(m,'_source_directory_identities',side_effect=sources),patch.object(m,'_kernel_directory_identities',**kernel_args),patch.object(m,'proc_read',side_effect=tables),patch.object(m,'_open_directory',return_value=41),patch.object(m,'_directory_identity',return_value=(f['host_tmp_device'],'9001')),patch.object(m.os,'close'):
+        observed=m.observe_workspace(f['container'],f['profile'],999999999)
+        assert private_proc.call_count==2
+        assert all(call.args==(4321,12345) for call in private_proc.call_args_list)
+        return observed
+good=collect('good')
+assert good=={key:f['e'][key] for key in ('mountinfo','mountinfo_digest','workspace_binding')}
+for case in ('pid','namespace','source_inode','wrong_initial_inode','table','host_namespace'):
+    protocol_refusal(lambda:collect(case))
+try:collect('proc_authority')
+except PermissionError:pass
+else:raise AssertionError('missing proc authority accepted')
+protocol_refusal(lambda:m.observe_workspace(f['container'],f['profile'],0))
+print(json.dumps({'ok':True,'refused':8}))
+`))
+  assert.equal(result.ok, true)
+  assert.equal(result.refused, 8)
+})
+
+test('actual source-directory anchoring rejects symlink workspace, symlink ancestors, .git aliases and linked-worktree files', () => {
+  assert.equal(JSON.parse(helperPython(`
+import errno,os,tempfile
+with tempfile.TemporaryDirectory(dir=os.path.realpath(tempfile.gettempdir())) as parent:
+    workspace=parent+'/workspace';os.mkdir(workspace);os.mkdir(workspace+'/.git')
+    actual=m._source_directory_identities(workspace)
+    assert actual[0]!=actual[1]
+    os.symlink(workspace,parent+'/workspace-link')
+    os.mkdir(parent+'/ancestor');os.symlink(workspace,parent+'/ancestor/workspace-link')
+    for source in (parent+'/workspace-link',parent+'/ancestor/workspace-link'):
+        try:m._source_directory_identities(source)
+        except OSError as error:assert error.errno in (errno.ELOOP,errno.ENOTDIR)
+        else:raise AssertionError('workspace alias followed')
+    os.symlink(parent,parent+'/ancestor-link')
+    try:m._source_directory_identities(parent+'/ancestor-link/workspace')
+    except OSError as error:assert error.errno in (errno.ELOOP,errno.ENOTDIR)
+    else:raise AssertionError('ancestor alias followed')
+    os.rmdir(workspace+'/.git');os.mkdir(parent+'/external-git');os.symlink(parent+'/external-git',workspace+'/.git')
+    try:m._source_directory_identities(workspace)
+    except OSError as error:assert error.errno in (errno.ELOOP,errno.ENOTDIR)
+    else:raise AssertionError('metadata alias followed')
+    os.unlink(workspace+'/.git')
+    with open(workspace+'/.git','w') as stream:stream.write('gitdir: '+parent+'/external-git\\n')
+    try:m._source_directory_identities(workspace)
+    except OSError as error:assert error.errno in (errno.ELOOP,errno.ENOTDIR)
+    else:raise AssertionError('linked-worktree gitdir file accepted')
+print(json.dumps({'ok':True}))
+`)).ok, true)
+})
+
+test('C1-C5 source controls expose acceptance only when their production validation guard is removed', async () => {
+  const source = read('plugins/aukora-openshell-confinement/lib/transport.mjs')
+  const mutate = async (before, after) => {
+    assert.equal(source.split(before).length, 2, 'mutation must identify exactly one production guard')
+    const changed = source.replace(before, after)
+    return import('data:text/javascript;base64,' + Buffer.from(changed, 'utf8').toString('base64'))
+  }
+  const c1 = envelope(); c1.mountinfo[2].options = c1.mountinfo[2].super_options = ['rw']; reseal(c1)
+  refuses(() => validateConfinementInfo(c1, HOST), 'WORKSPACE_BINDING')
+  const noPayloadAccess = await mutate('if (writable !== payload.RW || row.optional.length !== 0 ||',
+    'if (false || row.optional.length !== 0 ||')
+  noPayloadAccess.validateConfinementInfo(envelope(), HOST)
+  noPayloadAccess.validateConfinementInfo(c1, HOST)
+
+  const tmpStart = source.indexOf("    if (path === '/tmp') {")
+  assert.ok(tmpStart > 0)
+  const guardStart = source.indexOf('      if (!writable', tmpStart)
+  const guardEnd = source.indexOf('return false;', guardStart) + 'return false;'.length
+  assert.ok(guardStart > tmpStart && guardEnd > guardStart)
+  const noPrivateTmp = await mutate(source.slice(guardStart, guardEnd), '      if (false) return false;')
+  const c2 = envelope(); Object.assign(c2.mountinfo[3], { filesystem: 'ext4', root: '/synthetic/host-tmp', source: '/dev/host' }); reseal(c2)
+  refuses(() => validateConfinementInfo(c2, HOST), 'WORKSPACE_BINDING')
+  noPrivateTmp.validateConfinementInfo(envelope(), HOST)
+  noPrivateTmp.validateConfinementInfo(c2, HOST)
+
+  const c3 = envelope(); c3.network_mode = 'host'
+  refuses(() => validateConfinementInfo(c3, HOST), 'APPLIED_POLICY')
+  const noNetworkGuard = await mutate("info.network_mode !== 'none'", 'false')
+  noNetworkGuard.validateConfinementInfo(envelope(), HOST)
+  noNetworkGuard.validateConfinementInfo(c3, HOST)
+
+  const noUnknownMountGuard = await mutate('if (!role || row.filesystem !== role[0] || writable !== role[1]) return false;',
+    'if (!role) continue; if (row.filesystem !== role[0] || writable !== role[1]) return false;')
+  noUnknownMountGuard.validateConfinementInfo(envelope(), HOST)
+  for (const extra of [kernelMount('8', '1', '8:3', '/synthetic/protected', '/genesis', false, 'ext4', '/dev/protected'),
+    kernelMount('8', '1', '8:1', HOST, '/sandbox2', true, 'ext4', '/dev/synthetic')]) {
+    const e = envelope(); e.mountinfo.push(extra); reseal(e)
+    refuses(() => validateConfinementInfo(e, HOST), 'WORKSPACE_BINDING')
+    noUnknownMountGuard.validateConfinementInfo(e, HOST)
+  }
+})
+
+test('approved infrastructure mount shapes still bind device, source, root, topology and private propagation', () => {
+  const valid = envelope()
+  valid.mountinfo.push(kernelMount('8', '1', '0:42', '/', '/dev', true, 'tmpfs', 'tmpfs'),
+    kernelMount('9', '7', '0:43', '/sys', '/proc/sys', false, 'proc', 'proc'),
+    kernelMount('10', '8', '0:44', '/', '/dev/pts', true, 'devpts', 'devpts'),
+    kernelMount('11', '7', '0:42', '/null', '/proc/kcore', true, 'tmpfs', 'tmpfs'),
+    kernelMount('12', '1', '0:45', '/', '/run/openshell-supervisor-ca', true, 'tmpfs', 'tmpfs'),
+    kernelMount('13', '8', '0:46', '/', '/dev/shm', true, 'tmpfs', 'tmpfs'))
+  reseal(valid); validateConfinementInfo(valid, HOST)
+  const invalid = []
+  for (const edit of [e => { e.mountinfo[8].device = '8:9' },
+    e => { e.mountinfo[8].source = '/dev/host-secret' }, e => { e.mountinfo[8].root = '/different' },
+    e => { e.mountinfo[8].parent_id = '1' }, e => { e.mountinfo[6].source = '/dev/host' },
+    e => { e.mountinfo[6].root = '/host-proc' }, e => { e.mountinfo[10].device = '0:99' },
+    e => { e.mountinfo[10].source = '/dev/host-secret' }, e => { e.mountinfo[10].root = '/' },
+    e => { e.mountinfo[11].source = '/synthetic/host' }, e => { e.mountinfo[11].device = '0:41' },
+    e => { e.mountinfo[11].device = '0:42' }, e => { e.mountinfo[11].device = '0:40' },
+    e => { e.mountinfo[3].device = '0:40' }, e => { e.mountinfo[3].device = '8:1' },
+    e => { e.mountinfo[7].device = '0:40'; e.mountinfo[10].device = '0:40' },
+    e => { e.mountinfo[12].device = '0:42' }, e => { e.mountinfo[12].device = '0:41' },
+    e => { e.mountinfo[12].device = '0:40' }, e => { e.mountinfo[12].device = '8:1' },
+    e => { e.mountinfo[1].optional = ['shared:1'] }, e => { e.mountinfo[3].optional = ['shared:1'] },
+    e => { e.workspace_binding.mount_namespace = 'mnt:[18446744073709551616]' },
+    e => { e.mountinfo.push(kernelMount('14', '1', '8:3', '/synthetic/secret', '/etc/hosts', false, 'ext4', '/dev/host')) }]) {
+    const e = structuredClone(valid); edit(e); reseal(e)
+    refuses(() => validateConfinementInfo(e, HOST), 'WORKSPACE_BINDING')
+    invalid.push(e)
+  }
+  const fixture = helperFixture(); fixture.e = valid; fixture.invalid = invalid
+  assert.equal(JSON.parse(helperPython(`
+m.validate_mountinfo(f['e']['mountinfo'],f['e']['workspace_binding'],f['container']['Mounts'],host_tmp_device=f['host_tmp_device'])
+for e in f['invalid']:
+    protocol_refusal(lambda:m.validate_mountinfo(e['mountinfo'],e['workspace_binding'],e['mount_inventory'],host_tmp_device=f['host_tmp_device']))
+print(json.dumps({'rejected':len(f['invalid'])}))
+`, fixture)).rejected, invalid.length)
+})
+
+test('actual private-proc proof binds retained namespace descriptors, guest PID1 and NSpid with before/after fences', () => {
+  const result = JSON.parse(helperPython(`
+from unittest.mock import patch
+def stat(pid,stamp=12345):
+    return str(pid)+' (synthetic ) name) '+' '.join(['S']+['0']*18+[str(stamp)])
+assert m._stat_identity(stat(4321))==(4321,12345)
+assert m._nspid('Name: synthetic\\nNSpid: 4321 51 1\\n')==(4321,51,1)
+for raw in ('','NSpid: 4321 1\\nNSpid: 4321 1','NSpid: 4321 0','NSpid: 4321 01','NSpid: 4321 4294967296'):
+    protocol_refusal(lambda:m._nspid(raw))
+for raw in ('4321 malformed','0 (name) '+ ' '.join(['S']+['0']*18+['12345']),stat(4321,0),stat(4321,9007199254740992)):
+    protocol_refusal(lambda:m._stat_identity(raw))
+for namespace in ('pid:[0]','pid:[18446744073709551616]','pid:[01]','pid:[1]\\n'):
+    protocol_refusal(lambda:m._pid_namespace(namespace))
+def proof(case):
+    opened=[]; reads={};links={}
+    destinations={(10,'root'):11,(11,'proc'):12,(12,'1'):13,(10,'ns'):14,(13,'ns'):15}
+    def open_at(path,flags,*,dir_fd):
+        assert (dir_fd,path) in destinations
+        assert flags&m.os.O_DIRECTORY and flags&m.os.O_CLOEXEC
+        assert bool(flags&m.os.O_NOFOLLOW)==(path!='root')
+        if case=='directory_authority' and path=='proc':raise PermissionError('synthetic authority absent')
+        result=destinations[dir_fd,path];opened.append(result);return result
+    def link(path,*,dir_fd=None):
+        key=(dir_fd,path);links[key]=links.get(key,0)+1
+        if path=='/proc/self/ns/pid':
+            assert dir_fd is None
+            return 'pid:[4000]' if case=='host_namespace' else 'pid:[9001]' if case=='collector_race' and links[key]>1 else 'pid:[9000]'
+        assert path=='pid' and dir_fd in (14,15)
+        if case=='namespace_race' and links[key]>1:return 'pid:[4001]'
+        return 'pid:[4001]' if case=='wrong_guest_namespace' and dir_fd==15 else 'pid:[4000]'
+    def metadata(fd,leaf):
+        key=(fd,leaf);reads[key]=reads.get(key,0)+1
+        if case=='metadata_authority':raise PermissionError('synthetic metadata authority absent')
+        if leaf=='stat':
+            assert fd in (10,13)
+            pid=4321 if fd==10 else 1
+            if case=='host_pid' and fd==10:pid=4322
+            if case=='guest_pid' and fd==13:pid=2
+            stamp=12346 if case=='start_time' or (case=='stat_race' and reads[key]>1) else 12345
+            return stat(pid,stamp)
+        assert (fd,leaf)==(10,'status')
+        if case=='nspid_first':return 'NSpid: 4322 1'
+        if case=='nspid_last':return 'NSpid: 4321 2'
+        if case=='nspid_missing':return 'Name: synthetic'
+        if case=='nspid_race' and reads[key]>1:return 'NSpid: 4321 52 1'
+        return 'NSpid: 4321 51 1'
+    with patch.object(m,'_open_directory',return_value=10) as anchor,patch.object(m.os,'open',side_effect=open_at),patch.object(m.os,'readlink',side_effect=link),patch.object(m,'_read_proc_at',side_effect=metadata),patch.object(m.os,'close') as closed:
+        try:m.prove_private_proc(4321,12345)
+        finally:
+            anchor.assert_called_once_with('/proc/4321')
+            assert sorted(call.args[0] for call in closed.call_args_list)==sorted([10,*opened])
+proof('good')
+for case in ('host_namespace','wrong_guest_namespace','host_pid','guest_pid','start_time',
+             'nspid_first','nspid_last','nspid_missing','namespace_race','collector_race','stat_race','nspid_race'):
+    protocol_refusal(lambda:proof(case))
+for case in ('directory_authority','metadata_authority'):
+    try:proof(case)
+    except PermissionError:pass
+    else:raise AssertionError('missing private proc authority accepted')
+with patch.object(m.os,'open',return_value=41) as opened,patch.object(m,'_read_fd',return_value=b'NSpid: 4321 1') as read,patch.object(m.os,'close') as closed:
+    assert m._read_proc_at(10,'status')=='NSpid: 4321 1'
+    assert opened.call_args.args[0]=='status' and opened.call_args.args[1]&m.os.O_NOFOLLOW
+    assert opened.call_args.kwargs=={'dir_fd':10}
+    read.assert_called_once_with(41,m.MAX_READ_BYTES);closed.assert_called_once_with(41)
+    protocol_refusal(lambda:m._read_proc_at(10,'environ'))
+print(json.dumps({'ok':True,'refused':14}))
+`))
+  assert.equal(result.ok, true)
+  assert.equal(result.refused, 14)
 })

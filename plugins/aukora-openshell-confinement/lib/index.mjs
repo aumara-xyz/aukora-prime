@@ -23,7 +23,7 @@ export function createConfinement(settings, boundary) {
       validateRequest(argv, policy, settings, signal);
       const transport = prepareLabTransport(argv, policy, settings,
         boundary.sandboxArgv, layout, signal);
-      await readConfinementInfo(layout, signal);
+      await readConfinementInfo(layout, signal, settings.hostWorkspaceRoot);
       signal?.throwIfAborted();
       // The root-owned wrapper repeats the policy check under its execution
       // lock before launch. No environment flag can substitute for readback.

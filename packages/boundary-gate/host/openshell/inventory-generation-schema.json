@@ -2,12 +2,13 @@
   "version": 1,
   "expected_workload_config": {
     "Tmpfs": {
+      "/tmp": "rw,nosuid,nodev,mode=1777",
       "/run/openshell-supervisor-ca": "rw,noexec,nosuid,nodev,mode=0777,size=1m,rprivate,tmpcopyup"
     },
     "Devices": [],
     "IpcMode": "shareable",
     "PidMode": "private",
-    "ReadonlyRootfs": false
+    "ReadonlyRootfs": true
   },
   "expected_supervisor_config": {
     "Tmpfs": {
@@ -22,16 +23,25 @@
   },
   "workload_mount_constraints": [
     {
-      "Type": "volume",
+      "Type": "bind",
       "Destination": "/sandbox",
-      "Driver": "local",
+      "Driver": "",
       "Mode": "",
       "Options": [
-        "nosuid",
-        "nodev",
         "rbind"
       ],
       "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "bind",
+      "Destination": "/sandbox/.git",
+      "Driver": "",
+      "Mode": "",
+      "Options": [
+        "rbind"
+      ],
+      "RW": false,
       "Propagation": "rprivate"
     },
     {
