@@ -58,11 +58,18 @@ export async function createNostrCollectorCodec({ records, authorSecretKeyHex,
  * The private codec brand captures the same owner pins used by B verification.
  * Selectors carry only exact source coordinates and an optional actual record ID.
  * Request authentication and verified note-to-source associations are host obligations.
+ * guards must inspect the existing host lifecycle and the same retained read grant
+ * on every call; they are synchronous predicates, never a default permission.
+ * The host must dispose this reader when its provider is unloaded, and expose
+ * only readCitation to consumers. Re-registration requires a fresh reader.
  */
-export function createCollectorCitationReader(collectorContext) {
+export function createCollectorCitationReader(collectorContext, guards) {
   const codec = collectorContext?.codec
   const scope = CODEC_OWNER_SCOPES.get(codec)
   if (!scope) throw incomplete('aura-citation:owner-scope-unavailable')
+  const isLive = guards?.isLive, hasReadGrant = guards?.hasReadGrant
+  if (typeof isLive !== 'function' || typeof hasReadGrant !== 'function')
+    throw incomplete('aura-citation:read-guard-unconfigured')
   let snapshotOptions, anchors
   try {
     snapshotOptions = parseUniqueJson(canonicalJson(collectorContext.snapshotOptions))
@@ -70,12 +77,37 @@ export function createCollectorCitationReader(collectorContext) {
   } catch { throw incomplete('aura-citation:context-invalid') }
   const context = Object.freeze({ snapshotOptions, anchors, codec,
     storeDir: collectorContext.storeDir, pythonExecutable: collectorContext.pythonExecutable })
+  let disposed = false
+  const refused = reason => Object.freeze({ ok: false, status: 'incomplete', reason,
+    grants_authority: false, citation: null, verification: null })
+  const synchronousTrue = (predicate, ...args) => {
+    const value = predicate(...args)
+    if (value !== true && value !== false) {
+      // Refuse asynchronous predicates without awaiting them or leaking a
+      // rejected native Promise's diagnostic. Do not invoke arbitrary thenables.
+      try { Promise.prototype.then.call(value, undefined, () => {}) } catch {}
+    }
+    return value === true
+  }
+  const accessRefusal = authenticatedOwnerSubject => {
+    try {
+      if (disposed || !synchronousTrue(isLive)) return 'aura-citation:owner-inactive'
+      if (!synchronousTrue(hasReadGrant, authenticatedOwnerSubject)) return 'aura-citation:read-grant-unavailable'
+      if (disposed || !synchronousTrue(isLive)) return 'aura-citation:owner-inactive'
+    } catch { return 'aura-citation:read-guard-unavailable' }
+    return null
+  }
   return Object.freeze({
+    dispose() { disposed = true },
     async readCitation(authenticatedOwnerSubject, selector) {
       if (typeof authenticatedOwnerSubject !== 'string' || authenticatedOwnerSubject !== scope.owner_subject)
-        return Object.freeze({ ok: false, status: 'incomplete', reason: 'aura-citation:owner-mismatch',
-          grants_authority: false, citation: null, verification: null })
-      return verifyCollectorStoreCitation(context, selector, scope)
+        return refused('aura-citation:owner-mismatch')
+      const before = accessRefusal(authenticatedOwnerSubject)
+      if (before !== null) return refused(before)
+      const result = await verifyCollectorStoreCitation(context, selector, scope)
+      const after = accessRefusal(authenticatedOwnerSubject)
+      if (after !== null) return refused(after)
+      return result
     },
   })
 }
