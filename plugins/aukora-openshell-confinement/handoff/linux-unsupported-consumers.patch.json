@@ -1,0 +1,59 @@
+{
+  "formatVersion": 1,
+  "name": "linux-openshell-unsupported-consumers",
+  "reason": "The current OpenShell command wrapper supports foreground Bash only. Linux PTC FD7 control, persistent/browser PTY streaming, guest foreground facts and concurrent process ownership are unjoined; those consumers require aukoraConfinement then refuse before child launch, including custom shell argv and direct runtime.run callers. Apply after mandatory-agent-confinement, without widening file enforcement.",
+  "edits": [
+    {
+      "path": "packages/terminal/terminal-bash/src/index.ts",
+      "find": "  const required = requiredConfinement(ctx, policy)\n  return (await required.provider.confine(argv, required.policy, signal)).argv",
+      "replace": "  const required = requiredConfinement(ctx, policy)\n  if (process.platform === 'linux') {\n    const error = new Error('AUKORA_OPENSHELL_TERMINAL_UNSUPPORTED: guest PTY/control/foreground transport is unavailable; child startup refused')\n    Object.assign(error, { code: 'SANDBOX_UNAVAILABLE' })\n    throw error\n  }\n  return (await required.provider.confine(argv, required.policy, signal)).argv",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/terminal-controller/src/index.ts",
+      "find": "    const required = requiredConfinement(agent.ctx, policy)\n    const argv = (await required.provider.confine([shell.path, ...shell.args], required.policy, signal)).argv",
+      "replace": "    const required = requiredConfinement(agent.ctx, policy)\n    if (process.platform === 'linux') {\n      const error = new Error('AUKORA_OPENSHELL_BROWSER_TERMINAL_UNSUPPORTED: guest PTY/control/foreground transport is unavailable; child startup refused')\n      Object.assign(error, { code: 'SANDBOX_UNAVAILABLE' })\n      throw error\n    }\n    const argv = (await required.provider.confine([shell.path, ...shell.args], required.policy, signal)).argv",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/ptc-runtime/ptc-runtime-node/src/index.ts",
+      "find": "    const { policy: sandboxPolicy } = requiredConfinement(this.ctx, Object.hasOwn(request, 'sandboxPolicy') ? request.sandboxPolicy : this.ctx.sandboxPolicy.resolve())",
+      "replace": "    const { policy: sandboxPolicy } = requiredConfinement(this.ctx, Object.hasOwn(request, 'sandboxPolicy') ? request.sandboxPolicy : this.ctx.sandboxPolicy.resolve())\n    if (process.platform === 'linux') throw new SandboxUnavailableError(sandboxPolicy.mode, 'AUKORA_OPENSHELL_RUN_CODE_UNSUPPORTED: guest FD7 control and nested-tool process ownership are unavailable; child startup refused')",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/ptc-runtime/ptc-runtime-node/src/index.ts",
+      "find": "      const required = requiredConfinement(this.ctx, policy)\n      confined = await required.provider.confine(argv, required.policy, signal)",
+      "replace": "      const required = requiredConfinement(this.ctx, policy)\n      if (process.platform === 'linux') throw new SandboxUnavailableError(required.policy.mode, 'AUKORA_OPENSHELL_RUN_CODE_UNSUPPORTED: guest FD7 control and nested-tool process ownership are unavailable; child startup refused')\n      confined = await required.provider.confine(argv, required.policy, signal)",
+      "occurrences": 1
+    }
+  ],
+  "expectAfterApply": [
+    {
+      "path": "packages/terminal/terminal-bash/src/index.ts",
+      "contains": "AUKORA_OPENSHELL_TERMINAL_UNSUPPORTED"
+    },
+    {
+      "path": "packages/api/terminal-controller/src/index.ts",
+      "contains": "AUKORA_OPENSHELL_BROWSER_TERMINAL_UNSUPPORTED"
+    },
+    {
+      "path": "packages/ptc-runtime/ptc-runtime-node/src/index.ts",
+      "contains": "AUKORA_OPENSHELL_RUN_CODE_UNSUPPORTED"
+    }
+  ],
+  "expectAfterBuild": [
+    {
+      "path": "packages/terminal/terminal-bash/lib/index.js",
+      "contains": "AUKORA_OPENSHELL_TERMINAL_UNSUPPORTED"
+    },
+    {
+      "path": "packages/api/terminal-controller/lib/index.js",
+      "contains": "AUKORA_OPENSHELL_BROWSER_TERMINAL_UNSUPPORTED"
+    },
+    {
+      "path": "packages/ptc-runtime/ptc-runtime-node/lib/index.js",
+      "contains": "AUKORA_OPENSHELL_RUN_CODE_UNSUPPORTED"
+    }
+  ]
+}
