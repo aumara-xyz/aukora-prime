@@ -197,6 +197,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   // through ownerDecide (spent-before-write, base recheck, version-store bytes, post-hash, signed receipt).
   const REVIEW_TTL_MS = 120000
   const reviews = new Map()
+  const tierOf = (s) => s?.approvalTier === 'hash4' ? 'hash4' : 'reveal'
   const exactKeys = (a, keys) => a !== null && typeof a === 'object' && !Array.isArray(a) && Object.keys(a).length === keys.length && keys.every(k => Object.hasOwn(a, k))
   function review(args) {
     if (!exactKeys(args, ['id']) || typeof args.id !== 'string') throw new Error('review takes exactly {id}')
@@ -216,9 +217,11 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     if (p.base_sha !== 'absent') { try { oldText = blobText(p.base_sha) } catch { oldText = '' } }
     let from_to = null
     try { from_to = s?.plain ? String(s.plain(oldText, newText)) : null } catch { from_to = null }
-    if (from_to !== null && !/^[\x20-\x7e]{1,400}$/.test(from_to)) from_to = null
-    return { version: 2, id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: newText, diff: p.diff,
-      from_to, model_note: p.why ?? null,
+    if (from_to !== null && !/^[\x20-\x7e]{1,600}$/.test(from_to)) from_to = null
+    // v3: the approval TIER, a property of the target spec (never of the proposal): 'reveal' (the card's open-the-diff check)
+    // or 'hash4' (also type the first 4 characters of the new SHA-256; decide_review refuses an approve without them).
+    return { version: 3, id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: newText, diff: p.diff,
+      from_to, model_note: p.why ?? null, tier: tierOf(s),
       displayable: !!p.displayable, created: p.created, expires: p.expires, review_challenge, review_expires, pubkey_fp: key.fp }
   }
   function decideReview(args, approver) {
@@ -226,7 +229,8 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     const stored = id === null ? undefined : reviews.get(id)
     if (id !== null) reviews.delete(id)
     const refuse = (reason) => { append('decide-refused', { proposal: id === null ? null : id.slice(0, 64), detail: { reason, via: 'owner-review' } }); throw new Error(`refused: ${reason}`) }
-    if (!exactKeys(args, ['id', 'base_sha', 'new_sha', 'review_challenge', 'outcome'])) refuse('decide_review takes exactly {id, base_sha, new_sha, review_challenge, outcome}')
+    if (!exactKeys(args, ['id', 'base_sha', 'new_sha', 'review_challenge', 'outcome'])
+      && !exactKeys(args, ['id', 'base_sha', 'new_sha', 'review_challenge', 'outcome', 'confirm'])) refuse('decide_review takes exactly {id, base_sha, new_sha, review_challenge, outcome[, confirm]}')
     if (!['allowed-once', 'rejected'].includes(args.outcome)) refuse('outcome must be allowed-once or rejected')
     if (!stored) refuse('no live review challenge for this id (review first; a challenge is single use)')
     if (typeof args.review_challenge !== 'string' || !/^[0-9a-f]{64}$/.test(args.review_challenge) ||
@@ -238,6 +242,12 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     if (p.state !== 'pending') refuse(`proposal is ${p.state}`)
     if (now() > p.expires) refuse('proposal expired')
     if (!p.displayable) refuse('proposal too large to show in full; approval disabled')
+    // TIERED APPROVAL: a 'hash4' target applies only when the owner typed the first 4 characters of the new SHA-256. The
+    // challenge is already spent above, so a wrong or missing confirmation needs a fresh review. 'reveal' targets take none.
+    const tier = tierOf(TARGETS[p.target])
+    if (tier === 'reveal' && Object.hasOwn(args, 'confirm')) refuse('this target takes no typed confirmation')
+    if (tier === 'hash4' && args.outcome === 'allowed-once'
+      && (typeof args.confirm !== 'string' || args.confirm.toLowerCase() !== p.new_sha.slice(0, 4))) refuse('typed confirmation missing or wrong: type the first 4 characters of the new SHA-256')
     return ownerDecide({ id, outcome: args.outcome }, approver)
   }
   const signReceipt = (receipt) => sign(null, Buffer.from(JSON.stringify(receipt)), key.priv).toString('base64')
@@ -296,7 +306,8 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     let meta = { nonascii: 0 }
     try { const d = db.prepare("SELECT detail FROM ledger WHERE proposal=? AND event='propose' ORDER BY seq LIMIT 1").get(p.id); meta = JSON.parse(d?.detail || '{}').note_meta || meta } catch {}
     return { plain: s?.plain ? s.plain(oldText, newText) : '', after_apply: s?.after ? s.after(newText) : '', warnings: cardWarnings(s, oldText, newText, p.why, meta),
-      note_display: noteDisplay(p.why, meta), note_meta: meta, swatch: swatchText(s, oldText, newText), base_accent: s?.accentOf?.(oldText) ?? null, new_accent: s?.accentOf?.(newText) ?? null }
+      note_display: noteDisplay(p.why, meta), note_meta: meta, swatch: swatchText(s, oldText, newText), base_accent: s?.accentOf?.(oldText) ?? null, new_accent: s?.accentOf?.(newText) ?? null,
+      tier: tierOf(s), new_sha4: String(p.new_sha).slice(0, 4).toUpperCase() }
   }
   // OPERATOR-ONLY TARGETS (the plugin-set approval) are never raised from the PROPOSE channel: an agent cannot put a
   // release admission in front of the owner. They are raised on the OWNER socket (root/gate user only) by `raise`.

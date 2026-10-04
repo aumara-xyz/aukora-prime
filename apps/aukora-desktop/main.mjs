@@ -471,7 +471,7 @@ app.whenReady().then(async () => {
           gateSeen.add(question.pending.id)
           // The local nonce identifies this metadata question, not a gate authorization challenge.
           const shown = await aumlok.askGate(question,
-            (id, approve, stillVisible) => gateOwner.decide(id, approve, stillVisible))
+            (id, approve, stillVisible, confirm) => gateOwner.decide(id, approve, stillVisible, confirm))
           if (shown?.unavailable === true) gateSeen.delete(question.pending.id) // Not admitted, no decision sent.
           // AN ABSENT OWNER (2026-10-04): a card left open past its 2-minute review challenge answers 'expired' WITHOUT
           // sending a decision. The question is still pending at the gate, so it is asked again on the next poll with a

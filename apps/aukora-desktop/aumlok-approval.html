@@ -220,6 +220,8 @@
       <button id="gate-reveal" type="button">Show the exact change (from &rarr; to)</button>
       <pre id="gate-diff" class="words" tabindex="0" role="region" aria-label="Exact stored gate diff, from to" hidden></pre>
       <p id="gate-reveal-state">Approve stays off until you have opened the change and seen all of it.</p>
+      <label id="gate-typed-wrap" hidden>Type the first 4 characters of the new SHA-256 to enable Approve:
+        <input id="gate-typed" autocomplete="off" spellcheck="false" maxlength="4" size="6" aria-label="first 4 characters of the new SHA-256"></label>
     </div>
     <section id="gate-model" class="model-fence" hidden aria-label="Model-authored text">
       <h2>MODEL-AUTHORED</h2>
@@ -303,6 +305,14 @@
     // THE OWNER MUST SEE THE ACTUAL FROM -> TO BEFORE APPROVE ARMS: opened, scrolled to its end, then a short dwell.
     var gateRevealed = false
     var GATE_REVEAL_DWELL_MS = 1500
+    // TIERED APPROVAL: 'hash4' targets (plugin set, code) also need the first 4 characters of the new SHA-256 typed.
+    var gateTier = 'reveal'
+    var gateNewSha = ''
+    function gateTypedOk() {
+      if (gateTier !== 'hash4') return true
+      var v = document.getElementById('gate-typed').value
+      return typeof v === 'string' && v.toLowerCase() === gateNewSha.slice(0, 4) && gateNewSha.length === 64
+    }
     // WHAT THIS WINDOW WAS ALREADY SHOWING. When a submit comes back routed by a daemon, the refusal from the
     // ANSWER handler carries no digest and no operation — that handler froze no proposal — so the only digest and
     // the only description this window can honestly put beside the waiting line are the ones it was already
@@ -318,7 +328,7 @@
     var shownAt = null
     function approveEligible() {
       if (gateMode) return settled !== true && challenge !== null && gateDisplayOk === true
-        && gateRevealed === true && Date.now() < gateReviewExpires
+        && gateRevealed === true && gateTypedOk() === true && Date.now() < gateReviewExpires
       return settled !== true && challenge !== null && witness !== null
         && witness.ok === true && witness.truncated === false
     }
@@ -1100,6 +1110,7 @@
         approve: decision,
         wordsOk: gateMode ? gateDisplayOk : witness === null ? null : witness.ok === true,
         revealed: gateMode ? gateRevealed === true : undefined,
+        confirm: gateMode && gateTier === 'hash4' ? document.getElementById('gate-typed').value : undefined,
         dwellMs: shownAt === null ? null : Math.max(0, Date.now() - shownAt),
       }).then(function (reply) {
         if (gateMode) {
@@ -1225,6 +1236,12 @@
             document.getElementById('gate-model-text').textContent = card.model
             document.getElementById('gate-change').hidden = false
             document.getElementById('gate-model').hidden = false
+            gateTier = review.tier === 'hash4' ? 'hash4' : 'reveal'
+            gateNewSha = pending.new_sha
+            if (gateTier === 'hash4') {
+              document.getElementById('gate-typed-wrap').hidden = false
+              document.getElementById('gate-typed').addEventListener('input', function () { applyEligibility() })
+            }
             armGateReveal()
             show('headline', 'Review gate proposal')
             show('f-challenge', review.review_challenge)

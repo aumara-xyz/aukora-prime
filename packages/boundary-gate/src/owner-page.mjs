@@ -17,7 +17,7 @@ const CSS = 'body{font:15px/1.5 system-ui;margin:0;background:#111;color:#eee;pa
 export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM_TTL_MS } = {}) {
   const { owner, now } = gate
   const confirms = new Map()   // nonce -> { id, base, new, exp } (single use; memory only)
-  const resultLabel = (v) => v.new_accent === 'default' ? 'default' : '#' + String(v.new_accent ?? '').replace(/^#/, '')
+  const resultLabel = (v) => v.tier === 'hash4' ? v.new_sha4 : v.new_accent === 'default' ? 'default' : '#' + String(v.new_accent ?? '').replace(/^#/, '')
 
   function pageHtml(msg, confirmFor) {
     const items = gate.pendingRows().map(p => {
@@ -64,14 +64,15 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
     } else if (a === 'confirm') {
       const n = String(f.get('nonce')); const c = confirms.get(n); confirms.delete(n)
       const s = gate.targets[p.target]
-      const want = (s?.accentOf?.(gate.blobText(p.new_sha)) ?? '').replace(/^#/, '').toUpperCase(), typed = String(f.get('typed') ?? '').trim().replace(/^#/, '').toUpperCase()
+      const hash4 = s?.approvalTier === 'hash4'
+      const want = hash4 ? p.new_sha.slice(0, 4).toUpperCase() : (s?.accentOf?.(gate.blobText(p.new_sha)) ?? '').replace(/^#/, '').toUpperCase(), typed = String(f.get('typed') ?? '').trim().replace(/^#/, '').toUpperCase()
       if (!c || c.id !== id || c.base !== p.base_sha || c.new !== p.new_sha || now() > c.exp) msg = 'not applied: confirmation expired or invalid - start again with Approve (step 1).'
       else if (!want || typed !== want) msg = `not applied: typed confirmation "${typed.slice(0, 20)}" does not match the result. Nothing changed.`
       else {
         // The one ceremony: a fresh review challenge over the exact base/new, then decide_review (no direct approve).
         try {
           const rv = gate.ownerOps.review({ id })
-          const r = gate.ownerOps.decide_review({ id, base_sha: rv.base_sha, new_sha: rv.new_sha, review_challenge: rv.review_challenge, outcome: 'allowed-once' }, PAGE_APPROVER)
+          const r = gate.ownerOps.decide_review({ id, base_sha: rv.base_sha, new_sha: rv.new_sha, review_challenge: rv.review_challenge, outcome: 'allowed-once', ...(hash4 ? { confirm: typed.toLowerCase() } : {}) }, PAGE_APPROVER)
           msg = r.applied ? `APPLIED ${p.target} — ledger #${r.ledger_seq}` : `not applied: ${r.message}`
         } catch (e) { msg = `not applied: ${String(e?.message ?? e).slice(0, 200)}` }
       }

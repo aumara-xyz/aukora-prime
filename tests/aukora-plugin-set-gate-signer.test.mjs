@@ -56,7 +56,7 @@ function world() {
 const raise = (w, content = w.content) => w.gate.ownerOps.raise({ target: PLUGIN_SET_TARGET, content, why: 'TEST raise' })
 function approve(w, id) {
   const r = w.gate.ownerOps.review({ id })
-  return { r, out: w.gate.ownerOps.decide_review({ id, base_sha: r.base_sha, new_sha: r.new_sha, review_challenge: r.review_challenge, outcome: 'allowed-once' }, OWNER_SOCKET_APPROVER) }
+  return { r, out: w.gate.ownerOps.decide_review({ id, base_sha: r.base_sha, new_sha: r.new_sha, review_challenge: r.review_challenge, outcome: 'allowed-once', confirm: r.new_sha.slice(0, 4) }, OWNER_SOCKET_APPROVER) }
 }
 const pinOf = (w) => ({ kind: ps.GATE_PIN_KIND, gatePubkeyPem: w.gate.pubPem, gatePubkeyFp: w.gate.fp, target: PLUGIN_SET_TARGET, approver: OWNER_SOCKET_APPROVER })
 
@@ -91,7 +91,7 @@ test('the question waits 24 h for an absent owner; the decision window stays 2 m
   const r = w.gate.ownerOps.review({ id: p.id })
   assert.ok(r.review_expires - w.clock.t <= 120000, 'the review challenge is not lengthened')
   w.clock.t += 121000
-  assert.throws(() => w.gate.ownerOps.decide_review({ id: p.id, base_sha: r.base_sha, new_sha: r.new_sha, review_challenge: r.review_challenge, outcome: 'allowed-once' }, OWNER_SOCKET_APPROVER), /expired/)
+  assert.throws(() => w.gate.ownerOps.decide_review({ id: p.id, base_sha: r.base_sha, new_sha: r.new_sha, review_challenge: r.review_challenge, outcome: 'allowed-once', confirm: r.new_sha.slice(0, 4) }, OWNER_SOCKET_APPROVER), /expired/)
   w.clock.t += 15 * 3600 * 1000
   assert.ok(!w.gate.ownerOps.pending().pending.some(r2 => r2.id === p.id), 'gone after 24 h, never applied')
   assert.equal(w.store.read(PLUGIN_SET_TARGET), null)

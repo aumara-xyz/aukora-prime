@@ -37,7 +37,7 @@ test('review gives full stored bytes/diff and a fresh challenge; approve applies
   const { gate, store, clock } = makeGate()
   const p = propose(gate, '#1E90FF')
   const r = gate.ownerOps.review({ id: p.id })
-  assert.equal(r.version, 2); assert.match(r.from_to, /^accent: .+ -> #1E90FF /, 'the gate computes the from->to line itself'); assert.equal(r.model_note, 'TEST accent', 'the model note is returned separately, as model text'); assert.equal(r.content, accent('#1E90FF')); assert.equal(r.diff, p.diff); assert.equal(r.displayable, true)
+  assert.equal(r.version, 3); assert.equal(r.tier, 'reveal', 'a theme target keeps the reveal tier'); assert.match(r.from_to, /^accent: .+ -> #1E90FF /, 'the gate computes the from->to line itself'); assert.equal(r.model_note, 'TEST accent', 'the model note is returned separately, as model text'); assert.equal(r.content, accent('#1E90FF')); assert.equal(r.diff, p.diff); assert.equal(r.displayable, true)
   assert.match(r.review_challenge, /^[0-9a-f]{64}$/); assert.equal(r.review_expires, Math.min(p.expires, clock.t + 120000)); assert.equal(r.pubkey_fp, gate.fp)
   assert.notEqual(gate.ownerOps.review({ id: p.id }).review_challenge, r.review_challenge, 'each review mints a new challenge')
   const r2 = gate.ownerOps.review({ id: p.id })

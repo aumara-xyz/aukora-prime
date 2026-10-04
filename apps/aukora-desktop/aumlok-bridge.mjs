@@ -771,7 +771,9 @@ export function installApprovalBridge(deps) {
     if (gateEntry) {
       if (typeof payload?.approve !== 'boolean'
         || (payload.approve && (gateEntry.facts.approveAvailable !== true || payload.wordsOk !== true
-          || payload.revealed !== true))) {
+          || payload.revealed !== true
+          || (gateEntry.facts.review?.tier === 'hash4' && (typeof payload.confirm !== 'string'
+            || payload.confirm.toLowerCase() !== String(gateEntry.facts.review.new_sha).slice(0, 4)))))) {
         return { ok: false, reason: 'gate:stored-byte-review-unavailable' }
       }
       if (gateEntry.answering) return { ok: false, reason: 'gate:question-already-answered' }
@@ -779,7 +781,7 @@ export function installApprovalBridge(deps) {
       let result
       const gateView = approval
       try { result = await gateEntry.gateDecide(gateEntry.challenge, payload.approve,
-        () => approval === gateView && fromApproval(event)) }
+        () => approval === gateView && fromApproval(event), typeof payload.confirm === 'string' ? payload.confirm : null) }
       catch { result = { state: 'unknown', applied: null, reason: 'gate:acknowledgement-unavailable' } }
       settleAsk(gateEntry.challenge, { approve: payload.approve, result })
       // Keep the card open to show the actual result. A lost reply never becomes "Refused".

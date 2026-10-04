@@ -93,9 +93,19 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
       if (on.plugin_set !== a.plugin_set) throw new Error(`installed plugin set is ${on.plugin_set}, not ${a.plugin_set}`)
       if (on.record !== a.record) throw new Error(`installed release record is ${on.record}, not ${a.record}`)
     },
-    plain(_oldText, newText) {
+    // TIERED APPROVAL (Peter, 2026-10-04): a plugin-set approval needs the owner to TYPE the first 4 characters of the new
+    // SHA-256 (enforced by the gate at decide_review), on top of the card's reveal check. Theme targets keep the reveal check.
+    approvalTier: 'hash4',
+    plain(oldText, newText) {
       const a = parsePluginSetApproval(newText)
-      return a ? `ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}` : '(invalid plugin-set approval)'
+      if (!a) return '(invalid plugin-set approval)'
+      // THE BASE IS THE OWNER'S PREVIOUS APPROVAL: this target is gate-owned and written only by an owner-approved apply, so
+      // "unchanged since your approval of <release>" is a gate fact, stated only when the set digest is byte-equal.
+      const b = parsePluginSetApproval(oldText)
+      const same = b && b.plugin_set === a.plugin_set
+        ? `GATE FACT: plugin set UNCHANGED since your approval of ${b.release_dir} (${b.release.slice(0, 12)})${b.operation === a.operation ? ', operation unchanged' : ', operation CHANGED'} | `
+        : b ? `GATE FACT: plugin set CHANGED since your approval of ${b.release_dir} | ` : 'GATE FACT: first plugin-set approval on this gate | '
+      return `${same}ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}`
     },
     after(newText) {
       const a = parsePluginSetApproval(newText)

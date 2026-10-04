@@ -156,12 +156,13 @@ function gatePending(value) {
 }
 
 function gateReview(value, pending, now) {
-  const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff', 'from_to', 'model_note',
+  const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff', 'from_to', 'model_note', 'tier',
     'displayable', 'created', 'expires', 'review_challenge', 'review_expires', 'pubkey_fp']
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))
-    || value.version !== 2 || JSON.stringify(gatePending(value)) !== JSON.stringify(pending)
-    || !(value.from_to === null || (typeof value.from_to === 'string' && /^[\x20-\x7e]{1,400}$/u.test(value.from_to)))
+    || value.version !== 3 || JSON.stringify(gatePending(value)) !== JSON.stringify(pending)
+    || !['reveal', 'hash4'].includes(value.tier)
+    || !(value.from_to === null || (typeof value.from_to === 'string' && /^[\x20-\x7e]{1,600}$/u.test(value.from_to)))
     || !(value.model_note === null || (typeof value.model_note === 'string' && /^[\x20-\x7e]{0,200}$/u.test(value.model_note)))
     || !gateSha(value.review_challenge) || !Number.isSafeInteger(value.review_expires)
     || value.review_expires <= now() || value.review_expires > value.expires
@@ -191,6 +192,8 @@ export const GATE_CARD = Object.freeze({
 export function gateReviewText(review) {
   return [GATE_CARD.facts,
     '  Change (gate-computed): ' + (review.from_to ?? '(this target has no gate summary; read the diff)'),
+    '  Approval tier: ' + (review.tier === 'hash4'
+      ? 'TYPED - open the change, then type the first 4 characters of the new SHA-256' : 'REVEAL - open the change'),
     '  Target: ' + review.target, '  Kind: ' + review.kind,
     '  Base SHA-256: ' + review.base_sha, '  New SHA-256: ' + review.new_sha,
     '  New stored content (' + review.content.length + ' ASCII bytes): ' + review.content,
@@ -235,11 +238,17 @@ export function createGateOwnerAdapter({ socketPath, call = exchangeGateOwner, n
         return question
       } finally { preparing = false }
     },
-    async decide(uiQuestionId, approve, stillVisible = () => false) {
+    async decide(uiQuestionId, approve, stillVisible = () => false, confirm = null) {
       const expected = reviews.get(uiQuestionId)
       if (disposed || !expected) return { state: 'unavailable', applied: false, reason: 'gate:question-not-pending' }
       if (typeof approve !== 'boolean' || (approve && !expected.review)) {
         return { state: 'unavailable', applied: false, reason: 'gate:stored-byte-review-unavailable' }
+      }
+      // TIERED APPROVAL: a 'hash4' approve needs the owner's typed first 4 characters of the new SHA-256. Checked before the
+      // question is spent, so a typo leaves the card answerable; the gate checks it again and is the authority.
+      const typed = approve && expected.review?.tier === 'hash4'
+      if (typed && (typeof confirm !== 'string' || confirm.toLowerCase() !== expected.review.new_sha.slice(0, 4))) {
+        return { state: 'unavailable', applied: false, reason: 'gate:typed-confirmation-required' }
       }
       reviews.delete(uiQuestionId) // Spend the local question before any await or dispatch; no blind retry.
       let sent = false
@@ -259,7 +268,7 @@ export function createGateOwnerAdapter({ socketPath, call = exchangeGateOwner, n
         const result = review
           ? await call(socketPath, 'decide_review', { id: review.id, base_sha: review.base_sha,
             new_sha: review.new_sha, review_challenge: review.review_challenge,
-            outcome: approve ? 'allowed-once' : 'rejected' })
+            outcome: approve ? 'allowed-once' : 'rejected', ...(typed ? { confirm: confirm.toLowerCase() } : {}) })
           : await call(socketPath, 'reject', { id: expected.pending.id })
         if (disposed) return { state: 'unknown', applied: null, reason: 'gate:acknowledgement-unavailable' }
         if (typeof result?.applied !== 'boolean'

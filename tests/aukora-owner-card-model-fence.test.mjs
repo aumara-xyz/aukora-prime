@@ -36,7 +36,7 @@ html = mutate(html, 'no-reveal-gate', '&& gateRevealed === true && Date.now() < 
 html = mutate(html, 'arm-on-click', '        requestAnimationFrame(seenNow)\n', '        gateRevealed = true; applyEligibility()\n')
 html = mutate(html, 'no-scroll-end', "        if (!atEnd()) { note.textContent", "        if (false) { note.textContent")
 const bridgeSrc = mutate(read('apps/aukora-desktop/aumlok-bridge.mjs'), 'bridge-no-revealed',
-  "\n          || payload.revealed !== true))) {", ')) {')
+  "\n          || payload.revealed !== true\n", '\n')
 
 const { createGate } = await importMutated('packages/boundary-gate/src/gate.mjs', gateSrc)
 const { createGateOwnerAdapter, GATE_CARD } = await importMutated('apps/aukora-desktop/aumlok-signer-airlock.mjs', adapterSrc)
@@ -59,7 +59,7 @@ test('gate review v2: the gate computes from->to itself; the model note comes ba
   try {
     const q = await createGateOwnerAdapter({ socketPath: srv.ownerSocket, now }).pending()
     assert.equal(q.approveAvailable, true)
-    assert.equal(q.review.version, 2)
+    assert.equal(q.review.version, 3)
     assert.match(q.review.from_to, /^accent: #00BFFF .* -> default /, 'gate-computed from->to, from the stored base and new bytes')
     assert.ok(!q.review.from_to.includes('safe to refuse'), 'no model text in the gate facts')
     assert.ok(q.review.model_note.startsWith('safe to refuse'))
@@ -124,6 +124,6 @@ test('Approve stays off until the owner opened the diff, reached its end and dwe
 })
 
 test('the bridge refuses a gate approve the card did not report as revealed', () => {
-  assert.match(bridgeSrc, /payload\.approve && \(gateEntry\.facts\.approveAvailable !== true \|\| payload\.wordsOk !== true\s*\|\| payload\.revealed !== true\)/u)
+  assert.match(bridgeSrc, /payload\.approve && \(gateEntry\.facts\.approveAvailable !== true \|\| payload\.wordsOk !== true\s*\|\| payload\.revealed !== true\s*\|\|/u)
   assert.match(html, /revealed: gateMode \? gateRevealed === true : undefined,/u, 'the card reports it')
 })
