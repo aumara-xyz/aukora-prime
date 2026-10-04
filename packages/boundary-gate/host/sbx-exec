@@ -1,30 +1,131 @@
 #!/bin/bash
-# Root-owned (install 0755 root:root as /usr/local/lib/aukora-boundary/sbx-exec). The ONLY entry from the
-# harness user (aukora-host) to the agent's hands: runs ONE bash command inside the NVIDIA OpenShell sandbox
-# "auma-ws", owned by Linux user auma (rootless Podman, network mode none).
-# Usage (as auma, via the single sudo rule in sudoers.template): sbx-exec <timeout-seconds> <command-string>
-# Every call: (1) kills leftover processes from earlier calls, (2) runs the command with a per-process CPU-time
-# cap (ulimit -t) and a 20 MB file-size cap, (3) kills everything it left behind (detached/setsid children
-# included). Spared: PID 1, OpenShell's own login shell (the lowest-pid "/bin/bash -l" child of PID 1; killing
-# it puts the sandbox into Error) and processes of a call still running (an ancestor argv carries SKSBX).
-# Output goes to files so detached children cannot hold the exec pipe open past the cleanup; each stream is
-# capped at 1 MiB. The environment is fixed here; nothing from the caller's environment is trusted.
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Root-owned (install 0755 root:root as /usr/local/lib/aukora-boundary/sbx-exec). The ONLY entry from the harness user
+# (aukora-host) to the agent's hands: runs ONE bash command inside the NVIDIA OpenShell sandbox "auma-ws", owned by
+# Linux user auma (rootless Podman, container network mode none). Used through the single sudo rule in sudoers.template.
+#
+#   sbx-exec --confinement-info          read-only: print the RUNNING sandbox's applied policy (version-1 envelope,
+#                                        plugins/aukora-openshell-confinement/handoff/WRAPPER.md); nonzero when the
+#                                        observation is unavailable or is not the hard workspace-write policy
+#   sbx-exec <timeout-seconds> <command> run one command (timeout digits only, clamped 1..300)
+#
+# Every command, under one host lock: (1) re-observe the applied policy and refuse unless it is the hard policy
+# (never a cached answer: a replaced sandbox is re-checked), (2) kill guest leftovers from earlier calls, (3) run it
+# with ulimit -t 330 and a 20 MB file-size cap, stdin closed, no TTY, (4) kill everything it left behind. Cleanup spares
+# PID 1, OpenShell's login shell and the NUMERIC ancestors of the cleaner itself (no argv marker an agent could forge).
+# TERM/INT/HUP run a guest cleanup before exiting 124. Output streams are capped at 1 MiB each. The environment is
+# fixed here; nothing from the caller's environment is trusted. Fixed diagnostics carry no command or private data.
 set -u
+umask 077
 uid=$(id -u)
-export HOME="$(getent passwd "$uid" | cut -d: -f6)" XDG_RUNTIME_DIR="/run/user/$uid" OPENSHELL_TELEMETRY_ENABLED=false PATH=/usr/local/bin:/usr/bin:/bin
+export HOME="$(getent passwd "$uid" | cut -d: -f6)" XDG_RUNTIME_DIR="/run/user/$uid" OPENSHELL_TELEMETRY_ENABLED=false \
+  PATH=/usr/local/bin:/usr/bin:/bin LC_ALL=C
 cd "$HOME" || exit 2
-t="${1:-60}"; case "$t" in ''|*[!0-9]*) echo "bad timeout" >&2; exit 2;; esac
+SB=auma-ws
+
+# Observe and validate the applied policy of the RUNNING instance. Sources: `openshell sandbox get` (phase, conditions,
+# admitted policy hash/version, runtime generation), `openshell policy get --full` (effective policy + active version),
+# `podman inspect` of the container bound to that sandbox id (network mode, /sandbox mount). Each query is bounded.
+info() {
+  /usr/bin/python3 -I -S - "$SB" "$1" <<'PY'
+import json, subprocess, sys
+sb, mode = sys.argv[1], sys.argv[2]
+def run(*a):
+    r = subprocess.run(list(a), capture_output=True, timeout=4, stdin=subprocess.DEVNULL)
+    if r.returncode != 0: raise SystemExit('query')
+    return r.stdout.decode()
+def fail(): print('aukora-openshell-confinement: applied-policy-unavailable', file=sys.stderr); sys.exit(1)
+try:
+    ver = run('/usr/bin/openshell', '--version').split()
+    s = json.loads(run('/usr/bin/openshell', 'sandbox', 'get', sb, '-o', 'json'))
+    p = json.loads(run('/usr/bin/openshell', 'policy', 'get', sb, '--full', '-o', 'json'))
+    sid = s['id']; cname = f'openshell-default--{sb}-{sid}'
+    names = run('/usr/bin/podman', 'ps', '--format', '{{.Names}}').split()
+    if names.count(cname) != 1: fail()
+    c = json.loads(run('/usr/bin/podman', 'inspect', cname))[0]
+except (SystemExit, Exception): fail()
+cond = {x.get('type'): x.get('status') for x in s.get('conditions', [])}
+adm = s.get('configuration_admission') or {}
+pol = dict(p.get('policy') or {})
+pol.setdefault('network_policies', {})   # OpenShell omits the key when there are none; any present value is kept
+eff = p.get('status') == 'effective' and p.get('sandbox') == sb and adm.get('state') == 'accepted' and \
+      adm.get('policy_hash') == p.get('hash') and adm.get('policy_version') == p.get('active_version')
+mounts = [m for m in c.get('Mounts', []) if m.get('Destination') == '/sandbox']
+env = {
+  'version': 1,
+  'openshell_version': ver[1] if len(ver) == 2 and ver[0] == 'openshell' else '',
+  'sandbox': s.get('name'),
+  'state': s.get('phase') if cond.get('Ready') == 'True' and cond.get('ConfigurationReady') == 'True' else 'NotReady',
+  'instance_id': (s.get('annotations') or {}).get('internal.openshell.ai/runtime-generation', ''),
+  'policy_revision': s.get('current_policy_version'),
+  'applied_revision': p.get('active_version') if eff else 0,
+  'workspace_root': '/sandbox' if len(mounts) == 1 and mounts[0].get('RW') is True else '',
+  'network_mode': c.get('HostConfig', {}).get('NetworkMode'),
+  'policy': pol,
+}
+fs = pol.get('filesystem_policy') or {}
+ok = (env['openshell_version'] == '0.1.2' and env['sandbox'] == sb and env['state'] == 'Ready' and
+      isinstance(env['instance_id'], str) and 0 < len(env['instance_id']) <= 256 and
+      isinstance(env['policy_revision'], int) and env['policy_revision'] >= 1 and
+      env['applied_revision'] == env['policy_revision'] and env['workspace_root'] == '/sandbox' and
+      env['network_mode'] == 'none' and pol.get('version') == 1 and fs.get('include_workdir') is False and
+      set(fs) <= {'include_workdir', 'read_only', 'read_write'} and
+      sorted(fs.get('read_write') or []) == sorted(['/sandbox', '/tmp', '/dev/null']) and
+      pol.get('landlock') == {'compatibility': 'hard_requirement'} and pol.get('network_policies') == {} and
+      set(pol) <= {'version', 'filesystem_policy', 'landlock', 'process', 'network_policies', 'network_middlewares'} and
+      pol.get('network_middlewares', {}) == {})
+out = json.dumps(env, separators=(',', ':'))
+if not ok or len(out) > 16384: fail()
+if mode == 'print': print(out)
+PY
+}
+
+if [ "${1:-}" = --confinement-info ]; then
+  [ "$#" -eq 1 ] || exit 2
+  info print; exit $?
+fi
+[ "$#" -eq 2 ] || { echo "usage: sbx-exec <timeout-seconds> <command>" >&2; exit 2; }
+t="$1"; case "$t" in ''|*[!0-9]*) echo "bad timeout" >&2; exit 2;; esac
 [ "${#t}" -gt 4 ] && t=300
 [ "$t" -lt 1 ] && t=1
 [ "$t" -gt 300 ] && t=300
-exec /usr/bin/openshell sandbox exec --name auma-ws --no-tty --no-login-shell --timeout "$t" -- \
-  bash -c 'infra() { local best= n; for p in /proc/[0-9]*; do n=${p#/proc/}; [ "$(tr "\0" " " 2>/dev/null < $p/cmdline)" = "/bin/bash -l " ] || continue
+# The guest cannot reach this host runtime lock. Held through the policy check, the run and all cleanup.
+exec 9>>"$XDG_RUNTIME_DIR/aukora-sbx-exec.lock" || exit 125
+/usr/bin/flock -w "$t" 9 || { echo 'aukora-openshell-confinement: sandbox-unavailable' >&2; exit 125; }
+info check || exit 125
+guest='infra() { local best= n; for p in /proc/[0-9]*; do n=${p#/proc/}; [ "$(tr "\0" " " 2>/dev/null < $p/cmdline)" = "/bin/bash -l " ] || continue
       [ "$(awk "/^PPid/{print \$2}" $p/status 2>/dev/null)" = 1 ] || continue; if [ -z "$best" ] || [ "$n" -lt "$best" ]; then best=$n; fi; done; echo "$best"; }
-  skclean() { local k=0 n c a i keep; keep=$(infra); for _ in 1 2; do for p in /proc/[0-9]*; do n=${p#/proc/}; [ "$n" = 1 ] && continue; [ "$n" = "$keep" ] && continue
-      a=$n; i=0; while [ -n "$a" ] && [ "$a" -gt 1 ] && [ $i -lt 64 ]; do c=$(tr "\0" " " 2>/dev/null < /proc/$a/cmdline); case "$c" in *" SKSBX "*) continue 2;; esac
-        a=$(awk "/^PPid/{print \$2}" /proc/$a/status 2>/dev/null); i=$((i+1)); done
+  skclean() { local k=0 n a i keep safe=" 1 "; keep=$(infra); a=$$; i=0
+    while [ -n "$a" ] && [ "$a" -gt 1 ] && [ "$i" -lt 64 ]; do safe="$safe$a "; a=$(awk "/^PPid/{print \$2}" /proc/$a/status 2>/dev/null); i=$((i+1)); done
+    for _ in 1 2; do for p in /proc/[0-9]*; do n=${p#/proc/}; [ "$n" = "$keep" ] && continue
+      case "$safe" in *" $n "*) continue;; esac
       kill -9 "$n" 2>/dev/null && k=$((k+1)); done; done
-    [ $k -gt 0 ] && echo "[sandbox: killed $k leftover process(es) $1 this call]" >&2; return 0; }
-  skclean before 2>/dev/null; O=$(mktemp /tmp/.sko.XXXXXX); E=$(mktemp /tmp/.ske.XXXXXX); cd /sandbox 2>/dev/null
-  ( ulimit -f 20480; ulimit -t 330; exec bash -c "$1" ) >"$O" 2>"$E" </dev/null; rc=$?
-  skclean after 2>>"$E"; head -c 1048576 "$O"; head -c 1048576 "$E" >&2; rm -f "$O" "$E"; exit $rc' SKSBX "${2:-true}" </dev/null
+    [ "$k" -gt 0 ] && echo "[sandbox: killed $k leftover process(es) $1 this call]" >&2; return 0; }
+  trap "skclean cancelled 2>/dev/null; exit 124" TERM INT HUP
+  mode="$1"; shift
+  if [ "$mode" = cleanup ]; then skclean cancelled; exit 0; fi
+  skclean before 2>/dev/null
+  cd /sandbox || { echo "aukora-openshell-confinement: guest-workspace-unavailable" >&2; exit 125; }
+  O=$(mktemp /tmp/.sko.XXXXXX) || exit 125
+  E=$(mktemp /tmp/.ske.XXXXXX) || { rm -f "$O"; exit 125; }
+  trap "skclean exit 2>/dev/null; rm -f \"\$O\" \"\$E\"" EXIT
+  ( ulimit -f 20480; ulimit -t 330; exec bash -c "$1" ) >"$O" 2>"$E" </dev/null & child=$!
+  wait "$child"; rc=$?
+  skclean after 2>>"$E"; head -c 1048576 "$O"; head -c 1048576 "$E" >&2
+  exit "$rc"'
+client=
+on_cancel() {
+  trap '' TERM INT HUP
+  [ -n "$client" ] && kill -TERM "$client" 2>/dev/null
+  /usr/bin/openshell sandbox exec --name "$SB" --no-tty --no-login-shell --timeout 10 -- \
+    bash -c "$guest" aukora-boundary cleanup </dev/null >/dev/null 2>&1 || \
+    echo 'aukora-openshell-confinement: cleanup-unconfirmed' >&2
+  [ -n "$client" ] && wait "$client" 2>/dev/null
+  exit 124
+}
+trap on_cancel TERM INT HUP
+/usr/bin/openshell sandbox exec --name "$SB" --no-tty --no-login-shell --timeout "$t" -- \
+  bash -c "$guest" aukora-boundary exec "$2" </dev/null & client=$!
+wait "$client"; rc=$?
+trap - TERM INT HUP
+exit "$rc"

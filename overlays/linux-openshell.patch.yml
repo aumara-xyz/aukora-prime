@@ -1,0 +1,29 @@
+# L1 ON LINUX: Auma's one-shot `bash` runs inside the NVIDIA OpenShell sandbox `auma-ws` as Linux user `auma`, through
+# the root-owned wrapper /usr/local/lib/aukora-boundary/sbx-exec and the single sudo rule — never on the host.
+# plugins/aukora-openshell-confinement/README.md says what it supports and what it refuses.
+#
+# LINUX DEPLOYMENTS ONLY. The materializer copies this file to `<release>/linux-openshell.patch.yml`; the Linux unit
+# (packages/boundary-gate/host/systemd/aukora-genesis.service) lists it AFTER aukora-composition.patch.yml. macOS never
+# lists it, so the Seatbelt rows stay exactly as they are there.
+#
+# Rows:
+#   - aukora-seatbelt (macOS Seatbelt; refuses Linux) and bash-sandbox (the stock `shell` provider) are disabled:
+#     the adapter must be the ONLY `sandbox`, `aukoraConfinement` and `shell` provider and refuses to mount otherwise;
+#   - the adapter is inserted. `hostWorkspaceRoot` is the declared host->guest identity: a session whose cwd is EXACTLY
+#     the process cwd (the same root the base sandbox-policy row uses) runs its bash in the guest /sandbox. The guest
+#     /sandbox is the sandbox's own volume: it does NOT share files with the host workspace.
+# Refused by the adapter: background bash, run_code (needs a guest FD7 control channel), terminals and the web terminal
+# (need a guest PTY), any mode but workspace-write, any workdir but the session root, stdin and caller environment.
+- id: aukora-seatbelt
+  disabled: true
+
+- id: bash-sandbox
+  disabled: true
+
+- insert:
+    - id: aukora-openshell-confinement
+      name: ./plugins/aukora-openshell-confinement/lib/index.mjs
+      config:
+        workspaceRoot: /sandbox
+        hostWorkspaceRoot: !!js process.cwd()
+        timeoutSeconds: 60

@@ -1,0 +1,30 @@
+# Handoff only: Grok owns shared composition and materializer registration.
+# Keep disabled until the root-owned wrapper's applied-policy interface is joined.
+# Grok's shared Linux rows must disable sandbox, aukora-seatbelt, bash-sandbox
+# and any bash-local provider, enable the selected preset's one-shot tool-bash,
+# and set that actual preset row's config
+# enableRunInBackground: false. This plugin supplies the sole shell provider.
+# sandbox-policy: mode workspace-write, workspaceRoot /sandbox.
+# Web disables its host tool-bash row; enabling that host row alone does not
+# establish the selected preset's tool config. Do not select minimal's bash.
+# The calling session's immutable cwd must also be /sandbox; session cwd wins
+# over the sandbox-policy fallback. No host workspace mount is requested.
+# The base/standard one-shot tool-bash row is the supported 'bash' alias.
+# Minimal's persistent-bash row (dsh-tool-bash-persistent) also calls itself
+# 'bash'; it is unsupported. Package names and row ids are not interchangeable.
+# Disable Linux ptc-runtime/workflow-ptc, terminal-bash/terminal-pwsh,
+# persistent-bash/persistent-pwsh and terminal-controller until their
+# streaming/control/process-ownership transport is joined. Hide the terminal UI
+# affordance too; row visibility alone is not the enforcement guard.
+# Cover preset-local workflow rows as well as the web-disabled host row.
+# Disable aukora-caged-worker on Linux and apply its separate early-refusal
+# handoff; that fixed workspace-patch alias uses the macOS box launch path.
+# Grok must install handoff/linux-unsupported-consumers.patch.json after the
+# existing mandatory-agent-confinement patch and bind it in upstream-dsh.json.
+- insert:
+    - id: aukora-openshell-confinement
+      name: ./plugins/aukora-openshell-confinement/lib/index.mjs
+      disabled: true
+      config:
+        workspaceRoot: /sandbox
+        timeoutSeconds: 60

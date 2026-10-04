@@ -109,6 +109,7 @@ function receive(child, predicate, timeoutMs) {
 }
 
 export async function runPatch(settings, input, signal) {
+  if (process.platform === 'linux') return { ok: false, state: 'REFUSED', reason: 'adapter:linux-guest-confinement-unavailable', workerSpawns: 0 }
   const args = captureWorkspacePatchArgs(input)
   if (!args || args.workspace !== 'selected') return { ok: false, state: 'REFUSED', reason: 'adapter:closed-patch-required', workerSpawns: 0 }
   if (signal?.aborted) return { ok: false, state: 'REFUSED', reason: 'adapter:cancelled', workerSpawns: 0 }

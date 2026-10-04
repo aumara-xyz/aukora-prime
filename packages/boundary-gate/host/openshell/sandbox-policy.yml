@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# STARTUP policy of sandbox auma-ws (install root:root 0644 beside ensure-sandbox.sh). Filesystem and Landlock fields are
+# startup-only: ensure-sandbox.sh recreates the sandbox when the running one does not report exactly this policy.
+version: 1
+filesystem_policy:
+  include_workdir: false
+  read_only: [/bin, /usr, /lib, /lib64, /etc, /proc, /dev/urandom]
+  read_write: [/sandbox, /tmp, /dev/null]
+landlock:
+  compatibility: hard_requirement
+network_policies: {}

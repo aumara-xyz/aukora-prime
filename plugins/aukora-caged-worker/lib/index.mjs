@@ -22,6 +22,7 @@ export function apply(ctx, config = {}) {
     } }, timeoutMs: 340_000, isConcurrencySafe: () => false,
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
     async execute(args, exec) {
+      if (process.platform === 'linux') return JSON.stringify({ ok: false, state: 'REFUSED', reason: 'adapter:linux-guest-confinement-unavailable', workerSpawns: 0 })
       if (busy) return JSON.stringify({ ok: false, state: 'REFUSED', reason: 'adapter:busy' })
       busy = true
       try {

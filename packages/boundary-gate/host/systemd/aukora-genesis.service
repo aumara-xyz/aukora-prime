@@ -18,7 +18,7 @@ WorkingDirectory=/opt/aukora-genesis/src
 Environment=PATH=/opt/aukora-node/bin:/usr/local/bin:/usr/bin:/bin
 Environment=AUKORA_SUPPORT_ROOT=/home/aukora-host/genesis/support
 Environment=AUKORA_STATE=/home/aukora-host/genesis/state
-ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release /opt/aukora-genesis/release-e4a02b6 --state-root /home/aukora-host/genesis/state --port 18735 --allow-unapproved --patch /opt/aukora-genesis/release-e4a02b6/aukora-composition.patch.yml
+ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release /opt/aukora-genesis/release-e4a02b6 --state-root /home/aukora-host/genesis/state --port 18735 --allow-unapproved --patch /opt/aukora-genesis/release-e4a02b6/aukora-composition.patch.yml --patch /opt/aukora-genesis/release-e4a02b6/linux-openshell.patch.yml
 KillMode=control-group
 Restart=on-failure
 RestartSec=5

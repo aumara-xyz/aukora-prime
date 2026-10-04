@@ -234,6 +234,7 @@ def COPY_IGNORE(directory, names):
 #                 cannot look at the app, while every eye court stays green — which is why
 #                 `tests/aukora-eye-row.test.mjs` holds this constant and the row below together.
 LANE_PLUGINS = ('aukora-kira', 'aukora-aumlok', 'aukora-board', 'aukora-eye', 'aukora-caged-worker', 'aukora-auma-theme',
+                'aukora-openshell-confinement',
                 # ── MEASURED OUTAGE, 2026-09-25: A RELEASE THAT COULD NOT START ──────────────────────
                 # The cutover died with `ERR_MODULE_NOT_FOUND`: `plugins/aukora-composition-gate/src/
                 # admission-grant.mjs:32` imports `../../aukora-owner-daemon/lib/binding.mjs`, and this
@@ -1725,6 +1726,14 @@ def main() -> int:
     # The same, for the Seatbelt provider swap. Carrying the file mounts nothing; a deployment lists it to mount it.
     shutil.copy2(ROOT / 'overlays' / 'seatbelt.patch.yml', target / 'seatbelt.patch.yml')
     shutil.copy2(ROOT / 'overlays' / 'caged-worker.patch.yml', target / 'caged-worker.patch.yml')
+    # L1 ON LINUX (2026-10-04): the OpenShell bash adapter's patch, listed only by the Linux unit, and the two boundary-gate
+    # modules the adapter imports for its transport (sandboxArgv, resolveLayout). They go under prime-packages/ so they
+    # can never be mistaken for a DSH package, and no strip pattern selects that directory.
+    shutil.copy2(ROOT / 'overlays' / 'linux-openshell.patch.yml', target / 'linux-openshell.patch.yml')
+    gate_src = target / 'prime-packages' / 'boundary-gate' / 'src'
+    gate_src.mkdir(parents=True, exist_ok=True)
+    for module in ('sandbox.mjs', 'layout.mjs'):
+        shutil.copy2(ROOT / 'packages' / 'boundary-gate' / 'src' / module, gate_src / module)
     # Add tracked memory beside the deployment's original Viking client and transport.
     # The pinned loader keys entries by id; reusing mcp-client would replace the Viking row.
     (target / 'tracked-memory.patch.yml').write_text(
