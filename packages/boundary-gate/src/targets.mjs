@@ -93,9 +93,6 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
       if (on.plugin_set !== a.plugin_set) throw new Error(`installed plugin set is ${on.plugin_set}, not ${a.plugin_set}`)
       if (on.record !== a.record) throw new Error(`installed release record is ${on.record}, not ${a.record}`)
     },
-    // TIERED APPROVAL (Peter, 2026-10-04): a plugin-set approval needs the owner to TYPE the first 4 characters of the new
-    // SHA-256 (enforced by the gate at decide_review), on top of the card's reveal check. Theme targets keep the reveal check.
-    approvalTier: 'hash4',
     plain(oldText, newText) {
       const a = parsePluginSetApproval(newText)
       if (!a) return '(invalid plugin-set approval)'

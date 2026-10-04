@@ -2,8 +2,8 @@
 // (1) the GATE computes the from->to line and returns the model's note SEPARATELY (review v2);
 // (2) the adapter's card text puts gate facts first, the exact diff next, the model's words LAST inside a MODEL-AUTHORED
 //     fence, and model text cannot forge a header or move above the facts;
-// (3) the card (aumlok-approval.html) parses exactly that shape and keeps Approve off until the owner has OPENED the diff,
-//     reached its end and dwelt briefly; (4) the bridge refuses a gate approve the card did not report as revealed.
+// (3) the card (aumlok-approval.html) parses exactly that shape. (Peter, 14:52 WITA: no reveal/scroll/dwell/typing friction;
+//     Approve is available at once. That is pinned in tests/aukora-owner-card-no-friction.test.mjs.)
 // OCF_MUTANT removes one guard in memory to prove each check bites.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -32,12 +32,6 @@ const gateSrc = mutate(read('packages/boundary-gate/src/gate.mjs'), 'gate-note-a
 const adapterSrc = mutate(read('apps/aukora-desktop/aumlok-signer-airlock.mjs'), 'model-first',
   "  return [GATE_CARD.facts,", "  return [GATE_CARD.model, '> ' + review.model_note, GATE_CARD.modelEnd, GATE_CARD.facts,")
 let html = read('apps/aukora-desktop/aumlok-approval.html')
-html = mutate(html, 'no-reveal-gate', '&& gateRevealed === true && Date.now() < gateReviewExpires', '&& Date.now() < gateReviewExpires')
-html = mutate(html, 'arm-on-click', '        requestAnimationFrame(seenNow)\n', '        gateRevealed = true; applyEligibility()\n')
-html = mutate(html, 'no-scroll-end', "        if (!atEnd()) { note.textContent", "        if (false) { note.textContent")
-const bridgeSrc = mutate(read('apps/aukora-desktop/aumlok-bridge.mjs'), 'bridge-no-revealed',
-  "\n          || payload.revealed !== true\n", '\n')
-
 const { createGate } = await importMutated('packages/boundary-gate/src/gate.mjs', gateSrc)
 const { createGateOwnerAdapter, GATE_CARD } = await importMutated('apps/aukora-desktop/aumlok-signer-airlock.mjs', adapterSrc)
 const fn = name => { const m = html.match(new RegExp(`\\n    function ${name}\\([^]*?\\n    \\}\\n`, 'u')); assert.ok(m, name); return m[0] }
@@ -59,7 +53,7 @@ test('gate review v2: the gate computes from->to itself; the model note comes ba
   try {
     const q = await createGateOwnerAdapter({ socketPath: srv.ownerSocket, now }).pending()
     assert.equal(q.approveAvailable, true)
-    assert.equal(q.review.version, 3)
+    assert.equal(q.review.version, 2)
     assert.match(q.review.from_to, /^accent: #00BFFF .* -> default /, 'gate-computed from->to, from the stored base and new bytes')
     assert.ok(!q.review.from_to.includes('safe to refuse'), 'no model text in the gate facts')
     assert.ok(q.review.model_note.startsWith('safe to refuse'))
@@ -99,31 +93,3 @@ test('the card refuses any other shape (reordered, unprefixed fact, model above 
   assert.equal(split([...ok.slice(0, 3), 'x not a diff line', ...ok.slice(4)]), null)
 })
 
-test('Approve stays off until the owner opened the diff, reached its end and dwelt; never on click alone', () => {
-  const elig = vm.runInNewContext(fn('approveEligible') + '; approveEligible()',
-    { gateMode: true, settled: false, challenge: 'c', gateDisplayOk: true, gateRevealed: false, gateReviewExpires: Date.now() + 60000 })
-  assert.equal(elig, false, 'not revealed -> not eligible')
-  const listeners = {}, timers = []
-  const el = (id, extra = {}) => ({ id, hidden: false, textContent: '', addEventListener(k, f) { (listeners[id + ':' + k] ??= []).push(f) }, ...extra })
-  const els = { 'gate-reveal': el('gate-reveal'), 'gate-diff': el('gate-diff', { hidden: true, scrollHeight: 600, clientHeight: 200, scrollTop: 0 }), 'gate-reveal-state': el('gate-reveal-state') }
-  const ctx = { document: { getElementById: id => els[id] }, setTimeout: (f, ms) => timers.push([f, ms]), requestAnimationFrame: f => f(),
-    settled: false, gateRevealed: false, GATE_REVEAL_DWELL_MS: 1500, calls: 0 }
-  ctx.applyEligibility = () => { ctx.calls++ }
-  vm.runInNewContext(fn('armGateReveal') + '; armGateReveal()', ctx)
-  listeners['gate-diff:scroll'][0]()
-  assert.equal(timers.length, 0, 'scrolling a hidden diff does nothing')
-  listeners['gate-reveal:click'][0]()
-  assert.equal(els['gate-diff'].hidden, false)
-  assert.equal(ctx.gateRevealed, false, 'opening is not enough')
-  assert.equal(timers.length, 0, 'not at the end yet')
-  els['gate-diff'].scrollTop = 400; listeners['gate-diff:scroll'][0]()
-  assert.equal(timers.length, 1); assert.equal(timers[0][1], 1500, 'a dwell after the end is reached')
-  assert.equal(ctx.gateRevealed, false)
-  timers[0][0]()
-  assert.equal(ctx.gateRevealed, true); assert.ok(ctx.calls > 0)
-})
-
-test('the bridge refuses a gate approve the card did not report as revealed', () => {
-  assert.match(bridgeSrc, /payload\.approve && \(gateEntry\.facts\.approveAvailable !== true \|\| payload\.wordsOk !== true\s*\|\| payload\.revealed !== true\s*\|\|/u)
-  assert.match(html, /revealed: gateMode \? gateRevealed === true : undefined,/u, 'the card reports it')
-})
