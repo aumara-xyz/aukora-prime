@@ -1,14 +1,12 @@
-# Successful startup check stays active so Genesis can bind its lifetime to this unit.
-# Periodic checks use aukora-selfcheck-periodic.service; a timer does not restart an active oneshot.
+# Periodic checks return to inactive after success, allowing the existing timer to run them again.
+# A failure stops Genesis through the same fail-closed unit as the active startup check.
 [Unit]
-Description=AUKORA boundary self-check (harness user; stops aukora-genesis on failure)
-# The bound startup job must wait for both providers pulled in by Genesis.
+Description=AUKORA periodic boundary self-check (harness user; stops aukora-genesis on failure)
 After=aukora-boundary-gate.service aukora-auma-sandbox.service
 OnFailure=aukora-genesis-failclosed.service
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
 User=aukora-host
 Group=aukora-host
 UMask=0077
