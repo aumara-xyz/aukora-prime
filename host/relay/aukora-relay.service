@@ -1,0 +1,39 @@
+[Unit]
+Description=Private AUKORA project communication relay
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=aukora-relay
+Group=aukora-relay
+UMask=0077
+WorkingDirectory=/opt/aukora-relay/releases/921b3c0-dot
+Environment=RELAY_AUTH_FILE=/var/lib/aukora-relay/auth.json
+Environment=RELAY_DB_FILE=/var/lib/aukora-relay/relay.sqlite
+Environment=RELAY_PORT=18733
+ExecStart=/opt/aukora-relay/bin/node /opt/aukora-relay/releases/921b3c0-dot/server.mjs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillMode=control-group
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/aukora-relay
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+MemoryMax=256M
+TasksMax=32
+LimitNOFILE=256
+LimitCORE=0
+StandardOutput=null
+StandardError=null

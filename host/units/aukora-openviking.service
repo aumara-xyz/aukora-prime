@@ -1,0 +1,30 @@
+[Unit]
+Description=AUKORA OpenViking + local CPU embedder for Kira (L3), as aukora-host, loopback 1933/1934
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=aukora-host
+Group=aukora-host
+UMask=0077
+WorkingDirectory=/home/aukora-host/genesis/state/home/openviking
+Environment=HOME=/home/aukora-host
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=AUKORA_OPENVIKING_EMBED_RSS_MIB=1536
+Environment=AUKORA_OPENVIKING_EMBED_THREADS=2
+ExecStart=/bin/sh /opt/aukora-genesis/src/scripts/openviking-setup.sh serve /home/aukora-host/genesis/state/home/openviking
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+TasksMax=64
+MemoryHigh=2048M
+MemoryMax=2304M
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=AUKORA lab: rootless Podman API for auma
+After=user@1001.service
+Wants=user@1001.service
+[Service]
+User=auma
+Group=auma
+ExecStart=/usr/local/lib/aukora-boundary/openshell/podman-service.sh
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
