@@ -41,7 +41,7 @@ export const CONFIG_TEMPLATE = {
     'nodePath: a node binary to use. Default: the first of ~/.local/bin/node, /opt/homebrew/bin/node, /usr/local/bin/node, /usr/bin/node that exists.',
     'patch: extra composition patch overlays. Default: the release\'s own aukora-composition.patch.yml, which is what mounts the organs and the spatial frame, followed by kira-deployment-overlay.patch.yml from this folder once the first Aumlok link has written it.',
     'approvedRecordSha: approved artifact record digests. A matching installed plugin-set approval also admits the release record; the gate still verifies its signature.',
-    'allowUnapproved: false by default. With no configured record approvals, no installed plugin-set approval and no approver pin from an earlier one, the first-run launch temporarily waives approval so you can link your Aumlok phrase and approve the plugin set. Nothing saves that waiver. An install that was approved before and lost its approval is refused instead. true explicitly waives the plugin set on every launch: for a disposable preview, or for one launch to re-approve.',
+    'Production requires a configured record approval or a matching installed plugin-set approval, including on first run. Preview settings are not accepted by the production desktop. A separate disposable-preview API caller may explicitly set unsafePreviewAllowUnapproved to the boolean true; no default grants that permission.',
   ],
   release: null,
   repo: null,
@@ -51,9 +51,29 @@ export const CONFIG_TEMPLATE = {
   nodePath: null,
   patch: [],
   approvedRecordSha: [],
-  // First-run permission is resolved from absent approval evidence and an absent approver pin, never saved here.
-  allowUnapproved: false,
   searchRoots: [homedir()],
+}
+
+/** Validate the profile before consuming preview settings or writing any configuration. */
+export function assertDesktopLaunchConfig(file, launchProfile = 'production', source = 'desktop configuration') {
+  if (launchProfile !== 'production' && launchProfile !== 'disposable-preview') {
+    throw new Error(`launch-profile-refused: ${String(launchProfile)} is not production or disposable-preview`)
+  }
+  if (file === null || typeof file !== 'object' || Array.isArray(file)) {
+    throw new Error(`desktop-config-malformed: ${source} must contain a JSON object`)
+  }
+  // The legacy name is a refusal, never an accepted alias in either profile.
+  if (Object.hasOwn(file, 'allowUnapproved')) {
+    throw new Error(`legacy-preview-setting-refused: ${source} contains allowUnapproved; remove the obsolete key`)
+  }
+  if (Object.hasOwn(file, 'unsafePreviewAllowUnapproved')) {
+    if (launchProfile !== 'disposable-preview') {
+      throw new Error(`unsafe-preview-configuration-refused: ${source} contains unsafePreviewAllowUnapproved; production does not accept preview settings`)
+    }
+    if (typeof file.unsafePreviewAllowUnapproved !== 'boolean') {
+      throw new Error(`unsafe-preview-setting-malformed: ${source} requires a boolean unsafePreviewAllowUnapproved`)
+    }
+  }
 }
 
 async function isDir(path) {
@@ -96,28 +116,6 @@ async function installedPluginSet(release, stateRoot) {
   } catch {
     return { status: 'invalid', path }
   }
-}
-
-// THE FIRST-RUN WAIVER IS FOR AN INSTALL NEVER APPROVED, NOT ONE THAT LOST ITS APPROVAL. `scripts/aukora/plugin-set.mjs`
-// writes the approver pin only when it installs an owner's plugin-set approval, beside it; no AUKORA script removes either.
-// A pin with no approval means an approval existed and is gone: a waiver would load any plugin bytes with no owner
-// decision. An Aumlok-bound install never plugin-set approved (settings and controller, no pin) keeps the waiver: its
-// first approval is raised through this app's own signer, so refusing it would leave nothing able to start or approve.
-// Existence only: the pin is not parsed and no key is touched. NOT ENFORCED: these are same-uid files, so deleting the
-// approval AND the pin brings the waiver back.
-async function assertNeverApproved(stateRoot, configPath) {
-  const pin = join(stateRoot, 'gate-state', 'plugin-set-approver.json')
-  try { await lstat(pin) } catch (error) {
-    if (error.code === 'ENOENT') return
-    throw new Error(`approver-pin-unreadable: ${pin} (${error.code}); this install cannot be shown never-approved, so `
-      + 'the first-run waiver is refused')
-  }
-  // A malformed pin, a directory or a dangling symlink is still an earlier approval's trace, never first run.
-  throw new Error(`existing-install-approval-missing: ${pin} records an earlier owner approval of this install's `
-    + `plugins, and ${join(stateRoot, 'gate-state', 'plugin-set-approval.json')} is gone, so the first-run waiver is `
-    + 'refused. To recover: put the approval back from a backup under state/home/become/backup-*, or set '
-    + `"allowUnapproved": true in ${configPath} for one launch, approve the plugin set `
-    + '(node scripts/aukora/plugin-set.mjs approve --release <release>), then set it back to false.')
 }
 
 /**
@@ -228,10 +226,13 @@ export async function ensureCheckout({ repo, commit, dir }) {
  * the template supplies — and the difference decides whether the release door's escape hatch was
  * opened by a person or merely by a default.
  */
-export async function loadConfig(userData) {
+export async function loadConfig(userData, { launchProfile = 'production' } = {}) {
+  assertDesktopLaunchConfig({}, launchProfile)
+  assertDesktopLaunchConfig(CONFIG_TEMPLATE, 'production', 'shipped desktop template')
   const path = join(userData, 'config.json')
   try {
     const file = JSON.parse(await readFile(path, 'utf8'))
+    assertDesktopLaunchConfig(file, launchProfile, path)
     return { path, file, config: { ...CONFIG_TEMPLATE, ...file } }
   } catch (err) {
     if (err.code !== 'ENOENT') throw err
@@ -246,8 +247,8 @@ export async function loadConfig(userData) {
  * Returns the resolved target and the reason for each choice, so a failure says
  * which step could not be completed rather than only that something is missing.
  */
-export async function resolveTarget({ env, userData, checkoutsDir }) {
-  const { path: configPath, file: configFile, config } = await loadConfig(userData)
+export async function resolveTarget({ env, userData, checkoutsDir, launchProfile = 'production' }) {
+  const { path: configPath, file: configFile, config } = await loadConfig(userData, { launchProfile })
   const why = []
 
   // ATTACH IS DECIDED FIRST AND IT SHORT-CIRCUITS. Nothing below this block runs when a
@@ -308,6 +309,22 @@ export async function resolveTarget({ env, userData, checkoutsDir }) {
     }
   }
 
+  const namedStateRoot = env.AUKORA_DESKTOP_STATE ?? config.stateRoot ?? null
+  if (namedStateRoot !== null && (typeof namedStateRoot !== 'string' || namedStateRoot.trim() === '')) {
+    throw new Error('state-root-empty: a state root was named with no value. ' +
+      'Refusing rather than resolving it to the current working directory.')
+  }
+  const stateRoot = namedStateRoot
+  const unsafePreviewAllowUnapproved = launchProfile === 'disposable-preview'
+    && configFile.unsafePreviewAllowUnapproved === true
+  let approvedRecordSha = config.approvedRecordSha ?? []
+  if (!Array.isArray(approvedRecordSha)
+    || approvedRecordSha.some(sha => typeof sha !== 'string' || !/^[0-9a-f]{64}$/u.test(sha))) {
+    throw new Error('approved-record-sha-malformed: ' + configPath + ' requires a list of 64-character '
+      + 'lowercase hex sha256 artifact record digests')
+  }
+  approvedRecordSha = [...approvedRecordSha]
+
   const release = env.AUKORA_DESKTOP_RELEASE ?? config.release ?? await findRelease(config.searchRoots ?? [homedir()])
   if (!release) {
     throw new Error(
@@ -315,10 +332,33 @@ export async function resolveTarget({ env, userData, checkoutsDir }) {
       `Name one in ${configPath}.`)
   }
   why.push(`release ${release}`)
-
-  // Read once, for two purposes: preparing a pinned checkout, and telling the window
-  // which release it is showing. A named checkout skips the first, never the second.
+  // Reading the record has no effect and preserves named missing/malformed-release refusals.
   const commit = await releaseCommit(release)
+
+  // Approval is required before preparing a checkout or writing a first-link overlay. Missing
+  // evidence, including a new install or a deleted approval and pin, cannot grant authority.
+  if (!unsafePreviewAllowUnapproved) {
+    const installStateRoot = resolve(stateRoot ?? join(userData, 'state'))
+    const approval = await installedPluginSet(release, installStateRoot)
+    if (approval.status === 'matching') {
+      // Match the launcher's raw-byte digest, including formatting and final newline.
+      const sha = createHash('sha256').update(await readFile(join(release, RECORD))).digest('hex')
+      if (!approvedRecordSha.includes(sha)) approvedRecordSha.push(sha)
+      why.push(`APPROVED BY THE OWNER: installed approval ${approval.path} matches plugin set ${approval.setDigest}; the gate must still verify the signature`)
+    } else if (approval.status === 'changed') {
+      why.push(`plugin set changed: installed approval ${approval.path} does not match this release and must be re-approved; launch remains strict`)
+    } else if (approval.status === 'invalid') {
+      why.push(`installed plugin-set approval ${approval.path} or release plugin-set record is unreadable or malformed; launch remains strict`)
+    }
+    if (approvedRecordSha.length === 0) {
+      throw new Error(`unapproved-release: ${configPath} has no approved artifact record and ${approval.path} `
+        + `is ${approval.status}. Production and previews without an explicit waiver require owner approval before launch.`)
+    }
+  } else {
+    why.push(`UNSAFE DISPOSABLE PREVIEW: ${configPath} explicitly waives release and plugin-set approval`)
+  }
+
+  // The recorded commit pins the checkout and identifies the displayed release.
   let checkout = env.AUKORA_DESKTOP_CHECKOUT ?? config.checkout
   if (!checkout) {
     // **NO DEFAULT MAY NAME ONE PERSON'S HOME.** The order is the environment, then the config, then THIS APP'S OWN
@@ -368,12 +408,6 @@ export async function resolveTarget({ env, userData, checkoutsDir }) {
   // The same coercion trap, with a worse landing: `path.resolve('')` is the process's
   // current working directory, so an empty state root would silently make the repo
   // checkout into a harness home.
-  const namedStateRoot = env.AUKORA_DESKTOP_STATE ?? config.stateRoot ?? null
-  if (namedStateRoot !== null && (typeof namedStateRoot !== 'string' || namedStateRoot.trim() === '')) {
-    throw new Error('state-root-empty: a state root was named with no value. ' +
-      'Refusing rather than resolving it to the current working directory.')
-  }
-  const stateRoot = namedStateRoot
   why.push(stateRoot === null
     ? 'state root owned by this shell'
     : `state root ${stateRoot} (an owned backend is started against it, not attached)`)
@@ -385,81 +419,11 @@ export async function resolveTarget({ env, userData, checkoutsDir }) {
     why.push(`Aumlok key folder named for the backend: ${fresh.directory}`)
   }
 
-  // ── EXPLICIT RELEASE PERMISSIONS, BEFORE CHECKING THIS INSTALL'S APPROVAL ─────────────────────
-  // `approvedRecordSha` is the set of release artifact records an operator approved, and the launcher
-  // refuses any release whose record sha is not in it. `allowUnapproved` is the escape hatch for a
-  // disposable preview, and it has to keep working — a door with no way out is a lock-out.
-  //
-  // WHAT WAS WRONG HERE. The hatch was `config.allowUnapproved !== false`, which is not a boolean
-  // test: a missing key, a misspelled key, `"allowUnapproved": "false"` (a string — an easy JSON
-  // mistake), `0` or `null` all resolved to `true`, and `true` here means the launcher is handed
-  // `--allow-unapproved` and adopts any release with no operator decision at all. A value that is
-  // merely not `false` is not permission. Explicit preview permission is the boolean `true`.
-  //
-  // The escape hatch is unchanged for the value that actually is one: `true` still permits.
-  let allowUnapproved = config.allowUnapproved === true
-  if (config.allowUnapproved !== undefined && typeof config.allowUnapproved !== 'boolean') {
-    why.push(`allowUnapproved is ${JSON.stringify(config.allowUnapproved)} — not a boolean, so it is `
-      + 'NOT explicit preview permission: only the boolean true enables the configured waiver')
-  }
-  // WHERE THE PERMISSION CAME FROM, SAID OUT LOUD. A config file that omits the key falls back to the
-  // shipped template. It shipped `true` until 2026-09-27 — so a typo (`allowUnapprove`, `"allowUnapproved "`)
-  // opened the hatch and looked exactly like an untouched config. It ships `false` now; this line still fires
-  // if a template ever ships `true` again. The launch still happens (the template is a
-  // delivered default, and deleting a key is documented as returning to it), but the shell now says
-  // that the permission was NOT this file's, so the state is visible in the diagnostics rather than
-  // inferred from a file a reader has to diff against a template they cannot see.
-  if (allowUnapproved && configFile?.allowUnapproved !== true) {
-    why.push(`allowUnapproved is true because of the SHIPPED TEMPLATE, not because ${configPath} says `
-      + 'so: the release door\'s escape hatch is open. Set "allowUnapproved": false there to close it '
-      + '(and list the approved record shas in approvedRecordSha).')
-  }
-
-  // Every entry must be a record sha. The launcher takes `--approved-record-sha` once per entry, and
-  // a STRING here is iterated CHARACTER BY CHARACTER downstream — 64 single-character digests that
-  // no release matches. That fails closed at the launcher, but it fails as `unapproved-release` and
-  // hides the operator's actual mistake. Named here instead.
-  let approvedRecordSha = config.approvedRecordSha ?? []
-  if (!Array.isArray(approvedRecordSha)
-    || approvedRecordSha.some(sha => typeof sha !== 'string' || !/^[0-9a-f]{64}$/u.test(sha))) {
-    throw new Error('approved-record-sha-malformed: ' + configPath + ' names approved artifact record '
-      + 'digests, and every entry must be a 64-character lowercase hex sha256 of a release\'s '
-      + '.dsh-build/genesis-artifacts.json. A string is not a list, and a digest that is not 64 hex '
-      + 'characters matches no release. Refusing rather than launching with an approval list nothing '
-      + 'can satisfy.')
-  }
-  approvedRecordSha = [...approvedRecordSha]
-
-  // Preserve explicit preview permission and every configured digest; a matching installed approval
-  // contributes the release's digest. Only an install never approved gets the temporary waiver.
-  if (!allowUnapproved) {
-    const installStateRoot = resolve(stateRoot ?? join(userData, 'state'))
-    const approval = await installedPluginSet(release, installStateRoot)
-    if (approval.status === 'absent' && approvedRecordSha.length === 0) {
-      await assertNeverApproved(installStateRoot, configPath)
-      allowUnapproved = true
-      why.push('FIRST RUN: no owner has approved this install yet; link your Aumlok phrase, then approve the plugin set (the app asks) — from then on every launch requires it')
-    } else if (approval.status === 'matching') {
-      // Match launch-dsh.py: sha256(record_file.read_bytes()), including formatting and final newline.
-      const sha = createHash('sha256').update(await readFile(join(release, RECORD))).digest('hex')
-      if (!approvedRecordSha.includes(sha)) approvedRecordSha.push(sha)
-      why.push(`APPROVED BY THE OWNER: installed approval ${approval.path} matches plugin set ${approval.setDigest}; the gate must still verify the signature`)
-    } else if (approval.status === 'changed') {
-      why.push(`plugin set changed: installed approval ${approval.path} does not match this release and must be re-approved; launch remains strict`)
-    } else if (approval.status === 'invalid') {
-      why.push(`installed plugin-set approval ${approval.path} or release plugin-set record is unreadable or malformed; launch remains strict`)
-    }
-  }
-  if (approvedRecordSha.length === 0 && !allowUnapproved) {
-    why.push('NO approved release record and no escape hatch: the launcher will refuse every release '
-      + 'with `unapproved-release`. Add the release\'s record sha (`scripts/aukora/desktop-cutover.mjs '
-      + 'apply` appends it) or set allowUnapproved true for a disposable preview.')
-  }
-
   return {
     mode: 'own', release, checkout, configPath, why, patch, stateRoot, releaseCommit: commit,
     nodePath: config.nodePath ?? null,
     approvedRecordSha,
-    allowUnapproved,
+    launchProfile,
+    ...(launchProfile === 'disposable-preview' ? { unsafePreviewAllowUnapproved } : {}),
   }
 }

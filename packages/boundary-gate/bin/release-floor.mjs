@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // RELEASE FLOOR CHECK, run by aukora-genesis.service as ExecStartPre from the root-owned gate install. Trusted code only:
 // the candidate release is read as DATA (.dsh-build JSON), its installed approval is verified against the root pin with
-// src/plugin-set-canon.mjs, it must name exactly this release, and its gate-signed applied_at must not predate the floor.
+// src/plugin-set-canon.mjs, it must name exactly this release, and its signed ledger ordering must satisfy the floor.
 //   check --release-dir /opt/aukora-genesis/release-xxxxxxx --approval-state-root /etc/aukora-approvals/<sha>/state [--floor FILE]
+//   migrate-clock-floor --release-dir DIR --approval-state-root DIR [--floor FILE] (explicit root operator action)
 //   show  [--floor FILE]
 import fs from 'node:fs'
 import path from 'node:path'
@@ -56,7 +57,7 @@ async function trustedBootstrap(candidate) {
     if (under(real, OPERATOR_ROOT) || under(OPERATOR_ROOT, real)) throw trustedError('candidate-trusted-overlap')
   }
   const raw = trustedRead(BOOTSTRAP_PIN, 4096), pins = JSON.parse(raw.toString('utf8'))
-  const names = ['src/plugin-set-canon.mjs', 'src/release-floor.mjs', 'src/vendor/operator-data.mjs', 'src/vendor/plugin-set-content.mjs']
+  const names = ['src/plugin-set-canon.mjs', 'src/release-floor.mjs', 'src/vendor/operator-data.mjs', 'src/vendor/plugin-set-content.mjs', 'src/vendor/signer-epochs.mjs']
   if (pins?.version !== 1 || pins.kind !== 'aukora-operator-verifier-pins/v1'
     || Object.keys(pins).sort().join(',') !== 'files,kind,version'
     || pins.files === null || typeof pins.files !== 'object' || Array.isArray(pins.files)
@@ -74,7 +75,8 @@ async function trustedBootstrap(candidate) {
   const canon = await checkedModule(buffers.get('src/plugin-set-canon.mjs'))
   const floor = await checkedModule(buffers.get('src/release-floor.mjs'))
   const data = await checkedModule(buffers.get('src/vendor/operator-data.mjs'))
-  return { canon, floor, data }
+  const epochs = await checkedModule(buffers.get('src/vendor/signer-epochs.mjs'))
+  return { canon, floor, data, epochs }
 }
 // TRUSTED-BOOTSTRAP-END
 
@@ -85,24 +87,35 @@ const rootOwned = (p) => { const st = fs.lstatSync(p); if (st.isSymbolicLink() |
 
 let trusted
 try { trusted = await trustedBootstrap(o['release-dir']) } catch (e) { die(e.code ?? 'trusted-bootstrap') }
-const { verifyGateSetApproval } = trusted.canon
-const { readFloor, checkFloor } = trusted.floor
+const { verifyOrderedGateApproval } = trusted.canon
+const { readFloor, checkFloor, migrateClockFloor, writeFloor } = trusted.floor
 const { installedRelease } = trusted.data
+const { readSignerEpochs } = trusted.epochs
 
-if (cmd === 'show') { console.log(JSON.stringify(readFloor(o.floor), null, 2)); process.exit(0) }
-if (cmd !== 'check') die('usage: release-floor.mjs check --release-dir DIR --approval-state-root DIR [--floor FILE] | show')
+if (cmd === 'show') {
+  try { console.log(JSON.stringify(readFloor(o.floor, { requireRoot: true }), null, 2)); process.exit(0) } catch (e) { die(e.message) }
+}
+if (cmd !== 'check' && cmd !== 'migrate-clock-floor') die('usage: release-floor.mjs check|migrate-clock-floor --release-dir DIR --approval-state-root DIR [--floor FILE] | show')
+if (cmd === 'migrate-clock-floor' && process.getuid?.() !== 0) die('migrate-clock-floor requires the root operator')
 const relDir = o['release-dir'], root = o['approval-state-root']
 if (!relDir || !path.isAbsolute(relDir) || !root || !path.isAbsolute(root)) die('--release-dir and --approval-state-root must be absolute')
 try {
   const gs = path.join(root, 'gate-state')
   for (const p of [root, gs, path.join(gs, 'plugin-set-approval.json'), path.join(gs, 'plugin-set-approver.json')]) rootOwned(p)
-  const floor = readFloor(o.floor, { requireRoot: true })
+  const floor = readFloor(o.floor, { requireRoot: true, allowClockMigration: cmd === 'migrate-clock-floor' })
   const on = installedRelease(path.dirname(relDir), path.basename(relDir))
   const record = JSON.parse(fs.readFileSync(path.join(relDir, '.dsh-build/plugin-set.json'), 'utf8'))
-  const approval = JSON.parse(fs.readFileSync(path.join(gs, 'plugin-set-approval.json'), 'utf8'))
-  const pin = JSON.parse(fs.readFileSync(path.join(gs, 'plugin-set-approver.json'), 'utf8'))
-  const v = verifyGateSetApproval({ record, approval, pin })
+  const approval = JSON.parse(trustedRead(path.join(gs, 'plugin-set-approval.json'),128*1024).toString('utf8'))
+  const pin = JSON.parse(trustedRead(path.join(gs, 'plugin-set-approver.json'),64*1024).toString('utf8'))
+  const epochs = readSignerEpochs()
+  const v = verifyOrderedGateApproval({ record, approval, pin, epochs })
   if (v.release !== on.release || v.release_dir !== on.release_dir || v.record !== on.record) die(`the installed approval names ${v.release_dir}, not ${on.release_dir}`)
+  if (cmd === 'migrate-clock-floor') {
+    const migrated = migrateClockFloor(floor, v)
+    writeFloor(o.floor, migrated, { clockMigrationProof: { old: floor, verified: v } })
+    console.log(`release-floor: MIGRATED ${migrated.release_dir} to signer epoch ${migrated.signer_epoch}, ledger sequence ${migrated.ledger_seq}`)
+    process.exit(0)
+  }
   const r = checkFloor(floor, v)
-  console.log(`release-floor: OK ${r.release} (owner-approved ${v.appliedAt}) >= floor ${r.floor} (${floor.applied_at})`)
+  console.log(`release-floor: OK ${r.release} (signer epoch ${v.signerEpoch}, ledger sequence ${v.ledgerSeq}) = floor ${r.floor} (${floor.signer_epoch}, ${floor.ledger_seq})`)
 } catch (e) { die(e.message) }

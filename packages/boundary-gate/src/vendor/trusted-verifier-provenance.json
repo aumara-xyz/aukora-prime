@@ -26,10 +26,14 @@
     }
   ],
   "adaptations": [
-    "Builtin-only operator-data extracts canonical approval/data/socket helpers; reply capped at1MiB and data leaf symlinks refused.",
-    "Canon renderer retained inline, exactly source text except export/function name; retained vendor file unchanged.",
-    "Both operator entrypoints verify fixed root-protected expected hashes before executing checked buffers.",
-    "Floor implementation bytes and owner review/signature/canonical profiles unchanged."
+    "Builtin-only operator-data extracts canonical approval/data/socket helpers; replies remain bounded and candidate data is never imported.",
+    "Canon retains the exact original renderer inline except its export/function name; retained vendor text is unchanged.",
+    "Both operator entrypoints verify five fixed root-protected module hashes before executing checked buffers.",
+    "Ordered verification preserves receipt-v2 and ledger signing bytes; owner log exports original signed TEXT detail and sequence.",
+    "Protected full-SPKI signer registry maps each unique key to one consecutive epoch; sequence and epoch, not wall-clock time, order the floor.",
+    "Floor v2 uses exact-proof boot admission, strictly greater ordinary advancement, protected exclusive locking and durable replacement.",
+    "Explicit legacy migration matches the current signed proof; exact-current cache recovery publishes protected bytes without floor advancement.",
+    "Full-package pre-Node bootstrap and production preview refusal are source proposals; installed custody and runtime acceptance remain separate."
   ],
-  "qualification": "SOURCE_ONLY; root metadata/Unix replies synthetic in focused checks; installation/live behavior unperformed"
+  "qualification": "SOURCE_ONLY; actual SQLite/crypto and CLI buffers in scoped fixtures; root metadata/IPC are synthetic; no installation or live owner qualification"
 }

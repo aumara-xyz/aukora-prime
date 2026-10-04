@@ -34,6 +34,11 @@ export function openDb(file, { readOnly = false } = {}) {
 
 export const entryBody = (e) => JSON.stringify([e.seq, e.at, e.event, e.proposal ?? null, e.target ?? null, e.base_sha ?? null, e.new_sha ?? null, e.detail ?? null, e.prev])
 
+// Preserve the original TEXT detail: parsing and reserializing it would change the signed ledger body.
+export function signedEntryData(e) {
+  return Object.fromEntries(['seq', 'at', 'event', 'proposal', 'target', 'base_sha', 'new_sha', 'detail', 'prev', 'hash', 'sig'].map(k => [k, e[k]]))
+}
+
 export function verifyLedger(db, pub) {
   let prev = 'GENESIS', n = 0; const errors = []
   for (const e of db.prepare('SELECT * FROM ledger ORDER BY seq').iterate()) {

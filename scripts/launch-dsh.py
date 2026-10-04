@@ -16,16 +16,20 @@ parser.add_argument('--patch', action='append', default=[], type=Path,
                     help='extra loader patch overlay applied after the profile layer (repeatable)')
 parser.add_argument('--approved-record-sha', action='append', default=[],
                     help='sha256 of an approved release artifact record; repeatable. Without it a launch '
-                         'must pass --allow-unapproved, so an unapproved release cannot be activated silently')
-parser.add_argument('--allow-ungated', action='store_true',
+                         'is refused in production; a disposable-preview profile must explicitly opt into a waiver')
+parser.add_argument('--launch-profile', choices=['production', 'disposable-preview'], default='production',
+                    help='production is strict; disposable-preview permits explicit unsafe preview options')
+parser.add_argument('--unsafe-preview-allow-ungated', action='store_true',
                     help='disposable previews of a release materialized before the gate existed; '
                          'the process is then UNGOVERNED and the launcher says so')
-parser.add_argument('--allow-unapproved', action='store_true',
+parser.add_argument('--unsafe-preview-allow-unapproved', action='store_true',
                     help='explicitly launch a release that has no approved record digest (previews and tests only)')
 a=parser.parse_args()
+if a.launch_profile != 'disposable-preview' and (a.unsafe_preview_allow_unapproved or a.unsafe_preview_allow_ungated):
+    parser.error('unsafe-preview-options-refused: production does not accept preview waiver options')
 if a.foreground and sys.platform != 'linux':
     parser.error('foreground-linux-only: the existing desktop launch path is unchanged')
-if a.foreground and (a.allow_unapproved or a.allow_ungated):
+if a.foreground and a.launch_profile != 'production':
     parser.error('foreground-requires-approval: a persistent service cannot waive release or plugin admission')
 if not a.foreground and (a.node or a.approval_state_root):
     parser.error('service-options-require-foreground')
@@ -169,16 +173,16 @@ record_sha=hashlib.sha256(record_file.read_bytes()).hexdigest()
 if a.approved_record_sha:
     if record_sha not in a.approved_record_sha:
         parser.error(f'unapproved-release: record {record_sha} is not among the approved digests')
-elif not a.allow_unapproved:
+elif not a.unsafe_preview_allow_unapproved:
     parser.error('unapproved-release: pass --approved-record-sha <digest> for an approved release, '
-                 'or --allow-unapproved for a disposable preview')
+                 'or --launch-profile disposable-preview --unsafe-preview-allow-unapproved for a disposable preview')
 # A DISPOSABLE LAUNCH MUST NOT ADDRESS THE LIVE STATE ROOT. On 2026-09-17 a rehearsal started DSH
 # by invoking node directly, inherited a shell's DSH_HOME naming the LIVE home, and rewrote that
 # home's profiles/node_modules to point at a temporary release; when the temporary tree was removed
 # every preset became unresolvable and New Session was dead until a restart. Nothing was configured
 # wrongly — a whitelisted environment was simply absent. This refuses the combination by name, so
 # the mistake cannot be made silently again: a preview flag plus the live root is never intended.
-if a.allow_unapproved:
+if a.unsafe_preview_allow_unapproved:
     for _record in sorted((Path.home()/'.aukora-genesis'/'deployments').glob('*/live-state/launch.json')):
         try:
             _live=json.loads(_record.read_text())
@@ -187,11 +191,11 @@ if a.allow_unapproved:
         _root=_live.get('stateRoot')
         if isinstance(_root,str) and _root and Path(_root).resolve()==base:
             parser.error(
-                'state-root-is-live: %s is the RECORDED LIVE state root and --allow-unapproved marks '
+                'state-root-is-live: %s is the RECORDED LIVE state root and --unsafe-preview-allow-unapproved marks '
                 'this as a disposable launch. Both at once is never intended: the last time this '
                 'combination ran it rewrote the live home\'s profiles/node_modules and New Session '
                 'broke until a restart. Use a disposable state root for previews, or drop '
-                '--allow-unapproved if this really is the live deployment.' % base)
+                '--unsafe-preview-allow-unapproved if this really is the live deployment.' % base)
 # Overlays must point at release-local bytes; a mutable worktree path would make
 # the verified release and the running composition two different things.
 # TIGHTENED (2026-09-27, red team): `../` names, names on a `- name:` line and `!!js` names all
@@ -421,11 +425,11 @@ def bind_gate_authority(release, record_path, gate, record_sha):
 
 
 if gate is None:
-    if not a.allow_ungated:
+    if not a.unsafe_preview_allow_ungated:
         parser.error('gate-missing-from-release: the release records no composition gate. '
-                     'Pass --allow-ungated for a disposable preview, or materialize a release '
+                     'Pass --launch-profile disposable-preview --unsafe-preview-allow-ungated for a disposable preview, or materialize a release '
                      'built from a tree that carries plugins/aukora-composition-gate.')
-    print('launcher: --allow-ungated — the release carries NO composition gate; '
+    print('launcher: --unsafe-preview-allow-ungated — the release carries NO composition gate; '
           'admissions are ungoverned and any enforcement claim about this process is void')
 else:
     for label, path_key, sha_key in (('hook', 'hook', 'hookSha256'),
@@ -508,8 +512,8 @@ else:
     # The materializer writes `.dsh-build/plugin-set.json` (scripts/aukora/plugin-set.mjs record); the
     # owner's approval of exactly that record and the pinned approver live in this deployment's
     # gate-state. The GATE verifies them before anything is imported and refuses changed plugin bytes at
-    # import. `--allow-unapproved` (the desktop's allowUnapproved) WAIVES it: the checks still run and are
-    # printed, and nothing is refused. Decided here, before any gate-state write, so a refusal leaves the
+    # import. `--unsafe-preview-allow-unapproved` (the preview API's unsafePreviewAllowUnapproved) WAIVES it:
+    # the checks still run and are printed, and nothing is refused. Decided before any gate-state write, so a refusal leaves the
     # state root untouched.
     plugin_set_file = release / '.dsh-build' / 'plugin-set.json'
     approval_gate = a.approval_state_root / 'gate-state' if a.foreground else gate_state
@@ -519,7 +523,7 @@ else:
         _root_protected(plugin_set_approval); _root_protected(plugin_set_pin)
     plugin_set_fields = {}
     if plugin_set_file.is_file():
-        plugin_set_mode = 'waived' if a.allow_unapproved else 'enforce'
+        plugin_set_mode = 'waived' if a.unsafe_preview_allow_unapproved else 'enforce'
         if plugin_set_mode == 'enforce' and not (plugin_set_approval.is_file() and plugin_set_pin.is_file()):
             parser.error(f'plugin-set-unapproved: {release.name} records its AUKORA plugins in {plugin_set_file} and '
                          f'no owner approval of that set is installed in {gate_state}. Every AUKORA plugin would '
@@ -567,11 +571,11 @@ else:
             'pluginSetPinPath': str(plugin_set_pin),
         }
         print(f'launcher: AUKORA plugin set {plugin_set_mode.upper()} ({plugin_set_file})'
-              + ('' if plugin_set_mode == 'enforce' else ' — --allow-unapproved: checked and NOT enforced'))
-    elif not a.allow_unapproved:
+              + ('' if plugin_set_mode == 'enforce' else ' — --unsafe-preview-allow-unapproved: checked and NOT enforced'))
+    elif not a.unsafe_preview_allow_unapproved:
         parser.error(f'plugin-set-missing: {plugin_set_file} is absent, so the AUKORA plugins this release mounts '
                      'have no record to be admitted by. Re-materialize the release (the materializer writes it), '
-                     'or pass --allow-unapproved for a disposable preview.')
+                     'or pass --launch-profile disposable-preview --unsafe-preview-allow-unapproved for a disposable preview.')
     gate_state.mkdir(parents=True, exist_ok=True)
     grants = gate_state / 'grants'
     grants.mkdir(parents=True, exist_ok=True)

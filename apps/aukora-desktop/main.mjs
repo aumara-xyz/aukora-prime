@@ -278,7 +278,7 @@ app.whenReady().then(async () => {
         port,
         patch: target.patch.map(p => resolvePath(p)),
         approvedRecordSha: target.approvedRecordSha,
-        allowUnapproved: target.allowUnapproved,
+        ...(target.launchProfile === 'disposable-preview' ? { launchProfile: target.launchProfile, unsafePreviewAllowUnapproved: target.unsafePreviewAllowUnapproved } : {}),
         nodePath: target.nodePath,
         // The launcher's own stdout, redacted at the boundary: it prints the whole
         // authenticated URL, and forwarding that verbatim would put the launch token

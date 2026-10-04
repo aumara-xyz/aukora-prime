@@ -157,3 +157,40 @@ export function verifyGateSetApproval({ record, approval, pin }) {
   return { setDigest, operationDigest, approverDid: `gate:${fp}`, approvalClass: 'gate-owner-review', keyClass: 'gate-ed25519',
     issuedAt: Date.parse(receipt.applied_at), appliedAt: receipt.applied_at, count, release: named.release, release_dir: named.release_dir, record: named.record }
 }
+
+// Ordered admission preserves the original receipt grammar. Its sequence is independently signed by the ledger,
+// and the root-protected public map binds the actual Ed25519 SPKI to a non-reusable signer epoch.
+export function verifyOrderedGateApproval({ record, approval, pin, epochs }) {
+  const verified = verifyGateSetApproval({ record, approval, pin })
+  if (epochs?.version !== 1 || epochs.kind !== 'aukora-signer-epochs/v1'
+    || Object.keys(epochs).sort().join(',') !== 'epochs,kind,version'
+    || !Array.isArray(epochs.epochs) || epochs.epochs.length < 1 || epochs.epochs.length > 64) throw refuse('signer-epochs-malformed', 'no protected signer registry')
+  const keys = new Set(); let previous = 0
+  for (const row of epochs.epochs) {
+    if (row === null || typeof row !== 'object' || Object.keys(row).sort().join(',') !== 'epoch,gate_pubkey_sha256'
+      || !Number.isSafeInteger(row.epoch) || row.epoch !== previous + 1 || !/^[0-9a-f]{64}$/u.test(row.gate_pubkey_sha256)
+      || keys.has(row.gate_pubkey_sha256)) throw refuse('signer-epochs-malformed', 'epochs and keys must each be unique')
+    previous = row.epoch; keys.add(row.gate_pubkey_sha256)
+  }
+  const key = createPublicKey(pin.gatePubkeyPem), signerKeySha256 = digestOf(key.export({ type: 'spki', format: 'der' }))
+  const signerEpoch = epochs.epochs.find(row => row.gate_pubkey_sha256 === signerKeySha256)?.epoch
+  if (signerEpoch === undefined) throw refuse('signer-epoch-unpinned', 'the signed key has no operator-pinned epoch')
+  const e = approval.ledger_entry
+  const columns = ['seq', 'at', 'event', 'proposal', 'target', 'base_sha', 'new_sha', 'detail', 'prev', 'hash', 'sig']
+  if (e === null || typeof e !== 'object' || Object.keys(e).sort().join(',') !== [...columns].sort().join(',')
+    || !Number.isSafeInteger(e.seq) || e.seq < 1 || e.event !== 'apply' || typeof e.detail !== 'string' || e.detail.length > 65536
+    || !/^[0-9a-f]{64}$/u.test(e.hash) || typeof e.sig !== 'string'
+    || (e.seq === 1 ? e.prev !== 'GENESIS' : !/^[0-9a-f]{64}$/u.test(e.prev))) throw refuse('signed-ledger-entry-malformed', 'no closed applied ledger entry')
+  const r = approval.receipt
+  if (e.proposal !== r.proposal || e.target !== r.target || e.base_sha !== r.base_sha || e.new_sha !== r.new_sha
+    || typeof e.at !== 'string' || e.at.length > 64) throw refuse('signed-ledger-entry-binding', 'ledger row is not the approved effect')
+  const detail = JSON.parse(e.detail)
+  if (detail === null || typeof detail !== 'object' || Object.keys(detail).sort().join(',') !== 'receipt,receipt_sig'
+    || JSON.stringify(detail.receipt) !== JSON.stringify(r) || detail.receipt_sig !== approval.receipt_sig) throw refuse('signed-ledger-entry-binding', 'signed detail differs from the installed receipt')
+  const body = JSON.stringify([e.seq, e.at, e.event, e.proposal, e.target, e.base_sha, e.new_sha, e.detail, e.prev])
+  if (digestOf(Buffer.from(body, 'utf8')) !== e.hash) throw refuse('signed-ledger-entry-hash', 'sequence or signed row bytes changed')
+  let valid = false
+  try { valid = cryptoVerify(null, Buffer.from(e.hash, 'hex'), key, Buffer.from(e.sig, 'base64')) } catch {}
+  if (!valid) throw refuse('signed-ledger-entry-signature', 'row was not signed by the pinned gate key')
+  return { ...verified, signerEpoch, signerKeySha256, ledgerSeq: e.seq, ledgerHash: e.hash }
+}

@@ -2,9 +2,10 @@
   "version": 1,
   "kind": "aukora-operator-verifier-pins/v1",
   "files": {
-    "src/plugin-set-canon.mjs": "72152a956a3427eb660daaf2361a9f9627a1c634db9f6121d32139fd3ce16502",
-    "src/release-floor.mjs": "0983f44cabfe1bbed986d67f393e1a52ef27881ebbe7defb5582f5718c4a4bc2",
+    "src/plugin-set-canon.mjs": "0a798fe2f5444f4383bed6a352cc97e3f36ad5a29150e970571e3b59636f7cf4",
+    "src/release-floor.mjs": "8d18eaeb84d329641b9a3c499b2e05339e7544f20cb651368be947f4058eca36",
     "src/vendor/operator-data.mjs": "bfa6b2a9b3d81f60a6d140154218f8650cab744435d5e4199828d87884e4ef76",
-    "src/vendor/plugin-set-content.mjs": "65b83b44366700a63f97d63fc0e9369bdfc918f7c51fdaad52ccdf84ef56d485"
+    "src/vendor/plugin-set-content.mjs": "65b83b44366700a63f97d63fc0e9369bdfc918f7c51fdaad52ccdf84ef56d485",
+    "src/vendor/signer-epochs.mjs": "1762142b98479d48e0fd07b14413d69294c39e3684e5aabc06dae4744cf7b434"
   }
 }

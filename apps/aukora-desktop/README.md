@@ -106,7 +106,7 @@ npm start
 AUKORA_DESKTOP_URL='http://127.0.0.1:3187/?token=…' npm start
 ```
 
-Three settings have **no environment variable** and are reachable only through
+Two production settings have **no environment variable** and are reachable only through
 `config.json`; they are marked below. An earlier version of this table listed them as
 `AUKORA_DESKTOP_*` names and the launch example above set one of them, which did nothing —
 nothing in `apps/aukora-desktop` reads those names.
@@ -119,13 +119,29 @@ nothing in `apps/aukora-desktop` reads those names.
 | `AUKORA_DESKTOP_PORT` | a port to ask for; one is chosen when absent |
 | `patch` (config.json only) | comma-separated composition patch overlays |
 | `approvedRecordSha` (config.json only) | comma-separated approved artifact record digests |
-| `allowUnapproved` (config.json only) | **defaults to false** (template `resolve.mjs`). Only the boolean `true` permits: it launches a release with no approved record AND waives the AUKORA plugin set, so every AUKORA plugin loads without its approved record being enforced. The court for this (`tests/release-door.test.mjs`) runs nowhere |
 | `AUKORA_DESKTOP_URL` | attach to this URL instead of starting anything; wins over `attachUrl` |
 | `AUKORA_DESKTOP_USERDATA` | override the Electron user-data directory |
 
 `config.json` keys: `attachUrl`, `release`, `repo` (a Genesis clone to prepare a pinned
 checkout from), `checkout`, `stateRoot`, `nodePath`, `patch`, `approvedRecordSha`,
-`allowUnapproved`, `searchRoots`.
+`searchRoots`.
+
+Production requires approved release evidence on every owned launch, including first run. Missing
+approval or missing configuration does not grant a waiver. Production rejects the presence of
+`unsafePreviewAllowUnapproved`, even when it is `false`, and rejects the obsolete `allowUnapproved`
+key in every profile. These refusals occur before attach resolution, checkout preparation or state writes.
+
+Disposable previews use a separate API call: `resolveTarget({ ...options, launchProfile:
+'disposable-preview' })`. Only that profile accepts `unsafePreviewAllowUnapproved` in the supplied
+configuration, and only an explicit boolean `true` waives release and plugin-set approval. The regular
+Electron controller uses the production profile. A direct preview launcher must name both
+`--launch-profile disposable-preview` and `--unsafe-preview-allow-unapproved`; an ungated historical
+preview similarly requires `--unsafe-preview-allow-ungated`. Neither option is accepted in production,
+and foreground services require the production profile. The old command-line waiver names are refused.
+
+The focused checks are `tests/desktop-first-run.test.mjs` and
+`packages/boundary-gate/src/vendor/check-preview-policy.mjs`. The new policy is SOURCE-ONLY until those
+checks run; no installed desktop, owner enrollment or runtime qualification is implied.
 
 ### Two modes, and the difference is ownership
 

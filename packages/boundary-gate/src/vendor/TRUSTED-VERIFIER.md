@@ -1,19 +1,32 @@
-# Trusted operator verifier
+# Trusted operator verifier — source acceptance
 
-Both operator entrypoints use only Node builtins until the bootstrap has verified the fixed `/opt/aukora-boundary-gate` installation, its entrypoint and protected ancestors, and the closed `trusted-verifier-pins.json` data. The manifest pins canon, floor, operator-data and the retained renderer by SHA256. Every buffer is checked before any local module executes. Canon, floor and operator-data then execute directly from those checked buffers; no pathname is imported again. The retained renderer is provenance data, with its exact function inlined into canon so the verified module has no relative imports.
+Both operator entrypoints use Node builtins until their bootstrap verifies the fixed `/opt/aukora-boundary-gate` entrypoint, protected ancestors, and closed `trusted-verifier-pins.json`. The five pinned buffers are canon, floor, operator-data, retained renderer, and signer-epochs. All hashes are checked before any buffer executes. Executable buffers use data URLs; no checked pathname is imported again. Candidate releases supply JSON data only and cannot supply verifiers or helpers.
 
-Candidate releases are disjoint canonical paths used for JSON reads and hashes. Neither entrypoint imports their modules, invokes their helpers or launches a candidate subprocess. The gate RPC wire, canonical owner text, signed receipt verification and monotonic floor behavior are retained. `--operation` retains its existing interface; this repair does not broaden owner approval or change the review UI.
+The gate owner log exports `signed_entry` with the original SQLite TEXT detail. The ordered verifier checks the unchanged receipt-v2 signature, exact signed row/effect/detail binding, ledger body hash and Ed25519 row signature. The full SPKI hash resolves a unique epoch in the protected public `/etc/aukora-boundary-gate/signer-epochs.json`. Epochs are consecutive starting at 1, each key occurs once, and no timestamp orders admission. The root operator controls this public registry; source validation does not constrain a malicious root updater.
 
-The operator must install both entrypoints, all four named pin files and the manifest together, as regular single-link files under root-owned directories without group/other write access. Changing a pinned module requires a reviewed operator update and corresponding manifest update. The manifest comes from the trusted installation, never a candidate, CLI argument, environment setting or discovery path. An arbitrary checkout copy of either CLI refuses before local imports; there is no production fixture override. This intentionally requires updating older source tests that expected a developer-checkout CLI to run successfully.
+The v2 floor orders `(signer_epoch, ledger_seq)`. Ordinary install refuses equal or older proofs, including replay. Boot requires the exact committed tuple, key, ledger hash, record and release. A newer proof with a stale floor is an incomplete installation and refuses. Floor replacement rereads under an exclusive root-protected lock, syncs the file, renames atomically, then syncs the directory. A crashed lock is retained as an operator reconciliation fence; there is no automatic expiry or stealing.
 
-The trusted entrypoint, root operator and Node runtime are the bootstrap trust anchors. An attacker controlling those anchors can replace checks and pins. JavaScript refusal of `NODE_OPTIONS`, `NODE_PATH` or Node flags cannot undo a preload that already ran. The proposed service unit removes preload variables before Node starts; interactive operator invocation must likewise use the reviewed Node binary with a clean environment and no preload flags. Verify actual installed bytes, ownership, launch environment and service behavior separately.
+Install commits the floor before publishing approval and pin files. Cache publication and reads validate protected ancestors, regular single-link files and no-follow descriptors; publication syncs the file and directory. Interruption can make the release unavailable, but cannot admit a release above an uncommitted floor. Concurrent stale cache publication likewise causes exact-proof boot refusal.
 
-Run the focused source gate:
+Two explicit root actions provide bounded completion:
+- `approval recover-cache` obtains and verifies the actual owner-channel signed proof, requires exact equality with the committed v2 floor, and publishes cache files without rewriting or advancing the floor. It refuses another sequence, epoch, release or record.
+- `approval migrate-clock-floor` migrates a v1 floor only when the actual signed approval matches its current release, record and receipt timestamp. It uses no clock ordering, preserves history, and cannot reset the floor. The separate `floor migrate-clock-floor` action requires an already complete installed proof.
+
+The reviewed pre-Node launcher source is `host/install/gate-bootstrap.py`; operator-installed invocations use fixed Python with `-I -S` before Node. Its external full-package manifest covers entrypoints and transitive package bytes, and pins the public epoch registry. See `host/install/README.md` for exact source staging and fixed role grammar. Gate, approval and floor roles have no arbitrary entry/import/environment override. Aura launch remains unavailable until its separate fixed context and import closure are reviewed.
+
+The installed Python, standard library/native loader, Node executable, root-owned bootstrap, service definition and root updater are external trust anchors. JavaScript refusal cannot undo a Node preload that already ran. The service removes preload variables before the pre-Node launch, and the bootstrap constructs a clean Node environment. Interactive operators must use the same reviewed bootstrap rather than an injected interpreter environment.
+
+Focused commands:
 
 ```sh
 node packages/boundary-gate/src/vendor/check-trusted-verifier.mjs --mutations
+node packages/boundary-gate/src/vendor/check-ordered-approval.mjs --mutations
+node packages/boundary-gate/src/vendor/check-sequence-floor.mjs --mutations
+node packages/boundary-gate/src/vendor/check-preview-policy.mjs
+node tests/desktop-first-run.test.mjs
+/usr/bin/python3 -I -S packages/boundary-gate/host/install/check-bootstrap.py
 ```
 
-It checks 10 source groups and 11 guard-removal variants. Actual CLI/module buffers run in a Node VM with synthetic root metadata and Unix replies. Candidate files genuinely write separate markers if executed; show, raise and install must leave both absent. Wrong-hash canon/floor/helper buffers must not write their markers. A post-read buffer replacement checks that execution does not reread its pathname. Marker and Ed25519 operations use real disposable filesystem/crypto operations. This is source acceptance, not a root installation, live owner enrollment, Linux enforcement or complete release qualification. Tiny synthetic fixtures are retained.
+These are source checks. CLI/module buffers use synthetic root metadata and Unix replies; malicious candidate/helper files genuinely write markers if executed. The gate test uses actual disposable SQLite, synthetic Ed25519/HMAC and a declarative store, not an authenticated owner socket or human enrollment. Floor metadata and race fixtures are synthetic. Preview checks exercise argument/configuration source only. No check qualifies an installed Linux host, real owner custody, loaded runtime bytes, OpenShell enforcement or a complete release. Shared capability claims remain with the integrator.
 
-Existing candidate JSON/path validation limits, preload-safe interactive operation, full repository integration tests and installed-host acceptance remain separate checks. Shared capability/claims rows belong to the integrator. Provenance and license: `trusted-verifier-provenance.json`; first-party code is AGPL-3.0-or-later.
+First-party license and original source hashes: `trusted-verifier-provenance.json`, AGPL-3.0-or-later.

@@ -16,7 +16,8 @@ import { spawnSync } from 'node:child_process'
 const self = fileURLToPath(import.meta.url), packageRoot = new URL('../../', import.meta.url)
 const read = name => fs.readFileSync(new URL(name, packageRoot), 'utf8')
 const ROOT = '/opt/aukora-boundary-gate', PIN = ROOT + '/src/vendor/trusted-verifier-pins.json'
-const names = ['src/plugin-set-canon.mjs', 'src/release-floor.mjs', 'src/vendor/operator-data.mjs', 'src/vendor/plugin-set-content.mjs']
+const EPOCHS = '/etc/aukora-boundary-gate/signer-epochs.json'
+const names = ['src/plugin-set-canon.mjs', 'src/release-floor.mjs', 'src/vendor/operator-data.mjs', 'src/vendor/plugin-set-content.mjs', 'src/vendor/signer-epochs.mjs']
 const source = Object.fromEntries([...names, 'bin/plugin-set-approval.mjs', 'bin/release-floor.mjs'].map(n => [n, read(n)]))
 const sha = b => crypto.createHash('sha256').update(b).digest('hex')
 const pins = read('src/vendor/trusted-verifier-pins.json')
@@ -25,6 +26,7 @@ const mutants = {
   'canon-hash': ["if (createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", "if (name !== 'src/plugin-set-canon.mjs' && createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", 1],
   'floor-hash': ["if (createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", "if (name !== 'src/release-floor.mjs' && createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", 1],
   'helper-hash': ["if (createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", "if (name !== 'src/vendor/operator-data.mjs' && createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", 1],
+  'epoch-module-hash': ["if (createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", "if (name !== 'src/vendor/signer-epochs.mjs' && createHash('sha256').update(bytes).digest('hex') !== pins.files[name])", 1],
   'ancestor-owner': ["if (st.uid !== 0) throw trustedError('trusted-owner')", "if (false) throw trustedError('trusted-owner')", 1],
   'ancestor-mode': ["if ((st.mode & 0o022) !== 0) throw trustedError('trusted-mode')", "if (false) throw trustedError('trusted-mode')", 1],
   'ancestor-symlink': ["if (st.isSymbolicLink()) throw trustedError('trusted-symlink')", "if (false) throw trustedError('trusted-symlink')", 1],
@@ -79,8 +81,18 @@ function world() {
     applied_at: '2026-10-04T00:00:00.000Z', approver: 'owner via owner.sock (synthetic)', approval_evidence_hmac: 'a'.repeat(64), pubkey_fp: fp }
   const target = path.join(tmp, 'targets', data.PLUGIN_SET_TARGET); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content)
   const pin = { kind: canon.GATE_PIN_KIND, gatePubkeyPem: pem, gatePubkeyFp: fp, target: data.PLUGIN_SET_TARGET, approver: receipt.approver }
-  const approval = () => ({ kind: canon.GATE_APPROVAL_KIND, content, receipt, receipt_sig: crypto.sign(null, Buffer.from(JSON.stringify(receipt)), key.privateKey).toString('base64') })
-  return { tmp, release, marker, helperMarker, record, fields, content, pem, fp, receipt, pin, approval, requests: [] }
+  const ordering = { seq:7 }
+  const approval = () => {
+    const receipt_sig = crypto.sign(null, Buffer.from(JSON.stringify(receipt)), key.privateKey).toString('base64')
+    const row = { seq: ordering.seq, at: '2026-10-04T00:00:00.007Z', event: 'apply', proposal: receipt.proposal,
+      target: receipt.target, base_sha: receipt.base_sha, new_sha: receipt.new_sha,
+      detail: JSON.stringify({ receipt, receipt_sig }), prev: 'b'.repeat(64) }
+    row.hash = sha(Buffer.from(JSON.stringify([row.seq,row.at,row.event,row.proposal,row.target,row.base_sha,row.new_sha,row.detail,row.prev])))
+    row.sig = crypto.sign(null, Buffer.from(row.hash,'hex'),key.privateKey).toString('base64')
+    return { kind: canon.GATE_APPROVAL_KIND, content, receipt, receipt_sig, ledger_entry: row }
+  }
+  const epochs = {version:1,kind:'aukora-signer-epochs/v1',epochs:[{epoch:1,gate_pubkey_sha256:sha(key.publicKey.export({type:'spki',format:'der'}))}]}
+  return { tmp, release, marker, helperMarker, record, fields, content, pem, fp, receipt, pin, approval, epochs, ordering, requests: [] }
 }
 const noCandidate = w => { assert.equal(fs.existsSync(w.marker), false, 'candidate marker absent'); assert.equal(fs.existsSync(w.helperMarker), false, 'candidate helper marker absent') }
 const synthetic = (exports, context) => new vm.SyntheticModule(Object.keys(exports), function () { for (const [k, v] of Object.entries(exports)) this.setExport(k, v) }, { context })
@@ -88,11 +100,11 @@ class Exit extends Error { constructor(code) { super(`exit ${code}`); this.code 
 async function cli(w, command, options = {}) {
   const entryName = options.floor ? 'release-floor.mjs' : 'plugin-set-approval.mjs', entry = 'bin/' + entryName
   const buffers = new Map(names.map(n => [ROOT + '/' + n, Buffer.from(source[n])]))
-  buffers.set(PIN, Buffer.from(pins)); buffers.set(ROOT + '/' + entry, Buffer.from(code[entry]))
+  buffers.set(EPOCHS, Buffer.from(JSON.stringify(w.epochs))); buffers.set(PIN, Buffer.from(pins)); buffers.set(ROOT + '/' + entry, Buffer.from(code[entry]))
   if (options.replace) for (const [name, text] of Object.entries(options.replace)) buffers.set(ROOT + '/' + name, Buffer.from(text))
   if (options.missingPin) buffers.delete(PIN)
   if (options.badPin) buffers.set(PIN, Buffer.from(options.badPin))
-  const opened = new Map(); let fd = 100000; const loaded = []
+  const opened = new Map(), realOpened = new Map(); let fd = 100000; const loaded = []
   const metadata = file => {
     const b = buffers.get(file), directory = b === undefined
     return { uid: options.badOwner === file ? 501 : 0, mode: options.badMode === file ? 0o777 : directory ? 0o40755 : 0o100644,
@@ -101,37 +113,42 @@ async function cli(w, command, options = {}) {
   }
   const fixtureFs = { ...fs, constants: fs.constants,
     lstatSync(file) {
-      if (file === '/' || file === '/opt' || file.startsWith(ROOT)) return metadata(file)
+      if (file === '/' || file === '/opt' || file === '/etc' || file === path.dirname(EPOCHS) || file === EPOCHS || file.startsWith(ROOT)) return metadata(file)
       const st = fs.lstatSync(file)
-      return { ...st, uid: 0, isDirectory: () => st.isDirectory(), isFile: () => st.isFile(), isSymbolicLink: () => st.isSymbolicLink() }
+      return { ...st, uid: 0, mode:st.mode & ~0o022, isDirectory: () => st.isDirectory(), isFile: () => st.isFile(), isSymbolicLink: () => st.isSymbolicLink() }
     },
     realpathSync(file) { if (options.alias === file) return file + '-alias'; return file.startsWith(ROOT) ? file : fs.realpathSync(file) },
     openSync(file, flags, mode) {
-      if (!file.startsWith(ROOT)) return fs.openSync(file, flags, mode)
+      if (!file.startsWith(ROOT) && file !== EPOCHS) { const n=fs.openSync(file,flags,mode); realOpened.set(n,file); return n }
       assert.ok(flags & fs.constants.O_NOFOLLOW, 'trusted open must use O_NOFOLLOW')
       if (!buffers.has(file)) throw Object.assign(new Error('missing fixture'), { code: 'ENOENT' })
       opened.set(++fd, file); return fd
     },
-    fstatSync(n) { if (!opened.has(n)) return fs.fstatSync(n); const st = metadata(opened.get(n)); if (options.changedIdentity === opened.get(n)) st.ino++; return st },
+    fstatSync(n) { if (!opened.has(n)) { const st=fs.fstatSync(n); return {...st,uid:0,isFile:()=>st.isFile(),isDirectory:()=>st.isDirectory()} }; const st = metadata(opened.get(n)); if (options.changedIdentity === opened.get(n)) st.ino++; return st },
     readFileSync(file, encoding) {
       if (!opened.has(file)) return fs.readFileSync(file, encoding)
       const name = opened.get(file), bytes = buffers.get(name)
       if (options.flipAfterRead === name) buffers.set(name, Buffer.from(options.flipBytes))
       return bytes
     },
-    closeSync(n) { if (opened.has(n)) opened.delete(n); else fs.closeSync(n) },
+    writeFileSync(file,...args) {
+      if (options.failCacheWrite && (typeof file==='string'?file:realOpened.get(file)??'').includes('/plugin-set-approval.json.tmp-')) throw new Error('fixture-cache-publication-failure')
+      if (options.failFloorWrite && path.basename(realOpened.get(file) ?? '').startsWith('.release-floor.tmp-')) throw new Error('fixture-floor-write-failure')
+      return fs.writeFileSync(file,...args)
+    },
+    closeSync(n) { if (opened.has(n)) opened.delete(n); else { realOpened.delete(n); fs.closeSync(n) } },
   }
   const logs = [], errors = [], argv = ['/usr/bin/node', ROOT + '/' + entry, command, '--floor', path.join(w.tmp, 'floor.json')]
   if (!options.noRelease) argv.push('--release-dir', options.release ?? w.release)
   if (options.floor) argv.push('--approval-state-root', path.join(w.tmp, 'state'))
-  else argv.push('--target-root', path.join(w.tmp, 'targets'), ...(command === 'install' ? ['--out', path.join(w.tmp, 'state/gate-state')] : []), ...(options.args ?? []))
-  const proc = { argv, env: options.env ?? {}, execArgv: options.execArgv ?? [], pid: process.pid, getuid: () => 0,
+  else argv.push('--target-root', path.join(w.tmp, 'targets'), ...(['install','recover-cache','migrate-clock-floor'].includes(command) ? ['--out', path.join(w.tmp, 'state/gate-state')] : []), ...(options.args ?? []))
+  const proc = { argv, env: options.env ?? {}, execArgv: options.execArgv ?? [], pid: options.fixturePid ?? process.pid, getuid: () => 0,
     exit: n => { throw new Exit(n) } }
   const net = { createConnection() {
     const c = new EventEmitter(); c.destroy = () => {}; c.write = wire => {
       const r = JSON.parse(wire); w.requests.push(r); let result
       if (r.op === 'raise') result = { id: 'synthetic', expires: Date.now() + 10000 }
-      if (r.op === 'log') result = { verify: { ok: true }, entries: [{ event: 'apply', seq: 1, detail: w.approval() }] }
+      if (r.op === 'log') result = { verify: { ok: true }, entries: [{ event: 'apply', seq: 7, detail: w.approval(), signed_entry: w.approval().ledger_entry }] }
       if (r.op === 'ping') result = { pubkey_pem: w.pem, pubkey_fp: w.fp }
       queueMicrotask(() => { c.emit('data', Buffer.from(JSON.stringify({ ok: true, result }))); c.emit('end') })
     }; queueMicrotask(() => c.emit('connect')); return c
@@ -163,7 +180,7 @@ test('pins match exact source; renderer and both builtin bootstraps preserve the
 test('actual CLI show/raise/install never executes candidate verifier or helper markers', async () => {
   for (const command of ['show', 'raise', 'install']) for (const explicit of [false, true]) {
     const w = world(), r = await cli(w, command, { args: explicit ? ['--operation', w.fields.operation] : [] }); noCandidate(w)
-    assert.ok(r.logs[0].includes(w.fields.operation)); assert.deepEqual(r.loaded, ['checked-buffer', 'checked-buffer', 'checked-buffer'])
+    assert.ok(r.logs[0].includes(w.fields.operation)); assert.deepEqual(r.loaded, ['checked-buffer', 'checked-buffer', 'checked-buffer', 'checked-buffer'])
     if (command === 'install') assert.ok(fs.existsSync(path.join(w.tmp, 'state/gate-state/plugin-set-approval.json')))
   }
 })
@@ -204,7 +221,7 @@ test('module bytes changed after a checked read are never re-read for execution'
 })
 test('release-floor CLI uses checked modules and preserves monotonic signed approval enforcement', async () => {
   const w = world(); await cli(w, 'install'); const r = await cli(w, 'check', { floor: true }); assert.match(r.logs[0], /release-floor: OK/); noCandidate(w)
-  const floor = path.join(w.tmp, 'floor.json'), f = JSON.parse(fs.readFileSync(floor)); f.applied_at = '2026-10-04T01:00:00.000Z'; fs.writeFileSync(floor, JSON.stringify(f))
+  const floor = path.join(w.tmp, 'floor.json'), f = JSON.parse(fs.readFileSync(floor)); f.ledger_seq = 8; fs.writeFileSync(floor, JSON.stringify(f))
   await assert.rejects(cli(w, 'check', { floor: true }), /release-below-floor/)
   await assert.rejects(cli(w, 'check', { floor: true, replace: { [names[0]]: '// changed\n' } }), /trusted-hash/)
 })
@@ -217,13 +234,41 @@ test('same verifier validates genuine synthetic receipt and refuses signature/se
 })
 test('no disk helper closure or candidate subprocess survives in either operator entrypoint', () => {
   const unit = read('host/systemd/aukora-genesis.service')
-  assert.match(unit, /^UnsetEnvironment=NODE_OPTIONS NODE_PATH$/mu)
+  assert.match(unit, /^UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT$/mu)
   for (const name of ['bin/plugin-set-approval.mjs', 'bin/release-floor.mjs', ...names, 'src/vendor/trusted-verifier-pins.json']) assert.ok(unit.includes('--forbid-write ' + ROOT + '/' + name))
   assert.doesNotMatch(unit.split('\n').filter(l => l.startsWith('Exec')).join('\n'), /--allow-unapproved|--allow-ungated/)
   for (const n of ['bin/plugin-set-approval.mjs', 'bin/release-floor.mjs']) {
     for (const m of source[n].matchAll(/^import .* from '([^']+)'/gmu)) assert.ok(m[1].startsWith('node:'))
     assert.doesNotMatch(source[n], /import\([^`]*OPERATOR_ROOT|src\/server\.mjs|src\/targets\.mjs|child_process|createRequire/)
   }
+})
+test('actual install interruption cannot admit an uncommitted or stale approval cache', async () => {
+  const w=world(); await cli(w,'install')
+  const floor=path.join(w.tmp,'floor.json'), cache=path.join(w.tmp,'state/gate-state/plugin-set-approval.json')
+  const cacheBefore=fs.readFileSync(cache,'utf8'); w.ordering.seq=8
+  await assert.rejects(cli(w,'install',{failFloorWrite:true}),/fixture-floor-write-failure/)
+  assert.equal(JSON.parse(fs.readFileSync(floor)).ledger_seq,7)
+  assert.equal(fs.readFileSync(cache,'utf8'),cacheBefore)
+  await cli(w,'check',{floor:true})
+  await assert.rejects(cli(w,'install',{failCacheWrite:true}),/fixture-cache-publication-failure/)
+  assert.equal(JSON.parse(fs.readFileSync(floor)).ledger_seq,8)
+  assert.equal(fs.readFileSync(cache,'utf8'),cacheBefore)
+  await assert.rejects(cli(w,'check',{floor:true}),/release-below-floor/)
+  await assert.rejects(cli(w,'install'),/release-floor-not-newer/)
+  const floorCommitted=fs.readFileSync(floor,'utf8')
+  await cli(w,'recover-cache',{fixturePid:process.pid+1}); await cli(w,'check',{floor:true})
+  assert.equal(fs.readFileSync(floor,'utf8'),floorCommitted,'recovery never advances or rewrites floor')
+  w.ordering.seq=9; await cli(w,'install',{fixturePid:process.pid+2}); await cli(w,'check',{floor:true}); noCandidate(w)
+})
+test('explicit migration binds actual owner proof to legacy current floor; no ordinary reset', async () => {
+  const w=world(), floor=path.join(w.tmp,'floor.json')
+  const old={kind:'aukora-release-floor/v1',release:w.fields.release,release_dir:w.fields.release_dir,record:w.fields.record,applied_at:w.receipt.applied_at,history:[]}
+  fs.writeFileSync(floor,JSON.stringify(old))
+  await assert.rejects(cli(w,'install'),/release-floor-migration-required/)
+  await cli(w,'migrate-clock-floor'); await cli(w,'check',{floor:true})
+  assert.equal(JSON.parse(fs.readFileSync(floor)).ledger_seq,7)
+  await assert.rejects(cli(w,'migrate-clock-floor'),/release-floor/)
+  w.ordering.seq=8; await assert.rejects(cli(w,'recover-cache'),/release-floor-install-incomplete/)
 })
 test.after(() => console.log(`SOURCE_ONLY; SYNTHETIC_ROOT_METADATA_AND_UNIX_REPLIES; retained tiny fixtures ${retained.length}`))
 }
