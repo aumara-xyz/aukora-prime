@@ -127,6 +127,9 @@ test('the launcher binds the gate approval to the launched release tip and appro
   const s = fs.readFileSync(new URL('../scripts/launch-dsh.py', import.meta.url), 'utf8')
   assert.match(s, /_pin\.get\('kind'\) == 'aukora-boundary-gate-owner\/v1'/)
   assert.match(s, /plugin-set-gate-approval-for-other-release/)
+  const i = s.indexOf("_pin.get('kind') == 'aukora-boundary-gate-owner/v1'"), j = s.indexOf('if not a.foreground:', i), k = s.indexOf("_named = json.loads(_content)", i)
+  assert.ok(i > 0 && j > i && k > j, 'a gate pin is refused outside --foreground (root-protected approval root) before anything is read')
+  assert.match(s, /plugin-set-gate-approval-needs-protected-root/)
   assert.match(s, /_named\.get\('record'\) != record_sha or record_sha not in \(a\.approved_record_sha or \[\]\)/)
 })
 

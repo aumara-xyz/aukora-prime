@@ -537,6 +537,12 @@ else:
             except (OSError, ValueError):
                 _pin = None
             if isinstance(_pin, dict) and _pin.get('kind') == 'aukora-boundary-gate-owner/v1':
+                # ONLY FROM A ROOT-PROTECTED APPROVAL ROOT. The deployment gate-state belongs to the runtime uid, which
+                # could otherwise write its own pin and approval; --foreground checks every path component is root-owned.
+                if not a.foreground:
+                    parser.error('plugin-set-gate-approval-needs-protected-root: a boundary-gate approval is accepted only '
+                                 'with --foreground --approval-state-root <root-protected dir>, never from the runtime-writable '
+                                 f'{gate_state}')
                 try:
                     _content = json.loads(plugin_set_approval.read_text())['content']
                     _named = json.loads(_content)
