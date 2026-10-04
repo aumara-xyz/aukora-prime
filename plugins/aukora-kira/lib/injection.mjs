@@ -188,6 +188,30 @@ export const OPENING_QUERIES = Object.freeze([
   'what changed and why',
 ])
 
+/** Most characters of the person's latest message used as a recall query. */
+export const ASK_QUERY_CHARS = 512
+
+/**
+ * The latest message a PERSON sent in this step's context, as recall query text — or ''.
+ *
+ * Only `source.kind === 'user'` counts: the harness's system prompt, the runtime-context snapshot and this
+ * plugin's own recall block are all `user`-role messages from plugins, and asking memory with them returns
+ * memory about the harness, not about what was asked. Text parts only, whitespace-folded, bounded.
+ * @param {unknown} messages @returns {string}
+ */
+export function latestAsk(messages) {
+  if (!Array.isArray(messages)) return ''
+  for (let at = messages.length - 1; at >= 0; at--) {
+    const message = messages[at]
+    if (message?.role !== 'user' || message?.source?.kind !== 'user') continue
+    const parts = Array.isArray(message.content) ? message.content : typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : []
+    const text = parts.map(part => (part?.type === 'text' && typeof part.text === 'string' ? part.text : '')).join(' ')
+      .replace(/\s+/gu, ' ').trim().slice(0, ASK_QUERY_CHARS)
+    if (text !== '') return text
+  }
+  return ''
+}
+
 /** Most characters of a lane's own summary used to seed its first query. */
 export const LANE_SEED_CHARS = 160
 
@@ -537,7 +561,13 @@ export function registerRecallInjection(ctx, { conversation, newId, onInjected, 
     // THE SEED COMES FROM A LANE'S LAST SETTLED SUMMARY, which lives in the store: the supplier is awaited so
     // a caller can read it rather than having to have it already.
     const seed = typeof laneSeed === 'function' ? await laneSeed(resolved, event) : laneSeed
-    const list = resolved === undefined || resolved === null ? OPENING_QUERIES : laneQueries(resolved, seed)
+    const opening = resolved === undefined || resolved === null ? OPENING_QUERIES : laneQueries(resolved, seed)
+    // THE PERSON'S OWN QUESTION IS ASKED FIRST (measured 2026-10-04 on the Nebius pilot): with only the fixed
+    // workflow queries, "What's my sister's name?" dropped all 26 semantic candidates below 0.4 while the same
+    // store returned the owner's "my sister is Maya" at 0.86 to kira_recall. A fact recorded about the person
+    // reached a fresh session only if the model happened to call the tool.
+    const ask = typeof event?.ask === 'string' ? event.ask : ''
+    const list = ask === '' || opening.includes(ask) ? opening : Object.freeze([ask, ...opening])
     // `onAsked` is an observation hook, like `onInjected`: a court asserts WHICH lane was asked first rather
     // than inferring it from the transcript.
     onAsked?.(list)
@@ -604,7 +634,7 @@ export function registerRecallInjection(ctx, { conversation, newId, onInjected, 
     // A RECALL FAULT MUST NOT BREAK A TURN. Everything below is inside the guard for that reason.
     let line = null
     try {
-      let reply = await recallAcrossQueries({ agent })
+      let reply = await recallAcrossQueries({ agent, ask: latestAsk(decision?.messages) })
       // THE NEWEST RECORDS ARE READ EVEN WHEN THE QUESTIONS MATCHED SOMETHING, and a fault here costs
       // only this leg: the query hits the session already has still land, and the failure is reported
       // rather than swallowed. An improvement that can break a turn is worse than its own absence.
