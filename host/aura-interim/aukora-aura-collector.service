@@ -1,0 +1,21 @@
+[Unit]
+Description=AUKORA lab: Aura gate-ledger collector (INTERIM keys; observation only, grants no authority)
+After=aukora-boundary-gate.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/aukora-genesis/release.env
+ExecStartPre=+/opt/aukora-node/bin/node /usr/local/lib/aukora-aura/snapshot.mjs /home/aukora-gate/gate.db /var/lib/aukora-aura/snapshot/gate.db AURA_UID AURA_GID
+ExecStart=/opt/aukora-node/bin/node ${AUKORA_RELEASE_DIR}/scripts/aura/collect-gate.mjs /etc/aukora-aura/context.mjs
+User=aukora-aura
+Group=aukora-aura
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/aukora-aura
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
