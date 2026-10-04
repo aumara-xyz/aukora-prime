@@ -136,6 +136,7 @@ export async function runAssociation({ gateRoot, python = 'python3', state, reta
   const text = `${completed.stdout}\n${completed.stderr}`
   const adapterRefusal = /REFUSE: ([a-z0-9-]+):/.exec(text)?.[1]
   const verdict = /^VERDICT:\s*(\S+)/m.exec(text)?.[1]
+  const composition = /^COMPOSITION\s*:\s*(\S+)/m.exec(text)?.[1] ?? null
   const refusal = completed.spawnError === true ? 'aura-adapter-spawn-failed'
     : completed.timedOut ? 'aura-adapter-timeout'
       : adapterRefusal ?? (completed.code === 0 ? null : 'aura-adapter-failed')
@@ -148,7 +149,7 @@ export async function runAssociation({ gateRoot, python = 'python3', state, reta
     exit: completed.code,
     spawnError: completed.spawnError === true,
     court: /^COURT\s*:\s*(\S+)/m.exec(text)?.[1] ?? verdict ?? null,
-    composition: /^COMPOSITION\s*:\s*(\S+)/m.exec(text)?.[1] ?? null,
+    composition: composition === 'not' || composition === 'unavailable' ? null : composition,
     refusal,
     reason,
     custody: /RETAINER_SAME_OWNER/.test(text) ? 'RETAINER_SAME_OWNER' : null,

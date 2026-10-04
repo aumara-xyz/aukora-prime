@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import childProcess, { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { registerHooks, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -178,6 +179,9 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const primeBase = 'f6c398869f709000233a2fe7962837d5ee2e2a13';
 const citationBase = 'c3f07af37d8e5dd291a655d0ba22f67115288d36';
 const git = process.env.AUKORA_PRIME_CHECK_GIT ?? root;
+const mutantIndex = process.argv.indexOf('--mutant');
+const compositionMutant = mutantIndex === -1 ? undefined : process.argv[mutantIndex + 1];
+assert(mutantIndex === -1 || compositionMutant === 'composition-verdict', 'unknown or missing focused parser mutant');
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier.startsWith('node:')) return next(specifier, context);
@@ -193,7 +197,14 @@ registerHooks({
   load(url, context, next) {
     const missingPath = url.startsWith('file:') && !existsSync(fileURLToPath(url))
       ? relative(root, fileURLToPath(url)).replaceAll('\\', '/') : null;
-    if (!missingPath || missingPath.startsWith('../')) return next(url, context);
+    if (!missingPath || missingPath.startsWith('../')) {
+      const loaded = next(url, context);
+      if (!compositionMutant || url !== new URL('../scripts/aura/composition/association-plugin.js', import.meta.url).href) return loaded;
+      const original = typeof loaded.source === 'string' ? loaded.source : Buffer.from(loaded.source).toString('utf8');
+      const guarded = "composition: composition === 'not' || composition === 'unavailable' ? null : composition";
+      assert(original.includes(guarded), 'actual production composition parser guard must exist');
+      return { ...loaded, source: original.replace(guarded, 'composition') };
+    }
     if (missingPath.includes('..') || !git) throw Error('pinned Git source required');
     return {
       format: missingPath.endsWith('.json') ? 'json' : 'module', shortCircuit: true,
@@ -1063,13 +1074,43 @@ const dshRoot = resolve(dshArg ?? process.env.AUKORA_DSH_SOURCE ?? join(root, 'v
 const hostToolsPath = join(dshRoot, 'packages/core/tools/lib/index.js');
 const hostValidatorPath = join(dshRoot, 'packages/core/tools/lib/types/json-schema.js');
 const hostCordisPath = join(dshRoot, 'vendor/cordis/lib/index.js');
-for (const path of [hostToolsPath, hostValidatorPath, hostCordisPath]) {
-  assert(existsSync(path), `UNPERFORMED: actual pinned host dependency absent: ${path}; pass --dsh or AUKORA_DSH_SOURCE`);
+// Bind these host checks to the current candidate's declaration and the exact
+// inspected artifacts. A different checkout, missing source or rebuilt bytes
+// require explicit qualification rather than silently changing the validator.
+const dshDeclaration = JSON.parse(execFileSync('git', ['show', 'HEAD:upstream-dsh.json'], {
+  cwd: root, encoding: 'utf8', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
+}));
+const declaredDshCommit = '0d1f50007f9bca3f52b06e1c3074fa14d5fb0720';
+const declaredDshLock = 'ca131858949bd12b2acfc227b1af7dfa3c8d65e74b234824d5c741e6421010a1';
+assert.equal(dshDeclaration.commit, declaredDshCommit, 'dependency-binding: candidate DSH commit changed');
+assert.equal(dshDeclaration.lockfileSha256, declaredDshLock, 'dependency-binding: candidate DSH lock declaration changed');
+const inspectedDshBytes = {
+  'pnpm-lock.yaml': declaredDshLock,
+  'packages/core/tools/src/index.ts': 'e040cf44c7a4c1b74650cc32f67503b8881cc1d5b1f47f1cb38cf0167a9bb3da',
+  'packages/core/tools/src/json-schema.ts': '13deffdfd34539e23706b0fde235991da45b2f07c5c18dbbf3ca734c1da0c788',
+  'packages/core/tools/lib/index.js': 'a5dad5666e38a1e16bc7b56213637621bb5a1bd5ef19337152afcf61419860c6',
+  'packages/core/tools/lib/types/json-schema.js': '912e04e68c2455cbb77651031449574f992720c90311e6cbecb1d35020bc1072',
+  'vendor/cordis/lib/index.js': 'fb172fcbd060156645e16134855c659345fafa340f116711b9ffae2418f51f38',
+};
+for (const [path, expected] of Object.entries(inspectedDshBytes)) {
+  const actualPath = join(dshRoot, path);
+  assert(existsSync(actualPath), `UNPERFORMED: bound host dependency absent: ${path}; pass --dsh or AUKORA_DSH_SOURCE`);
+  assert.equal(createHash('sha256').update(readFileSync(actualPath)).digest('hex'), expected,
+    `dependency-binding: inspected DSH bytes changed: ${path}`);
 }
+console.log('CHECKED declared DSH pin and six inspected source/compiled/lock byte identities');
 const { ToolRuntime, assertSupportedJsonSchema } = await import(pathToFileURL(hostToolsPath).href);
 const { validateJsonSchemaValue } = await import(pathToFileURL(hostValidatorPath).href);
 const { Context } = await import(pathToFileURL(hostCordisPath).href);
 const { associationTool, ADAPTER_RELPATH } = await import('../scripts/aura/composition/association-plugin.js');
+// Read the producer's actual absent-verdict messages. Adjacent Python string
+// literals form one printed line; no Python process is run for this fixture.
+const adapterSource = readFileSync(join(root, ADAPTER_RELPATH), 'utf8');
+const notAskedLiterals = /print\(\s*("COMPOSITION : not asked[^"\n]*")\s*("[^"\n]*")\s*("[^"\n]*")\s*\)/u.exec(adapterSource);
+const unavailableLiteral = /print\(("COMPOSITION : unavailable[^"\n]*")\)/u.exec(adapterSource);
+assert(notAskedLiterals && unavailableLiteral, 'actual adapter absent-verdict messages must be present');
+const notAskedReport = notAskedLiterals.slice(1).map(literal => JSON.parse(literal)).join('') + '\n';
+const unavailableReport = JSON.parse(unavailableLiteral[1]) + '\n';
 const adapterFixture = mkdtempSync(join(tmpdir(), 'aura-output-seam-'));
 const gateRoot = join(adapterFixture, 'release'), stateDir = join(adapterFixture, 'state');
 mkdirSync(join(gateRoot, 'scripts/aura'), { recursive: true });
@@ -1172,6 +1213,14 @@ try {
     { label: 'zero exit cannot override a named adapter refusal',
       scenario: { stdout: successfulReport, stderr: `REFUSE: aura-foreign-log: ${syntheticDiagnostic}\n`, code: 0 },
       refusal: 'aura-foreign-log', exit: 0, spawnError: false, spawns: 1 },
+    ...[
+      ['actual adapter not-asked report', notAskedReport],
+      ['actual adapter unavailable report', unavailableReport],
+      ['absent composition report', ''],
+    ].map(([label, report]) => ({ label: `${label} carries no composition verdict`,
+      scenario: { stdout: `COURT : APPEND_ONLY\n${report}CUSTODY : RETAINER_SAME_OWNER\n`,
+        stderr: `REFUSE: aura-foreign-log: ${syntheticDiagnostic}\n`, code: 2 },
+      refusal: 'aura-foreign-log', exit: 2, spawnError: false, spawns: 1, composition: null })),
     { label: 'spawn error is a stable named result', scenario: { kind: 'error' },
       refusal: 'aura-adapter-spawn-failed', exit: null, spawnError: true, spawns: 1 },
     { label: 'synchronous spawn failure is a stable named result', scenario: { kind: 'throw' },
@@ -1202,7 +1251,7 @@ try {
     assert.deepEqual(killSignals, entry.kills ?? []);
     if (entry.refusal === 'aura-foreign-log') {
       assert.equal(result.value.court, 'APPEND_ONLY');
-      assert.equal(result.value.composition, 'APPEND_ONLY');
+      assert.equal(result.value.composition, Object.hasOwn(entry, 'composition') ? entry.composition : 'APPEND_ONLY');
       assert.equal(result.value.custody, 'RETAINER_SAME_OWNER');
     }
   });
