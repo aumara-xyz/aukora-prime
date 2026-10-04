@@ -16,7 +16,7 @@ async function loadPolicy() {
   if (mutant === 'command-mentions') {
     source = source.replace(/^    if \(hostMention !== undefined\).*\n/mu, '')
   } else if (mutant === 'hardlinks') {
-    source = source.replace('analysis.links.checked && analysis.links.nlink > 1 && !insideAny(ownFiles, abs)', 'false')
+    source = source.replace('analysis.links.checked && analysis.links.nlink > 1', 'false')
   } else if (mutant === 'path-aliases') {
     source = source.replace('paths?|locations?|worktree', 'paths?|worktree')
   } else throw new Error('unknown focused mutant')
@@ -82,14 +82,14 @@ test('command mentions: Linux file-fence secrets are refused before execution', 
   assert.equal(judge('bash', { command: 'cat gate.db' }).decision, 'allow', 'a public workspace basename is not a gate-home path')
 })
 
-test('hardlinks: only the trusted active workspace gets the read exception', () => {
+test('hardlinks: multiply-linked regular files are refused in every configured root', () => {
   const { workspace, alternate, repository, release, readable, policy, judge } = fixture()
   for (const dir of [workspace, repository, release, readable]) {
     writeFileSync(join(dir, 'public.txt'), 'public fixture\n')
     linkSync(join(dir, 'public.txt'), join(dir, 'second.txt'))
   }
-  assert.equal(judge('read', { file_path: join(workspace, 'second.txt') }).decision, 'allow')
-  assert.equal(policy.judge({ tool: 'read', args: { file_path: join(workspace, 'second.txt') } }).decision, 'allow')
+  assert.equal(judge('read', { file_path: join(workspace, 'second.txt') }).rule, 'read:hardlink')
+  assert.equal(policy.judge({ tool: 'read', args: { file_path: join(workspace, 'second.txt') } }).rule, 'read:hardlink')
   for (const dir of [repository, release, readable]) {
     const path = join(dir, 'second.txt')
     for (const [tool, args] of [
