@@ -138,7 +138,7 @@ root-owned, non-writable, symlink-free custody. It has exactly these nine fields
 `workload_binary_digest`, `uid_ranges`, `gid_ranges`, `forbidden_host_ids`.
 Both configuration objects have exactly `Tmpfs`, `Devices`, `IpcMode`, `PidMode`,
 `ReadonlyRootfs`. The UID/GID ranges are exactly `[{host_id:165536,size:65536}]`
-and forbidden IDs exactly `[1001]`. No profile is automatically generated from
+and forbidden IDs exactly `[1001]`. No admission profile is automatically adopted from
 observations. New container identities require another operator-reviewed profile.
 The expected binary content SHA and deployed profile/helper custody remain
 operator prerequisites; the supplied historical inspect lacks fresh process facts.
@@ -175,3 +175,61 @@ gateway exception for socket UIDs 1001 and 166535 is source checked; the shared
 guest/supervisor UID cannot identify the supervisor or close inherited host
 sockets. A's FD repair and runtime custody acceptance remain separate. No complete
 runtime PASS, key enrollment, security setting change or deployment is claimed.
+
+## Explicit inventory bootstrap and recreation
+
+The default `ensure-sandbox.sh` still refuses a missing protected inventory before
+persistence or recreation. Only the operator's explicit `--bootstrap-profile`
+argument selects preparation: it requires protected committed generation inputs,
+serializes with the ordinary host admission lock, recreates the named sandbox
+(after a successful workspace snapshot), restores its workspace, checks the
+startup policy and network mode, and **always exits 7** before normal admission,
+workspace-link publication or workload execution. It does not generate, install
+or accept a profile. This also forces recreation of a Ready container: changing
+the gateway's userns default alone cannot update that container's maps.
+
+Commit only `inventory-generation-schema.json`, `workload-pin.json` and the helper.
+The schema contains public immutable mount/configuration constraints, subordinate
+ranges and the forbidden owner identity; it contains no mount Name/Source IDs.
+The binary pin is independently approved source input, never a hash adopted from
+the current runtime. Install both input files beside the helper at
+`/usr/local/lib/aukora-boundary/openshell/`, with root-owned non-writable files and
+ancestors. The generator corroborates ranges with the owner's `/etc/subuid` and
+`/etc/subgid`; disagreement with reviewed constraints refuses.
+
+Operator order (source recipe; not performed by this lane):
+
+1. Hold all admission/workload traffic and independently establish that owned
+   foreground and stream jobs are quiescent. The bootstrap lock does not join an
+   already admitted stream; CLI death does not prove guest termination. Keep the
+   traffic hold until the final live acceptance. Preserve the installed inventory.
+2. Install the reviewed main source, helper, public schema and approved binary
+   pin with protected custody. Restart the gateway with its reviewed
+   `OPENSHELL_PODMAN_USERNS=auto:size=65536` configuration. Run the explicit
+   `ensure-sandbox.sh --bootstrap-profile` as the existing sandbox owner. Expected
+   result is exit 7 at the fresh-binding barrier; any earlier error blocks progress.
+   Initial absence of the admission profile is allowed only for this preparation.
+3. Run `/usr/bin/python3 -I -S` with the installed `sandbox-inventory.py`, arguments
+   `auma-ws generate --out` and a new normalized absolute path in an operator-owned
+   private review directory. The generator reads the running sandbox without
+   guest commands, repeats bounded identity/policy/process observations, and
+   writes a proposed nine-key profile exclusively with mode 0600. Existing output
+   refuses. Missing kernel executable read authority, owner-inclusive maps,
+   configuration drift or a binary-pin mismatch refuse without a privilege fallback.
+4. Review that private candidate against the committed constraints and independently
+   bound current sandbox/container/process identities and actual volume custody.
+   A fresh volume Name/Source is candidate data, not provenance proof. Recheck the
+   current read-only observations; any recreation/drift requires new generation
+   and review. The source generator never installs or approves its own output.
+5. Explicitly install the reviewed generated artifact, under the operator's
+   authorized main-source rule, as root:root 0644 at
+   `/etc/aukora-boundary-gate/openshell-inventory.json`. Run ordinary startup and
+   normal exact `auma-ws check`. Stale UUIDs remain refused; generation is never
+   called by an ordinary admission, the wrapper or the service's default path.
+6. Obtain the three-case actual guest containment receipt with zero ALLOWED,
+   including A's ordinary/stream descriptor closure. Only then release traffic.
+
+Neither successful generation nor an exact profile check establishes image
+qualification, atomic launch fencing, volume provenance, resource bounds or cleanup.
+If the paired root/inventory source or its live prerequisites miss the release
+cutoff, defer both together; do not ship a relaxed check or extend the cutoff.
