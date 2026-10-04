@@ -148,30 +148,47 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   const setState = (id, from, to, note) => db.prepare('UPDATE proposals SET state=?, note=?, updated=? WHERE id=? AND state=?').run(to, note ?? null, now(), id, from).changes === 1
 
   const REVIEW_FACTS_UNAVAILABLE = 'UNAVAILABLE: release floor facts could not be read; owner approval is disabled.'
-  function targetReviewSnapshot(s, oldText, newText, target, baseSha) {
+  function targetReviewSnapshot(s, oldText, newText, target, baseSha, finalizingApply = null) {
     if (typeof s?.reviewFacts !== 'function') return null
     try {
       const facts = synchronous(s.reviewFacts(oldText, newText), 'owner review facts')
       if (!facts || typeof facts.from_to !== 'string' || !/^[\x20-\x7e]{1,600}$/.test(facts.from_to)) throw new Error('owner preview unavailable')
       // Null is legitimate only for this gate's first approval. A deleted target must not
       // erase retained adopted/applied history and turn a lost floor into a fresh installation.
-      if (facts.release_floor === null && (baseSha !== 'absent'
-        || db.prepare(`SELECT 1 FROM ledger WHERE target=? AND event IN ${APPLIED_EVENTS} LIMIT 1`).get(target)))
+      const priorHistory = finalizingApply
+        ? db.prepare(`SELECT 1 FROM ledger WHERE target=? AND event IN ${APPLIED_EVENTS}
+          AND (seq!=? OR proposal IS NULL OR proposal!=? OR hash!=?) LIMIT 1`)
+          .get(target, finalizingApply.seq, finalizingApply.proposal, finalizingApply.hash)
+        : db.prepare(`SELECT 1 FROM ledger WHERE target=? AND event IN ${APPLIED_EVENTS} LIMIT 1`).get(target)
+      if (facts.release_floor === null && (baseSha !== 'absent' || priorHistory))
         throw new Error('release floor is absent after prior target bytes or retained history; owner preview unavailable')
       // These are trusted target facts, never model/proof fields. Preserve the same readable
       // floor snapshot and visible ROLLBACK line in the original signed issuance row.
       return { available: true, from_to: facts.from_to, facts_text: JSON.stringify(facts) }
     } catch { return { available: false, from_to: null, facts_text: null } }
   }
-  const proposalReviewSnapshot = p => targetReviewSnapshot(TARGETS[p.target], blobText(p.base_sha), blobText(p.new_sha), p.target, p.base_sha)
-  function assertTargetReview(p, review) {
+  function proposalReviewSnapshot(p, finalizingApply = null) {
+    if (finalizingApply) {
+      const row = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(finalizingApply.seq, finalizingApply.hash)
+      // Only the exact signed row just appended inside this effect transaction is current,
+      // not prior history. Same-proposal rows at any other coordinate and genesis remain retained.
+      if (!row || row.event !== (p.kind === 'revert' ? 'revert-applied' : 'apply') || row.proposal !== p.id
+        || row.target !== p.target || row.base_sha !== p.base_sha || row.new_sha !== p.new_sha
+        || sha256(entryBody(row)) !== row.hash
+        || !verify(null, Buffer.from(row.hash, 'hex'), key.pub, Buffer.from(row.sig, 'base64')))
+        throw new Error('owner review facts unavailable: exact finalizing apply row is invalid')
+      finalizingApply = row
+    }
+    return targetReviewSnapshot(TARGETS[p.target], blobText(p.base_sha), blobText(p.new_sha), p.target, p.base_sha, finalizingApply)
+  }
+  function assertTargetReview(p, review, finalizingApply = null) {
     if (typeof TARGETS[p.target]?.reviewFacts !== 'function') return
     const issued = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(review.issue_seq, review.issue_hash)
     if (!issued || issued.event !== 'review-issued' || issued.proposal !== p.id || sha256(entryBody(issued)) !== issued.hash
       || !verify(null, Buffer.from(issued.hash, 'hex'), key.pub, Buffer.from(issued.sig, 'base64')))
       throw new Error('owner review facts unavailable: original signed review is missing or invalid')
     const retained = JSON.parse(issued.detail).target_review
-    const current = proposalReviewSnapshot(p)
+    const current = proposalReviewSnapshot(p, finalizingApply)
     if (!retained?.available || !current?.available || JSON.stringify(current) !== JSON.stringify(retained))
       throw new Error('owner review facts unavailable or changed since review; a fresh review is required')
   }
@@ -320,7 +337,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
         assertTargetReview(p, reviewed)
     })
     if (pre) return pre
-    let completed
+    let completed, finalizingApply = null
     try {
       completed = tx(() => {
         assertLegacyMode()
@@ -342,9 +359,10 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
         const rsig = signReceipt(receipt)
         if (!setState(id, 'applying', 'applied', 'applied')) throw new Error('legacy apply compare-and-set failed')
         const e = append(p.kind === 'revert' ? 'revert-applied' : 'apply', { proposal: id, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, detail: { receipt, receipt_sig: rsig } })
+        finalizingApply = e
         prune(p.target)
         return { applied: true, state: 'applied', entry: s.entry, receipt, receipt_sig: rsig, ledger_seq: e.seq, ledger_hash: e.hash, message: 'applied' }
-      }, () => { assertLegacyMode(); if (typeof s.reviewFacts === 'function') assertTargetReview(p, reviewed) })
+      }, () => { assertLegacyMode(); if (typeof s.reviewFacts === 'function') assertTargetReview(p, reviewed, finalizingApply) })
     } catch (e) {
       let cur = null; try { const b = readCur(p.target); cur = b ? sha256(b) : 'absent' } catch {}
       tx(() => { const st = cur === p.new_sha ? 'applied' : 'failed'; setState(id, 'applying', st, String(e.message)); append(st === 'applied' ? 'apply' : 'apply-failed', { proposal: id, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, detail: { error: String(e.message), via: 'owner' } }) })

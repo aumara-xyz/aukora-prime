@@ -100,6 +100,19 @@ export function installedRelease(releasesRoot, releaseDir) {
   return { release: tip, release_dir: releaseDir, plugin_set: set, record: sha256File(file('genesis-artifacts.json')) }
 }
 export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesis', floorFile = FLOOR_FILE } = {}) {
+  function renderFacts(oldText, newText, floor) {
+    const a = parsePluginSetApproval(newText)
+    if (!a) throw new Error('plugin-set approval is invalid; owner preview unavailable')
+    // This byte comparison supplies presentation only; the gate uses reviewFacts
+    // below for the independently read floor and retained-history admission guards.
+    const b = parsePluginSetApproval(oldText)
+    const same = b && b.plugin_set === a.plugin_set
+      ? `GATE FACT: plugin set UNCHANGED since your approval of ${b.release_dir} (${b.release.slice(0, 12)})${b.operation === a.operation ? ', operation unchanged' : ', operation CHANGED'} | `
+      : b ? `GATE FACT: plugin set CHANGED since your approval of ${b.release_dir} | ` : 'GATE FACT: first plugin-set approval on this gate | '
+    const back = isRollback(floor, a.release) ? `GATE FACT: ROLLBACK to ${a.release_dir}, below the release floor ${floor.release_dir} | ` : ''
+    return { from_to: `${back}${same}ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}`,
+      release_floor: floor }
+  }
   return {
     file: path.join(targetRoot, PLUGIN_SET_TARGET),
     entry: 'aukora-plugin-set', maxBytes: 512,
@@ -119,24 +132,19 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
       if (on.record !== a.record) throw new Error(`installed release record is ${on.record}, not ${a.record}`)
     },
     reviewFacts(oldText, newText) {
-      const a = parsePluginSetApproval(newText)
-      if (!a) throw new Error('plugin-set approval is invalid; owner preview unavailable')
-      // THE BASE IS THE OWNER'S PREVIOUS APPROVAL: this target is gate-owned and written only by an owner-approved apply, so
-      // "unchanged since your approval of <release>" is a gate fact, stated only when the set digest is byte-equal.
-      const b = parsePluginSetApproval(oldText)
-      const same = b && b.plugin_set === a.plugin_set
-        ? `GATE FACT: plugin set UNCHANGED since your approval of ${b.release_dir} (${b.release.slice(0, 12)})${b.operation === a.operation ? ', operation unchanged' : ', operation CHANGED'} | `
-        : b ? `GATE FACT: plugin set CHANGED since your approval of ${b.release_dir} | ` : 'GATE FACT: first plugin-set approval on this gate | '
       // ROLLBACK is a gate fact read from the root-owned release floor: this release is one the floor already moved past.
       // A genuinely absent floor permits first approval. A failed read is unavailable, never
       // an empty history: silently substituting null would erase the ROLLBACK gate fact.
       const floor = exactOwnerFloor(readFloor(floorFile))
       if (floor === null && oldText !== '') throw new Error('release floor is absent after previous target bytes; owner preview unavailable')
-      const back = isRollback(floor, a.release) ? `GATE FACT: ROLLBACK to ${a.release_dir}, below the release floor ${floor.release_dir} | ` : ''
-      return { from_to: `${back}${same}ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}`,
-        release_floor: floor }
+      return renderFacts(oldText, newText, floor)
     },
-    plain(oldText, newText) { return this.reviewFacts(oldText, newText).from_to },
+    plain(oldText, newText) {
+      // A formatting call may compare supplied previous bytes before a floor is
+      // installed. It grants no admission: actual owner review always uses the
+      // stricter reviewFacts method and the gate's signed prior-history checks.
+      return renderFacts(oldText, newText, exactOwnerFloor(readFloor(floorFile))).from_to
+    },
     after(newText) {
       const a = parsePluginSetApproval(newText)
       return a ? `AFTER APPLY: the gate signs a receipt for exactly plugin set ${a.plugin_set.slice(0, 16)}... of release ${a.release.slice(0, 7)}; the operator installs it and only then may the waiver be removed. Nothing is admitted by this click alone.` : 'AFTER APPLY: (invalid)'

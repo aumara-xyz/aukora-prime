@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { createHmac, generateKeyPairSync, sign, verify } from 'node:crypto'
 import test from 'node:test'
 import { createGate } from '../packages/boundary-gate/src/gate.mjs'
 import { keyFingerprint, openDb, sha256 } from '../packages/boundary-gate/src/ledger.mjs'
@@ -57,21 +57,26 @@ function fixture(t, options = {}) {
   f.advanceFloor = () => f.setFloor({ ...f.floor, ledger_seq: f.floor.ledger_seq + 1, ledger_hash: sha256('changed-floor-entry') })
   f.setFloor(options.absentFloor ? null : f.floor)
   f.target = (options.pluginSetTarget ?? pluginSetTarget)(home, { releasesRoot, floorFile })
-  f.gate = (options.createGate ?? createGate)({ home, db: openDb(path.join(home, 'gate.db')),
+  const gateOptions = { home, db: openDb(path.join(home, 'gate.db')),
     key: { priv: gatePair.privateKey, pub: gatePair.publicKey, fp: keyFingerprint(gatePair.publicKey),
       pubPem: gatePair.publicKey.export({ type: 'spki', format: 'pem' }).toString() },
-    owner: { bearer: 'disposable-fixture-only' }, targets: { [PLUGIN_SET_TARGET]: f.target }, now: () => f.clock,
-    readOwnerState: () => { f.ownerStateHook?.(); return f.ownerState },
+    owner: { bearer: 'disposable-fixture-only', hmacKey: sha256('disposable-floor-card-hmac') },
+    targets: { [PLUGIN_SET_TARGET]: f.target }, now: () => f.clock,
     store: { read: () => f.current === null ? null : Buffer.from(f.current),
       write: (target, _spec, bytes, id) => { f.writes.push({ target, id, bytes: Buffer.from(bytes) }); f.current = Buffer.from(bytes) } },
-  })
+  }
+  if (!options.legacy) gateOptions.readOwnerState = () => { f.ownerStateHook?.(); return f.ownerState }
+  f.gate = (options.createGate ?? createGate)(gateOptions)
   f.raise = () => f.gate.ownerOps.raise({ target: PLUGIN_SET_TARGET, content: pluginSetApprovalText(earlier), why: 'fixture operator release approval' })
   f.review = proposal => f.gate.ownerOps.review({ id: proposal.id })
   f.proof = review => ({ algorithm: OWNER_KEY_ALGORITHM, authorization: review.owner_authorization,
     signature_base64: sign('sha256', ownerAuthorizationSigningBytes(review.owner_authorization), ownerPair.privateKey).toString('base64') })
-  f.decide = (review, proof = f.proof(review)) => f.gate.ownerOps.decide_review({ id: review.id,
-    base_sha: review.base_sha, new_sha: review.new_sha, review_challenge: review.review_challenge,
-    outcome: 'allowed-once', owner_authorization_proof: proof }, 'fixture-owner-channel')
+  f.decide = (review, proof = options.legacy ? undefined : f.proof(review)) => {
+    const args = { id: review.id, base_sha: review.base_sha, new_sha: review.new_sha,
+      review_challenge: review.review_challenge, outcome: 'allowed-once' }
+    if (!options.legacy) args.owner_authorization_proof = proof
+    return f.gate.ownerOps.decide_review(args, 'fixture-owner-channel')
+  }
   return f
 }
 
@@ -153,6 +158,68 @@ test('an absent floor is a valid initial approval fact', t => {
   assert.equal(JSON.parse(retained.facts_text).release_floor, null)
   assert.equal(f.decide(review).applied, true)
   assert.equal(f.writes.length, 1)
+})
+
+test('the first legacy plugin-set apply does not mistake its exact finalizing row for prior history', t => {
+  const f = fixture(t, { absentFloor: true, initial: true, legacy: true }), proposal = f.raise(), review = f.review(proposal)
+  assert.equal(review.version, 2)
+  assert.equal(review.displayable, true)
+  const result = f.decide(review)
+  assert.equal(result.applied, true)
+  assert.equal(result.receipt.v, 2)
+  assert.deepEqual(Object.keys(result.receipt), ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha',
+    'applied_at', 'approver', 'approval_evidence_hmac', 'pubkey_fp'])
+  assert.equal(result.receipt.approval_evidence_hmac, createHmac('sha256', Buffer.from(sha256('disposable-floor-card-hmac'), 'hex'))
+    .update(`${proposal.id}\n${proposal.base_sha}\n${proposal.new_sha}\nfixture-owner-channel`).digest('base64'))
+  assert.equal(verify(null, Buffer.from(JSON.stringify(result.receipt)), f.gatePair.publicKey,
+    Buffer.from(result.receipt_sig, 'base64')), true)
+  const row = f.gate.db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(result.ledger_seq, result.ledger_hash)
+  assert.deepEqual(JSON.parse(row.detail), { receipt: result.receipt, receipt_sig: result.receipt_sig })
+  assert.equal(f.writes.length, 1)
+})
+
+test('a lost floor after a prior legacy apply refuses with both retained bytes and deleted target bytes', async t => {
+  for (const deleted of [false, true]) await t.test(deleted ? 'retained history without current bytes' : 'previous target bytes', st => {
+    const f = fixture(st, { initial: true, legacy: true })
+    assert.equal(f.decide(f.review(f.raise())).applied, true)
+    f.setFloor(null)
+    if (deleted) f.current = null
+    const proposal = f.gate.ownerOps.raise({ target: PLUGIN_SET_TARGET, content: pluginSetApprovalText(f.latest), why: 'fixture next legacy release' })
+    const review = f.review(proposal)
+    assertUnavailableCard(review)
+    const writes = f.writes.length
+    assert.throws(() => f.decide(review), /floor|unavailable|review|facts/)
+    assert.equal(f.writes.length, writes)
+  })
+})
+
+test('the legacy final guard excludes only the exact current apply row and retains every other history coordinate', async t => {
+  for (const history of ['genesis', 'other proposal', 'same proposal other sequence']) await t.test(history, st => {
+    const f = fixture(st, { absentFloor: true, initial: true, legacy: true }), proposal = f.raise(), review = f.review(proposal)
+    const db = f.gate.db, originalPrepare = db.prepare.bind(db)
+    let armed = true
+    db.prepare = sql => {
+      const statement = originalPrepare(sql)
+      if (sql === 'INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?,?,?)') {
+        const originalRun = statement.run.bind(statement)
+        statement.run = (...values) => {
+          const result = originalRun(...values)
+          if (armed && values[2] === 'apply') {
+            armed = false
+            f.gate.append(history === 'genesis' ? 'genesis-target' : 'apply', { target: PLUGIN_SET_TARGET,
+              proposal: history === 'genesis' ? null : history === 'other proposal' ? 'different-fixture-proposal' : proposal.id,
+              new_sha: proposal.new_sha, detail: { fixture: 'distinct retained history coordinate' } })
+          }
+          return result
+        }
+      }
+      return statement
+    }
+    assert.throws(() => f.decide(review), /owner review facts unavailable/)
+    assert.equal(armed, false, 'the distinct history row must be present at the final guard')
+    assert.equal(f.gate.db.prepare("SELECT COUNT(*) n FROM ledger WHERE event='apply' AND json_type(detail,'$.receipt') IS NOT NULL").get().n, 0)
+    assert.equal(f.gate.db.prepare('SELECT COUNT(*) n FROM gate_completed_results').get().n, 0)
+  })
 })
 
 test('a readable release floor preserves the explicit rollback fact', t => {
