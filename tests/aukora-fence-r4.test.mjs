@@ -57,6 +57,8 @@ test('whole paths: embedded prose traversal stays text while actual paths retain
     '../outside folder/not-created file.txt ',
     './folder with spaces/../../outside folder/not-created file.txt',
     'folder/../../outside/not-created.txt',
+    ' ../outside/not-created.txt',
+    '\t../outside/not-created.txt\n'.replace('\n', ''),
   ]) {
     assert.equal(judge('session_probe', { envelope: [{ arbitrary: path }] }).rule, 'read:outside-workspace',
       'whole traversal paths, including explicit paths with spaces, remain candidates even when absent')

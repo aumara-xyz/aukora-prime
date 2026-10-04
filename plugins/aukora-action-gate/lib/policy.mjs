@@ -209,7 +209,9 @@ const NON_NETWORK_SCHEMES = new Set(['viking:', 'data:', 'urn:'])
 // shell delimiters. Explicit prefixes permit spaces within filenames. Ambiguous
 // missing bare names with spaces need ./ or a declared path field; existing
 // whole-string entries remain discoverable below regardless of spaces.
-function wholePathTraversal(raw) {
+function wholePathTraversal(value) {
+  // Judged trimmed: a consumer that trims " ../x" would traverse, so surrounding whitespace never hides a path.
+  const raw = value.trim()
   if (!/(?:^|\/)\.\.(?:\/|$)/u.test(raw)) return false
   if (/[\0\r\n]/u.test(raw)) return false
   if (/^(?:\/|\.\.?\/|~\/)/u.test(raw)) return true
@@ -245,7 +247,8 @@ function looseTargets(args, tool, discovery, { onlyDiscovered = false } = {}) {
     if (value === null || value === undefined) return
     const path = !onlyDiscovered && (inheritedPath || PATH_KEYS.test(key) || TOOL_PATH_KEYS[tool]?.test(key))
     if (typeof value === 'string') {
-      if (path || discoveredPath(value, discovery)) paths.push(value)
+      // The trimmed spelling is judged too: a consumer that trims must not reach what the raw spelling hides.
+      if (path || discoveredPath(value, discovery)) { paths.push(value); const t = value.trim(); if (t && t !== value) paths.push(t) }
       if (!onlyDiscovered && URL_KEYS.test(key)) urls.push(value)
       return
     }

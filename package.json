@@ -16,6 +16,7 @@
     "check:l3-memory": "node tests/aukora-l3-memory-linux.test.mjs",
     "check:fence-r2": "node --test tests/aukora-fence-r2.test.mjs",
     "check:fence-r3": "node --test tests/aukora-fence-r3.test.mjs",
+    "check:fence-r4": "node --test tests/aukora-fence-r4.test.mjs",
     "check:auma-theme": "node --test tests/aukora-auma-theme.test.mjs",
     "check:openshell-confinement": "node --test tests/aukora-openshell-confinement.test.mjs",
     "check:gate-ledger-anchor": "node --test tests/gate-ledger-anchor.test.mjs",
