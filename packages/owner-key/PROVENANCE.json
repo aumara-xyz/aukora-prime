@@ -1,0 +1,19 @@
+{
+  "source_status": "SOURCE_ONLY",
+  "integration_reference": "f9c7a87a11892d59ce056d971c39e564852f752d",
+  "api_review_reference": "e84d3f3c5edd242025b29517666ca410144d55e4",
+  "allocation_reference": "0a65169",
+  "implementation": "original source; Node built-ins and Apple system frameworks only",
+  "dependency_copies": 0,
+  "records_git_blob": "3f1920897a30ec450affec4391047a15c9dc1cce",
+  "identity_git_blob": "d2bc85932d4172acf40551118f677a925d8515b7",
+  "collector_git_blob": "f1d4a6027d4ee4bfb26feaf52285e90a5a676026",
+  "fixture": "public RFC6979 appendix A.2.5; test-only in-memory software signatures",
+  "fixture_url": "https://www.rfc-editor.org/rfc/rfc6979.html#appendix-A.2.5",
+  "enrollment": "UNPERFORMED",
+  "native_compilation": "UNPERFORMED",
+  "hardware_custody": "UNPERFORMED",
+  "native_custody_join": "UNAVAILABLE: signed host, effective Data Protection access group and enrollment ACL provenance not established",
+  "live_signing": "UNPERFORMED",
+  "collector_migration": "UNPERFORMED"
+}
