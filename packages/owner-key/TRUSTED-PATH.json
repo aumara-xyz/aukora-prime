@@ -1,0 +1,168 @@
+{
+  "kind": "aukora-owner-authorization-trusted-path-inventory/v1",
+  "qualification": "SOURCE_COMPATIBLE G/H caller join; production/native/OS/IPC UNPERFORMED",
+  "complete_for": "G-owned public verification and guarded presentation source only; NOT complete for whole gate/deployment",
+  "source_checkpoint_reused": "0e5a73b44a7c6c7007394f2f551755942cf18379",
+  "integration_base": "245fbaaac90421e53bf5fd93fbe874ee1fc62462",
+  "owned_runtime_source": [
+    {
+      "path": "packages/owner-key/src/index.mjs",
+      "sha256": "5416ff95400109c65ed8e8d3fb9c94ec218c46c1039e6cc703a781781ccb467d",
+      "imports": [
+        "node:crypto"
+      ]
+    },
+    {
+      "path": "packages/owner-key/src/authorization.mjs",
+      "sha256": "6f463e6aa0ac41c2ed68d7c8a863b33b3129a7f431317f6660f8accc7f93ae28",
+      "imports": [
+        "node:crypto",
+        "./index.mjs"
+      ]
+    },
+    {
+      "path": "apps/aukora-desktop/owner-key-bridge.mjs",
+      "sha256": "46cced2b2dfca6d4508707eb86df22fbb66d10307f5b8151da2c3a97957a1d46",
+      "imports": [
+        "../../packages/owner-key/src/index.mjs",
+        "../../packages/owner-key/src/authorization.mjs",
+        "node:crypto"
+      ]
+    },
+    {
+      "path": "apps/aukora-desktop/owner-key-touchid.swift",
+      "sha256": "0f72a984842cc9d8199618274a7679e604cfd5a8b68f35269d1214b59885beac",
+      "imports": [
+        "AppKit",
+        "CoreFoundation",
+        "CryptoKit"
+      ]
+    }
+  ],
+  "public_verification_dependencies": [
+    "Node crypto implementation / OpenSSL; runtime toolchain independently pinned by integrator",
+    "Apple AppKit, CoreFoundation, CryptoKit public point/hash/preview APIs; native compilation UNPERFORMED"
+  ],
+  "host_callbacks": [
+    {
+      "name": "callGateOwner(op,args)",
+      "state": "actual H review/decide_review grammar; host-owned authenticated channel REQUIRED; no transport default"
+    },
+    {
+      "name": "readOwnerState()",
+      "state": "closed eight-field independently enrolled active registry; synchronous; no discovery or caller boolean"
+    },
+    {
+      "name": "presentOwnerAction",
+      "state": "UNJOINED: separately qualified native custody required; current Swift always refuses; no signer default"
+    },
+    {
+      "name": "consumeOnce",
+      "state": "generic public API only; H actual decide_review implements its own durable acceptance/spend transaction"
+    },
+    {
+      "name": "nowMs() / stillVisible()",
+      "state": "protected host clock/visibility callbacks; safe times and pre/post native validity checks; no expiry/replay fallback"
+    }
+  ],
+  "native_effects": "AppKit preview only; approval unconditionally unavailable before all biometric/Keychain/signing calls",
+  "owned_effect_inventory": {
+    "filesystem_reads": 0,
+    "filesystem_writes": 0,
+    "subprocesses": 0,
+    "network_or_IPC_connections": 0,
+    "key_creation_or_secret_reads": 0,
+    "real_signing_calls": 0,
+    "key_or_access_changes": 0
+  },
+  "test_only_paths": [
+    "packages/owner-key/checks/owner-key.test.mjs",
+    "packages/owner-key/checks/authorization.test.mjs",
+    "packages/owner-key/checks/mutants.mjs",
+    "packages/owner-key/checks/mutant-loader.mjs",
+    "packages/owner-key/checks/gate-caller.test.mjs"
+  ],
+  "test_boundary": "18 groups /20 guard-removal mutants; published RFC fixture signatures, disposable SQLite and actual selected original H source; no third-party closure/builds or native/OS/IPC qualification",
+  "external_required_joins": [
+    {
+      "owner": "H/Grok",
+      "path": "packages/boundary-gate/src/gate.mjs",
+      "state": "SOURCE_COMPATIBLE in exact immutable H checkpoint; protected deployment independently required",
+      "requirements": [
+        "Dedicated gate review issuance timestamp and full SPKI identity",
+        "Owner-proof required before common allowed-once path; no owner-channel boolean/HMAC/seed substitute",
+        "Durable exact proof/object/reference retention and atomic spent transition BEFORE effects",
+        "Authenticated gate receipt includes owner_authorization and exact matching transition fields"
+      ],
+      "source_snapshot_sha256": "9c0038e2ff3dd133691015909b3fa0abad8a8ee5d5f00e4dcb5bee09c71ae2cc",
+      "source_commit": "360c3bbfcb53843eae778186927c43449943f259"
+    },
+    {
+      "owner": "H/Grok",
+      "path": "packages/boundary-gate/src/ledger.mjs",
+      "state": "SOURCE_COMPATIBLE in exact immutable H checkpoint; protected deployment independently required",
+      "source_snapshot_sha256": "2888fe1080fcf1f3dc34bbe578a7f7149cdcf525429b366bdfbab76ca6c25fc5",
+      "source_commit": "360c3bbfcb53843eae778186927c43449943f259"
+    },
+    {
+      "owner": "H/Grok",
+      "path": "packages/boundary-gate/src/secrets.mjs",
+      "state": "SOURCE_COMPATIBLE in exact immutable H checkpoint; protected deployment independently required",
+      "source_snapshot_sha256": "2340bc8afd26d771612e3f79239997db89914c6d0d76a3909cd36d0fe1ce51b5",
+      "source_commit": "360c3bbfcb53843eae778186927c43449943f259"
+    },
+    {
+      "owner": "Grok/K/H",
+      "path": "apps/aukora-desktop/aumlok-signer-airlock.mjs",
+      "observed_git_blob": "1e78830848f58f2696b9e0c5093f4e850c92fa0c",
+      "state": "UNASSIGNED host registration / existing v2 receipt migration; outside G scope"
+    },
+    {
+      "owner": "Grok/H",
+      "path": null,
+      "state": "signed app/native entry, entitlements, effective Data Protection group, actual ACL useKeySign and enrollment registry unestablished"
+    },
+    {
+      "owner": "H/D/E",
+      "path": null,
+      "state": "historical receipt authentication/retained acceptance time, owner epoch/revocation state and exact proof resolver unjoined"
+    }
+  ],
+  "activation": "UNPERFORMED",
+  "grants_authority": false,
+  "local_seed_fallback": "ABSENT in G source; whole-system enforcement pending actual gate/native join",
+  "joint_fixture_h_original_closure": [
+    {
+      "path": "packages/boundary-gate/src/gate.mjs",
+      "sha256": "9c0038e2ff3dd133691015909b3fa0abad8a8ee5d5f00e4dcb5bee09c71ae2cc",
+      "bytes": 48125
+    },
+    {
+      "path": "packages/boundary-gate/src/ledger.mjs",
+      "sha256": "2888fe1080fcf1f3dc34bbe578a7f7149cdcf525429b366bdfbab76ca6c25fc5",
+      "bytes": 14161
+    },
+    {
+      "path": "packages/boundary-gate/src/targets.mjs",
+      "sha256": "9fe6d7447d1843bb27fc3728d3b1b7fa7f87f605eb6ba04995ad73cca4b915a3",
+      "bytes": 11913
+    },
+    {
+      "path": "packages/boundary-gate/src/secrets.mjs",
+      "sha256": "2340bc8afd26d771612e3f79239997db89914c6d0d76a3909cd36d0fe1ce51b5",
+      "bytes": 1820
+    },
+    {
+      "path": "packages/boundary-gate/src/card.mjs",
+      "sha256": "a09aa8bf8f00b4570f478f8be968bfd288085164111a35be5c34d309e56949e3",
+      "bytes": 17115
+    },
+    {
+      "path": "packages/boundary-gate/src/release-floor.mjs",
+      "sha256": "8d18eaeb84d329641b9a3c499b2e05339e7544f20cb651368be947f4058eca36",
+      "bytes": 13707
+    }
+  ],
+  "same_uid_fixture_qualification": "NONE: candidate/evaluator independence, socket/UID separation and native custody not inferred",
+  "joint_fixture_h_source_commit": "360c3bbfcb53843eae778186927c43449943f259"
+}

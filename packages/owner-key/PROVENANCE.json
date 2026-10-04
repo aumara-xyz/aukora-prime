@@ -1,6 +1,11 @@
 {
   "source_status": "SOURCE_ONLY",
-  "integration_reference": "f9c7a87a11892d59ce056d971c39e564852f752d",
+  "integration_reference": "245fbaaac90421e53bf5fd93fbe874ee1fc62462",
+  "prior_source_checkpoint": "fa400d7d816526745df505574d73ab43ed1df2c5",
+  "authorization_gate_review_reference": "42cbf66cd69d579c7266fe705354e5f264dc05ad",
+  "authorization_gate_git_blob": "f0f4bf628fe5e17758135a4d481d98d09261fbdc",
+  "authorization_target_git_blob": "b15962aa5fe96c3adc2556c0e20d0acae9e93b70",
+  "authorization_gate_adapter": "SOURCE_COMPATIBLE: actual G caller / H v3 SQLite gate checked; runtime mount/native/deploy pending",
   "api_review_reference": "e84d3f3c5edd242025b29517666ca410144d55e4",
   "allocation_reference": "0a65169",
   "implementation": "original source; Node built-ins and Apple system frameworks only",
@@ -8,12 +13,61 @@
   "records_git_blob": "3f1920897a30ec450affec4391047a15c9dc1cce",
   "identity_git_blob": "d2bc85932d4172acf40551118f677a925d8515b7",
   "collector_git_blob": "f1d4a6027d4ee4bfb26feaf52285e90a5a676026",
-  "fixture": "public RFC6979 appendix A.2.5; test-only in-memory software signatures",
+  "fixture": "Published RFC6979 A.2.5 and RFC8032 7.1 test1 keys; test-only in-memory software signatures",
   "fixture_url": "https://www.rfc-editor.org/rfc/rfc6979.html#appendix-A.2.5",
   "enrollment": "UNPERFORMED",
   "native_compilation": "UNPERFORMED",
   "hardware_custody": "UNPERFORMED",
   "native_custody_join": "UNAVAILABLE: signed host, effective Data Protection access group and enrollment ACL provenance not established",
   "live_signing": "UNPERFORMED",
-  "collector_migration": "UNPERFORMED"
+  "collector_migration": "UNPERFORMED",
+  "prior_authorization_checkpoint": "0e5a73b44a7c6c7007394f2f551755942cf18379",
+  "runtime_caller": "createGateOwnerAuthorizationCaller: injected host transport/active registry/full gate SPKI/native presentation; no defaults",
+  "joint_source_check": {
+    "groups": 18,
+    "failures": 0,
+    "skips": 0,
+    "guard_removal_mutants_caught": 20,
+    "h_source_snapshot": [
+      {
+        "path": "packages/boundary-gate/src/gate.mjs",
+        "sha256": "9c0038e2ff3dd133691015909b3fa0abad8a8ee5d5f00e4dcb5bee09c71ae2cc",
+        "bytes": 48125
+      },
+      {
+        "path": "packages/boundary-gate/src/ledger.mjs",
+        "sha256": "2888fe1080fcf1f3dc34bbe578a7f7149cdcf525429b366bdfbab76ca6c25fc5",
+        "bytes": 14161
+      },
+      {
+        "path": "packages/boundary-gate/src/targets.mjs",
+        "sha256": "9fe6d7447d1843bb27fc3728d3b1b7fa7f87f605eb6ba04995ad73cca4b915a3",
+        "bytes": 11913
+      },
+      {
+        "path": "packages/boundary-gate/src/secrets.mjs",
+        "sha256": "2340bc8afd26d771612e3f79239997db89914c6d0d76a3909cd36d0fe1ce51b5",
+        "bytes": 1820
+      },
+      {
+        "path": "packages/boundary-gate/src/card.mjs",
+        "sha256": "a09aa8bf8f00b4570f478f8be968bfd288085164111a35be5c34d309e56949e3",
+        "bytes": 17115
+      },
+      {
+        "path": "packages/boundary-gate/src/release-floor.mjs",
+        "sha256": "8d18eaeb84d329641b9a3c499b2e05339e7544f20cb651368be947f4058eca36",
+        "bytes": 13707
+      }
+    ],
+    "scope": "source caller/gate/SQLite only; no OS/IPC/native qualification",
+    "h_immutable_source_checkpoint": "360c3bbfcb53843eae778186927c43449943f259"
+  },
+  "fixture_urls": [
+    "https://www.rfc-editor.org/rfc/rfc6979.html#appendix-A.2.5",
+    "https://www.rfc-editor.org/rfc/rfc8032#section-7.1"
+  ],
+  "actual_mac_registration": "UNASSIGNED outside G reserved sources",
+  "receipt_consumer_migration": "PENDING: old closed v2 admission consumer is outside G ownership",
+  "prior_runtime_source_checkpoint": "1502e28be798d5013d69542b4cdf01896087a042"
 }

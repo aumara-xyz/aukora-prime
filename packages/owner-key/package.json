@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-or-later",
-  "exports": "./src/index.mjs",
-  "scripts": { "check": "node --test checks/owner-key.test.mjs" }
+  "exports": { ".": "./src/index.mjs", "./authorization": "./src/authorization.mjs" },
+  "scripts": { "check": "node --test checks/owner-key.test.mjs checks/authorization.test.mjs checks/gate-caller.test.mjs" }
 }
