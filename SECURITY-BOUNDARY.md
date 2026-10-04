@@ -9,10 +9,10 @@ This is a review entry map for the selected pilot source, not a claim that the c
 | [gate.mjs](packages/boundary-gate/src/gate.mjs) | Proposal is not approval; the reviewed bytes and challenge bind the one-use decision. |
 | [server.mjs](packages/boundary-gate/src/server.mjs) | Propose and owner channels have different operations and custody. |
 | [targets.mjs](packages/boundary-gate/src/targets.mjs) | Fixed target schema, exact base/change and operator-only release target. |
-| [card.mjs](packages/boundary-gate/src/card.mjs) | Gate facts and model text have distinct presentation roles. |
+| [plugin-set-approval.mjs](packages/boundary-gate/bin/plugin-set-approval.mjs) | Bootstrap validates trusted installation/module buffers before execution. |
 | [ledger.mjs](packages/boundary-gate/src/ledger.mjs) | Signed sequence/hash chain retains decisions and effects. |
-| [receipts.mjs](packages/boundary-gate/src/receipts.mjs) | Effect receipt binds the exact change and gate identity. |
-| [secrets.mjs](packages/boundary-gate/src/secrets.mjs) | Gate key and owner/propose credential handling remain separate. |
+| [release-floor CLI](packages/boundary-gate/bin/release-floor.mjs) | Floor tool executes checked buffers from its fixed trusted installation. |
+| [operator-data.mjs](packages/boundary-gate/src/vendor/operator-data.mjs) | Closed candidate data helpers supply no candidate code authority. |
 | [plugin-set-canon.mjs](packages/boundary-gate/src/plugin-set-canon.mjs) | Trusted verifier reads candidate data; candidate code supplies no verifier authority. |
 | [release-floor.mjs](packages/boundary-gate/src/release-floor.mjs) | Previously installed approval constrains launch; current wall-clock ordering remains a hardening gap. |
 | [selfcheck.mjs](packages/boundary-gate/bin/selfcheck.mjs) | Failed or unrecorded checks refuse launch; fixture tests stub host observations. |
@@ -20,7 +20,7 @@ This is a review entry map for the selected pilot source, not a claim that the c
 | [sbx-exec](packages/boundary-gate/host/sbx-exec) | Sandbox dispatch and cleanup are separate from a model's claims about completion. |
 | [plugin-set.mjs](plugins/aukora-composition-gate/src/plugin-set.mjs) | Admission binds the recorded plugin set, release and approval pin. |
 | [action-gate index.mjs](plugins/aukora-action-gate/lib/index.mjs) | Tool requests encounter the gate before an effect. |
-| [action-gate policy.mjs](plugins/aukora-action-gate/lib/policy.mjs) | Model explanations do not widen policy. |
+| [trusted-verifier-pins.json](packages/boundary-gate/src/vendor/trusted-verifier-pins.json) | Reviewed module hashes come from trusted install data, not a candidate. |
 | [confinement index.mjs](plugins/aukora-openshell-confinement/lib/index.mjs) | Supported one-shot route is explicit; unsupported routes refuse. |
 | [aumlok-bridge.mjs](apps/aukora-desktop/aumlok-bridge.mjs) | Desktop IPC does not manufacture a gate review or owner grant. |
 | [aumlok-signer-airlock.mjs](apps/aukora-desktop/aumlok-signer-airlock.mjs) | Adapter carries the gate-bound review and exact decision. |
@@ -34,7 +34,7 @@ This is a review entry map for the selected pilot source, not a claim that the c
 ./security-review --logs /tmp/aukora-review-private
 ```
 
-Node 24.11.1 is the selected interpreter. The fixed `offline-critical-v1` profile runs existing trusted-release, gate-signer, owner-card and stubbed self-check tests, the retained L2 signature verifier, face-copy equality and generated-table consistency. It never calls the live self-check CLI, host/sandbox probes, providers, network anchors, a deployment or the complete NEXT profile. Disposable local IPC can be refused by a restricted environment; that child failure remains visible.
+Node 24.11.1 is the selected interpreter. The fixed `offline-critical-v1` profile runs the existing 10-group trusted-bootstrap VM fixture (baseline only), trusted-release, gate-signer, owner-card and stubbed self-check tests, the retained L2 signature verifier, face-copy equality and generated-table consistency. It never calls the live self-check CLI, host/sandbox probes, providers, network anchors, a deployment or the complete NEXT profile. Disposable local IPC can be refused by a restricted environment; that child failure remains visible.
 
 JSON stdout includes received SHA, dirty state, boundary-file SHA256s, commands, actual exit/signal/error, timings, output digests and available TAP totals. `--logs` retains unmodified private stdout/stderr/exit files; keep those outside tracked source. Mutation-selector environment variables are cleared and named; the command does not run mutants. Exit `1` means a scoped failure. Exit `2` retains declared UNPERFORMED live acceptance even when all scoped rows pass. `--list` executes no child and reports those rows UNPERFORMED. The full source profile remains `./prime verify` with its own historical failure and exclusions.
 
@@ -42,4 +42,4 @@ The L2 verifier checks a historical signed prefix against the published pilot ke
 
 ## Open obligations
 
-Signed sequence/epoch release ordering, pre-import gate/collector bootstrap pinning, guest-external per-execution custody, full containment/cleanup, hardened owner roots, current NEXT joins and current full-profile execution remain distinct obligations. Concurrent workers' prepared fixes are not marked complete until selected source and actual evidence land. [Known gaps](README.md#known-gaps) and [private vulnerability reporting](SECURITY.md) remain the front door.
+Signed sequence/epoch release ordering, installed gate-bootstrap custody and collector bootstrap pinning, guest-external per-execution custody, full containment/cleanup, hardened owner roots, current NEXT joins and current full-profile execution remain distinct obligations. Concurrent workers' prepared fixes are not marked complete until selected source and actual evidence land. [Known gaps](README.md#known-gaps) and [private vulnerability reporting](SECURITY.md) remain the front door.

@@ -2,10 +2,10 @@
   "schema": "aukora-current-evidence/v1",
   "updated_at": "2026-10-04",
   "revisions": {
-    "source": "6750564abafca58a1f785ef5fe158940ff959012",
+    "source": "0a6516924fb537183e26051e3fdc269ef371cdbe",
     "main_observed": {
-      "sha": "6750564abafca58a1f785ef5fe158940ff959012",
-      "at": "2026-10-04 (read/fetch)"
+      "sha": "0a6516924fb537183e26051e3fdc269ef371cdbe",
+      "at": "2026-10-04 08:23 UTC (read/fetch)"
     },
     "deployment": {
       "sha": "5f0601feae249af5290386523c794a3a560bc7ff",
@@ -20,10 +20,10 @@
     "packages/boundary-gate/src/gate.mjs",
     "packages/boundary-gate/src/server.mjs",
     "packages/boundary-gate/src/targets.mjs",
-    "packages/boundary-gate/src/card.mjs",
+    "packages/boundary-gate/bin/plugin-set-approval.mjs",
     "packages/boundary-gate/src/ledger.mjs",
-    "packages/boundary-gate/src/receipts.mjs",
-    "packages/boundary-gate/src/secrets.mjs",
+    "packages/boundary-gate/bin/release-floor.mjs",
+    "packages/boundary-gate/src/vendor/operator-data.mjs",
     "packages/boundary-gate/src/plugin-set-canon.mjs",
     "packages/boundary-gate/src/release-floor.mjs",
     "packages/boundary-gate/bin/selfcheck.mjs",
@@ -31,7 +31,7 @@
     "packages/boundary-gate/host/sbx-exec",
     "plugins/aukora-composition-gate/src/plugin-set.mjs",
     "plugins/aukora-action-gate/lib/index.mjs",
-    "plugins/aukora-action-gate/lib/policy.mjs",
+    "packages/boundary-gate/src/vendor/trusted-verifier-pins.json",
     "plugins/aukora-openshell-confinement/lib/index.mjs",
     "apps/aukora-desktop/aumlok-bridge.mjs",
     "apps/aukora-desktop/aumlok-signer-airlock.mjs",
@@ -84,20 +84,20 @@
     },
     {
       "id": "launch",
-      "claim": "Root release tools read candidate JSON without importing candidate code; the service template requires approval and a release floor.",
+      "claim": "Root release tools hash-check trusted module buffers before execution and read candidates as JSON; the service template requires approval and a release floor.",
       "status": "SOURCE",
-      "basis": "Present at source-account revision; deployment operator-reported",
+      "basis": "Bootstrap source integrated at 0a65169; older pilot deployment remains separately reported",
       "references": [
         {
-          "path": "packages/boundary-gate/src/plugin-set-canon.mjs",
-          "label": "trusted verifier"
+          "path": "packages/boundary-gate/src/vendor/TRUSTED-VERIFIER.md",
+          "label": "bootstrap trust/limits"
         },
         {
-          "path": "tests/aukora-plugin-set-trusted-verifier.test.mjs",
-          "label": "existing release check"
+          "path": "packages/boundary-gate/src/vendor/check-trusted-verifier.mjs",
+          "label": "existing VM fixture check"
         }
       ],
-      "limit": "The selected floor still orders approvals by wall clock; signed sequence/epoch ordering and pre-import bootstrap pinning are pending. Template assertions do not observe an installed unit."
+      "limit": "Root metadata/Unix replies are synthetic in source tests; installed-byte custody, preload-safe launch and collector bootstrap are not observed here. Floor ordering still uses wall clock; signed sequence/epoch ordering is pending."
     },
     {
       "id": "card",

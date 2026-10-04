@@ -15,6 +15,7 @@ const git = args => {
 // Invariant: only this fixed offline profile can run. Threat: a mutable claim file
 // could become a command launcher. Reason: evidence data supplies no executable argv.
 const profile = [
+  ['trusted-bootstrap', ['--experimental-vm-modules', '--test', '--test-reporter=tap', 'packages/boundary-gate/src/vendor/check-trusted-verifier.mjs'], 'Existing 10-group VM fixture; synthetic root metadata/Unix replies, no installation or host custody. Baseline only; no --mutations.'],
   ['trusted-release-verifier', ['--test', '--test-reporter=tap', 'tests/aukora-plugin-set-trusted-verifier.test.mjs'], 'Synthetic releases; service-template assertions do not observe an installed unit.'],
   ['gate-plugin-set-signer', ['--test', '--test-reporter=tap', 'tests/aukora-plugin-set-gate-signer.test.mjs'], 'Synthetic gate and keys; no owner enrollment or installed-release approval.'],
   ['owner-card-model-fence', ['--test', '--test-reporter=tap', 'tests/aukora-owner-card-model-fence.test.mjs'], 'Disposable IPC and source/VM card checks; no rendered desktop or human attendance.'],
