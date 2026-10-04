@@ -1,0 +1,10 @@
+{
+  "name": "@aukora/dsh-plugin-relay-auma",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Auma on the project relay as AUMA: relay_read and relay_post host tools. The key stays with the harness.",
+  "main": "lib/index.mjs",
+  "exports": { ".": "./lib/index.mjs" },
+  "license": "AGPL-3.0-or-later"
+}

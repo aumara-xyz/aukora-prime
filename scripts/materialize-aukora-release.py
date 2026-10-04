@@ -254,6 +254,7 @@ def AURA_COPY_IGNORE(directory, names):
 #                 cannot look at the app, while every eye court stays green — which is why
 #                 `tests/aukora-eye-row.test.mjs` holds this constant and the row below together.
 LANE_PLUGINS = ('aukora-kira', 'aukora-aumlok', 'aukora-board', 'aukora-eye', 'aukora-caged-worker', 'aukora-auma-theme',
+                'aukora-relay-auma',
                 'aukora-openshell-confinement',
                 # ── MEASURED OUTAGE, 2026-09-25: A RELEASE THAT COULD NOT START ──────────────────────
                 # The cutover died with `ERR_MODULE_NOT_FOUND`: `plugins/aukora-composition-gate/src/
@@ -1530,6 +1531,16 @@ def main() -> int:
         + '      name: ./plugins/aukora-auma-theme/lib/index.mjs\n'
         + '      config:\n'
         + '        proposeSocket: /run/aukora-gate/gate.sock\n'
+        # AUMA ON THE PROJECT RELAY (2026-10-05): relay_read/relay_post host tools as server identity auma. The key is
+        # harness-owned (0600, outside every guest/workspace root) and never reaches the model; every post is written
+        # to the gate ledger (relay_record) and so into Aura. Inert off Linux. AUMA posts are advisory, never orders.
+        + '    - id: aukora-relay-auma\n'
+        + '      name: ./plugins/aukora-relay-auma/lib/index.mjs\n'
+        + '      config:\n'
+        + "        keyFile: !!js process.env.HOME + '/.config/aukora-relay/auma.key'\n"
+        + '        gateSocket: /run/aukora-gate/gate.sock\n'
+        + '        workspaceRoots:\n'
+        + "          - !!js process.env.HOME + '/workspaces'\n"
         + '    - id: aukora-kira\n'
         + '      name: ./plugins/aukora-kira/lib/gate-capture-host.mjs\n'
         + '      config:\n'
