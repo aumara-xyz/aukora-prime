@@ -10,6 +10,10 @@
 # done safely (the persist copy is then left untouched).
 export XDG_RUNTIME_DIR=/run/user/$(id -u) OPENSHELL_TELEMETRY_ENABLED=false OPENSHELL_LOCAL_TLS_DIR=$HOME/.local/state/openshell/tls
 POLICY="$(cd "$(dirname "$0")" && pwd)/sandbox-policy.yml"; [ -r "$POLICY" ] || { echo "REFUSING: $POLICY missing" >&2; exit 5; }
+INVENTORY=/usr/local/lib/aukora-boundary/openshell/sandbox-inventory.py
+[ -r "$INVENTORY" ] || { echo "REFUSING: sandbox inventory helper missing" >&2; exit 5; }
+# Refuse missing/unreviewed profile custody before persistence or recreation.
+/usr/bin/python3 -I -S "$INVENTORY" auma-ws profile || { echo "REFUSING: reviewed deployment profile missing" >&2; exit 7; }
 # Guest image: localhost/aukora-guest:current (guest-image/build.sh) when present, else OpenShell's default image.
 IMG=localhost/aukora-guest:current; FROM=(); podman image exists "$IMG" 2>/dev/null && FROM=(--from "$IMG")
 cd "$HOME"; P="$HOME/sandbox-persist"; mkdir -p "$P"; chmod 700 "$P" 2>/dev/null
@@ -18,15 +22,7 @@ snapshot() { local v; v=$(vol); [ -n "$v" ] || return 0
   podman unshare bash -c 'v=$1; P=$2; test -d "$v" || exit 0; rm -rf "$P.new"; cp -a "$v/." "$P.new/" 2>/dev/null || { mkdir -p "$P.new" && cp -a "$v/." "$P.new/"; } || exit 1
     rm -rf "$P.prev"; mv "$P" "$P.prev" && mv "$P.new" "$P"' _ "$v" "$P" && echo "snapshot: live /sandbox -> $P"; }
 # exact startup policy check: effective policy == sandbox-policy.yml (normalized; OpenShell omits empty network_policies)
-policy_ok() { openshell policy get auma-ws --full -o json 2>/dev/null | python3 -I -S -c 'import json,sys,re
-want=sys.argv[1]; d=json.load(sys.stdin); p=dict(d.get("policy") or {}); p.setdefault("network_policies",{})
-txt=open(want).read()
-# the policy file is tiny, flat YAML written by us: compare the fields that matter exactly
-ok=(d.get("status")=="effective" and p.get("version")==1 and p.get("landlock")=={"compatibility":"hard_requirement"}
- and p.get("network_policies")=={} and (p.get("filesystem_policy") or {}).get("include_workdir") is False
- and sorted((p.get("filesystem_policy") or {}).get("read_write") or [])==sorted(["/sandbox","/tmp","/dev/null","/dev/pts","/dev/ptmx"])
- and "hard_requirement" in txt)
-sys.exit(0 if ok else 1)' "$POLICY"; }
+policy_ok() { /usr/bin/python3 -I -S "$INVENTORY" auma-ws policy; }
 phase() { openshell sandbox list 2>/dev/null | awk '$1=="auma-ws"{print $NF}'; }
 waitready() { for i in $(seq 1 90); do [ "$(phase)" = Ready ] && return 0; sleep 1; done; return 1; }
 for i in $(seq 1 30); do openshell status >/dev/null 2>&1 && break; sleep 1; done
@@ -74,5 +70,8 @@ c=$(podman ps --format '{{.Names}}' | grep '^openshell-default--auma-ws-' | head
 net=$(podman inspect "$c" --format '{{.HostConfig.NetworkMode}}'); echo "sandbox network mode: $net"
 [ "$net" = none ] || { echo "REFUSING: sandbox network mode is '$net', expected none" >&2; exit 3; }
 policy_ok || { echo "REFUSING: auma-ws does not report the hard startup policy" >&2; exit 6; }
+# No automatic adoption of a changed container/map/mount baseline. The operator
+# must install the reviewed protected profile before this exact readback can pass.
+/usr/bin/python3 -I -S "$INVENTORY" auma-ws check || { echo "REFUSING: sandbox deployment inventory unavailable" >&2; exit 7; }
 [ -n "$v" ] && ln -sfn "$v" "$HOME/workspace"
 openshell sandbox list

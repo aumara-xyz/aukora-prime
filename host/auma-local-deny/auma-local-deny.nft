@@ -1,7 +1,9 @@
 #!/usr/sbin/nft -f
 # AUKORA pilot: the sandbox account `auma` (uid 1001) and its rootless-container subuids (165536-231071)
 # may not open connections to host-local services. Only what OpenShell needs stays open:
-#   127.0.0.1:17690  auma's own OpenShell gateway (the in-container supervisor connects to it)
+#   127.0.0.1:17690  only auma 1001 and supervisor 166535. Other subuids are denied.
+#                    Supervisor and guest share uid 166535; guest netns separation and FD custody
+#                    must independently prevent reaching the host gateway. UID matching cannot prove that.
 #   127.0.0.53/54:53 the systemd-resolved stub (name resolution for the gateway)
 #   127.0.0.1 TCP 32768-60999 (the kernel's ephemeral range): `openshell ssh-proxy` connects to a transient
 #                    listener it opens on an ephemeral loopback port; every sbx-exec call needs it. The fixed
@@ -17,7 +19,7 @@ table inet aukora_auma_local {
 		meta skuid { 1001, 165536-231071 } ct state new fib daddr type local jump auma_local
 	}
 	chain auma_local {
-		ip daddr 127.0.0.1 tcp dport 17690 accept
+		meta skuid { 1001, 166535 } ip daddr 127.0.0.1 tcp dport 17690 accept
 		ip daddr 127.0.0.1 tcp dport { 54783, 54784 } counter reject with tcp reset
 		ip daddr 127.0.0.1 tcp dport 32768-60999 accept
 		ip daddr { 127.0.0.53, 127.0.0.54 } meta l4proto { tcp, udp } th dport 53 accept
