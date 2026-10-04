@@ -1,0 +1,458 @@
+{
+  "title": "Ornith and small-model learning research: sanitized evidence digest",
+  "snapshot_utc": "2026-10-04T07:45:52.049330+00:00",
+  "scope": "Existing local result receipts inspected; original GPU experiments and exact replays were not rerun for publication.",
+  "limits": [
+    "Metrics are operator-generated records, not independent replication.",
+    "Source hashes identify inspected bytes; private raw files are not included and hashes alone do not establish correctness.",
+    "No credentials, infrastructure identifiers, private paths, solution traces, game rules, human baseline counts, or held-out puzzle contents are included.",
+    "Reported p-values are those in the receipts; publication did not recompute them from per-board raw observations."
+  ],
+  "model": {
+    "name": "ornith-ai/Ornith-1.5-35B-A3B",
+    "total_parameters_approx_billion": 35,
+    "active_parameters_approx_billion": 3,
+    "revision": "10fbf86fed7ecee4a061f8b499a618f46001cac1"
+  },
+  "sokoban": {
+    "REP1": {
+      "provenance": {
+        "record": "ledger/prereg/REP1-RESULT.json",
+        "sha256": "7c8fbd13691e667cb2964be7535850aba10b15833d788fc30e788c6a8762a929"
+      },
+      "metrics": {
+        "lenient_ok_forced_of_1152": {
+          "base": 256,
+          "v7": 306
+        },
+        "rate": {
+          "base": 0.222,
+          "v7": 0.266
+        },
+        "PRIMARY_v7_gt_base": {
+          "boards_up": 53,
+          "boards_down": 32,
+          "p_one_sided": 0.0147,
+          "verdict": "PASS"
+        }
+      }
+    },
+    "V7": {
+      "provenance": {
+        "record": "ledger/prereg/V7-RESULT.json",
+        "sha256": "a1c2b89208802ccf4658c18289e73cabfddb98d8b722b3a7a6bf58edb4ebeba9"
+      },
+      "metrics": {
+        "lenient_ok_forced_of_576": {
+          "base": 132,
+          "gen1": 159,
+          "v7": 164
+        },
+        "H1_primary_v7_gt_gen1": {
+          "wins": 43,
+          "losses": 38,
+          "p": 0.328,
+          "verdict": "FAIL"
+        }
+      }
+    },
+    "WMC": {
+      "provenance": {
+        "record": "ledger/prereg/WMC-RESULT.json",
+        "sha256": "1bdb5390ff7f20c2ce5e47cf10e81906b3d0f5939657db9ce543ede6e49c04fc"
+      },
+      "metrics": {
+        "base_interactive_solved": 116,
+        "base_single_shot_lenient": 69,
+        "of": 288,
+        "H1_unmatched": {
+          "boards_up": 56,
+          "boards_down": 17,
+          "p": 3e-06,
+          "verdict": "PASS"
+        },
+        "H1_token_matched_16k": {
+          "solved": 50,
+          "boards_up": 23,
+          "boards_down": 36,
+          "p": 0.966,
+          "verdict": "FAIL"
+        }
+      }
+    },
+    "V9": {
+      "provenance": {
+        "record": "ledger/prereg/V9-RESULT.json",
+        "sha256": "447f32c40a97e028e00347b2984da6a211c605f2a4c38235a3824014935444a7"
+      },
+      "metrics": {
+        "totals": {
+          "interactive_v9": {
+            "solved": 88,
+            "of": 288,
+            "within_16k": 77,
+            "gen_tokens": 4684018,
+            "tokens_per_solve": 53227,
+            "per_band": {
+              "8-16": 73,
+              "17-32": 15,
+              "33-48": 0
+            }
+          },
+          "interactive_v7": {
+            "solved": 136,
+            "of": 288,
+            "within_16k": 90,
+            "gen_tokens": 7237152,
+            "tokens_per_solve": 53214,
+            "per_band": {
+              "8-16": 91,
+              "17-32": 45,
+              "33-48": 0
+            }
+          }
+        },
+        "H1_primary_v9_gt_v7_interactive": {
+          "boards_up": 12,
+          "boards_down": 53,
+          "ties": 79,
+          "p_one_sided": 0.99999997,
+          "sum_x": 88,
+          "sum_y": 136,
+          "verdict": "FAIL"
+        },
+        "H2_coprimary_tokens_per_solve_v9_lt_v7": {
+          "tokens_per_solve_v9": 53227,
+          "tokens_per_solve_v7": 53214,
+          "diff_point": 13,
+          "bootstrap_p_diff_ge_0": 0.5118,
+          "ci95": [
+            -10593,
+            12487
+          ],
+          "reps": 10000,
+          "verdict": "FAIL"
+        },
+        "VERDICT": "NO_PROMOTE (H1, H2, BAND_GUARD failed)"
+      }
+    },
+    "SOBZERO-H200": {
+      "provenance": {
+        "record": "ledger/prereg/SOBZERO-H200-RESULT.json",
+        "sha256": "f7e27adea05dbe3ff4e8623da8304e27c0a90a3338fd60ff5164a454edce8562"
+      },
+      "metrics": {
+        "primary": {
+          "final_champion_gen": 23,
+          "metric": "sealed solve @B=200",
+          "gen0": {
+            "n": 800,
+            "solved": 551,
+            "solve_rate": 0.6887,
+            "mean_moves_solved": 34.9,
+            "mean_s": 3.85,
+            "mean_net_evals": 1197.6,
+            "mean_expansions": 9606.0
+          },
+          "champion": {
+            "n": 800,
+            "solved": 752,
+            "solve_rate": 0.94,
+            "mean_moves_solved": 38.3,
+            "mean_s": 4.3,
+            "mean_net_evals": 1225.0,
+            "mean_expansions": 6667.1
+          },
+          "a_only": 207,
+          "b_only": 6,
+          "discordant": 213,
+          "p_one_sided": 9.448275128031236e-54,
+          "success": true
+        }
+      }
+    },
+    "DREAM": {
+      "provenance": {
+        "record": "ledger/prereg/DREAM-RESULT.json",
+        "sha256": "d2bd03023d420d3a581c83ccecdcbe82a725886526438ea7f20e31938bc78cf9"
+      },
+      "metrics": {
+        "old": {
+          "n": 800,
+          "solved": 688,
+          "solve_rate": 0.86,
+          "mean_moves_solved": 37.3,
+          "mean_s": 37.37,
+          "mean_net_evals": 1225.4,
+          "mean_expansions": 7823.0,
+          "expansions_per_solve": 9096.5,
+          "net_evals_per_solve": 1424.8
+        },
+        "dreamed": {
+          "n": 800,
+          "solved": 718,
+          "solve_rate": 0.8975,
+          "mean_moves_solved": 37.6,
+          "mean_s": 17.14,
+          "mean_net_evals": 669.8,
+          "mean_expansions": 2373.0,
+          "expansions_per_solve": 2644.0,
+          "net_evals_per_solve": 746.3
+        },
+        "sign_test": {
+          "a_only": 36,
+          "b_only": 6,
+          "discordant": 42,
+          "p_one_sided": 1.4144388842396438e-06
+        },
+        "success": true
+      }
+    }
+  },
+  "arc3_completed_jobs": [
+    {
+      "run": "cur_20261004T123719",
+      "game": "ls20",
+      "arm": "armCUR",
+      "provenance": {
+        "record": "arc3/runs/cur_20261004T123719/ls20/armCUR/summary.json",
+        "sha256": "04f84a44d74ae95c831c21c11d06dff512d23055fac07b028e9aacf05ae237e5"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 1,
+      "level_events": [
+        {
+          "i": 38,
+          "n_actions": 38,
+          "from": 0,
+          "to": 1
+        }
+      ],
+      "llm_calls": 123,
+      "sim_calls": 0,
+      "wall_s": 4781.8,
+      "replay": {
+        "verified": true,
+        "target_levels": 1,
+        "reached_at_i": 38,
+        "replay_actions": 38,
+        "replay_resets": 1,
+        "frame_hash_match": 38,
+        "frame_hash_mismatch": 0,
+        "levels_mismatches": []
+      }
+    },
+    {
+      "run": "cur_20261004T123719",
+      "game": "ls20",
+      "arm": "armCURSIM",
+      "provenance": {
+        "record": "arc3/runs/cur_20261004T123719/ls20/armCURSIM/summary.json",
+        "sha256": "f0756dfb3d91f74634e785a6082453021ac43574eabd8562f201712cc8367564"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 0,
+      "level_events": [],
+      "llm_calls": 115,
+      "sim_calls": 24,
+      "wall_s": 6001.7
+    },
+    {
+      "run": "cur_20261004T123719",
+      "game": "tu93",
+      "arm": "armCUR",
+      "provenance": {
+        "record": "arc3/runs/cur_20261004T123719/tu93/armCUR/summary.json",
+        "sha256": "9869e0b289c5e21a6d4dc8598f4fd0a32053e05e0a9e5ad3684b79a3e91249c2"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 0,
+      "level_events": [],
+      "llm_calls": 124,
+      "sim_calls": 0,
+      "wall_s": 5020.7
+    },
+    {
+      "run": "cur_20261004T123719",
+      "game": "tu93",
+      "arm": "armCURSIM",
+      "provenance": {
+        "record": "arc3/runs/cur_20261004T123719/tu93/armCURSIM/summary.json",
+        "sha256": "062f2809ff011433dded9670026fac80f27d4b1f87bcb7dbf1f8c33dd1e04c24"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 0,
+      "level_events": [],
+      "llm_calls": 140,
+      "sim_calls": 24,
+      "wall_s": 6910.2
+    },
+    {
+      "run": "cur3_20261004T142107",
+      "game": "ls20",
+      "arm": "armCUR3",
+      "provenance": {
+        "record": "arc3/runs/cur3_20261004T142107/ls20/armCUR3/summary.json",
+        "sha256": "7bb66b42cc7475a03d7aaa430af77dffb1b9ff216598051eddb5de9c7795f697"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 0,
+      "levels_verified": 0,
+      "level_events": [],
+      "llm_calls": 124,
+      "sim_calls": 0,
+      "wall_s": 3380.4
+    },
+    {
+      "run": "cur3_20261004T142107",
+      "game": "ls20",
+      "arm": "armCURSIM3",
+      "provenance": {
+        "record": "arc3/runs/cur3_20261004T142107/ls20/armCURSIM3/summary.json",
+        "sha256": "7b2efb7bbc333c503909fc8baea4085246b5dd0adfa8e6409227b30a3ff6a2d2"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 1,
+      "levels_verified": 1,
+      "level_events": [
+        {
+          "i": 44,
+          "n_actions": 44,
+          "from": 0,
+          "to": 1
+        }
+      ],
+      "llm_calls": 116,
+      "sim_calls": 20,
+      "wall_s": 4462.4,
+      "replay": {
+        "verified": true,
+        "target_levels": 1,
+        "reached_at_i": 44,
+        "replay_actions": 44,
+        "replay_resets": 1,
+        "frame_hash_match": 44,
+        "frame_hash_mismatch": 0,
+        "levels_mismatches": []
+      }
+    },
+    {
+      "run": "cur3_20261004T142107",
+      "game": "tu93",
+      "arm": "armCUR3",
+      "provenance": {
+        "record": "arc3/runs/cur3_20261004T142107/tu93/armCUR3/summary.json",
+        "sha256": "2187939a6ee86dad45f04ed828fed752683192e834c16611376ed5dd53d09ab2"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 0,
+      "levels_verified": 0,
+      "level_events": [],
+      "llm_calls": 128,
+      "sim_calls": 0,
+      "wall_s": 3588.6
+    },
+    {
+      "run": "cur3_20261004T142109_NOLIB",
+      "game": "ls20",
+      "arm": "armCUR3",
+      "provenance": {
+        "record": "arc3/runs/cur3_20261004T142109_NOLIB/ls20/armCUR3/summary.json",
+        "sha256": "03ade7a735a2ae0469c4baf6a23980335474932e06fabb810d6aa8a4f8a85393"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 0,
+      "levels_verified": 0,
+      "level_events": [],
+      "llm_calls": 103,
+      "sim_calls": 0,
+      "wall_s": 2828.5
+    },
+    {
+      "run": "cur3_20261004T142109_NOLIB",
+      "game": "tu93",
+      "arm": "armCUR3",
+      "provenance": {
+        "record": "arc3/runs/cur3_20261004T142109_NOLIB/tu93/armCUR3/summary.json",
+        "sha256": "6a2082ddf124803ce2572e415b284fd85c4966de5cdf3a575d0125ea76baaaaa"
+      },
+      "actions_used": 150,
+      "max_levels_completed": 0,
+      "levels_verified": 0,
+      "level_events": [],
+      "llm_calls": 125,
+      "sim_calls": 0,
+      "wall_s": 3510.0
+    }
+  ],
+  "additional_inspected_receipts": [
+    {
+      "record": "ledger/prereg/FORCED-1-RESULT.json",
+      "sha256": "3f5d323bf46b056f0f4749630edbb83cc74e1c3156f2aacd148e57fd7d24b05c"
+    },
+    {
+      "record": "ledger/prereg/S1b-RESULT.json",
+      "sha256": "c11746264842ba72b3d68e73b3b7917c8f905972d44699e7c3e4cbd362ca27ef"
+    },
+    {
+      "record": "ledger/prereg/CONFIRM-1-RESULT.json",
+      "sha256": "dafbdd27406d8f6c56237edd56e6fbe27a66d05599a2b3181b86fcbc3d93c3cf"
+    },
+    {
+      "record": "ledger/prereg/CONFIRM-2-RESULT.json",
+      "sha256": "bec9efade0f0314760c61c0d1adee159c225c2720eef639a711cd054cd9a236a"
+    },
+    {
+      "record": "ledger/prereg/SOBZERO-RESULT.json",
+      "sha256": "726c3bab0c0ecc83e93afe2aa2494589f01c5375e1b7987b1dc50ab71d23d267"
+    },
+    {
+      "record": "ledger/prereg/ARC3-1b-RESULT.json",
+      "sha256": "bb67dc12fbee3b3c3e461c58c1eb84c6d9de962bcb549983aff8a075282b317e"
+    },
+    {
+      "record": "ledger/prereg/ARC3-2-RESULT.json",
+      "sha256": "daf32f25e6e23d841d2b2ea93642e505f0feab5dd35e5f2c5c0fea37ed2efe4e"
+    }
+  ],
+  "ongoing_snapshot": {
+    "checked_utc": "2026-10-04T07:44:53.564401+00:00",
+    "phase": "waiting_for_existing_runs",
+    "planned_jobs": 24,
+    "completed_summary_files": 5,
+    "arc3_4_live_result": "UNPERFORMED at snapshot; bounded pilot queued after current runs"
+  },
+  "arc3_4_offline": {
+    "synthetic_correctness_tests_passed": 18,
+    "synthetic_launch_tests_passed": 7,
+    "model_calls_in_tests": 0,
+    "model_improvement_demonstrated": false,
+    "weights_changed": false
+  },
+  "local_preparation_provenance": [
+    {
+      "record": "ARC3-4-PREREG.md",
+      "sha256": "44536412fd174f5187307b109332735832ca3663f1175af9346c6ef1ff616223"
+    },
+    {
+      "record": "ARC3-4-HASHES.json",
+      "sha256": "1abe21c8eb3ecc99071be04c71372c9c8adf3bd2beb655faf67993c596b8e0e3"
+    },
+    {
+      "record": "ARC3-4-OFFLINE-RESULT.json",
+      "sha256": "55ba33088658e3758dd043cb320463afe4370fa2cecac8a018dda6e2101e5d6b"
+    },
+    {
+      "record": "ARC3-4-LAUNCH-AMEND1.md",
+      "sha256": "6103685c3c1a414353d84d2c874f76268bc53285424fee21840dda1fdfb165cb"
+    },
+    {
+      "record": "cur4_test_receipt.txt",
+      "sha256": "229c96fe1a2f3619d6b4ef968ae411fc2b7a11cc97dd347364d5f7bf775d360e"
+    },
+    {
+      "record": "cur4_launch_test_receipt.txt",
+      "sha256": "96a244402e45732f3f0b3fb31b7903acf442c47ad58a64ed66c17ad924b0eaf4"
+    }
+  ]
+}
