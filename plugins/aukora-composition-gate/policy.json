@@ -2,6 +2,7 @@
   "governed": ["hello-governed"],
   "pluginSet": [
     "aukora-action-gate",
+    "aukora-auma-theme",
     "aukora-aumlok",
     "aukora-aura-association",
     "aukora-board",
