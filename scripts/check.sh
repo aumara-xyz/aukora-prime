@@ -10,8 +10,8 @@ for tool in perl python3 node ssh-keygen; do
         exit 1
     }
 done
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' || {
-    printf 'FAIL: Node.js 22 or newer is required; found %s\n' "$(node -v)" >&2
+node -e 'const v=process.versions.node.split(".").map(Number); process.exit(v[0]>24 || (v[0]===24 && (v[1]>11 || (v[1]===11 && v[2]>=1))) ? 0 : 1)' || {
+    printf 'FAIL: Node.js 24.11.1 or newer is required; found %s\n' "$(node -v)" >&2
     exit 1
 }
 
@@ -74,8 +74,11 @@ pids=
 active=0
 index=0
 count=0
+passed=0
 failed=0
 skipped=0
+platform_skipped=0
+unperformed=0
 cleanup() {
     trap '' HUP INT TERM
     for pid in $pids; do kill -TERM "$pid" 2>/dev/null || :; done
@@ -91,24 +94,46 @@ trap 'exit 129' HUP
 collect_checks() {
     for pid in $pids; do
         index=$((index + 1))
-        if ! wait "$pid"; then failed=$((failed + 1)); fi
-        if [ -f "$work/$index.row" ]; then
-            cat "$work/$index.row"
+        child_exit=0
+        wait "$pid" || child_exit=$?
+        disposition=
+        if [ -f "$work/$index.status" ]; then
+            IFS= read -r disposition < "$work/$index.status" || disposition=
+        fi
+        expected_exit=
+        case "$disposition" in
+            PASS) expected_exit=0 ;;
+            FAIL) expected_exit=1 ;;
+            UNPERFORMED) expected_exit=2 ;;
+            SKIP) expected_exit=3 ;;
+        esac
+        if [ ! -f "$work/$index.row" ] || [ -z "$expected_exit" ] || [ "$child_exit" -ne "$expected_exit" ]; then
+            failed=$((failed + 1))
+            printf 'FAIL      ?s | check %s | missing or inconsistent runner result (exit %s)\n' "$index" "$child_exit"
         else
-            printf 'FAIL      ?s | check %s | runner did not produce a result\n' "$index"
+            case "$disposition" in
+                PASS) passed=$((passed + 1)) ;;
+                FAIL) failed=$((failed + 1)) ;;
+                SKIP) skipped=$((skipped + 1)) ;;
+                UNPERFORMED) unperformed=$((unperformed + 1)) ;;
+            esac
+            cat "$work/$index.row"
         fi
     done
     pids=
     active=0
 }
 
+# Formats describe fixed source commands; report text never selects executable argv.
 run_check() {
     count=$((count + 1))
     perl -MTime::HiRes=time -e '
         use strict;
         use warnings;
         use Errno qw(EINTR);
-        my ($prefix, $command, $run) = @ARGV;
+        my ($prefix, $command, $run, $format) = @ARGV;
+        $format //= "plain";
+        die "report format" unless $format =~ /\A(?:plain|tap|unittest)\z/;
         my $start = time;
         open my $log, ">", "$prefix.log" or die "log: $!";
         my $pid = fork();
@@ -118,6 +143,10 @@ run_check() {
             setpgrp(0, 0) or die "setpgrp: $!";
             open STDOUT, ">&", $log or die "stdout: $!";
             open STDERR, ">&", $log or die "stderr: $!";
+            delete $ENV{$_} for grep { /_MUTANT\z/ } keys %ENV;
+            delete @ENV{qw(AUKORA_RECORDS_MODULE AUKORA_PRIME_CHECK_GIT)};
+            delete @ENV{qw(AUKORA_AURA_CHECK_GIT AUKORA_AURA_CITATION_BASE NODE_TEST_CONTEXT)};
+            $ENV{GIT_NO_LAZY_FETCH} = "1";
             exec "sh", "-c", $run;
             die "exec: $!";
         }
@@ -144,9 +173,46 @@ run_check() {
         }
         open my $output, "<", "$prefix.log" or die "read log: $!";
         my $last = "(no output)";
-        my (@tail, $private);
+        my (@tail, $private, %totals, %seen);
+        my $reported_failure = 0;
+        my ($unit_tests, $unit_skipped, $unit_expected, $unit_unexpected, $unit_ok) = (undef, 0, 0, 0, 0);
+        my ($unit_runs, $unit_summaries, $unit_invalid, $unit_failed) = (0, 0, 0, 0);
         while (<$output>) {
             chomp;
+            if (/\A# (tests|pass|fail|cancelled|skipped|todo) ([0-9]+)\s*\z/) {
+                my ($name, $number) = ($1, 0 + $2);
+                $totals{$name} = $number; $seen{$name}++;
+                $reported_failure = 1 if ($name eq "fail" || $name eq "cancelled") && $number > 0;
+            }
+            if (/\ARan ([0-9]+) tests? in /) {
+                $unit_tests = 0 + $1; $unit_runs++;
+            }
+            $unit_failed = 1 if /\AFAILED\b/;
+            if (/\AOK\b/) {
+                $unit_summaries++;
+                if (/\AOK(?: \(([^)]*)\))?\s*\z/) {
+                    $unit_ok = 1;
+                    my $details = $1 // "";
+                    my %attributes;
+                    if ($details ne "") {
+                        for my $attribute (split /, /, $details, -1) {
+                            if ($attribute =~ /\A(skipped|expected failures|unexpected successes)=([0-9]+)\z/) {
+                                my ($name, $number) = ($1, 0 + $2);
+                                $unit_invalid = 1 if exists $attributes{$name};
+                                $attributes{$name} = $number;
+                                $unit_failed = 1 if $name eq "unexpected successes" && $number > 0;
+                            } else {
+                                $unit_invalid = 1;
+                                $unit_failed = 1 if $attribute =~ /\A(?:failures|errors)=([0-9]+)\z/ && $1 > 0;
+                            }
+                        }
+                    }
+                    $unit_skipped = $attributes{"skipped"} // 0;
+                    $unit_expected = $attributes{"expected failures"} // 0;
+                    $unit_unexpected = $attributes{"unexpected successes"} // 0;
+                    $unit_failed = 1 if $unit_unexpected > 0;
+                } else { $unit_invalid = 1 }
+            }
             my $end_private = /-----END .*PRIVATE KEY-----/;
             $private ||= /-----BEGIN .*PRIVATE KEY-----/;
             $_ = "[private key omitted]" if $private;
@@ -158,20 +224,65 @@ run_check() {
                 /^\s*["\x27]?[A-Z][A-Z0-9_]*["\x27]?\s*[:=]/u;
             $_ = substr($_, 0, 512);
             $last = $_ if /\S/;
-            if (!$ok && /\S/) { push @tail, $_; shift @tail if @tail > 32 }
+            if (/\S/) { push @tail, $_; shift @tail if @tail > 32 }
         }
         close $output;
+        my $disposition = $ok ? "PASS" : "FAIL";
+        my $reported = "";
+        # Process failures take precedence over an incomplete or contradictory report.
+        # Native direct Node tests are recognized by their footer even in plain rows.
+        if (%totals || $format eq "tap") {
+            $reported = " | TAP " . join(" ", map { "$_=" . (exists $totals{$_} ? $totals{$_} : "?") } qw(tests pass fail cancelled skipped todo));
+            if ($ok && $reported_failure) {
+                $disposition = "FAIL"; $reason = "reported failing or cancelled tests";
+            } elsif ($ok) {
+                my $complete = keys(%totals) == 6 && !grep { ($seen{$_} // 0) != 1 } qw(tests pass fail cancelled skipped todo);
+                if (!$complete) {
+                    $disposition = "UNPERFORMED"; $reason = "missing complete TAP totals";
+                } elsif ($totals{tests} != $totals{pass} + $totals{fail} + $totals{cancelled} + $totals{skipped} + $totals{todo}) {
+                    $disposition = "FAIL"; $reason = "inconsistent TAP totals";
+                } elsif ($totals{tests} == 0) {
+                    $disposition = "UNPERFORMED"; $reason = "zero reported tests";
+                } elsif ($totals{skipped} == $totals{tests}) {
+                    $disposition = "SKIP"; $reason = "all reported tests skipped";
+                } elsif ($totals{skipped} > 0 || $totals{todo} > 0) {
+                    $disposition = "UNPERFORMED"; $reason = "reported skipped or todo tests";
+                }
+            }
+        } elsif ($format eq "unittest") {
+            $reported = " | unittest tests=" . ($unit_tests // "?") . " skipped=$unit_skipped expected_failures=$unit_expected unexpected_successes=$unit_unexpected";
+            if ($ok) {
+                if ($unit_failed) {
+                    $disposition = "FAIL"; $reason = "reported failed unittest or unexpected success";
+                } elsif ($unit_invalid || $unit_runs > 1 || $unit_summaries > 1) {
+                    $disposition = "UNPERFORMED"; $reason = "invalid or duplicate unittest totals";
+                } elsif (!defined($unit_tests) || !$unit_ok) {
+                    $disposition = "UNPERFORMED"; $reason = "missing successful unittest totals";
+                } elsif ($unit_skipped + $unit_expected + $unit_unexpected > $unit_tests) {
+                    $disposition = "FAIL"; $reason = "inconsistent unittest totals";
+                } elsif ($unit_tests == 0) {
+                    $disposition = "UNPERFORMED"; $reason = "zero reported tests";
+                } elsif ($unit_skipped == $unit_tests) {
+                    $disposition = "SKIP"; $reason = "all reported tests skipped";
+                } elsif ($unit_skipped > 0 || $unit_expected > 0) {
+                    $disposition = "UNPERFORMED"; $reason = "reported skipped or expected-failure tests";
+                }
+            }
+        }
         open my $row, ">", "$prefix.row" or die "row: $!";
-        printf {$row} "%s %6.2fs | %s%s | %s\n",
-            $ok ? "PASS" : "FAIL", time - $start, $command,
-            $reason eq "" ? "" : " [$reason]", $last;
-        if (!$ok) {
+        printf {$row} "%s %6.2fs | %s%s%s | %s\n",
+            $disposition, time - $start, $command,
+            $reason eq "" ? "" : " [$reason]", $reported, $last;
+        if ($disposition eq "FAIL") {
             print {$row} "  failed-check output (last 32 nonempty lines, up to 512 bytes each):\n";
             print {$row} "  | $_\n" for @tail;
         }
         close $row or die "close row: $!";
-        exit($ok ? 0 : 1);
-    ' "$work/$count" "$1" "$2" &
+        open my $result, ">", "$prefix.status" or die "status: $!";
+        print {$result} "$disposition\n";
+        close $result or die "close status: $!";
+        exit($disposition eq "PASS" ? 0 : $disposition eq "FAIL" ? 1 : $disposition eq "UNPERFORMED" ? 2 : 3);
+    ' "$work/$count" "$1" "$2" "${3:-plain}" &
     pids="$pids $!"
     active=$((active + 1))
     # Bound fixture contention; each watchdog still starts only when its check launches.
@@ -181,11 +292,14 @@ run_check() {
 # Standalone checks use their normal interpreters and make no confinement claim.
 check_self_confined() { run_check "$1" "$1"; }
 check() { run_check "$1" "$1"; }
+check_tap() { run_check "$1" "$1" tap; }
+check_unittest() { run_check "$1" "$1" unittest; }
 
 # Unavailable Seatbelt checks are explicit skips, never counted as passes.
 skip() {
     printf 'SKIP      -  | %s | %s\n' "$1" "$2"
     skipped=$((skipped + 1))
+    platform_skipped=$((platform_skipped + 1))
 }
 os=$(uname -s)
 check_darwin() {
@@ -225,16 +339,24 @@ check 'node tests/aukora-fence-r4.test.mjs'
 check 'node tests/aukora-auma-theme.test.mjs'
 check 'node tests/aukora-openshell-confinement.test.mjs'
 check 'node tests/gate-ledger-anchor.test.mjs'
-check 'node --test packages/boundary-gate/checks/selfcheck-bin.mjs'
-check 'node --test tests/aukora-plugin-set-gate-signer.test.mjs'
-check 'node --test tests/aukora-plugin-set-trusted-verifier.test.mjs'
+check_tap 'node --test --test-reporter=tap packages/boundary-gate/checks/selfcheck-bin.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-plugin-set-gate-signer.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-plugin-set-trusted-verifier.test.mjs'
 check 'node plugins/aukora-nostr/checks/records.mjs'
-check 'node scripts/aura/checks/collector.mjs'
+check 'node scripts/audit/security-review.mjs --source-prerequisite aura && node scripts/aura/checks/collector.mjs'
 check 'node labs/pq-hybrid/checks/hybrid.mjs'
-check 'node --test tests/aukora-owner-card-model-fence.test.mjs'
-check 'node --test tests/aukora-owner-card-no-friction.test.mjs'
-check 'node --test tests/aukora-owner-card-clarity.test.mjs'
-check 'node --test tests/kira-aura-recall.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-owner-card-model-fence.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-owner-card-no-friction.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-owner-card-clarity.test.mjs'
+check_tap 'node scripts/audit/security-review.mjs --source-prerequisite kira && node --test --test-reporter=tap tests/kira-aura-recall.test.mjs'
+check_tap 'node --test --test-reporter=tap packages/boundary-gate/src/vendor/check-sequence-floor.mjs'
+check_tap 'node --test --test-reporter=tap packages/boundary-gate/src/vendor/check-ordered-approval.mjs'
+check 'node packages/boundary-gate/src/vendor/check-preview-policy.mjs'
+check_unittest '/usr/bin/python3 -I -S packages/boundary-gate/host/install/check-bootstrap.py'
+check_tap 'node --test --test-reporter=tap packages/owner-key/checks/owner-key.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/security-review-runner.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-plugin-set-floor-card.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-containment.test.mjs tests/aukora-auma-firewall.test.mjs'
 check 'node packages/boundary-gate/src/vendor/check-trusted-verifier.mjs --mutations'
 check 'node tests/aukora-kira-ask-recall.test.mjs'
 check 'node tests/aukora-l3-memory-linux.test.mjs'
@@ -263,9 +385,11 @@ check_darwin 'node scripts/aukora/caged-broker-effect.mjs'
 
 collect_checks
 perl -MTime::HiRes=time -e '
-    printf "TOTAL %.2fs | %d/%d passed", time - $ARGV[0], $ARGV[1] - $ARGV[2], $ARGV[1];
-    print " | logs: $ARGV[3]" if $ARGV[2];
-    print " | $ARGV[4] skipped (see SKIP lines)" if $ARGV[4];
+    printf "TOTAL %.2fs | %d/%d passed | %d failed | %d skipped (%d platform) | %d unperformed",
+        time - $ARGV[0], $ARGV[1], $ARGV[2] + $ARGV[5], $ARGV[3], $ARGV[4], $ARGV[5], $ARGV[6];
+    print " | logs: $ARGV[7]" if $ARGV[3];
     print "\n";
-' "$started" "$count" "$failed" "$work" "$skipped"
-[ "$failed" -eq 0 ]
+' "$started" "$passed" "$count" "$failed" "$skipped" "$platform_skipped" "$unperformed" "$work"
+if [ "$failed" -ne 0 ]; then exit 1; fi
+if [ "$skipped" -ne 0 ] || [ "$unperformed" -ne 0 ]; then exit 2; fi
+exit 0
