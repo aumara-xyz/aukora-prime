@@ -15,11 +15,11 @@ const git = args => {
 // Invariant: only this fixed offline profile can run. Threat: a mutable claim file
 // could become a command launcher. Reason: evidence data supplies no executable argv.
 const profile = [
-  ['trusted-release-verifier', ['--test', 'tests/aukora-plugin-set-trusted-verifier.test.mjs'], 'Synthetic releases; service-template assertions do not observe an installed unit.'],
-  ['gate-plugin-set-signer', ['--test', 'tests/aukora-plugin-set-gate-signer.test.mjs'], 'Synthetic gate and keys; no owner enrollment or installed-release approval.'],
-  ['owner-card-model-fence', ['--test', 'tests/aukora-owner-card-model-fence.test.mjs'], 'Disposable IPC and source/VM card checks; no rendered desktop or human attendance.'],
-  ['owner-card-no-friction', ['--test', 'tests/aukora-owner-card-no-friction.test.mjs'], 'Disposable IPC/source checks; no measured comprehension.'],
-  ['selfcheck-contract', ['--test', 'packages/boundary-gate/checks/selfcheck-bin.mjs'], 'Stubbed runner/RPC; no sandbox egress or host probes run.'],
+  ['trusted-release-verifier', ['--test', '--test-reporter=tap', 'tests/aukora-plugin-set-trusted-verifier.test.mjs'], 'Synthetic releases; service-template assertions do not observe an installed unit.'],
+  ['gate-plugin-set-signer', ['--test', '--test-reporter=tap', 'tests/aukora-plugin-set-gate-signer.test.mjs'], 'Synthetic gate and keys; no owner enrollment or installed-release approval.'],
+  ['owner-card-model-fence', ['--test', '--test-reporter=tap', 'tests/aukora-owner-card-model-fence.test.mjs'], 'Disposable IPC and source/VM card checks; no rendered desktop or human attendance.'],
+  ['owner-card-no-friction', ['--test', '--test-reporter=tap', 'tests/aukora-owner-card-no-friction.test.mjs'], 'Disposable IPC/source checks; no measured comprehension.'],
+  ['selfcheck-contract', ['--test', '--test-reporter=tap', 'packages/boundary-gate/checks/selfcheck-bin.mjs'], 'Stubbed runner/RPC; no sandbox egress or host probes run.'],
   ['l2-signed-export', ['docs/evidence/l2-demo-2026-10-04/verify.mjs'], 'Historical signed prefix only; no fetched anchor, current tip or human identity proof.'],
   ['face-copy-equality', ['scripts/audit/check-face-copies.mjs'], 'Source byte equality only; no build or served-byte observation.'],
   ['current-evidence-tables', ['scripts/audit/render-evidence.mjs', '--check'], 'Documentation consistency only; claim sources are not independently attested.'],
