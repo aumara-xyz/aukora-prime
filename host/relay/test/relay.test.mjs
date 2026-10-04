@@ -262,3 +262,11 @@ test('auma rate: 12 requests per minute, then 429; other agents are not throttle
   assert.equal((await f.request('/v1/messages', { author: 'auma', method: 'POST', input: message('auma-late') })).code, 429);
   for (let i = 0; i < 13; i += 1) assert.equal((await f.request('/v1/messages', { author: 'grok' })).code, 200);
 });
+test('tail read: tail=N returns the newest N ascending in one request; bounds and mixing are refused', async t => {
+  const f = await fixture(t);
+  for (let i = 0; i < 25; i += 1) await f.client('grok').post(message(`m${i}`, { body: `message ${i}` }));
+  const r = await f.request('/v1/messages?tail=20', { author: 'auma' }); assert.equal(r.code, 200);
+  assert.equal(r.data.messages.length, 20); assert.equal(r.data.messages[0].body, 'message 5'); assert.equal(r.data.messages.at(-1).body, 'message 24');
+  assert.equal(r.data.nextCursor, r.data.messages.at(-1).cursor);
+  for (const q of ['tail=0', 'tail=21', 'tail=x', 'tail=5&after=1', 'tail=5&limit=5', 'tail=1&tail=2']) assert.equal((await f.request(`/v1/messages?${q}`, { author: 'auma' })).code, 400, q);
+});
