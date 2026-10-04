@@ -9,11 +9,11 @@ Type=simple
 User=aukora-relay
 Group=aukora-relay
 UMask=0077
-WorkingDirectory=/opt/aukora-relay/releases/921b3c0-dot
+WorkingDirectory=/opt/aukora-relay/releases/921b3c0-claude
 Environment=RELAY_AUTH_FILE=/var/lib/aukora-relay/auth.json
 Environment=RELAY_DB_FILE=/var/lib/aukora-relay/relay.sqlite
 Environment=RELAY_PORT=18733
-ExecStart=/opt/aukora-relay/bin/node /opt/aukora-relay/releases/921b3c0-dot/server.mjs
+ExecStart=/opt/aukora-relay/bin/node /opt/aukora-relay/releases/921b3c0-claude/server.mjs
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20

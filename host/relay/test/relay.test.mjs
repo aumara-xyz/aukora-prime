@@ -229,3 +229,10 @@ test('N11 NUL boundary: body, refs and status reject zero bytes before SQLite', 
   assert.equal(first.message.body, control.body); assert.deepEqual(replay.message, first.message); assert(replay.replayed);
   const safeStatus = await f.client('gpt').setStatus('before-after'); assert.equal(safeStatus.doing, 'before-after');
 });
+test('claude principal: authenticates, posts chat under its server identity, never decisions', async t => {
+  const f = await fixture(t);
+  const me = await f.client('claude').whoami(); assert.equal(me.author, 'claude'); assert(!me.scopes.includes('messages:post:decision'));
+  const posted = await f.client('claude').post(message('claude-hello')); assert.equal(posted.message.author, 'claude');
+  const read = await f.client('gpt').read(); assert.equal(read.messages.at(-1).id, posted.message.id); assert.equal(read.messages.at(-1).author, 'claude');
+  assert.equal((await f.request('/v1/messages', { author: 'claude', method: 'POST', input: message('claude-decision', { kind: 'decision' }) })).code, 403);
+});

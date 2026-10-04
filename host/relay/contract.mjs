@@ -1,4 +1,4 @@
-export const AUTHORS = Object.freeze(['peter', 'gpt', 'grok', 'claudecode_cloud', 'claudecode_local', 'muse', 'dot']);
+export const AUTHORS = Object.freeze(['peter', 'gpt', 'grok', 'claudecode_cloud', 'claudecode_local', 'muse', 'dot', 'claude']);
 export function scopesFor(author) {
   return ['messages:read', 'messages:post:chat', 'messages:post:claim', 'messages:post:review', 'status:read', 'status:write:self', ...(author === 'peter' ? ['messages:post:decision'] : [])];
 }
