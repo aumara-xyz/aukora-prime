@@ -2,8 +2,9 @@
 
 The agent ("Auma") gets its hands only inside an NVIDIA OpenShell sandbox owned by a separate Linux user,
 and the harness that runs the model cannot change the system except by proposing to a gate run by a
-third Linux user. This package distills that lab into Prime's layout. It is unmounted: nothing in
-`./prime boot` or the 66-job source profile starts it.
+third Linux user. This package distills that lab into Prime's layout. Prime's `./prime boot` and the 66-job source profile do not
+start it; on the Linux pilot it runs as systemd services (`host/systemd/`) and is the boundary of the live organism
+(see [ARCHITECTURE.md](../../ARCHITECTURE.md)).
 
 Source: `aumara-xyz/aukora-genesis`, `labs/deepseek-harness-boundary` at lab tip `6fa70cd`
 (`labs/gate-hardening-r3`). Upstream DeepSeek Harness is MIT and is not vendored here.
@@ -12,8 +13,8 @@ Source: `aumara-xyz/aukora-genesis`, `labs/deepseek-harness-boundary` at lab tip
 | --- | --- | --- |
 | UID separation, single sudo rule, OpenShell 0.1.2 on rootless Podman | `host/`, `host/SETUP.md` | SOURCE-ONLY; a scoped live probe RAN on the lab box (commit `ad76485`); long-running lab operation CLAIMED |
 | Harness-side sandbox runner, egress probe, fail-closed self-check | `src/layout.mjs`, `src/sandbox.mjs`, `src/selfcheck.mjs`, `bin/selfcheck.mjs` | self-check DEPLOYED on the pilot as `ExecStartPre` + 15-min timer (`host/systemd/`), covered by `checks/` |
-| Owner-only approval gate: split PROPOSE/OWNER sockets, signed hash-chained ledger, single-use approval, signed receipts with HMAC approval evidence, crash reconciliation | `src/gate.mjs`, `src/ledger.mjs`, `src/secrets.mjs`, `src/server.mjs`, `bin/` | SOURCE-ONLY, covered by `checks/` |
-| Boundary: theme-only declarative allowlist, symlink-refusing atomic target store, revert as an owner-approved proposal, receipt verification against key and ledger, propose-only harness client and self-check gate probes | `src/targets.mjs`, `src/fs-store.mjs`, `src/receipts.mjs`, `src/gate-client.mjs`, `src/wiring.mjs` | SOURCE-ONLY, covered by `checks/`; one cross-UID scratch run RAN on the lab box (see commit) |
+| Owner-only approval gate: split PROPOSE/OWNER sockets, signed hash-chained ledger, single-use approval, signed receipts with HMAC approval evidence, crash reconciliation | `src/gate.mjs`, `src/ledger.mjs`, `src/secrets.mjs`, `src/server.mjs`, `bin/` | RAN on the pilot (systemd `aukora-boundary-gate`), covered by `checks/` |
+| Boundary: declarative allowlist (Auma's theme; the operator-only plugin-set approval), symlink-refusing atomic target store, revert as an owner-approved proposal, receipt verification against key and ledger, propose-only harness client and self-check gate probes | `src/targets.mjs`, `src/fs-store.mjs`, `src/receipts.mjs`, `src/gate-client.mjs`, `src/wiring.mjs` | SOURCE-ONLY, covered by `checks/`; one cross-UID scratch run RAN on the lab box (see commit) |
 | Round-3 hardening: owner page with all warnings, swatch and AFTER APPLY line, two-step typed approve, 12 h rotating bearer, global rate limits, note sanitising and lookalike/spoof/pressure warnings | `src/card.mjs`, `src/owner-page.mjs` | SOURCE-ONLY, covered by `checks/`; lab headless-browser runs CLAIMED |
 | Red-team regression corpus: round-3 attacks (815) and benign controls (61) replayed through the real allowlist, store, gate and owner page | `fixtures/redteam/`, `checks/redteam.mjs` | SOURCE-ONLY plus passing checks; the lab's live GLM red-team runs (830+ attacks, 0 approved) are CLAIMED, not re-run here |
 
@@ -36,7 +37,10 @@ rejected result.
 
 ## The boundary
 
-The allowlist (`src/targets.mjs`) has exactly one target: `plugins/auma-theme/theme.json`, accepted only as
+The allowlist (`src/targets.mjs`) has two targets. The plugin-set approval `plugins/aukora-plugin-set/approval.json`
+is operator-only: it is raised on the OWNER socket by `bin/plugin-set-approval.mjs`, never proposable by the agent,
+and its approval is the gate-signed admission the runtime launch requires (see `host/systemd/README.md` for the
+release switch and the monotonic release floor). The agent's one target is `plugins/auma-theme/theme.json`, accepted only as
 the canonical bytes `{"accent": "#RRGGBB"}` (uppercase hex) or `{"accent": "default"}` (at most 256 bytes,
 printable ASCII). Target names must be normalized relative paths under `plugins/`; code targets are refused
 by construction (the lab's earlier `plugins/user/<name>/index.js` target was removed and is not carried).

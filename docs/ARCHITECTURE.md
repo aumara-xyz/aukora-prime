@@ -1,4 +1,6 @@
-# AUKORA Prime architecture and build
+# Prime NEXT packages: architecture and build
+
+This page covers the Prime NEXT packages (SOURCE). For the live organism that runs on the Linux pilot (Genesis runtime, boundary gate, OpenShell sandbox, desktop owner app), read [the top-level ARCHITECTURE.md](../ARCHITECTURE.md) first.
 
 The source is divided into contracts, authority, memory, execution, inference, runtime bridge, UI, operations and desktop packages. The harness composes the pinned host and selected UI through Prime adapters. Proposing software supplies a candidate operation; separately configured authority decides whether that exact operation may reach an effect.
 

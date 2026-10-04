@@ -1,7 +1,29 @@
 # CLAIMS — what this tree demonstrates, and how to check it
 
-> Re-run `sh scripts/check.sh` on your clone. The dates and commits below are historical measurements, not claims
-> about the running release (`aukora-release-0496ba077`); the README's "What is not enforced" is current.
+## The organism today (2026-10-04): RAN / SOURCE / NOT YET
+
+**RAN** = ran on the configured path (the Linux pilot or the owner's Mac), operator-recorded, not independently
+verified. **SOURCE** = code plus passing tests in this tree, not run as an installed system. **NOT YET** = not working.
+Each row names the code and the test; [ARCHITECTURE.md](../ARCHITECTURE.md) shows how the rows connect.
+
+| Claim (precise wording) | Status | Code | Test |
+| --- | --- | --- | --- |
+| The pilot's signed-enforcement launch refuses unless the exact recorded plugin set is owner-approved and bound to this release and record | **RAN** | `packages/boundary-gate/host/systemd/aukora-genesis.service`, `scripts/launch-dsh.py`, `plugins/aukora-composition-gate` | `tests/aukora-plugin-set-gate-signer.test.mjs`, `tests/aukora-plugin-set-trusted-verifier.test.mjs` |
+| An approval older than the newest one ever installed does not boot (release floor); a rollback needs a fresh owner approval, labelled ROLLBACK by the gate | **RAN** (a downgrade was refused on the pilot) | `packages/boundary-gate/src/release-floor.mjs`, `bin/release-floor.mjs` | `tests/aukora-plugin-set-trusted-verifier.test.mjs` |
+| Root operator tools never import or execute code from a candidate release | **SOURCE** + deployed | `packages/boundary-gate/src/plugin-set-canon.mjs`, `bin/plugin-set-approval.mjs` | `tests/aukora-plugin-set-trusted-verifier.test.mjs` (runs the real CLI on a release whose own verifier throws if executed) |
+| The agent can propose but not approve: approval exists only on the owner socket, as one review-then-decide ceremony; every event is a signed, hash-chained ledger entry | **RAN** | `packages/boundary-gate/src/gate.mjs`, `src/ledger.mjs`, `src/server.mjs` | `packages/boundary-gate/checks/*.mjs` |
+| The owner card shows the gate's own facts first and the model's words last inside a MODEL-AUTHORED fence | **RAN** | `apps/aukora-desktop/aumlok-approval.html`, `aumlok-signer-airlock.mjs`, `aumlok-bridge.mjs` | `tests/aukora-owner-card-model-fence.test.mjs` |
+| The approval window sets no timer, reveal or typed step before Approve | **RAN** (by design, Peter 2026-10-04) | same | `tests/aukora-owner-card-no-friction.test.mjs` |
+| Auma's one-shot bash runs inside the OpenShell sandbox (`/sandbox`, host user `auma`), not on the host | **RAN** | `plugins/aukora-openshell-confinement`, `packages/boundary-gate/host/` | `tests/aukora-openshell-confinement.test.mjs` |
+| Background bash, `run_code` and terminals in the sandbox | **NOT YET** (refused) | same | same |
+| A boundary self-check (forbidden actions refused, egress probe) gates every runtime start and re-runs every 15 minutes | **RAN** | `packages/boundary-gate/bin/selfcheck.mjs`, `host/systemd/` | `packages/boundary-gate/checks/selfcheck-bin.mjs` |
+| The Aura collector turns the gate's signed ledger into verified Nostr-shaped records (NIP-01 signatures, NIP-44 private content) | **SOURCE** (synthetic keys) | `scripts/aura/collect-gate.mjs`, `verify-collected.mjs`, `plugins/aukora-nostr/lib/records.mjs` | `scripts/aura/checks/collector.mjs`, `plugins/aukora-nostr/checks/records.mjs` |
+| An installed collector, relay publishing, and Kira recall of Aura records | **NOT YET** | — | — |
+| Hybrid ML-DSA-65 + Ed25519 receipt signatures (both must verify) | **SOURCE**, grants no authority | `labs/pq-hybrid` | `labs/pq-hybrid/checks/hybrid.mjs` |
+| That only approved code runs | **NOT CLAIMED** | bare dependencies, the gate bootstrap and workers are outside the plugin set | — |
+
+The sections below are the historical court, measured on 2026-09-27; their dates and commits are not claims about the
+running release.
 
 **Measured:** 2026-09-27, at archive commit `1c569f8aa`, on macOS with Node.js 22.23.0 and Python 3.9.6, by
 `sh scripts/check.sh` as it then stood. Rows 1-13 are now checks 1-8, 11-14 and 16 in the 19-check runner. Every RUN row below was run from that tree, with no

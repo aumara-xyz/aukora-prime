@@ -1,10 +1,10 @@
 # Linux OpenShell confinement adapter
 
-SOURCE-ONLY, disabled pending the root-owned wrapper join. This plugin supplies
-`sandbox`, `aukoraConfinement` and a subclass of the existing native Bash executor.
-It has a supported foreground `workspace-write` path for the explicit guest root
-`/sandbox`. Runtime use remains UNPERFORMED; the wrapper on the selected base does
-not yet expose the required applied-policy readback and therefore refuses.
+RAN on the Linux pilot for one-shot bash: the live release mounts this plugin (`linux-openshell.patch.yml`) and
+Auma's foreground `workspace-write` bash runs in the guest root `/sandbox` through the root-owned `sbx-exec`
+wrapper (operator-recorded; the 2026-10-04 red-team saw `pwd` = `/sandbox` and no host root). This plugin
+supplies `sandbox`, `aukoraConfinement` and a subclass of the existing native Bash executor. NOT YET: background
+bash, `run_code` and terminals refuse, and the wrapper does not yet expose an applied-policy readback.
 
 The existing boundary-gate transport is prepared through its real `sandboxArgv()`.
 Only exact Bash argv, `workspace-write`, and the explicit guest root `/sandbox`

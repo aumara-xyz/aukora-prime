@@ -9,8 +9,11 @@ THE BODY (where each organ lives in Prime main; status = RAN on Nebius / SOURCE 
 - [RAN] Harness + Cordis (the body): DeepSeek Harness, every organ is a Cordis plugin. Genesis runtime zipped in at 7ae564b;
   runs on Nebius as aukora-host under systemd, Peter's Electron attached over an SSH tunnel.
 - Boundary (the floor): packages/boundary-gate — [RAN] separate Linux users (auma / aukora-host / aukora-gate),
-  [NOT YET] OpenShell sandbox for Auma's hands (L1; her shell tools are refused fail-closed today),
+  [RAN, partial] OpenShell sandbox for Auma's hands: her one-shot bash runs in the sandbox as `auma` (L1-a); her file
+  tools still run on the host inside the file fence, and run_code / terminals / background bash are refused (L1 R2),
   [RAN] owner-only gate with signed hash-chained receipts (OWNER socket red-team: auma and aukora-host reach it 0 times),
+  [RAN] signed-enforcement launch: the runtime starts only with the owner-approved plugin set bound to the release and
+  record, never below the monotonic release floor (rollback = a fresh owner card); root tools never import a candidate,
   [SOURCE] 815-attack corpus. The Genesis lab, in Prime.
 - [SOURCE] AUMLOK (who): the owner's identity (seven words + handle -> owner key). Approves exact bytes. On Linux the gate user
   holds signing authority [RAN: gate-signed receipts]; the owner approves in the popup in his Electron app [RAN: L2 popup
