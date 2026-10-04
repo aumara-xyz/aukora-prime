@@ -108,7 +108,11 @@ export function resolveMemoryIdentity({ stateDir, subject, supportRoot, installe
     && (typeof subject !== 'string' || !SUBJECT.test(subject))) {
     refuse('field-invalid', 'memoryOwner.subject')
   }
+  // The launcher forwards AUKORA_SUPPORT_ROOT to the backend and not AUKORA_STATE (measured on the Nebius pilot,
+  // 2026-10-04: Kira refused field-missing with the overlay in place). It is consulted only when the installed
+  // identity is needed, so a complete explicit composition stays isolated from the support root.
   const root = supportRoot ?? env?.AUKORA_STATE
+    ?? (installed ? env?.AUKORA_SUPPORT_ROOT : undefined)
     ?? (installed && platform === 'darwin' ? join(homedir(), 'Library/Application Support/AUKORA') : undefined)
   let owner
   if (root !== undefined) {
