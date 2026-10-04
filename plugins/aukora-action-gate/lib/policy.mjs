@@ -30,6 +30,7 @@ import { analyse, realpathish } from '../../../vendor/seed/src/paths.mjs'
 import { SELF_CHANGE_ROUTE, routedRefusal } from './routes.mjs'
 import { authorityRefusal, credentialRefusal, effectiveShellCommands, gitMainRefusal, hostsNamed, literalPath, literalWriteTargets, shellCommands } from './shell.mjs'
 import { decidePartialFailure } from '../../aukora-kira/lib/partial-failure.mjs'
+import { plainPath, worktreePath } from './self-change-tool.mjs'
 
 /** Key material and credentials, as seed-guard patterns rooted at `/`: `**` + `/` finds them at any depth. */
 export const KEY_PATTERNS = Object.freeze([
@@ -55,6 +56,14 @@ export const KEY_MENTIONS = Object.freeze([
   'state/aumlok', 'machine-seed', '.aukora/signer', 'kira-memory/issuer', 'kira-memory/key', 'openviking/root.key', '.config/gh',
   '.git-credentials', '.ssh/id_', 'library/keychains', 'aumlok-signer.sock', '.netrc',
 ])
+
+// The Linux file fence also protects these plain command spellings. This is a
+// pre-execution tripwire, not shell/code evaluation or protection from obfuscation.
+const LINUX_HOST_MENTIONS = Object.freeze([
+  '.credentials.yaml', 'launch-url.json', '/home/aukora-gate', '/var/lib/aukora-boundary',
+  '/run/aukora-gate', '/etc/aukora', '/etc/sudoers', '/etc/shadow', '/etc/gshadow', '/root',
+])
+const PROCESS_SECRET_MENTION = /\/proc\/[^/\s'"`]+\/(?:(?:task\/[^/\s'"`]+\/)?(?:environ|mem)|cmdline)(?=$|[\s'"`;&|<>()\]}])/u
 
 /**
  * THE LINUX HOST'S OWN SECRETS AND AUTHORITY, rooted at `/` (2026-10-04, red-team on the Nebius pilot). Auma's file
@@ -146,8 +155,11 @@ function actionClass(tool, args) {
 }
 
 /** Argument keys read as paths, and as network destinations, on tools the gate has no specific model of. */
-const PATH_KEYS = /^(file_?paths?|paths?|target|source|destination|src|dest|dst|from|to|cwd|workdir|dir|directory|file|filename|notebook_path|(?:source|destination|target|src|dest|dst)[_-]?(?:path|file|dir))$/iu
+const PATH_KEYS = /^(file_?paths?|paths?|locations?|worktree|target|source|destination|src|dest|dst|from|to|cwd|workdir|dir|directory|file|filename|notebook_path|(?:source|destination|target|src|dest|dst)[_-]?(?:path|file|dir))$/iu
 const URL_KEYS = /^(url|uri|href|endpoint)$/iu
+// These enabled aura_association arguments are paths; `state` on other tools
+// can be an enum, so its meaning is scoped to this registered tool.
+const TOOL_PATH_KEYS = Object.freeze({ aura_association: /^(retained|presented|state)$/u })
 
 /** One law: a root and the seed-compiled rules for it. */
 const law = (root, patterns) => ({ root, rules: compileAll(patterns) })
@@ -185,21 +197,34 @@ function stringLiterals(code) {
 /** Schemes that name no host on a network. Every other scheme (http:, postgres:, tcp:, one never seen…) is judged by its host. */
 const NON_NETWORK_SCHEMES = new Set(['viking:', 'data:', 'urn:'])
 
-function looseTargets(args) {
+function looseTargets(args, tool) {
   const paths = []
   const urls = []
-  const walk = (value, key, depth) => {
-    if (depth > 4 || value === null || value === undefined) return
+  const active = new Set()
+  let visited = 0
+  let incomplete = false
+  const walk = (value, key, depth, inheritedPath = false) => {
+    if (incomplete) return
+    if (depth > 32 || ++visited > 4096) { incomplete = true; return }
+    if (value === null || value === undefined) return
+    const path = inheritedPath || PATH_KEYS.test(key) || TOOL_PATH_KEYS[tool]?.test(key)
     if (typeof value === 'string') {
-      if (PATH_KEYS.test(key)) paths.push(value)
+      if (path) paths.push(value)
       if (URL_KEYS.test(key)) urls.push(value)
       return
     }
-    if (Array.isArray(value)) { for (const item of value) walk(item, key, depth + 1); return }
-    if (typeof value === 'object') for (const [k, v] of Object.entries(value)) walk(v, k, depth + 1)
+    if (typeof value !== 'object') return
+    if (active.has(value)) { incomplete = true; return }
+    active.add(value)
+    if (Array.isArray(value)) {
+      for (const item of value) { walk(item, key, depth + 1, path); if (incomplete) break }
+    } else {
+      for (const [k, v] of Object.entries(value)) { walk(v, k, depth + 1, path); if (incomplete) break }
+    }
+    active.delete(value)
   }
   walk(args, '', 0)
-  return { paths, urls }
+  return { paths, urls, incomplete }
 }
 
 /**
@@ -328,6 +353,19 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
         const { id, why } = hostById.get(host.rule)
         return deny(`host-secret:${id}`, `${raw} is ${why}. Agents never read or write it; if a task needs it, ask Peter`)
       }
+      if (kind !== 'write') {
+        const analysis = analyse('/', abs)
+        if (!analysis.ok) return deny('path:unresolvable', `${analysis.reason} (seed guard)`)
+        // Only the trusted active workspace (or the host's default when absent)
+        // gets this exception. Repository/release/read roots do not. A pathname
+        // inside it does not prove all other names of its inode are also inside;
+        // analyse's nlink cannot establish that ownership or close the open race.
+        const workspace = workspaceOf(call)
+        const ownFiles = workspace.length > 0 ? workspace : [settings.defaultWorkspace]
+        if (analysis.links.checked && analysis.links.nlink > 1 && !insideAny(ownFiles, abs)) {
+          return deny('read:hardlink', `${raw} is a multiply-linked file outside the active workspace; another name for these bytes has not been judged`)
+        }
+      }
       if (confineReads && insideAny([stateRoot], abs) && !insideAny(workspaceOf(call), abs)) {
         return deny('host-secret:harness-state', `${raw} is inside the harness state (${stateRoot}), which holds the provider credential, the launch token and every session. Only the session workspace is the agent's`)
       }
@@ -417,6 +455,8 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
     const folded = String(text).normalize('NFC').toLowerCase()
     const mention = KEY_MENTIONS.find(m => folded.includes(m))
     if (mention !== undefined) return deny('key-material:mentioned', `the command names ${mention}, which is key material or a credential. Agents never read or write it`)
+    const hostMention = LINUX_HOST_MENTIONS.find(m => folded.includes(m)) ?? PROCESS_SECRET_MENTION.exec(folded)?.[0]
+    if (hostMention !== undefined) return deny('host-secret:mentioned', `the command names ${hostMention}, which the Linux file fence protects; it is refused before execution`)
     if (CORE_MENTIONS.some(m => folded.includes(m)) && isCore(call)) return deny('core-read:mentioned', 'the command names a location withheld from a CORE session')
     const texts = code ? [text, ...stringLiterals(text)] : [text]
     for (const source of texts) {
@@ -521,7 +561,27 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
         // This tool's closed path is relative to its owner-configured broker root,
         // not the agent's cwd. Its signed review names the full absolute target.
         if (tool === 'aukora_workspace_patch') return allow('allow:workspace-proposal')
-        const loose = looseTargets(args)
+        // Self-change paths are relative to its validated worktree, not cwd.
+        // Reuse its existing validators and only the host-configured root.
+        let targetArgs = args
+        if (tool === 'aukora_self_change') {
+          try {
+            if (typeof settings.worktreesRoot !== 'string') throw new Error('trusted worktree root missing')
+            const worktree = worktreePath(realpathish(settings.worktreesRoot), args.worktree)
+            if (args.paths !== undefined && !Array.isArray(args.paths)) throw new Error('paths must be an array')
+            targetArgs = { ...args, worktree, paths: (args.paths ?? []).map(path => resolve(worktree, plainPath(path))) }
+          } catch {
+            return deny('path:unresolvable', 'self-change paths need the existing worktree validator and a trusted configured root')
+          }
+        }
+        const loose = looseTargets(targetArgs, tool)
+        if (loose.incomplete) return deny('path:unresolvable', 'the arguments exceed the target-extraction depth/size budget or contain a cycle; unchecked nested paths are refused')
+        // Aura resolves these fields against its separately configured stateDir
+        // (including an environment override), which this gate does not know.
+        // Do not invent a cwd/stateRoot equivalence or allow a model-supplied base.
+        if (tool === 'aura_association' && loose.paths.some(path => !isAbsolute(path))) {
+          return deny('path:unresolvable', 'relative Aura association paths need its trusted stateDir binding; pass absolute paths for this gate to judge')
+        }
         const kind = WRITE_NAME.test(tool.replace(/([a-z0-9])([A-Z])/gu, '$1_$2')) ? 'write' : 'read'
         const refused = first(...loose.paths.map(p => judgePath(p, kind, call)), ...loose.urls.map(url => judgeUrl(url, call)))
         if (refused !== null) return refused
