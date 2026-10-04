@@ -2,25 +2,25 @@
   "schema": "aukora-current-evidence/v1",
   "updated_at": "2026-10-04",
   "revisions": {
-    "source": "0a6516924fb537183e26051e3fdc269ef371cdbe",
+    "source": "e33739780c09406d875336683053218a8a968051",
     "main_observed": {
-      "sha": "0a6516924fb537183e26051e3fdc269ef371cdbe",
-      "at": "2026-10-04 08:23 UTC (read/fetch)"
+      "sha": "e33739780c09406d875336683053218a8a968051",
+      "at": "2026-10-04 10:55 UTC (read/fetch)"
     },
     "deployment": {
-      "sha": "5f0601feae249af5290386523c794a3a560bc7ff",
-      "reported_at": "2026-10-04T08:02:28Z",
-      "basis": "Operator Room report GROK-1791100948571-a2a5, supplied to documentation owner",
-      "approval_ledger_seq": 115,
+      "sha": "e33739780c09406d875336683053218a8a968051",
+      "reported_at": "2026-10-04T10:40:26Z",
+      "basis": "Operator switch report GROK-1791110456768-0965 and verification GROK-1791110692285-011c, supplied to documentation owner",
+      "approval_ledger_seq": 149,
       "gate_public_key_fingerprint": "6cdce2bbeb7b725c",
-      "limit": "Operator-reported Linux pilot; no deployment observation was performed for this documentation change. Not equal to main/tested SHA."
+      "limit": "Operator-reported Linux pilot. The operator compared the runtime release, its source checkout and the installed gate package with main at 10:55 UTC; this checkout performs no deployment observation. Main may be ahead by documentation or host-configuration commits."
     }
   },
   "boundary_files": [
     "packages/boundary-gate/src/gate.mjs",
     "packages/boundary-gate/src/server.mjs",
     "packages/boundary-gate/src/targets.mjs",
-    "packages/boundary-gate/bin/plugin-set-approval.mjs",
+    "packages/boundary-gate/host/install/gate-bootstrap.py",
     "packages/boundary-gate/src/ledger.mjs",
     "packages/boundary-gate/bin/release-floor.mjs",
     "packages/boundary-gate/src/vendor/operator-data.mjs",
@@ -43,14 +43,14 @@
       "id": "pilot",
       "claim": "Separate-user Linux pilot runs the Genesis-derived runtime, action gate and desktop owner route.",
       "status": "REPORTED",
-      "basis": "Operator deployment report, 2026-10-04 08:02 UTC; release 5f0601f",
+      "basis": "Operator deployment report, 2026-10-04 10:40 UTC; release e337397 (main = runtime = gate compared 10:55 UTC)",
       "references": [
         {
           "path": "ARCHITECTURE.md",
           "label": "component map"
         }
       ],
-      "limit": "One pilot host; this checkout has no independently observed deployment receipt. Public main includes later documentation."
+      "limit": "One pilot host; this checkout has no independently observed deployment receipt."
     },
     {
       "id": "l2",
@@ -86,8 +86,12 @@
       "id": "launch",
       "claim": "Root release tools hash-check trusted module buffers before execution and read candidates as JSON; the service template requires approval and a release floor.",
       "status": "SOURCE",
-      "basis": "Bootstrap source integrated at 0a65169; older pilot deployment remains separately reported",
+      "basis": "Bootstrap source on main; installed on the pilot (operator-reported PACKAGE_VERIFIED, installed gate files byte-identical to main e337397)",
       "references": [
+        {
+          "path": "packages/boundary-gate/host/install/gate-bootstrap.py",
+          "label": "root bootstrap"
+        },
         {
           "path": "packages/boundary-gate/src/vendor/TRUSTED-VERIFIER.md",
           "label": "bootstrap trust/limits"
@@ -97,7 +101,7 @@
           "label": "existing VM fixture check"
         }
       ],
-      "limit": "Root metadata/Unix replies are synthetic in source tests; installed-byte custody, preload-safe launch and collector bootstrap are not observed here. Floor ordering still uses wall clock; signed sequence/epoch ordering is pending."
+      "limit": "Root metadata/Unix replies are synthetic in source tests. The release floor orders approvals by signer epoch and signed ledger sequence (pilot: epoch 1, sequence 149, operator-reported). Preload-safe launch and the Aura collector bootstrap pin remain open; this checkout does not observe installed-byte custody."
     },
     {
       "id": "card",
@@ -129,9 +133,17 @@
         {
           "path": "packages/boundary-gate/host/sbx-exec",
           "label": "wrapper"
+        },
+        {
+          "path": "security-review-containment",
+          "label": "live containment test"
+        },
+        {
+          "path": "host/auma-local-deny/README.md",
+          "label": "auma local-service deny"
         }
       ],
-      "limit": "Host-wide containment, guest-external per-execution custody and complete cleanup are unqualified. Background bash, run_code and terminals are refused/unqualified; \u201ccannot read the host\u201d is NOT CLAIMED."
+      "limit": "Host-wide containment, guest-external per-execution custody and complete cleanup are unqualified. The live containment test currently FAILS: guest commands inherit open socket descriptors. Host-side, an nftables owner rule denies the auma account host-local services (operator-reported). Background bash, run_code and terminals are refused/unqualified; \u201ccannot read the host\u201d is NOT CLAIMED."
     },
     {
       "id": "selfcheck",
@@ -153,15 +165,19 @@
     {
       "id": "aura",
       "claim": "Signed ledger collection and cold Nostr-shaped record verification have source implementations.",
-      "status": "SOURCE",
-      "basis": "Collector and records source at this revision",
+      "status": "REPORTED",
+      "basis": "Operator: INTERIM collector installed on the pilot 2026-10-04 09:33 UTC; cold verify PASS through ledger position 153",
       "references": [
         {
           "path": "scripts/aura/README.md",
           "label": "collector scope"
+        },
+        {
+          "path": "host/aura-interim/README.md",
+          "label": "interim install"
         }
       ],
-      "limit": "Installed collector and recall join await a public result. Proposed interim owner/author keys do not establish Mac/Touch ID owner custody."
+      "limit": "INTERIM operator keys generated on the pilot, not owner custody; the root anchor is not an independent witness. Kira recall of these records is NOT YET. Proposed interim owner/author keys do not establish Mac/Touch ID owner custody."
     },
     {
       "id": "next",
@@ -277,7 +293,7 @@
     "Independent current pilot source/unit/policy readback; no live host or egress probe in this profile.",
     "Guest-external execution identity, resource enforcement and complete cleanup/absence.",
     "Real owner passkey enrollment, protected root/key custody and human attendance.",
-    "Installed Aura collector/cold-record recall acceptance; pending an exact public receipt.",
+    "Scoped-key Aura collector and cold-record Kira recall acceptance; only the INTERIM collector runs.",
     "Protected NEXT service joins, live paid inference/budget qualification and browser/rendered owner acceptance.",
     "External ledger-anchor freshness/completeness; offline L2 check validates only the retained signed prefix."
   ]

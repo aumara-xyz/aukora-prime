@@ -9,12 +9,12 @@ This is a review entry map for the selected pilot source, not a claim that the c
 | [gate.mjs](packages/boundary-gate/src/gate.mjs) | Proposal is not approval; the reviewed bytes and challenge bind the one-use decision. |
 | [server.mjs](packages/boundary-gate/src/server.mjs) | Propose and owner channels have different operations and custody. |
 | [targets.mjs](packages/boundary-gate/src/targets.mjs) | Fixed target schema, exact base/change and operator-only release target. |
-| [plugin-set-approval.mjs](packages/boundary-gate/bin/plugin-set-approval.mjs) | Bootstrap validates trusted installation/module buffers before execution. |
+| [gate-bootstrap.py](packages/boundary-gate/host/install/gate-bootstrap.py) | Root bootstrap verifies the installed package, then runs approval raise/install and the floor check from checked buffers. |
 | [ledger.mjs](packages/boundary-gate/src/ledger.mjs) | Signed sequence/hash chain retains decisions and effects. |
 | [release-floor CLI](packages/boundary-gate/bin/release-floor.mjs) | Floor tool executes checked buffers from its fixed trusted installation. |
 | [operator-data.mjs](packages/boundary-gate/src/vendor/operator-data.mjs) | Closed candidate data helpers supply no candidate code authority. |
 | [plugin-set-canon.mjs](packages/boundary-gate/src/plugin-set-canon.mjs) | Trusted verifier reads candidate data; candidate code supplies no verifier authority. |
-| [release-floor.mjs](packages/boundary-gate/src/release-floor.mjs) | Previously installed approval constrains launch; current wall-clock ordering remains a hardening gap. |
+| [release-floor.mjs](packages/boundary-gate/src/release-floor.mjs) | Previously installed approval constrains launch; ordering uses the signer epoch and signed ledger sequence. |
 | [selfcheck.mjs](packages/boundary-gate/bin/selfcheck.mjs) | Failed or unrecorded checks refuse launch; fixture tests stub host observations. |
 | [aukora-genesis.service](packages/boundary-gate/host/systemd/aukora-genesis.service) | Service requires self-check, approval and floor checks; a template is not installed-unit evidence. |
 | [sbx-exec](packages/boundary-gate/host/sbx-exec) | Sandbox dispatch and cleanup are separate from a model's claims about completion. |
@@ -42,4 +42,4 @@ The L2 verifier checks a historical signed prefix against the published pilot ke
 
 ## Open obligations
 
-Signed sequence/epoch release ordering, installed gate-bootstrap custody and collector bootstrap pinning, guest-external per-execution custody, full containment/cleanup, hardened owner roots, current NEXT joins and current full-profile execution remain distinct obligations. Concurrent workers' prepared fixes are not marked complete until selected source and actual evidence land. [Known gaps](README.md#known-gaps) and [private vulnerability reporting](SECURITY.md) remain the front door.
+Collector bootstrap pinning, guest-external per-execution custody, inherited guest descriptors (reported by `./security-review-containment`), full containment/cleanup, hardened owner roots, current NEXT joins and current full-profile execution remain distinct obligations. Concurrent workers' prepared fixes are not marked complete until selected source and actual evidence land. [Known gaps](README.md#known-gaps) and [private vulnerability reporting](SECURITY.md) remain the front door.
