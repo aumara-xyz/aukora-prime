@@ -1,50 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Aumara and Peter Viviani
-"""
-Aukora voice sidecar — the local voice organ for AUMA · LIVE.
-
-WHAT THIS IS (honest label): a NEW local process. It is not the governed loop,
-not the chat door, and holds NO authority. It is a rendering + hearing layer:
-  mic PCM in  → Silero VAD (turn-taking / barge-in) → Whisper STT (words out)
-  text in     → Pocket-TTS / Kokoro-82M (24 kHz PCM out, streamed as it renders)
-The MIND stays the governed model behind the chat door (7091) — the browser
-takes finals from here, sends them through the existing presence lane, and
-feeds the streamed reply back here to be spoken. This process never calls the
-model, never reads the repo, never touches keys.
-
-SOVEREIGNTY POSTURE:
-  - binds 127.0.0.1 ONLY (port 7092, env AUKORA_VOICE_PORT)
-  - offline by configuration at runtime (HF_HUB_OFFLINE, TRANSFORMERS_OFFLINE, ORT_DISABLE_TELEMETRY; egress not yet measured by a court): every model is a local file under
-    the user's state directory, `<state>/auma-live/voice/models` (downloaded once by setup.sh),
-      or `$AUMA_LIVE_VOICE_MODELS` when it is set — the SAME expression setup.sh writes with
-  - WebSocket upgrades and POSTs are refused unless the Origin is the spatial
-    shell (7090) or absent (curl / local test tools)
-  - audio is processed in memory only — nothing is written to disk
-
-ENGINES (all open-source, all on-device, picked for this Mac — Apple M4):
-  STT  mlx-whisper base.en   (MLX / Apple-GPU, ~0.1-0.3 s per utterance; ONE
-       clean decode of the whole utterance at end-of-speech — no speculation)
-       fallback: faster-whisper tiny.en (CPU int8) if MLX is unavailable
-  VAD  Silero VAD v6         (ONNX, ships inside faster-whisper's assets)
-  TTS  Kyutai Pocket-TTS     (CPU, STREAMS first audio in ~50-250 ms) — primary
-       Kokoro-82M v1.0       (ONNX; the blended presences) — fallback/legacy
-
-WIRE PROTOCOL (ws://127.0.0.1:7092/ws):
-  browser → sidecar
-    binary                     mic PCM, int16 mono @ 16 kHz, any chunking
-    {"t":"tts","id":n,"text":s,"voice"?:s,"speed"?:f}   queue one spoken chunk
-    {"t":"tts_cancel"}         barge-in: drop queued + in-flight speech
-    {"t":"her","on":bool}      "she is audible right now" — raises VAD bar
-                               so her own voice in the mic can't barge her in
-    {"t":"reset"}              clear utterance state (channel open/close)
-  sidecar → browser
-    {"t":"ready",...}          engines + voice presences (on connect)
-    {"t":"vad","speaking":b}   speech started / stopped (browser cuts her
-                               playback on speaking:true — that IS barge-in)
-    {"t":"final","text":s,"dur":f}  the finished utterance → send to the mind
-    {"t":"tts_begin","id":n,"sr":24000} → binary int16 PCM frames → {"t":"tts_end","id":n}
-    {"t":"tts_cancelled"}      ack of tts_cancel (queue drained)
+"""Auma Live Linux CPU voice organ; existing WebSocket protocol, no authority.
+Mic PCM16/16kHz -> Silero VAD v6 -> faster-whisper tiny.en CPU int8.
+Reply text -> Kokoro CPU int8 Aurora blend -> PCM16/24kHz.
+No microphone capture, transcript persistence, provider calls, or key access.
+Models and the entire environment are verified by launch.py before Python executes.
+Runtime networking is restricted to loopback by the operator's service sandbox.
 """
 
 import asyncio
@@ -58,7 +20,16 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
+for name in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "ORT_DISABLE_TELEMETRY"):
+    os.environ[name] = "1"
+os.environ["ONNX_PROVIDER"] = "CPUExecutionProvider"
+
 import numpy as np
+
+# The sidecar runs from inside a materialized release, whose tree is verified file-for-file (strip manifest). Importing a
+# sibling module would otherwise write __pycache__/ there and the NEXT launch would refuse the release as tampered.
+sys.dont_write_bytecode = True
+
 
 # kokoro's phonemizer logs a "words count mismatch" WARNING on almost every
 # short line — hundreds of lines of noise in the pm2 err log that buried the
@@ -66,50 +37,11 @@ import numpy as np
 logging.getLogger("phonemizer").setLevel(logging.ERROR)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# ── aura-83 (gap 5): THE READER NOW RESOLVES THE SAME PATH THE WRITER WRITES. ─────────────────────────
-# **`MODELS = os.path.join(HERE, "models")` LOOKED BESIDE THIS FILE, WHILE `setup.sh` WROTE UNDER THE
-# USER'S STATE DIR.** *Two absolute paths, neither derived from the other* -- **so a sidecar started from a
-# release looked in `<sidecar dir>/models`, which is the directory `setup.sh` stopped writing to** when it
-# was fixed. *The egress audit asked that the two "agree on ONE voice path under the user's state dir"; the
-# writer half was already done and this was the half still resolving elsewhere.*
-#
-# **THE EXPRESSION BELOW IS THE ONE `setup.sh` *SHOULD* WRITE WITH -- AND IT DOES NOT (CORRECTED, aura-83).**
-# *** THIS COMMENT USED TO SAY THE TWO AGREED "BYTE FOR BYTE" AND "BY CONSTRUCTION". THAT WAS FALSE, AND I WROTE
-# IT WITHOUT OPENING `setup.sh`. *** *Measured afterwards*: `setup.sh` does `mkdir -p models` and
-# `curl -L -o models/kokoro-v1.0.onnx`, *a path RELATIVE TO ITSELF*, **and it names neither
-# `AUMA_LIVE_VOICE_MODELS` nor `AUKORA_STATE_DIR` anywhere.** *So the reader below resolves under the user's state
-# directory while the writer fills a directory beside the script* -- **which is the same "two absolute paths,
-# neither derived from the other" failure this comment claimed to have closed.** *The other copy,
-# `vendor/auma-live/voice/setup.sh`, is worse: it writes `models` AND `$PWD/models/huggingface` as `HF_HOME`.*
-#
-# **AND THE VARIABLE NAME WAS MINE TO GET WRONG, WHICH R129 FOUND.** *This expression used to read
-# `AUMA_LIVE_VOICE_MODELS` FIRST* -- *a name **NOTHING ELSE IN THIS TREE SETS*** -- **while three callers speak
-# `AUKORA_VOICE_MODELS_DIR`:** *`scripts/aukora/voice-footprint.sh:42`, which then REFUSES at `:43` when the
-# directory is missing; `plugins/aukora-spatial/ui-stock-apps/tests/voice-supervisor.host.spec.ts:88`; and the
-# other copy of this file.* *** So the objective asked for ONE voice path and this lane's fix created a SECOND
-# NAME *** -- *the opposite of the clause it was written to satisfy.* **`AUKORA_VOICE_MODELS_DIR` is now FIRST,
-# and `AUMA_LIVE_VOICE_MODELS` is kept as a second choice so nothing that already exports it breaks.**
-#
-# **THE READER HALF IS FIXED AND THE WRITER HALF IS NOT -- and the writer is AUMA's to move** (the egress audit's
-# gap 5 says "coordinate with AUMA, who is moving the wav out"). **An operator who sets the env var today moves
-# ONE end, not both.** *Until `setup.sh` writes with this expression, the honest claim is that the READER is
-# correct -- not that the two agree.*
-#
-# *`HERE` is kept: it is still used elsewhere in this file, and removing it would be a second change in a
-# fix whose whole point is that it changes one thing.*
-MODELS = (os.environ.get("AUKORA_VOICE_MODELS_DIR")
-          or os.environ.get("AUMA_LIVE_VOICE_MODELS")
-          or os.path.join(
-              os.environ.get("AUKORA_STATE_DIR")
-              or os.path.expanduser("~/Library/Application Support/AUKORA/state"),
-              "auma-live", "voice", "models"))
+MODELS = os.environ.get("AUKORA_VOICE_MODELS_DIR", os.path.join(HERE, "models"))
 
-PORT = int(os.environ.get("AUKORA_VOICE_PORT", "7092"))
+PORT = int(os.environ.get("AUKORA_VOICE_PORT", "7512"))
 HOST = "127.0.0.1"  # loopback only — never configurable outward
-ALLOWED_ORIGINS = {
-    "http://127.0.0.1:7090", "http://localhost:7090",
-    "http://127.0.0.1:7095", "http://localhost:7095",  # spatial-verify (headless checks)
-}
+ALLOWED_ORIGINS = set(filter(None, os.environ.get("AUKORA_VOICE_ORIGINS", "").split(",")))
 
 SR_IN = 16000          # mic sample rate (browser downsamples to this)
 SR_OUT = 24000         # kokoro output rate
@@ -122,24 +54,57 @@ VAD_CTX = 64           # silero v6 wants 64 samples of left-context per frame
 # commit were removed 2026-07-04 — they fired the mind on half-sentence guesses,
 # which is what made her feel dumb (answering before the owner finished).
 START_PROB = 0.55      # speech starts above this…
-START_PROB_HER = 0.82  # …but while SHE is audible the bar is much higher
+START_PROB_HER = float(os.environ.get("AUKORA_VOICE_BARGE_PROB", "0.78"))
+                       # …but while SHE is audible the bar is higher. Echo
+                       #   cancellation ducks the near-end mic during her
+                       #   playback, so this bar decides whether interrupting
+                       #   her is possible at all.
 END_PROB = 0.35        # below this counts toward end-of-utterance
 MIN_START_FRAMES = 4       # 128 ms of speech to open an utterance
-MIN_START_FRAMES_HER = 9   # 288 ms sustained to count as a real interruption
-PREROLL_FRAMES = 10        # 320 ms kept from before speech started
+MIN_START_FRAMES_HER = int(os.environ.get("AUKORA_VOICE_BARGE_FRAMES", "9"))
+                           # 288 ms accumulated to count as a real interruption.
+                           #   While she is audible, a sub-bar frame DECAYS the
+                           #   run by one instead of zeroing it: real speech
+                           #   dips below any bar at unvoiced consonants
+                           #   (s/f/t/k) and inter-word gaps, and a hard reset
+                           #   made short interjections ("wait", "stop")
+                           #   mathematically unable to interrupt her — the
+                           #   felt symptom was a voice that could only be
+                           #   interrupted between her sentences. Her own
+                           #   residual echo stays below the raised bar, so it
+                           #   never accumulates 9 net frames.
+PREROLL_FRAMES = int(os.environ.get("AUKORA_VOICE_PREROLL_FRAMES", "16"))
+                           # 512 ms kept from before speech started, so the
+                           #   first consonant is never the part that is lost
 MAX_UTTER_SEC = 25         # force-close runaway utterances
-END_SILENCE_FRAMES = 12    # ~384 ms of quiet ends the turn (single threshold;
-                           #   >600 ms is where "talking to a machine" creeps in,
-                           #   <300 ms clips people who pause mid-thought)
+END_SILENCE_FRAMES = int(os.environ.get("AUKORA_VOICE_END_SILENCE_FRAMES", "20"))
+                           # ~640 ms of quiet ends the turn. At 384 ms an
+                           #   ordinary mid-sentence breath ended the turn and
+                           #   she answered half a thought; past ~700 ms the
+                           #   lane starts to feel like waiting on a machine.
+
+# Beam width for the faster-whisper fallback only. mlx-whisper's decoder
+# raises NotImplementedError when beam_size is passed, so the MLX path stays
+# greedy and leans on the vocabulary prompt for accuracy.
+BEAM_SIZE = int(os.environ.get("AUKORA_VOICE_BEAM_SIZE", "5"))
+# Whisper conditions on a prompt, so naming this system's proper nouns is the
+# difference between hearing them and inventing near-homophones. Deployment
+# varying: the Host passes its own list, this is the fallback.
+VOCABULARY = os.environ.get(
+    "AUKORA_VOICE_VOCABULARY",
+    "Aukora, Auma, AUMLOK, Cordis, KIRA, Aura, Luminara, Lingwa, Zeta Harp, "
+    "tesseract, DeepSeek, Nebius, Qwen.",
+)
 
 TTS_MAX_TEXT = 400
 TTS_QUEUE_MAX = 64
-TTS_CHUNK = 7200           # samples per binary frame (0.3 s @ 24 kHz)
+TTS_CHUNK = 2400           # samples per binary frame (100 ms @ 24 kHz)
+WIRE_ERROR_MAX = 160
+STT_DECODE_TIMEOUT_SEC = 12.0
+STT_RECOVERY_FLUSH_SEC = 0.05
 
 STT_POOL = ThreadPoolExecutor(1, thread_name_prefix="stt")
 TTS_POOL = ThreadPoolExecutor(1, thread_name_prefix="tts")        # kokoro (ONNX session is shared + unlocked → keep size 1)
-POCKET_POOL = ThreadPoolExecutor(1, thread_name_prefix="pocket")  # pocket streaming — its OWN pool so a slow kokoro
-                                                                  # synth can't head-of-line-block a fast pocket turn
 
 # How long, after the last audio frame we actually pushed to a client, we keep
 # the VAD start-bar raised so her own voice can't barge her. A BOUNDED lease
@@ -153,37 +118,17 @@ HER_LEASE_SEC = 1.5
 # ---------------------------------------------------------------------------
 
 class Stt:
-    """Whisper, preferring MLX (Apple GPU); faster-whisper tiny.en as fallback."""
-
+    """Pinned faster-whisper tiny.en, Linux CPU only, no registry lookup."""
+    kind = "faster-whisper tiny.en CPU int8"
     def __init__(self):
-        self.kind = ""
-        self._mlx_path = os.path.join(MODELS, "whisper-base.en-mlx")
-        try:
-            import mlx_whisper  # noqa: F401
-            if not os.path.isdir(self._mlx_path):
-                raise FileNotFoundError(self._mlx_path)
-            self._mlx = mlx_whisper
-            # warm the graph so the first real utterance isn't slow
-            self._mlx.transcribe(np.zeros(SR_IN // 2, dtype=np.float32),
-                                 path_or_hf_repo=self._mlx_path)
-            self.kind = "mlx-whisper base.en"
-        except Exception as e:  # pragma: no cover - depends on host
-            print(f"[stt] mlx unavailable ({e}); falling back to faster-whisper tiny.en", flush=True)
-            from faster_whisper import WhisperModel
-            self._fw = WhisperModel("tiny.en", device="cpu", compute_type="int8",
-                                    download_root=os.path.join(MODELS, "whisper"))
-            self._mlx = None
-            self.kind = "faster-whisper tiny.en"
-
-    def decode(self, audio: np.ndarray) -> str:
-        """Blocking — call on STT_POOL. audio: float32 mono @ 16 kHz."""
-        if self._mlx is not None:
-            r = self._mlx.transcribe(audio, path_or_hf_repo=self._mlx_path,
-                                     language="en", temperature=0.0,
-                                     condition_on_previous_text=False, verbose=None)
-            return clean_text(r.get("text", ""))
-        segs, _ = self._fw.transcribe(audio, language="en", beam_size=1,
-                                      without_timestamps=True)
+        from faster_whisper import WhisperModel
+        self._fw = WhisperModel(os.path.join(MODELS, "whisper-tiny.en"),
+            device="cpu", compute_type="int8", cpu_threads=2, num_workers=1,
+            local_files_only=True)
+    def decode(self, audio):
+        segs, _ = self._fw.transcribe(audio, language="en", beam_size=BEAM_SIZE,
+            initial_prompt=VOCABULARY, without_timestamps=True,
+            condition_on_previous_text=False)
         return clean_text(" ".join(s.text for s in segs))
 
 
@@ -226,83 +171,19 @@ class Vad:
         return float(np.asarray(out).reshape(-1)[0])
 
 
-class PocketTts:
-    """Kyutai Pocket TTS — the low-latency engine. Streams audio ~50ms after
-    the text arrives (vs kokoro's ~650ms fixed floor), CPU-only, 24 kHz.
-    Catalog voices ship as precomputed embeddings; true voice cloning (the
-    Aurora blend) unlocks only after the owner accepts the HF terms for
-    kyutai/pocket-tts — we try, and quietly skip if not entitled."""
-
-    # voice id → (catalog name, label, hint). "auma" is her everyday voice: a
-    # warm, soft-English catalog voice that STREAMS (fast, smooth). Her exact
-    # "aurora" blend lives on kokoro (richer but non-streaming, so slower); the
-    # true streamed clone of it needs the gated pocket-tts cloning weights.
-    VOICES = {
-        "auma":    ("vera", "Auma", "her everyday voice — warm, fast, streaming"),
-        "alba":    ("alba", "Alba", "Scottish, casual"),
-        "eponine": ("eponine", "Eponine", "bright English"),
-        "estelle": ("estelle", "Estelle", "French-accented"),
-    }
-
-    def __init__(self):
-        from pocket_tts import TTSModel
-        self.model = TTSModel.load_model()
-        self.states = {}
-        # default voice ("auma") ready before we serve; the rest warm lazily
-        self.states["auma"] = self.model.get_state_for_audio_prompt(self.VOICES["auma"][0])
-        # opportunistic Aurora clone — her true streamed voice. Needs the GATED
-        # pocket-tts cloning weights (repo kyutai/pocket-tts): the owner must
-        # accept the terms at https://huggingface.co/kyutai/pocket-tts while
-        # logged in (`hf auth login`). Once granted, this loads and becomes the
-        # default automatically. We log WHY it's off so the owner gets feedback.
-        try:
-            prompt = os.path.join(MODELS, "aurora-prompt.wav")
-            if os.path.exists(prompt):
-                self.states["aurora-live"] = self.model.get_state_for_audio_prompt(prompt)
-                self.VOICES = {"aurora-live": ("aurora-live", "Aurora", "her own blend — cloned, streaming"), **self.VOICES}
-                print("[voice] aurora voice-clone ACTIVE — her real streamed voice is live", flush=True)
-            else:
-                print(f"[voice] aurora clone off: no prompt wav at {prompt}", flush=True)
-        except Exception as e:
-            reason = str(e)
-            if "gated" in reason.lower() or "restricted" in reason.lower() or "403" in reason:
-                print("[voice] aurora clone off: GATED — accept terms at "
-                      "https://huggingface.co/kyutai/pocket-tts (logged in), then restart", flush=True)
-            else:
-                print(f"[voice] aurora clone off: {reason[:160]}", flush=True)
-
-    def state_for(self, vid: str):
-        if vid not in self.states:
-            self.states[vid] = self.model.get_state_for_audio_prompt(self.VOICES[vid][0])
-        return self.states[vid]
-
-    def warm_all(self):
-        for vid in list(self.VOICES):
-            self.state_for(vid)
-
-    def stream(self, vid: str, text: str, alive):
-        """Blocking generator (run on TTS_POOL): yields int16 PCM chunks.
-        `alive()` is checked between chunks so barge-in stops generation."""
-        state = self.state_for(vid)
-        cap = max(40, min(300, int(len(text) * 1.2)))
-        for ch in self.model.generate_audio_stream(state, text, max_tokens=cap, copy_state=True):
-            if not alive():
-                break
-            a = ch.reshape(-1).clamp(-1, 1).numpy()
-            yield (a * 32767).astype(np.int16)
-
-    def synth(self, vid: str, text: str) -> np.ndarray:
-        """Blocking full synth (one-shot, non-streaming)."""
-        return np.concatenate(list(self.stream(vid, text, lambda: True)))
-
-
 class Tts:
     """Kokoro-82M with named 'presences' (pure voices + blends)."""
 
     def __init__(self):
         from kokoro_onnx import Kokoro
-        self.k = Kokoro(os.path.join(MODELS, "kokoro-v1.0.onnx"),
-                        os.path.join(MODELS, "voices-v1.0.bin"))
+        import onnxruntime as ort
+        opts = ort.SessionOptions()
+        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = 2
+        opts.enable_cpu_mem_arena = False
+        session = ort.InferenceSession(os.path.join(MODELS, "kokoro-v1.0.int8.onnx"),
+            sess_options=opts, providers=["CPUExecutionProvider"])
+        self.k = Kokoro.from_session(session, os.path.join(MODELS, "voices-v1.0.bin"))
         style = self.k.get_voice_style
         blend = lambda pairs: sum(style(n) * w for n, w in pairs).astype(np.float32)
         # name → (style, lang, base_speed, label, hint)
@@ -341,11 +222,35 @@ class _SocketGone(Exception):
     so the worker should stop (not spin) and let s.close() reap it."""
 
 
+def _wire_error_message(action, error):
+    """Return a bounded diagnostic without exposing engine paths or input text."""
+    kind = type(error).__name__.strip()
+    message = f"{action} failed"
+    if kind:
+        message += f" ({kind})"
+    return message[:WIRE_ERROR_MAX]
+
+
+def _restart_voice_process():
+    """Replace a process whose single STT worker can no longer make progress."""
+    executable = sys.executable
+    script = os.path.abspath(__file__)
+    try:
+        os.execv("/usr/bin/python3", ["/usr/bin/python3", "-I", "-B", os.environ["AUKORA_VOICE_LAUNCHER"], os.environ["AUKORA_VOICE_RUNTIME"], os.environ["AUKORA_VOICE_ENV_SHA256"]])
+    except OSError as e:
+        print(f"[voice] process recovery failed: {type(e).__name__}", flush=True)
+        os._exit(70)
+
+
 class Session:
-    def __init__(self, ws, engines, loop):
+    def __init__(self, ws, engines, loop, *,
+                 stt_decode_timeout=STT_DECODE_TIMEOUT_SEC,
+                 restart_process=_restart_voice_process):
         self.ws = ws
-        self.stt, self.vad, self.tts, self.pocket, self.default_voice = engines
+        self.stt, self.vad, self.tts, self.default_voice = engines
         self.loop = loop
+        self.stt_decode_timeout = stt_decode_timeout
+        self.restart_process = restart_process
         self.vst = self.vad.fresh_state()
         self.leftover = np.zeros(0, dtype=np.float32)
         self.preroll = deque(maxlen=PREROLL_FRAMES)
@@ -353,11 +258,12 @@ class Session:
         self.speaking = False
         self.speech_run = 0
         self.silence_run = 0
-        self.gen = 0                      # utterance generation
+        self.listen_epoch = 0             # invalidates decodes only when listening state resets
         self.her_until = 0.0              # while now < her_until, VAD bar is raised
         self.tts_q: asyncio.Queue = asyncio.Queue(TTS_QUEUE_MAX)
         self.tts_cancel = 0               # cancellation generation
         self.tts_task = loop.create_task(self._tts_worker())
+        self.decode_tasks = set()
 
     # ---- mic / VAD / STT ----
     # ONE clean path: accumulate speech, and when END_SILENCE_FRAMES of quiet
@@ -375,8 +281,11 @@ class Session:
         prob = self.vad.step(self.vst, frame)
         now = time.monotonic()
         her = now < self.her_until
+        # Every frame enters the ring, so the pre-speech window is the true
+        # contiguous audio just before the utterance. Appending only while
+        # idle spliced stale, non-adjacent frames onto the front of speech.
+        self.preroll.append(frame)
         if not self.speaking:
-            self.preroll.append(frame)
             if prob >= (START_PROB_HER if her else START_PROB):
                 self.speech_run += 1
                 if self.speech_run >= (MIN_START_FRAMES_HER if her else MIN_START_FRAMES):
@@ -384,6 +293,10 @@ class Session:
                     self.silence_run = 0
                     self.utter = list(self.preroll)
                     self.send({"t": "vad", "speaking": True})
+            elif her:
+                # Leaky while her audio is up: consonant dips and AEC ducking
+                # cost one frame each instead of the whole run.
+                self.speech_run = max(0, self.speech_run - 1)
             else:
                 self.speech_run = 0
             return
@@ -401,17 +314,52 @@ class Session:
         self.speech_run = 0
         self.silence_run = 0
         self.utter = []
-        self.gen += 1
         self.send({"t": "vad", "speaking": False})
         dur = len(audio) / SR_IN
         if dur < 0.25:
             return
-        self.loop.create_task(self._decode_final(audio, dur, gap_ms))
+        listen_epoch = self.listen_epoch
+        task = self.loop.create_task(self._decode_final(audio, dur, gap_ms, listen_epoch))
+        self.decode_tasks.add(task)
+        task.add_done_callback(self.decode_tasks.discard)
+        return task
 
-    async def _decode_final(self, audio, dur, gap_ms=0):
+    async def _decode_final(self, audio, dur, gap_ms, listen_epoch):
         t0 = time.monotonic()
-        text = await self.loop.run_in_executor(STT_POOL, self.stt.decode, audio)
+        decode = self.loop.run_in_executor(STT_POOL, self.stt.decode, audio)
+        try:
+            done, _ = await asyncio.wait({decode}, timeout=self.stt_decode_timeout)
+            if done:
+                text = await decode
+            else:
+                decode.cancel()
+                text = None
+        except Exception as e:
+            print(f"[voice] stt decode error: {type(e).__name__}", flush=True)
+            if listen_epoch == self.listen_epoch:
+                await self._write_json({
+                    "t": "err",
+                    "where": "stt",
+                    "msg": _wire_error_message("speech recognition", e),
+                })
+            return
+        if text is None:
+            print(f"[voice] stt decode exceeded {self.stt_decode_timeout:.1f}s; "
+                  "restarting the local listener", flush=True)
+            if listen_epoch == self.listen_epoch:
+                await self._write_json({
+                    "t": "err",
+                    "where": "stt",
+                    "msg": "speech recognition timed out; local listener restarting",
+                })
+            # The WebSocket write is awaited above. One short event-loop turn lets
+            # aiohttp flush the bounded diagnostic before exec closes the channel.
+            await asyncio.sleep(STT_RECOVERY_FLUSH_SEC)
+            self.restart_process()
+            return
         print(f"[timing] endpoint={gap_ms}ms stt={int((time.monotonic()-t0)*1000)}ms dur={dur:.2f}s", flush=True)
+        if listen_epoch != self.listen_epoch:
+            return
         self.send({"t": "final", "text": text, "dur": round(dur, 2)})
 
     def reset(self):
@@ -422,7 +370,7 @@ class Session:
         self.speaking = False
         self.speech_run = 0
         self.silence_run = 0
-        self.gen += 1
+        self.listen_epoch += 1
         # F1: drop any raised her-bar on reset. The client sends {"t":"reset"} on
         # every channel (re)open, so this makes close→reopen a real recovery from
         # a stuck bar — previously ONLY a full socket reconnect cleared it.
@@ -443,13 +391,13 @@ class Session:
         voice = str(msg.get("voice", "")) or self.default_voice
         # H5: coerce an unknown voice (a stale client pick, a name that no longer
         # exists) to the default rather than KeyError-ing deep in the worker.
-        if voice not in self.pocket.VOICES and voice not in self.tts.presences:
+        if voice not in self.tts.presences:
             voice = self.default_voice
         # KOKORO ONLY: the first chunk of a turn is split at a word boundary
         # (~30 chars) so the head clears kokoro's ~0.6s per-call floor sooner.
         # Pocket streams from the first frame, so splitting would only hurt it.
         parts = [text]
-        if msg.get("first") and voice not in self.pocket.VOICES and len(text) > 45:
+        if msg.get("first") and len(text) > 45:
             cut = text.rfind(" ", 12, 34)
             if cut < 0:
                 cut = text.find(" ", 34)
@@ -459,8 +407,8 @@ class Session:
         try:
             self.tts_q.put_nowait(item)
         except asyncio.QueueFull:
-            self.send({"t": "err", "where": "tts", "msg": "queue full"})
-            self.send({"t": "tts_end", "id": cid})  # F4: settle the client's ttsPending even when dropped
+            if await self._write_json({"t": "err", "where": "tts", "id": cid, "msg": "queue full"}):
+                await self._write_json({"t": "tts_end", "id": cid})
 
     def cancel_tts(self):
         self.tts_cancel += 1
@@ -491,48 +439,26 @@ class Session:
             try:
                 await self._say_one(gen, cid, parts, voice, speed)
             except _SocketGone:
-                self.send({"t": "tts_end", "id": cid})
                 return  # socket is gone; the connection's finally:s.close() cancels us
             except Exception as e:
-                print(f"[voice] tts item error: {str(e)[:160]}", flush=True)
-            self.send({"t": "tts_end", "id": cid})
+                print(f"[voice] tts item error: {type(e).__name__}", flush=True)
+                if not await self._write_json({
+                    "t": "err",
+                    "where": "tts",
+                    "id": cid,
+                    "msg": _wire_error_message("voice synthesis", e),
+                }):
+                    return
+            # Keep the stream boundary on the same awaited writer as the PCM.
+            # WebSocket ordering only helps after writes are issued in order;
+            # scheduling begin/end as detached tasks allowed binary frames to
+            # overtake their metadata under load.
+            if not await self._write_json({"t": "tts_end", "id": cid}):
+                return
 
     async def _say_one(self, gen, cid, parts, voice, speed):
         begun = False
         t0 = time.monotonic()
-
-        if voice in self.pocket.VOICES:
-            # STREAMING path: pocket yields ~80ms frames as it generates;
-            # first audio leaves the socket ~50-250ms after the text lands.
-            q: asyncio.Queue = asyncio.Queue()
-            text = " ".join(parts)
-
-            def produce():
-                try:
-                    for pcm in self.pocket.stream(voice, text, lambda: gen == self.tts_cancel):
-                        self.loop.call_soon_threadsafe(q.put_nowait, pcm)
-                except Exception as e:
-                    print(f"[voice] pocket error: {str(e)[:160]}", flush=True)
-                self.loop.call_soon_threadsafe(q.put_nowait, None)
-
-            self.loop.run_in_executor(POCKET_POOL, produce)
-            while True:
-                pcm = await q.get()
-                if pcm is None:
-                    break
-                if gen != self.tts_cancel:
-                    continue  # cancelled — drain the queue silently
-                if not begun:
-                    print(f"[timing] tts first-audio={int((time.monotonic()-t0)*1000)}ms "
-                          f"(pocket:{voice}, {len(text)}ch)", flush=True)
-                    self.send({"t": "tts_begin", "id": cid, "sr": SR_OUT})
-                    begun = True
-                self._bump_her()
-                try:
-                    await self.ws.send_bytes(pcm.tobytes())
-                except Exception:
-                    raise _SocketGone()
-            return
 
         # kokoro path (blends / legacy presences)
         for text in parts:
@@ -543,7 +469,8 @@ class Session:
             if not begun:
                 print(f"[timing] tts first-audio={int((time.monotonic()-t0)*1000)}ms "
                       f"(kokoro, {len(parts)} part(s), head={len(text)}ch)", flush=True)
-                self.send({"t": "tts_begin", "id": cid, "sr": SR_OUT})
+                if not await self._write_json({"t": "tts_begin", "id": cid, "sr": SR_OUT}):
+                    raise _SocketGone()
                 begun = True
             for i in range(0, len(pcm), TTS_CHUNK):
                 if gen != self.tts_cancel:
@@ -560,12 +487,18 @@ class Session:
         self.loop.create_task(self._send(obj))
 
     async def _send(self, obj):
+        await self._write_json(obj)
+
+    async def _write_json(self, obj):
         try:
             await self.ws.send_json(obj)
+            return True
         except Exception:
-            pass
+            return False
 
     def close(self):
+        for task in self.decode_tasks:
+            task.cancel()
         self.tts_task.cancel()
 
 
@@ -577,37 +510,6 @@ def origin_ok(request) -> bool:
     origin = request.headers.get("Origin", "")
     return (not origin) or origin in ALLOWED_ORIGINS
 
-
-MODEL_FLOOR = int(os.environ.get("AUMA_VOICE_MEMORY_FLOOR") or 50)
-# The SAME floor, read the SAME way, as `scripts/lib/heavy-run-cli.mjs:60` — one policy, two readers.
-
-
-def memory_level():
-    """`kern.memorystatus_level`, or None when it cannot be read. None IS NOT A PASS."""
-    try:
-        done = subprocess.run(["/usr/sbin/sysctl", "-n", "kern.memorystatus_level"],
-                              capture_output=True, text=True, timeout=5)
-        return int(done.stdout.strip())
-    except Exception:
-        return None
-
-
-def live_kokoro_catalogue(live_names, presences):
-    """The kokoro catalogue IF that engine is already resident, else None — a health probe is not a use."""
-    return presences if "tts" in live_names else None
-
-
-def voice_catalogue(pocket_voices, kokoro_presences=None):
-    """The voice menu, from the CATALOGUES and never from an engine."""
-    pv = [{"id": k, "label": v[1], "hint": v[2], "engine": "pocket"} for k, v in pocket_voices.items()]
-    kv = [] if kokoro_presences is None else [
-        {"id": k, "label": v[3], "hint": v[4], "engine": "kokoro"} for k, v in kokoro_presences.items()
-    ]
-    return pv + kv
-
-
-async def main():
-    from aiohttp import WSMsgType, web
 
 # ---------------------------------------------------------------------------
 # lazy engines — LOADED ON FIRST USE, DROPPED AFTER IDLE
@@ -626,6 +528,34 @@ VOICE_IDLE_SECONDS = float(os.environ.get("AUMA_VOICE_IDLE_SECONDS") or 600.0)
 # How often the sweeper looks. Bounded below so a tiny idle value cannot spin, and above so an idle engine is not
 # held far past its deadline.
 VOICE_SWEEP_SECONDS = max(1.0, min(30.0, VOICE_IDLE_SECONDS / 4.0))
+
+
+MODEL_FLOOR = int(os.environ.get("AUMA_VOICE_MEMORY_FLOOR") or 50)
+# The SAME floor, read the SAME way, as `scripts/lib/heavy-run-cli.mjs:60` — one policy, two readers (this sidecar is
+# Python, so it mirrors the read rather than importing it; the value and the refusal name are what must agree).
+
+
+def memory_level():
+    """Available fraction of host AND cgroup memory; unreadable stays refused."""
+    try:
+        values = {}
+        with open("/proc/meminfo") as stream:
+            for line in stream:
+                key, value = line.split(":", 1)
+                values[key] = int(value.strip().split()[0]) * 1024
+        fractions = [100 * values["MemAvailable"] // values["MemTotal"]]
+        for limit_path, used_path in [
+            ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+            ("/sys/fs/cgroup/memory/memory.limit_in_bytes", "/sys/fs/cgroup/memory/memory.usage_in_bytes")]:
+            if os.path.isfile(limit_path):
+                with open(limit_path) as f: limit = f.read().strip()
+                if limit != "max":
+                    with open(used_path) as f: used = int(f.read())
+                    limit = int(limit)
+                    if limit > 0: fractions.append(max(0,100 * (limit-used)//limit))
+        return min(fractions)
+    except (OSError, ValueError, KeyError):
+        return None
 
 
 class LazyEngines:
@@ -651,15 +581,19 @@ class LazyEngines:
         """The engine, loading it if it is not live. Every call counts as a use."""
         entry = self._live.get(name)
         if entry is None:
-            # THE FLOOR IS CHECKED AT THE MOMENT OF LOAD, and FAILS CLOSED on an unreadable level.
+            # THE FLOOR IS CHECKED AT THE MOMENT OF LOAD, not at boot: construction is the load, and every engine here
+            # is heavy. The refusal is NAMED, so a lane reading the log knows which floor refused what.
             level = self._level()
+            # **FAIL CLOSED.** An unreadable level is NOT permission: a gate that opens when its instrument is broken
+            # opens under exactly the conditions it exists for. `AUMA_VOICE_MEMORY_FLOOR=0` is the deliberate way to
+            # disable this (the sidecar is macOS-only anyway, where sysctl is always present).
             if level is None:
                 self.refusals += 1
-                raise MemoryError(f"memory-level-unreadable: kern.memorystatus_level could not be read, so loading "
+                raise MemoryError(f"memory-level-unreadable: Linux host/cgroup available memory could not be read, so loading "
                                   f"'{name}' cannot be shown to be safe — nothing was loaded")
             if level < self._floor:
                 self.refusals += 1
-                raise MemoryError(f"memory-below-model-floor: kern.memorystatus_level is {level} and loading "
+                raise MemoryError(f"memory-below-model-floor: Linux available memory percent is {level} and loading "
                                   f"'{name}' needs {self._floor} — nothing was loaded")
             t0 = time.time()
             engine = factory()
@@ -672,7 +606,12 @@ class LazyEngines:
         return entry[0]
 
     def sweep(self):
-        """Drop every engine idle past the deadline — and ALL of them while the floor is not met."""
+        """Drop every engine idle past the deadline — and ALL of them while the floor is not met.
+
+        **THE WATCHDOG: A LOAD-TIME FLOOR IS NOT ENOUGH.** A resident model can be sitting there when the machine fills
+        up, and the next load is not the problem — the memory already held is. So while the level is KNOWN to be below
+        the floor, the sweeper releases everything it holds and says so.
+        """
         now = self._clock()
         dropped = []
         level = self._level()
@@ -705,7 +644,7 @@ class LazyEngines:
             try:
                 self.sweep()
             except Exception as error:            # a sweeper that dies stops reclaiming memory silently
-                self._log(f"[voice-engine] sweep failed: {error!r}")
+                self._log(f"[voice-engine] sweep failed: {type(error).__name__}")
 
 
 class _EngineProxy:
@@ -735,25 +674,17 @@ async def main():
     stt = _EngineProxy(engines, "stt", Stt)
     vad = _EngineProxy(engines, "vad", Vad)
     tts = _EngineProxy(engines, "tts", Tts)
-    pocket = _EngineProxy(engines, "pocket", PocketTts)
     asyncio.create_task(engines.sweeper())
     # **`PocketTts.VOICES` IS READ OFF THE CLASS, NOT THE PROXY.** Touching the proxy here would construct the
     # engine during startup — reinstating exactly the load this change removes, and doing it invisibly.
-    default_voice = "aurora-live" if "aurora-live" in PocketTts.VOICES else "auma"
-    loop = asyncio.get_running_loop()
-    # **THE WARM-UP AND THE BACKGROUND CATALOG WARM ARE BOTH GONE.** Two synthetic utterances pulled BOTH TTS
-    # engines in before the sidecar served anything, and `pocket.warm_all` then pulled the whole catalog in the
-    # background — every one of those voices resident whether or not Peter ever spoke. The first real turn pays
-    # for the engine it needs, once, and the idle sweeper gives the memory back afterwards.
+    default_voice = "aurora"
+    # **THE WARM-UP IS GONE, AND IT WAS THE LARGEST COST.** Two synthetic utterances pulled BOTH TTS engines and
+    # their weights into RAM before the sidecar served anything. The first real turn now pays that instead — once,
+    # on the path that actually needed it — and the idle sweeper gives the memory back afterwards.
     print(f"[voice] ready in {time.time() - t0:.1f}s — engines load on first use, "
           f"idle-unload {VOICE_IDLE_SECONDS:.0f}s, default={default_voice}", flush=True)
-
     def voice_list():
-        # **THE KOKORO ENTRY APPEARS ONLY IF ITS ENGINE IS ALREADY LIVE** — a health probe or a new connection must
-        # not construct it, and `getattr(tts, …)` (which WOULD) is reached only after that gate.
-        live = engines.live()
-        kokoro = live_kokoro_catalogue(live, getattr(tts, "presences", None) if "tts" in live else None)
-        return voice_catalogue(pocket.VOICES, kokoro)
+        return tts.voice_list()
 
     started = time.time()
 
@@ -763,9 +694,9 @@ async def main():
         return web.json_response({
             "ok": True,
             "organ": "voice-sidecar",
-            "authority": "none — rendering and hearing only; the mind is the governed door on 7091",
-            "engines": {"stt": stt.kind, "tts": "pocket-tts (streaming) + kokoro-82M (onnx)", "vad": "silero-vad v6 (onnx)"},
-            "voices": voice_list(),
+            "authority": "none — rendering and hearing only; model dispatch stays in the Aukora UI host",
+            "engines": {"stt": Stt.kind, "tts": "kokoro-82M CPU int8", "vad": "silero-vad v6 (onnx)"},
+            "voices": [],
             "default_voice": default_voice,
             "uptimeSec": round(time.time() - started, 1),
             "egress": "offline by configuration, not measured — 127.0.0.1 only, all models local files",
@@ -777,10 +708,17 @@ async def main():
         ws = web.WebSocketResponse(max_msg_size=2 ** 22, heartbeat=30)
         await ws.prepare(request)
         loop = asyncio.get_running_loop()
-        s = Session(ws, (stt, vad, tts, pocket, default_voice), loop)
+        try:
+            await loop.run_in_executor(STT_POOL, lambda: (stt.kind, vad.fresh_state()))
+            await loop.run_in_executor(TTS_POOL, lambda: tts.default)
+        except Exception as error:
+            await ws.send_json({"t": "err", "where": "startup", "msg": _wire_error_message("voice engines", error)})
+            await ws.close(code=1011, message=b"voice engines unavailable")
+            return ws
+        s = Session(ws, (stt, vad, tts, default_voice), loop)
         await ws.send_json({
             "t": "ready",
-            "engines": {"stt": stt.kind, "tts": "pocket-tts + kokoro-82M", "vad": "silero-v6"},
+            "engines": {"stt": Stt.kind, "tts": "kokoro-82M CPU int8", "vad": "silero-v6"},
             "voices": voice_list(),
             "default_voice": default_voice,
             "sr_in": SR_IN, "sr_out": SR_OUT,
@@ -827,14 +765,14 @@ async def main():
             await site.start()
             break
         except OSError as e:
-            if getattr(e, "errno", None) == 48 and attempt < 19:
+            if getattr(e, "errno", None) in (48, 98) and attempt < 19:
                 print(f"[voice] port {PORT} busy, waiting for the old process to release "
                       f"({attempt + 1}/20)…", flush=True)
                 await asyncio.sleep(0.5)
                 continue
             raise
     print(f"aukora voice sidecar — local duplex organ at http://{HOST}:{PORT} "
-          f"(no authority; egress is OFFLINE BY CONFIGURATION, NOT MEASURED, and the mind stays behind the 7091 door)", flush=True)
+          f"(no authority; egress is OFFLINE BY CONFIGURATION, NOT MEASURED, and model dispatch stays in the Aukora UI host)", flush=True)
 
     # H1: graceful shutdown. Catch SIGTERM/SIGINT (pm2 sends SIGINT then SIGKILL),
     # cleanly tear down the aiohttp runner so the socket is RELEASED before the
@@ -853,11 +791,17 @@ async def main():
         await runner.cleanup()
         STT_POOL.shutdown(wait=False)
         TTS_POOL.shutdown(wait=False)
-        POCKET_POOL.shutdown(wait=False)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        if "--probe" in sys.argv:
+            v = Vad(); probability = v.step(v.fresh_state(), np.zeros(FRAME, dtype=np.float32))
+            text = Stt().decode(np.zeros(SR_IN, dtype=np.float32))
+            pcm = Tts().synth("Ready.", "aurora", 1.0)
+            assert 0 <= probability <= 1 and pcm.dtype == np.int16 and len(pcm) > 0
+            print(json.dumps({"vad": "ok", "stt": "ok", "tts": "ok", "pcm_samples": len(pcm)}))
+        else:
+            asyncio.run(main())
     except KeyboardInterrupt:
         sys.exit(0)

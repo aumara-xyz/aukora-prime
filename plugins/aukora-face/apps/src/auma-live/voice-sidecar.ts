@@ -15,7 +15,8 @@
  * lines go to BOTH: prefixed onto stdout, where a person will see them, and to the plugin logger, where the
  * harness keeps its own record. Before this, "browser voice fallback active" was a sentence nothing wrote.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { SubprocessHandle, SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { AUMA_LIVE_VOICE_ROOT } from '../vendor-paths.ts'
@@ -110,17 +111,38 @@ export class VoiceSidecarSupervisor {
     const runtimeDirectory = this.config.runtimeDirectory === undefined || this.config.runtimeDirectory === ''
       ? AUMA_LIVE_VOICE_ROOT
       : this.config.runtimeDirectory
-    const executable = join(runtimeDirectory, '.venv', 'bin', 'python')
-    const script = join(AUMA_LIVE_VOICE_ROOT, 'sidecar.py')
-    const { logger } = this.dependencies
-    if (!this.exists(executable)) {
-      // THE FALLBACK IS A STATE, NOT A FAILURE, and it says which one it is: the browser's own speech
-      // synthesis is doing the talking, and the local duplex setup is one command away.
-      logger.info(`Auma Live browser voice fallback active; local duplex setup is available at ${join(AUMA_LIVE_VOICE_ROOT, 'setup.sh')}`)
-      return
+    let argv: string[]
+    if (process.platform === 'linux') {
+      const baselineHash = createHash('sha256').update(readFileSync('/usr/bin/python3')).digest('hex')
+      if (baselineHash !== 'e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7') {
+        throw new Error('voice OS interpreter pin mismatch; no interpreter was executed')
+      }
+      // The OS interpreter verifies pinned runtime bytes BEFORE executing its venv interpreter.
+      const pinPath = '/etc/aukora/auma-live-voice/environment.sha256'
+      const launcher = join(AUMA_LIVE_VOICE_ROOT, '..', 'source', 'voice', 'launch.py')
+      const launcherMetadata = lstatSync(launcher)
+      const root = lstatSync(runtimeDirectory)
+      const pin = lstatSync(pinPath)
+      if (!root.isDirectory() || (root.mode & 0o077) !== 0
+        || !launcherMetadata.isFile() || launcherMetadata.uid !== 0 || (launcherMetadata.mode & 0o022) !== 0
+        || !pin.isFile() || pin.uid !== 0 || (pin.mode & 0o022) !== 0) {
+        throw new Error('voice runtime/pin must be operator-owned and immutable to the service user')
+      }
+      const expected = readFileSync(pinPath, 'utf8').trim()
+      if (!/^[a-f0-9]{64}$/.test(expected)) throw new Error('voice environment pin unavailable')
+      argv = ['/usr/bin/python3', '-I', '-B', launcher, runtimeDirectory, expected]
+    } else {
+      const executable = join(runtimeDirectory, '.venv', 'bin', 'python')
+      const script = join(AUMA_LIVE_VOICE_ROOT, 'sidecar.py')
+      if (!this.exists(executable)) {
+        this.dependencies.logger.warn('Auma Live voice environment unavailable')
+        return
+      }
+      argv = [executable, script]
     }
+    const { logger } = this.dependencies
     const handle = this.dependencies.subprocess.spawn({
-      argv: [executable, script],
+      argv,
       cwd: AUMA_LIVE_VOICE_ROOT,
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
       graceMs: SIDECAR_GRACE_MS,
