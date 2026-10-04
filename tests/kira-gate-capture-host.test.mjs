@@ -289,11 +289,11 @@ async function createAcceptedEFixture() {
     associationSource = readE(new URL('./aura-association.mjs', indexURL), 'utf8')
     recallSource = readE(new URL('./aura-recall.mjs', indexURL), 'utf8')
   } catch { throw Error('missing-dependency:accepted-kira-index-or-helper-closure') }
-  assert.equal(sha(indexSource), '08d8c3f5f13f4b35391422c6530bba24bdcb9afd47fcc93fc8a6b603222c2b86',
+  assert.equal(sha(indexSource), 'e49943c3e617d540e43c955537786659d9bb157b474e58ec0a15aa8c1266200a',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')
-  assert.equal(sha(recallSource), '78ef0bcc946e93d6b308e144751ffa63334ac7228ecadad6718f4fdc1c5f5ea2',
+  assert.equal(sha(recallSource), '574a02698fff47a4ef51f2ff4b5ac0e9052f1ca6cc37e74c29f2f6d3fa462467',
     'missing-dependency:accepted-kira-recall-sha256')
   const dataURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
   const associationURL = dataURL(associationSource)
