@@ -278,6 +278,9 @@
     var queueHeading = document.getElementById('queue-heading')
     var challenge = null
     var settled = false
+    var gateMode = false
+    var gateDisplayOk = false
+    var gateReviewExpires = 0
     // WHAT THIS WINDOW WAS ALREADY SHOWING. When a submit comes back routed by a daemon, the refusal from the
     // ANSWER handler carries no digest and no operation — that handler froze no proposal — so the only digest and
     // the only description this window can honestly put beside the waiting line are the ones it was already
@@ -292,6 +295,8 @@
     // window opened — a person cannot read a question that has not been drawn yet.
     var shownAt = null
     function approveEligible() {
+      if (gateMode) return settled !== true && challenge !== null && gateDisplayOk === true
+        && Date.now() < gateReviewExpires
       return settled !== true && challenge !== null && witness !== null
         && witness.ok === true && witness.truncated === false
     }
@@ -1032,9 +1037,26 @@
       bridge.answer({
         challenge: challenge,
         approve: decision,
-        wordsOk: witness === null ? null : witness.ok === true,
+        wordsOk: gateMode ? gateDisplayOk : witness === null ? null : witness.ok === true,
         dwellMs: shownAt === null ? null : Math.max(0, Date.now() - shownAt),
       }).then(function (reply) {
+        if (gateMode) {
+          var result = reply && reply.gate_result
+          if (!result || typeof result.state !== 'string') { say(shellReason(reply), true); return }
+          if (result.state === 'refused' && result.applied === false) {
+            say(decision ? 'Gate refused apply. No apply was confirmed.'
+              : 'Gate confirmed: rejected. No apply was performed by this decision.')
+          } else if (result.state === 'applied' && result.applied === true) {
+            say('Gate reported applied. Receipt ' + result.ledger_seq + '; exact proposed bytes written.')
+            document.getElementById('f-words').textContent += '\n\nGate apply receipt:\n'
+              + JSON.stringify(result.receipt, null, 2) + '\nReceipt signature: ' + result.receipt_sig
+          } else if (result.state === 'unknown' || result.applied === null) {
+            say('Gate acknowledgement unavailable. The decision outcome is unknown; do not retry.', true)
+          } else {
+            say('Gate state: ' + result.state + '. ' + result.reason + '. Apply was not confirmed.', true)
+          }
+          return
+        }
         if (reply && reply.ok === true) {
           say(decision ? 'Approved. The signature is being produced.' : 'Refused. Nothing was signed.')
           return
@@ -1093,6 +1115,61 @@
       if (reply !== null && typeof reply === 'object') renderQueue(reply.queue, reply.challenge)
       if (reply === null || typeof reply !== 'object' || reply.ok !== true) {
         say(shellReason(reply), true)
+        return
+      }
+      if (reply.mode === 'boundary-gate') {
+        // Gate authority stays in OWNER. This is not an Aumlok request or a signature-producing path.
+        if (typeof reply.approveAvailable !== 'boolean' || typeof reply.challenge !== 'string' || !reply.pending) {
+          say('gate:question-unavailable', true); return
+        }
+        gateMode = true
+        challenge = reply.challenge
+        var pending = reply.pending
+        show('headline', 'Gate proposal — approval unavailable')
+        document.getElementById('operation-summary').hidden = false
+        show('f-subject', pending.target)
+        show('f-digest', pending.new_sha)
+        show('f-challenge', reply.challenge)
+        show('f-expires', new Date(pending.expires).toISOString())
+        var digestLabel = document.getElementById('f-digest').previousElementSibling
+        var questionLabel = document.getElementById('f-challenge').previousElementSibling
+        if (digestLabel) digestLabel.textContent = 'Proposed bytes SHA-256'
+        if (questionLabel) questionLabel.textContent = 'Local question ID'
+        document.getElementById('f-words').textContent = JSON.stringify(pending, null, 2)
+        document.getElementById('f-words').setAttribute('aria-label', 'Gate proposal metadata; stored bytes unavailable')
+        assertion.hidden = false
+        assertion.textContent = 'Stored bytes, full diff and gate review challenge are unavailable. '
+          + 'This metadata cannot authorize apply. The local question ID only binds this Refuse button.'
+        facts.hidden = false
+        say('Approve unavailable. Refuse asks the gate to reject this proposal; closing sends no decision.')
+        shownAt = Date.now()
+        applyEligibility()
+        if (reply.approveAvailable === true && reply.review && typeof reply.text === 'string') {
+          var review = reply.review
+          // Independently check the displayed text and exact proposed content, before arming Approve.
+          Promise.all([witnessText(reply.text, reply.textDigest),
+            crypto.subtle.digest('SHA-256', new TextEncoder().encode(review.content))]).then(function (checks) {
+            if (settled || challenge !== reply.challenge) return
+            var bytes = new Uint8Array(checks[1]), contentSha = ''
+            for (var i = 0; i < bytes.length; i++) contentSha += bytes[i].toString(16).padStart(2, '0')
+            if (checks[0].ok !== true || contentSha !== pending.new_sha || review.displayable !== true
+              || !Number.isSafeInteger(review.review_expires) || review.review_expires > pending.expires
+              || Date.now() >= review.review_expires) { say('gate:review-display-unverified', true); return }
+            document.getElementById('f-words').textContent = checks[0].text
+            document.getElementById('f-words').setAttribute('aria-label', 'Exact stored gate proposal bytes and diff')
+            show('headline', 'Review gate proposal')
+            show('f-challenge', review.review_challenge)
+            if (questionLabel) questionLabel.textContent = 'Gate review challenge'
+            show('f-expires', new Date(review.review_expires).toISOString())
+            assertion.textContent = 'Approve asks OWNER to apply the stored bytes under this one-use review. '
+              + 'The gate rechecks base, expiry and resulting hash; no Aumlok signature is produced.'
+            gateDisplayOk = true
+            gateReviewExpires = review.review_expires
+            say('Approve applies these exact stored bytes. Refuse rejects this proposal.')
+            applyEligibility()
+            setTimeout(function () { applyEligibility() }, Math.max(0, gateReviewExpires - Date.now()) + 1)
+          }, function () { say('gate:review-display-unverified', true) })
+        }
         return
       }
       // NO CHALLENGE, NO ANSWER. An answer that could not name its question could not be told apart

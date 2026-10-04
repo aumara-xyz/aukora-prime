@@ -25,6 +25,7 @@ import { cardViewModel } from './lane-card-view.mjs'
 import { validatePress } from './lane-dispatch.mjs'
 import { SIGNER_SOCKET_ENV, resolveSignerSocketPath, startShellSigner } from './aumlok-signer.mjs'
 import { installDesktopLog } from './desktop-log.mjs'
+import { createGateOwnerAdapter } from './aumlok-signer-airlock.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const BACKGROUND = '#0B0E14'
@@ -450,7 +451,42 @@ app.whenReady().then(async () => {
     onBound: () => ensureShellSigner(),
     log: line => console.log(`aukora-desktop: ${line}`),
   })
+  // Optional Mac main-process route to an EXISTING SSH OWNER Unix-socket forward. No tunnel,
+  // credentials, listener or host permission is created here; no route reaches a renderer/preload.
+  // Missing gate review exposes metadata and Refuse only; the requested review extension enables apply.
+  let gateOwner = null, gatePoll = null, gateBusy = false
+  const gateSeen = new Set()
+  if (typeof env.AUKORA_GATE_OWNER_SOCKET === 'string' && env.AUKORA_GATE_OWNER_SOCKET !== '') {
+    try {
+      if (process.platform !== 'darwin') throw new Error('gate:owner-route-mac-only')
+      gateOwner = createGateOwnerAdapter({ socketPath: env.AUKORA_GATE_OWNER_SOCKET })
+      const observeGate = async () => {
+        if (gateBusy || aumlok.isApprovalOpen()) return
+        gateBusy = true
+        let question = null
+        try {
+          question = await gateOwner.pending()
+          if (!question) return
+          if (gateSeen.has(question.pending.id)) return
+          gateSeen.add(question.pending.id)
+          // The local nonce identifies this metadata question, not a gate authorization challenge.
+          const shown = await aumlok.askGate(question,
+            (id, approve, stillVisible) => gateOwner.decide(id, approve, stillVisible))
+          if (shown?.unavailable === true) gateSeen.delete(question.pending.id) // Not admitted, no decision sent.
+        } catch { console.warn('aukora-desktop: gate:owner-unavailable (no decision retried)') }
+        finally {
+          if (question) gateOwner.forget(question.uiQuestionId)
+          gateBusy = false
+        }
+      }
+      gatePoll = setInterval(() => { void observeGate() }, 2000)
+      gatePoll.unref()
+      void observeGate()
+    } catch { console.warn('aukora-desktop: gate:owner-route-unavailable') }
+  }
   app.on('will-quit', () => {
+    if (gatePoll) clearInterval(gatePoll)
+    gateOwner?.dispose()
     aumlok.dispose()
     if (eye !== null) void eye.dispose()
     // THE LANE DOOR'S TOKEN IS REMOVED ON THE WAY OUT, so a token file that outlives this process is a

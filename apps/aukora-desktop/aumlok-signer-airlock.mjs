@@ -1,4 +1,5 @@
-import { createPublicKey, randomBytes, verify } from 'node:crypto'
+import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
+import { isAbsolute } from 'node:path'
 import { connect } from 'node:net'
 import { peerUid } from '../../plugins/aukora-owner-daemon/lib/peer-uid.mjs'
 import { withinWindow } from './aumlok-signer-review.mjs'
@@ -95,4 +96,176 @@ export function createAirlockSigner({ config, library, review, stillListed }) {
       finally { if (!signed) seen.delete(request.challenge) }
     },
   }
+}
+
+// Boundary-gate is a different authority from the Aumlok signer above. Its current OWNER wire
+// exposes metadata and reject, but no full stored-byte review or gate review challenge. Approve
+// therefore requires the explicitly requested OWNER review/decide_review extension. There is no
+// legacy approve fallback. A gate receipt must never become an Aumlok signature.
+// socketPath is the Mac main process's explicitly configured, existing SSH Unix-socket forward;
+// this code neither creates a forward nor makes an OWNER endpoint available to the app renderer.
+export function exchangeGateOwner(socketPath, op, args = {}) {
+  if (typeof socketPath !== 'string' || !isAbsolute(socketPath)
+    || !['pending', 'reject', 'review', 'decide_review'].includes(op)) {
+    return Promise.reject(new Error('gate:owner-route-unavailable'))
+  }
+  return new Promise((resolve, reject) => {
+    const socket = connect(socketPath)
+    let received = Buffer.alloc(0), done = false
+    const finish = (error, result) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      socket.destroy()
+      if (error) reject(error)
+      else resolve(result)
+    }
+    const timer = setTimeout(() => finish(new Error('gate:owner-timeout')), 5000)
+    socket.once('connect', () => socket.write(JSON.stringify({ op, args }) + '\n'))
+    socket.on('data', chunk => {
+      try {
+        received = Buffer.concat([received, chunk])
+        if (received.length > 65536) throw new Error('gate:owner-response-too-large')
+        const newline = received.indexOf(10)
+        if (newline < 0) return
+        if (newline !== received.length - 1) throw new Error('gate:owner-trailing-response')
+        const raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(received.subarray(0, newline)))
+        if (raw?.ok !== true) throw new Error('gate:owner-refused')
+        finish(null, raw.result)
+      } catch (error) { finish(error) }
+    })
+    socket.once('error', () => finish(new Error('gate:owner-unavailable')))
+    socket.once('close', () => { if (!done) finish(new Error('gate:owner-closed')) })
+  })
+}
+
+const gateSha = value => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value)
+const gateUuid = value => typeof value === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(value)
+function gatePending(value) {
+  if (!gateUuid(value?.id) || !['change', 'revert'].includes(value.kind)
+    || typeof value.target !== 'string' || !/^[a-zA-Z0-9_./-]{1,256}$/u.test(value.target)
+    || !(value.base_sha === 'absent' || gateSha(value.base_sha)) || !gateSha(value.new_sha)
+    || !Number.isSafeInteger(value.created) || value.created < 0
+    || !Number.isSafeInteger(value.expires) || value.expires <= value.created) {
+    throw new Error('gate:pending-malformed')
+  }
+  // Only immutable proposal identifiers are used for refusal. Notes are presentation only.
+  return Object.freeze({ id: value.id, kind: value.kind, target: value.target,
+    base_sha: value.base_sha, new_sha: value.new_sha, created: value.created, expires: value.expires })
+}
+
+function gateReview(value, pending, now) {
+  const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff',
+    'displayable', 'created', 'expires', 'review_challenge', 'review_expires', 'pubkey_fp']
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))
+    || value.version !== 1 || JSON.stringify(gatePending(value)) !== JSON.stringify(pending)
+    || !gateSha(value.review_challenge) || !Number.isSafeInteger(value.review_expires)
+    || value.review_expires <= now() || value.review_expires > value.expires
+    || value.displayable !== true || typeof value.content !== 'string'
+    || !/^[\x20-\x7e]*$/u.test(value.content) || typeof value.diff !== 'string'
+    || !/^[\x09\x0a\x20-\x7e]*$/u.test(value.diff)
+    || value.content.length + value.diff.length > 12000
+    || typeof value.pubkey_fp !== 'string' || !/^[0-9a-f]{16}$/u.test(value.pubkey_fp)
+    || createHash('sha256').update(value.content, 'utf8').digest('hex') !== pending.new_sha) {
+    throw new Error('gate:stored-byte-review-unavailable')
+  }
+  return Object.freeze({ ...value })
+}
+
+function gateReviewText(review) {
+  return ['GATE: EXACT STORED-BYTE REVIEW', 'Proposal: ' + review.id, 'Kind: ' + review.kind,
+    'Target: ' + review.target, 'Base SHA-256: ' + review.base_sha, 'New SHA-256: ' + review.new_sha,
+    'Gate review challenge: ' + review.review_challenge, 'Proposal expires (unix ms): ' + review.expires,
+    'Review expires (unix ms): ' + review.review_expires, 'Receipt key fingerprint: ' + review.pubkey_fp,
+    'Exact stored content (' + review.content.length + ' ASCII bytes):', review.content,
+    'Exact stored diff:', review.diff].join('\n')
+}
+
+export function createGateOwnerAdapter({ socketPath, call = exchangeGateOwner, now = Date.now } = {}) {
+  if (typeof socketPath !== 'string' || !isAbsolute(socketPath)) throw new Error('gate:owner-route-unavailable')
+  const reviews = new Map()
+  let disposed = false, preparing = false
+  const read = async () => {
+    if (disposed) throw new Error('gate:owner-adapter-disposed')
+    const response = await call(socketPath, 'pending', {})
+    if (disposed) throw new Error('gate:owner-adapter-disposed')
+    if (!Array.isArray(response?.pending) || response.pending.length > 16) throw new Error('gate:pending-malformed')
+    return response.pending.map(gatePending)
+  }
+  return Object.freeze({
+    async pending() {
+      // Fence concurrent preparations before the first await; a second review would replace its nonce.
+      if (preparing || reviews.size !== 0) return null
+      preparing = true
+      try {
+        const rows = await read()
+        if (rows.length === 0) return null
+        const pending = rows[0], uiQuestionId = randomUUID()
+        let review = null
+        try { review = gateReview(await call(socketPath, 'review', { id: pending.id }), pending, now) }
+        catch { /* Actual missing/malformed review remains unavailable; metadata never enables apply. */ }
+        if (disposed) throw new Error('gate:owner-adapter-disposed')
+        const text = review ? gateReviewText(review) : null
+        const question = Object.freeze({ mode: 'boundary-gate', uiQuestionId, pending,
+          approveAvailable: review !== null, reason: review ? null : 'gate:stored-byte-review-unavailable',
+          review, text, textDigest: text === null ? null : createHash('sha256')
+            .update('aukora:approval-words:v1\0' + text, 'utf8').digest('hex') })
+        reviews.set(uiQuestionId, { pending, review })
+        return question
+      } finally { preparing = false }
+    },
+    async decide(uiQuestionId, approve, stillVisible = () => false) {
+      const expected = reviews.get(uiQuestionId)
+      if (disposed || !expected) return { state: 'unavailable', applied: false, reason: 'gate:question-not-pending' }
+      if (typeof approve !== 'boolean' || (approve && !expected.review)) {
+        return { state: 'unavailable', applied: false, reason: 'gate:stored-byte-review-unavailable' }
+      }
+      reviews.delete(uiQuestionId) // Spend the local question before any await or dispatch; no blind retry.
+      let sent = false
+      try {
+        const current = (await read()).find(row => row.id === expected.pending.id)
+        if (!current || JSON.stringify(current) !== JSON.stringify(expected.pending)) {
+          return { state: 'unavailable', applied: false, reason: 'gate:pending-changed' }
+        }
+        if (disposed || stillVisible() !== true) {
+          return { state: 'unavailable', applied: false, reason: 'gate:question-unavailable' }
+        }
+        const review = expected.review
+        if (review && (now() >= review.review_expires || now() >= review.expires)) {
+          return { state: 'expired', applied: false, reason: 'gate:review-expired' }
+        }
+        sent = true
+        const result = review
+          ? await call(socketPath, 'decide_review', { id: review.id, base_sha: review.base_sha,
+            new_sha: review.new_sha, review_challenge: review.review_challenge,
+            outcome: approve ? 'allowed-once' : 'rejected' })
+          : await call(socketPath, 'reject', { id: expected.pending.id })
+        if (disposed) return { state: 'unknown', applied: null, reason: 'gate:acknowledgement-unavailable' }
+        if (typeof result?.applied !== 'boolean'
+          || !['refused', 'expired', 'stale', 'applying', 'applied', 'failed', 'conflict', 'unknown'].includes(result.state)) {
+          throw new Error('gate:result-malformed')
+        }
+        if (result.applied === true) {
+          const r = result.receipt
+          if (!approve || !review || result.state !== 'applied' || r?.v !== 2
+            || r.proposal !== review.id || r.kind !== review.kind || r.target !== review.target
+            || r.base_sha !== review.base_sha || r.new_sha !== review.new_sha || r.pubkey_fp !== review.pubkey_fp
+            || typeof result.receipt_sig !== 'string' || result.receipt_sig.length !== 88
+            || !Number.isSafeInteger(result.ledger_seq) || result.ledger_seq <= 0) throw new Error('gate:receipt-mismatch')
+          return Object.freeze({ state: 'applied', applied: true, reason: 'gate:apply-reported',
+            receipt: Object.freeze({ ...r }), receipt_sig: result.receipt_sig, ledger_seq: result.ledger_seq })
+        }
+        return Object.freeze({ state: result.state, applied: false,
+          reason: result.state === 'refused' ? approve ? 'gate:apply-refused' : 'gate:owner-rejected'
+            : 'gate:proposal-closed' })
+      } catch {
+        return Object.freeze({ state: sent ? 'unknown' : 'unavailable', applied: sent ? null : false,
+          reason: sent ? 'gate:acknowledgement-unavailable' : 'gate:owner-unavailable' })
+      }
+    },
+    forget(uiQuestionId) { reviews.delete(uiQuestionId) },
+    dispose() { disposed = true; reviews.clear() },
+  })
 }

@@ -164,6 +164,7 @@ export function installApprovalBridge(deps) {
   const ownerDaemonStatusOf = deps.ownerDaemonStatus ?? ownerDaemonStatus
   const readState = deps.readBindingState ?? readBindingState
   let approval = null
+  let gateSurface = false
   /** The resize listener that keeps the docked sheet over the pane, so it can be removed with it. */
   let dockedResize = null
   /** The timer that keeps the sheet topmost while it is docked. */
@@ -355,6 +356,7 @@ export function installApprovalBridge(deps) {
     // from a person who has already been shown the sheet closing.
     settleAllAsks({ approve: false })
     approval = null
+    gateSurface = false
     if (zOrderGuard !== null) {
       clearInterval(zOrderGuard)
       zOrderGuard = null
@@ -518,7 +520,9 @@ export function installApprovalBridge(deps) {
     // A COURT OPENS THE REAL SHEET AND MUST NOT PUT IT ON A PERSON'S SCREEN. `headless` skips only the
     // docking; every other fact about the view — its session, preload, devtools setting, that it loads a
     // local file — is exactly what ships.
-    view.webContents.once('destroyed', () => { if (approval === view) approval = null })
+    view.webContents.once('destroyed', () => {
+      if (approval === view) { approval = null; gateSurface = false }
+    })
     view.webContents.loadFile(join(here, 'aumlok-approval.html'), { query: { theme } }).catch(error => {
       say(`aumlok approval: page failed to load: ${String(error?.message ?? error)}`)
       closeApproval()
@@ -760,6 +764,28 @@ export function installApprovalBridge(deps) {
 
   ipcMain.handle(APPROVAL_CHANNELS.ANSWER, async (event, payload) => {
     if (!fromApproval(event)) return { ok: false, reason: APPROVAL_REFUSE.FORBIDDEN_SENDER }
+    // This main-owned queue entry is a boundary-gate metadata question, not an Aumlok signature
+    // request. No renderer can create one. Full gate review is absent in the current protocol,
+    // so only the adapter's complete gate-owned review can enable an explicit Approve.
+    const gateEntry = pendingQueue.find(entry => entry.challenge === payload?.challenge && entry.gateDecide)
+    if (gateEntry) {
+      if (typeof payload?.approve !== 'boolean'
+        || (payload.approve && (gateEntry.facts.approveAvailable !== true || payload.wordsOk !== true))) {
+        return { ok: false, reason: 'gate:stored-byte-review-unavailable' }
+      }
+      if (gateEntry.answering) return { ok: false, reason: 'gate:question-already-answered' }
+      gateEntry.answering = true // Before the await: a duplicate click cannot send a second OWNER call.
+      let result
+      const gateView = approval
+      try { result = await gateEntry.gateDecide(gateEntry.challenge, payload.approve,
+        () => approval === gateView && fromApproval(event)) }
+      catch { result = { state: 'unknown', applied: null, reason: 'gate:acknowledgement-unavailable' } }
+      settleAsk(gateEntry.challenge, { approve: payload.approve, result })
+      // Keep the card open to show the actual result. A lost reply never becomes "Refused".
+      setTimeout(() => { if (approval === gateView && pendingQueue.length === 0) closeApproval() }, 5000)
+      if (!fromApproval(event)) return { ok: false, reason: APPROVAL_REFUSE.FORBIDDEN_SENDER }
+      return { ok: true, gate_result: result }
+    }
     // ── AND THE ANSWER IS NOT AN AUTHORITY EITHER, WHEN A DAEMON IS PRESENT ──────────────────────────
     // A shell boolean was already not an approval; with an owner daemon installed it must not become one by
     // arriving on this channel instead. The person's answer here is NOT submitted as a proposal, because the
@@ -822,6 +848,26 @@ export function installApprovalBridge(deps) {
   })
 
   return {
+    /** Main-only gate review; metadata alone cannot enable Approve. No Aumlok signature is produced. */
+    askGate(question, decide) {
+      if (question?.mode !== 'boundary-gate' || typeof question.approveAvailable !== 'boolean'
+        || typeof question.uiQuestionId !== 'string' || typeof decide !== 'function'
+        || pendingQueue.length !== 0 || approval !== null) {
+        return Promise.resolve({ approve: false, unavailable: true, reason: 'gate:question-unavailable' })
+      }
+      const opened = openApprovalWindow()
+      if (opened.ok !== true) return Promise.resolve({ approve: false, unavailable: true, reason: opened.reason })
+      gateSurface = true
+      const facts = Object.freeze({ mode: 'boundary-gate', challenge: question.uiQuestionId,
+        approveAvailable: question.approveAvailable, reason: question.reason,
+        review: question.review, text: question.text, textDigest: question.textDigest,
+        pending: Object.freeze({ ...question.pending }) })
+      return new Promise(resolve => {
+        pendingQueue.push({ challenge: question.uiQuestionId, facts, gateDecide: decide,
+          answering: false, settle: resolve })
+        approval.webContents.once('destroyed', () => settleAllAsks({ approve: false }))
+      })
+    },
     /**
      * Whether a one-bit approval window is open right now.
      *
@@ -860,6 +906,7 @@ export function installApprovalBridge(deps) {
      * @returns {Promise<{approve: boolean, unavailable?: boolean}>} the person's answer, or a refusal.
      */
     async ask(request) {
+      if (gateSurface) return Object.freeze({ approve: false, unavailable: true, reason: 'gate:metadata-window-open' })
       // ADMITTED BEFORE ANYTHING IS OPENED. A request with no expiry, or one carrying its own summary
       // of the operation, is refused BY NAME HERE — and the refusal is upstream of
       // `openApprovalWindow()`, so there is no window to close and no question on a person's screen.
