@@ -1,20 +1,8 @@
 --- a/plugins/aukora-caged-worker/lib/index.mjs
 +++ b/plugins/aukora-caged-worker/lib/index.mjs
-@@ -22,6 +22,7 @@
-     } }, timeoutMs: 340_000, isConcurrencySafe: () => false,
-     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
-     async execute(args, exec) {
+@@ -24,0 +25 @@
 +      if (process.platform === 'linux') return JSON.stringify({ ok: false, state: 'REFUSED', reason: 'adapter:linux-guest-confinement-unavailable', workerSpawns: 0 })
-       if (busy) return JSON.stringify({ ok: false, state: 'REFUSED', reason: 'adapter:busy' })
-       busy = true
-       try {
 --- a/plugins/aukora-caged-worker/lib/run.mjs
 +++ b/plugins/aukora-caged-worker/lib/run.mjs
-@@ -109,6 +109,7 @@
- }
- 
- export async function runPatch(settings, input, signal) {
+@@ -111,0 +112 @@
 +  if (process.platform === 'linux') return { ok: false, state: 'REFUSED', reason: 'adapter:linux-guest-confinement-unavailable', workerSpawns: 0 }
-   const args = captureWorkspacePatchArgs(input)
-   if (!args || args.workspace !== 'selected') return { ok: false, state: 'REFUSED', reason: 'adapter:closed-patch-required', workerSpawns: 0 }
-   if (signal?.aborted) return { ok: false, state: 'REFUSED', reason: 'adapter:cancelled', workerSpawns: 0 }

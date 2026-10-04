@@ -55,6 +55,8 @@ or installed behavior.
 `linux-caged-worker-refusal.patch` is a separate exact Git diff for the selected
 Prime caged-worker consumer. Its Linux guard returns a fixed REFUSED result with
 zero worker spawns at both the model tool entry and direct `runPatch()` entry.
+It is a zero-context diff: use `git apply --unidiff-zero` against the selected
+unchanged consumer files, then review the two entry guards.
 It preserves the existing macOS route and avoids issuer startup or filesystem
 preparation on unsupported Linux. Grok must also hide/disable that row in the
 selected Linux composition. No box developer launcher is mounted by the inspected
