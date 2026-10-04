@@ -17,6 +17,8 @@ The received main branch now includes [NEXT system source and its integration ev
 
 ## Evidence and source review
 
+For current engineering, follow [README](README.md) → [SECURITY-BOUNDARY.md](SECURITY-BOUNDARY.md) → [pilot architecture](ARCHITECTURE.md) → [verification scope](README.md#check-it-yourself) → [paper](docs/AUKORA-GOLDEN-BOUNDARY.md) → [separate research](research/README.md). Public source/main and the supplied `e337397` runtime observation are separately pinned in [current claims](docs/CLAIMS.md); the live containment result remains FAIL and the cold-verified collector remains INTERIM. The offline review does not rerun that live baseline.
+
 Read the [README status](README.md#status), [known gaps](README.md#known-gaps), paper's [implementation ledger](docs/AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today) and [architecture/setup](docs/PRIME-NEXT-ARCHITECTURE.md#build-and-operator-interface). Pick two or three claims relevant to the question; trace their linked package source and focused checks. Do review, authorization, dispatch and receipt bind the same operation? What observation would defeat each claim, and what smallest missing check would resolve it?
 
 When source execution is authorized and appropriate, follow the [README prerequisites](README.md#check-it-yourself): Node 24.11.1, Python 3.9+ at `/usr/bin/python3`, disposable private Unix-domain sockets and `umask 0022` in the source-check shell. Owner enrollment, provider credentials, a database and an OpenShell guest are not required for this public source profile.

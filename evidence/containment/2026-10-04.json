@@ -1,0 +1,65 @@
+{
+  "schema": "aukora-containment-disposition/v1",
+  "recorded_at": "2026-10-04T11:50:00Z",
+  "basis": "Retained operator reports; this documentation lane performed no live containment, firewall or sandbox check.",
+  "source_account": "11b5de57a261477c65ea74270926eebdf978dbf2",
+  "runtime_revision": "e33739780c09406d875336683053218a8a968051",
+  "command": "./security-review-containment",
+  "verdict_rule": "ANY ALLOWED = FAIL; missing enumeration or a detecting control cannot establish PASS.",
+  "original_baseline": {
+    "evidence_at": "2026-10-04T10:43:00Z",
+    "guest_denied": 34,
+    "guest_allowed": 1,
+    "host_denied": 33,
+    "host_allowed": 2,
+    "control": "20/20 allowed routes, 7/7 decoy changes detected; PROVES DETECTION",
+    "observer": "unchanged; signed ledger prefix through 153 intact"
+  },
+  "latest_supplied_result": {
+    "evidence_at": "2026-10-04T11:09:00Z",
+    "verdict": "FAIL",
+    "guest": {
+      "denied": 34,
+      "allowed": 1,
+      "open_finding": "inherited socket descriptors; protected-target reach not established"
+    },
+    "host_as_auma": {
+      "denied": 35,
+      "allowed": 0
+    }
+  },
+  "routes": [
+    {
+      "id": "host-loopback",
+      "finding": "Host-as-auma loopback TCP could connect to the Genesis and relay services.",
+      "disposition": "CLOSED_IN_REPORTED_FOLLOWUP",
+      "closure": "Host-local nftables table aukora_auma_local, source dc8c4267ec8cdda9979d5deeb772607c2ef90511; operator reports installed byte identity.",
+      "evidence_at": "2026-10-04T11:09:00Z",
+      "limit": "The host-as-auma aggregate changed from 33 DENIED / 2 ALLOWED to 35 DENIED / 0 ALLOWED. This does not close the guest descriptor finding or qualify the full control plane."
+    },
+    {
+      "id": "ssh-proxy-false-denial",
+      "finding": "The first local-service firewall rule also denied the required ephemeral ssh-proxy transport.",
+      "disposition": "CORRECTED_IN_OPERATOR_REPORT",
+      "closure": "Final dc8c4267ec8cdda9979d5deeb772607c2ef90511 rule accounts for the required ephemeral transport.",
+      "evidence_at": "2026-10-04T11:50:00Z",
+      "limit": "An operational false-denial and its reported rule correction, not an additional containment escape. No standalone transport acceptance receipt was supplied to this docs lane."
+    },
+    {
+      "id": "guest-inherited-descriptors",
+      "finding": "The guest inherited socket descriptors above standard input/output/error; reach to a protected target was not established.",
+      "disposition": "OPEN",
+      "proposed_source_reference": "7cfe8d7 (prepared launcher route; operator-supplied short source reference)",
+      "required": "Actual configured route must close the finding, followed by a new result with zero ALLOWED rows and a detecting control.",
+      "evidence_at": "2026-10-04T11:09:00Z",
+      "limit": "Latest supplied guest result remains 34 DENIED / 1 ALLOWED. Prepared source is not runtime closure."
+    }
+  ],
+  "remaining_limits": [
+    "No live check ran in this documentation task.",
+    "Control proves detection on disposable targets; it is not containment PASS.",
+    "Outside-observer completeness, guest control-plane custody, resource enforcement, complete cleanup and file-tool routing remain separate qualifications."
+  ],
+  "internal_transport_identifiers": "omitted",
+  "documented_at": "2026-10-04T12:05:17Z"
+}
