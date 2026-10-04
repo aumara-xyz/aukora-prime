@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync
 import { join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { registerHooks } from 'node:module'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -42,9 +42,20 @@ const mutants = {
   'citation-source': ['verify-collected.mjs', '&& record.source.position === requested.position && record.source.hash === requested.hash', '&& record.source.position === requested.position'],
   'citation-id': ['verify-collected.mjs', 'if (record_id !== null && match.record_id !== record_id)', 'if (false)'],
   'citation-anchor': ['verify-collected.mjs', "if (anchorResult.anchor_status === 'unperformed')", 'if (false)'],
-  'citation-live': ['collect-gate.mjs', /if \(disposed \|\| !synchronousTrue\(isLive\)\)/g, 'if (false)'],
+  'citation-live': ['collect-gate.mjs', /if \(disposed \|\| !synchronousTrue\(isLive\) \|\| disposed\)/g, 'if (false)'],
   'citation-grant': ['collect-gate.mjs', 'if (!synchronousTrue(hasReadGrant, authenticatedOwnerSubject))', 'if (false)'],
   'citation-final-access': ['collect-gate.mjs', 'if (after !== null) return refused(after)', 'void 0'],
+  'provider-live': ['records-provider.mjs', /if \(disposed \|\| !synchronousTrue\(isLive\) \|\| disposed\)/g, 'if (false)'],
+  'provider-grant': ['records-provider.mjs', 'if (!synchronousTrue(hasReadGrant, ownerSubject))', 'if (false)'],
+  'provider-final': ['records-provider.mjs', 'const result = await Reflect.apply(read, reader, [ownerSubject, selected])\n        checkAccess()',
+    'const result = await Reflect.apply(read, reader, [ownerSubject, selected])'],
+  'context-pin': ['context.mjs', 'gatePublicKeySha256(source.public_key_pem) !== source.key_sha256', 'false'],
+  'context-material': ['context.mjs', 'publicKeyOf(authorSecretKeyHex) !== configuration.nostr.author_pubkey_hex', 'false'],
+  'capture-source': ['context.mjs', 'row.hash !== selected.ledger_hash', 'false'],
+  'capture-receipt': ['context.mjs', 'canonicalJson(detail.receipt) !== receiptBytes', 'false'],
+  'citation-reentrant': ['collect-gate.mjs', /!synchronousTrue\(isLive\) \|\| disposed/g, '!synchronousTrue(isLive)'],
+  'provider-reentrant': ['records-provider.mjs', /!synchronousTrue\(isLive\) \|\| disposed/g, '!synchronousTrue(isLive)'],
+  'capture-reentrant': ['context.mjs', '!trueSync(isLive) || disposed)', '!trueSync(isLive))'],
 }
 if (mutant && !mutants[mutant]) throw Error('Unknown focused mutant')
 let mutationApplied = false
@@ -77,7 +88,8 @@ registerHooks({
       loaded = { format: 'module', shortCircuit: true,
         source: execFileSync('git', ['show', `${base}:${rel}`], { cwd: root, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }) }
     } else loaded = next(url, context)
-    if (mutant && url.endsWith(`/scripts/aura/${mutants[mutant][0]}`)) {
+    if (mutant && [`/scripts/aura/${mutants[mutant][0]}`,
+      `/packages/boundary-gate/host/aura/${mutants[mutant][0]}`].some(suffix => url.endsWith(suffix))) {
       const [file, match, replacement] = mutants[mutant]
       const text = typeof loaded.source === 'string' ? loaded.source : Buffer.from(loaded.source).toString('utf8')
       const altered = text.replace(match, replacement)
@@ -91,6 +103,11 @@ registerHooks({
 const { collectGateOnce, createNostrCollectorCodec, createCollectorCitationReader, openCollectorStore } = await import('../collect-gate.mjs')
 const { readGateSnapshot, gateEntryBody, gateEntryHash, gatePublicKeySha256 } = await import('../gate-snapshot.mjs')
 const { verifyCollectorStore, verifyCollected } = await import('../verify-collected.mjs')
+const { parseAuraConfiguration, createAuraCollectorContext, createConfiguredAuraRecords, readProtectedAuraData,
+  createGateCaptureReferenceResolver } =
+  await import('../../../packages/boundary-gate/host/aura/context.mjs')
+const { createAuraRecordsProvider } = await import('../../../packages/boundary-gate/host/aura/records-provider.mjs')
+const { runAuraAction } = await import('../../../packages/boundary-gate/host/aura/entry.mjs')
 // Missing sparse source is read from the exact current Git checkpoint in memory.
 // No library files are materialized, and no structural-codec fallback is accepted.
 const recordURL = existsSync(recordFile) ? pathToFileURL(recordFile).href : (() => {
@@ -275,7 +292,164 @@ try {
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(unhandledGuardRejection, false, 'misconfigured async guard must not leak its rejected diagnostic')
   } finally { process.removeListener('unhandledRejection', observeUnhandledGuard) }
+  let reentrantReader, reentrantLiveCalls = 0
+  reentrantReader = createCollectorCitationReader(guardedContext, {
+    isLive() { if (++reentrantLiveCalls === 4) reentrantReader.dispose(); return true },
+    hasReadGrant: subject => subject === ownerSubject,
+  })
+  const beforeReentrantDecrypts = decrypts
+  const reentrantCitation = await reentrantReader.readCitation(ownerSubject, selected)
+  if (mutant === 'citation-reentrant') console.log(`MUTANT-OBSERVATION reentrant disposed reader: ok=${reentrantCitation.ok}, status=${reentrantCitation.status}`)
+  assert.equal(reentrantLiveCalls, 4, 'disposal must occur in the final live callback after cold verification')
+  assert(decrypts > beforeReentrantDecrypts, 'reentrancy refusal must discard an actual decrypted cold verification result')
+  assert.equal(reentrantCitation.reason, 'aura-citation:owner-inactive')
+  assert.equal(reentrantCitation.citation, null); assert.equal(reentrantCitation.verification, null)
   console.log('PASS cached handle disposal, exact retained read grant, in-flight revocation and strict host guard refusals')
+  const configuration = { version: 1, kind: 'aukora-aura-context/v1', owner_subject: ownerSubject,
+    store_dir: storeDir, python_executable: '/usr/bin/python3', anchors,
+    source: { db_path: dbPath, source_id: snapshotOptions.sourceId, public_key_pem: gatePem,
+      key_sha256: snapshotOptions.expectedKeySha256, max_rows: 50000, max_bytes: 16 * 1024 * 1024, max_record_bytes: 48 * 1024 },
+    nostr: { binding, controller_key_hex: controllerHex, author_pubkey_hex: authorPubkeyHex,
+      owner_pubkey_hex: ownerPubkeyHex, author_secret_path: '/fixture-only/existing-author.hex' } }
+  const parsedConfiguration = parseAuraConfiguration(JSON.stringify(configuration))
+  const loadedContext = await createAuraCollectorContext(parsedConfiguration, { authorSecretKeyHex })
+  assert.equal((await runAuraAction('verify', loadedContext)).ok, true)
+  assert.equal((await runAuraAction('collect', loadedContext)).appended, 0)
+  await assert.rejects(runAuraAction('activate', loadedContext), error => error.code === 'aura-entry:action-invalid')
+  for (const change of [
+    { ...configuration, first_run: true },
+    { ...configuration, python_executable: '/fixture-only/python3' },
+    { ...configuration, owner_subject: `aukora:1:${'2'.repeat(64)}` },
+    { ...configuration, source: { ...configuration.source, key_sha256: 'a'.repeat(64) } },
+    { ...configuration, nostr: { ...configuration.nostr, owner_pubkey_hex: [ownerPubkeyHex] } },
+    { ...configuration, source: { ...configuration.source, db_path: '/fixture-only/../source.db' } },
+  ]) assert.throws(() => parseAuraConfiguration(JSON.stringify(change)), error => error.code.startsWith('aura-context:'))
+  const mismatchedSourcePin = { ...configuration, anchors: [], source: { ...configuration.source, key_sha256: 'a'.repeat(64) } }
+  if (mutant === 'context-pin') {
+    const accepted = parseAuraConfiguration(JSON.stringify(mismatchedSourcePin))
+    console.log(`MUTANT-OBSERVATION mismatched SPKI configuration: accepted=${accepted !== null}`)
+  }
+  assert.throws(() => parseAuraConfiguration(JSON.stringify(mismatchedSourcePin)),
+    error => error.code === 'aura-context:source-invalid')
+  assert.throws(() => parseAuraConfiguration('{"version":1,' + JSON.stringify(configuration).slice(1)))
+  await assert.rejects(createAuraCollectorContext(configuration, { authorSecretKeyHex }),
+    error => error.code === 'aura-context:configuration-unrecognized')
+  await assert.rejects(createAuraCollectorContext(parsedConfiguration, { authorSecretKeyHex: ownerSecretKeyHex }),
+    error => error.code === 'aura-context:scoped-material-unavailable')
+  assert.throws(() => readProtectedAuraData(dbPath), error => error.code === 'aura-context:protected-data-unavailable')
+  assert.equal((await runAuraAction('verify', loadedContext)).ok, true)
+  // Exercise the actual entry's main block. Dependencies remain cached Git
+  // objects in memory, and invalid argv refuses before any protected data read.
+  const entryPath = join(root, 'packages/boundary-gate/host/aura/entry.mjs')
+  const cliBootstrap = `
+    import {registerHooks} from 'node:module';
+    import {execFileSync} from 'node:child_process';
+    import {relative} from 'node:path';
+    import {fileURLToPath,pathToFileURL} from 'node:url';
+    const [root,base,entry,...args]=JSON.parse(process.argv[1]);
+    registerHooks({
+      resolve(specifier,context,next) {
+        if(specifier.startsWith('node:'))return next(specifier,context);
+        if(context.parentURL?.startsWith('aukora-git:')&&specifier.startsWith('.'))
+          return {url:new URL(specifier,context.parentURL).href,shortCircuit:true};
+        try{return next(specifier,context)}catch(error){
+          if(!context.parentURL||!specifier.startsWith('.'))throw error;
+          const rel=relative(root,fileURLToPath(new URL(specifier,context.parentURL)));
+          if(!/^(plugins\\/aukora-(nostr|aumlok)\\/|packages\\/contracts\\/src\\/)/u.test(rel))throw error;
+          return {url:'aukora-git:///'+rel,shortCircuit:true};
+        }
+      },
+      load(url,context,next) {
+        if(!url.startsWith('aukora-git:///'))return next(url,context);
+        return {format:'module',shortCircuit:true,source:execFileSync('git',
+          ['show',base+':'+url.slice('aukora-git:///'.length)],{cwd:root,encoding:'utf8'})};
+      }
+    });
+    process.argv=[process.execPath,entry,...args];
+    await import(pathToFileURL(entry).href);
+  `
+  for (const args of [['activate'], ['verify', '/candidate-selected/config.json']]) {
+    const child = spawnSync(process.execPath, ['--input-type=module', '--eval', cliBootstrap,
+      JSON.stringify([root, base, entryPath, ...args])], { encoding: 'utf8', timeout: 15000 })
+    assert.equal(child.error, undefined)
+    assert.equal(child.status, 2, child.stderr)
+    assert.deepEqual(JSON.parse(child.stdout), { ok: false, status: 'incomplete',
+      reason: 'aura-entry:action-invalid', grants_authority: false })
+  }
+  console.log('PASS fixed host configuration, actual binding/source/scoped-key pins and finite collect/verify actions')
+
+  const memoryRecordId = `rem:${'a'.repeat(64)}` // Synthetic association only; never installed provenance.
+  let providerLive = true, providerGranted = true, associationsRead = 0
+  const providerGuards = { isLive: () => providerLive, hasReadGrant: subject => subject === ownerSubject && providerGranted }
+  const provider = createConfiguredAuraRecords(loadedContext, { ...providerGuards,
+    referenceForRecord: id => { associationsRead++; return id === memoryRecordId ? selected : null } })
+  const cachedReference = provider.service.referenceForRecord, cachedCitation = provider.service.readCitation
+  assert.deepEqual(await cachedReference(memoryRecordId), selected)
+  assert.equal((await cachedCitation(selected)).citation.record_id, savedEvents[1].id)
+  assert.equal(await cachedReference(`rem:${'b'.repeat(64)}`), null)
+  const absentAssociation = createConfiguredAuraRecords(loadedContext, providerGuards)
+  assert.equal(await absentAssociation.service.referenceForRecord(memoryRecordId), null)
+  providerLive = false
+  if (mutant === 'provider-live') {
+    const accepted = await cachedReference(memoryRecordId)
+    console.log(`MUTANT-OBSERVATION inactive association read: returned=${accepted !== null}`)
+  }
+  await assert.rejects(cachedReference(memoryRecordId), error => error.code === 'aura-citation:owner-inactive')
+  assert.equal((await cachedCitation(selected)).reason, 'aura-citation:owner-inactive')
+  providerLive = true; providerGranted = false
+  if (mutant === 'provider-grant') {
+    const accepted = await cachedReference(memoryRecordId)
+    console.log(`MUTANT-OBSERVATION revoked-grant association read: returned=${accepted !== null}`)
+  }
+  await assert.rejects(cachedReference(memoryRecordId), error => error.code === 'aura-citation:read-grant-unavailable')
+  providerGranted = true
+  let releaseAssociation
+  const duringAssociation = createConfiguredAuraRecords(loadedContext, { ...providerGuards,
+    referenceForRecord: () => new Promise(resolve => { releaseAssociation = resolve }) })
+  const pendingAssociation = duringAssociation.service.referenceForRecord(memoryRecordId)
+  duringAssociation.dispose(); releaseAssociation(selected)
+  await assert.rejects(pendingAssociation, error => error.code === 'aura-citation:owner-inactive')
+  let releaseRead
+  const duringCitation = createAuraRecordsProvider({ ownerSubject, ...providerGuards, referenceForRecord: null,
+    reader: { dispose() {}, readCitation: async (...args) => {
+      const actual = await citationReader.readCitation(...args)
+      await new Promise(resolve => { releaseRead = resolve })
+      return actual
+    } } })
+  const pendingProviderCitation = duringCitation.service.readCitation(selected)
+  while (!releaseRead) await new Promise(resolve => setImmediate(resolve))
+  duringCitation.dispose(); releaseRead()
+  const lateProviderRead = await pendingProviderCitation
+  if (mutant === 'provider-final') console.log(`MUTANT-OBSERVATION disposed provider read: ok=${lateProviderRead.ok}, status=${lateProviderRead.status}`)
+  assert.equal(lateProviderRead.reason, 'aura-citation:owner-inactive')
+  assert.equal(lateProviderRead.citation, null); assert.equal(lateProviderRead.verification, null)
+  let reentrantProvider, providerLiveCalls = 0, verifiedBeforeDisposal = false
+  reentrantProvider = createAuraRecordsProvider({ ownerSubject, referenceForRecord: null,
+    isLive() { if (++providerLiveCalls === 6) reentrantProvider.dispose(); return true },
+    hasReadGrant: subject => subject === ownerSubject,
+    reader: { dispose() {}, async readCitation(...args) {
+      const result = await citationReader.readCitation(...args)
+      verifiedBeforeDisposal = result.ok === true
+      return result
+    } } })
+  const reentrantProviderCitation = await reentrantProvider.service.readCitation(selected)
+  if (mutant === 'provider-reentrant') console.log(`MUTANT-OBSERVATION reentrant disposed provider: ok=${reentrantProviderCitation.ok}, status=${reentrantProviderCitation.status}`)
+  assert.equal(providerLiveCalls, 6); assert.equal(verifiedBeforeDisposal, true)
+  assert.equal(reentrantProviderCitation.reason, 'aura-citation:owner-inactive')
+  assert.equal(reentrantProviderCitation.citation, null); assert.equal(reentrantProviderCitation.verification, null)
+  const beforeAssociationsRead = associationsRead
+  provider.dispose()
+  await assert.rejects(cachedReference(memoryRecordId), error => error.code === 'aura-citation:owner-inactive')
+  assert.equal((await cachedCitation(selected)).reason, 'aura-citation:owner-inactive')
+  assert.equal(associationsRead, beforeAssociationsRead)
+  let getterCalls = 0
+  const malformedLookup = createConfiguredAuraRecords(loadedContext, { ...providerGuards,
+    referenceForRecord: () => Object.defineProperty({}, 'source', { enumerable: true, get() { getterCalls++; return selected.source } }) })
+  await assert.rejects(malformedLookup.service.referenceForRecord(memoryRecordId),
+    error => error.code === 'aura-citation:association-invalid')
+  assert.equal(getterCalls, 0)
+  assert.equal((await absentAssociation.service.readCitation({ source: { ...selected.source, hash: [selected.source.hash] } })).ok, false)
+  console.log('PASS host records provider, synthetic exact association, both cached methods and in-flight disposal refusals')
   // Caller-context mutation cannot redirect a retained owner-bound reader.
   citationContext.storeDir = join(testRoot, 'missing-output'); citationContext.snapshotOptions = {}
   assert.equal((await citationReader.readCitation(ownerSubject, selected)).ok, true)
@@ -289,6 +463,66 @@ try {
   assert.deepEqual(readFileSync(dbPath), citationDbBytes); assert.deepEqual(readFileSync(`${dbPath}-wal`), citationWalBytes)
   assert.deepEqual(readFileSync(logPath), citationLog); assert.deepEqual(readFileSync(cpPath), citationCheckpoint)
   console.log('PASS actual owner-scoped citations, exact ID/source, cold-only reads and no private/unrelated payload egress')
+
+  // Actual signed SQLite source + actual B collection; only the host action
+  // response and eventual note lookup are synthetic. No live capture is claimed.
+  const appliedEntry = appendSource('apply', true)
+  const appliedReceipt = { v: 2, proposal: appliedEntry.proposal, target: appliedEntry.target,
+    base_sha: 'a'.repeat(64), new_sha: 'b'.repeat(64), applied_at: appliedEntry.at }
+  const appliedReceiptSig = sign(null, Buffer.from(JSON.stringify(appliedReceipt)), gatePrivate).toString('base64')
+  appliedEntry.detail = JSON.stringify({ receipt: appliedReceipt, receipt_sig: appliedReceiptSig })
+  appliedEntry.hash = gateEntryHash(gateEntryBody(appliedEntry))
+  appliedEntry.sig = sign(null, Buffer.from(appliedEntry.hash, 'hex'), gatePrivate).toString('base64')
+  db.prepare('UPDATE ledger SET detail=?,hash=?,sig=? WHERE seq=?').run(
+    appliedEntry.detail, appliedEntry.hash, appliedEntry.sig, appliedEntry.seq)
+  const laterEntry = appendSource('fixture-later-head')
+  const captureConfiguration = parseAuraConfiguration(JSON.stringify({ ...configuration,
+    store_dir: join(testRoot, 'capture-output') }))
+  const captureContext = await createAuraCollectorContext(captureConfiguration, { authorSecretKeyHex })
+  const captureResolver = createGateCaptureReferenceResolver(captureContext, providerGuards)
+  const actionResult = { applied: true, state: 'applied', receipt: appliedReceipt, receipt_sig: appliedReceiptSig,
+    ledger_seq: appliedEntry.seq, ledger_hash: appliedEntry.hash, message: 'fixture' }
+  const resolvedCapture = captureResolver.referenceForAppliedAction(actionResult)
+  assert.deepEqual(resolvedCapture, { source: { journal_id: snapshotOptions.sourceId,
+    position: appliedEntry.seq, hash: appliedEntry.hash } })
+  assert.notEqual(resolvedCapture.source.position, laterEntry.seq, 'capture must retain its specific action, never latest head')
+  const captureDbBytes = readFileSync(dbPath), captureWalBytes = readFileSync(`${dbPath}-wal`)
+  assert.equal((await runAuraAction('collect', captureContext)).ok, true)
+  const captureProvider = createConfiguredAuraRecords(captureContext, { ...providerGuards,
+    referenceForRecord: id => id === memoryRecordId ? resolvedCapture : null })
+  const actualAssociation = await captureProvider.service.referenceForRecord(memoryRecordId)
+  const actualCaptureCitation = await captureProvider.service.readCitation(actualAssociation)
+  assert.equal(actualCaptureCitation.ok, true)
+  assert.deepEqual(actualCaptureCitation.citation.source, resolvedCapture.source)
+  const captureEvents = readFileSync(join(testRoot, 'capture-output/gate-observations.nostr.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
+  assert.equal(actualCaptureCitation.citation.record_id, captureEvents[appliedEntry.seq - 1].id)
+  let reentrantResolver, captureLiveCalls = 0
+  reentrantResolver = createGateCaptureReferenceResolver(captureContext, {
+    isLive() { if (++captureLiveCalls === 6) reentrantResolver.dispose(); return true },
+    hasReadGrant: subject => subject === ownerSubject,
+  })
+  let reentrantCapture, reentrantCaptureError
+  try { reentrantCapture = reentrantResolver.referenceForAppliedAction(actionResult) }
+  catch (error) { reentrantCaptureError = error }
+  if (mutant === 'capture-reentrant') console.log(`MUTANT-OBSERVATION reentrant disposed capture: accepted=${!!reentrantCapture}`)
+  assert.equal(reentrantCaptureError?.code, 'aura-context:capture-read-unavailable')
+  assert.equal(reentrantCapture, undefined)
+  assert.equal(captureLiveCalls, 6, 'disposal must happen after exact signed-row and receipt verification')
+  const alteredHashResult = { ...actionResult, ledger_hash: 'c'.repeat(64) }
+  if (mutant === 'capture-source') console.log(`MUTANT-OBSERVATION altered action hash: accepted=${!!captureResolver.referenceForAppliedAction(alteredHashResult)}`)
+  assert.throws(() => captureResolver.referenceForAppliedAction(alteredHashResult), error => error.code === 'aura-context:capture-source-mismatch')
+  const alteredReceiptResult = { ...actionResult, receipt: { ...appliedReceipt, new_sha: 'd'.repeat(64) } }
+  if (mutant === 'capture-receipt') console.log(`MUTANT-OBSERVATION altered action receipt: accepted=${!!captureResolver.referenceForAppliedAction(alteredReceiptResult)}`)
+  assert.throws(() => captureResolver.referenceForAppliedAction(alteredReceiptResult), error => error.code === 'aura-context:capture-receipt-mismatch')
+  assert.throws(() => captureResolver.referenceForAppliedAction({ ...actionResult, ledger_seq: laterEntry.seq, ledger_hash: laterEntry.hash }))
+  providerGranted = false
+  assert.throws(() => captureResolver.referenceForAppliedAction(actionResult), error => error.code === 'aura-context:capture-read-unavailable')
+  providerGranted = true; captureResolver.dispose()
+  assert.throws(() => captureResolver.referenceForAppliedAction(actionResult), error => error.code === 'aura-context:capture-read-unavailable')
+  assert.deepEqual(readFileSync(dbPath), captureDbBytes); assert.deepEqual(readFileSync(`${dbPath}-wal`), captureWalBytes)
+  captureProvider.dispose()
+  db.prepare('DELETE FROM ledger WHERE seq>?').run(3); entries.splice(3)
+  console.log('PASS exact applied-action association, later-head refusal, actual cold citation and receipt/hash tamper refusals')
 
   const goodLog = readFileSync(logPath, 'utf8'), goodCheckpoint = readFileSync(cpPath, 'utf8')
   const forged = JSON.parse(goodCheckpoint); forged.source_head.position = 999
