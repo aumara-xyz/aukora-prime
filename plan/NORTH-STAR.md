@@ -1,6 +1,6 @@
 > Copied 2026-10-04 from Peter's PRIME-NORTH-STAR.md; verbatim except one redaction marked [REDACTED: ...]; status tags (RAN / SOURCE / NOT YET) added 2026-10-04 with that day's truth on Nebius (live at the SHA in the latest Room line).
 
-# AUKORA PRIME — NORTH STAR (replaces plan/MASTER-PLAN-v4.md as the front page)
+# AUKORA PRIME — NORTH STAR (replaces archived MASTER-PLAN-v4 as the front page)
 
 ONE SENTENCE: a personal AI organism on a Linux server you control, reached from your own app, that can grow and
 even change itself — and can never act past the boundary without its owner's approval, with a receipt anyone can check.
@@ -33,7 +33,7 @@ THE BODY (where each organ lives in Prime main; status = RAN on Nebius / SOURCE 
   [RAN] gate propose -> OWNER review -> approve applies exact bytes -> signed receipt (dry run, harness-channel TEST proposal);
   [RAN 2026-10-04 11:08 UTC+8] Auma's own gate tool proposed accent #FFD700 (b9187db9), the owner approved it in the
   popup, the gate applied it and signed the receipt, and the running interface picked it up without a restart (hot-reload).
-- THE MIND (later): today DeepSeek [RAN]; next the Nebius recursion model (Ornith) as a model provider, trained on her
+- THE MIND (later): [Ornith / recursion research report and sanitized digest](../research/README.md) [RESEARCH: retained by PR #10; not a deployed provider]. Today DeepSeek [RAN]; next the Nebius recursion model (Ornith) as a model provider, trained on her
   own verified life [NOT YET]; routes to other models through a host-held, capped ask_model tool. The walls stay outside the model.
 
 TARGET DEMO (the plane), each step tagged with 2026-10-04 truth:

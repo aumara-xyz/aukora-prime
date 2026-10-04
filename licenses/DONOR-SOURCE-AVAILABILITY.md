@@ -1,8 +1,8 @@
 # Donor source availability
 
-Selected donor material already included in Prime stays in this repository. Zeta Harp and historical Membrane repository names record provenance; neither donor checkout is required at build or runtime. See the [build and composition scope](../docs/ARCHITECTURE.md#build-and-operator-interface) and the [retained historical vendor README](../packages/ui/faces/apps/vendor/README.md).
+Selected donor material already included in Prime stays in this repository. Zeta Harp and historical Membrane repository names record provenance; neither donor checkout is required at build or runtime. See the [build and composition scope](../docs/PRIME-NEXT-ARCHITECTURE.md#build-and-operator-interface) and the [retained historical vendor README](../packages/ui/faces/apps/vendor/README.md).
 
-The vendor README is retained byte-for-byte under the UI baseline manifest. Its donor-era manifest-generation commands, inventory descriptions and runtime mappings are historical. Use the [selected-file baseline](../packages/ui/baseline-manifest.json), [Prime architecture](../docs/ARCHITECTURE.md) and [current known gaps](../README.md#known-gaps) for the selected Prime scope. This disclosure does not modify that donor file or its pin.
+The vendor README is retained byte-for-byte under the UI baseline manifest. Its donor-era manifest-generation commands, inventory descriptions and runtime mappings are historical. Use the [selected-file baseline](../packages/ui/baseline-manifest.json), [Prime architecture](../docs/PRIME-NEXT-ARCHITECTURE.md) and [current known gaps](../README.md#known-gaps) for the selected Prime scope. This disclosure does not modify that donor file or its pin.
 
 Anonymous reads of the provenance-named Zeta Harp and Aukora Membrane GitHub repository pages on 2026-10-02 returned HTTP 404. That response does not distinguish a private repository from a missing one. Their external source availability is **UNQUALIFIED**; a donor identifier is not a verified public source-download promise.
 

@@ -1,6 +1,6 @@
 # AUKORA Convergence: the front page
 
-Last updated 2026-10-03 ~13:40 WITA (UTC+8) by Grok. This page wins over every older plan. Details live in [MASTER-PLAN-v4.md](MASTER-PLAN-v4.md); Peter's ideas live in [IDEAS-LEDGER.md](IDEAS-LEDGER.md).
+Last updated 2026-10-03 ~13:40 WITA (UTC+8) by Grok. This page wins over every older plan. Details live in [MASTER-PLAN-v4.md](archive/MASTER-PLAN-v4.md); Peter's ideas live in [IDEAS-LEDGER.md](IDEAS-LEDGER.md).
 
 Labels: **RAN** = executed and the output exists. **SOURCE-ONLY** = the code says so, nothing ran. **UNPERFORMED** = not done.
 
@@ -67,4 +67,4 @@ Labels: **RAN** = executed and the output exists. **SOURCE-ONLY** = the code say
 - **The relay** is only for short status pings. Anything that matters goes into an issue.
 - Comment format: task, revision, claim/review/decision/fix, evidence ref, result, blocker, next owner. No "OK/thanks" loops.
 - Decisions come only from Peter.
-- Full reference plan: [MASTER-PLAN-v4.md](MASTER-PLAN-v4.md). Ideas: [IDEAS-LEDGER.md](IDEAS-LEDGER.md).
+- Full reference plan: [MASTER-PLAN-v4.md](archive/MASTER-PLAN-v4.md). Ideas: [IDEAS-LEDGER.md](IDEAS-LEDGER.md).

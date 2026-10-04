@@ -9,13 +9,10 @@
  *
  *   node scripts/kira/public-evidence.mjs verify --export <dir> [--json]
  *
- * WHY THIS FILE EXISTS. A digest is not a handoff. A digest reported without the path and the commit
- * it was computed from is not portable evidence about anything, and this project has already paid for
- * that lesson once: the same commit, the same built source, materialized at two paths, produced TWO
- * different release-record digests (`a42561b1…` and `4ce74e33…`), because the materializer bakes the
- * release's ABSOLUTE path into `aukora-composition.patch.yml` and `aukora-lanes.patch.yml`, and the
- * record covers `*.patch.yml`. So this exporter never reports a bare digest. Every digest it writes
- * travels beside the path, the commit and the byte count it was measured from.
+ * Invariant: every digest carries its producer commit, relative member path and byte count.
+ * Threat: a bare digest or path-dependent record can be mistaken for portable proof.
+ * Reason: the consumer needs the exact object and provenance to repeat the measurement.
+ * Historical rationale: plan/ADR-EVIDENCE-HANDOFF.md.
  *
  * WHAT A HANDOFF DIRECTORY IS. A fixed layout an independent consumer can be pointed at:
  *
@@ -405,12 +402,9 @@ function assertNoDuplicateKeys(text, label) {
  */
 function readStrict(path, label) {
   try {
-    // ── `.bytes`, BECAUSE THAT IS WHAT THIS FUNCTION PROMISES ITS CALLERS ──────────────────────────
-    // `readBytesStrict` returns `{bytes, text}` — ONE strict read that yields both, so a digest and a
-    // parse can never come from two different reads. **The callers here want the BYTES**, and returning
-    // the wrapper handed an object to `sha256` and to the JSON parse: MEASURED as
-    // `The "data" argument must be of type string or an instance of Buffer...`, which broke 21 controls in
-    // `tests/public-evidence.test.mjs`. A shared module's return SHAPE is part of its contract.
+    // Invariant: return the bytes from the single strict read.
+    // Threat: passing the {bytes, text} wrapper breaks the digest/parse contract.
+    // Reason: callers hash and parse the same read; see ADR-EVIDENCE-HANDOFF.
     return readBytesStrict(path).bytes
   } catch (error) {
     if (error instanceof StrictReadRefusal) {
@@ -1174,22 +1168,11 @@ export function verifyPublicEvidence(exportDir) {
   const listedPaths = new Set(listed.map(entry => entry.path))
   const present = listExportFiles(root).filter(path => path !== MANIFEST_NAME)
 
-  // ── EVERY LISTED PATH MUST BE A PATH INSIDE THE EXPORT ─────────────────────────────────────────
-  // MEASURED DEFECT, found by reading this file after three rounds of the same class elsewhere: a
-  // manifest naming `../outside.txt`, with that file's CORRECT byte count and digest, was accepted and
-  // `verifyPublicEvidence` returned `{ok: true, files: 1}`. `join(root, entry.path)` resolves the
-  // traversal and the read leaves the export entirely, so a verifier asked to check ONE DIRECTORY
-  // would read — and hash, and private-material-scan — a file outside it, then call the result
-  // verified. The unlisted-file check above cannot catch it: the escapee is listed, by its escaping
-  // name. `listExportFiles` built its own paths and never consults the manifest, so nothing had
-  // constrained what the manifest may name.
-  //
-  // The refusal is by name and comes BEFORE ANYTHING IS READ OR LISTED, so a manifest can neither
-  // escape the export nor use this verifier to probe the filesystem. It must precede the unlisted
-  // check: repointing an entry outside makes the genuine member it replaced look unlisted, so the
-  // listing check would fire first and name a different defect. A path is accepted only as a
-  // non-empty relative path whose segments are neither `..` nor `.`, with no backslash and no
-  // leading separator — the shape the producer emits, stated rather than assumed.
+  // Invariant: validate every manifest path before reads or directory comparison.
+  // Threat: a listed traversal can escape the export despite a matching digest.
+  // Reason: listing checks cannot constrain caller-supplied member paths, and
+  // must not mask the path refusal with an unrelated unlisted-member error.
+  // Historical rationale: plan/ADR-EVIDENCE-HANDOFF.md.
   for (const entry of listed) {
     const listedPath = String(entry.path ?? '')
     const segments = listedPath.split('/')

@@ -1,18 +1,23 @@
 # How AUKORA fits together
 
-*Start here if you are reading the repository rather than running it.* Every row below names the code, the test that
-covers it, and one status word: **RAN** (ran on the configured path, with the evidence named), **SOURCE** (code and
-tests in this repository, not run as an installed system) or **NOT YET** (designed or stubbed, not working).
-[docs/CLAIMS.md](docs/CLAIMS.md) is the claim-by-claim account; the [README](README.md) carries the status history.
+**Repository map:** `plugins/` + `apps/aukora-desktop/` — pilot runtime and owner client.
+`packages/boundary-gate/` — separate authority; [20-file review map](SECURITY-BOUNDARY.md).
+`packages/{authority,memory,execution,inference,runtime-bridge,ui,ops}/` + `harness/` — NEXT source.
+`evidence/current.json` + `docs/` — current claims, public receipts and archived history.
+`scripts/` — check/operator index; `plan/` — directions; `labs/` — NOT LIVE; [research/](research/README.md) — separate research reports.
+
+*Start here if you are reading the repository rather than running it.* The component table describes the selected source account in [evidence/current.json](evidence/current.json). Pilot RAN labels below are operator-reported; this documentation change does not reobserve them. Current factual claim rows are generated in [CLAIMS](docs/CLAIMS.md). Every row below names the code, the test that
+covers it, and one status word: **RAN** (ran on the configured path, with the evidence named), **SOURCE** (code present; referenced checks must be run at the received revision) or **NOT YET** (designed or stubbed, not working).
+[docs/CLAIMS.md](docs/CLAIMS.md) is the claim-by-claim account; the [README](README.md) carries current status; history is archived.
 
 The repository holds two layers. Keep them apart while reading:
 
 1. **The organism (RAN on one Linux pilot).** A Genesis agent runtime ("Auma") whose plugins are admitted only as an
-   owner-approved set, whose hands are inside an NVIDIA OpenShell sandbox, and which cannot change its own system
-   except by proposing to a boundary gate that only the owner can approve, from a desktop app on the owner's Mac.
+   owner-approved set, whose one-shot bash route uses an NVIDIA OpenShell sandbox, and whose governed theme/plugin-set changes go
+   through proposals to a boundary gate that only the owner can approve, from a desktop app on the owner's Mac.
 2. **Prime NEXT packages (SOURCE).** `packages/authority`, `memory`, `execution`, `inference`, `runtime-bridge`,
    `contracts`, `ui`, `ops`: a stricter authority path under construction. `./prime verify` runs their 66-job source
-   profile. They are not what runs on the pilot. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+   profile. They are not what runs on the pilot. See [docs/PRIME-NEXT-ARCHITECTURE.md](docs/PRIME-NEXT-ARCHITECTURE.md).
 
 ## The organism on one page
 
@@ -68,7 +73,7 @@ The repository holds two layers. Keep them apart while reading:
 
 ## Not mounted, fixtures, history
 
-Present in the tree but not part of the live organism: `plugins/aukora-gate-demo` (a one-file fixture for the
+Present in the tree but not part of the live organism (see [lab index](labs/README.md)): `plugins/aukora-gate-demo` (a one-file fixture for the
 composition gate's governed-grant lane), `plugins/aukora-box`, `plugins/aukora-organism`,
 `plugins/aukora-subscription-hands`, `plugins/aukora-nostr` (a library, used by the collector),
 `labs/deepseek-harness-boundary` (the lab the boundary gate was distilled from), `labs/laya-screen`.

@@ -8,7 +8,8 @@ This is a suggested reading path for people and AI assistants, not authority ove
 
 1. **Orient:** [the short overview and reading map](docs/READING-GUIDE.md) stands alone and connects the whole system.
 2. **Understand the argument:** [the complete Golden Boundary paper](docs/AUKORA-GOLDEN-BOUNDARY.md), including the unnumbered human network and registered agents sections, the philosophy, §19 and its closing continuations. The overview links those destinations directly.
-3. **Assess evidence:** use the source-review route below. For a broader critique, choose the [optional deep-review questions](docs/VISION-QUESTIONS.md) on falsification, prior art, adoption and costs.
+3. **Optional research depth:** [recursion / Ornith research](research/README.md) has a dated report and sanitized digest retained by PR #10. Research observations remain separate from deployed product claims; no provider mount, training or new GPU evidence is implied.
+4. **Assess evidence:** use the source-review route below. For a broader critique, choose the [optional deep-review questions](docs/VISION-QUESTIONS.md) on falsification, prior art, adoption and costs.
 
 Disclose what you read, ran or could not inspect. Assess current implementation separately from conditional architectural potential. Name supporting evidence, counterevidence and uncertainty; neither praise nor rejection is a required conclusion.
 
@@ -16,16 +17,17 @@ The received main branch now includes [NEXT system source and its integration ev
 
 ## Evidence and source review
 
-Read the [README status](README.md#status), [known gaps](README.md#known-gaps), paper's [implementation ledger](docs/AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today) and [architecture/setup](docs/ARCHITECTURE.md#build-and-operator-interface). Pick two or three claims relevant to the question; trace their linked package source and focused checks. Do review, authorization, dispatch and receipt bind the same operation? What observation would defeat each claim, and what smallest missing check would resolve it?
+Read the [README status](README.md#status), [known gaps](README.md#known-gaps), paper's [implementation ledger](docs/AUKORA-GOLDEN-BOUNDARY.md#17-what-exists-today) and [architecture/setup](docs/PRIME-NEXT-ARCHITECTURE.md#build-and-operator-interface). Pick two or three claims relevant to the question; trace their linked package source and focused checks. Do review, authorization, dispatch and receipt bind the same operation? What observation would defeat each claim, and what smallest missing check would resolve it?
 
 When source execution is authorized and appropriate, follow the [README prerequisites](README.md#check-it-yourself): Node 24.11.1, Python 3.9+ at `/usr/bin/python3`, disposable private Unix-domain sockets and `umask 0022` in the source-check shell. Owner enrollment, provider credentials, a database and an OpenShell guest are not required for this public source profile.
 
 ```sh
 git rev-parse HEAD
-./prime verify
+./security-review                 # fixed offline profile and explicit live exclusions
+./prime verify                    # separate complete NEXT source profile
 ```
 
-Report the exit status, all configured PASS/FAIL results and explicit UNPERFORMED exclusions. If execution is unavailable or outside scope, say so; missing prerequisites and blocked checks are not PASS. **Expected source-profile outcome:** exit `2`, zero job failures, external PostgreSQL acceptance still UNPERFORMED. Consult the [runner's scope](packages/ops/fast-verify/README.md); this is not runtime or whole-product qualification.
+Report the exit status, all configured PASS/FAIL results and explicit UNPERFORMED exclusions. If execution is unavailable or outside scope, say so; missing prerequisites and blocked checks are not PASS. The scoped JSON command is described in [SECURITY-BOUNDARY.md](SECURITY-BOUNDARY.md); its PASS rows do not replace the full profile. **Required source-profile success (latest reported run still fails):** exit `2`, zero job failures, external PostgreSQL acceptance still UNPERFORMED. Consult the [runner's scope](packages/ops/fast-verify/README.md); this is not runtime or whole-product qualification.
 
 The [evidence history](docs/EVIDENCE-HISTORY.md) retains historical verification results, including failures and the released pair at `58a95f4`. The historical receipt does not attest the received revision; CI claims require a separately observed run. An older PASS does not qualify the received revision. Any future implementation review reference and external immutable receipt must identify the exact tested revision and both complete runs; preserve existing immutable tags and do not infer qualification from their names.
 

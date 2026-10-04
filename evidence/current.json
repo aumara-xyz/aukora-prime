@@ -1,0 +1,284 @@
+{
+  "schema": "aukora-current-evidence/v1",
+  "updated_at": "2026-10-04",
+  "revisions": {
+    "source": "6750564abafca58a1f785ef5fe158940ff959012",
+    "main_observed": {
+      "sha": "6750564abafca58a1f785ef5fe158940ff959012",
+      "at": "2026-10-04 (read/fetch)"
+    },
+    "deployment": {
+      "sha": "5f0601feae249af5290386523c794a3a560bc7ff",
+      "reported_at": "2026-10-04T08:02:28Z",
+      "basis": "Operator Room report GROK-1791100948571-a2a5, supplied to documentation owner",
+      "approval_ledger_seq": 115,
+      "gate_public_key_fingerprint": "6cdce2bbeb7b725c",
+      "limit": "Operator-reported Linux pilot; no deployment observation was performed for this documentation change. Not equal to main/tested SHA."
+    }
+  },
+  "boundary_files": [
+    "packages/boundary-gate/src/gate.mjs",
+    "packages/boundary-gate/src/server.mjs",
+    "packages/boundary-gate/src/targets.mjs",
+    "packages/boundary-gate/src/card.mjs",
+    "packages/boundary-gate/src/ledger.mjs",
+    "packages/boundary-gate/src/receipts.mjs",
+    "packages/boundary-gate/src/secrets.mjs",
+    "packages/boundary-gate/src/plugin-set-canon.mjs",
+    "packages/boundary-gate/src/release-floor.mjs",
+    "packages/boundary-gate/bin/selfcheck.mjs",
+    "packages/boundary-gate/host/systemd/aukora-genesis.service",
+    "packages/boundary-gate/host/sbx-exec",
+    "plugins/aukora-composition-gate/src/plugin-set.mjs",
+    "plugins/aukora-action-gate/lib/index.mjs",
+    "plugins/aukora-action-gate/lib/policy.mjs",
+    "plugins/aukora-openshell-confinement/lib/index.mjs",
+    "apps/aukora-desktop/aumlok-bridge.mjs",
+    "apps/aukora-desktop/aumlok-signer-airlock.mjs",
+    "apps/aukora-desktop/aumlok-approval.html",
+    "scripts/launch-dsh.py"
+  ],
+  "claims": [
+    {
+      "id": "pilot",
+      "claim": "Separate-user Linux pilot runs the Genesis-derived runtime, action gate and desktop owner route.",
+      "status": "REPORTED",
+      "basis": "Operator deployment report, 2026-10-04 08:02 UTC; release 5f0601f",
+      "references": [
+        {
+          "path": "ARCHITECTURE.md",
+          "label": "component map"
+        }
+      ],
+      "limit": "One pilot host; this checkout has no independently observed deployment receipt. Public main includes later documentation."
+    },
+    {
+      "id": "l2",
+      "claim": "A theme proposal reached owner review, was approved once and applied with a signed receipt.",
+      "status": "RECORDED",
+      "basis": "L2 signed export, 2026-10-04; ledger #1\u2013#24",
+      "references": [
+        {
+          "path": "docs/evidence/l2-demo-2026-10-04/README.md",
+          "label": "export and verifier"
+        }
+      ],
+      "limit": "Signatures and matching bytes are checkable offline. Hot reload is operator-recorded; this export does not establish current ledger completeness, human identity or comprehension."
+    },
+    {
+      "id": "gate",
+      "claim": "Agent proposal and owner approval use separate gate channels; review binds exact change bytes.",
+      "status": "SOURCE",
+      "basis": "Present at source-account revision; pilot use operator-reported",
+      "references": [
+        {
+          "path": "packages/boundary-gate/src/gate.mjs",
+          "label": "gate"
+        },
+        {
+          "path": "tests/aukora-plugin-set-gate-signer.test.mjs",
+          "label": "existing signer check"
+        }
+      ],
+      "limit": "Local synthetic checks do not prove protected host/key custody or real owner enrollment."
+    },
+    {
+      "id": "launch",
+      "claim": "Root release tools read candidate JSON without importing candidate code; the service template requires approval and a release floor.",
+      "status": "SOURCE",
+      "basis": "Present at source-account revision; deployment operator-reported",
+      "references": [
+        {
+          "path": "packages/boundary-gate/src/plugin-set-canon.mjs",
+          "label": "trusted verifier"
+        },
+        {
+          "path": "tests/aukora-plugin-set-trusted-verifier.test.mjs",
+          "label": "existing release check"
+        }
+      ],
+      "limit": "The selected floor still orders approvals by wall clock; signed sequence/epoch ordering and pre-import bootstrap pinning are pending. Template assertions do not observe an installed unit."
+    },
+    {
+      "id": "card",
+      "claim": "Gate facts appear before fenced model text; owner approval is one click without typing, forced reveal, scroll or dwell.",
+      "status": "SOURCE",
+      "basis": "Existing owner-card source; pilot popup operator-recorded",
+      "references": [
+        {
+          "path": "tests/aukora-owner-card-no-friction.test.mjs",
+          "label": "one-click check"
+        },
+        {
+          "path": "tests/aukora-owner-card-model-fence.test.mjs",
+          "label": "model-fence check"
+        }
+      ],
+      "limit": "No measured human comprehension or attendance. New ROUTINE/CRITICAL clarity work is pending integration."
+    },
+    {
+      "id": "sandbox",
+      "claim": "One-shot bash used the separate-user OpenShell sandbox on the pilot.",
+      "status": "REPORTED",
+      "basis": "Operator pilot account; source includes adapter and wrapper",
+      "references": [
+        {
+          "path": "plugins/aukora-openshell-confinement/README.md",
+          "label": "scope"
+        },
+        {
+          "path": "packages/boundary-gate/host/sbx-exec",
+          "label": "wrapper"
+        }
+      ],
+      "limit": "Host-wide containment, guest-external per-execution custody and complete cleanup are unqualified. Background bash, run_code and terminals are refused/unqualified; \u201ccannot read the host\u201d is NOT CLAIMED."
+    },
+    {
+      "id": "selfcheck",
+      "claim": "The service runs a fail-closed self-check before start and on a 15-minute timer.",
+      "status": "SOURCE",
+      "basis": "Service template and stubbed check; pilot start operator-reported",
+      "references": [
+        {
+          "path": "packages/boundary-gate/checks/selfcheck-bin.mjs",
+          "label": "existing stubbed check"
+        },
+        {
+          "path": "packages/boundary-gate/host/systemd/README.md",
+          "label": "units"
+        }
+      ],
+      "limit": "Offline runner/RPC stubs establish the contract, not current sandbox policy or network isolation."
+    },
+    {
+      "id": "aura",
+      "claim": "Signed ledger collection and cold Nostr-shaped record verification have source implementations.",
+      "status": "SOURCE",
+      "basis": "Collector and records source at this revision",
+      "references": [
+        {
+          "path": "scripts/aura/README.md",
+          "label": "collector scope"
+        }
+      ],
+      "limit": "Installed collector and recall join await a public result. Proposed interim owner/author keys do not establish Mac/Touch ID owner custody."
+    },
+    {
+      "id": "next",
+      "claim": "Prime NEXT contains stricter authority, retained-memory, inference, bridge and guardian components.",
+      "status": "SOURCE",
+      "basis": "Retained NEXT source and dated connected mock/build records",
+      "references": [
+        {
+          "path": "docs/PRIME-NEXT-ARCHITECTURE.md",
+          "label": "NEXT map"
+        },
+        {
+          "path": "docs/development/INTEGRATION-CHECKPOINT-2026-10-02.md",
+          "label": "checkpoint"
+        }
+      ],
+      "limit": "These packages are not the pilot runtime. Native request production, protected joins, genuine provider reply and complete runtime acceptance remain unfinished."
+    },
+    {
+      "id": "profile",
+      "claim": "The latest reported full NEXT source-profile run had 61 PASS / 1 FAIL / 4 UNPERFORMED.",
+      "status": "RECORDED",
+      "basis": "Local 4381ca3 / zipper account retained in historical README",
+      "references": [
+        {
+          "path": "docs/archive/README-before-audit-surface.md",
+          "label": "original account"
+        },
+        {
+          "path": "docs/EVIDENCE-HISTORY.md",
+          "label": "immutable history"
+        }
+      ],
+      "limit": "full-owner-recovery failed; PostgreSQL and three unreviewed memory support jobs did not run. This is not current-head execution or GitHub CI evidence."
+    },
+    {
+      "id": "memory-experiment",
+      "claim": "One synthetic-P256-approved save ran through PG 16 with authority UID 995 and memory UID 994; independent authority, memory and DB restarts preserved bytes, citation and receipt.",
+      "status": "RECORDED",
+      "basis": "Dated bounded synthetic experiment",
+      "references": [
+        {
+          "path": "docs/evidence/bounded-memory-experiment.json",
+          "label": "sanitized summary"
+        }
+      ],
+      "limit": "One older synthetic save, cleaned up; not real owner enrollment, indexing/search or current product qualification."
+    },
+    {
+      "id": "identity",
+      "claim": "Real owner passkey enrollment, hardened root recovery and hardware custody.",
+      "status": "NOT YET",
+      "basis": "No selected public acceptance receipt",
+      "references": [
+        {
+          "path": "README.md#known-gaps",
+          "label": "known gaps"
+        }
+      ],
+      "limit": "Owner enrollment is the owner\u2019s action. A passkey with user verification proves a real authenticator, not hardware custody, who the human is or informed consent."
+    },
+    {
+      "id": "pq",
+      "claim": "Hybrid ML-DSA-65 + Ed25519 signature and hybrid KEM experiments exist.",
+      "status": "SOURCE",
+      "basis": "Standalone lab on pinned Noble dependencies",
+      "references": [
+        {
+          "path": "labs/pq-hybrid/README.md",
+          "label": "lab scope"
+        }
+      ],
+      "limit": "NOT LIVE; grants no authority and does not qualify a deployed identity/receipt migration."
+    },
+    {
+      "id": "vision",
+      "claim": "Registered agents, human networking, replaceable providers/apps and broader capability cells.",
+      "status": "PROPOSED",
+      "basis": "North Star and field design",
+      "references": [
+        {
+          "path": "plan/NORTH-STAR.md",
+          "label": "plan"
+        },
+        {
+          "path": "plan/FIELD-DISTILL.md",
+          "label": "field patterns"
+        }
+      ],
+      "limit": "Research directions; source fixtures and one pilot do not establish a working global platform."
+    },
+    {
+      "id": "recursion-research",
+      "claim": "Ornith / recursion experiments have a dated public report and sanitized evidence digest.",
+      "status": "RESEARCH",
+      "basis": "PR #10 merge 6f9e6f433924800e365c7e400a6c4bdb30bcdc79; report snapshot 2026-10-04 07:45 UTC",
+      "references": [
+        {
+          "path": "research/README.md",
+          "label": "research index"
+        },
+        {
+          "path": "research/evidence/NEBIUS-LAB-2026-10-04.json",
+          "label": "sanitized digest"
+        }
+      ],
+      "limit": "Retained report/digest inspection, not complete independent reproduction. No training/GPU evaluation ran in this cleanup; no deployed AUKORA provider or product acceptance follows."
+    }
+  ],
+  "unperformed": [
+    "Current complete NEXT source profile (./prime verify); latest reported failed run remains historical.",
+    "External PostgreSQL/current C-D distinct-UID product acceptance.",
+    "Independent current pilot source/unit/policy readback; no live host or egress probe in this profile.",
+    "Guest-external execution identity, resource enforcement and complete cleanup/absence.",
+    "Real owner passkey enrollment, protected root/key custody and human attendance.",
+    "Installed Aura collector/cold-record recall acceptance; pending an exact public receipt.",
+    "Protected NEXT service joins, live paid inference/budget qualification and browser/rendered owner acceptance.",
+    "External ledger-anchor freshness/completeness; offline L2 check validates only the retained signed prefix."
+  ]
+}

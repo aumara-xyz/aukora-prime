@@ -1,0 +1,3 @@
+# Recursion research — separate from the product
+
+[NEBIUS-LAB.md](NEBIUS-LAB.md) and its [sanitized evidence digest](evidence/NEBIUS-LAB-2026-10-04.json) were retained by PR #10, merged at `6f9e6f433924800e365c7e400a6c4bdb30bcdc79`. The report describes the Ornith/recursion experiments and their limits; its results are research observations at the revisions and environments it names. This directory does not contain a trained provider mounted in AUKORA, and this audit cleanup performed no training, GPU use or evaluation. Provider integration remains proposed in [THE MIND](../plan/NORTH-STAR.md).

@@ -281,9 +281,7 @@ export function readLanes({ dshHome, readFile = readFileSync, listDir = readdirS
  * happens to expose, the board asks THIS function, which reads the same
  * `rows.subagent.val.identity` that `readLanes` uses.
  *
- * Measured live, and it is the whole reason the title filter is not enough: session
- * `006b96e1-8294-4dfb-a0df-9f80c47d2709` is titled **`You are the AUMLOK v3`** — a lane name — and is a
- * subagent (`{mode: 'continuable', label: 'Y1 root seed custody'}`).
+ * Publication privacy: historical private session metadata redacted.
  */
 export function subagentSessionIds({ dshHome, readFile = readFileSync, listDir = readdirSync }) {
   const dir = join(dshHome, 'storages', 'session_projcache', 'sessions')
