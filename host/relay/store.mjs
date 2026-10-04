@@ -29,17 +29,17 @@ export function createStore(path, lowerLimits = {}) {
     db.exec(`PRAGMA page_size=4096; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA busy_timeout=2000; PRAGMA max_page_count=${limits.maxPages};
     CREATE TABLE IF NOT EXISTS messages (
       seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
-      author TEXT NOT NULL CHECK(author IN ('peter','gpt','grok','claudecode_cloud','claudecode_local','muse','dot')),
+      author TEXT NOT NULL CHECK(author IN ('peter','gpt','grok','claudecode_cloud','claudecode_local','muse','dot','claude')),
       client_request_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('chat','claim','review','decision')),
       body TEXT NOT NULL, refs TEXT NOT NULL, created_at INTEGER NOT NULL,
       CHECK(kind != 'decision' OR author = 'peter'), UNIQUE(author, client_request_id)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS status (
-      agent TEXT PRIMARY KEY CHECK(agent IN ('peter','gpt','grok','claudecode_cloud','claudecode_local','muse','dot')),
+      agent TEXT PRIMARY KEY CHECK(agent IN ('peter','gpt','grok','claudecode_cloud','claudecode_local','muse','dot','claude')),
       doing TEXT NOT NULL, last_seen INTEGER NOT NULL
     ) STRICT;
     CREATE TABLE IF NOT EXISTS storage_usage (
-      author TEXT PRIMARY KEY CHECK(author IN ('peter','gpt','grok','claudecode_cloud','claudecode_local','muse','dot')),
+      author TEXT PRIMARY KEY CHECK(author IN ('peter','gpt','grok','claudecode_cloud','claudecode_local','muse','dot','claude')),
       bytes INTEGER NOT NULL CHECK(bytes >= 0)
     ) STRICT;`);
     requireCondition(db.prepare('PRAGMA page_size').get().page_size === 4096, 500, 'unexpected_database_page_size');
