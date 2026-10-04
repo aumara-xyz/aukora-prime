@@ -10,6 +10,8 @@
 # done safely (the persist copy is then left untouched).
 export XDG_RUNTIME_DIR=/run/user/$(id -u) OPENSHELL_TELEMETRY_ENABLED=false OPENSHELL_LOCAL_TLS_DIR=$HOME/.local/state/openshell/tls
 POLICY="$(cd "$(dirname "$0")" && pwd)/sandbox-policy.yml"; [ -r "$POLICY" ] || { echo "REFUSING: $POLICY missing" >&2; exit 5; }
+# Guest image: localhost/aukora-guest:current (guest-image/build.sh) when present, else OpenShell's default image.
+IMG=localhost/aukora-guest:current; FROM=(); podman image exists "$IMG" 2>/dev/null && FROM=(--from "$IMG")
 cd "$HOME"; P="$HOME/sandbox-persist"; mkdir -p "$P"; chmod 700 "$P" 2>/dev/null
 vol() { local id; id=$(podman ps -a --sort created --format '{{.Names}}' | sed -n 's/^openshell-default--auma-ws-//p' | tail -1); [ -n "$id" ] && echo "$HOME/.local/share/containers/storage/volumes/openshell-sandbox-$id-workspace/_data"; }
 snapshot() { local v; v=$(vol); [ -n "$v" ] || return 0
@@ -35,19 +37,28 @@ openshell gateway select openshell >/dev/null
 ph=$(phase); created=0
 case "$ph" in
   Ready) ;;
-  "") openshell sandbox create --name auma-ws --no-auto-providers --no-tty --detach --policy "$POLICY" </dev/null; created=1 ;;
+  "") openshell sandbox create --name auma-ws "${FROM[@]}" --no-auto-providers --no-tty --detach --policy "$POLICY" </dev/null; created=1 ;;
   *) # Stopped/Completed/Error/...: try to bring the SAME sandbox (same volume) back first
      openshell sandbox start auma-ws </dev/null >/dev/null 2>&1; waitready || {
        snapshot; openshell sandbox delete auma-ws </dev/null
        for i in $(seq 1 60); do [ -z "$(phase)" ] && break; sleep 1; done
-       openshell sandbox create --name auma-ws --no-auto-providers --no-tty --detach --policy "$POLICY" </dev/null; created=1; } ;;
+       openshell sandbox create --name auma-ws "${FROM[@]}" --no-auto-providers --no-tty --detach --policy "$POLICY" </dev/null; created=1; } ;;
 esac
+# Running another image than :current (e.g. a rebuilt carrier): recreate the same way, keeping /sandbox.
+image_ok() { [ "${#FROM[@]}" -eq 0 ] && return 0; local c; c=$(podman ps --format '{{.Names}}' | grep '^openshell-default--auma-ws-' | head -1)
+  [ -n "$c" ] && [ "$(podman inspect "$c" --format '{{.Image}}')" = "$(podman image inspect "$IMG" --format '{{.Id}}')" ]; }
+if [ "$created" = 0 ] && waitready && ! image_ok; then
+  echo "auma-ws runs another image than $IMG: snapshot, recreate"
+  snapshot; openshell sandbox delete auma-ws </dev/null
+  for i in $(seq 1 60); do [ -z "$(phase)" ] && break; sleep 1; done
+  openshell sandbox create --name auma-ws "${FROM[@]}" --no-auto-providers --no-tty --detach --policy "$POLICY" </dev/null; created=1
+fi
 # Ready but not on the hard startup policy (e.g. created before it existed): recreate, keeping /sandbox via the snapshot.
 if [ "$created" = 0 ] && waitready && ! policy_ok; then
   echo "auma-ws runs another startup policy: snapshot, recreate with $POLICY"
   snapshot; openshell sandbox delete auma-ws </dev/null
   for i in $(seq 1 60); do [ -z "$(phase)" ] && break; sleep 1; done
-  openshell sandbox create --name auma-ws --no-auto-providers --no-tty --detach --policy "$POLICY" </dev/null; created=1
+  openshell sandbox create --name auma-ws "${FROM[@]}" --no-auto-providers --no-tty --detach --policy "$POLICY" </dev/null; created=1
 fi
 waitready || { echo "auma-ws not Ready" >&2; exit 1; }
 v=$(vol)

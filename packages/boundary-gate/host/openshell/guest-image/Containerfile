@@ -1,0 +1,10 @@
+# AUKORA guest image for OpenShell sandbox auma-ws: stock NVIDIA base + python3 (carrier) + the fixed Node runtime and
+# PTC bootstrap. Everything under /usr/lib/aukora is root-owned and read-only to the agent (Landlock read_only /usr).
+FROM nvcr.io/nvidia/base/ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends python3 libstdc++6 && rm -rf /var/lib/apt/lists/*
+COPY node /usr/lib/aukora/node/bin/node
+COPY exec.py /usr/lib/aukora/exec.py
+COPY process.js /usr/lib/aukora/ptc/process.js
+COPY INPUTS /usr/lib/aukora/INPUTS
+RUN chmod 0755 /usr/lib/aukora/node/bin/node && chmod 0644 /usr/lib/aukora/exec.py /usr/lib/aukora/ptc/process.js /usr/lib/aukora/INPUTS \
+ && /usr/lib/aukora/node/bin/node --version && python3 --version
