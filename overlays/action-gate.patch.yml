@@ -79,6 +79,9 @@
           - kira_*
           # PROPOSE-ONLY gate tool (plugins/aukora-auma-theme): opens the owner's popup, can never approve.
           - aukora_gate_propose
+          # AUMA relay host tools (plugins/aukora-relay-auma): read newest <=20; post plain chat <=2000 bytes, rate-limited, recorded in Aura.
+          - relay_read
+          - relay_post
           - memory.put
           - mcp__viking__*
           - mcp__kira-memory__*
