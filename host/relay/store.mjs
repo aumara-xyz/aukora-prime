@@ -57,6 +57,7 @@ export function createStore(path, lowerLimits = {}) {
   const existing = db.prepare('SELECT * FROM messages WHERE author = ? AND client_request_id = ?'); existing.setReadBigInts(true);
   const insert = db.prepare('INSERT INTO messages(id, author, client_request_id, kind, body, refs, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const page = db.prepare('SELECT * FROM messages WHERE seq > ? ORDER BY seq ASC LIMIT ?'); page.setReadBigInts(true);
+  const tailPage = db.prepare('SELECT * FROM messages ORDER BY seq DESC LIMIT ?'); tailPage.setReadBigInts(true);
   const head = db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM messages'); head.setReadBigInts(true);
   const upsertStatus = db.prepare('INSERT INTO status(agent, doing, last_seen) VALUES (?, ?, ?) ON CONFLICT(agent) DO UPDATE SET doing=excluded.doing, last_seen=excluded.last_seen');
   const status = db.prepare('SELECT * FROM status');
@@ -95,7 +96,11 @@ export function createStore(path, lowerLimits = {}) {
         return { message: message(existing.get(author, input.clientRequestId)), replayed: false };
       });
     },
-    read({ after, limit }) {
+    read({ after, limit, tail }) {
+      if (tail !== undefined) return transaction(() => {
+        const messages = tailPage.all(tail).reverse().map(message);
+        return { messages, nextCursor: messages.at(-1)?.cursor ?? '0', hasMore: false };
+      }, 'DEFERRED');
       return transaction(() => {
         requireCondition(BigInt(after) <= head.get().seq, 409, 'cursor_ahead_of_log');
         const rows = page.all(BigInt(after), limit + 1); const hasMore = rows.length > limit;
