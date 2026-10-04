@@ -1,5 +1,118 @@
 # Owner key: source-only P-256 certificate boundary
 
+## Separate owner authorization
+
+`@aukora/owner-key/authorization` is a separate protocol for Peter's exact
+operation authorization. A scoped-key certificate cannot be used as an approval.
+The fixed `aukora-owner-authorization/v1` kind means authorize ONE `allowed-once`
+application of the gate's stored `change` or `revert`; it has no arbitrary-signing,
+delegation, rejection or approval-boolean mode. The owner signs domain-prefixed
+bytes, independently of the later gate receipt:
+
+```text
+UTF8("aukora:owner-authorization:v1" + NUL + canonical sorted JSON)
+```
+
+The closed scalar object has exactly these sorted fields:
+`after_sha256`, `before_sha256`, `challenge`, `expires_at_ms`, `gate`,
+`issued_at_ms`, `kind`, `operation`, `owner_epoch`, `owner_root_id`,
+`owner_subject`, `proposal_id`, `target`, `version`.
+`before_sha256` is lower-case SHA256 or the literal `absent`; `after_sha256` is
+SHA256. `gate` is the FULL SHA256 of the independently pinned gate SPKI DER,
+not the current 16-character display fingerprint. Challenge is 32-byte lower-case
+hex; proposal ID is the gate's canonical UUIDv4. Times are safe-integer milliseconds,
+with at most 120000 ms between dedicated challenge issuance and expiry. Proposal
+`created` and Mac time cannot substitute for gate-recorded `issued_at_ms`.
+Owner epoch/root/subject must be independently enrolled and currently active.
+Target formatting is checked here; the actual allowlist belongs to the gate.
+
+Proof is `{algorithm:"p256-ecdsa-sha256", authorization, signature_base64}`.
+`verifyOwnerAuthorization` requires an independent root SPKI, every exact object
+field and `authorization_digest` from the gate's stored pending review. It checks
+the signature, exact body, expiry (`now >= expiry` refuses) and pins, and returns
+`grants_authority:false` with native activation still `UNPERFORMED`.
+There is no seed read, generated key, default signer, HMAC substitution or software
+authorization fallback. This public verifier cannot attest the origin of a signature.
+
+The gate-signed receipt must contain:
+
+```json
+{"owner_authorization":{"version":1,"kind":"aukora-owner-authorization-ref/v1","authorization_id":"<body digest>","proof_sha256":"<exact proof digest>"}}
+```
+
+`authorization_id` is SHA256 of the domain-prefixed unsigned object;
+`proof_sha256` is SHA256 of `aukora:owner-authorization-proof:v1` + NUL +
+the fixed-order canonical proof JSON. Binding both prevents substitution of
+different valid signatures or object bodies. The object does not reference the
+later receipt, avoiding a circular signature dependency. Exact proof bytes must
+be retained as a separate immutable object and resolvable from that reference.
+`verifyOwnerAuthorizationReference` compares the reference to a verified live
+object; it does NOT authenticate a gate receipt. An authenticated receipt verifier
+must check the receipt's own operation/proposal/target/before/after/gate fields
+against this object, plus the gate's signed reference. No caller-provided reference
+or self-anchored gate key is sufficient.
+
+`consumeOwnerAuthorization` hands the entire frozen proof/object/reference to a
+trusted host's atomic durable callback. That transaction must recheck its CURRENT
+clock, live challenge, active owner epoch, pending proposal, allowlisted target and
+current before-state; retain the proof/reference and spend the challenge with
+`pending -> applying` BEFORE any effect. Replay uses gate/challenge/proposal and
+body identity, not a changeable ECDSA signature. Unknown consumption refuses and
+must be reconciled without an automatic retry. Gate apply still rechecks stored
+bytes and after-state. Hashes do not distinguish an A -> B -> A history; a target
+revision would require a separate agreed contract if that distinction is needed.
+
+H's current gate source implements durable review/consumption and a v3 receipt.
+The actual G caller is checked against a captured, explicitly pinned H source closure
+using disposable SQLite and published fixture keys. That check qualifies source
+compatibility only. Grok owns merge/deploy/release switching; production registration,
+native custody and old-v2 receipt consumer migration remain pending. G changes no gate
+policy or existing receipt consumer. D/E cold readers need authenticated retained consumption/epoch
+and receipt evidence; they must not use a self-selected timestamp to bypass live
+challenge expiry. That archival API and exact H/D/E mapping remain unjoined.
+
+`createOwnerAuthorizationBridge` in the reserved Mac bridge freezes the complete
+displayed object and refuses changed replies, cancellation, expiry, missing native
+presentation and approval/seed flags. It is a host seam; the native component remains
+custody-unavailable and performs no signing. Peter's keyboard is NOT YET needed.
+
+`createGateOwnerAuthorizationCaller` executes H's actual `review` and `decide_review`
+grammar through the injected host-only `callGateOwner(op,args)`. It requires a separately
+trusted synchronous `readOwnerState()` (closed eight-field active registry) and full
+Ed25519 gate SPKI. It reconstructs the v3 review's exact 14-field authorization and
+checks content hash, complete content/diff, dedicated issuance time and ledger issue
+coordinate and binds the returned row to the original requested proposal before presenting.
+Allowed-once sends the exact owner proof in
+`owner_authorization_proof`; rejection sends only the old five fields without a proof.
+Cancellation/disposal, visibility, epoch/state and expiry are rechecked around native
+presentation. Each local question is spent before any dispatch; sent uncertainty returns
+`unknown` with `applied:null`, with no retry. Authenticated v3 acknowledgements preserve
+the receipt's original JSON signing order, verify the independently pinned gate signature
+before using its signed acceptance time, and bind the exact transition, issue, owner object
+and proof reference. This acknowledgement is not archival ledger/epoch verification.
+There is no default transport or signer. The existing airlock/host registration writer
+is outside G's allocated files and remains unassigned.
+
+The reserved Swift authorization preview now takes `reviewedContent` and `reviewedDiff`,
+checks their character/size bounds and content SHA256, and displays the full immutable
+bytes/diff with all authorization facts. It still refuses every signing action before
+any biometric or Keychain call. Native compilation and hardware qualification are unperformed.
+
+Focused checks include `checks/authorization.test.mjs`: exact valid object and
+reference, whole-body/owner/gate/challenge substitution, malformed ingress, expiry,
+different signature references, concurrent replay, unknown settlement, cancellation
+and missing signer. `checks/gate-caller.test.mjs` invokes H's real gate source/SQLite
+with injected synthetic targets and public RFC6979/RFC8032 fixture keys. It adds six
+groups for apply/proof retention, review tampering, custody unavailability/stale base,
+inflight cancellation/epoch/expiry, authenticated acknowledgements and exact rejection.
+The package check requires the H boundary-gate source in the integrated Prime tree;
+it never discovers another repository or substitutes a mock gate. Eighteen groups passed
+with zero skips; twenty guard-removal mutants were caught. These are source fixtures,
+not native/OS/IPC qualification or an independent production evaluator.
+`TRUSTED-PATH.json` mechanically records the four owned runtime sources, import
+edges, hashes and external host callbacks. Its complete scope is G's verifier and
+preview source; whole gate/deployment custody remains unqualified and unjoined.
+
 This package implements a closed, domain-separated certificate request, P-256 public
 verification, exact expected-key/subject/service/epoch/nonce binding, and a native
 owner-action presentation adapter. It creates no key, enrolls nobody, changes no
@@ -96,16 +209,16 @@ explicitly reviewed action, with recovery/history preservation. None has happene
 
 ## Focused acceptance
 
-`node --test packages/owner-key/checks/owner-key.test.mjs` uses only the published
+`node --test packages/owner-key/checks/owner-key.test.mjs packages/owner-key/checks/authorization.test.mjs` uses only the published
 RFC6979 A.2.5 P-256 fixture in memory. It covers complete-body/pin substitution,
 canonical ingress, expiry, predecessor/epoch checks, duplicate/concurrent consumption,
 pending-request mutation, cancellation and rejection of fake approval/fallback.
 It never touches Keychain, invokes Touch ID or generates a key. Its software fixture
 signatures do not qualify hardware custody. Swift compilation and native/hardware
 acceptance remain UNPERFORMED; no runtime build is authorized in this source pass.
-`node packages/owner-key/checks/mutants.mjs` checks six in-memory guard-removal mutants:
+`node packages/owner-key/checks/mutants.mjs` checks thirteen in-memory guard-removal mutants:
 signature, expiry, pending digest, expected scope/pins, canonical wire, and atomic
-consumption. The loader lives under checks only; it creates no edited checkout or
+consumption in each protocol, plus the authorization receipt reference. The loader lives under checks only; it creates no edited checkout or
 dependency/runtime copy and is never imported by the package or native component.
 
 Primary references: [Apple Security Secure Enclave](https://developer.apple.com/documentation/security/protecting-keys-with-the-secure-enclave),
