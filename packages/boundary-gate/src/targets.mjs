@@ -78,6 +78,16 @@ export function pluginSetApprovalText({ release, release_dir, plugin_set, operat
   return t
 }
 const sha256File = (p) => createHash('sha256').update(fs.readFileSync(p)).digest('hex')
+function exactOwnerFloor(floor) {
+  if (floor === null) return floor
+  const hex = (value, width) => typeof value === 'string' && value.length === width && !/[^0-9a-f]/u.test(value)
+  // Require exact identities for owner facts, including the release-directory join that
+  // the shape-only readFloor identity checks do not establish.
+  if (!hex(floor.release, 40) || !hex(floor.record, 64) || !hex(floor.signer_key_sha256, 64) || !hex(floor.ledger_hash, 64)
+    || floor.release_dir !== 'release-' + floor.release.slice(0, 7) || !floor.history.every(value => hex(value, 40)))
+    throw new Error('release floor identifiers or history are not exact canonical bytes; owner preview unavailable')
+  return floor
+}
 // The release as installed: its tip, its plugin-set digest, its record digest. Refuses symlinks and paths outside the root.
 export function installedRelease(releasesRoot, releaseDir) {
   if (!/^release-[0-9a-f]{7}$/.test(releaseDir)) throw new Error('release_dir must be release-<7 hex>')
@@ -108,9 +118,9 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
       if (on.plugin_set !== a.plugin_set) throw new Error(`installed plugin set is ${on.plugin_set}, not ${a.plugin_set}`)
       if (on.record !== a.record) throw new Error(`installed release record is ${on.record}, not ${a.record}`)
     },
-    plain(oldText, newText) {
+    reviewFacts(oldText, newText) {
       const a = parsePluginSetApproval(newText)
-      if (!a) return '(invalid plugin-set approval)'
+      if (!a) throw new Error('plugin-set approval is invalid; owner preview unavailable')
       // THE BASE IS THE OWNER'S PREVIOUS APPROVAL: this target is gate-owned and written only by an owner-approved apply, so
       // "unchanged since your approval of <release>" is a gate fact, stated only when the set digest is byte-equal.
       const b = parsePluginSetApproval(oldText)
@@ -118,11 +128,15 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
         ? `GATE FACT: plugin set UNCHANGED since your approval of ${b.release_dir} (${b.release.slice(0, 12)})${b.operation === a.operation ? ', operation unchanged' : ', operation CHANGED'} | `
         : b ? `GATE FACT: plugin set CHANGED since your approval of ${b.release_dir} | ` : 'GATE FACT: first plugin-set approval on this gate | '
       // ROLLBACK is a gate fact read from the root-owned release floor: this release is one the floor already moved past.
-      let floor = null
-      try { floor = readFloor(floorFile) } catch { floor = null }
+      // A genuinely absent floor permits first approval. A failed read is unavailable, never
+      // an empty history: silently substituting null would erase the ROLLBACK gate fact.
+      const floor = exactOwnerFloor(readFloor(floorFile))
+      if (floor === null && oldText !== '') throw new Error('release floor is absent after previous target bytes; owner preview unavailable')
       const back = isRollback(floor, a.release) ? `GATE FACT: ROLLBACK to ${a.release_dir}, below the release floor ${floor.release_dir} | ` : ''
-      return `${back}${same}ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}`
+      return { from_to: `${back}${same}ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}`,
+        release_floor: floor }
     },
+    plain(oldText, newText) { return this.reviewFacts(oldText, newText).from_to },
     after(newText) {
       const a = parsePluginSetApproval(newText)
       return a ? `AFTER APPLY: the gate signs a receipt for exactly plugin set ${a.plugin_set.slice(0, 16)}... of release ${a.release.slice(0, 7)}; the operator installs it and only then may the waiver be removed. Nothing is admitted by this click alone.` : 'AFTER APPLY: (invalid)'
