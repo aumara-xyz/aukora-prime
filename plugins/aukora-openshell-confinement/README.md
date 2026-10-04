@@ -50,6 +50,8 @@ DSH retains its existing execution deadlines and PTC protocol/output limits.
 Preparation is cancellable; terminal allocation cancellation is detached when
 the handle is published. Termination awaits guest cleanup and carrier close,
 including pending operation settlement. Output and framing queues are bounded.
+Guest input backpressure starts cleanup after two seconds without sink progress;
+this also bounds cancellation queued behind a child that stops reading.
 The older two-argument Bash wrapper cleanup patch remains historical work, not
 the R2 stream contract.
 

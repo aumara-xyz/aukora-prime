@@ -29,6 +29,7 @@ import time
 MAX_LINE = 1024 * 1024
 MAX_QUEUE = 1024 * 1024
 HIGH_WATER = MAX_QUEUE // 2
+INPUT_STALL_SECONDS = 2
 CHUNK = 16384
 MAX_PROCESSES = 4096
 MAX_THREADS = 1024
@@ -386,7 +387,7 @@ class Carrier:
         os.set_blocking(descriptor, False)
         self.channels[descriptor] = {"kind": read_kind, "sink": sink, "queue": collections.deque(),
                                      "bytes": 0, "read": read_kind is not None, "end": False,
-                                     "write_closed": sink is None}
+                                     "write_closed": sink is None, "progress_at": None}
 
     def launch(self):
         self.startup_limit = time.monotonic() + 5
@@ -509,6 +510,7 @@ class Carrier:
                 channel["queue"].clear()
                 channel["bytes"] = 0
                 channel["end"] = True
+                channel["progress_at"] = None
 
     def close_channel(self, descriptor):
         try:
@@ -547,6 +549,8 @@ class Carrier:
         if channel["bytes"] + len(data) > MAX_QUEUE:
             raise Refused("INPUT_LIMIT")
         if data:
+            if not channel["bytes"]:
+                channel["progress_at"] = time.monotonic()
             channel["queue"].append(memoryview(data))
             channel["bytes"] += len(data)
 
@@ -752,10 +756,23 @@ class Carrier:
             return
         except OSError:
             raise Refused("CHANNEL_CLOSED")
+        if count <= 0:
+            raise Refused("CHANNEL_CLOSED")
+        channel["progress_at"] = time.monotonic()
         chunk = channel["queue"].popleft()
         channel["bytes"] -= count
         if count < len(chunk):
             channel["queue"].appendleft(chunk[count:])
+
+    def check_input_stall(self):
+        # Input backpressure can put terminate/EOF behind queued data. An
+        # unreading child must not prevent the guest from starting cleanup.
+        now = time.monotonic()
+        for channel in self.channels.values():
+            if channel["sink"] is not None and channel["bytes"] >= HIGH_WATER and \
+                    channel["progress_at"] is not None and \
+                    now - channel["progress_at"] >= INPUT_STALL_SECONDS:
+                raise Refused("INPUT_STALLED")
 
     def refresh_selector(self):
         wanted = {}
@@ -859,6 +876,7 @@ class Carrier:
                     self.begin_cleanup()
                 if self.fatal_code is None:
                     try:
+                        self.check_input_stall()
                         self.consume_input()
                         if not self.ready and time.monotonic() >= self.startup_limit:
                             raise Refused("STARTUP_UNAVAILABLE")
