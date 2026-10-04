@@ -203,12 +203,24 @@ function stringLiterals(code) {
 /** Schemes that name no host on a network. Every other scheme (http:, postgres:, tcp:, one never seen…) is judged by its host. */
 const NON_NETWORK_SCHEMES = new Set(['viking:', 'data:', 'urn:'])
 
-// Discover whole-string paths without opening or reading their contents. Literal
-// ../ is a candidate even when absent. Other strings qualify when their resolved
-// entry exists; lstat also sees dangling leaf symlinks. No prose/shell tokenizing,
-// inode-alias scan, or atomic check/use guarantee is implied by this discovery.
+// A missing traversal target needs whole-argument path syntax, not an embedded
+// ../ substring. Require an actual .. segment and either an explicit /, ./,
+// ../ or ~/ prefix, or a bare relative spelling without whitespace/quoting or
+// shell delimiters. Explicit prefixes permit spaces within filenames. Ambiguous
+// missing bare names with spaces need ./ or a declared path field; existing
+// whole-string entries remain discoverable below regardless of spaces.
+function wholePathTraversal(raw) {
+  if (!/(?:^|\/)\.\.(?:\/|$)/u.test(raw)) return false
+  if (/[\0\r\n]/u.test(raw)) return false
+  if (/^(?:\/|\.\.?\/|~\/)/u.test(raw)) return true
+  return !/[\s'"`;&|<>()\[\]{}]/u.test(raw)
+}
+
+// Discover whole-string paths without opening or reading their contents.
+// lstat also sees dangling leaf symlinks. No prose/shell tokenizing, inode-alias
+// scan, or atomic check/use guarantee is implied by this discovery.
 function discoveredPath(raw, { base, home }) {
-  if (raw.includes('../')) return true
+  if (wholePathTraversal(raw)) return true
   if (raw === '') return false
   const forms = new Set([isAbsolute(raw) ? resolve(raw) : resolve(base, raw)])
   if (raw === '~' || raw.startsWith('~/')) forms.add(resolve(home, raw.slice(2)))
