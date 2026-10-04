@@ -131,3 +131,31 @@ export async function recallAuraCitations(records, { getProvider, currentRecord 
   }
   return Object.freeze(answers)
 }
+
+const sourceCitationView = answer => Object.freeze({
+  ...answer,
+  kind: 'source_citation_view',
+  label: 'Source citation; not owner authorization or full receipt.',
+  grantsAuthority: false,
+  ownerStatus: 'INTERIM',
+})
+
+/** Select one current governed memory record and reuse the existing cold citation checks. */
+export async function readAuraCitationView(recordId, { getProvider, currentRecord } = {}) {
+  const unavailable = reason => sourceCitationView({
+    recordId: typeof recordId === 'string' ? recordId : null,
+    status: 'undetermined', reason,
+    citation: null, verification: null,
+  })
+  if (typeof recordId !== 'string' || recordId === '' || typeof currentRecord !== 'function') {
+    return unavailable('aura-recall:selection-unavailable')
+  }
+  try {
+    const selected = await currentRecord(recordId)
+    if (!selected || selected.id !== recordId) return unavailable('aura-recall:selection-unavailable')
+    const [citation] = await recallAuraCitations([selected], { getProvider, currentRecord })
+    return citation ? sourceCitationView(citation) : unavailable('aura-recall:selection-unavailable')
+  } catch {
+    return unavailable('aura-recall:reader-unavailable')
+  }
+}

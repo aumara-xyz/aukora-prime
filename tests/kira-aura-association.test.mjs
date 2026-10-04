@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { registerHooks } from 'node:module';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import childProcess, { execFileSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { registerHooks, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative, resolve } from 'node:path';
+import { PassThrough } from 'node:stream';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   createAuraAssociation, parseAuraSourceProjection, referenceForAssociatedNote, sourceIdentity,
 } from '../plugins/aukora-kira/lib/aura-association.mjs';
@@ -1049,4 +1051,165 @@ try {
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
   }
   rmSync(scratch, { recursive: true, force: true });
+}
+
+// Exercise the actual association producer through the pinned host's native
+// dispatch and output validator. Only subprocess creation is replaced: no
+// Python, gate state, provider, or installed service is used by these cases.
+const dshArgIndex = process.argv.indexOf('--dsh');
+const dshArg = dshArgIndex === -1 ? undefined : process.argv[dshArgIndex + 1];
+assert(dshArgIndex === -1 || (dshArg && !dshArg.startsWith('--')), '--dsh requires a harness directory');
+const dshRoot = resolve(dshArg ?? process.env.AUKORA_DSH_SOURCE ?? join(root, 'vendor', 'dsh'));
+const hostToolsPath = join(dshRoot, 'packages/core/tools/lib/index.js');
+const hostValidatorPath = join(dshRoot, 'packages/core/tools/lib/types/json-schema.js');
+const hostCordisPath = join(dshRoot, 'vendor/cordis/lib/index.js');
+for (const path of [hostToolsPath, hostValidatorPath, hostCordisPath]) {
+  assert(existsSync(path), `UNPERFORMED: actual pinned host dependency absent: ${path}; pass --dsh or AUKORA_DSH_SOURCE`);
+}
+const { ToolRuntime, assertSupportedJsonSchema } = await import(pathToFileURL(hostToolsPath).href);
+const { validateJsonSchemaValue } = await import(pathToFileURL(hostValidatorPath).href);
+const { Context } = await import(pathToFileURL(hostCordisPath).href);
+const { associationTool, ADAPTER_RELPATH } = await import('../scripts/aura/composition/association-plugin.js');
+const adapterFixture = mkdtempSync(join(tmpdir(), 'aura-output-seam-'));
+const gateRoot = join(adapterFixture, 'release'), stateDir = join(adapterFixture, 'state');
+mkdirSync(join(gateRoot, 'scripts/aura'), { recursive: true });
+writeFileSync(join(gateRoot, ADAPTER_RELPATH), '# Synthetic placeholder: subprocess creation is mocked.\n');
+const hostContext = new Context();
+hostContext.provide('systemPrompt', { tools: () => () => {}, section: () => () => {} });
+const hostRuntime = new ToolRuntime(hostContext, { mode: 'native' });
+hostContext.provide('sessions', { flush: async () => true, get: () => undefined });
+const originalSpawn = childProcess.spawn;
+const syntheticDiagnostic = 'SYNTHETIC_DIAGNOSTIC_NOT_FOR_TOOL_OUTPUT';
+let spawnScenario, spawnCalls = 0, killSignals = [], toolCalls = 0, outputGroups = 0;
+const successfulReport = 'COURT : APPEND_ONLY\nCOMPOSITION : APPEND_ONLY\nCUSTODY : RETAINER_SAME_OWNER\n';
+childProcess.spawn = (python, args, options) => {
+  spawnCalls++;
+  assert.equal(python, 'fixture-python');
+  assert.deepEqual(args, [join(gateRoot, ADAPTER_RELPATH), 'associate', '--state', stateDir,
+    '--retained', join(stateDir, 'retained.json'), '--presented', join(stateDir, 'presented.json')]);
+  assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe']);
+  assert(spawnScenario, 'every subprocess must be an explicitly selected synthetic case');
+  if (spawnScenario.kind === 'throw') throw Error(syntheticDiagnostic);
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = signal => {
+    killSignals.push(signal);
+    queueMicrotask(() => child.emit('close', 0));
+    return true;
+  };
+  const scenario = spawnScenario;
+  if (scenario.kind !== 'timeout') queueMicrotask(() => {
+    child.stdout.end(scenario.stdout ?? '');
+    child.stderr.end(scenario.stderr ?? '');
+    if (scenario.kind === 'error') child.emit('error', Error(syntheticDiagnostic));
+    else child.emit('close', scenario.code ?? 0);
+  });
+  return child;
+};
+syncBuiltinESMExports();
+const makeAssociationTool = overrides => associationTool({
+  gateRoot, stateDir, python: 'fixture-python', allowOtherStates: false, timeoutMs: 10, ...overrides,
+});
+const toolArguments = { retained: 'retained.json', presented: 'presented.json' };
+const runNative = async (definition, scenario, args = toolArguments) => {
+  spawnScenario = scenario;
+  spawnCalls = 0;
+  killSignals = [];
+  const dispose = hostRuntime.register(definition);
+  try {
+    return await hostRuntime.execute({ callId: `association-schema-${++toolCalls}`, name: definition.name,
+      arguments: args, signal: new AbortController().signal });
+  } finally { dispose(); }
+};
+const outputGroup = async (label, body) => {
+  await body();
+  outputGroups++;
+  console.log(`PASS actual host association ${label}`);
+};
+try {
+  let successfulValue;
+  await outputGroup('accepts the real producer and declared output', async () => {
+    const definition = makeAssociationTool();
+    assert.equal(definition.output.schema.additionalProperties, false);
+    assertSupportedJsonSchema(definition.output.schema);
+    const result = await runNative(definition, { stdout: successfulReport });
+    assert.equal(result.isError, false, JSON.stringify(result.error));
+    successfulValue = result.value;
+    assert.deepEqual(validateJsonSchemaValue(definition.output.schema, result.value), []);
+    assert.deepEqual(Object.keys(result.value).sort(), Object.keys(definition.output.schema.properties).sort());
+    assert.equal(result.value.ok, true);
+    assert.equal(result.value.exit, 0);
+    assert.equal(result.value.spawnError, false);
+    assert.equal(result.value.reason, null);
+    assert.equal(result.value.refusal, null);
+    assert.equal(result.value.court, 'APPEND_ONLY');
+    assert.equal(result.value.composition, 'APPEND_ONLY');
+    assert.equal(result.value.custody, 'RETAINER_SAME_OWNER');
+    assert.deepEqual(JSON.parse(result.content[0].text), result.value);
+    assert.equal(spawnCalls, 1);
+    assert.deepEqual(killSignals, []);
+  });
+  for (const field of ['spawnError', 'reason']) {
+    await outputGroup(`rejects removal of the ${field} declaration`, async () => {
+      const original = makeAssociationTool(), schema = structuredClone(original.output.schema);
+      delete schema.properties[field];
+      const definition = { ...original, output: { ...original.output, schema } };
+      const violations = validateJsonSchemaValue(schema, successfulValue);
+      assert(violations.some(one => one.includes(`value.${field}`) && one.includes('not a declared property')));
+      const result = await runNative(definition, { stdout: successfulReport });
+      assert.equal(result.isError, true, 'the actual runtime must reject the actual producer after declaration removal');
+      assert.equal(result.error.info.code, 'INVALID_TOOL_OUTPUT');
+      assert(result.error.message.includes(`value.${field}`));
+      assert.equal(Object.hasOwn(result, 'value'), false);
+      assert.equal(spawnCalls, 1);
+    });
+  }
+  const cases = [
+    { label: 'named adapter refusal retains its code without diagnostic text',
+      scenario: { stdout: successfulReport, stderr: `REFUSE: aura-foreign-log: ${syntheticDiagnostic}\n`, code: 2 },
+      refusal: 'aura-foreign-log', exit: 2, spawnError: false, spawns: 1 },
+    { label: 'zero exit cannot override a named adapter refusal',
+      scenario: { stdout: successfulReport, stderr: `REFUSE: aura-foreign-log: ${syntheticDiagnostic}\n`, code: 0 },
+      refusal: 'aura-foreign-log', exit: 0, spawnError: false, spawns: 1 },
+    { label: 'spawn error is a stable named result', scenario: { kind: 'error' },
+      refusal: 'aura-adapter-spawn-failed', exit: null, spawnError: true, spawns: 1 },
+    { label: 'synchronous spawn failure is a stable named result', scenario: { kind: 'throw' },
+      refusal: 'aura-adapter-spawn-failed', exit: null, spawnError: true, spawns: 1 },
+    { label: 'nonzero exit is a stable named result', scenario: { code: 1, stderr: syntheticDiagnostic },
+      refusal: 'aura-adapter-failed', exit: 1, spawnError: false, spawns: 1 },
+    { label: 'timeout stays unsuccessful even when close reports zero', scenario: { kind: 'timeout' },
+      refusal: 'aura-adapter-timeout', exit: 0, spawnError: false, spawns: 1, kills: ['SIGKILL'] },
+    { label: 'absent adapter is a complete named result', overrides: { gateRoot: join(adapterFixture, 'absent-release') },
+      refusal: 'aura-adapter-absent', exit: null, spawnError: false, spawns: 0 },
+    { label: 'state denial is a complete named result', args: { ...toolArguments, state: 'other-state' },
+      refusal: 'aura-state-not-permitted', exit: null, spawnError: false, spawns: 0 },
+  ];
+  for (const entry of cases) await outputGroup(entry.label, async () => {
+    const definition = makeAssociationTool(entry.overrides);
+    const result = await runNative(definition, entry.scenario, entry.args);
+    assert.equal(result.isError, false, JSON.stringify(result.error));
+    assert.deepEqual(validateJsonSchemaValue(definition.output.schema, result.value), []);
+    assert.deepEqual(Object.keys(result.value).sort(), Object.keys(definition.output.schema.properties).sort());
+    assert.equal(result.value.ok, false);
+    assert.equal(result.value.refusal, entry.refusal);
+    assert.equal(result.value.exit, entry.exit);
+    assert.equal(result.value.spawnError, entry.spawnError);
+    assert.equal(typeof result.value.reason, 'string');
+    assert(result.value.reason.length > 0);
+    assert(!JSON.stringify(result.value).includes(syntheticDiagnostic), 'raw diagnostics must not become a model-facing result');
+    assert.equal(spawnCalls, entry.spawns);
+    assert.deepEqual(killSignals, entry.kills ?? []);
+    if (entry.refusal === 'aura-foreign-log') {
+      assert.equal(result.value.court, 'APPEND_ONLY');
+      assert.equal(result.value.composition, 'APPEND_ONLY');
+      assert.equal(result.value.custody, 'RETAINER_SAME_OWNER');
+    }
+  });
+  console.log(`PASS ${outputGroups} actual host association output groups; only spawn mocked, original memory groups preserved`);
+} finally {
+  childProcess.spawn = originalSpawn;
+  syncBuiltinESMExports();
+  await hostContext.fiber._unload();
+  rmSync(adapterFixture, { recursive: true, force: true });
 }

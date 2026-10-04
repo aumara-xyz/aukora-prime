@@ -38,7 +38,7 @@ import { captureRoom, defaultRoomLog } from './room-capture.mjs'
 import { readCaptureEventStreamed } from './session-read.mjs'
 import { verifyRecord } from './memory-verify.mjs'
 import { resolveMemoryIdentity } from './memory-identity.mjs'
-import { AURA_RECALL_PROVIDER, recallAuraCitations, sameRecallRecord } from './aura-recall.mjs'
+import { AURA_RECALL_PROVIDER, recallAuraCitations, readAuraCitationView, sameRecallRecord } from './aura-recall.mjs'
 import { parseAuraSourceProjection, referenceForAssociatedNote, sourceIdentity } from './aura-association.mjs'
 
 /** Direct trusted-host adapter, never a model tool or RPC method. H supplies its
@@ -526,7 +526,9 @@ export async function apply(ctx, config, gateCaptureHost) {
         if (preTurn && !recallFilter(note, { now: new Date().toISOString(), states: live.states, ...recallContext(agent) }).ok) return []
         return [{ ...shown, ...recallAnnotations(note) }]
       })
-      return { ...answer, snippets: project(answer.snippets), memory: report,
+      const snippets = project(answer.snippets)
+      const withdrawn = Array.isArray(answer.snippets) && answer.snippets.length > 0 && snippets.length === 0
+      return { ...answer, ...(withdrawn ? { availability: 'undetermined', status: 'undetermined' } : {}), snippets, memory: report,
         ...(answer.remembered ? { remembered: { ...answer.remembered, notes: project(answer.remembered.notes) } } : {}) }
     })
   }
@@ -546,24 +548,29 @@ export async function apply(ctx, config, gateCaptureHost) {
       // *** BOTH TIERS, ONE READ: the remembered store AND the deployment's own owner. *** Item (3)'s second half — a
       // recall that read only the settled store would hide every note the capture hook writes, which is all of them.
       if (memoryOwner && typeof ctx.provide === 'function') {
+        const currentRecordForSession = async (id, session) => {
+          if (!associationHostLive || typeof id !== 'string' || !/^rem:[0-9a-f]{64}$/u.test(id)) return undefined
+          try {
+            const currentPolicy = readOwnerPolicy(await owner.describe())
+            if (!associationHostLive) return undefined
+            const hostSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
+            const live = readTrackedMemory(memoryOwner.stateDir)
+            const note = governRecords(live.notes, { ...currentPolicy,
+              ...(hostSession ? recallContext({ session: hostSession }) : {}), nowMs: Date.now(),
+              forgotten: live.forgotten, states: live.states }, { dropped: 0, reasons: {} }).find(note => note.id === id)
+            return associationHostLive ? note : undefined
+          } catch { return undefined }
+        }
         ctx.provide('kira.recall', Object.freeze({
           describe: () => ({ ...policy, grantsAuthority: false }),
           read: async () => ({ status: 'match', records: memoryFor().read().notes }),
           // D's guarded host provider asks for one selected association. Only
           // current governed metadata leaves Kira; no note body is returned.
-          referenceForRecord: async (id, session) => {
-            if (!associationHostLive || typeof id !== 'string' || !/^rem:[0-9a-f]{64}$/u.test(id)) return null
-            try {
-              const currentPolicy = readOwnerPolicy(await owner.describe())
-              if (!associationHostLive) return null
-              const hostSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
-              const live = readTrackedMemory(memoryOwner.stateDir)
-              const note = governRecords(live.notes, { ...currentPolicy,
-                ...(hostSession ? recallContext({ session: hostSession }) : {}), nowMs: Date.now(),
-                forgotten: live.forgotten, states: live.states }, { dropped: 0, reasons: {} }).find(note => note.id === id)
-              return associationHostLive ? referenceForAssociatedNote(note) : null
-            } catch { return null }
-          },
+          referenceForRecord: async (id, session) => referenceForAssociatedNote(await currentRecordForSession(id, session)),
+          readAuraCitation: (id, session) => readAuraCitationView(id, {
+            getProvider: () => associationHostLive ? ctx.reflect?.get?.(AURA_RECALL_PROVIDER, false) : undefined,
+            currentRecord: recordId => currentRecordForSession(recordId, session),
+          }),
           recall: async (question, session) => {
             // The face may pass a live host Session, never client-authored scopes or owner claims. Identity with
             // the current session store also refuses stale objects after a remount and lookalike metadata.
@@ -770,7 +777,9 @@ export async function apply(ctx, config, gateCaptureHost) {
       for (const reason of ['unreadable', 'unchained']) if (live[reason] > 0) diagnostics.diagnostics.push({ reason, count: live[reason] })
       const unavailable = !['found', 'empty'].includes(reply.state) || live.unreadable > 0 || live.unchained > 0
       const snippets = (reply.notes ?? []).filter(note => byId.has(note.id)).map(note => rememberedSnippet(byId.get(note.id)))
-      return { availability: unavailable ? 'undetermined' : snippets.length > 0 ? 'found' : 'empty', ...diagnostics, snippets }
+      // Availability describes the currently eligible corpus, not whether this question matched it.
+      return { availability: unavailable ? 'undetermined' : byId.size > 0 ? 'found' : 'empty',
+        status: snippets.length > 0 ? 'match' : 'insufficient', ...diagnostics, snippets }
     },
     ...(memoryOwner ? { newest: async () => ({ availability: 'empty', snippets: [] }) } : {}),
     beforePublish: (reply, recent, event) => publishRecall([reply, recent], event?.agent, { dropped: 0, reasons: {} }, true),

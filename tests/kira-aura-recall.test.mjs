@@ -30,6 +30,7 @@ const mutations = {
   wiring: ['recallAuraCitations(result.notes, {', 'recallAuraCitations([], {'],
   report: [', { dropped: 0, reasons: {} })', ')'],
   annotations: ['.map(note => ({ ...note, ...recallAnnotations(current.get(note.id)) }))', ''],
+  'view-selection': ['if (!selected || selected.id !== recordId)', 'if (!selected)'],
 }
 if (mutant && !mutations[mutant]) throw Error('unknown focused mutant')
 let applied = false
@@ -78,7 +79,7 @@ registerHooks({
     return loaded
   },
 })
-const { recallAuraCitations, AURA_RECALL_PROVIDER } = await import('../plugins/aukora-kira/lib/aura-recall.mjs')
+const { recallAuraCitations, readAuraCitationView, AURA_RECALL_PROVIDER } = await import('../plugins/aukora-kira/lib/aura-recall.mjs')
 const subject = 'aukora:1:' + '1'.repeat(64)
 const h = n => String(n).repeat(64)
 const note = { id: 'rem:' + h('a'), subject, statement: 'Synthetic gate observation for citation tests.',
@@ -151,6 +152,7 @@ console.log('PASS record/reference/provider freshness and incomplete anchor stat
 const scratch = mkdtempSync(join(tmpdir(), 'kira-aura-check-'))
 const savedEnv = new Map(['AUKORA_STATE', 'AUKORA_ROOM_LOG', 'AUKORA_OPENVIKING_HOME'].map(name => [name, process.env[name]]))
 let db
+const memoryEffects = []
 try {
   process.env.AUKORA_STATE = scratch
   process.env.AUKORA_ROOM_LOG = join(scratch, 'absent-room.jsonl')
@@ -164,11 +166,12 @@ try {
   let tracked = memory.read().notes[0]
   const historicalId = tracked.id
   const foreignMemory = createTrackedMemory({ stateDir, subject: 'aukora:1:' + h('9') })
-  await foreignMemory.remember({ text: 'Foreign synthetic record must be excluded by the existing owner read policy.', from: 'fixture' })
+  const foreignRemembered = await foreignMemory.remember({ text: 'Foreign synthetic record must be excluded by the existing owner read policy.', from: 'fixture' })
   const services = new Map()
   let mountedProvider
   const ctx = { tools: { register: () => () => {} }, sessions: { get: () => undefined },
-    effect: fn => { const dispose = fn(); dispose?.() }, on: () => () => {}, inject: () => {},
+    effect: fn => { const dispose = fn(); if (typeof dispose === 'function') memoryEffects.push(dispose); return dispose },
+    on: () => () => {}, inject: () => {},
     emit: () => {}, logger: { warn: () => {} }, provide: (name, service) => services.set(name, service),
     reflect: { get: name => name === AURA_RECALL_PROVIDER ? mountedProvider : undefined } }
   await apply(ctx, { memoryOwner: { stateDir, subject, permittedPrivacy: ['local'] } })
@@ -243,6 +246,95 @@ try {
   assert.deepEqual(found.records.find(note => note.id === tracked.id).rememberedChain, tracked.aura)
   assert(!JSON.stringify(found.auraCitations).includes('entry_body'))
   console.log('PASS active Kira -> actual pinned D/B cold reader, exact record and gate entry')
+
+  // The same real D collector/reader above supplies the source view. Its input
+  // is one governed record ID, never a query, proposal selector or receipt.
+  const currentCitationRecord = async id => memory.read().notes.find(candidate => candidate.id === id && candidate.subject === subject)
+  const sourceViewKeys = ['recordId', 'status', 'reason', 'ownerStatus', 'grantsAuthority', 'citation', 'verification', 'kind', 'label'].sort()
+  const assertSourceView = value => {
+    assert.deepEqual(Object.keys(value).sort(), sourceViewKeys)
+    assert.equal(value.kind, 'source_citation_view')
+    assert.equal(value.label, 'Source citation; not owner authorization or full receipt.')
+    assert.equal(value.grantsAuthority, false)
+    assert.equal(value.ownerStatus, 'INTERIM')
+    assert(Object.isFrozen(value))
+    assert(!JSON.stringify(value).includes(tracked.statement), 'source view must not expose the remembered note body')
+    for (const field of ['entry_body', 'receipt', 'grant', 'statement', 'proposal_id']) assert(!Object.hasOwn(value, field))
+  }
+  const view = await readAuraCitationView(tracked.id, { getProvider: () => mountedProvider, currentRecord: currentCitationRecord })
+  assertSourceView(view)
+  assert.equal(view.status, 'verified', view.reason)
+  assert.deepEqual(view.citation, citeFor(found).citation)
+  assert.deepEqual(view.verification, citeFor(found).verification)
+  assert.equal(view.recordId, tracked.id)
+  console.log('PASS source citation view reuses actual D reader without body or owner authorization')
+
+  let selectionProviderCalls = 0
+  const noSelectionProvider = () => { selectionProviderCalls++; return mountedProvider }
+  const unknownId = 'rem:' + h('0')
+  for (const currentRecord of [async () => undefined, async () => tracked, undefined]) {
+    const unavailable = await readAuraCitationView(unknownId, { getProvider: noSelectionProvider, currentRecord })
+    assertSourceView(unavailable)
+    assert.equal(unavailable.status, 'undetermined')
+    assert.equal(unavailable.reason, 'aura-recall:selection-unavailable')
+    assert.equal(unavailable.citation, null)
+    assert.equal(unavailable.verification, null)
+    assert.equal(unavailable.recordId, unknownId)
+  }
+  const noId = await readAuraCitationView(undefined, { getProvider: noSelectionProvider, currentRecord: currentCitationRecord })
+  assertSourceView(noId)
+  assert.equal(noId.recordId, null)
+  assert.equal(noId.reason, 'aura-recall:selection-unavailable')
+  assert.equal(selectionProviderCalls, 0, 'missing/mismatched selection must not query the provider')
+  const readFault = await readAuraCitationView(tracked.id, {
+    getProvider: noSelectionProvider, currentRecord: () => { throw Error('SYNTHETIC_READ_FAILURE_DETAIL') },
+  })
+  assertSourceView(readFault)
+  assert.equal(readFault.reason, 'aura-recall:reader-unavailable')
+  assert(!JSON.stringify(readFault).includes('SYNTHETIC_READ_FAILURE_DETAIL'))
+  assert.equal(selectionProviderCalls, 0)
+  console.log('PASS source citation view requires the exact current selection and names read failure')
+
+  for (const change of ['record', 'association', 'provider']) {
+    let viewReads = 0, selectedProvider = mountedProvider
+    const changed = await readAuraCitationView(tracked.id, {
+      getProvider: () => selectedProvider,
+      currentRecord: async id => {
+        const current = await currentCitationRecord(id)
+        if (++viewReads !== 3) return current
+        if (change === 'record') return undefined
+        if (change === 'provider') selectedProvider = undefined
+        if (change === 'association') { const detached = structuredClone(current); delete detached.auraAssociation; return detached }
+        return current
+      },
+    })
+    assertSourceView(changed)
+    assert.equal(changed.status, 'undetermined')
+    assert.equal(changed.citation, null)
+    assert.equal(changed.reason, change === 'association' ? 'aura-recall:reference-changed' : 'aura-recall:record-changed')
+    assert.equal(viewReads, 3, 'view selection must reuse the helper initial and final governed rereads')
+  }
+  console.log('PASS source citation view preserves final record/reference/provider checks')
+
+  assert.equal(typeof recall.readAuraCitation, 'function', 'actual mounted recall service exports the readonly source view')
+  const mountedView = await recall.readAuraCitation(tracked.id)
+  assertSourceView(mountedView)
+  assert.equal(mountedView.status, 'verified', mountedView.reason)
+  assert.deepEqual(mountedView.citation, view.citation)
+  const retainedProvider = mountedProvider
+  try {
+    mountedProvider = undefined
+    const noProviderView = await recall.readAuraCitation(tracked.id)
+    assertSourceView(noProviderView)
+    assert.equal(noProviderView.status, 'undetermined')
+    assert.equal(noProviderView.reason, 'aura-recall:provider-unavailable')
+    assert.equal(noProviderView.citation, null)
+  } finally { mountedProvider = retainedProvider }
+  const foreignView = await recall.readAuraCitation(foreignRemembered.ids[0])
+  assertSourceView(foreignView)
+  assert.equal(foreignView.reason, 'aura-recall:selection-unavailable')
+  assert.equal(foreignView.citation, null)
+  console.log('PASS actual mounted source view obeys existing owner selection and provider availability')
 
   // A remembered note remains valid when its advisory association disappears.
   // The final reread must retain the note and downgrade its earlier sidecar.
@@ -356,11 +448,18 @@ try {
   mountedProvider = { referenceForRecord: () => selected, readCitation: s => reader.readCitation(subject, s) }
   assert.equal(citeFor(await recall.recall('synthetic gate fixture')).status, 'verified')
   console.log('PASS filtered-note handling, fresh stale annotations, reread failure and unchanged recovery')
+  for (const dispose of memoryEffects.splice(0).reverse()) dispose()
+  const disposedView = await recall.readAuraCitation(tracked.id)
+  assertSourceView(disposedView)
+  assert.equal(disposedView.reason, 'aura-recall:selection-unavailable')
+  assert.equal(disposedView.citation, null)
+  console.log('PASS source citation view refuses selection after actual plugin disposal')
 } finally {
+  for (const dispose of memoryEffects.splice(0).reverse()) dispose()
   db?.close()
   delete globalThis.__kiraAuraFinalReadFixture
   for (const [name, value] of savedEnv) { if (value === undefined) delete process.env[name]; else process.env[name] = value }
   rmSync(scratch, { recursive: true, force: true })
 }
 if (mutant) assert(applied, 'focused mutation must be applied')
-console.log('PASS 9 functional groups; source fixture only, host association/provider still required')
+console.log('PASS 9 existing + 5 source citation view functional groups; source fixture only, host association/provider still required')

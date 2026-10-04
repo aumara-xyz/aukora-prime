@@ -97,41 +97,60 @@ export function resolveStateDir(config = {}, env = process.env) {
 export async function runAssociation({ gateRoot, python = 'python3', state, retained, presented, timeoutMs = 60000, env = process.env }) {
   const adapter = join(gateRoot, ADAPTER_RELPATH)
   if (!existsSync(adapter)) {
-    return { ok: false, refusal: 'aura-adapter-absent', reason: `${adapter} is not installed in this release` }
+    return {
+      ok: false, exit: null, spawnError: false, court: null, composition: null,
+      refusal: 'aura-adapter-absent', reason: 'The association adapter is absent from this release.',
+      custody: null, command: '', ceilings: CEILINGS,
+    }
   }
   const args = [adapter, 'associate', '--state', state, '--retained', retained, '--presented', presented]
   const completed = await new Promise(settle => {
-    const child = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let child
+    try { child = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] }) }
+    catch {
+      settle({ code: null, stdout: '', stderr: '', spawnError: true, timedOut: false })
+      return
+    }
     let stdout = ''
     let stderr = ''
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, timeoutMs)
     child.stdout.on('data', chunk => {
       stdout += chunk.toString()
     })
     child.stderr.on('data', chunk => {
       stderr += chunk.toString()
     })
-    child.on('error', error => {
+    child.on('error', () => {
       clearTimeout(timer)
-      settle({ code: null, stdout, stderr: `${stderr}${String(error.message)}`, spawnError: true })
+      settle({ code: null, stdout, stderr, spawnError: true, timedOut })
     })
     child.on('close', code => {
       clearTimeout(timer)
-      settle({ code, stdout, stderr })
+      settle({ code, stdout, stderr, timedOut })
     })
   })
   const text = `${completed.stdout}\n${completed.stderr}`
-  const field = label => new RegExp(`^${label}\\s*:\\s*(.+?)\\s*$`, 'm').exec(text)?.[1]
-  const refusal = /REFUSE: ([a-z0-9-]+):/.exec(text)
+  const adapterRefusal = /REFUSE: ([a-z0-9-]+):/.exec(text)?.[1]
   const verdict = /^VERDICT:\s*(\S+)/m.exec(text)?.[1]
+  const refusal = completed.spawnError === true ? 'aura-adapter-spawn-failed'
+    : completed.timedOut ? 'aura-adapter-timeout'
+      : adapterRefusal ?? (completed.code === 0 ? null : 'aura-adapter-failed')
+  const reason = completed.spawnError === true ? 'The association adapter could not be started.'
+    : completed.timedOut ? 'The association adapter exceeded its allowed run time.'
+      : adapterRefusal ? `Association refused (${adapterRefusal}).`
+        : completed.code === 0 ? null : 'The association adapter did not complete successfully.'
   return {
-    ok: completed.code === 0,
+    ok: completed.code === 0 && completed.spawnError !== true && !completed.timedOut && refusal === null,
     exit: completed.code,
     spawnError: completed.spawnError === true,
     court: /^COURT\s*:\s*(\S+)/m.exec(text)?.[1] ?? verdict ?? null,
     composition: /^COMPOSITION\s*:\s*(\S+)/m.exec(text)?.[1] ?? null,
-    refusal: refusal?.[1] ?? null,
-    reason: refusal === null ? null : (field('REFUSE') ?? text.split('\n').find(line => line.includes('REFUSE')) ?? null),
+    refusal,
+    reason,
     custody: /RETAINER_SAME_OWNER/.test(text) ? 'RETAINER_SAME_OWNER' : null,
     command: `${python} ${args.join(' ')}`,
     ceilings: CEILINGS,
@@ -139,7 +158,7 @@ export async function runAssociation({ gateRoot, python = 'python3', state, reta
 }
 
 export function associationTool(options) {
-  const { gateRoot, python, stateDir, allowOtherStates } = options
+  const { gateRoot, python, stateDir, allowOtherStates, timeoutMs = 60000 } = options
   return Object.freeze({
     name: ASSOCIATION_TOOL,
     description:
@@ -163,9 +182,11 @@ export function associationTool(options) {
         properties: {
           ok: { type: 'boolean' },
           exit: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
+          spawnError: { type: 'boolean' },
           court: { oneOf: [{ type: 'string' }, { type: 'null' }] },
           composition: { oneOf: [{ type: 'string' }, { type: 'null' }] },
           refusal: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+          reason: { oneOf: [{ type: 'string' }, { type: 'null' }] },
           custody: { oneOf: [{ type: 'string' }, { type: 'null' }] },
           command: { type: 'string' },
           ceilings: { type: 'array', items: { type: 'string' } },
@@ -184,16 +205,18 @@ export function associationTool(options) {
         return {
           ok: false,
           exit: null,
+          spawnError: false,
           court: null,
           composition: null,
           refusal: 'aura-state-not-permitted',
+          reason: 'Association is restricted to the configured state directory.',
           custody: null,
           command: '',
           ceilings: [...CEILINGS, `this row is pinned to ${stateDir}; naming another state needs allowOtherStates: true`],
         }
       }
       const asPath = value => (typeof value === 'string' && value !== '' ? resolve(stateDir, value) : stateDir)
-      return runAssociation({ gateRoot, python, state, retained: asPath(args?.retained), presented: asPath(args?.presented) })
+      return runAssociation({ gateRoot, python, state, retained: asPath(args?.retained), presented: asPath(args?.presented), timeoutMs })
     },
   })
 }

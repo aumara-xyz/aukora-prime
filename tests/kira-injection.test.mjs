@@ -111,8 +111,18 @@ function observingContext() {
  */
 const scratchDirs = []
 const scratch = (prefix) => { const dir = mkdtempSync(join(tmpdir(), prefix)); scratchDirs.push(dir); return dir }
+const savedFixtureEnv = new Map(['AUKORA_STATE', 'AUKORA_ROOM_LOG', 'AUKORA_OPENVIKING_HOME']
+  .map(name => [name, process.env[name]]))
+const fixtureInputs = scratch('kira-injection-inputs-')
+process.env.AUKORA_STATE = fixtureInputs
+process.env.AUKORA_ROOM_LOG = join(fixtureInputs, 'absent-room.jsonl')
+delete process.env.AUKORA_OPENVIKING_HOME
 registerReaper(() => {
   for (const dir of scratchDirs) { try { rmSync(dir, { recursive: true, force: true }) } catch { /* already gone */ } }
+  for (const [name, value] of savedFixtureEnv) {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
 })
 
 const SUBJECT = `aukora:1:${'3c'.repeat(32)}`
@@ -444,7 +454,7 @@ const { zstdCompressSync } = await import('node:zlib')
 const { registerRememberedCapture } = await import('../plugins/aukora-kira/lib/memory-remembered-hook.mjs')
 const { buildRouteDeps } = await import('../plugins/aukora-kira/lib/memory-deps.mjs')
 const { projectScopeOf, projectRecent } = await import('../plugins/aukora-kira/lib/project-memory.mjs')
-const { createOpenVikingRecall, uriFor } = await import('../plugins/aukora-kira/lib/recall-openviking.mjs')
+const { createOpenVikingRecall, uriFor, contentUri } = await import('../plugins/aukora-kira/lib/recall-openviking.mjs')
 const memoryFixture = async (broken = false, askText = 'Inspect the project staging directory.', finding = 'Orion workspace patch is STAGED, not live. The selected posture is bytes through intake; metal acceptance remains UNRUN.', findingSource = 'model') => {
   const home = scratch('kira-injection-capture-')
   const stateDir = join(home, 'kira-memory')
@@ -757,13 +767,13 @@ const moveNote = (run, note, op) => {
   appendJournalLine({ file, line: JSON.stringify(nextEntry({ previous: previous ? JSON.parse(previous) : null,
     op, id: note.id, objectDigest: note.id.slice(4), actor: 'fixture', at: new Date().toISOString() })) })
 }
-const mountMemory = async (run, module = kira) => {
+const mountMemory = async (run, module = kira, { score = .9, indexedNotes = false, context, dispatch } = {}) => {
   const bridgeHome = join(run.home, 'openviking')
   mkdirSync(bridgeHome, { recursive: true })
   writeFileSync(join(bridgeHome, 'aukora-bridge.json'), JSON.stringify({ url: 'http://127.0.0.1:1', user: 'owner', limit: 5 }))
   writeFileSync(join(bridgeHome, 'root.key'), 'scratch-key')
   writeFileSync(join(bridgeHome, 'ov.conf'), '{}')
-  const indexed = new Map()
+  const indexed = new Map(indexedNotes ? run.notes.map(note => [contentUri('owner', note.contentHash), note.statement]) : [])
   const priorFetch = globalThis.fetch
   const scratchFetch = async (url, options = {}) => {
     const parsed = new URL(url), uri = parsed.searchParams.get('uri')
@@ -771,22 +781,22 @@ const mountMemory = async (run, module = kira) => {
     let result = []
     if (parsed.pathname === '/api/v1/content/write') { const body = JSON.parse(options.body); indexed.set(body.uri, body.content); result = {} }
     if (parsed.pathname === '/api/v1/content/read') result = indexed.get(uri)
-    if (parsed.pathname === '/api/v1/search/find') result = { memories: [...indexed.keys()].map(uri => ({ uri, score: .9 })) }
+    if (parsed.pathname === '/api/v1/search/find') result = { memories: [...indexed.keys()].map(uri => ({ uri, score })) }
     if (options.method === 'DELETE') { indexed.delete(uri); result = {} }
     return Response.json({ status: 'ok', result })
   }
   globalThis.fetch = scratchFetch
-  const ctx = observingContext()
+  const ctx = context ?? observingContext()
   await module.apply(ctx, { memoryOwner: { stateDir: join(run.home, 'kira-memory'), subject: SUBJECT,
     permittedPrivacy: ['local'], approvalFile: join(run.home, 'a.json'), grantFile: join(run.home, 'g.json') } })
   globalThis.fetch = priorFetch
-  const listener = ctx._subscribed.find(one => one.event === 'agent/pre-step')
-  assert.ok(listener, 'the actual plugin must register its recall listener')
+  const listener = context ? undefined : ctx._subscribed.find(one => one.event === 'agent/pre-step')
+  assert.ok(dispatch || listener, 'the actual plugin must register its recall listener')
   return async () => {
     const previous = globalThis.fetch
     globalThis.fetch = scratchFetch
     let decision
-    try { decision = await listener.handler({ agent: run.agent }, async () => ({ kind: 'enter', messages: [] })) }
+    try { decision = await (dispatch ? dispatch() : listener.handler({ agent: run.agent }, async () => ({ kind: 'enter', messages: [] }))) }
     finally { globalThis.fetch = previous }
     assert.equal(decision.messages.length, 1)
     assert.equal(decision.messages[0].source.form, 'snapshot')
@@ -838,14 +848,121 @@ await arm('mounted remembered supplier filters live journal states', async broke
 await arm('mounted remembered availability counts only post-filter notes', async broken => {
   const run = await memoryFixture(false, 'handoff status next step OWNER-AVAILABILITY-FINDING', '')
   const module = broken ? await moduleWithRevert('index.js',
-    "snippets.length > 0 ? 'found' : 'empty'", "notes.length > 0 ? 'found' : 'empty'") : kira
+    "byId.size > 0 ? 'found' : 'empty'", "notes.length > 0 ? 'found' : 'empty'") : kira
   const recall = await mountMemory(run, module)
   assert.match(await recall(), /OWNER-AVAILABILITY-FINDING/u)
   for (const note of run.notes) moveNote(run, note, 'expire')
   const text = await recall()
-  assert.match(text, /remembered: holds records=0, readable\/no visible records=[1-9]/u)
+  assert.match(text, /remembered: readable\/found attempts=0, readable\/empty attempts=[1-9]/u)
   assert.ok(!text.includes('OWNER-AVAILABILITY-FINDING'))
 })
+await arm('mounted eligible remembered corpus remains readable when the question misses', async broken => {
+  const run = await memoryFixture(false, 'The project handoff OWNER-QUERY-MISS-FINDING is staged for tomorrow.', '')
+  const module = broken ? await moduleWithRevert('index.js',
+    "byId.size > 0 ? 'found' : 'empty'", "snippets.length > 0 ? 'found' : 'empty'") : kira
+  // Only semantic relevance changes in this fixture. The owned journal and its scope remain intact.
+  const recall = await mountMemory(run, module, { score: .01, indexedNotes: true })
+  const text = await recall()
+  assert.match(text, /readable store holds records; no query matches or eligible items/u)
+  assert.match(text, /below-threshold=/u)
+  assert.ok(!text.includes('OWNER-QUERY-MISS-FINDING'), 'a below-threshold note must remain excluded')
+  assert.doesNotMatch(text, /holds no record for this scope/u)
+})
+
+// Exercise the production event dispatcher rather than calling an observed listener directly.
+const dshAt = process.argv.indexOf('--dsh')
+const dsh = dshAt < 0 ? process.env.AUKORA_DSH_SOURCE : process.argv[dshAt + 1]
+assert.ok(dshAt < 0 || (dsh && !dsh.startsWith('--')), '--dsh requires the pinned harness directory')
+if (dsh === undefined) {
+  console.log('  NOT RUN: actual DSH injection dispatch (supply --dsh or AUKORA_DSH_SOURCE).')
+} else {
+  const { Context } = await import(pathToFileURL(join(dsh, 'vendor/cordis/lib/index.js')).href)
+  const { agentEvents } = await import(pathToFileURL(join(dsh, 'packages/core/agent/lib/index.js')).href)
+  const { ToolRuntime } = await import(pathToFileURL(join(dsh, 'packages/core/tools/lib/index.js')).href)
+  await arm('actual DSH dispatch separates read attempts from final unique returned records', async broken => {
+    const module = broken ? await moduleWithRevert('injection.mjs',
+      'const returned = new Set(visible.map((one, index) => one.recordId || index)).size',
+      'const returned = reads.filter(one => one.availability === "found").length') : injection
+    for (const withdrawn of [false, true]) {
+      const ctx = new Context(), agent = { session: {} }
+      let calls = 0, delegated = false
+      try {
+        module.registerRecallInjection(ctx, {
+          queries: ['first', 'second', 'third'], newId: () => 'dispatch-fixture',
+          conversation: { turn: async () => {
+            assert.equal(delegated, true)
+            calls += 1
+            return { availability: 'found', snippets: [{ recordId: 'query-record', text: 'RETURNED-ONCE' }] }
+          } },
+          newest: async () => ({ availability: 'empty', snippets: [] }),
+          beforePublish: (reply, recent) => [{ ...reply, snippets: withdrawn ? [] : reply.snippets }, recent],
+        })
+        const result = await agentEvents(ctx, agent).waterfall('agent/pre-step', {}, async () => {
+          delegated = true
+          return { kind: 'enter', messages: [] }
+        })
+        assert.equal(calls, 3)
+        assert.equal(result.messages.length, 1)
+        assert.equal(result.messages[0].source.form, 'snapshot')
+        const text = result.messages[0].content[0].text
+        assert.match(text, /memory: readable\/found attempts=3, readable\/empty attempts=0, unavailable attempts=0/u)
+        assert.match(text, new RegExp(`Query: eligible returned records=${withdrawn ? 0 : 1}\\.`, 'u'))
+        assert.equal(text.includes('RETURNED-ONCE'), !withdrawn)
+        assert.doesNotMatch(text, /holds records=3/u)
+      } finally { await ctx.fiber._unload() }
+    }
+  })
+  await arm('actual DSH dispatch retains a successful leg and labels sibling read failure', async broken => {
+    const module = broken ? await moduleWithRevert('injection.mjs',
+      "${unavailable ? '; partial failure, absence not established' : ''}", "${''}") : injection
+    const ctx = new Context(), agent = { session: {} }
+    try {
+      module.registerRecallInjection(ctx, {
+        queries: ['first', 'second'], newId: () => 'partial-dispatch-fixture',
+        conversation: { turn: async ({ text }) => {
+          if (text === 'second') throw Object.assign(new Error('synthetic read outage'), { code: 'query-read-failed' })
+          return { availability: 'found', snippets: [{ recordId: 'retained-record', text: 'RETAINED-READ' }] }
+        } },
+        newest: async () => ({ availability: 'empty', snippets: [] }),
+      })
+      const result = await agentEvents(ctx, agent).waterfall('agent/pre-step', {}, async () => ({ kind: 'enter', messages: [] }))
+      const text = result.messages[0].content[0].text
+      assert.match(text, /memory: readable\/found attempts=1, readable\/empty attempts=0, unavailable attempts=1; partial failure, absence not established/u)
+      assert.match(text, /Query: eligible returned records=1\./u)
+      assert.match(text, /RETAINED-READ/u)
+      assert.doesNotMatch(text, /synthetic read outage/u)
+    } finally { await ctx.fiber._unload() }
+  })
+  await arm('actual mounted DSH publisher reports a withdrawn result as undetermined', async broken => {
+    const run = await memoryFixture(false, 'The project handoff OWNER-PUBLISH-FINDING is staged for tomorrow.', '')
+    const changes = [['const live = memoryFor().read()', 'await globalThis.__kiraInjectionFinalRead?.(); const live = memoryFor().read()']]
+    if (broken) changes.push(["...(withdrawn ? { availability: 'undetermined', status: 'undetermined' } : {}), ", ''])
+    const module = await moduleWithRevert('index.js', changes)
+    const ctx = new Context()
+    ctx.provide('systemPrompt', { tools: () => () => {}, section: () => () => {} })
+    new ToolRuntime(ctx, { mode: 'native' })
+    ctx.provide('sessions', { get: id => id === run.agent.session.id ? run.agent.session : undefined, flush: async () => true })
+    let withdrawn = false
+    globalThis.__kiraInjectionFinalRead = () => {
+      if (withdrawn) return
+      withdrawn = true
+      for (const note of run.notes) moveNote(run, note, 'expire')
+    }
+    try {
+      const recall = await mountMemory(run, module, { indexedNotes: true, context: ctx,
+        dispatch: () => agentEvents(ctx, run.agent).waterfall('agent/pre-step', {}, async () => ({ kind: 'enter', messages: [] })) })
+      const text = await recall()
+      assert.equal(withdrawn, true, 'the real final-publication reread must execute')
+      assert.ok(!text.includes('OWNER-PUBLISH-FINDING'))
+      assert.match(text, /Query: eligible returned records=0\./u)
+      assert.match(text, /Query: unavailable; an empty store is NOT established/u)
+      assert.doesNotMatch(text, /Query: readable store holds records/u)
+    } finally {
+      delete globalThis.__kiraInjectionFinalRead
+      await ctx.fiber._unload()
+    }
+  })
+}
 await arm('turn state is cleared before downstream listeners, including rejection and throw', async broken => {
   const module = broken ? await moduleWithRevert('injection.mjs',
     'onTurnStart?.(agent)\n    const decision = await next()',

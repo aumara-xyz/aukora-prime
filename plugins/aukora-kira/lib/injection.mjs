@@ -136,7 +136,12 @@ function retrievalStatus(reply, recent) {
     const found = outcomes.filter(one => one.availability === 'found').length
     const empty = outcomes.filter(one => one.availability === 'empty').length
     const unavailable = outcomes.length - found - empty
-    lines.push(`${leg}: holds records=${found}, readable/no visible records=${empty}, unavailable=${unavailable}${unavailable ? '; partial failure, absence not established' : ''}.`)
+    lines.push(`${leg}: readable/found attempts=${found}, readable/empty attempts=${empty}, unavailable attempts=${unavailable}${unavailable ? '; partial failure, absence not established' : ''}.`)
+  }
+  if (reads.length > 0) {
+    const visible = (reply?.snippets ?? []).filter(one => String(one?.text ?? '').trim() !== '')
+    const returned = new Set(visible.map((one, index) => one.recordId || index)).size
+    lines.push(`Query: eligible returned records=${returned}.`)
   }
   if ((reply?.snippets ?? []).length === 0) lines.push(reply?.availability === 'found'
     ? 'Query: readable store holds records; no query matches or eligible items.'
