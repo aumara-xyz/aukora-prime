@@ -13,6 +13,7 @@
 // (id, base, new, approver) as approval evidence. Rate limits are global and per target, never per
 // harness-chosen session label. Targets are injected; with an empty allowlist every proposal is refused.
 import path from 'node:path'
+import { ownerCardClarity } from './targets.mjs'
 import { createHmac, randomUUID, randomBytes, sign, timingSafeEqual } from 'node:crypto'
 import { sha256, SHA, loadOrCreateKey, openDb, createLedger } from './ledger.mjs'
 import { loadOwnerSecret, rotateBearer } from './secrets.mjs'
@@ -218,7 +219,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     try { from_to = s?.plain ? String(s.plain(oldText, newText)) : null } catch { from_to = null }
     if (from_to !== null && !/^[\x20-\x7e]{1,600}$/.test(from_to)) from_to = null
     return { version: 2, id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: newText, diff: p.diff,
-      from_to, model_note: p.why ?? null,
+      from_to, ...ownerCardClarity(s, p.kind), model_note: p.why ?? null,
       displayable: !!p.displayable, created: p.created, expires: p.expires, review_challenge, review_expires, pubkey_fp: key.fp }
   }
   function decideReview(args, approver) {

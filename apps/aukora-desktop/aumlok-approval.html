@@ -80,6 +80,11 @@
   }
   /* NOTHING IN THE CARD SHRINKS BELOW ITS TEXT: the card scrolls instead (a shrunk line printed over its neighbour). */
   main.card > * { flex: none; }
+  main.card[data-gate-class="ROUTINE"] { border: 2px solid var(--approval-blue); }
+  main.card[data-gate-class="CRITICAL"] { border: 2px solid var(--approval-red); }
+  #gate-clarity { margin: 0; font-weight: 700; color: var(--approval-blue); }
+  main.card[data-gate-class="CRITICAL"] #gate-clarity { color: var(--approval-red); }
+  #gate-action { margin: 0; font-size: 14px; }
   h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
   p.lede { display: none; }
   /* THE CHANGE ITSELF, WITH ITS LINE BREAKS: a diff run together into one paragraph is not something a person can read. */
@@ -206,6 +211,8 @@
 <main class="card">
   <section id="operation-summary" class="operation-summary" hidden aria-label="Operation summary">
     <div class="summary-heading"><span id="summary-icon" class="icon" aria-hidden="true"></span><h1 id="headline">Approval</h1><span id="summary-risk" class="icon" role="img" hidden></span><span id="summary-presence" class="icon" role="img" hidden></span></div>
+    <p id="gate-clarity" hidden></p>
+    <p id="gate-action" hidden></p>
     <blockquote id="summary-reason" class="requester-words" hidden></blockquote>
     <div id="summary-counts" class="summary-counts" hidden></div>
     <div id="summary-hashes" class="summary-hashes" hidden></div>
@@ -1060,6 +1067,23 @@
       if (model.slice(0, 2) !== '> ') return null
       return { facts: facts.map(function (l) { return l.slice(2) }).join('\n'), diff: diff.join('\n'), model: model.slice(2) }
     }
+    // Read only the witnessed gate-facts section. A model note cannot supply either field.
+    function renderGateClarity(card) {
+      var lines = card.facts.split('\n')
+      var labels = lines.filter(function (l) { return l.indexOf('Clarity (gate): ') === 0 })
+      var actions = lines.filter(function (l) { return l.indexOf('What this does (gate): ') === 0 })
+      if (labels.length !== 1 || actions.length !== 1) return false
+      var label = labels[0].slice('Clarity (gate): '.length)
+      var action = actions[0].slice('What this does (gate): '.length)
+      if ((label !== 'ROUTINE' && label !== 'CRITICAL') || !/^[\x20-\x7e]{1,200}$/.test(action)) return false
+      document.querySelector('main.card').setAttribute('data-gate-class', label)
+      document.getElementById('operation-summary').setAttribute('data-risk', String(label === 'CRITICAL'))
+      show('gate-clarity', label + ' — gate label')
+      show('gate-action', 'What this does: ' + action)
+      document.getElementById('gate-clarity').hidden = false
+      document.getElementById('gate-action').hidden = false
+      return true
+    }
     /** "Show the exact change" only reveals the stored diff; it never gates Approve. */
     function armGateReveal() {
       var btn = document.getElementById('gate-reveal'), pre = document.getElementById('gate-diff')
@@ -1203,7 +1227,7 @@
               || !Number.isSafeInteger(review.review_expires) || review.review_expires > pending.expires
               || Date.now() >= review.review_expires) { say('gate:review-display-unverified', true); return }
             var card = splitGateCard(checks[0].text)
-            if (card === null) { say('gate:review-display-unverified', true); return }
+            if (card === null || renderGateClarity(card) !== true) { say('gate:review-display-unverified', true); return }
             document.getElementById('f-words').textContent = card.facts
             document.getElementById('f-words').setAttribute('aria-label', 'Gate facts, written by the gate')
             document.getElementById('gate-diff').textContent = card.diff
@@ -1219,7 +1243,7 @@
               + 'The gate rechecks base, expiry and resulting hash; no Aumlok signature is produced.'
             gateDisplayOk = true
             gateReviewExpires = review.review_expires
-            say('Read the gate facts, then open the exact change. Approve applies these stored bytes; Refuse rejects.')
+            say('Approve applies these stored bytes; Refuse rejects. You can optionally inspect the exact change.')
             applyEligibility()
             setTimeout(function () { applyEligibility() }, Math.max(0, gateReviewExpires - Date.now()) + 1)
           }, function () { say('gate:review-display-unverified', true) })

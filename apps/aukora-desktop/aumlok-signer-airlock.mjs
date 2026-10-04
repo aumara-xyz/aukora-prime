@@ -156,12 +156,14 @@ function gatePending(value) {
 }
 
 function gateReview(value, pending, now) {
-  const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff', 'from_to', 'model_note',
+  const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff', 'from_to', 'clarity_label', 'what_this_does', 'model_note',
     'displayable', 'created', 'expires', 'review_challenge', 'review_expires', 'pubkey_fp']
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))
     || value.version !== 2 || JSON.stringify(gatePending(value)) !== JSON.stringify(pending)
     || !(value.from_to === null || (typeof value.from_to === 'string' && /^[\x20-\x7e]{1,600}$/u.test(value.from_to)))
+    || !['ROUTINE', 'CRITICAL'].includes(value.clarity_label)
+    || typeof value.what_this_does !== 'string' || !/^[\x20-\x7e]{1,200}$/u.test(value.what_this_does)
     || !(value.model_note === null || (typeof value.model_note === 'string' && /^[\x20-\x7e]{0,200}$/u.test(value.model_note)))
     || !gateSha(value.review_challenge) || !Number.isSafeInteger(value.review_expires)
     || value.review_expires <= now() || value.review_expires > value.expires
@@ -191,6 +193,8 @@ export const GATE_CARD = Object.freeze({
 export function gateReviewText(review) {
   return [GATE_CARD.facts,
     '  Change (gate-computed): ' + (review.from_to ?? '(this target has no gate summary; read the diff)'),
+    '  Clarity (gate): ' + review.clarity_label,
+    '  What this does (gate): ' + review.what_this_does,
     '  Target: ' + review.target, '  Kind: ' + review.kind,
     '  Base SHA-256: ' + review.base_sha, '  New SHA-256: ' + review.new_sha,
     '  New stored content (' + review.content.length + ' ASCII bytes): ' + review.content,

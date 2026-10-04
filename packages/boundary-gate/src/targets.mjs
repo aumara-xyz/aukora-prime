@@ -8,6 +8,17 @@ import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { colorName } from './card.mjs'
 
+// Presentation only: trusted target semantics and the gate's stored action kind determine clarity.
+// Unknown targets default to CRITICAL. This never changes admission or approval eligibility.
+export function ownerCardClarity(spec, kind) {
+  const rollback = kind === 'revert'
+  return {
+    clarity_label: !rollback && spec?.ownerCardLabel === 'ROUTINE' ? 'ROUTINE' : 'CRITICAL',
+    what_this_does: rollback ? 'Restore earlier approved bytes for this target; owner approval is still required.'
+      : spec?.ownerCardAction ?? 'Apply the exact stored change to this target; read the gate facts and diff.',
+  }
+}
+
 export const THEME_TARGET = 'plugins/auma-theme/theme.json'
 const CANONICAL = /^\{"accent": "(default|#[0-9A-F]{6})"\}$/
 
@@ -26,6 +37,7 @@ export function themeTarget(targetRoot) {
   return {
     file: path.join(targetRoot, THEME_TARGET),
     entry: 'auma-theme', maxBytes: 256,
+    ownerCardLabel: 'ROUTINE', ownerCardAction: 'Change the app theme accent only.',
     schema: '{"accent": "default" | "#RRGGBB"} — exactly one key, JSON object, ≤256 bytes',
     // Canonical bytes ONLY: exactly {"accent": "default"} or {"accent": "#RRGGBB"} with UPPERCASE hex, one space
     // after the colon, no newline, nothing else. Kills duplicate keys, \u escapes, case/whitespace/CRLF variants.
@@ -81,6 +93,8 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
   return {
     file: path.join(targetRoot, PLUGIN_SET_TARGET),
     entry: 'aukora-plugin-set', maxBytes: 512,
+    ownerCardLabel: 'CRITICAL',
+    ownerCardAction: 'Sign a receipt for this exact installed release and plugin set; admission is rechecked at launch.',
     operatorOnly: true, pendingClass: 'owner-release', ttlMs: PLUGIN_SET_TTL_MS,
     schema: `{"v":1,"kind":"${PLUGIN_SET_APPROVAL_KIND}","release":<40 hex>,"release_dir":"release-<7 hex>","plugin_set":<64 hex>,"operation":<64 hex>,"record":<64 hex>} — canonical bytes, operator-only`,
     canonical: PLUGIN_SET_CANONICAL,
