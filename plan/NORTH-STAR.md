@@ -59,3 +59,4 @@ RULES: HONEY-POT-PROTOCOL. "On main" = on GitHub Prime main. "Live" = running on
 Only Peter says "done". Safety lives inside AUKORA (no GitHub enforcement). Nothing old is left behind: every
 family in the Honey Pot map ends either in Prime main, or on the map with the reason it was dropped.
 Reference papers: docs/AUKORA-GOLDEN-BOUNDARY.md (Genesis).
+What Prime takes from the field (Hermes, goose, OpenClaw, harness-security research): plan/FIELD-DISTILL.md (directions, not claims).
