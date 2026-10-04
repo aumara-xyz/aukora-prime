@@ -5,34 +5,34 @@
 //   raise   --release-dir /opt/aukora-genesis/release-xxxxxxx [--operation HEX] [--run /run/aukora-gate]
 //   install --release-dir DIR --out GATE_STATE_DIR [--run DIR] [--target-root /var/lib/aukora-boundary/targets] [--repin]
 //   show    --release-dir DIR [--operation HEX]          (prints what the owner will see; no socket use)
+// A CANDIDATE RELEASE IS DATA. This tool runs as root and never imports or executes anything under --release-dir: the
+// operation digest and the final verification come from the root-owned gate install (src/plugin-set-canon.mjs), over the
+// release's .dsh-build JSON records. `install` also moves the monotonic release floor forward (src/release-floor.mjs).
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { createPublicKey, createHash, verify as edVerify } from 'node:crypto'
-import { pathToFileURL } from 'node:url'
 import { call } from '../src/server.mjs'
 import { PLUGIN_SET_TARGET, installedRelease, pluginSetApprovalText, parsePluginSetApproval } from '../src/targets.mjs'
+import { operationDigestOf, setOperationContent, verifyGateSetApproval } from '../src/plugin-set-canon.mjs'
+import { FLOOR_FILE, readFloor, advanceFloor, writeFloor, isRollback } from '../src/release-floor.mjs'
 
 const { values: o, positionals: [cmd] } = parseArgs({ allowPositionals: true, strict: true, options: {
   'release-dir': { type: 'string' }, operation: { type: 'string' }, run: { type: 'string', default: '/run/aukora-gate' },
-  out: { type: 'string' }, 'target-root': { type: 'string', default: '/var/lib/aukora-boundary/targets' }, repin: { type: 'boolean' } } })
+  out: { type: 'string' }, floor: { type: 'string', default: FLOOR_FILE }, 'target-root': { type: 'string', default: '/var/lib/aukora-boundary/targets' }, repin: { type: 'boolean' } } })
 const die = (m) => { console.error(`plugin-set-approval: ${m}`); process.exit(1) }
 const sha = (b) => createHash('sha256').update(b).digest('hex')
 if (!['raise', 'install', 'show'].includes(cmd)) die('usage: plugin-set-approval.mjs raise|install|show --release-dir DIR ...')
 const relDir = o['release-dir']; if (!relDir || !path.isAbsolute(relDir)) die('--release-dir must be an absolute release path')
 const on = installedRelease(path.dirname(relDir), path.basename(relDir))
 
-// The release's OWN composition-gate code renders the operation content (operator tool, never the gate process).
-async function releaseVerifier() {
-  return import(pathToFileURL(path.join(relDir, 'plugins/aukora-composition-gate/src/plugin-set.mjs')).href)
-}
-async function operationDigest() {
+// The release's plugin-set record, read as JSON DATA (installedRelease already refused symlinks and non-regular files).
+const record = JSON.parse(fs.readFileSync(path.join(relDir, '.dsh-build/plugin-set.json'), 'utf8'))
+function operationDigest() {
   if (o.operation) { if (!/^[0-9a-f]{64}$/.test(o.operation)) die('--operation must be 64 hex'); return o.operation }
-  const v = await releaseVerifier()
-  const record = JSON.parse(fs.readFileSync(path.join(relDir, '.dsh-build/plugin-set.json'), 'utf8'))
-  return v.operationDigestOf(v.setOperationContent(record))
+  return operationDigestOf(setOperationContent(record))
 }
-const content = pluginSetApprovalText({ ...on, operation: await operationDigest() })
+const content = pluginSetApprovalText({ ...on, operation: operationDigest() })
 const a = parsePluginSetApproval(content)
 const card = [`RELEASE ID   ${a.release}  (${a.release_dir})`, `PLUGIN SET   ${a.plugin_set}`, `OPERATION    ${a.operation}`,
   `RECORD       ${a.record}`, `CONTENT SHA  ${sha(Buffer.from(content))}`].join('\n')
@@ -41,7 +41,9 @@ if (cmd === 'show') { console.log(card); process.exit(0) }
 if (cmd === 'raise') {
   const r = await call(path.join(o.run, 'owner.sock'), 'raise', { target: PLUGIN_SET_TARGET, content,
     why: `Admit the AUKORA plugin set of release ${a.release.slice(0, 7)} (set ${a.plugin_set.slice(0, 16)}...). Raised by the operator; only the owner approves.` })
-  console.log(card); console.log(`PENDING      ${r.id}  expires ${new Date(r.expires).toISOString()}  (waits for the owner; nothing applied)`)
+  let floor = null; try { floor = readFloor(o.floor) } catch {}
+  console.log(card); if (isRollback(floor, a.release)) console.log(`ROLLBACK     ${a.release_dir} is below the release floor ${floor.release_dir}; the owner card says so`)
+  console.log(`PENDING      ${r.id}  expires ${new Date(r.expires).toISOString()}  (waits for the owner; nothing applied)`)
   process.exit(0)
 }
 // install: the newest APPLIED receipt for the target, its bytes on disk, the gate key from the propose socket.
@@ -64,11 +66,16 @@ if (fs.existsSync(pinFile) && !o.repin) {
   const cur = JSON.parse(fs.readFileSync(pinFile, 'utf8'))
   if (JSON.stringify(cur) !== JSON.stringify(pin)) die(`${pinFile} pins another approver; pass --repin only if the owner decided to switch signers`)
 }
-// Final check with the release's own verifier: exactly what the composition gate will run at import.
-const v = await releaseVerifier()
-const okv = v.verifySetApproval({ record: JSON.parse(fs.readFileSync(path.join(relDir, '.dsh-build/plugin-set.json'), 'utf8')), receipt: approval, pin })
+// Final check with the TRUSTED verifier (same verdict the composition gate reaches at import; parity is tested).
+let okv
+try { okv = verifyGateSetApproval({ record, approval, pin }) } catch (e) { die(`the approval does not verify: ${e.message}`) }
+if (okv.release !== on.release || okv.record !== on.record) die('the verified approval names another release or record')
+const floorBefore = readFloor(o.floor, { requireRoot: process.getuid?.() === 0 })
+const floorAfter = advanceFloor(floorBefore, okv)
 const write = (f, obj) => { const t = `${f}.tmp-${process.pid}`; fs.writeFileSync(t, JSON.stringify(obj, null, 2) + '\n', { mode: 0o644, flag: 'wx' }); fs.renameSync(t, f) }
 fs.mkdirSync(o.out, { recursive: true })
 write(apprFile, approval); write(pinFile, pin)
+if (floorAfter !== floorBefore) writeFloor(o.floor, floorAfter)
 console.log(card); console.log(`INSTALLED    ${apprFile} + ${pinFile} (gate key ${fp}; verified: ${okv.approvalClass}, ledger seq ${applied.seq})`)
-console.log(`NEXT         launcher: drop --allow-unapproved, add --approved-record-sha ${a.record}`)
+console.log(floorAfter !== floorBefore ? `FLOOR        ${o.floor} -> ${floorAfter.release_dir} (approved ${floorAfter.applied_at})` : `FLOOR        unchanged: ${floorBefore.release_dir} (this approval is not newer)`)
+console.log(`NEXT         unit: --approval-state-root <this root> --approved-record-sha ${a.record}; ExecStartPre release-floor.mjs check`)

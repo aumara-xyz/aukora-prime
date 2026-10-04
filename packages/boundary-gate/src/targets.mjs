@@ -2,6 +2,7 @@
 // no harness code, no policy, keys or launcher); the earlier lab's `plugins/user/<name>/index.js` code target
 // was removed on purpose and must not come back. Two targets exist: the UI theme accent (agent-proposable) and the
 // operator-only plugin-set approval (raised on the owner channel; its receipt is what the launcher accepts).
+import { FLOOR_FILE, readFloor, isRollback } from './release-floor.mjs'
 import path from 'node:path'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -76,7 +77,7 @@ export function installedRelease(releasesRoot, releaseDir) {
   if (!/^[0-9a-f]{40}$/.test(String(tip)) || !/^[0-9a-f]{64}$/.test(String(set))) throw new Error('release records carry no tipSha/setDigest')
   return { release: tip, release_dir: releaseDir, plugin_set: set, record: sha256File(file('genesis-artifacts.json')) }
 }
-export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesis' } = {}) {
+export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesis', floorFile = FLOOR_FILE } = {}) {
   return {
     file: path.join(targetRoot, PLUGIN_SET_TARGET),
     entry: 'aukora-plugin-set', maxBytes: 512,
@@ -102,7 +103,11 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
       const same = b && b.plugin_set === a.plugin_set
         ? `GATE FACT: plugin set UNCHANGED since your approval of ${b.release_dir} (${b.release.slice(0, 12)})${b.operation === a.operation ? ', operation unchanged' : ', operation CHANGED'} | `
         : b ? `GATE FACT: plugin set CHANGED since your approval of ${b.release_dir} | ` : 'GATE FACT: first plugin-set approval on this gate | '
-      return `${same}ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}`
+      // ROLLBACK is a gate fact read from the root-owned release floor: this release is one the floor already moved past.
+      let floor = null
+      try { floor = readFloor(floorFile) } catch { floor = null }
+      const back = isRollback(floor, a.release) ? `GATE FACT: ROLLBACK to ${a.release_dir}, below the release floor ${floor.release_dir} | ` : ''
+      return `${back}${same}ADMIT AUKORA PLUGIN SET | release ${a.release} (${a.release_dir}) | plugin set ${a.plugin_set} | operation ${a.operation} (rechecked at launch) | release record ${a.record}`
     },
     after(newText) {
       const a = parsePluginSetApproval(newText)

@@ -1,9 +1,13 @@
-# Genesis runtime (DSH launcher) as aukora-host, loopback only. Paths are the Nebius pilot's;
-# a materialized release embeds absolute paths, so materialize it in place under /opt/aukora-genesis.
-# --allow-unapproved waives the approved plugin set (L4 break-list item) until the gate self-check is wired.
-# Still present 2026-10-04: L2 is live but its gate self-check + an approved plugin record are not wired yet; remove then.
+# Genesis runtime (DSH launcher) as aukora-host, loopback only. This file is byte-identical to the pilot's
+# /etc/systemd/system/aukora-genesis.service. Paths are the Nebius pilot's; a materialized release embeds absolute paths.
+# SIGNED-ENFORCEMENT LAUNCH, NO WAIVER: --foreground with a root-protected --approval-state-root and --approved-record-sha.
+# The launcher refuses --allow-unapproved/--allow-ungated with --foreground, so this service cannot waive admission.
+# The per-release values live in the root-owned /etc/aukora-genesis/release.env (see aukora-genesis.release.env.example):
+#   AUKORA_RELEASE_DIR    /opt/aukora-genesis/release-<7 hex>
+#   AUKORA_APPROVAL_ROOT  /etc/aukora-approvals/<full sha>/state   (root:root, go-w; written by plugin-set-approval.mjs install)
+#   AUKORA_RECORD_SHA     sha256 of the release's genesis-artifacts.json record (the owner-approved record)
 [Unit]
-Description=AUKORA Genesis runtime as aukora-host, loopback 127.0.0.1:18735
+Description=AUKORA Genesis runtime (foreground, plugin set ENFORCED, release floor) as aukora-host, loopback 127.0.0.1:18735
 After=network-online.target aukora-boundary-gate.service aukora-auma-sandbox.service
 Wants=aukora-boundary-gate.service aukora-auma-sandbox.service
 # A failing self-check must not loop (each attempt is a ledger entry): three tries in five minutes, then stay down.
@@ -13,17 +17,21 @@ StartLimitBurst=3
 [Service]
 User=aukora-host
 Group=aukora-host
-Type=forking
-GuessMainPID=yes
+Type=exec
 TimeoutStartSec=120
 UMask=0077
 WorkingDirectory=/opt/aukora-genesis/src
+EnvironmentFile=/etc/aukora-genesis/release.env
 Environment=PATH=/opt/aukora-node/bin:/usr/local/bin:/usr/bin:/bin
 Environment=AUKORA_SUPPORT_ROOT=/home/aukora-host/genesis/support
 Environment=AUKORA_STATE=/home/aukora-host/genesis/state
-# Fail closed: the boundary self-check (bin/selfcheck.mjs) must pass and be recorded in the gate ledger first.
+Environment=AUKORA_LAUNCH_STARTUP_TIMEOUT=150
+# Fail closed (1): the boundary self-check (bin/selfcheck.mjs) must pass and be recorded in the gate ledger first.
 ExecStartPre=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec
-ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release /opt/aukora-genesis/release-e4a02b6 --state-root /home/aukora-host/genesis/state --port 18735 --allow-unapproved --patch /opt/aukora-genesis/release-e4a02b6/aukora-composition.patch.yml --patch /opt/aukora-genesis/release-e4a02b6/linux-openshell.patch.yml
+# Fail closed (2): the monotonic release floor. Trusted root-owned code verifies the installed gate approval for exactly this
+# release (candidate release read as data) and refuses an approval older than the newest one ever installed.
+ExecStartPre=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/release-floor.mjs check --release-dir ${AUKORA_RELEASE_DIR} --approval-state-root ${AUKORA_APPROVAL_ROOT}
+ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release ${AUKORA_RELEASE_DIR} --state-root /home/aukora-host/genesis/state --port 18735 --foreground --node /opt/aukora-node/bin/node --approval-state-root ${AUKORA_APPROVAL_ROOT} --approved-record-sha ${AUKORA_RECORD_SHA} --patch ${AUKORA_RELEASE_DIR}/aukora-composition.patch.yml --patch ${AUKORA_RELEASE_DIR}/linux-openshell.patch.yml
 KillMode=control-group
 Restart=on-failure
 RestartSec=5
