@@ -15,7 +15,10 @@
 # What is pinned (vendor/openviking/upstream-openviking.json): the openviking wheel by sha256, the whole dependency
 # closure by `pip --require-hashes` (requirements-macos-arm64-py311.lock, itself checked by sha256; it contains
 # the release's Linux artifact hashes too, and Linux keeps every exact version), and the embedding
-# model by sha256. NOT pinned: llama-server (Homebrew `llama.cpp`) and the Python 3.11 interpreter.
+# model by sha256. At serve time, the resolved llama-server entry and its complete b11381 file/symlink
+# tree must match host/pins/llama-server-b11381.json before probing or launching it. The Python 3.11
+# interpreter is not pinned here; the tree check alone does not establish installed custody.
+# This manifest names the existing Linux CPU build; an unmatched Homebrew/macOS build is refused.
 #
 # Environment knobs for install: AUKORA_OPENVIKING_PORT (default 1933), AUKORA_OPENVIKING_EMBED_PORT (1934),
 # AUKORA_OPENVIKING_MODEL (an existing Qwen3-Embedding-0.6B-Q8_0.gguf to use in place; its sha256 is checked).

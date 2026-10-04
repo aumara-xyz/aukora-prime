@@ -24,6 +24,98 @@ class SetupError(Exception):
     """A safe diagnostic containing no configuration contents or key material."""
 
 
+LLAMA_SERVER_PIN = Path(__file__).resolve().parents[1] / "host/pins/llama-server-b11381.json"
+
+
+def verify_llama_server(executable, pin_path=None):
+    """Return the resolved pinned entry after checking the complete release tree.
+
+    PATH aliases must resolve to this entry. Checking every declared file and
+    symlink, and refusing extra entries, prevents another build or an unlisted
+    library from being accepted merely because the executable has the right name.
+    """
+    try:
+        pin = json.loads(Path(pin_path if pin_path is not None else LLAMA_SERVER_PIN).read_text())
+        if not isinstance(pin, dict) or pin.get("version") != "b11381":
+            raise SetupError("llama-server pin is unavailable or invalid")
+
+        def relative_path(value):
+            if not isinstance(value, str) or not value:
+                raise SetupError("llama-server pin is unavailable or invalid")
+            path = Path(value)
+            if (path.is_absolute() or not path.parts or ".." in path.parts or
+                    path.as_posix() != value):
+                raise SetupError("llama-server pin is unavailable or invalid")
+            return value
+
+        install_dir = pin["install_dir"]
+        if not isinstance(install_dir, str) or not Path(install_dir).is_absolute():
+            raise SetupError("llama-server pin is unavailable or invalid")
+        root = Path(install_dir).resolve(strict=True)
+        if not root.is_dir() or not isinstance(pin["files"], list) or not pin["files"]:
+            raise SetupError("llama-server pin is unavailable or invalid")
+        files, links = {}, {}
+        for row in pin["files"]:
+            if not isinstance(row, dict) or set(row) != {"path", "sha256"}:
+                raise SetupError("llama-server pin is unavailable or invalid")
+            path, digest = relative_path(row["path"]), row["sha256"]
+            if (path in files or not isinstance(digest, str) or
+                    not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                raise SetupError("llama-server pin is unavailable or invalid")
+            files[path] = digest
+        if not isinstance(pin["symlinks"], list):
+            raise SetupError("llama-server pin is unavailable or invalid")
+        for row in pin["symlinks"]:
+            if not isinstance(row, dict) or set(row) != {"path", "target"}:
+                raise SetupError("llama-server pin is unavailable or invalid")
+            path, target = relative_path(row["path"]), row["target"]
+            if path in files or path in links or not isinstance(target, str) or not target:
+                raise SetupError("llama-server pin is unavailable or invalid")
+            links[path] = target
+        entry = relative_path(pin["entry"])
+        if files.get(entry) != pin["entry_sha256"] or entry not in files:
+            raise SetupError("llama-server pin is unavailable or invalid")
+        resolved = Path(executable).resolve(strict=True)
+        if resolved != root / entry:
+            raise SetupError("llama-server resolved entry differs from the host pin")
+
+        # Directories are only those implied by declared paths. Do not traverse
+        # symlinks: their exact targets are part of the pinned tree instead.
+        expected_dirs = {parent.as_posix() for path in (*files, *links)
+                         for parent in Path(path).parents if parent != Path(".")}
+        actual_files, actual_links, actual_dirs = {}, {}, set()
+        pending = [root]
+        while pending:
+            directory = pending.pop()
+            for child in directory.iterdir():
+                path = child.relative_to(root).as_posix()
+                mode = child.lstat().st_mode
+                if stat.S_ISLNK(mode):
+                    actual_links[path] = os.readlink(child)
+                elif stat.S_ISDIR(mode):
+                    actual_dirs.add(path)
+                    pending.append(child)
+                elif stat.S_ISREG(mode):
+                    digest = hashlib.sha256()
+                    with child.open("rb") as source:
+                        for block in iter(lambda: source.read(1024 * 1024), b""):
+                            digest.update(block)
+                    actual_files[path] = digest.hexdigest()
+                else:
+                    raise SetupError("llama-server tree differs from the host pin")
+        if actual_files != files or actual_links != links or actual_dirs != expected_dirs:
+            raise SetupError("llama-server tree differs from the host pin")
+        for path in links:
+            target = (root / path).resolve(strict=True)
+            if not target.is_relative_to(root) or target.relative_to(root).as_posix() not in files:
+                raise SetupError("llama-server tree differs from the host pin")
+        return str(resolved)
+    except SetupError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+        raise SetupError("llama-server pin is unavailable or invalid") from None
+
+
 def say(message):
     print(f"openviking-setup: {message}", file=sys.stderr, flush=True)
 
@@ -226,6 +318,13 @@ def load_mode_args(help_text):
     raise SetupError("llama-server offers neither --load-mode nor --mmap; cannot keep the model memory-mapped")
 
 
+def llama_server_profile():
+    # Even the help probe executes the binary; verify its tree first.
+    executable = verify_llama_server(command("llama-server"))
+    probe = capture([executable, "--help"])
+    return executable, load_mode_args((probe.stdout or "") + (probe.stderr or ""))
+
+
 def memory_monitor():
     if sys.platform == "darwin":
         return MacMemory()
@@ -258,9 +357,7 @@ class Supervisor:
             raise SetupError("embedding.model differs from the pinned Qwen3-Embedding-0.6B-Q8_0.gguf")
         self.limit = positive_integer(os.environ.get("AUKORA_OPENVIKING_EMBED_RSS_MIB", "1536"),
                                       "AUKORA_OPENVIKING_EMBED_RSS_MIB") * 1024
-        self.llama = command("llama-server")
-        probe = capture([self.llama, "--help"])
-        self.load_mode = load_mode_args((probe.stdout or "") + (probe.stderr or ""))
+        self.llama, self.load_mode = llama_server_profile()
         self.memory = memory_monitor()
         if sys.platform == "darwin":
             command("lsof")
@@ -343,6 +440,9 @@ class Supervisor:
         self.stopping.set()
 
     def start_embed(self):
+        # Recheck before each owned launch/restart; an earlier probe is not a
+        # receipt for bytes that may have changed since initialization.
+        self.llama = verify_llama_server(self.llama)
         # Refuse an existing listener on every start. The ownership check below also
         # closes the bind/check race; a different server's health cannot make us ready.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as guard:
