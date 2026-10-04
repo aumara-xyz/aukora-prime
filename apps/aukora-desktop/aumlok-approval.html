@@ -82,9 +82,15 @@
   main.card > * { flex: none; }
   main.card[data-gate-class="ROUTINE"] { border: 2px solid var(--approval-blue); }
   main.card[data-gate-class="CRITICAL"] { border: 2px solid var(--approval-red); }
-  #gate-clarity { margin: 0; font-weight: 700; color: var(--approval-blue); }
+  #gate-clarity { margin: 0; padding: 4px 9px; flex: none; border: 1px solid currentColor;
+    border-radius: 6px; font-size: 12px; line-height: 1.4; font-weight: 600; color: var(--approval-blue); }
+  #operation-summary[data-gate-card] { padding: 18px; gap: 12px; }
+  #operation-summary[data-gate-card] .summary-heading { align-items: flex-start; gap: 16px; }
+  #operation-summary[data-gate-card] .summary-heading h1 { font-size: 17px; line-height: 1.5;
+    letter-spacing: 0; margin: 0; font-weight: 600; }
+  #operation-summary[data-gate-card] #summary-icon { display: none; }
   main.card[data-gate-class="CRITICAL"] #gate-clarity { color: var(--approval-red); }
-  #gate-action { margin: 0; font-size: 14px; }
+  #gate-action { margin: 0; font-size: 20px; line-height: 1.45; font-weight: 500; letter-spacing: -.01em; }
   h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
   p.lede { display: none; }
   /* THE CHANGE ITSELF, WITH ITS LINE BREAKS: a diff run together into one paragraph is not something a person can read. */
@@ -210,8 +216,7 @@
 <div class="scrim">
 <main class="card">
   <section id="operation-summary" class="operation-summary" hidden aria-label="Operation summary">
-    <div class="summary-heading"><span id="summary-icon" class="icon" aria-hidden="true"></span><h1 id="headline">Approval</h1><span id="summary-risk" class="icon" role="img" hidden></span><span id="summary-presence" class="icon" role="img" hidden></span></div>
-    <p id="gate-clarity" hidden></p>
+    <div class="summary-heading"><span id="summary-icon" class="icon" aria-hidden="true"></span><h1 id="headline">Approval</h1><span id="gate-clarity" hidden></span><span id="summary-risk" class="icon" role="img" hidden></span><span id="summary-presence" class="icon" role="img" hidden></span></div>
     <p id="gate-action" hidden></p>
     <blockquote id="summary-reason" class="requester-words" hidden></blockquote>
     <div id="summary-counts" class="summary-counts" hidden></div>
@@ -1071,14 +1076,23 @@
     function renderGateClarity(card) {
       var lines = card.facts.split('\n')
       var labels = lines.filter(function (l) { return l.indexOf('Clarity (gate): ') === 0 })
+      var targets = lines.filter(function (l) { return l.indexOf('Target: ') === 0 })
+      var kinds = lines.filter(function (l) { return l.indexOf('Kind: ') === 0 })
       var actions = lines.filter(function (l) { return l.indexOf('What this does (gate): ') === 0 })
-      if (labels.length !== 1 || actions.length !== 1) return false
+      if (labels.length !== 1 || actions.length !== 1 || targets.length !== 1 || kinds.length !== 1) return false
       var label = labels[0].slice('Clarity (gate): '.length)
       var action = actions[0].slice('What this does (gate): '.length)
       if ((label !== 'ROUTINE' && label !== 'CRITICAL') || !/^[\x20-\x7e]{1,200}$/.test(action)) return false
       document.querySelector('main.card').setAttribute('data-gate-class', label)
       document.getElementById('operation-summary').setAttribute('data-risk', String(label === 'CRITICAL'))
-      show('gate-clarity', label + ' — gate label')
+      var target = targets[0].slice('Target: '.length)
+      var restoring = kinds[0] === 'Kind: revert'
+      var title = target === 'plugins/auma-theme/theme.json' ? (restoring ? 'Restore theme accent' : 'Change theme accent')
+        : target === 'plugins/aukora-plugin-set/approval.json' ? (restoring ? 'Restore plugin-set approval' : 'Approve AUKORA plugin set')
+        : (restoring ? 'Restore ' : 'Change ') + target
+      document.getElementById('operation-summary').setAttribute('data-gate-card', '')
+      show('headline', title)
+      show('gate-clarity', label === 'CRITICAL' ? 'Critical' : 'Routine')
       show('gate-action', 'What this does: ' + action)
       document.getElementById('gate-clarity').hidden = false
       document.getElementById('gate-action').hidden = false
@@ -1235,7 +1249,6 @@
             document.getElementById('gate-change').hidden = false
             document.getElementById('gate-model').hidden = false
             armGateReveal()
-            show('headline', 'Review gate proposal')
             show('f-challenge', review.review_challenge)
             if (questionLabel) questionLabel.textContent = 'Gate review challenge'
             show('f-expires', new Date(review.review_expires).toISOString())

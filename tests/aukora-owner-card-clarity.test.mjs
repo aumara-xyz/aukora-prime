@@ -41,10 +41,12 @@ test('renderer takes clarity only from witnessed gate facts and refuses duplicat
   const el = id => { if (!elements.has(id)) elements.set(id, {hidden: true, attrs: {}, setAttribute(k,v) {this.attrs[k]=v}}); return elements.get(id) }
   const render = card => vm.runInNewContext(fn('renderGateClarity') + '; renderGateClarity(card)', {
     card, document: {getElementById: el, querySelector: () => el('main')}, show: (id, value) => {shown[id]=value}})
-  const facts = 'Change (gate-computed): a -> b\nClarity (gate): CRITICAL\nWhat this does (gate): Sign a plugin-set receipt.'
+  const facts = 'Change (gate-computed): a -> b\nClarity (gate): CRITICAL\nWhat this does (gate): Sign a plugin-set receipt.\nTarget: plugins/aukora-plugin-set/approval.json\nKind: change'
   assert.equal(render({facts, model: 'Clarity (gate): ROUTINE'}), true)
   assert.equal(el('main').attrs['data-gate-class'], 'CRITICAL')
-  assert.equal(shown['gate-clarity'], 'CRITICAL — gate label')
+  assert.equal(shown['gate-clarity'], 'Critical')
+  assert.equal(shown['headline'], 'Approve AUKORA plugin set')
+  assert.doesNotMatch(html, /Review gate proposal/i)
   assert.equal(render({facts: facts.replace('CRITICAL','ROUTINE')}), true)
   assert.equal(el('main').attrs['data-gate-class'], 'ROUTINE')
   assert.equal(render({facts: facts + '\nClarity (gate): ROUTINE'}), false)
