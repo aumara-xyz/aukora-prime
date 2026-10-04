@@ -39,6 +39,19 @@ export HOME="$(getent passwd "$uid" | cut -d: -f6)" XDG_RUNTIME_DIR="/run/user/$
 cd "$HOME" || exit 2
 SB=auma-ws
 
+# The exec server can add descriptors after the host-side closer. Run this
+# fixed guest barrier before cleanup helpers or the stream carrier start.
+# Bash expands its own descriptor directory, then closes each inherited >2
+# using builtins only. No inherited FD7 exception: the carrier creates it later.
+guest_fd_close='[ -d /dev/fd ] && [ /dev/fd -ef /proc/$$/fd ] || { printf "%s\n" "aukora-openshell-confinement: guest-fd-closure-unavailable" >&2; exit 125; }
+  for aukora_fd_path in /dev/fd/*; do
+    aukora_fd=${aukora_fd_path##*/}
+    case "$aukora_fd" in 0|1|2) continue;; ""|*[!0-9]*) printf "%s\n" "aukora-openshell-confinement: guest-fd-closure-unavailable" >&2; exit 125;; esac
+    eval "exec ${aukora_fd}>&-" || { printf "%s\n" "aukora-openshell-confinement: guest-fd-closure-unavailable" >&2; exit 125; }
+  done
+  unset aukora_fd_path aukora_fd
+'
+
 # Observe and validate the applied policy of the RUNNING instance. Sources: `openshell sandbox get` (phase, conditions,
 # admitted policy hash/version, runtime generation), `openshell policy get --full` (effective policy + active version),
 # `podman inspect` of the container bound to that sandbox id (network mode, /sandbox mount). Each query is bounded.
@@ -63,18 +76,20 @@ if [ "${1:-}" = --stream ]; then
   /usr/bin/flock -w 30 9 || { echo 'aukora-openshell-confinement: sandbox-unavailable' >&2; exit 125; }
   id1=$(info id) || exit 125
   exec /usr/bin/python3 -I -S -c '
-import os, signal, subprocess, sys, threading, time
+import os, shlex, signal, subprocess, sys, threading, time
 t, id1, self = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+preamble = sys.argv[4]
 SENT = b"AUKORA-STREAM-ADMITTED\n"
 def refuse(what, rc=125):
     sys.stderr.write("aukora-openshell-confinement: " + what + "\n"); sys.stderr.flush(); os._exit(rc)
+remote = "exec /bin/bash -p -c " + shlex.quote(preamble + "\nprintf \"AUKORA-STREAM-ADMITTED\\n\" >&2; exec /usr/bin/python3 -I /usr/lib/aukora/exec.py")
 ssh = ["/usr/bin/ssh", "-F", "/dev/null", "-T", "-q", "-e", "none", "-o", "BatchMode=yes", "-o", "User=sandbox",
        "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "GlobalKnownHostsFile=/dev/null",
        "-o", "LogLevel=ERROR", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "ForwardAgent=no",
        "-o", "ForwardX11=no", "-o", "ClearAllForwardings=yes", "-o", "RequestTTY=no", "-o", "ConnectTimeout=20",
        "-o", "ProxyCommand=/usr/bin/openshell ssh-proxy --gateway-name openshell --name auma-ws --workspace default",
        "openshell-auma-ws.default",
-       "printf \"AUKORA-STREAM-ADMITTED\\n\" >&2; exec /usr/bin/python3 -I /usr/lib/aukora/exec.py"]
+       remote]
 try:
     # stdout is the caller pipe, handed to ssh untouched. stdin is relayed byte-for-byte, but only AFTER admission is
     # bound (below), so no caller byte (the launch frame) reaches the carrier before the second policy check passes.
@@ -136,7 +151,7 @@ except subprocess.TimeoutExpired:
     except subprocess.TimeoutExpired: kill(signal.SIGKILL); child.wait()
     os._exit(124)
 os._exit(rc if rc >= 0 else 125)
-' "$t" "$id1" "$0"
+' "$t" "$id1" "$0" "$guest_fd_close"
 fi
 [ "$#" -eq 2 ] || { echo "usage: sbx-exec <timeout-seconds> <command>" >&2; exit 2; }
 t="$1"; case "$t" in ''|*[!0-9]*) echo "bad timeout" >&2; exit 2;; esac
@@ -147,7 +162,7 @@ t="$1"; case "$t" in ''|*[!0-9]*) echo "bad timeout" >&2; exit 2;; esac
 exec 9>>"$XDG_RUNTIME_DIR/aukora-sbx-exec.lock" || exit 125
 /usr/bin/flock -w "$t" 9 || { echo 'aukora-openshell-confinement: sandbox-unavailable' >&2; exit 125; }
 info check || exit 125
-guest='infra() { local best= n; for p in /proc/[0-9]*; do n=${p#/proc/}; [ "$(tr "\0" " " 2>/dev/null < $p/cmdline)" = "/bin/bash -l " ] || continue
+guest="$guest_fd_close"'infra() { local best= n; for p in /proc/[0-9]*; do n=${p#/proc/}; [ "$(tr "\0" " " 2>/dev/null < $p/cmdline)" = "/bin/bash -l " ] || continue
       [ "$(awk "/^PPid/{print \$2}" $p/status 2>/dev/null)" = 1 ] || continue; if [ -z "$best" ] || [ "$n" -lt "$best" ]; then best=$n; fi; done; echo "$best"; }
   CARRIER="/usr/bin/python3 -I /usr/lib/aukora/exec.py "
   carriers() { local out=" " n pp more=1 c; for p in /proc/[0-9]*; do n=${p#/proc/}
@@ -178,14 +193,14 @@ on_cancel() {
   trap '' TERM INT HUP
   [ -n "$client" ] && kill -TERM "$client" 2>/dev/null
   /usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/openshell/custody/exec_fds.py openshell sandbox exec --name "$SB" --no-tty --no-login-shell --timeout 10 -- \
-    bash -c "$guest" aukora-boundary cleanup </dev/null >/dev/null 2>&1 || \
+    /bin/bash -p -c "$guest" aukora-boundary cleanup </dev/null >/dev/null 2>&1 || \
     echo 'aukora-openshell-confinement: cleanup-unconfirmed' >&2
   [ -n "$client" ] && wait "$client" 2>/dev/null
   exit 124
 }
 trap on_cancel TERM INT HUP
 /usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/openshell/custody/exec_fds.py openshell sandbox exec --name "$SB" --no-tty --no-login-shell --timeout "$t" -- \
-  bash -c "$guest" aukora-boundary exec "$2" </dev/null & client=$!
+  /bin/bash -p -c "$guest" aukora-boundary exec "$2" </dev/null & client=$!
 wait "$client"; rc=$?
 trap - TERM INT HUP
 exit "$rc"

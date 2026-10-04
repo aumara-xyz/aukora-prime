@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Pure parsers/verdicts and mocked syscall boundaries. Never invoke live probes,
+// Source parsers/verdicts, mocked boundaries and owned local FD fixtures. Never invoke live probes,
 // privileged launch plans, firewall/service tools or production endpoints.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -8,6 +8,7 @@ import test from 'node:test'
 
 const probe = fileURLToPath(new URL('../scripts/audit/containment/probe.py', import.meta.url))
 const runner = fileURLToPath(new URL('../scripts/audit/containment/run.py', import.meta.url))
+const custodyBody = fileURLToPath(new URL('../packages/boundary-gate/host/openshell/custody/sbx_exec_body.sh', import.meta.url))
 const setup = String.raw`
 import importlib.util,json,errno,os,socket,sys
 from unittest.mock import patch,Mock
@@ -19,14 +20,200 @@ def load(name,path):
 with patch('subprocess.Popen',side_effect=AssertionError('import performed effects')):
     p=load('probe',sys.argv[1]); r=load('runner',sys.argv[2])
 `
-function check(body) {
-  const result = spawnSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', setup + body, probe, runner], {
+function check(body, sources = []) {
+  const result = spawnSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', setup + body, probe, runner, ...sources], {
     encoding: 'utf8', timeout: 8000, maxBuffer: 64 * 1024,
-    env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
+    env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', TMPDIR: '/tmp' },
   })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 0, result.stderr)
 }
+
+// Source-only sensitivity: actual owned local descriptors cross the production
+// Bash close loop. Darwin projects only the Linux FD-directory identity condition
+// and the detector's /proc path spelling. No descriptor closure is mocked.
+// Local workspace IO does not qualify the actual guest O_TMPFILE workspace path.
+const guestFdFixture = String.raw`
+import ast,fcntl,re,shlex,stat,subprocess,tempfile
+with open(sys.argv[3],encoding='utf-8') as source_file:source=source_file.read()
+constants=re.findall(r"^guest_fd_close='([^']*)'\s*$",source,re.MULTILINE)
+assert len(constants)==1,'one literal production preamble required'
+production_preamble=constants[0]
+linux_identity='[ -d /dev/fd ] && [ /dev/fd -ef /proc/$$/fd ]'
+assert production_preamble.startswith(linux_identity+' || ')
+assert production_preamble.count(linux_identity)==1
+assert sys.platform in ('darwin','linux'),'unsupported local source-fixture platform'
+projected=sys.platform=='darwin'
+preamble=production_preamble.replace(linux_identity,'[ -d /dev/fd ]',1) if projected else production_preamble
+# SOURCEFIXTURE only: Darwin has no /proc. The unchanged full production guard
+# must separately refuse there. Actual Linux guest guard/runtime is UNPERFORMED.
+assert 'guest="$guest_fd_close"\'infra() {' in source
+assert source.count('/bin/bash -p -c "$guest"')==2,'ordinary and cancellation must use the preamble'
+stream=re.search(r"exec /usr/bin/python3 -I -S -c '(\n.*?)\n' \"\$t\" \"\$id1\" \"\$0\" \"\$guest_fd_close\"",source,re.DOTALL)
+assert stream,'stream must receive the same constant'
+tree=ast.parse(stream[1])
+remote=next(node.value for node in tree.body if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='remote' for target in node.targets))
+assert isinstance(remote,ast.BinOp) and isinstance(remote.op,ast.Add)
+assert isinstance(remote.left,ast.Constant) and remote.left.value=='exec /bin/bash -p -c '
+quoted=remote.right
+assert isinstance(quoted,ast.Call) and isinstance(quoted.func,ast.Attribute) and quoted.func.attr=='quote'
+assert isinstance(quoted.func.value,ast.Name) and quoted.func.value.id=='shlex' and len(quoted.args)==1
+combined=quoted.args[0]
+assert isinstance(combined,ast.BinOp) and isinstance(combined.op,ast.Add)
+assert isinstance(combined.left,ast.Name) and combined.left.id=='preamble'
+assert isinstance(combined.right,ast.Constant) and combined.right.value.startswith('\nprintf "AUKORA-STREAM-ADMITTED')
+assert combined.right.value.endswith('exec /usr/bin/python3 -I /usr/lib/aukora/exec.py')
+
+# Device classification is a source case, independent of protected path prefixes.
+for master_path in ['/dev/ptmx','/dev/pts/ptmx']:
+    with patch.object(p.os,'listdir',return_value=['130']),patch.object(p.os,'readlink',return_value=master_path):
+        result,metadata=p.inherited_handles({'protected_prefixes':[]})
+    assert result=='ALLOWED' and metadata['leaks']==[{'fd':130,'kind':'terminal-master'}]
+
+child_code=r'''
+import os,sys
+# Capture actual inherited state before source imports can reuse closed numbers.
+snapshot={}
+closed=[]
+for number in [0,1,2]+[int(value) for value in sys.argv[4].split(',')]:
+    try:info=os.fstat(number)
+    except OSError as error:
+        if error.errno!=9:raise
+        closed.append(number)
+    else:snapshot[number]=(info.st_dev,info.st_ino,info.st_mode,info.st_rdev)
+import importlib.util,json,stat
+from unittest.mock import patch
+def load(name,path):
+    spec=importlib.util.spec_from_file_location(name,path)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
+with patch('subprocess.Popen',side_effect=AssertionError('source import performed effects')):
+    p=load('probe',sys.argv[1]);r=load('runner',sys.argv[2])
+fixtures=json.loads(sys.argv[5]);workspace=sys.argv[3]
+roles={str(number):{'device':snapshot[number][0],'inode':snapshot[number][1],'mode':snapshot[number][2]} for number in [0,1,2]}
+for number,observed in snapshot.items():
+    if number>2:assert list(observed)==fixtures[str(number)]['identity'],'descriptor identity changed before observation'
+stdin=os.read(0,64)
+assert stdin==b'owned fixture stdin\n'
+owned_path=os.path.join(workspace,'workspace-proof')
+try:
+    with open(owned_path,'xb+') as owned:
+        owned.write(b'owned workspace proof\n');owned.flush();owned.seek(0)
+        assert owned.read()==b'owned workspace proof\n'
+finally:
+    if os.path.exists(owned_path):os.unlink(owned_path)
+ws={'run_id':'guest-fd-fixture','route_id':'ws','route':'workspace-write','target':workspace,'result':'OK','detail':'owned local workspace round-trip; actual guest workspace UNPERFORMED'}
+expected=[{'route_id':'ws','route':'workspace-write','target':workspace,'expect':'OK'},
+          {'route_id':'fds','route':'inherited-handle','target':'all','expect':'DENIED'}]
+manifest={'schema_version':1,'run_id':'guest-fd-fixture','phase':'real','expected_routes':[expected[1]],
+          'protected_prefixes':[workspace],'stdio_roles':roles}
+actual_listdir=p.os.listdir;actual_readlink=p.os.readlink
+def list_projection(path):
+    if path=='/proc/self/fd':return [str(number) for number in snapshot]
+    return actual_listdir(path)
+observations=[]
+for terminal_path in ['/dev/ptmx','/dev/pts/ptmx']:
+    def link_projection(path):
+        if not path.startswith('/proc/self/fd/'):return actual_readlink(path)
+        number=int(path.rsplit('/',1)[1]);observed=snapshot[number]
+        if stat.S_ISSOCK(observed[2]):return 'socket:['+str(observed[1])+']'
+        if number>2:
+            fixture=fixtures[str(number)]
+            if fixture['kind']=='terminal-master':return terminal_path
+            return fixture['link']
+        return '/dev/null' if number==0 else 'pipe:['+str(observed[1])+']'
+    with patch.object(p.os,'listdir',side_effect=list_projection),patch.object(p.os,'readlink',side_effect=link_projection):
+        fdrow=list(p.run_probe(manifest))[0]
+    summary=r.summarize(r.parse_jsonl('\n'.join(json.dumps(row) for row in [ws,fdrow])+'\n'),expected,'guest-fd-fixture','real')
+    observations.append({'row':fdrow,'status':summary['status']})
+os.write(2,b'owned fixture stderr\n')
+print(json.dumps({'workspace':'OK','scope':'owned-local-source-fixture','open_fds':sorted(snapshot),'closed_fds':closed,'observations':observations}))
+'''
+
+def fixture(use_closer,full_guard_refusal=False):
+    with tempfile.TemporaryDirectory(prefix='containment-guest-fds-') as workspace:
+        left,right=socket.socketpair(socket.AF_UNIX,socket.SOCK_STREAM)
+        originals=[];passed=[];fixtures={};pty_available=False
+        def record(number,kind,link):
+            passed.append(number)
+            info=os.fstat(number)
+            fixtures[str(number)]={'kind':kind,'link':link,'identity':[info.st_dev,info.st_ino,info.st_mode,info.st_rdev]}
+        def duplicate(original,number,kind,link):
+            actual=fcntl.fcntl(original,fcntl.F_DUPFD,number)
+            record(actual,kind,link)
+            assert actual==number,'owned fixture FD allocation changed'
+        try:
+            os.dup2(left.fileno(),7,inheritable=True);record(7,'socket','socket:fixture')
+            duplicate(left.fileno(),128,'socket','socket:fixture')
+            read_end,write_end=os.pipe();originals.extend([read_end,write_end])
+            duplicate(read_end,129,'pipe','pipe:fixture')
+            path=os.path.join(workspace,'owned-file')
+            file_fd=os.open(path,os.O_CREAT|os.O_EXCL|os.O_RDWR,0o600);originals.append(file_fd)
+            duplicate(file_fd,131,'file',path)
+            try:master,slave=os.openpty()
+            except (AttributeError,OSError):pass
+            else:
+                originals.extend([master,slave])
+                duplicate(master,130,'terminal-master','/dev/ptmx');pty_available=True
+            child_argv=['/usr/bin/python3','-I','-S','-B','-c',child_code,sys.argv[1],sys.argv[2],workspace,
+                        ','.join(str(number) for number in passed),json.dumps(fixtures)]
+            selected=production_preamble if full_guard_refusal else preamble
+            child_command=(selected if use_closer else '')+'\nexec '+shlex.join(child_argv)
+            result=subprocess.run(['/bin/bash','-p','-c',child_command],input=b'owned fixture stdin\n',
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,close_fds=True,pass_fds=tuple(passed),
+                timeout=4,env={'PATH':'/usr/bin:/bin','LC_ALL':'C','TMPDIR':'/tmp'})
+            if full_guard_refusal:
+                assert projected,'full-guard refusal case is Darwin-only'
+                assert result.returncode==125,result.stderr.decode('utf-8','replace')
+                assert result.stdout==b''
+                assert result.stderr==b'aukora-openshell-confinement: guest-fd-closure-unavailable\n'
+                return {'full_guard':'REFUSED','passed':sorted(passed)}
+            assert result.returncode==0,result.stderr.decode('utf-8','replace')
+            assert result.stderr==b'owned fixture stderr\n'
+            observed=json.loads(result.stdout)
+            observed.update(passed=sorted(passed),pty_available=pty_available,
+                identity_condition='SOURCEFIXTURE' if projected else 'full-production-local-Linux',
+                actual_guest_guard='UNPERFORMED')
+            return observed
+        finally:
+            for number in passed+originals:os.close(number)
+            left.close();right.close()
+`
+
+test('production guest close loop preserves owned local workspace and standard IO (source-only)', () => check(guestFdFixture + String.raw`
+if projected:
+    refusal=fixture(True,full_guard_refusal=True)
+    assert refusal['full_guard']=='REFUSED' and {7,128,129,131}.issubset(refusal['passed'])
+observed=fixture(True)
+assert observed['workspace']=='OK' and observed['scope']=='owned-local-source-fixture'
+assert observed['actual_guest_guard']=='UNPERFORMED'
+if projected:assert observed['identity_condition']=='SOURCEFIXTURE'
+assert observed['open_fds']==[0,1,2]
+assert sorted(observed['closed_fds'])==observed['passed']
+assert all(item['status']=='PASS' for item in observed['observations'])
+`, [custodyBody]))
+
+test('production guest close loop removes actual inherited socket, pipe, file and owned PTY handles (source-only)', () => check(guestFdFixture + String.raw`
+observed=fixture(True)
+assert {7,128,129,131}.issubset(observed['closed_fds'])
+if observed['pty_available']:assert 130 in observed['closed_fds']
+for item in observed['observations']:
+    row=item['row']
+    assert row['result']=='DENIED' and row['complete'] is True
+    assert row['metadata']=={'leaks':[],'unclassified':[]}
+`, [custodyBody]))
+
+test('removing only the guest closer exposes ALLOWED inherited handles and fails unchanged expectations', () => check(guestFdFixture + String.raw`
+observed=fixture(False)
+assert {7,128,129,131}.issubset(observed['open_fds'])
+assert not observed['closed_fds']
+for item in observed['observations']:
+    row=item['row']
+    assert row['result']=='ALLOWED' and row['complete'] is True and item['status']=='FAIL'
+    assert {leak['fd'] for leak in row['metadata']['leaks'] if leak['kind']=='socket'}=={7,128}
+    if observed['pty_available']:
+        assert {'fd':130,'kind':'terminal-master'} in row['metadata']['leaks']
+`, [custodyBody]))
 
 test('probe output caps preserve an already observed ALLOWED or FAIL', () => check(String.raw`
 base={'run_id':'fixture','route_id':'fd','route':'inherited-handle','target':'self','result':'ALLOWED','detail':'observed','metadata':{'leaks':'x'*70000}}
