@@ -1,4 +1,34 @@
-# Nebius Lab: reference-only research snapshot
+# Nebius Lab: research record
+
+> **Update 2026-10-04.** The H200 work described below as HELD has since run (Oct 3–4) under per-run preregistrations. Results are summarised in the next section; the original offline snapshot follows unchanged below it. Full code, preregistrations and receipts: `aumara-xyz/aukora-genesis` branch `labs/sokoban-recursion-r1` (sealed test sets, weights and raw transcripts withheld).
+
+## GPU-run results (Oct 3–4, 2026)
+
+Labels: **RAN** = executed, receipt named; **SOURCE-ONLY** = code/plan, not executed; **CLAIMED** = asserted, not demonstrated. Categories kept distinct: historical (pre-Oct values) / recalculated / synthetic control / qualified GPU run / demonstrated improvement.
+
+Domain: 8x8 two-box Sokoban with an exact simulator/BFS verifier; model Ornith-1.5-35B-A3B (Qwen3.5-MoE, ~3B active); one H200. Every test below used a sealed puzzle set never used for training, with a pass rule locked before the run.
+
+| Claim | Category | Label / receipt |
+| --- | --- | --- |
+| One generation of verified-trace LoRA training (v7) improves format-independent solving over the untrained model on a 2nd sealed set: 22.2% → 26.6% of 1152 attempts, 53 boards up / 32 down, p=0.0147 | demonstrated improvement (single generation) | RAN — prereg/REP1-RESULT.json |
+| Same effect first seen on another sealed set, p=0.019 (secondary test) | qualified GPU run | RAN — prereg/V7-RESULT.json |
+| Earlier 11→22/128 "doubling" was mostly answer-format learning | recalculated | RAN — prereg/CONFIRM-1/2-RESULT.json |
+| Interactive play (simulator feedback each turn) vs single-shot: 69 → 116 of 288 (p=3e-6); not better at equal token budget (50 vs 69) | qualified GPU run | RAN — prereg/WMC-RESULT.json |
+| Forcing an answer on truncated thinking rescued 0; prompt-pasted value hints hurt (89→73/512) | qualified GPU run (negative) | RAN — prereg/FORCED-1-RESULT.json, S1b-RESULT.json |
+| Second generation (gen-2 with coach hints) did not beat gen-1; hint text leaked into targets | qualified GPU run (negative) | RAN — AMENDMENTS.md |
+| 1.9M-param policy/value CNN trained on solver labels: 98.3% best-move accuracy; with search 200/200 fresh puzzles | supervised, not self-improvement | RAN (CPU/MPS) — lab/p1_REPORT.md |
+| Sob-Zero self-play on DeepMind Boxoban (10x10, 4 boxes), no solver labels: sealed 800-level solve rate 68.9% → 86.0% (champion), best 88.9%, p≈6e-34 | demonstrated multi-generation self-improvement (one seed; started from the supervised net) | RAN — prereg/SOBZERO-RESULT.json |
+| v9: interactive training of Ornith, turn-by-turn System-1 guidance | in progress | SOURCE-ONLY until its receipt lands |
+| Dream-RSI-style replay ("dreaming") | planned | SOURCE-ONLY |
+| Compounding multi-generation gains in the LLM itself; transfer to a second game | not shown | CLAIMED-NOT-YET |
+
+Costs (approximate, public $5.40/GPU-h): Oct 3 ≈ $51 GPU + $11.48 API (API use stopped); Oct 4 in progress. Provider STOPPED was confirmed at the end of Oct 3.
+
+Governance invariants (held throughout): sealed evaluation sets and the verifier sit outside the trained model's reach; fast intuition/coach signals can veto or route but never approve; a better model never gains authority to install itself, change its evaluator or widen its own permissions — promotion is a human (owner) decision per generation; every deviation is logged append-only.
+
+---
+
+## Original snapshot (Oct 1–2, unchanged)
 
 This branch collects completed offline research artifacts copied from pinned source revisions through `3e0f870f9fa4e008f4410d160b2b9e77bda539ae`. It is **not a product release, a completed GPU experiment or permission to start one**. Product source is the sanitized `a15966fd4cda16186757adf84c954b44f4ccf5c8` baseline. Only selected research file bytes were copied; the donor branch's Git history was not imported.
 
