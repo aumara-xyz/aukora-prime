@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { readGateSnapshot } from './gate-snapshot.mjs'
-import { parseUniqueJson, verifyAuraStream, verifyGateSnapshot } from './verify-collected.mjs'
+import { parseUniqueJson, verifyAuraStream, verifyGateSnapshot, verifyCollectorStoreCitation } from './verify-collected.mjs'
 import { canonicalJson } from '../../packages/contracts/src/json.mjs'
 
 export const ZERO_ID = '0'.repeat(64)
@@ -17,6 +17,7 @@ export const OBSERVATION_SCHEMA = 'aukora:aura:gate-observation:v1'
 export const CHECKPOINT_SCHEMA = 'aukora:aura:collector-checkpoint:v1'
 const MAX_LOG_BYTES = 32 * 1024 * 1024
 const MAX_EVENT_BYTES = 512 * 1024
+const CODEC_OWNER_SCOPES = new WeakMap()
 const incomplete = reason => Object.assign(new Error(reason), { code: reason })
 
 /** B's frozen API, with mandatory independent public pins; no alternate codec. */
@@ -29,6 +30,9 @@ export async function createNostrCollectorCodec({ records, authorSecretKeyHex,
     if (typeof records[name] !== 'function') throw incomplete('aura-collector:record-library-unavailable')
   if (typeof authorSecretKeyHex !== 'string' || !/^[0-9a-f]{64}$/u.test(authorSecretKeyHex))
     throw incomplete('aura-collector:scoped-signer-unavailable')
+  if (typeof ownerSubject !== 'string' || !/^aukora:1:[0-9a-f]{64}$/u.test(ownerSubject)
+      || typeof ownerPubkeyHex !== 'string' || !/^[0-9a-f]{64}$/u.test(ownerPubkeyHex))
+    throw incomplete('aura-collector:owner-scope-invalid')
   const pins = Object.freeze({ binding, controllerKeyHex, ownerSubject, authorPubkeyHex, ownerPubkeyHex })
   const verify = event => {
     const metadata = records.verifyRecord(event, pins)
@@ -43,7 +47,37 @@ export async function createNostrCollectorCodec({ records, authorSecretKeyHex,
     records.verifyRecord(event, pins)
     return event
   }
-  return Object.freeze({ build, verify })
+  const codec = Object.freeze({ build, verify })
+  CODEC_OWNER_SCOPES.set(codec, Object.freeze({ owner_subject: ownerSubject, owner_pubkey_hex: ownerPubkeyHex }))
+  return codec
+}
+
+/**
+ * Trusted-worker facade: construct from the operator's collectorContext, then
+ * pass the authenticated subject resolved by the host, never guest owner text.
+ * The private codec brand captures the same owner pins used by B verification.
+ * Selectors carry only exact source coordinates and an optional actual record ID.
+ * Request authentication and verified note-to-source associations are host obligations.
+ */
+export function createCollectorCitationReader(collectorContext) {
+  const codec = collectorContext?.codec
+  const scope = CODEC_OWNER_SCOPES.get(codec)
+  if (!scope) throw incomplete('aura-citation:owner-scope-unavailable')
+  let snapshotOptions, anchors
+  try {
+    snapshotOptions = parseUniqueJson(canonicalJson(collectorContext.snapshotOptions))
+    if (collectorContext.anchors !== undefined) anchors = parseUniqueJson(canonicalJson(collectorContext.anchors))
+  } catch { throw incomplete('aura-citation:context-invalid') }
+  const context = Object.freeze({ snapshotOptions, anchors, codec,
+    storeDir: collectorContext.storeDir, pythonExecutable: collectorContext.pythonExecutable })
+  return Object.freeze({
+    async readCitation(authenticatedOwnerSubject, selector) {
+      if (typeof authenticatedOwnerSubject !== 'string' || authenticatedOwnerSubject !== scope.owner_subject)
+        return Object.freeze({ ok: false, status: 'incomplete', reason: 'aura-citation:owner-mismatch',
+          grants_authority: false, citation: null, verification: null })
+      return verifyCollectorStoreCitation(context, selector, scope)
+    },
+  })
 }
 
 // A short-lived private stdio helper holds flock AND performs all output I/O.

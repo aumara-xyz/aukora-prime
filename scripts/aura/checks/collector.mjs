@@ -16,7 +16,7 @@ import { registerHooks } from 'node:module'
 import { DatabaseSync } from 'node:sqlite'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
-const base = '7561a97f270e34768dc271f083e091574f7078d2'
+const base = '6f9e6f433924800e365c7e400a6c4bdb30bcdc79'
 const recordFile = resolve(process.env.AUKORA_RECORDS_MODULE ?? join(root, 'plugins/aukora-nostr/lib/records.mjs'))
 const recordRoot = recordFile.endsWith('/plugins/aukora-nostr/lib/records.mjs')
   ? recordFile.slice(0, -'/plugins/aukora-nostr/lib/records.mjs'.length) : root
@@ -37,6 +37,11 @@ const mutants = {
       await store.append(line)`],
   anchor: ['verify-collected.mjs', "if (record.hash !== anchor.head || record.entry.at !== anchor.entry_at) refuse('anchor-source-mismatch')", 'void 0'],
   hardlink: ['collect-gate.mjs', ' or info.st_nlink!=1', ''],
+  'citation-owner': ['collect-gate.mjs', "if (typeof authenticatedOwnerSubject !== 'string' || authenticatedOwnerSubject !== scope.owner_subject)", 'if (false)'],
+  'citation-brand': ['collect-gate.mjs', 'if (!scope) throw', 'if (false) throw'],
+  'citation-source': ['verify-collected.mjs', '&& record.source.position === requested.position && record.source.hash === requested.hash', '&& record.source.position === requested.position'],
+  'citation-id': ['verify-collected.mjs', 'if (record_id !== null && match.record_id !== record_id)', 'if (false)'],
+  'citation-anchor': ['verify-collected.mjs', "if (anchorResult.anchor_status === 'unperformed')", 'if (false)'],
 }
 if (mutant && !mutants[mutant]) throw Error('Unknown focused mutant')
 let mutationApplied = false
@@ -56,7 +61,7 @@ registerHooks({
     if (context.parentURL?.startsWith('aukora-git:') && (specifier.startsWith('.') || specifier.startsWith('/')))
       return { url: new URL(specifier, context.parentURL).href, shortCircuit: true }
     try { return next(specifier, context) } catch (error) {
-      if (!context.parentURL || !specifier.startsWith('.')) throw error
+      if (!context.parentURL || (!specifier.startsWith('.') && !specifier.startsWith('file:'))) throw error
       const url = new URL(specifier, context.parentURL).href, rel = sourcePath(url)
       if (!rel || !/^(plugins\/aukora-(nostr|aumlok)\/|packages\/contracts\/src\/)/u.test(rel)) throw error
       return { url: `aukora-git:///${rel}`, shortCircuit: true }
@@ -80,13 +85,19 @@ registerHooks({
   },
 })
 
-const { collectGateOnce, createNostrCollectorCodec, openCollectorStore } = await import('../collect-gate.mjs')
+const { collectGateOnce, createNostrCollectorCodec, createCollectorCitationReader, openCollectorStore } = await import('../collect-gate.mjs')
 const { readGateSnapshot, gateEntryBody, gateEntryHash, gatePublicKeySha256 } = await import('../gate-snapshot.mjs')
 const { verifyCollectorStore, verifyCollected } = await import('../verify-collected.mjs')
-if (!existsSync(recordFile)) throw Error('Actual B records source unavailable; no structural-codec fallback')
-const records = await import(pathToFileURL(recordFile).href)
-const identity = await import(new URL('./identity.mjs', pathToFileURL(recordFile)))
-const eventTools = await import(new URL('./event.mjs', pathToFileURL(recordFile)))
+// Missing sparse source is read from the exact current Git checkpoint in memory.
+// No library files are materialized, and no structural-codec fallback is accepted.
+const recordURL = existsSync(recordFile) ? pathToFileURL(recordFile).href : (() => {
+  if (process.env.AUKORA_RECORDS_MODULE) throw Error('Requested actual B records source unavailable')
+  execFileSync('git', ['cat-file', '-e', `${base}:plugins/aukora-nostr/lib/records.mjs`], { cwd: root, stdio: 'pipe' })
+  return 'aukora-git:///plugins/aukora-nostr/lib/records.mjs'
+})()
+const records = await import(recordURL)
+const identity = await import(new URL('./identity.mjs', recordURL))
+const eventTools = await import(new URL('./event.mjs', recordURL))
 
 // Fixed toy/RFC-style test inputs in memory only, never key generation or files.
 const privateFromByte = byte => createPrivateKey({ key: Buffer.concat([
@@ -154,6 +165,60 @@ try {
   assert(!existsSync(join(testRoot, 'missing.db')), 'read-only source open must never create a missing database')
   console.log('PASS approved/refusal fixture observations, replay, real encrypted cold reopen, provided anchor consistency')
 
+  const citationContext = { storeDir, snapshotOptions, codec, anchors }
+  const citationDbBytes = readFileSync(dbPath), citationWalBytes = readFileSync(`${dbPath}-wal`)
+  const citationLog = readFileSync(logPath), citationCheckpoint = readFileSync(cpPath)
+  const citationReader = createCollectorCitationReader(citationContext)
+  const selected = { source: { journal_id: snapshotOptions.sourceId, position: 2, hash: entries[1].hash } }
+  const savedEvents = readFileSync(logPath, 'utf8').trimEnd().split('\n').map(JSON.parse)
+  const cited = await citationReader.readCitation(ownerSubject, selected)
+  assert.equal(cited.ok, true); assert.equal(cited.status, 'verified'); assert.equal(cited.reason, null)
+  assert.equal(cited.citation.record_id, savedEvents[1].id)
+  assert.deepEqual(cited.citation.source, selected.source)
+  assert.equal(cited.citation.key_sha256, snapshotOptions.expectedKeySha256)
+  assert.equal(cited.citation.owner_subject, ownerSubject); assert.equal(cited.citation.owner_pubkey_hex, ownerPubkeyHex)
+  assert.equal(cited.citation.binding_digest, records.verifyRecord(savedEvents[1], { binding, controllerKeyHex: controllerHex, ownerSubject, authorPubkeyHex, ownerPubkeyHex }).binding_digest)
+  assert.equal(cited.grants_authority, false); assert.equal(cited.citation.grants_authority, false)
+  assert.deepEqual(Object.keys(cited).sort(), ['ok','status','reason','grants_authority','citation','verification'].sort())
+  assert.deepEqual(Object.keys(cited.citation).sort(), ['record_id','source','key_sha256','owner_subject','owner_pubkey_hex','binding_digest','grants_authority'].sort())
+  assert(!JSON.stringify(cited).includes('fixture.json')); assert(!JSON.stringify(cited).includes('entry_body'))
+  assert(!JSON.stringify(cited).includes(savedEvents[0].id), 'no unrelated record list may escape')
+  assert.equal((await citationReader.readCitation(ownerSubject, { ...selected, record_id: savedEvents[1].id })).ok, true)
+  const wrongSource = await citationReader.readCitation(ownerSubject, { source: { ...selected.source, hash: 'a'.repeat(64) } })
+  assert.equal(wrongSource.reason, 'aura-citation:source-not-found'); assert.equal(wrongSource.citation, null)
+  for (const foreign of [{ ...selected.source, position: 1 }, { ...selected.source, journal_id: 'another-gate' }]) {
+    const unknown = await citationReader.readCitation(ownerSubject, { source: foreign })
+    assert.equal(unknown.reason, 'aura-citation:source-not-found'); assert.equal(unknown.citation, null)
+  }
+  const wrongId = await citationReader.readCitation(ownerSubject, { ...selected, record_id: savedEvents[0].id })
+  assert.equal(wrongId.reason, 'aura-citation:record-id-mismatch'); assert.equal(wrongId.citation, null)
+  const noAnchorReader = createCollectorCitationReader({ storeDir, snapshotOptions, codec })
+  const noAnchorCitation = await noAnchorReader.readCitation(ownerSubject, selected)
+  assert.equal(noAnchorCitation.status, 'incomplete'); assert.equal(noAnchorCitation.citation, null)
+  assert.equal(noAnchorCitation.verification.anchor_status, 'unperformed')
+  const wrongOwner = await citationReader.readCitation(`aukora:1:${'2'.repeat(64)}`, selected)
+  assert.equal(wrongOwner.reason, 'aura-citation:owner-mismatch'); assert.equal(wrongOwner.citation, null)
+  assert.equal(wrongOwner.verification, null, 'wrong owner must refuse before reading source/store')
+  assert.throws(() => createCollectorCitationReader({ ...citationContext, codec: countedCodec }), error => error.code === 'aura-citation:owner-scope-unavailable')
+  let codecAccesses = 0
+  const capturedReader = createCollectorCitationReader({ storeDir, snapshotOptions, anchors,
+    get codec() { codecAccesses++; return codecAccesses === 1 ? codec : countedCodec } })
+  assert.equal(codecAccesses, 1, 'owner brand and verifier must retain the same captured codec')
+  assert.equal((await capturedReader.readCitation(ownerSubject, selected)).ok, true)
+  // Caller-context mutation cannot redirect a retained owner-bound reader.
+  citationContext.storeDir = join(testRoot, 'missing-output'); citationContext.snapshotOptions = {}
+  assert.equal((await citationReader.readCitation(ownerSubject, selected)).ok, true)
+  assert(!existsSync(citationContext.storeDir), 'citation path must be read-only')
+  for (const bad of [{ ...selected, owner_subject: ownerSubject }, { ...selected, storeDir },
+    { source: { ...selected.source, hash: [selected.source.hash] } }, { source: { ...selected.source, position: '2' } },
+    { ...selected, record_id: [savedEvents[1].id] }, Object.defineProperty({}, 'source', { enumerable: true, get(){ throw Error('must not invoke selector getter') } })]) {
+    const rejected = await citationReader.readCitation(ownerSubject, bad)
+    assert.equal(rejected.ok, false); assert.equal(rejected.citation, null); assert.equal(rejected.verification, null)
+  }
+  assert.deepEqual(readFileSync(dbPath), citationDbBytes); assert.deepEqual(readFileSync(`${dbPath}-wal`), citationWalBytes)
+  assert.deepEqual(readFileSync(logPath), citationLog); assert.deepEqual(readFileSync(cpPath), citationCheckpoint)
+  console.log('PASS actual owner-scoped citations, exact ID/source, cold-only reads and no private/unrelated payload egress')
+
   const goodLog = readFileSync(logPath, 'utf8'), goodCheckpoint = readFileSync(cpPath, 'utf8')
   const forged = JSON.parse(goodCheckpoint); forged.source_head.position = 999
   writeFileSync(cpPath, JSON.stringify(forged)); const before = builds
@@ -162,6 +227,7 @@ try {
   writeFileSync(logPath, goodLog.slice(0, -1)); assert.equal((await run()).ok, false); writeFileSync(logPath, goodLog)
   const tampered = goodLog.trimEnd().split('\n').map(JSON.parse); tampered[0].sig = '0'.repeat(128)
   writeFileSync(logPath, tampered.map(e => JSON.stringify(e)).join('\n') + '\n'); assert.equal((await run()).ok, false)
+  assert.equal((await citationReader.readCitation(ownerSubject, selected)).citation, null)
   const badMac = JSON.parse(goodLog.trimEnd().split('\n')[0])
   const cipher = Buffer.from(badMac.content, 'base64'); cipher[cipher.length - 1] ^= 1
   badMac.content = cipher.toString('base64'); delete badMac.sig; badMac.id = eventTools.eventId(badMac)
@@ -180,6 +246,8 @@ try {
   const wrongOwnerCodec = await createNostrCollectorCodec({ records, authorSecretKeyHex, binding,
     controllerKeyHex: controllerHex, ownerSubject: `aukora:1:${'2'.repeat(64)}`, authorPubkeyHex, ownerPubkeyHex })
   assert.equal((await verifyCollected({ events, snapshot: source, codec: wrongOwnerCodec, gatePublicKey: gatePem, anchors })).ok, false)
+  const misboundReader = createCollectorCitationReader({ storeDir, snapshotOptions, codec: wrongOwnerCodec, anchors })
+  assert.equal((await misboundReader.readCitation(`aukora:1:${'2'.repeat(64)}`, selected)).citation, null)
   const held = await openCollectorStore(storeDir)
   try { assert.equal((await run()).reason, 'aura-collector:busy') } finally { await held.close() }
   console.log('PASS anchor divergence, real owner-binding mismatch and concurrent writer fence')
@@ -187,6 +255,7 @@ try {
   const oldSig = entries[0].sig
   db.prepare('UPDATE ledger SET sig=? WHERE seq=1').run('A'.repeat(86) + '==')
   assert.equal(readGateSnapshot(snapshotOptions).ok, false)
+  assert.equal((await citationReader.readCitation(ownerSubject, selected)).citation, null)
   db.prepare('UPDATE ledger SET sig=? WHERE seq=1').run(oldSig)
   db.prepare('DELETE FROM ledger WHERE seq=2').run()
   // A validly signed linked gap isolates the sequence check: hash/signature,
@@ -200,6 +269,7 @@ try {
   db.prepare('UPDATE ledger SET prev=?,hash=?,sig=? WHERE seq=3').run(entries[2].prev, entries[2].hash, entries[2].sig)
   db.prepare('DELETE FROM ledger WHERE seq=3').run()
   assert.equal((await run()).ok, false, 'a shorter valid source must refuse retained coverage')
+  assert.equal((await citationReader.readCitation(ownerSubject, selected)).citation, null)
   insert.run(...Object.values(entries[2]))
   // Validly re-sign a same-size alternate source prefix: history comparison must still refuse.
   const alternate = entries.map(e => ({ ...e })); alternate[0].detail = '{"fixture":"altered"}'
@@ -210,6 +280,7 @@ try {
   }
   assert.equal(readGateSnapshot(snapshotOptions).ok, true)
   assert.equal((await run()).ok, false)
+  assert.equal((await citationReader.readCitation(ownerSubject, selected)).citation, null)
   for (const e of entries) db.prepare('UPDATE ledger SET detail=?,prev=?,hash=?,sig=? WHERE seq=?').run(e.detail, e.prev, e.hash, e.sig, e.seq)
   console.log('PASS gate signature, gap and validly re-signed historical mutation refusals')
 

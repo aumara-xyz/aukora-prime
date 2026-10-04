@@ -15,6 +15,8 @@ const MAX_ROWS = 50000
 const MAX_JSON_BYTES = 128 * 1024
 const MAX_LOG_BYTES = 32 * 1024 * 1024
 const VERIFIED_PREFIXES = new WeakMap()
+const VERIFIED_METADATA = new WeakMap()
+const VERIFIED_SUMMARIES = new WeakMap()
 const ANCHOR_SCOPE = 'provided-data-consistency-only; retrieval, provenance and witness independence unperformed'
 const SOURCE_FIELDS = ['journal_id', 'key_sha256']
 const REFERENCE_FIELDS = ['journal_id', 'position', 'hash']
@@ -123,13 +125,14 @@ export async function verifyAuraStream(events, { codec, source, gatePublicKey, v
     if (trustedKeySha256(gatePublicKey) !== context.source.key_sha256) refuse('gate-key-pin-mismatch')
     if (!codec || typeof codec.verify !== 'function') refuse('codec-required')
     if (!array(events)) refuse('events-shape')
-    let verified_records = [], offset = 0
+    let verified_records = [], verified_metadata = [], offset = 0
     if (verifiedPrefix !== undefined) {
       if (!VERIFIED_PREFIXES.has(verifiedPrefix) || VERIFIED_PREFIXES.get(verifiedPrefix) !== codec
         || !sameSource(verifiedPrefix.source, context.source)) refuse('verified-prefix-invalid')
       context.aura_head = { ...verifiedPrefix.aura_head }
       context.coverage = { ...verifiedPrefix.coverage }
       verified_records = [...verifiedPrefix.verified_records]
+      verified_metadata = [...VERIFIED_METADATA.get(verifiedPrefix)]
       offset = verified_records.length
     }
     if (offset + events.length > MAX_ROWS) refuse('events-shape')
@@ -156,6 +159,9 @@ export async function verifyAuraStream(events, { codec, source, gatePublicKey, v
       if (payload.action_id !== action_id || metadata.action_id !== action_id) refuse('action-reference-mismatch')
       verified_records.push(Object.freeze({ position: payload.entry.seq, hash: payload.entry.hash, action_id,
         entry: Object.freeze(payload.entry), entry_body: payload.entry_body }))
+      verified_metadata.push(Object.freeze({ record_id: metadata.id,
+        source: Object.freeze({ journal_id: metadata.source.journal_id, position: metadata.source.position, hash: metadata.source.hash }),
+        owner_pubkey_hex: metadata.owner_pubkey_hex, binding_digest: metadata.binding_digest }))
       context.aura_head = { sequence: offset + index + 1, id: event.id }
       context.coverage = { position: payload.entry.seq, hash: payload.entry.hash }
     }
@@ -163,6 +169,7 @@ export async function verifyAuraStream(events, { codec, source, gatePublicKey, v
       source: Object.freeze(context.source), aura_head: Object.freeze(context.aura_head),
       coverage: Object.freeze(context.coverage), verified_records: Object.freeze(verified_records) })
     VERIFIED_PREFIXES.set(result, codec)
+    VERIFIED_METADATA.set(result, Object.freeze(verified_metadata))
     return result
   } catch (error) { return incomplete(context, safeReason(error)) }
 }
@@ -247,7 +254,11 @@ export async function verifyCollected({ events, snapshot, codec, gatePublicKey, 
     const anchorResult = verifyAnchors(anchors, snapshot, source)
     if (anchorResult.anchor_status === 'unperformed')
       return incomplete(context, 'aura-collected:anchor-unperformed', { selected_head, anchor_scope: ANCHOR_SCOPE, ...anchorResult })
-    return { ok: true, status: 'complete', ...context, grants_authority: false, selected_head, anchor_scope: ANCHOR_SCOPE, ...anchorResult }
+    const result = { ok: true, status: 'complete', ...context, grants_authority: false,
+      selected_head, anchor_scope: ANCHOR_SCOPE, ...anchorResult }
+    // Public summaries retain identifiers only, never decrypted rows or bodies.
+    VERIFIED_SUMMARIES.set(result, VERIFIED_METADATA.get(retained))
+    return result
   } catch (error) {
     return incomplete(context, safeReason(error), { selected_head, anchor_status: 'unperformed', anchors_checked: 0, anchor_scope: ANCHOR_SCOPE })
   }
@@ -301,6 +312,50 @@ export async function verifyCollectorStore({ storeDir, snapshotOptions, codec, a
     return incomplete(initial(), safeReason(error), { selected_head: null, anchor_status: 'unperformed',
       anchors_checked: 0, anchor_scope: ANCHOR_SCOPE })
   }
+}
+
+/**
+ * INTERNAL trusted-host helper. The public factory checks the host-authenticated subject against
+ * privately captured owner pins BEFORE calling this helper; scope is not an auth proof.
+ * Only full cold success (including supplied anchor consistency) can yield one actual record ID.
+ */
+export async function verifyCollectorStoreCitation(context, selector, scope) {
+  const result = (reason, citation = null, verification = null) => Object.freeze({
+    ok: reason === null, status: reason === null ? 'verified' : 'incomplete', reason,
+    grants_authority: false, citation, verification })
+  try {
+    const hasRecordId = selector && typeof selector === 'object' && Object.hasOwn(selector, 'record_id')
+    if (!closed(selector, hasRecordId ? ['source', 'record_id'] : ['source'])
+      || !closed(selector.source, REFERENCE_FIELDS)
+      || typeof selector.source.journal_id !== 'string' || !JOURNAL_ID.test(selector.source.journal_id)
+      || !Number.isSafeInteger(selector.source.position) || selector.source.position < 1
+      || typeof selector.source.hash !== 'string' || !HEX64.test(selector.source.hash)
+      || (hasRecordId && (typeof selector.record_id !== 'string' || !HEX64.test(selector.record_id))))
+      return result('aura-citation:selector-invalid')
+    if (!closed(scope, ['owner_subject', 'owner_pubkey_hex'])
+      || typeof scope.owner_subject !== 'string' || !/^aukora:1:[0-9a-f]{64}$/u.test(scope.owner_subject)
+      || typeof scope.owner_pubkey_hex !== 'string' || !HEX64.test(scope.owner_pubkey_hex))
+      return result('aura-citation:scope-invalid')
+    // Detach the literal selector/scope before asynchronous verification.
+    const requested = { journal_id: selector.source.journal_id, position: selector.source.position, hash: selector.source.hash }
+    const record_id = hasRecordId ? selector.record_id : null
+    const owner_subject = scope.owner_subject, owner_pubkey_hex = scope.owner_pubkey_hex
+    const verification = await verifyCollectorStore(context)
+    if (verification.ok !== true)
+      return result(verification.reason ?? 'aura-citation:verification-incomplete', null, verification)
+    const metadata = VERIFIED_SUMMARIES.get(verification)
+    if (!metadata) return result('aura-citation:verification-unavailable')
+    const match = metadata.find((record) => record.source.journal_id === requested.journal_id
+      && record.source.position === requested.position && record.source.hash === requested.hash)
+    if (!match) return result('aura-citation:source-not-found', null, verification)
+    if (record_id !== null && match.record_id !== record_id)
+      return result('aura-citation:record-id-mismatch', null, verification)
+    if (match.owner_pubkey_hex !== owner_pubkey_hex) return result('aura-citation:owner-mismatch')
+    const citation = Object.freeze({ record_id: match.record_id, source: Object.freeze({ ...match.source }),
+      key_sha256: verification.source.key_sha256, owner_subject, owner_pubkey_hex,
+      binding_digest: match.binding_digest, grants_authority: false })
+    return result(null, citation, verification)
+  } catch { return result('aura-citation:verification-incomplete') }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
