@@ -77,6 +77,8 @@
           - job_list
           - job_kill
           - kira_*
+          # PROPOSE-ONLY gate tool (plugins/aukora-auma-theme): opens the owner's popup, can never approve.
+          - aukora_gate_propose
           - memory.put
           - mcp__viking__*
           - mcp__kira-memory__*

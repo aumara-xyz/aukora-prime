@@ -265,6 +265,8 @@ export const DEFAULT_ALLOW_TOOLS = Object.freeze([
   // The trusted host tool this plugin registers (self-change-tool.mjs): the one route a contained agent has to its own code.
   'aukora_self_change',
   'aukora_workspace_patch',
+  // PROPOSE-ONLY boundary-gate tool (plugins/aukora-auma-theme): the owner's popup decides; it has no approve path.
+  'aukora_gate_propose',
 ])
 
 /**

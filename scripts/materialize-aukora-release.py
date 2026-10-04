@@ -233,7 +233,7 @@ def COPY_IGNORE(directory, names):
 #                 release that carries these bytes and mounts no row starts a backend whose model
 #                 cannot look at the app, while every eye court stays green — which is why
 #                 `tests/aukora-eye-row.test.mjs` holds this constant and the row below together.
-LANE_PLUGINS = ('aukora-kira', 'aukora-aumlok', 'aukora-board', 'aukora-eye', 'aukora-caged-worker',
+LANE_PLUGINS = ('aukora-kira', 'aukora-aumlok', 'aukora-board', 'aukora-eye', 'aukora-caged-worker', 'aukora-auma-theme',
                 # ── MEASURED OUTAGE, 2026-09-25: A RELEASE THAT COULD NOT START ──────────────────────
                 # The cutover died with `ERR_MODULE_NOT_FOUND`: `plugins/aukora-composition-gate/src/
                 # admission-grant.mjs:32` imports `../../aukora-owner-daemon/lib/binding.mjs`, and this
@@ -1503,6 +1503,12 @@ def main() -> int:
         + '- insert:\n'
         + '    - id: aukora-caged-worker\n'
         + f'      name: {target / "plugins/aukora-caged-worker/lib/index.mjs"}\n'
+        # AUMA'S THEME THROUGH THE BOUNDARY GATE (L2, 2026-10-04): a PROPOSE-ONLY tool on the gate's PROPOSE socket and
+        # the live accent route/client. Inert off Linux (no gate there). The action gate approves the tool by name.
+        + '    - id: aukora-auma-theme\n'
+        + '      name: ./plugins/aukora-auma-theme/lib/index.mjs\n'
+        + '      config:\n'
+        + '        proposeSocket: /run/aukora-gate/gate.sock\n'
         + '    - id: aukora-kira\n'
         + '      name: ./plugins/aukora-kira/lib/index.js\n'
         + '      config:\n'

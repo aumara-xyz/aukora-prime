@@ -15,6 +15,8 @@
     "check:read-fence": "node tests/aukora-linux-read-fence.test.mjs",
     "check:l3-memory": "node tests/aukora-l3-memory-linux.test.mjs",
     "check:fence-r2": "node --test tests/aukora-fence-r2.test.mjs",
+    "check:fence-r3": "node --test tests/aukora-fence-r3.test.mjs",
+    "check:auma-theme": "node --test tests/aukora-auma-theme.test.mjs",
     "check:kira-ask-recall": "node --test tests/aukora-kira-ask-recall.test.mjs"
   }
 }
