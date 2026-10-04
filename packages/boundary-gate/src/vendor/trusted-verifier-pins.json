@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "kind": "aukora-operator-verifier-pins/v1",
+  "files": {
+    "src/plugin-set-canon.mjs": "72152a956a3427eb660daaf2361a9f9627a1c634db9f6121d32139fd3ce16502",
+    "src/release-floor.mjs": "0983f44cabfe1bbed986d67f393e1a52ef27881ebbe7defb5582f5718c4a4bc2",
+    "src/vendor/operator-data.mjs": "bfa6b2a9b3d81f60a6d140154218f8650cab744435d5e4199828d87884e4ef76",
+    "src/vendor/plugin-set-content.mjs": "65b83b44366700a63f97d63fc0e9369bdfc918f7c51fdaad52ccdf84ef56d485"
+  }
+}

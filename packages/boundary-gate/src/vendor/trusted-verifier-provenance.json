@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "license": "AGPL-3.0-or-later",
+  "source_repository": "https://github.com/aumara-xyz/aukora-prime",
+  "source_commit": "63f60192347ec2cd2d332893084b3953d7331569",
+  "original_sources": [
+    {
+      "path": "packages/boundary-gate/src/targets.mjs",
+      "sha256": "82a6511298a17f36dc47fc8fbefcc2bbabeaea111489fce88cc5972ebbb353f5"
+    },
+    {
+      "path": "packages/boundary-gate/src/server.mjs",
+      "sha256": "dceee8e1b7ad2f727d020821c0e258d2f4c0ad0010118062be70032fe5231766"
+    },
+    {
+      "path": "packages/boundary-gate/src/plugin-set-canon.mjs",
+      "sha256": "24cf5d406d1808b6f46263cf4566a11223efc4cd42746ff801826cad72366019"
+    },
+    {
+      "path": "packages/boundary-gate/src/release-floor.mjs",
+      "sha256": "0983f44cabfe1bbed986d67f393e1a52ef27881ebbe7defb5582f5718c4a4bc2"
+    },
+    {
+      "path": "packages/boundary-gate/src/vendor/plugin-set-content.mjs",
+      "sha256": "65b83b44366700a63f97d63fc0e9369bdfc918f7c51fdaad52ccdf84ef56d485"
+    }
+  ],
+  "adaptations": [
+    "Builtin-only operator-data extracts canonical approval/data/socket helpers; reply capped at1MiB and data leaf symlinks refused.",
+    "Canon renderer retained inline, exactly source text except export/function name; retained vendor file unchanged.",
+    "Both operator entrypoints verify fixed root-protected expected hashes before executing checked buffers.",
+    "Floor implementation bytes and owner review/signature/canonical profiles unchanged."
+  ],
+  "qualification": "SOURCE_ONLY; root metadata/Unix replies synthetic in focused checks; installation/live behavior unperformed"
+}

@@ -7,14 +7,87 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
-import { installedRelease } from '../src/targets.mjs'
-import { verifyGateSetApproval } from '../src/plugin-set-canon.mjs'
-import { FLOOR_FILE, readFloor, checkFloor } from '../src/release-floor.mjs'
+import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 
-const { values: o, positionals: [cmd] } = parseArgs({ allowPositionals: true, strict: true, options: {
-  'release-dir': { type: 'string' }, 'approval-state-root': { type: 'string' }, floor: { type: 'string', default: FLOOR_FILE } } })
+// TRUSTED-BOOTSTRAP-BEGIN: only Node builtins may execute before this block completes.
+// The entrypoint + Node runtime are operator-installed trust anchors. No path/hash policy override is accepted.
+const OPERATOR_ROOT = '/opt/aukora-boundary-gate'
+const BOOTSTRAP_PIN = `${OPERATOR_ROOT}/src/vendor/trusted-verifier-pins.json`
+const trustedError = (code) => Object.assign(new Error(code), { code })
+const protectedNode = (p, directory) => {
+  const st = fs.lstatSync(p)
+  if (st.isSymbolicLink()) throw trustedError('trusted-symlink')
+  if (st.uid !== 0) throw trustedError('trusted-owner')
+  if ((st.mode & 0o022) !== 0) throw trustedError('trusted-mode')
+  if (directory ? !st.isDirectory() : !st.isFile()) throw trustedError('trusted-type')
+  if (!directory && st.nlink !== 1) throw trustedError('trusted-hardlink')
+  return st
+}
+const protectedAncestors = (p) => {
+  const ancestors = []; let d = path.dirname(p)
+  while (true) { ancestors.push(d); if (d === '/') break; d = path.dirname(d) }
+  for (const d of ancestors.reverse()) protectedNode(d, true)
+}
+const trustedRead = (p, limit) => {
+  protectedAncestors(p); const before = protectedNode(p, false)
+  if (before.size > limit) throw trustedError('trusted-size')
+  const fd = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
+  try {
+    const st = fs.fstatSync(fd)
+    if (!st.isFile() || st.uid !== 0 || (st.mode & 0o022) !== 0 || st.nlink !== 1
+      || st.dev !== before.dev || st.ino !== before.ino || st.size > limit) throw trustedError('trusted-open-identity')
+    const bytes = fs.readFileSync(fd)
+    if (bytes.length > limit || bytes.length !== st.size) throw trustedError('trusted-size')
+    return bytes
+  } finally { fs.closeSync(fd) }
+}
+const under = (p, root) => p === root || p.startsWith(`${root}/`)
+async function trustedBootstrap(candidate) {
+  if (process.env.NODE_OPTIONS || process.env.NODE_PATH || process.execArgv.length) throw trustedError('trusted-node-environment')
+  const entry = fileURLToPath(import.meta.url)
+  if (entry !== `${OPERATOR_ROOT}/bin/release-floor.mjs`) throw trustedError('trusted-entrypoint')
+  trustedRead(entry, 128 * 1024)
+  if (fs.realpathSync(OPERATOR_ROOT) !== OPERATOR_ROOT) throw trustedError('trusted-root-alias')
+  if (candidate !== undefined) {
+    if (!path.isAbsolute(candidate) || path.resolve(candidate) !== candidate) throw trustedError('candidate-path')
+    const real = fs.realpathSync(candidate)
+    if (real !== candidate) throw trustedError('candidate-path-alias')
+    if (under(real, OPERATOR_ROOT) || under(OPERATOR_ROOT, real)) throw trustedError('candidate-trusted-overlap')
+  }
+  const raw = trustedRead(BOOTSTRAP_PIN, 4096), pins = JSON.parse(raw.toString('utf8'))
+  const names = ['src/plugin-set-canon.mjs', 'src/release-floor.mjs', 'src/vendor/operator-data.mjs', 'src/vendor/plugin-set-content.mjs']
+  if (pins?.version !== 1 || pins.kind !== 'aukora-operator-verifier-pins/v1'
+    || Object.keys(pins).sort().join(',') !== 'files,kind,version'
+    || pins.files === null || typeof pins.files !== 'object' || Array.isArray(pins.files)
+    || Object.keys(pins.files).sort().join(',') !== names.join(',')
+    || !Object.values(pins.files).every(h => typeof h === 'string' && /^[0-9a-f]{64}$/u.test(h))) throw trustedError('trusted-pin-format')
+  const buffers = new Map()
+  // All hashes are checked before ANY of these module buffers executes. Vendor text is retained as provenance data.
+  for (const name of names) {
+    const bytes = trustedRead(`${OPERATOR_ROOT}/${name}`, 128 * 1024)
+    if (createHash('sha256').update(bytes).digest('hex') !== pins.files[name]) throw trustedError('trusted-hash')
+    buffers.set(name, bytes)
+  }
+  // Executing the checked bytes avoids hashing one pathname and later importing changed bytes from that pathname.
+  const checkedModule = bytes => import(`data:text/javascript;base64,${bytes.toString('base64')}`)
+  const canon = await checkedModule(buffers.get('src/plugin-set-canon.mjs'))
+  const floor = await checkedModule(buffers.get('src/release-floor.mjs'))
+  const data = await checkedModule(buffers.get('src/vendor/operator-data.mjs'))
+  return { canon, floor, data }
+}
+// TRUSTED-BOOTSTRAP-END
+
+const { values: o, positionals: [cmd] } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, strict: true, options: {
+  'release-dir': { type: 'string' }, 'approval-state-root': { type: 'string' }, floor: { type: 'string', default: '/etc/aukora-approvals/release-floor.json' } } })
 const die = (m) => { console.error(`release-floor: REFUSED: ${m}`); process.exit(1) }
 const rootOwned = (p) => { const st = fs.lstatSync(p); if (st.isSymbolicLink() || st.uid !== 0 || (st.mode & 0o022) !== 0) die(`${p} is not root-owned, go-w and a real path`) }
+
+let trusted
+try { trusted = await trustedBootstrap(o['release-dir']) } catch (e) { die(e.code ?? 'trusted-bootstrap') }
+const { verifyGateSetApproval } = trusted.canon
+const { readFloor, checkFloor } = trusted.floor
+const { installedRelease } = trusted.data
 
 if (cmd === 'show') { console.log(JSON.stringify(readFloor(o.floor), null, 2)); process.exit(0) }
 if (cmd !== 'check') die('usage: release-floor.mjs check --release-dir DIR --approval-state-root DIR [--floor FILE] | show')
