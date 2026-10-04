@@ -1,0 +1,7 @@
+evidence/
+*.sqlite*
+*.db*
+*.log
+.env*
+*credentials*
+*secrets*
