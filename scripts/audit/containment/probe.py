@@ -414,9 +414,10 @@ def inherited_handles(manifest):
             value = os.readlink('/proc/self/fd/' + name)
         except FileNotFoundError:
             continue  # listdir's own temporary descriptor.
-        if value.startswith('socket:') or any(value == root or value.startswith(root + '/')
+        if value.startswith('socket:') or value in ('/dev/ptmx', '/dev/pts/ptmx') or any(value == root or value.startswith(root + '/')
                                              for root in manifest['protected_prefixes']):
-            leaks.append({'fd': int(name), 'kind': 'socket' if value.startswith('socket:') else 'protected-path'})
+            kind = 'socket' if value.startswith('socket:') else 'terminal-master' if value in ('/dev/ptmx', '/dev/pts/ptmx') else 'protected-path'
+            leaks.append({'fd': int(name), 'kind': kind})
         elif int(name) > 2:
             unknown.append(int(name))
         else:
