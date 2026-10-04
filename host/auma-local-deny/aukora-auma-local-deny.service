@@ -1,0 +1,15 @@
+[Unit]
+Description=AUKORA pilot: deny the auma sandbox account connections to host-local services (nftables owner match)
+DefaultDependencies=no
+Before=network-pre.target aukora-genesis.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/aukora-boundary/auma-local-deny.nft
+ExecReload=/usr/sbin/nft -f /etc/aukora-boundary/auma-local-deny.nft
+ExecStop=/usr/sbin/nft delete table inet aukora_auma_local
+
+[Install]
+WantedBy=multi-user.target
