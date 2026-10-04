@@ -91,9 +91,9 @@ export function createCollectorCitationReader(collectorContext, guards) {
   }
   const accessRefusal = authenticatedOwnerSubject => {
     try {
-      if (disposed || !synchronousTrue(isLive)) return 'aura-citation:owner-inactive'
+      if (disposed || !synchronousTrue(isLive) || disposed) return 'aura-citation:owner-inactive'
       if (!synchronousTrue(hasReadGrant, authenticatedOwnerSubject)) return 'aura-citation:read-grant-unavailable'
-      if (disposed || !synchronousTrue(isLive)) return 'aura-citation:owner-inactive'
+      if (disposed || !synchronousTrue(isLive) || disposed) return 'aura-citation:owner-inactive'
     } catch { return 'aura-citation:read-guard-unavailable' }
     return null
   }
