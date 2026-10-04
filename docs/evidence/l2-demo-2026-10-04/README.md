@@ -28,9 +28,11 @@ public branch `ledger-anchor`, file `anchors/gate-ledger.jsonl` (one line `{seq,
 per new head; publisher: `packages/boundary-gate/anchor/publish-anchor.py`). Check this export against it:
 
     curl -sO https://raw.githubusercontent.com/aumara-xyz/aukora-prime/ledger-anchor/anchors/gate-ledger.jsonl
-    node verify.mjs --anchor gate-ledger.jsonl --whole
+    node verify.mjs --anchor gate-ledger.jsonl            # VERIFIED, with a note if the ledger has grown since #24
+    node verify.mjs --anchor gate-ledger.jsonl --whole    # claims "this is the whole ledger"
 
-Every anchor inside the export must equal the exported entry's hash (a rewritten entry fails). An anchor past #24
+The ledger has grown (anchor #26 at 11:54: a TEST proposal and its refusal), so the second line prints
+`NOT VERIFIED` for this #1–#24 export — that is the truncation signal working. Every anchor inside the export must equal the exported entry's hash (a rewritten entry fails). An anchor past #24
 means the gate's ledger grew after this export: printed as a prefix note, and a FAILURE under `--whole`. The
 publisher itself refuses, and publishes nothing, if the live gate ever shows fewer entries than the last anchor or a
 different hash at an anchored seq.
