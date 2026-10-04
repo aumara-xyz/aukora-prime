@@ -38,6 +38,7 @@ import { captureRoom, defaultRoomLog } from './room-capture.mjs'
 import { readCaptureEventStreamed } from './session-read.mjs'
 import { verifyRecord } from './memory-verify.mjs'
 import { resolveMemoryIdentity } from './memory-identity.mjs'
+import { AURA_RECALL_PROVIDER, recallAuraCitations, sameRecallRecord } from './aura-recall.mjs'
 
 /** Cordis plugin name. */
 export const name = 'aukora-kira'
@@ -330,7 +331,31 @@ export async function apply(ctx, config) {
             const hostSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
             const result = await memoryFor().recall({ question: typeof question === 'string' ? question : question?.text ?? '',
               context: hostSession ? recallContext({ session: hostSession }) : {} })
-            return { ...result, status: result.state === 'found' ? 'match' : result.state, records: result.notes }
+            // D's protected host reader owns the root subject and the actual note/source association.
+            // A missing reader affects provenance, not the existence of tracked memory.
+            const currentRecords = async () => {
+              const currentPolicy = readOwnerPolicy(await owner.describe())
+              const currentSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
+              const live = readTrackedMemory(memoryOwner.stateDir)
+              return governRecords(live.notes, { ...currentPolicy,
+                ...(currentSession ? recallContext({ session: currentSession }) : {}),
+                nowMs: Date.now(), forgotten: live.forgotten, states: live.states }, { dropped: 0, reasons: {} })
+            }
+            const auraCitations = await recallAuraCitations(result.notes, {
+              getProvider: () => ctx.reflect?.get?.(AURA_RECALL_PROVIDER, false),
+              currentRecord: async id => (await currentRecords()).find(note => note.id === id),
+            })
+            let current
+            try { current = new Map((await currentRecords()).map(note => [note.id, note])) }
+            catch { return { ...result, state: 'undetermined', status: 'undetermined',
+              reason: 'aura-recall:memory-unavailable', notes: [], records: [], auraCitations: [] } }
+            const notes = result.notes.filter(note => sameRecallRecord(note, current.get(note.id)))
+              .map(note => ({ ...note, ...recallAnnotations(current.get(note.id)) }))
+            const changed = notes.length !== result.notes.length
+            return { ...result, ...(changed && notes.length === 0
+                ? { state: 'undetermined', status: 'undetermined', reason: 'aura-recall:recall-changed' }
+                : { status: result.state === 'found' ? 'match' : result.state }),
+              notes, records: notes, auraCitations: auraCitations.filter(one => notes.some(note => note.id === one.recordId)) }
           },
           citeRemembered: async (recordId, session) => {
             const unverified = reason => ({ verdict: 'UNVERIFIED', namespace: 'kira.remembered', reason })
