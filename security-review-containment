@@ -1,0 +1,5 @@
+#!/bin/sh
+# Live containment verification (root, on the pilot). See scripts/audit/containment/README.md.
+set -eu
+cd "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec /usr/bin/python3 -I scripts/audit/containment/run.py "$@"
