@@ -41,8 +41,8 @@ import strictAssert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { contentHash } from '../plugins/aukora-kira/lib/memory-quality.mjs'
-import { chmodSync, statSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { registerHooks } from 'node:module'
+import { chmodSync, statSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { registerHooks, stripTypeScriptTypes } from 'node:module'
 // Main has no court-reaper helper; keep the original exit/signal cleanup here.
 const registerReaper = reap => {
   process.on('exit', reap)
@@ -530,10 +530,15 @@ const memoryFixture = async (broken = false, askText = 'Inspect the project stag
 
 // Import a changed module in memory only; an invalid/unloaded mutant is not an assertion failure.
 let mutationId = 0
-const moduleWithRevert = async (file, from, to) => {
+const moduleWithRevert = async (file, from, to, dependencies = {}) => {
   const url = `${pathToFileURL(join(KIRA, 'lib', file)).href}?wiring=${++mutationId}`
   let applied = 0
-  const hook = registerHooks({ load(target, context, nextLoad) {
+  const hook = registerHooks({ resolve(specifier, context, nextResolve) {
+    if (context.parentURL === url && Object.hasOwn(dependencies, specifier)) {
+      return { url: dependencies[specifier], shortCircuit: true }
+    }
+    return nextResolve(specifier, context)
+  }, load(target, context, nextLoad) {
     const result = nextLoad(target, context)
     if (target !== url) return result
     const source = Buffer.from(result.source).toString('utf8')
@@ -924,6 +929,16 @@ const dshDependencyHashes = {
   'vendor/cordis/lib/index.js': 'fb172fcbd060156645e16134855c659345fafa340f116711b9ffae2418f51f38',
   'packages/core/agent/src/index.ts': 'adc3f85968efc1bf6a97f66aec26d69b6c51e9c139ae0b508d94dcc9535fb8fd',
   'packages/core/agent/lib/index.js': 'fa1d790de853eb855b384a18e62b9c38df7a366344bd7bd627fe7fa68dbb5bbe',
+  'packages/api/session-controller/lib/index.js': '7861bb582647249460547178a10b1476be96b38a1f557330f6d06edccd038521',
+  'packages/api/workspace-controller/lib/index.js': '1da4fd5c718fb7f9ea6ffee9285060dc446803f6b2ff65e8f5935a5c2cefd641',
+  'packages/workspace/workspace/lib/index.js': 'f54f986137ba813ca0d7c56a74a08090fb01fa10d29de9b1d56eb63f865f6713',
+  'packages/core/session/lib/index.js': 'eeb410b6f6137b3c481cb012a8838627a1c7cf509efc15da0139d2fb9f3e8cb9',
+  'packages/storage/storage/lib/index.js': '1289574c24ecfa5b134e2750d578c00ae59654de7d00133e117c4cc34095f3a3',
+  'packages/storage/storage-domain/lib/index.js': 'e536ba09b7ccc0f10bb54818dfe44454374e5cbf7aeba140b216ba1ca2e87517',
+  'packages/storage/storage-domain/tests/helpers/memory-backend.ts': '5eb286c6b69d673d264e1236f5c7ca91e92040bcd1b11f4c8bb02f444b33639c',
+  'packages/session/session-projection/lib/index.js': '022f1d13e25aeb3c18e10407d84c69e018c1c05a65c9ee36ed14d89b185a4fa8',
+  'packages/session-query/session-query/lib/index.js': 'e455d98bfab0ec1daa4f7a291ac209df78ac453e972d98c7a1b33a384b6185aa',
+  'packages/session/session-persistence/lib/index.js': '0dc2a1634e4b6ebb558aac214009da3dc00f54f315762a56a1841d12baf770d4',
 }
 const bindDshDependencies = dsh => {
   const manifest = JSON.parse(execFileSync('git', ['show', 'HEAD:upstream-dsh.json'], {
@@ -949,6 +964,156 @@ if (dsh === undefined) {
   const { Context } = await import(pathToFileURL(join(dsh, 'vendor/cordis/lib/index.js')).href)
   const { agentEvents } = await import(pathToFileURL(join(dsh, 'packages/core/agent/lib/index.js')).href)
   const { ToolRuntime } = await import(pathToFileURL(join(dsh, 'packages/core/tools/lib/index.js')).href)
+  const native = async file => import(pathToFileURL(join(dsh, file)).href)
+  const [{ SessionStore }, { default: AgentRegistry }, { WorkspaceRegistry }, { Storage }, { DomainFacility },
+    { SessionController }, { SessionProjectionRegistry }, { SessionQueryEngine }, { SessionPersistenceNotFoundError }] = await Promise.all([
+    native('packages/core/session/lib/index.js'), native('packages/core/agent/lib/index.js'),
+    native('packages/workspace/workspace/lib/index.js'), native('packages/storage/storage/lib/index.js'),
+    native('packages/storage/storage-domain/lib/index.js'), native('packages/api/session-controller/lib/index.js'),
+    native('packages/session/session-projection/lib/index.js'), native('packages/session-query/session-query/lib/index.js'),
+    native('packages/session/session-persistence/lib/index.js'),
+  ])
+  // The pinned donor's own test backend is the only storage double. Its TS
+  // parameter properties need transformation; production classes stay compiled.
+  const backendPath = join(dsh, 'packages/storage/storage-domain/tests/helpers/memory-backend.ts')
+  const backendUrl = pathToFileURL(backendPath).href
+  const backendHook = registerHooks({ load(url, context, nextLoad) {
+    if (url !== backendUrl) return nextLoad(url, context)
+    return { format: 'module', shortCircuit: true,
+      source: stripTypeScriptTypes(readFileSync(backendPath, 'utf8'), { mode: 'transform', sourceUrl: backendUrl }) }
+  } })
+  let MemoryMediaPool, MemoryStorageBackend
+  try { ({ MemoryMediaPool, MemoryStorageBackend } = await import(backendUrl)) }
+  finally { backendHook.deregister() }
+  const homeProducer = changes => moduleWithRevert('../../../harness/workspace-host.mjs', changes, undefined,
+    { './index.js': pathToFileURL(join(dsh, 'packages/api/workspace-controller/lib/index.js')).href })
+  const nativeHomeFixture = async ({ mountController = true } = {}) => {
+    const ctx = new Context(), workspaceRoot = realpathSync(scratch('kira-trusted-home-workspace-'))
+    // Match the upstream direct-controller fixture without a carrier or model loop.
+    ctx.provide('typert', { lookups: { register: () => () => {}, configure: () => () => {} },
+      contexts: { registerHost: () => () => {}, configureHost: () => () => {} } })
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
+    const domain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+    ctx.storage.mount('domain', domain)
+    ctx.provide('storageDomain', domain)
+    ctx.provide('sessionPersistence', {
+      list: async () => [], stat: async () => undefined,
+      open: async id => { throw new SessionPersistenceNotFoundError(id) },
+    })
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(WorkspaceRegistry)
+    new SessionProjectionRegistry(ctx)
+    new SessionQueryEngine(ctx)
+    ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'fixture', model: 'inert' }), saveSelection: async () => {} })
+    ctx.provide('llm', { listProviders: () => [{ id: 'fixture', name: 'fixture' }] })
+    ctx.provide('attachments', { imageLimits: { maxImageBytes: 1, maxImagesPerMessage: 1, maxMessageImageBytes: 1,
+      maxImagePixels: 1, maxImageDimension: 1, mediaTypes: ['image/png'] },
+      admitPromptContent: async () => { throw new Error('fixture must not prompt') } })
+    ctx.provide('fileUploads', { registerAgentResolver: () => () => {}, resolve: () => undefined,
+      bindPrompt: () => { throw new Error('fixture must not prompt') }, retirePrompt: () => {} })
+    const createdMeta = []
+    ctx.agents.setFactory({
+      createAgent: async (_owner, options) => {
+        createdMeta.push(options.meta)
+        const session = ctx.sessions.create(options.sessionId, { meta: options.meta })
+        const agent = { id: session.id, session, status: 'idle', ctx }
+        await options.setup?.(ctx, agent)
+        const remove = await ctx.agents.register(agent)
+        return { agent, dispose: async () => { await remove() } }
+      },
+      resume: async () => { throw new Error('fixture has no persisted sessions') },
+    })
+    if (mountController) new SessionController(ctx, { nativeOpen: false }, { canOpenPath: () => false })
+    return { ctx, workspaceRoot, homeSession: 'synthetic-configured-auma-home', createdMeta }
+  }
+  const targetRemoved = 'const created=await host.sessionController.create({sessionId:homeSession,workspaceId:workspace.id});'
+  const withoutWorkspace = 'const created=await host.sessionController.create({sessionId:homeSession});'
+  await arm('trusted home creation uses the registered workspace and native immutable session header', async broken => {
+    const run = await nativeHomeFixture()
+    try {
+      const producer = await homeProducer(broken ? [[targetRemoved, withoutWorkspace]] : [])
+      await producer.apply(run.ctx, { workspaceRoot: run.workspaceRoot, homeSession: run.homeSession })
+      const session = run.ctx.sessions.get(run.homeSession), workspace = run.ctx.workspaceRegistry.list()[0]
+      assert.ok(session, 'the configured home is created through the native controller')
+      assert.equal(session.header.cwd, workspace.path, 'the registered workspace supplies session cwd')
+      assert.equal(session.header.cwd, run.workspaceRoot)
+      assert.deepEqual(workspace.sessionIds, [run.homeSession], 'native creation attaches the configured identity')
+      assert.ok(Object.isFrozen(session.header), 'the native header is a detached frozen snapshot')
+      const scope = projectScopeOf({ session })
+      assert.match(scope, /^project:[a-f0-9]{64}$/u)
+      assert.equal(scope, projectScopeOf({ session: { header: { cwd: run.workspaceRoot } } }))
+      run.createdMeta[0].cwd = process.cwd()
+      assert.equal(session.header.cwd, run.workspaceRoot, 'borrowed factory metadata cannot retarget the header')
+      const adopted = await run.ctx.sessionController.create({ sessionId: run.homeSession, workspaceId: workspace.id })
+      assert.equal(adopted.sessionId, run.homeSession)
+      assert.equal(run.ctx.sessions.get(run.homeSession), session, 'same configured identity is adopted idempotently')
+      assert.equal(run.createdMeta.length, 1)
+      assert.deepEqual(workspace.sessionIds, [run.homeSession])
+    } finally { await run.ctx.fiber._unload() }
+  })
+  await arm('trusted home creation propagates native cwd conflict without changing the existing session', async broken => {
+    const run = await nativeHomeFixture()
+    try {
+      const existing = await run.ctx.sessionController.create({ sessionId: run.homeSession, cwd: process.cwd() })
+      const session = run.ctx.sessions.get(existing.sessionId), header = session.header
+      const producer = await homeProducer(broken ? [[targetRemoved, withoutWorkspace]] : [])
+      await assert.rejects(() => producer.apply(run.ctx, { workspaceRoot: run.workspaceRoot, homeSession: run.homeSession }),
+        error => error.code === 'session/conflict')
+      assert.equal(run.ctx.sessions.get(run.homeSession), session)
+      assert.equal(session.header, header)
+      assert.equal(session.header.cwd, process.cwd())
+      assert.equal(run.ctx.sessions.list().length, 1)
+      assert.deepEqual(run.ctx.workspaceRegistry.list()[0].sessionIds, [])
+    } finally { await run.ctx.fiber._unload() }
+  })
+  await arm('trusted home creation requires an explicit host workspace before any registration', async broken => {
+    const run = await nativeHomeFixture()
+    try {
+      const producer = await homeProducer(broken ? [[
+        " if(homeSession!==''&&config.workspaceRoot===undefined)throw new Error('PRIME_HOME_WORKSPACE_REQUIRED');", '',
+      ]] : [])
+      await assert.rejects(() => producer.apply(run.ctx, { homeSession: run.homeSession }), /PRIME_HOME_WORKSPACE_REQUIRED/u)
+      assert.equal(run.ctx.sessions.list().length, 0)
+      assert.equal(run.ctx.workspaceRegistry.list().length, 0)
+    } finally { await run.ctx.fiber._unload() }
+  })
+  await arm('missing trusted home configuration registers a workspace without inventing a session', async broken => {
+    const run = await nativeHomeFixture()
+    try {
+      const producer = await homeProducer(broken ? [[
+        "const homeSession=config.homeSession===undefined?'':config.homeSession;",
+        "const homeSession=config.homeSession===undefined?'synthetic-invented-home':config.homeSession;",
+      ]] : [])
+      await producer.apply(run.ctx, { workspaceRoot: run.workspaceRoot })
+      assert.equal(run.ctx.sessions.list().length, 0, 'an absent configured home never mints an identity')
+      assert.equal(run.createdMeta.length, 0)
+      assert.equal(run.ctx.workspaceRegistry.list()[0].path, run.workspaceRoot)
+    } finally { await run.ctx.fiber._unload() }
+  })
+  await arm('trusted home creation stays pending until the native controller is mounted', async broken => {
+    const run = await nativeHomeFixture({ mountController: false })
+    let timeout
+    try {
+      const producer = await homeProducer(broken ? [["ctx.inject(['sessionController']", 'ctx.inject([]']] : [])
+      await assert.doesNotReject(() => producer.apply(run.ctx, { workspaceRoot: run.workspaceRoot, homeSession: run.homeSession }))
+      assert.equal(run.ctx.sessions.get(run.homeSession), undefined, 'a pending producer has not created a home')
+      const workspace = run.ctx.workspaceRegistry.list()[0]
+      assert.deepEqual(workspace.sessionIds, [])
+      let complete
+      const attached = new Promise(resolve => { complete = resolve })
+      const attach = workspace.attachSession.bind(workspace)
+      workspace.attachSession = async id => { await attach(id); complete(id) }
+      new SessionController(run.ctx, { nativeOpen: false }, { canOpenPath: () => false })
+      const id = await Promise.race([attached, new Promise((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('native home attachment did not complete')), 2000)
+      })])
+      assert.equal(id, run.homeSession)
+      assert.equal(run.ctx.sessions.get(id).header.cwd, workspace.path)
+      assert.deepEqual(workspace.sessionIds, [run.homeSession])
+    } finally { clearTimeout(timeout); await run.ctx.fiber._unload() }
+  })
   await arm('actual DSH dispatch separates read attempts from final unique returned records', async broken => {
     const module = broken ? await moduleWithRevert('injection.mjs',
       'const returned = new Set(visible.map((one, index) => one.recordId || index)).size',
