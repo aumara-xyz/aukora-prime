@@ -22,6 +22,7 @@
  *
  * @module @aukora/dsh-plugin-action-gate/policy
  */
+import { lstatSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 
 import { REASON, decide } from '../../../vendor/seed/src/guard.mjs'
@@ -202,7 +203,25 @@ function stringLiterals(code) {
 /** Schemes that name no host on a network. Every other scheme (http:, postgres:, tcp:, one never seen…) is judged by its host. */
 const NON_NETWORK_SCHEMES = new Set(['viking:', 'data:', 'urn:'])
 
-function looseTargets(args, tool) {
+// Discover whole-string paths without opening or reading their contents. Literal
+// ../ is a candidate even when absent. Other strings qualify when their resolved
+// entry exists; lstat also sees dangling leaf symlinks. No prose/shell tokenizing,
+// inode-alias scan, or atomic check/use guarantee is implied by this discovery.
+function discoveredPath(raw, { base, home }) {
+  if (raw.includes('../')) return true
+  if (raw === '') return false
+  const forms = new Set([isAbsolute(raw) ? resolve(raw) : resolve(base, raw)])
+  if (raw === '~' || raw.startsWith('~/')) forms.add(resolve(home, raw.slice(2)))
+  for (const form of forms) {
+    try { lstatSync(form); return true } catch (error) {
+      // A denied/uncertain metadata lookup is still passed to the path policy.
+      if (!['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'].includes(error.code)) return true
+    }
+  }
+  return false
+}
+
+function looseTargets(args, tool, discovery, { onlyDiscovered = false } = {}) {
   const paths = []
   const urls = []
   const active = new Set()
@@ -212,10 +231,10 @@ function looseTargets(args, tool) {
     if (incomplete) return
     if (depth > 32 || ++visited > 4096) { incomplete = true; return }
     if (value === null || value === undefined) return
-    const path = inheritedPath || PATH_KEYS.test(key) || TOOL_PATH_KEYS[tool]?.test(key)
+    const path = !onlyDiscovered && (inheritedPath || PATH_KEYS.test(key) || TOOL_PATH_KEYS[tool]?.test(key))
     if (typeof value === 'string') {
-      if (path) paths.push(value)
-      if (URL_KEYS.test(key)) urls.push(value)
+      if (path || discoveredPath(value, discovery)) paths.push(value)
+      if (!onlyDiscovered && URL_KEYS.test(key)) urls.push(value)
       return
     }
     if (typeof value !== 'object') return
@@ -361,14 +380,12 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       if (kind !== 'write') {
         const analysis = analyse('/', abs)
         if (!analysis.ok) return deny('path:unresolvable', `${analysis.reason} (seed guard)`)
-        // Only the trusted active workspace (or the host's default when absent)
-        // gets this exception. Repository/release/read roots do not. A pathname
-        // inside it does not prove all other names of its inode are also inside;
-        // analyse's nlink cannot establish that ownership or close the open race.
-        const workspace = workspaceOf(call)
-        const ownFiles = workspace.length > 0 ? workspace : [settings.defaultWorkspace]
-        if (analysis.links.checked && analysis.links.nlink > 1 && !insideAny(ownFiles, abs)) {
-          return deny('read:hardlink', `${raw} is a multiply-linked file outside the active workspace; another name for these bytes has not been judged`)
+        // nlink cannot locate the inode's other names. A workspace pathname is
+        // therefore no ownership proof: refuse all multiply-linked regular
+        // files, including workspace-only links. No pnpm exception is qualified.
+        // This metadata check does not close the subsequent open/use race.
+        if (analysis.links.checked && analysis.links.nlink > 1) {
+          return deny('read:hardlink', `${raw} is a multiply-linked file; another name for these bytes has not been judged`)
         }
       }
       if (confineReads && insideAny([stateRoot], abs) && !insideAny(workspaceOf(call), abs)) {
@@ -512,6 +529,8 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       }
     }
     const paths = (list, kind) => first(...list.filter(p => p !== undefined).map(p => judgePath(p, kind, call)))
+    const discovery = { base: call.workspace ?? settings.defaultWorkspace, home }
+    let genericChecked = false
 
     const switched = (() => {
     switch (tool) {
@@ -565,7 +584,11 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
         if (stale !== null) return stale
         // This tool's closed path is relative to its owner-configured broker root,
         // not the agent's cwd. Its signed review names the full absolute target.
-        if (tool === 'aukora_workspace_patch') return allow('allow:workspace-proposal')
+        if (tool === 'aukora_workspace_patch') {
+          // Preserve this closed broker path's existing trusted coordinate system.
+          genericChecked = true
+          return allow('allow:workspace-proposal')
+        }
         // Self-change paths are relative to its validated worktree, not cwd.
         // Reuse its existing validators and only the host-configured root.
         let targetArgs = args
@@ -579,7 +602,8 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
             return deny('path:unresolvable', 'self-change paths need the existing worktree validator and a trusted configured root')
           }
         }
-        const loose = looseTargets(targetArgs, tool)
+        const loose = looseTargets(targetArgs, tool, discovery)
+        genericChecked = true
         if (loose.incomplete) return deny('path:unresolvable', 'the arguments exceed the target-extraction depth/size budget or contain a cycle; unchecked nested paths are refused')
         // Aura resolves these fields against its separately configured stateDir
         // (including an environment override), which this gate does not know.
@@ -599,6 +623,15 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
     // package that re-registered one of those names was never pinned and kept the approval its name carried. Now
     // every allow verdict passes the pin, whichever branch produced it.
     if (switched.decision === 'allow') {
+      // Known tools keep their schema-specific checks, then scan every argument
+      // name too. Generic tools above already scanned their mapped coordinates.
+      if (!genericChecked) {
+        const loose = looseTargets(args, tool, discovery, { onlyDiscovered: true })
+        if (loose.incomplete) return deny('path:unresolvable', 'the arguments exceed the target-extraction depth/size budget or contain a cycle; unchecked nested paths are refused')
+        const kind = actionClass(tool, args) === 'write' ? 'write' : 'read'
+        const refused = paths(loose.paths, kind)
+        if (refused !== null) return refused
+      }
       const redefined = pinnedVerdict(tool, call)
       if (redefined !== null) return redefined
     }
