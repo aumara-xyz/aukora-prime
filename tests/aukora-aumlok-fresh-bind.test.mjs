@@ -2,6 +2,7 @@
 // One disposable first-run flow. The approval answer is synthetic, never a human click.
 import assert from 'node:assert/strict'
 import { execFile, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { promisify } from 'node:util'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -57,13 +58,18 @@ function bridge(patches, onBound = async () => {}) {
 try {
   mkdirSync(join(release, '.dsh-build'), { recursive: true })
   mkdirSync(join(support, 'checkout'), { recursive: true })
-  writeFileSync(join(release, '.dsh-build/genesis-artifacts.json'),
-    JSON.stringify({ producer: { genesisCommit: '1'.repeat(40) } }))
+  const artifactBytes = Buffer.from(JSON.stringify({ producer: { genesisCommit: '1'.repeat(40) } }))
+  const recordSha = createHash('sha256').update(artifactBytes).digest('hex')
+  writeFileSync(join(release, '.dsh-build/genesis-artifacts.json'), artifactBytes)
   writeFileSync(join(release, '.dsh-build/plugin-set.json'), '{}\n')
   writeFileSync(join(release, 'aukora-composition.patch.yml'), '- id: aukora-aumlok\n- id: aukora-face-aumlok\n')
-  writeFileSync(join(support, 'config.json'), JSON.stringify({ release, checkout: join(support, 'checkout') }))
+  // Test-only configured pin for the exact synthetic artifact bytes, not real owner approval or a preview waiver.
+  writeFileSync(join(support, 'config.json'), JSON.stringify({ release, checkout: join(support, 'checkout'),
+    approvedRecordSha: [recordSha] }))
   const resolveArgs = { env: { AUKORA_SUPPORT_ROOT: support }, userData: support, checkoutsDir: join(scratch, 'checkouts') }
   const first = await resolveTarget(resolveArgs)
+  assert.equal(first.launchProfile, 'production')
+  assert.deepEqual(first.approvedRecordSha, [recordSha])
   const directory = resolveAumlokDirectory(first.patch)?.directory
   assert.equal(directory, join(stateRoot, 'aumlok'))
   assert.deepEqual(readdirSync(directory), [])
