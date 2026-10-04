@@ -15,6 +15,7 @@ import { createOpenVikingRecall, semanticNotes, SEMANTIC_DEFAULTS, contentUri } 
 import { filterMemoryRecords } from './recall-filter/filter.mjs'
 import { compileIndex, rankRecords, LEXICAL_METHOD, RETRIEVAL_CEILING } from './retrieval.mjs'
 import { randomUUID } from 'node:crypto'
+import { parseAuraSourceProjection, createAuraAssociation, referenceForAssociatedNote, sourceIdentity } from './aura-association.mjs'
 
 const RETRY_BATCH = 8
 const retryFlights = new Map()
@@ -30,6 +31,24 @@ const decode = file => readLinesIfPresent(file).map((line, damagedAt) => {
 export { contentHash } from './memory-quality.mjs'
 export const MAX_NOTE_CHARS = 16_000
 export const validExternalOrigin = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/u.test(value) && !/^(owner|peter|kira)/iu.test(value)
+
+// Only a host's second argument carries H's verified projection. A caller's
+// text/source/metadata never supplies gate coordinates, including during retry.
+function hostAuraSource(projection) {
+  if (projection === undefined || projection === null) return null
+  const source = parseAuraSourceProjection(projection)
+  if (!source) throw new Error('memory-aura-source-invalid')
+  return source
+}
+function rejectCallerAssociation(input) {
+  if (['auraSource', 'auraSources', 'auraAssociation', 'aura_source'].some(key => Object.hasOwn(input, key))
+    || (input.source && ['auraSource', 'auraAssociation', 'aura_source'].some(key => Object.hasOwn(input.source, key)))) {
+    throw new Error('memory-aura-source-host-only')
+  }
+}
+function bindAssociation(note, source) {
+  return source ? { ...note, auraAssociation: createAuraAssociation(note.id, source) } : note
+}
 
 function journalSnapshot(stateDir) {
   const lines = readLinesIfPresent(journalFile(stateDir)), verdict = verifyJournal(lines)
@@ -260,6 +279,8 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
     return { remembered: written.length, ids: notes.map(note => origins.get(note.origin?.run) ?? note.id), notes: written, index }
   }
   const captureTurn = async (turn, options = {}) => {
+    rejectCallerAssociation(turn)
+    const auraSource = hostAuraSource(options.auraSource)
     const p = await policy(options)
     if (blocked(p, p.attributedTo === 'agent' ? '' : turn.text)) return { remembered: 0, ids: [], reason: 'capture-paused' }
     if (typeof turn.text === 'string' && !turn.text.isWellFormed()) return { remembered: 0, ids: [], reason: 'memory-text-not-well-formed' }
@@ -267,14 +288,32 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
     if (privateContent(String(turn.text), digests)) return { remembered: 0, ids: [], reason: 'private-content-filter' }
     const captured = consumeTurn({ ...turn, at }, { ...p, observedAt: at, validFrom: at.slice(0, 10),
       forbiddenDigests: digests, secretPatterns: SECRET_PATTERNS })
-    const notes = captured.notes.flatMap(boundedNotes)
+    const notes = captured.notes.flatMap(note => {
+      if (auraSource) {
+        const bound = { ...note, source: { ...note.source, aura_source: auraSource } }
+        note = { ...bound, id: recomputeNoteId(bound) }
+      }
+      return boundedNotes(note).map(part => bindAssociation(part, auraSource))
+    })
     return { ...(await save(notes.map(note => ({ ...note, bodyAtCapture: options.bodyAtCapture ?? null })))), dropped: captured.dropped }
   }
   // Attribution is an explicit second, host-only argument. External adapters never forward it.
   // Backfill batches its inputs here, avoiding a full object-store scan for every import.
-  const rememberBatch = async (inputs, { attributedTo = 'agent', prioritize = true } = {}) => {
+  const rememberBatch = async (inputs, { attributedTo = 'agent', prioritize = true, auraSources, isCaptureLive } = {}) => {
     if (!['agent', 'owner', 'owner-voice'].includes(attributedTo)) throw new Error('memory-attribution-invalid')
-    const p = await policy(), digests = forbiddenDigests()
+    if (isCaptureLive !== undefined && typeof isCaptureLive !== 'function') throw new Error('memory-capture-lifecycle-invalid')
+    if (auraSources !== undefined && (!Array.isArray(auraSources) || auraSources.length !== inputs.length)) {
+      throw new Error('memory-aura-source-count-invalid')
+    }
+    const hostSources = (auraSources ?? Array(inputs.length).fill(null)).map(hostAuraSource)
+    const p = await policy()
+    // The host can unload while its existing policy read is pending. Check
+    // that capture's actual lifetime before any directory or durable append.
+    if (isCaptureLive !== undefined && isCaptureLive() !== true) return {
+      results: inputs.map(() => ({ remembered: 0, ids: [], reason: 'capture-paused' })),
+      index: { added: 0, requests: 0, skipped: true, reason: 'capture-paused' },
+    }
+    const digests = forbiddenDigests()
     prepare()
     const { results, live, candidates } = withFileLock(chainFile(stateDir), () => {
       const live = readTrackedMemory(stateDir)
@@ -287,16 +326,19 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
         if (!identities.has(identity)) identities.set(identity, [])
         if (!identities.get(identity).includes(entry.id)) identities.get(identity).push(entry.id)
       }
-      for (const input of inputs) {
+      for (const [inputIndex, input] of inputs.entries()) {
         try {
+          rejectCallerAssociation(input)
+          const auraSource = hostSources[inputIndex]
           const { text, from = 'memory', scope = 'owner', at = canonicalInstant(now()), source, migrationKey, metadata = {}, bodyAtCapture = null } = input
+          if (auraSource && migrationKey !== undefined) throw new Error('memory-aura-historical-association-refused')
           if (typeof text !== 'string' || !text.trim()) throw new Error('memory-text-invalid')
           // A lone surrogate would be stored and then refused on every read, leaving the whole store incomplete.
           if (!text.isWellFormed()) { results.push({ remembered: 0, ids: [], reason: 'memory-text-not-well-formed' }); continue }
           if (typeof from !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/u.test(from)) throw new Error('memory-origin-invalid')
           if (blocked(p, attributedTo === 'agent' ? '' : text)) { results.push({ remembered: 0, ids: [], reason: 'capture-paused' }); continue }
           if (privateContent(text, digests)) { results.push({ remembered: 0, ids: [], reason: 'private-content-filter' }); continue }
-          const digest = contentHash(text), identity = sha256Hex(migrationKey ?? `${from}\0${scope}\0${digest}`)
+          const digest = contentHash(text), identity = sha256Hex(migrationKey ?? `${from}\0${scope}\0${digest}${auraSource ? `\0aukora-kira-aura-source/v1\0${sourceIdentity(auraSource)}` : ''}`)
           if (migrationKey && (excludedDigests.has(digest) || input.legacyIds?.some(excluded))) {
             results.push({ remembered: 0, ids: [], reason: 'legacy-content-withheld' }); continue
           }
@@ -304,6 +346,7 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
           const orphan = live.orphans.find(note => (note.origin?.captureRun ?? note.origin?.run) === identity
             && note.subject === p.subject && note.privacy === p.privacy && note.scope === scope && note.attributedTo === attributedTo
             && recomputeNoteId(note) === note.id
+            && (auraSource ? sourceIdentity(note.source?.aura_source) === sourceIdentity(auraSource) : note.source?.aura_source === undefined)
             && note.statement === (note.source?.span ? text.slice(note.source.span.start, note.source.span.end) : text))
           // A partially chained chunk group is not a completed capture. Rebuild it
           // with its original clock; append deduplicates the already chained parts.
@@ -312,10 +355,11 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
           const note = orphan && !orphan.source?.span ? orphan : buildRememberedNote({ category: metadata.category ?? 'observation', statement: text,
             attributedTo, evidence: [{ log: `memory:${from}`, turn: 0, turnDigest: digest, quote: cutText(text, 200) }],
             validFrom: stamp.slice(0, 10), observedAt: stamp, confidence: 1, sensitivity: 'none', privacy: p.privacy, subject: p.subject,
-            scope, source: source ?? { state: 'UNLINKED', cited: false, because: 'captured directly; no session event was claimed' },
+            scope, source: { ...(source ?? { state: 'UNLINKED', cited: false, because: 'captured directly; no session event was claimed' }),
+              ...(auraSource ? { aura_source: auraSource } : {}) },
             origin: { by: from, run: identity, metadata: Object.fromEntries(['expiresBy', 'current', 'supersededBy', 'hidden', 'forgotten', 'consent', 'stale', 'staleness'].filter(key => metadata[key] !== undefined).map(key => [key, metadata[key]])) },
             salt: identity, validTo: metadata.validTo ?? metadata.expiresBy ?? null, links: metadata.links ?? [] })
-          const notes = boundedNotes({ ...note, bodyAtCapture }), ids = notes.map(note => note.id)
+          const notes = boundedNotes({ ...note, bodyAtCapture }).map(part => bindAssociation(part, auraSource)), ids = notes.map(note => note.id)
           candidates.push(...notes); identities.set(identity, ids)
           results.push({ remembered: 0, ids, notes })
         } catch (error) { results.push({ remembered: 0, ids: [], error: String(error?.message ?? 'memory-input-invalid') }) }
@@ -333,7 +377,10 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
     return { results, index }
   }
   const remember = async (input, host) => {
-    const { results: [result], index } = await rememberBatch([input], host)
+    const { auraSource, ...options } = host ?? {}
+    if (options.auraSources !== undefined) throw new Error('memory-aura-source-count-invalid')
+    const { results: [result], index } = await rememberBatch([input], { ...options,
+      ...(auraSource === undefined ? {} : { auraSources: [auraSource] }) })
     if (result.error) throw new Error(result.error)
     return { ...result, index }
   }
@@ -380,5 +427,17 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
       return { state: 'undetermined', notes: [], grantsAuthority: false, reason: 'memory-store-unavailable', memory: report }
     }
   }
-  return Object.freeze({ captureTurn, remember, rememberBatch, retry, recall, ledger, read: () => { const live = readTrackedMemory(stateDir); return { ...live, notes: live.notes.filter(note => note.subject === subject && note.privacy === 'local') } }, ensureTracked, bridge })
+  const referenceForRecord = async id => {
+    if (typeof id !== 'string' || !/^rem:[0-9a-f]{64}$/u.test(id)) return null
+    try {
+      const p = await policy()
+      if (p.privacy !== 'local' || p.offTheRecord || Object.entries(CONTROLS).some(([key, control]) =>
+        (control.stopsRecall || control.stopsRecallPersonal) && p.controls?.[key])) return null
+      const live = readTrackedMemory(stateDir)
+      const note = filterMemoryRecords(live.notes, { ...p, permittedPrivacy: [p.privacy],
+        nowMs: now(), forgotten: live.forgotten, states: live.states }, { dropped: 0, reasons: {} }).find(note => note.id === id)
+      return referenceForAssociatedNote(note)
+    } catch { return null }
+  }
+  return Object.freeze({ captureTurn, remember, rememberBatch, referenceForRecord, retry, recall, ledger, read: () => { const live = readTrackedMemory(stateDir); return { ...live, notes: live.notes.filter(note => note.subject === subject && note.privacy === 'local') } }, ensureTracked, bridge })
 }
