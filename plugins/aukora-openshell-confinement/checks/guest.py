@@ -7,7 +7,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 # Importing definitions must not create another artifact or enter guest main.
@@ -100,6 +100,54 @@ class InputStallChecks(unittest.TestCase):
         self.assertEqual(pending["bytes"], guest.HIGH_WATER)
         self.assertEqual(pending["progress_at"], 10.0)
         self.stalled(instance, 10.0 + guest.INPUT_STALL_SECONDS)
+
+    def test_run_loop_stalled_input_starts_cleanup(self):
+        pending = channel(guest.HIGH_WATER)
+        instance = carrier(pending)
+        now = 10.0 + guest.INPUT_STALL_SECONDS
+        instance.spec = {"grace_ms": 10}
+        instance.input_buffer = bytearray()
+        instance.stop_requested = False
+        instance.fatal_code = None
+        instance.ready = True
+        instance.cleanup_limit = None
+        instance.cleanup_unknown = False
+        instance.quiet = False
+        instance.host_live = True
+        instance.output = collections.deque()
+        instance.output_bytes = 0
+        instance.tree = Mock(root_status=None)
+        instance.tree.census.return_value = ([], False)
+        instance.selector = Mock()
+        instance.launch = Mock()
+        instance.close_channel = Mock()
+        # Bound this check to one iteration in both implementations: removing
+        # the run-loop watchdog returns success instead of hanging the test.
+        instance.finish_if_drained = Mock(return_value=True)
+        forbidden = AssertionError("mocked run-loop check attempted real I/O")
+        with patch.object(guest.time, "monotonic", return_value=now), \
+                patch.object(guest.signal, "signal"), \
+                patch.object(guest.os, "fork", side_effect=forbidden), \
+                patch.object(guest.os, "openpty", side_effect=forbidden), \
+                patch.object(guest.os, "read", side_effect=forbidden), \
+                patch.object(guest.os, "write", side_effect=forbidden), \
+                patch.object(guest.os, "close", side_effect=forbidden):
+            result = instance.run()
+        self.assertEqual(result, 1, "stalled input must fail from the real run-loop watchdog")
+        self.assertEqual(instance.fatal_code, "INPUT_STALLED")
+        self.assertEqual(instance.cleanup_at, now)
+        self.assertEqual(pending["bytes"], 0)
+        self.assertFalse(pending["queue"])
+        self.assertTrue(pending["end"])
+        self.assertIsNone(pending["progress_at"])
+        frames = [guest.json.loads(bytes(frame)) for frame in instance.output]
+        self.assertEqual(frames, [{"type": "error", "error": "INPUT_STALLED"}])
+        instance.launch.assert_called_once_with()
+        instance.tree.census.assert_called_once_with()
+        instance.tree.deliver.assert_not_called()
+        instance.tree.close.assert_called_once_with()
+        instance.selector.select.assert_not_called()
+        instance.selector.close.assert_called_once_with()
 
 
 if __name__ == "__main__":
