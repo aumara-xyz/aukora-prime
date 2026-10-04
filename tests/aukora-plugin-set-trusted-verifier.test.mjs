@@ -180,6 +180,7 @@ test('release floor: older proof refused, fresh rollback commits before boot and
   const verify = approval => canon.verifyOrderedGateApproval({ record: w.record, approval, pin: w.pin, epochs: w.epochs })
   const vA = verify(w.approve(A).approval)
   let floor = floorMod.advanceFloor(null, vA)
+  fs.writeFileSync(w.floorFile, JSON.stringify(floor), { flag: 'wx' })
   const vB = verify(w.approve(B).approval)
   assert.ok(vB.ledgerSeq > vA.ledgerSeq, 'fresh owner decision advances signed sequence')
   assert.throws(() => floorMod.checkFloor(floor, vB), { code: 'release-floor-install-incomplete' })
@@ -195,7 +196,7 @@ test('release floor: older proof refused, fresh rollback commits before boot and
   assert.throws(() => floorMod.checkFloor(null, vB), /no release floor/)
   // rollback: a fresh owner approval of A, labelled by the gate, then accepted and the floor moves to it
   // Provision only the disposable card-reading fixture; protected installation/writer behavior is checked separately.
-  fs.writeFileSync(w.floorFile, JSON.stringify(floor), { flag: 'wx' })
+  fs.writeFileSync(w.floorFile, JSON.stringify(floor), { flag: 'w' })
   assert.deepEqual(floorMod.readFloor(w.floorFile), floor)
   const again = w.approve(A)
   assert.match(again.plain, /^GATE FACT: ROLLBACK to release-a3e27d6, below the release floor release-524b8f5 \| GATE FACT: plugin set UNCHANGED/)
