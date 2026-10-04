@@ -11,3 +11,12 @@ Assumed layout (see `../SETUP.md`): host scripts in `/usr/local/lib/aukora-bound
 `openshell`/`openshell-gateway` in `/usr/bin`, Node 24.11.1 in `/opt/aukora-node`, this package (root-owned) in
 `/opt/aukora-boundary-gate`, gate targets in `/var/lib/aukora-boundary/targets`, linger enabled for `auma`.
 Differences from SETUP.md observed on Ubuntu 24.04: Podman is 4.9.3 (distribution package), not 5.4.2.
+
+## Boundary self-check (fail closed)
+
+`aukora-genesis.service` runs `bin/selfcheck.mjs` as `ExecStartPre` (as aukora-host): every forbidden action must be
+refused and the in-sandbox egress probe must pass, and the result must be recorded as a signed `selfcheck` ledger entry,
+or the runtime does not start (three tries in five minutes, then it stays down). `aukora-selfcheck.timer` re-runs the
+same check every 15 minutes; a failure starts `aukora-genesis-failclosed.service`, which stops the runtime.
+Install `bin/selfcheck.mjs` with the gate runtime (`/opt/aukora-boundary-gate/bin/`), then
+`systemctl enable --now aukora-selfcheck.timer`.

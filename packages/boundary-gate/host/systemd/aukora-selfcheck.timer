@@ -1,0 +1,10 @@
+[Unit]
+Description=AUKORA boundary self-check every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Unit=aukora-selfcheck.service
+
+[Install]
+WantedBy=timers.target

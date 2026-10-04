@@ -6,6 +6,9 @@
 Description=AUKORA Genesis runtime as aukora-host, loopback 127.0.0.1:18735
 After=network-online.target aukora-boundary-gate.service aukora-auma-sandbox.service
 Wants=aukora-boundary-gate.service aukora-auma-sandbox.service
+# A failing self-check must not loop (each attempt is a ledger entry): three tries in five minutes, then stay down.
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 User=aukora-host
@@ -18,6 +21,8 @@ WorkingDirectory=/opt/aukora-genesis/src
 Environment=PATH=/opt/aukora-node/bin:/usr/local/bin:/usr/bin:/bin
 Environment=AUKORA_SUPPORT_ROOT=/home/aukora-host/genesis/support
 Environment=AUKORA_STATE=/home/aukora-host/genesis/state
+# Fail closed: the boundary self-check (bin/selfcheck.mjs) must pass and be recorded in the gate ledger first.
+ExecStartPre=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec
 ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release /opt/aukora-genesis/release-e4a02b6 --state-root /home/aukora-host/genesis/state --port 18735 --allow-unapproved --patch /opt/aukora-genesis/release-e4a02b6/aukora-composition.patch.yml --patch /opt/aukora-genesis/release-e4a02b6/linux-openshell.patch.yml
 KillMode=control-group
 Restart=on-failure

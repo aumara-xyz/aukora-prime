@@ -1,0 +1,15 @@
+# Periodic boundary self-check as the harness user; a failure stops the Genesis runtime (fail closed).
+[Unit]
+Description=AUKORA boundary self-check (harness user; stops aukora-genesis on failure)
+After=aukora-boundary-gate.service
+OnFailure=aukora-genesis-failclosed.service
+
+[Service]
+Type=oneshot
+User=aukora-host
+Group=aukora-host
+UMask=0077
+WorkingDirectory=/tmp
+Environment=PATH=/usr/bin:/bin
+TimeoutStartSec=300
+ExecStart=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec
