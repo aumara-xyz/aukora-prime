@@ -194,6 +194,23 @@ export function createGateCaptureHostPlugin({ platform, preflight, loadKira, loa
               || aura.validateAuraPublicProposalReadScope(configuration, retained.scope) !== true || !ownerIsLive()) unavailable()
           }
           trustedThirdArg = Object.freeze({ capturePins,
+            proposalFromToolResult: (value, execution) => {
+              if (!ownerIsLive() || execution?.name !== 'aukora_gate_propose') unavailable()
+              // E passes the parsed lossless result.value, never model arguments.
+              // Bind the full ID to the exact proposeTheme return shape.
+              const result = snapshotData(value)
+              const fields = ['ok', 'state', 'proposal', 'proposal_id', 'target', 'accent', 'expires', 'message']
+              if (!result || Object.keys(result).length !== fields.length || fields.some(field => !Object.hasOwn(result, field))
+                || result.ok !== true || result.state !== 'PENDING_OWNER' || !proposalId(result.proposal_id)
+                || result.proposal !== result.proposal_id.slice(0, 8) || result.target !== 'plugins/auma-theme/theme.json'
+                || typeof result.accent !== 'string' || !/^(default|#[0-9A-F]{6})$/u.test(result.accent)
+                || result.message !== 'Proposed. An approval popup is now on the owner\'s screen; only the owner can Approve or Refuse. You cannot approve it.'
+                || typeof result.expires !== 'string') unavailable()
+              const expires = Date.parse(result.expires)
+              if (!Number.isSafeInteger(expires) || expires <= Date.now()
+                || new Date(expires).toISOString() !== result.expires || !ownerIsLive()) unavailable()
+              return Object.freeze({ id: result.proposal_id, expires })
+            },
             // E invokes this synchronously after its policy await, immediately
             // before persistence. It validates only an already retained scope.
             isCaptureScopeLive: value => {

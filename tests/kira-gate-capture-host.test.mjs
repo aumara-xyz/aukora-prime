@@ -10,10 +10,18 @@ import { createGateCaptureHostPlugin, name, inject, PROPOSE_SOCKET, AURA_CONFIGU
   AURA_MODULE, AURA_JSON_MODULE, AURA_READ_LIFECYCLE, CAPTURE_MODULE } from '../plugins/aukora-kira/lib/gate-capture-host.mjs'
 import { verifyCompletedGateCapture, gateCompletedResultDigest, gateCaptureSigningBytes }
   from '../packages/boundary-gate/src/ledger.mjs'
+import { proposeTheme } from '../plugins/aukora-auma-theme/lib/propose.mjs'
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 const wrapperUrl = new URL('../plugins/aukora-kira/lib/gate-capture-host.mjs', import.meta.url)
 const proposal = '01234567-89ab-4cde-8fab-0123456789ab'
+const proposalToolResult = await proposeTheme(PROPOSE_SOCKET, { accent: '#123456', why: 'disposable fixture', session: 'fixture' },
+  async (socket, op) => {
+    assert.equal(socket, PROPOSE_SOCKET)
+    if (op === 'read') return { content: '{"accent": "default"}', sha256: 'absent' }
+    assert.equal(op, 'propose')
+    return { id: proposal, expires: Date.now() + 60_000 }
+  })
 const pair = generateKeyPairSync('ed25519')
 const publicKey = pair.publicKey.export({ type: 'spki', format: 'pem' }).toString()
 const keyHash = sha(pair.publicKey.export({ type: 'spki', format: 'der' }))
@@ -165,7 +173,7 @@ test('default host preserves Kira identity, existing config and exact third-argu
   assert.deepEqual(f.calls, ['preflight', 'aura', 'capture', 'public-config', 'context-hash', 'kira', 'lifecycle'])
   const [ctx, config, host] = f.received[0]
   assert.equal(ctx, f.ctx); assert.equal(config, existingConfig); assert.equal(f.warnings.length, 0)
-  assert.deepEqual(Object.keys(host).sort(), ['capturePins', 'isCaptureScopeLive', 'stateForProposal', 'verifyCompletedGateCapture'])
+  assert.deepEqual(Object.keys(host).sort(), ['capturePins', 'isCaptureScopeLive', 'proposalFromToolResult', 'stateForProposal', 'verifyCompletedGateCapture'])
   assert.deepEqual(host.capturePins, { journal_id: 'aukora-gate-pilot', gate_public_key_pem: publicKey, gate_pubkey_sha256: keyHash })
   assert.ok(Object.isFrozen(host)); assert.ok(Object.isFrozen(host.capturePins))
   assert.notEqual(host.verifyCompletedGateCapture, verifyCompletedGateCapture)
@@ -281,8 +289,12 @@ async function createAcceptedEFixture() {
     associationSource = readE(new URL('./aura-association.mjs', indexURL), 'utf8')
     recallSource = readE(new URL('./aura-recall.mjs', indexURL), 'utf8')
   } catch { throw Error('missing-dependency:accepted-kira-index-or-helper-closure') }
-  assert.equal(sha(indexSource), '28338042b229b74ec2059f2a6f7a6d7c28db373090b6c7a70c1895939019cb6b',
+  assert.equal(sha(indexSource), '08d8c3f5f13f4b35391422c6530bba24bdcb9afd47fcc93fc8a6b603222c2b86',
     'missing-dependency:accepted-kira-index-sha256')
+  assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
+    'missing-dependency:accepted-kira-association-sha256')
+  assert.equal(sha(recallSource), '78ef0bcc946e93d6b308e144751ffa63334ac7228ecadad6718f4fdc1c5f5ea2',
+    'missing-dependency:accepted-kira-recall-sha256')
   const dataURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
   const associationURL = dataURL(associationSource)
   const association = await import(associationURL)
@@ -375,10 +387,69 @@ async function createAcceptedEFixture() {
 const tick = () => new Promise(resolve => setImmediate(resolve))
 function emitProposal(e, returned = {}) {
   e.ctx.emit('tools/result', { name: 'aukora_gate_propose', callId: 'fixture-call', rootCallId: 'fixture-root', agent: { fixtureProject: 'fixture-project' } },
-    { isError: false, value: JSON.stringify({ ok: true, state: 'PENDING_OWNER', proposal_id: proposal,
-      expires: new Date(Date.now() + 60_000).toISOString(), ...returned }) })
+    { isError: false, value: JSON.stringify({ ...proposalToolResult, ...returned }) })
 }
 async function drainTicks() { for (let i = 0; i < 8; i++) await tick() }
+
+test('trusted proposal decoder selects only the actual full proposeTheme result and current owner', async () => {
+  const config = structuredClone(existingConfig), f = fixture()
+  try {
+    await f.plugin.apply(f.ctx, config)
+    const host = f.received[0][2]
+    const execution = { name: 'aukora_gate_propose', arguments: { proposal_id: 'model-chosen-id' } }
+    const selected = host.proposalFromToolResult(proposalToolResult, execution)
+    assert.deepEqual(selected, { id: proposal, expires: Date.parse(proposalToolResult.expires) })
+    assert.ok(Object.isFrozen(selected))
+    const missingId = { ...proposalToolResult }; delete missingId.proposal_id
+    const invalid = [
+      ['missing ID', missingId], ['display ID only', { ...proposalToolResult, proposal_id: proposal.slice(0, 8) }],
+      ['mismatched ID', { ...proposalToolResult, proposal_id: '11234567-89ab-4cde-8fab-0123456789ab' }],
+      ['wrong display', { ...proposalToolResult, proposal: 'ffffffff' }],
+      ['wrong target', { ...proposalToolResult, target: 'model-selected-target' }],
+      ['wrong state', { ...proposalToolResult, state: 'REFUSED' }], ['failed result', { ...proposalToolResult, ok: false }],
+      ['missing expiry', { ...proposalToolResult, expires: null }],
+      ['expired result', { ...proposalToolResult, expires: new Date(Date.now() - 1).toISOString() }],
+      ['noncanonical expiry', { ...proposalToolResult, expires: '2099-01-01' }],
+      ['lowercase accent', { ...proposalToolResult, accent: '#abcdef' }],
+      ['wrong message', { ...proposalToolResult, message: 'model-provided-message' }],
+      ['extra fields', { ...proposalToolResult, model_id: proposal }],
+    ]
+    for (const [label, returned] of invalid)
+      assert.throws(() => host.proposalFromToolResult(returned, execution), /host-unavailable/u, label)
+    let getterReads = 0
+    const accessor = { ...proposalToolResult }
+    Object.defineProperty(accessor, 'proposal_id', { enumerable: true, get() { getterReads++; return proposal } })
+    assert.throws(() => host.proposalFromToolResult(accessor, execution), /host-unavailable/u)
+    assert.equal(getterReads, 0)
+    assert.throws(() => host.proposalFromToolResult(proposalToolResult, { name: 'model_other_tool', arguments: { proposal_id: proposal } }))
+    assert.equal(f.auraState.scopes.length, 0, 'decoding never creates a grant or reads a proposal')
+    config.memoryOwner.permittedPrivacy.push('private')
+    assert.throws(() => host.proposalFromToolResult(proposalToolResult, execution), /host-unavailable/u)
+  } finally { f.dispose() }
+})
+
+test('actual E193 native observer refuses missing, short, tampered and model-only proposal IDs', async () => {
+  const e = await createAcceptedEFixture(), stateCalls = []
+  try {
+    const f = fixture({ loadKira: async () => e.E,
+      gateCall: async (...args) => { stateCalls.push(args); return completedResult() } })
+    await f.plugin.apply(e.ctx, existingConfig)
+    const execution = { name: 'aukora_gate_propose', arguments: { proposal_id: proposal }, callId: 'fixture-call', agent: {} }
+    const missingId = { ...proposalToolResult }; delete missingId.proposal_id
+    for (const returned of [missingId, { ...proposalToolResult, proposal_id: proposal.slice(0, 8) },
+      { ...proposalToolResult, proposal_id: '11234567-89ab-4cde-8fab-0123456789ab' },
+      { ...proposalToolResult, target: 'model-target' }, { ...proposalToolResult, extra_id: proposal }])
+      e.ctx.emit('tools/result', execution, { isError: false, value: JSON.stringify(returned) })
+    e.ctx.emit('tools/result', { ...execution, name: 'other_tool' }, { isError: false, value: JSON.stringify(proposalToolResult) })
+    e.ctx.emit('tools/result', execution, { isError: true, value: JSON.stringify(proposalToolResult) })
+    e.ctx.emit('tools/result', execution, { isError: false, value: proposalToolResult })
+    await drainTicks()
+    assert.deepEqual(stateCalls, []); assert.equal(e.notes.length, 0); assert.equal(e.observations.remembers.length, 0)
+    emitProposal(e); await drainTicks()
+    assert.deepEqual(stateCalls, [[PROPOSE_SOCKET, 'state', { id: proposal }]])
+    assert.equal(e.notes.length, 1)
+  } finally { e.dispose() }
+})
 
 test('accepted E apply receives trusted host and associates the actual native tool result', async () => {
   const e = await createAcceptedEFixture()
@@ -401,8 +472,8 @@ test('accepted E apply receives trusted host and associates the actual native to
     await drainTicks()
     assert.equal(e.notes.length, 1)
     assert.deepEqual(stateCalls, [[PROPOSE_SOCKET, 'state', { id: proposal }]])
-    assert.equal(verifierInputs.length, 4)
-    assert.equal(new Set(verifierInputs).size, 4)
+    assert.equal(verifierInputs.length, 5)
+    assert.equal(new Set(verifierInputs).size, 5)
     assert.ok(verifierInputs.every(result => result !== retained && Object.isFrozen(result) && Object.isFrozen(result.receipt)))
     assert.ok(verifierInputs.every(result => JSON.stringify(result) === JSON.stringify(retained)))
     const note = e.notes[0]
@@ -748,6 +819,51 @@ test('accepted E must not remember after grant revocation following its first po
       'write-time grant refusal must prevent an ordinary unassociated capture note')
     assert.equal(e.notes.length, 0)
   } finally { e.dispose() }
+})
+
+test('actual E193 revalidates the retained H scope after awaited write policy before a note is persisted', async () => {
+  for (const change of ['unchanged', 'grant revoked', 'owner privacy changed', 'mount disposed']) {
+    const e = await createAcceptedEFixture(), config = structuredClone(existingConfig), verifierInputs = []
+    let releasePolicy, rememberedResult
+    const policyRelease = new Promise(resolve => { releasePolicy = resolve })
+    try {
+      const f = fixture({ loadKira: async () => e.E,
+        loadCapture: async () => ({ verifyCompletedGateCapture: (result, pins) => {
+          verifierInputs.push(result); return verifyCompletedGateCapture(result, pins)
+        } }),
+      })
+      await f.plugin.apply(e.ctx, config); await drainTicks()
+      const options = e.observations.memoryConstructions[0]
+      assert.ok(options, 'actual E must construct the disposable memory dependency')
+      let policyEntered = false
+      const originalPolicy = options.policyOf
+      options.policyOf = async () => {
+        const policy = await originalPolicy()
+        policyEntered = true; await policyRelease; return policy
+      }
+      const originalRemember = e.memory.remember
+      e.memory.remember = async (...args) => { rememberedResult = await originalRemember(...args); return rememberedResult }
+      emitProposal(e); await drainTicks()
+      assert.equal(policyEntered, true, change)
+      assert.equal(e.observations.remembers.length, 1, change)
+      assert.equal(e.notes.length, 0, 'policy is still outstanding')
+      assert.equal(verifierInputs.length, 4, 'state and ingestion verification precede the policy await')
+      assert.equal(f.auraState.scopes.length, 1)
+      if (change === 'grant revoked') f.auraState.grant = null
+      if (change === 'owner privacy changed') config.memoryOwner.permittedPrivacy.push('private')
+      if (change === 'mount disposed') e.dispose()
+      releasePolicy(); await drainTicks()
+      if (change === 'unchanged') {
+        assert.equal(e.notes.length, 1); assert.equal(rememberedResult.remembered, 1)
+        assert.equal(verifierInputs.length, 5, 'fresh synchronous scope verification precedes persistence')
+      } else {
+        assert.equal(e.notes.length, 0, change)
+        assert.deepEqual(rememberedResult, { remembered: 0, ids: [], reason: 'capture-paused' }, change)
+        assert.equal(verifierInputs.length, change === 'grant revoked' ? 5 : 4, change)
+      }
+      assert.equal(f.auraState.scopes.length, 1, 'the write fence never replaces the retained grant')
+    } finally { releasePolicy(); e.dispose() }
+  }
 })
 
 // Execute the selected CLI body with the real option parser and path grammar.
