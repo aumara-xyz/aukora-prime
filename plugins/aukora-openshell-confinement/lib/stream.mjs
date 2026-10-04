@@ -69,7 +69,7 @@ export function openGuestStream(request, settings, layout, signal, spawnCarrier 
     return entry.promise;
   };
   const terminate = () => {
-    if (quiescent) return empty.promise;
+    if (finished || quiescent) return empty.promise;
     if (termination) return termination;
     closing = true;
     termination = rpc('terminate').then(() => empty.promise);
@@ -112,8 +112,10 @@ export function openGuestStream(request, settings, layout, signal, spawnCarrier 
       if ((request.kind === 'terminal') !== (frame.type === 'output')
         || frame.type === 'control' && !request.control) throw failure('FRAME_STREAM');
       const data = Buffer.from(frame.data, 'base64');
+      if (data.length > CHUNK) throw failure('FRAME_LIMIT');
       const stream = { stdout, stderr, output, control }[frame.type];
-      if (stream.readableLength + (stream.writableLength ?? 0) + data.length > MAX_LINE) throw failure('OUTPUT_BACKPRESSURE');
+      // PassThrough can retain the active chunk in both queue counters.
+      if (stream.readableLength + (stream.writableLength ?? 0) + 2 * data.length > MAX_LINE) throw failure('OUTPUT_BACKPRESSURE');
       if (frame.type === 'control') stream.push(data);
       else stream.write(data);
       return;

@@ -172,3 +172,43 @@ test('a stalled pipe bounds readable plus writable queues and leaves cleanup unk
   assert.equal(certified, false, 'killing a carrier must not certify guest absence');
   assert.deepEqual(child.kills, ['SIGKILL']);
 });
+
+test('an oversized first guest output frame refuses before entering either pipe queue', { timeout: 2000 }, async t => {
+  const child = carrier(t);
+  const session = openGuestStream(launch(), settings, layout, undefined, child.spawn);
+  child.frame({ type: 'ready', pid: 46 });
+  await session.ready;
+  // This is below the JSON line limit but above the guest's byte-chunk limit.
+  child.bytes('stdout', Buffer.alloc(CHUNK + 1, 65));
+  assert.equal(session.stdout.readableLength, 0);
+  assert.equal(session.stdout.writableLength, 0);
+  assert.equal(session.stdout.destroyed, true);
+  await assert.rejects(session.done, unavailable);
+  await assert.rejects(session.empty, unavailable);
+  assert.deepEqual(child.kills, ['SIGKILL']);
+});
+
+test('termination after transport failure preserves unknown cleanup without a fresh timer', { timeout: 2000 }, async t => {
+  const timers = [];
+  const originalTimeout = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (...args) => {
+    const timer = originalTimeout(...args);
+    timers.push(timer);
+    return timer;
+  });
+  // Failed assertions must also leave the mock check without active timers.
+  t.after(() => { for (const timer of timers) clearTimeout(timer); });
+  const child = carrier(t);
+  const session = openGuestStream(launch(), settings, layout, undefined, child.spawn);
+  child.frame({ type: 'ready', pid: 47 });
+  await session.ready;
+  child.close(1);
+  await assert.rejects(session.empty, unavailable);
+  const timersBeforeTerminate = timers.length;
+  const requestsBeforeTerminate = child.frames.length;
+  await assert.rejects(session.terminate(), unavailable);
+  assert.equal(timers.length, timersBeforeTerminate, 'failed transport must not start another cleanup deadline');
+  assert.equal(child.frames.length, requestsBeforeTerminate, 'failed transport must not dispatch another request');
+  await assert.rejects(session.empty, unavailable);
+  assert.deepEqual(child.kills, ['SIGKILL']);
+});
