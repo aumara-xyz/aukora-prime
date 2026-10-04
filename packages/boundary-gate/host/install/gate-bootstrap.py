@@ -107,6 +107,10 @@ MAX_FILE = 8 * 1024 * 1024
 MAX_FILES = 4096
 MAX_TOTAL = 64 * 1024 * 1024
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+WORKSPACE = "/home/aukora-host/workspaces/aukora-prime"
+WORKSPACE_MAX_FILES = 200000
+WORKSPACE_MAX_FILE = 64 * 1024 * 1024
+WORKSPACE_MAX_TOTAL = 2 * 1024 * 1024 * 1024
 
 
 class Refused(Exception):
@@ -336,6 +340,147 @@ def verify_package(root, files):
         require(hashlib.sha256(data).hexdigest() == files[name], "package-hash:" + name)
 
 
+def scan_workspace(root):
+    """Read-only pre-bind filter; neither executes workspace bytes nor freezes them.
+
+    A second link may disclose bytes from outside the mount, so all regular-file
+    hardlinks refuse without searching outside the workspace. Named credential
+    artifacts refuse without emitting their path or content. This is not general
+    secret discovery, a snapshot, or evidence that later guest checks ran.
+    """
+    require(canonical_absolute(root), "workspace-path")
+    rows, total, count = [], 0, 0
+    secrets = {".npmrc", ".netrc", ".git-credentials", ".env", "credentials.json",
+               "tokens.json", "token.json", "launch-url.json", "id_rsa", "id_ed25519"}
+    secret_dirs = {".ssh", ".aws", ".gnupg"}
+
+    def stable(metadata):
+        return identity(metadata)
+
+    def ancestor_identity(metadata):
+        return (metadata.st_dev, metadata.st_ino, metadata.st_mode,
+                metadata.st_uid, metadata.st_gid)
+
+    def link_is_contained(relative, target):
+        # Resolve each component from an anchored descriptor. A link that leaves
+        # the mount and reenters via another host link is still outside the mount.
+        if os.path.isabs(target):
+            return False
+        pending = (os.path.dirname(relative) + "/" + target).split("/")
+        directories, links = [os.dup(workspace_fd)], 0
+        try:
+            while pending:
+                component = pending.pop(0)
+                if component in ("", "."):
+                    continue
+                if component == "..":
+                    if len(directories) == 1:
+                        return False
+                    os.close(directories.pop())
+                    continue
+                parent = directories[-1]
+                metadata = os.stat(component, dir_fd=parent, follow_symlinks=False)
+                if stat.S_ISLNK(metadata.st_mode):
+                    links += 1
+                    nested = os.readlink(component, dir_fd=parent)
+                    if links > 40 or os.path.isabs(nested):
+                        return False
+                    if stable(metadata) != stable(os.stat(component, dir_fd=parent, follow_symlinks=False)):
+                        return False
+                    pending = nested.split("/") + pending
+                elif pending:
+                    if not stat.S_ISDIR(metadata.st_mode):
+                        return False
+                    child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+                    directories.append(child)
+                    if stable(metadata) != stable(os.fstat(child)):
+                        return False
+                else:
+                    return stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)
+            return len(directories) > 1
+        except OSError:
+            return False
+        finally:
+            for descriptor in reversed(directories):
+                os.close(descriptor)
+
+    def walk(fd, prefix):
+        nonlocal total, count
+        before_directory = os.fstat(fd)
+        names = sorted(os.listdir(fd))
+        for name in names:
+            relative = prefix + name
+            require(relative_name(relative), "workspace-name")
+            lowered = name.lower()
+            require(lowered not in secrets and not lowered.startswith(".env.")
+                    and lowered not in secret_dirs, "workspace-secret-artifact")
+            count += 1
+            require(count <= WORKSPACE_MAX_FILES, "workspace-count")
+            before = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            mode = stat.S_IMODE(before.st_mode)
+            if stat.S_ISDIR(before.st_mode):
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                try:
+                    require(stable(before) == stable(os.fstat(child)), "workspace-race")
+                    rows.append([relative, "directory", mode])
+                    walk(child, relative + "/")
+                    require(stable(before) == stable(os.stat(name, dir_fd=fd, follow_symlinks=False)), "workspace-race")
+                finally:
+                    os.close(child)
+            elif stat.S_ISLNK(before.st_mode):
+                target = os.readlink(name, dir_fd=fd)
+                require(link_is_contained(relative, target), "workspace-link")
+                require(stable(before) == stable(os.stat(name, dir_fd=fd, follow_symlinks=False)), "workspace-race")
+                rows.append([relative, "symlink", target])
+            else:
+                require(stat.S_ISREG(before.st_mode), "workspace-type")
+                require(before.st_nlink == 1, "workspace-hardlink")
+                require(before.st_size <= WORKSPACE_MAX_FILE, "workspace-file-size")
+                opened = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=fd)
+                try:
+                    require(stable(before) == stable(os.fstat(opened)), "workspace-race")
+                    digest, size = hashlib.sha256(), 0
+                    while True:
+                        piece = os.read(opened, 65536)
+                        if not piece:
+                            break
+                        size += len(piece)
+                        require(size <= WORKSPACE_MAX_FILE, "workspace-file-size")
+                        total += len(piece)
+                        require(total <= WORKSPACE_MAX_TOTAL, "workspace-total-size")
+                        digest.update(piece)
+                    require(size == before.st_size and stable(before) == stable(os.fstat(opened))
+                            and stable(before) == stable(os.stat(name, dir_fd=fd, follow_symlinks=False)), "workspace-race")
+                    rows.append([relative, "file", mode, size, digest.hexdigest()])
+                finally:
+                    os.close(opened)
+        require(names == sorted(os.listdir(fd)) and stable(before_directory) == stable(os.fstat(fd)), "workspace-race")
+
+    descriptors = [os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)]
+    ancestors = []
+    try:
+        for component in root.split("/")[1:]:
+            parent = descriptors[-1]
+            before = os.stat(component, dir_fd=parent, follow_symlinks=False)
+            require(stat.S_ISDIR(before.st_mode), "workspace-root")
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            descriptors.append(child)
+            require(ancestor_identity(before) == ancestor_identity(os.fstat(child)), "workspace-race")
+            ancestors.append((parent, component, ancestor_identity(before), child))
+        workspace_fd = descriptors[-1]
+        walk(workspace_fd, "")
+        for parent, component, before, child in ancestors:
+            require(before == ancestor_identity(os.fstat(child))
+                    and before == ancestor_identity(os.stat(component, dir_fd=parent, follow_symlinks=False)), "workspace-race")
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+    encoded = json.dumps(rows, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    return {"version": 1, "kind": "aukora-workspace-input-filter/v1", "entries": count,
+            "bytes": total, "input_sha256": hashlib.sha256(b"aukora-workspace-input-filter/v1\0" + encoded).hexdigest(),
+            "snapshot_qualified": False}
+
+
 def validate_signer_epochs(data):
     require(len(data) <= 16384, "signer-epochs-format")
     value = closed_json(data)
@@ -430,7 +575,7 @@ def operator_arguments(arguments):
 
 def launch_arguments(arguments):
     require(bool(arguments), "launch-action")
-    if arguments[0] in ("check-package", "check-runtime", "check-runtime-aura"):
+    if arguments[0] in ("check-package", "check-runtime", "check-runtime-aura", "check-workspace"):
         require(len(arguments) == 1, "launch-option")
         return None, [] if arguments[0] == "check-package" else [arguments[0]]
     if arguments[0] in OPERATOR_ENTRIES:
@@ -699,6 +844,11 @@ def main():
             elif arguments == ["check-runtime-aura"]:
                 require_node_profile(manifest, AURA_ROOT + "/" + AURA_ENTRY)
                 print("RUNTIME_AURA_VERIFIED")
+            elif arguments == ["check-workspace"]:
+                require_node_profile(manifest, ENTRY)
+                # Fixed host code reads data only. F must bind a stable workspace
+                # generation afterwards; this filter grants no execution/receipt.
+                print(json.dumps(scan_workspace(WORKSPACE), sort_keys=True, separators=(",", ":")))
             else:
                 print("PACKAGE_VERIFIED")
             return 0

@@ -1625,6 +1625,170 @@ class BootstrapChecks(unittest.TestCase):
         print("SOURCE-ONLY Aura guard mutations: 3/3 killed; each mutant reaches the actual disposable dispatch trap", flush=True)
 
 
+class WorkspaceInputChecks(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="workspace-input-source-")
+        self.root = Path(os.path.realpath(self.temporary.name)) / "workspace"
+        self.root.mkdir()
+        self.file = self.root / "source.mjs"
+        self.file.write_text("throw new Error('workspace code must never run on host');\n")
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def scan(self, namespace=SOURCE):
+        return namespace["scan_workspace"](str(self.root))
+
+    def test_real_input_bytes_and_modes_are_bound_without_execution(self):
+        first = self.scan()
+        self.assertEqual(first["kind"], "aukora-workspace-input-filter/v1")
+        self.assertEqual(first["entries"], 1)
+        self.assertFalse(first["snapshot_qualified"])
+        self.assertEqual(first, self.scan())
+        self.file.write_text("different bytes\n")
+        second = self.scan()
+        self.assertNotEqual(first["input_sha256"], second["input_sha256"])
+        self.file.chmod(0o700)
+        self.assertNotEqual(second["input_sha256"], self.scan()["input_sha256"])
+        with patch.object(os.path, "realpath", side_effect=AssertionError("no unanchored resolution")):
+            self.scan()
+        alias = self.root.parent / "workspace-alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(Refused, "workspace-root"):
+            SOURCE["scan_workspace"](str(alias))
+
+    def test_secret_names_external_links_and_real_outside_hardlinks_refuse(self):
+        secret = self.root / ".env"
+        secret.write_text("SYNTHETIC_FIXTURE_ONLY=not-a-real-secret\n")
+        with self.assertRaisesRegex(Refused, "workspace-secret-artifact"):
+            self.scan()
+        secret.unlink()
+        outside = self.root.parent / "outside.txt"
+        outside.write_text("synthetic outside-only bytes\n")
+        linked = self.root / "linked"
+        os.link(outside, linked)
+        self.assertEqual(linked.stat().st_nlink, 2)
+        with self.assertRaisesRegex(Refused, "workspace-hardlink"):
+            self.scan()
+        linked.unlink()
+        linked.symlink_to("../outside.txt")
+        with self.assertRaisesRegex(Refused, "workspace-link"):
+            self.scan()
+        linked.unlink()
+        linked.symlink_to("source.mjs")
+        self.assertEqual(self.scan()["entries"], 2)
+
+    def test_fifo_and_changed_open_file_refuse(self):
+        fifo = self.root / "pipe"
+        os.mkfifo(fifo)
+        with self.assertRaisesRegex(Refused, "workspace-type"):
+            self.scan()
+        fifo.unlink()
+        read = os.read
+        changed = False
+        def changing_read(fd, size):
+            nonlocal changed
+            result = read(fd, size)
+            if result and not changed:
+                changed = True
+                self.file.write_text("changed during the actual read\n")
+            return result
+        with patch.object(os, "read", changing_read), self.assertRaisesRegex(Refused, "workspace-race"):
+            self.scan()
+
+    def test_link_that_escapes_then_reenters_is_not_a_contained_guest_link(self):
+        outside = self.root.parent / "outside-reentry"
+        outside.mkdir()
+        (outside / "back").symlink_to(self.root, target_is_directory=True)
+        linked = self.root / "reentry"
+        linked.symlink_to("../outside-reentry/back/source.mjs")
+        self.assertEqual(linked.resolve(), self.file)
+        with self.assertRaisesRegex(Refused, "workspace-link"):
+            self.scan()
+
+    def test_ancestor_replacement_never_reads_the_outside_workspace(self):
+        with tempfile.TemporaryDirectory(prefix="workspace-outside-source-") as temporary:
+            outside = Path(os.path.realpath(temporary))
+            (outside / "workspace").mkdir()
+            (outside / "workspace" / "payload").write_bytes(b"OUTSIDE_SYNTHETIC_BYTES")
+            parent = self.root.parent
+            moved = parent.with_name(parent.name + "-moved")
+            original_open, original_read = os.open, os.read
+            replaced, observed = False, []
+            def replacing_open(name, *args, **kwargs):
+                nonlocal replaced
+                if name == "workspace" and "dir_fd" in kwargs and not replaced:
+                    parent.rename(moved)
+                    parent.symlink_to(outside, target_is_directory=True)
+                    replaced = True
+                return original_open(name, *args, **kwargs)
+            def observing_read(*args):
+                piece = original_read(*args)
+                observed.append(piece)
+                return piece
+            try:
+                with patch.object(os, "open", replacing_open), patch.object(os, "read", observing_read), \
+                        self.assertRaisesRegex(Refused, "workspace-race"):
+                    self.scan()
+                self.assertTrue(replaced)
+                self.assertNotIn(b"OUTSIDE_SYNTHETIC_BYTES", b"".join(observed))
+            finally:
+                if replaced:
+                    parent.unlink()
+                    moved.rename(parent)
+
+    def test_fixed_action_accepts_no_path_or_extra_argument_and_does_not_dispatch_node(self):
+        self.assertEqual(SOURCE["launch_arguments"](["check-workspace"]), (None, ["check-workspace"]))
+        with self.assertRaises(Refused):
+            SOURCE["launch_arguments"](["check-workspace", str(self.root)])
+        manifest = {"version": 2, "profiles": {"owner_key": {}}}
+        with patch.dict(G, {"verify_installation": lambda: manifest, "WORKSPACE": str(self.root)}), \
+                patch.object(sys, "argv", ["fixture", "check-workspace"]), \
+                patch.dict(os.environ, {}, clear=True), patch.object(os, "execve") as dispatch, \
+                patch.object(sys, "stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(SOURCE["main"](), 0)
+        dispatch.assert_not_called()
+        self.assertFalse(json.loads(output.getvalue())["snapshot_qualified"])
+
+    def test_single_guard_removal_controls_accept_the_previously_refused_actual_input(self):
+        source = (HERE / "gate-bootstrap.py").read_text()
+        guards = {
+            "secret": 'require(lowered not in secrets and not lowered.startswith(".env.")\n                    and lowered not in secret_dirs, "workspace-secret-artifact")',
+            "hardlink": 'require(before.st_nlink == 1, "workspace-hardlink")',
+            "external-link": 'require(link_is_contained(relative, target), "workspace-link")',
+        }
+        for name, guard in guards.items():
+            with self.subTest(guard=name):
+                self.assertEqual(source.count(guard), 1)
+                mutant = {"__name__": "workspace_input_guard_mutant", "__file__": str(HERE / "gate-bootstrap.py")}
+                exec(compile(source.replace(guard, 'require(True, "disabled-source-fixture-guard")'),
+                             "<workspace-input-single-guard-mutant>", "exec"), mutant)
+                fixture = self.root / (".env" if name == "secret" else "linked")
+                if name == "secret":
+                    fixture.write_text("SYNTHETIC_FIXTURE_ONLY=not-a-real-secret\n")
+                    code = "workspace-secret-artifact"
+                else:
+                    outside = self.root.parent / "outside-control.txt"
+                    outside.write_text("synthetic outside-link payload\n")
+                    if name == "hardlink":
+                        os.link(outside, fixture)
+                        code = "workspace-hardlink"
+                    else:
+                        fixture.symlink_to("../outside-control.txt")
+                        code = "workspace-link"
+                try:
+                    def regression(namespace):
+                        with self.assertRaisesRegex(namespace["Refused"], code):
+                            self.scan(namespace)
+                    regression(SOURCE)
+                    with self.assertRaises(AssertionError):
+                        regression(mutant)
+                    self.assertEqual(self.scan(mutant)["entries"], 2)
+                finally:
+                    fixture.unlink()
+        print("SOURCE-ONLY workspace input controls: 3/3 killed; real secret-name/hardlink/external-link inputs accepted only after their guard is removed", flush=True)
+
+
 if __name__ == "__main__":
     print("SOURCE-ONLY: actual tiny files and marker execution; synthetic root metadata; no installed-host qualification.", flush=True)
     unittest.main(verbosity=2)
