@@ -2,9 +2,12 @@
 // Exact Bash transport for the guest filesystem namespace. Admission requires
 // a genuine applied-policy readback from the root-owned boundary wrapper.
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 export const GUEST_WORKSPACE = '/sandbox';
 export const MAX_COMMAND_BYTES = 256 * 1024;
 const WRITABLE_ROOTS = Object.freeze(['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx']);
+const READ_ONLY_ROOTS = Object.freeze(['/bin', '/usr', '/lib', '/lib64', '/etc', '/proc', '/dev/urandom']);
+const MAX_INFO_BYTES = 64 * 1024;
 
 export function unavailable(reason, message) {
   return Object.assign(new Error(`aukora-openshell-confinement: ${message}`), {
@@ -53,8 +56,12 @@ export function validateRequest(argv, policy, settings, signal) {
   if (policy.mode !== 'workspace-write') {
     throw unavailable('POLICY', 'the existing wrapper cannot enforce the requested file-effect policy');
   }
-  if (policy.workspaceRoot !== settings.workspaceRoot) {
-    throw unavailable('WORKSPACE', 'host and guest workspace identities cannot be substituted');
+  // An explicit host identity routes to the guest; it grants no host access.
+  // Compare exact identities, without normalizing or resolving path aliases.
+  const mappedHost = settings.hostWorkspaceRoot !== undefined &&
+    policy.workspaceRoot === settings.hostWorkspaceRoot;
+  if (policy.workspaceRoot !== settings.workspaceRoot && !mappedHost) {
+    throw unavailable('WORKSPACE', 'the guest or exact configured host workspace is required');
   }
   if (policy.sessionId !== undefined &&
       (!text(policy.sessionId) || policy.sessionId.length === 0 || policy.sessionId.length > 256)) {
@@ -84,12 +91,172 @@ function identity(value) {
   return text(value) && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
 }
 
-/** Validate observed startup policy, including runtime-added writable roots. */
+function closed(value, keys) {
+  return object(value) && Object.keys(value).length === keys.length &&
+    Object.keys(value).every(key => keys.includes(key));
+}
+
+function exactSet(value, expected) {
+  return Array.isArray(value) && value.length === expected.length &&
+    new Set(value).size === expected.length && Array.from(value).every(item => expected.includes(item));
+}
+
+function absolutePath(value) {
+  return text(value) && value.startsWith('/') && value.length <= 4096 &&
+    (value === '/' || !value.endsWith('/')) && !value.includes('//') &&
+    !value.split('/').some(part => part === '.' || part === '..');
+}
+
+function digest(value) {
+  return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/.test(value);
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (object(value)) return '{' + Object.keys(value).sort().map(key =>
+    JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+  return JSON.stringify(value);
+}
+
+function inventoryDigest(value) {
+  return 'sha256:' + createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex');
+}
+
+function validMount(record) {
+  const keys = ['Type', 'Source', 'Destination', 'Driver', 'Mode', 'Options', 'RW', 'Propagation'];
+  if (record?.Type === 'volume') keys.push('Name');
+  return closed(record, keys) && ['volume', 'bind'].includes(record.Type) &&
+    (record.Type !== 'volume' || identity(record.Name)) &&
+    absolutePath(record.Source) && absolutePath(record.Destination) &&
+    text(record.Driver) && record.Driver.length <= 128 &&
+    text(record.Mode) && record.Mode.length <= 512 &&
+    Array.isArray(record.Options) && record.Options.length <= 128 &&
+    Array.from(record.Options).every(option => text(option) && option.length > 0 && option.length <= 512) &&
+    new Set(record.Options).size === record.Options.length && typeof record.RW === 'boolean' &&
+    text(record.Propagation) && record.Propagation.length <= 128;
+}
+
+function mountInventory(value, roles, claimedDigest) {
+  if (!Array.isArray(value) || value.length !== roles.length || !digest(claimedDigest) ||
+      roles.some(([destination, type, writable], index) => !validMount(value[index]) ||
+        value[index].Destination !== destination || value[index].Type !== type || value[index].RW !== writable)) return false;
+  return inventoryDigest(value) === claimedDigest;
+}
+
+const UINT32_END = 2 ** 32;
+function idMap(value, subordinate) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 128) return false;
+  for (const row of value) {
+    if (!closed(row, ['container_id', 'host_id', 'size']) ||
+        !['container_id', 'host_id', 'size'].every(key => Number.isSafeInteger(row[key]) &&
+          row[key] >= 0 && row[key] < UINT32_END) || row.size === 0 ||
+        row.container_id + row.size > UINT32_END || row.host_id + row.size > UINT32_END ||
+        (subordinate && (row.host_id < 165536 || row.host_id + row.size > 231072))) return false;
+  }
+  if (!value.some(row => row.container_id === 0)) return false;
+  for (let index = 0; index < value.length; index++) {
+    for (let other = index + 1; other < value.length; other++) {
+      for (const key of ['container_id', 'host_id']) {
+        if (value[index][key] < value[other][key] + value[other].size &&
+            value[other][key] < value[index][key] + value[index].size) return false;
+      }
+    }
+  }
+  return true;
+}
+
+function isolation(value, subordinate) {
+  const keys = ['uid', 'uid_map', 'gid_map', 'cap_eff', 'cap_prm', 'cap_bnd',
+    'no_new_privs', 'seccomp', 'process_start_time'];
+  if (subordinate) keys.push('workload_binary_digest');
+  return closed(value, keys) && Number.isSafeInteger(value.uid) && value.uid > 0 &&
+    value.uid < UINT32_END && idMap(value.uid_map, subordinate) && idMap(value.gid_map, subordinate) &&
+    value.uid_map.some(row => row.host_id <= value.uid && value.uid < row.host_id + row.size) &&
+    ['cap_eff', 'cap_prm', 'cap_bnd'].every(key => value[key] === '0000000000000000') &&
+    value.no_new_privs === 1 && value.seccomp === 2 &&
+    Number.isSafeInteger(value.process_start_time) && value.process_start_time > 0 &&
+    (!subordinate || digest(value.workload_binary_digest));
+}
+
+/** Bounded textual ingress: JSON.parse alone silently accepts duplicate keys. */
+export function parseConfinementInfoJson(source) {
+  if (!text(source) || Buffer.byteLength(source, 'utf8') > MAX_INFO_BYTES) {
+    throw unavailable('POLICY_READBACK', 'invalid applied-policy JSON encoding or size');
+  }
+  let offset = 0;
+  let nodes = 0;
+  const fail = () => { throw unavailable('POLICY_READBACK', 'invalid or ambiguous applied-policy JSON'); };
+  const space = () => { while (offset < source.length && /[\t\r\n ]/.test(source[offset])) offset++; };
+  const string = () => {
+    const start = offset++;
+    while (offset < source.length) {
+      const char = source[offset++];
+      if (char === '"') {
+        try {
+          const value = JSON.parse(source.slice(start, offset));
+          if (!text(value)) fail();
+          return value;
+        } catch { fail(); }
+      }
+      if (char === '\\') offset++;
+    }
+    fail();
+  };
+  const parse = depth => {
+    if (depth > 32 || ++nodes > 4096) fail();
+    space();
+    const char = source[offset];
+    if (char === '"') return string();
+    if (char === '{' || char === '[') {
+      const array = char === '[';
+      const value = array ? [] : Object.create(null);
+      const seen = new Set();
+      const end = array ? ']' : '}';
+      offset++;
+      space();
+      if (source[offset] === end) { offset++; return value; }
+      for (;;) {
+        space();
+        let key;
+        if (!array) {
+          if (source[offset] !== '"') fail();
+          key = string();
+          if (seen.has(key)) fail();
+          seen.add(key);
+          space();
+          if (source[offset++] !== ':') fail();
+        }
+        const item = parse(depth + 1);
+        if (array) value.push(item); else value[key] = item;
+        space();
+        const separator = source[offset++];
+        if (separator === end) return value;
+        if (separator !== ',') fail();
+      }
+    }
+    for (const [literal, value] of [['true', true], ['false', false], ['null', null]]) {
+      if (source.startsWith(literal, offset)) { offset += literal.length; return value; }
+    }
+    const number = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(source.slice(offset));
+    if (!number) fail();
+    offset += number[0].length;
+    const value = Number(number[0]);
+    if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) fail();
+    return value;
+  };
+  const value = parse(0);
+  space();
+  if (offset !== source.length) fail();
+  return value;
+}
+
+/** Validate full readback. The protected host profile comparator establishes
+ * approved source/options identities; a self-supplied digest is not that proof. */
 export function validateConfinementInfo(info) {
   const keys = ['version', 'openshell_version', 'sandbox', 'state', 'instance_id', 'policy_revision',
-    'applied_revision', 'workspace_root', 'network_mode', 'policy'];
-  if (!object(info) || Object.keys(info).length !== keys.length ||
-      Object.keys(info).some(key => !keys.includes(key)) || info.version !== 1 ||
+    'applied_revision', 'workspace_root', 'network_mode', 'policy', 'mount_inventory', 'inventory_digest',
+    'profile_digest', 'isolation', 'supervisor_inventory', 'supervisor_inventory_digest', 'supervisor_isolation'];
+  if (!closed(info, keys) || info.version !== 2 ||
       info.openshell_version !== '0.1.2' ||
       info.sandbox !== 'auma-ws' || info.state !== 'Ready' || !identity(info.instance_id) ||
       !Number.isSafeInteger(info.policy_revision) || info.policy_revision < 1 ||
@@ -99,22 +266,38 @@ export function validateConfinementInfo(info) {
   }
   const policy = info.policy;
   const filesystem = policy?.filesystem_policy;
-  if (!object(policy) || policy.version !== 1 || !object(filesystem) ||
-      Object.keys(filesystem).some(key => !['include_workdir', 'read_only', 'read_write'].includes(key)) ||
-      filesystem.include_workdir !== false || !Array.isArray(filesystem.read_only) ||
-      filesystem.read_only.length > 256 || filesystem.read_only.some(path =>
-        !text(path) || !path.startsWith('/') || path.includes('..') || path.length > 4096) ||
-      !Array.isArray(filesystem.read_write) || filesystem.read_write.length !== WRITABLE_ROOTS.length ||
-      new Set(filesystem.read_write).size !== WRITABLE_ROOTS.length ||
-      filesystem.read_write.some(path => !WRITABLE_ROOTS.includes(path)) ||
+  if (!object(policy) || policy.version !== 1 ||
+      !closed(filesystem, ['include_workdir', 'read_only', 'read_write']) ||
+      filesystem.include_workdir !== false || !exactSet(filesystem.read_only, READ_ONLY_ROOTS) ||
+      !exactSet(filesystem.read_write, WRITABLE_ROOTS) ||
       !object(policy.landlock) || Object.keys(policy.landlock).length !== 1 ||
       policy.landlock.compatibility !== 'hard_requirement' ||
       !object(policy.network_policies) || Object.keys(policy.network_policies).length !== 0 ||
       Object.keys(policy).some(key => !['version', 'filesystem_policy', 'landlock',
         'process', 'network_policies', 'network_middlewares'].includes(key)) ||
+      (policy.process !== undefined && (!closed(policy.process, ['run_as_user', 'run_as_group']) ||
+        !text(policy.process.run_as_user) || policy.process.run_as_user.length < 1 || policy.process.run_as_user.length > 128 ||
+        !text(policy.process.run_as_group) || policy.process.run_as_group.length < 1 || policy.process.run_as_group.length > 128)) ||
       (policy.network_middlewares !== undefined &&
         (!object(policy.network_middlewares) || Object.keys(policy.network_middlewares).length !== 0))) {
-    throw unavailable('FILE_POLICY', 'the applied sandbox does not enforce the supported writable roots');
+    throw unavailable('FILE_POLICY', 'the applied sandbox does not enforce the exact supported filesystem policy');
+  }
+  if (!digest(info.profile_digest) ||
+      !mountInventory(info.mount_inventory, [
+        ['/.openshell/channel', 'volume', true],
+        ['/opt/openshell/bin/openshell-sandbox', 'bind', false],
+        ['/sandbox', 'volume', true],
+      ], info.inventory_digest) ||
+      !mountInventory(info.supervisor_inventory, [['/.openshell/channel', 'volume', false]],
+        info.supervisor_inventory_digest) ||
+      !isolation(info.isolation, true) || !isolation(info.supervisor_isolation, false)) {
+    throw unavailable('SANDBOX_INVENTORY', 'the exact sandbox inventory or process isolation is unavailable');
+  }
+  const channel = info.mount_inventory[0];
+  const supervisorChannel = info.supervisor_inventory[0];
+  if (Object.keys(channel).some(key => !['RW', 'Mode'].includes(key) &&
+      canonicalJson(channel[key]) !== canonicalJson(supervisorChannel[key]))) {
+    throw unavailable('SANDBOX_INVENTORY', 'the supervisor channel identity does not match the workload');
   }
   return info;
 }
@@ -143,7 +326,7 @@ export async function readConfinementInfo(layout, signal) {
       const child = execFile('/usr/bin/sudo',
         ['-n', '-u', layout.users.agent, layout.sbxExec, '--confinement-info'], {
           cwd: '/', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
-          encoding: 'utf8', maxBuffer: 16 * 1024, killSignal: 'SIGKILL',
+          encoding: 'utf8', maxBuffer: MAX_INFO_BYTES, killSignal: 'SIGKILL',
         }, (error, output) => finish(error, output));
       // Settlement does not wait indefinitely for inherited child pipes.
       // The root-owned INFO path must separately bound its own backend queries.
@@ -155,7 +338,7 @@ export async function readConfinementInfo(layout, signal) {
       if (signal?.aborted) abort();
     });
     signal?.throwIfAborted();
-    return validateConfinementInfo(JSON.parse(stdout));
+    return validateConfinementInfo(parseConfinementInfoJson(stdout));
   } catch (error) {
     signal?.throwIfAborted();
     if (error?.code === 'SANDBOX_UNAVAILABLE') throw error;

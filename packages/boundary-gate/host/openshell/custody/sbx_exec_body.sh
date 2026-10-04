@@ -43,58 +43,7 @@ SB=auma-ws
 # admitted policy hash/version, runtime generation), `openshell policy get --full` (effective policy + active version),
 # `podman inspect` of the container bound to that sandbox id (network mode, /sandbox mount). Each query is bounded.
 info() {
-  /usr/bin/python3 -I -S - "$SB" "$1" <<'PY'
-import json, subprocess, sys
-sb, mode = sys.argv[1], sys.argv[2]
-def run(*a):
-    r = subprocess.run(list(a), capture_output=True, timeout=4, stdin=subprocess.DEVNULL, close_fds=True, pass_fds=())
-    if r.returncode != 0: raise SystemExit('query')
-    return r.stdout.decode()
-def fail(): print('aukora-openshell-confinement: applied-policy-unavailable', file=sys.stderr); sys.exit(1)
-try:
-    ver = run('/usr/bin/openshell', '--version').split()
-    s = json.loads(run('/usr/bin/openshell', 'sandbox', 'get', sb, '-o', 'json'))
-    p = json.loads(run('/usr/bin/openshell', 'policy', 'get', sb, '--full', '-o', 'json'))
-    sid = s['id']; cname = f'openshell-default--{sb}-{sid}'
-    names = run('/usr/bin/podman', 'ps', '--format', '{{.Names}}').split()
-    if names.count(cname) != 1: fail()
-    c = json.loads(run('/usr/bin/podman', 'inspect', cname))[0]
-except (SystemExit, Exception): fail()
-cond = {x.get('type'): x.get('status') for x in s.get('conditions', [])}
-adm = s.get('configuration_admission') or {}
-pol = dict(p.get('policy') or {})
-pol.setdefault('network_policies', {})   # OpenShell omits the key when there are none; any present value is kept
-eff = p.get('status') == 'effective' and p.get('sandbox') == sb and adm.get('state') == 'accepted' and \
-      adm.get('policy_hash') == p.get('hash') and adm.get('policy_version') == p.get('active_version')
-mounts = [m for m in c.get('Mounts', []) if m.get('Destination') == '/sandbox']
-env = {
-  'version': 1,
-  'openshell_version': ver[1] if len(ver) == 2 and ver[0] == 'openshell' else '',
-  'sandbox': s.get('name'),
-  'state': s.get('phase') if cond.get('Ready') == 'True' and cond.get('ConfigurationReady') == 'True' else 'NotReady',
-  'instance_id': (s.get('annotations') or {}).get('internal.openshell.ai/runtime-generation', ''),
-  'policy_revision': s.get('current_policy_version'),
-  'applied_revision': p.get('active_version') if eff else 0,
-  'workspace_root': '/sandbox' if len(mounts) == 1 and mounts[0].get('RW') is True else '',
-  'network_mode': c.get('HostConfig', {}).get('NetworkMode'),
-  'policy': pol,
-}
-fs = pol.get('filesystem_policy') or {}
-ok = (env['openshell_version'] == '0.1.2' and env['sandbox'] == sb and env['state'] == 'Ready' and
-      isinstance(env['instance_id'], str) and 0 < len(env['instance_id']) <= 256 and
-      isinstance(env['policy_revision'], int) and env['policy_revision'] >= 1 and
-      env['applied_revision'] == env['policy_revision'] and env['workspace_root'] == '/sandbox' and
-      env['network_mode'] == 'none' and pol.get('version') == 1 and fs.get('include_workdir') is False and
-      set(fs) <= {'include_workdir', 'read_only', 'read_write'} and
-      sorted(fs.get('read_write') or []) == sorted(['/sandbox', '/tmp', '/dev/null', '/dev/pts', '/dev/ptmx']) and
-      pol.get('landlock') == {'compatibility': 'hard_requirement'} and pol.get('network_policies') == {} and
-      set(pol) <= {'version', 'filesystem_policy', 'landlock', 'process', 'network_policies', 'network_middlewares'} and
-      pol.get('network_middlewares', {}) == {})
-out = json.dumps(env, separators=(',', ':'))
-if not ok or len(out) > 16384: fail()
-if mode == 'print': print(out)
-if mode == 'id': print(env['instance_id'], env['applied_revision'])
-PY
+  /usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/openshell/sandbox-inventory.py "$SB" "$1"
 }
 
 if [ "${1:-}" = --confinement-info ]; then
