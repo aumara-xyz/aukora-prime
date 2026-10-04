@@ -16,6 +16,9 @@
 # persistent-bash/persistent-pwsh and terminal-controller until their
 # streaming/control/process-ownership transport is joined. Hide the terminal UI
 # affordance too; row visibility alone is not the enforcement guard.
+# Cover preset-local workflow rows as well as the web-disabled host row.
+# Disable aukora-caged-worker on Linux and apply its separate early-refusal
+# handoff; that fixed workspace-patch alias uses the macOS box launch path.
 # Grok must install handoff/linux-unsupported-consumers.patch.json after the
 # existing mandatory-agent-confinement patch and bind it in upstream-dsh.json.
 - insert:
