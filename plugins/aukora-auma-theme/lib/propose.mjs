@@ -1,11 +1,11 @@
 // The PROPOSE-ONLY client this plugin uses on the boundary gate's PROPOSE socket (0660 aukora-gate:skgate; the harness
-// user aukora-host is in skgate, the agent user auma is not). It can send exactly two ops — `read` and `propose` — and
+// user aukora-host is in skgate, the agent user auma is not). It can send only `read`, `propose` and read-only `state`, and
 // nothing else: no approve, decide, review, decide_review, close or revert. The gate's PROPOSE socket refuses approval
 // ops on its own side too (packages/boundary-gate/src/gate.mjs invariant); this allowlist is the second wall.
 import net from 'node:net'
 
 export const THEME_TARGET = 'plugins/auma-theme/theme.json'
-export const PROPOSE_OPS = Object.freeze(['read', 'propose'])
+export const PROPOSE_OPS = Object.freeze(['read', 'propose', 'state'])
 export const ACCENT = /^(default|#[0-9A-Fa-f]{6})$/u
 
 export function gateCall(socketPath, op, args, timeoutMs = 10000) {
@@ -44,8 +44,13 @@ export async function proposeTheme(socketPath, { accent, why, session }, call = 
   const p = await call(socketPath, 'propose', {
     target: THEME_TARGET, content, why: String(why ?? '').slice(0, 200), claimed_base: cur?.sha256 ?? 'absent', session: String(session ?? ''),
   })
+  const id = p && typeof p === 'object' ? Object.getOwnPropertyDescriptor(p, 'id') : null
+  const proposalId = id && Object.hasOwn(id, 'value') ? id.value : null
+  if (typeof proposalId !== 'string' || proposalId.length !== 36
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(proposalId))
+    throw new Error('gate: missing or malformed full proposal id (fail closed)')
   return {
-    ok: true, state: 'PENDING_OWNER', proposal: String(p?.id ?? '').slice(0, 8), target: THEME_TARGET, accent: accentOf(content),
+    ok: true, state: 'PENDING_OWNER', proposal: proposalId.slice(0, 8), proposal_id: proposalId, target: THEME_TARGET, accent: accentOf(content),
     expires: p?.expires ? new Date(p.expires).toISOString() : null,
     message: 'Proposed. An approval popup is now on the owner\'s screen; only the owner can Approve or Refuse. You cannot approve it.',
   }

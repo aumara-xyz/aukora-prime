@@ -8,8 +8,10 @@
 #   AUKORA_RECORD_SHA     sha256 of the release's genesis-artifacts.json record (the owner-approved record)
 [Unit]
 Description=AUKORA Genesis runtime (foreground, plugin set ENFORCED, release floor) as aukora-host, loopback 127.0.0.1:18735
-After=network-online.target aukora-boundary-gate.service aukora-auma-sandbox.service
+After=network-online.target aukora-boundary-gate.service aukora-auma-sandbox.service aukora-selfcheck.service
 Wants=aukora-boundary-gate.service aukora-auma-sandbox.service
+# Ordering plus a bound active startup check refuses startup and stops Genesis if that check disappears.
+BindsTo=aukora-selfcheck.service
 # A failing self-check must not loop (each attempt is a ledger entry): three tries in five minutes, then stay down.
 StartLimitIntervalSec=300
 StartLimitBurst=3
@@ -30,6 +32,7 @@ Environment=AUKORA_STATE=/home/aukora-host/genesis/state
 Environment=AUKORA_LAUNCH_STARTUP_TIMEOUT=150
 # Fail closed (1): the boundary self-check (bin/selfcheck.mjs) must pass and be recorded in the gate ledger first.
 ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-package
+ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-runtime
 ExecStartPre=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec --forbid-write /opt/aukora-boundary-gate/bin/plugin-set-approval.mjs --forbid-write /opt/aukora-boundary-gate/bin/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/plugin-set-canon.mjs --forbid-write /opt/aukora-boundary-gate/src/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/operator-data.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/plugin-set-content.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/trusted-verifier-pins.json --forbid-write /opt/aukora-boundary-gate/src/vendor/signer-epochs.mjs --forbid-write /etc/aukora-boundary-gate/signer-epochs.json --forbid-write /etc/aukora-boundary-gate/gate-package-manifest.json --forbid-write /usr/local/lib/aukora-boundary/gate-bootstrap
 # Fail closed (2): the monotonic release floor. Trusted root-owned code verifies the installed gate approval for exactly this
 # release (candidate release read as data) and refuses an approval older than the newest one ever installed.
