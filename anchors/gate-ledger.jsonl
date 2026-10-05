@@ -198,3 +198,4 @@
 {"seq":446,"head":"601beb1659dc4e205f2c8662972efc94bf3444ada56ec42ea483b73a79b23562","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T12:40:05.452Z","anchored_at":"2026-10-05T12:40:40Z"}
 {"seq":448,"head":"06458a8d80d0d74087744a807df38d66e536f5a06844b3f066fe2932fa8c448a","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T12:55:05.964Z","anchored_at":"2026-10-05T12:55:23Z"}
 {"seq":450,"head":"4db1d3a49ad8131732bff3547d238b264f2fe66df1339b5d40d4ed2072ba0526","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T13:10:06.364Z","anchored_at":"2026-10-05T13:10:53Z"}
+{"seq":452,"head":"78f4dd3eadf28d663cec92954042ab0a76ecd47e642107c4f7f0279257286888","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T13:25:06.883Z","anchored_at":"2026-10-05T13:25:58Z"}
