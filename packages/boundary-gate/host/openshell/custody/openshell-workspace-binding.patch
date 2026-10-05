@@ -6,18 +6,69 @@
 # Stop/delete acknowledgement is NEVER full owned cleanup/confirmed_absent proof.
 # Independent guest/resource absence and late-create fencing remain mandatory;
 # unreclaimed job secrets keep full cleanup uncertain and runtime unqualified.
+# Mirror feed (optional registration mirror_source): root-owned /srv/auma-mirror/* bind-mounted
+# read-only at /sandbox/prime-main, outside every agent-writable parent (Kimi/F item 4).
+diff --git a/crates/openshell-driver-podman/src/client.rs b/crates/openshell-driver-podman/src/client.rs
+index 80e24513a..08835f86c 100644
+--- a/crates/openshell-driver-podman/src/client.rs
++++ b/crates/openshell-driver-podman/src/client.rs
+@@ -90,6 +90,9 @@ pub fn validate_name(name: &str) -> Result<(), PodmanApiError> {
+ pub struct ContainerInspect {
+     #[serde(default)]
+     pub mounts: Option<Vec<Value>>,
++    // Podman reports OCI tmpfs mounts here, separately from raw Mounts.
++    #[serde(default)]
++    pub host_config: Option<Value>,
+     pub id: String,
+     pub name: String,
+     pub state: ContainerState,
+@@ -600,6 +603,24 @@ impl PodmanClient {
+         &self,
+         name: &str,
+         timeout_secs: u32,
++    ) -> Result<(), PodmanApiError> {
++        self.remove_container_with_volumes(name, timeout_secs, true).await
++    }
++
++    /// Remove only the container; custody of attached volumes is independent.
++    pub(crate) async fn remove_container_preserving_volumes(
++        &self,
++        name: &str,
++        timeout_secs: u32,
++    ) -> Result<(), PodmanApiError> {
++        self.remove_container_with_volumes(name, timeout_secs, false).await
++    }
++
++    async fn remove_container_with_volumes(
++        &self,
++        name: &str,
++        timeout_secs: u32,
++        remove_volumes: bool,
+     ) -> Result<(), PodmanApiError> {
+         validate_name(name)?;
+         // The delete request covers both the graceful stop and the subsequent
+@@ -610,7 +631,7 @@ impl PodmanClient {
+             .request(
+                 hyper::Method::DELETE,
+                 &format!(
+-                    "/libpod/containers/{name}?force=true&volumes=true&timeout={timeout_secs}"
++                    "/libpod/containers/{name}?force=true&volumes={remove_volumes}&timeout={timeout_secs}"
+                 ),
+                 None,
+                 http_timeout,
 diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-driver-podman/src/container.rs
+index bb4ee88c9..f84661133 100644
 --- a/crates/openshell-driver-podman/src/container.rs
 +++ b/crates/openshell-driver-podman/src/container.rs
 @@ -4,6 +4,7 @@
  //! Container spec construction for the Podman driver.
  
  use crate::config::PodmanComputeConfig;
-+use crate::workspace_binding::{BINDING_LABEL, GIT_ROOT, TrustedWorkspaceBinding, WORKSPACE_ROOT};
++use crate::workspace_binding::{BINDING_LABEL, GIT_ROOT, MIRROR_ROOT, TrustedWorkspaceBinding, WORKSPACE_ROOT};
  use openshell_core::ComputeDriverError;
  use openshell_core::driver_mounts::SelinuxLabel;
  #[cfg(test)]
-@@ -87,6 +88,8 @@
+@@ -87,6 +88,8 @@ pub struct PodmanSandboxDriverConfig {
  }
  
  impl PodmanSandboxDriverConfig {
@@ -26,7 +77,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
      pub(crate) fn admit_mount_types(
          &self,
          policy: &openshell_core::resource_admission::ResourceAdmissionConfig,
-@@ -169,6 +172,8 @@
+@@ -169,6 +172,8 @@ fn default_true() -> bool {
      true
  }
  
@@ -35,7 +86,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
  /// Build a Podman container name from the sandbox workspace, name, and ID.
  ///
  /// Format: `openshell-{workspace}--{name}-{id}`
-@@ -244,6 +249,9 @@
+@@ -244,6 +249,9 @@ pub struct ContainerSpec {
      cap_drop: Vec<String>,
      cap_add: Vec<String>,
      no_new_privileges: bool,
@@ -45,7 +96,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
      #[serde(skip_serializing_if = "Option::is_none")]
      apparmor_profile: Option<String>,
      #[serde(skip_serializing_if = "String::is_empty")]
-@@ -1206,6 +1214,7 @@
+@@ -1206,6 +1214,7 @@ fn build_base_spec(
          cap_drop: vec!["ALL".into()],
          cap_add: Vec::new(),
          no_new_privileges: true,
@@ -53,7 +104,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
          apparmor_profile: None,
          // Omission selects the runtime default, never an unconfined profile.
          seccomp_profile_path: String::new(),
-@@ -1471,6 +1480,14 @@
+@@ -1471,6 +1480,14 @@ impl IsolationSpecs {
  pub fn build_isolation_specs(
      input: IsolationSpecInput<'_>,
  ) -> Result<IsolationSpecs, ComputeDriverError> {
@@ -68,7 +119,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
      let base = || {
          build_base_spec(
              input.sandbox,
-@@ -1510,8 +1527,12 @@
+@@ -1510,8 +1527,12 @@ pub fn build_isolation_specs(
              input.identity.uid.to_string(),
              input.identity.gid.to_string(),
              crate::isolation::BOOTSTRAP_PATH.into(),
@@ -82,11 +133,10 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
          workload.user = "0:0".into();
          workload.groups.clear();
          workload.cap_drop = vec!["ALL".into()];
-@@ -1584,6 +1605,33 @@
-         dest: crate::isolation::CHANNEL_ROOT.into(),
+@@ -1585,6 +1606,39 @@ pub fn build_isolation_specs(
          options: vec!["rw".into(), "z".into()],
      });
-+
+ 
 +    if let Some(binding) = workspace {
 +        // Replace the managed root rather than appending a duplicate destination.
 +        if workload.volumes.iter().filter(|volume| volume.dest == WORKSPACE_ROOT).count() != 1 {
@@ -94,29 +144,36 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
 +        }
 +        workload.volumes.retain(|volume| volume.dest != WORKSPACE_ROOT);
 +        if workload.mounts.iter().any(|mount|
-+            mount.destination == WORKSPACE_ROOT || mount.destination == GIT_ROOT || mount.destination == "/tmp") ||
++            mount.destination == WORKSPACE_ROOT || mount.destination == GIT_ROOT || mount.destination == "/tmp" ||
++            mount.destination == MIRROR_ROOT) ||
 +            workload.volumes.iter().any(|volume| volume.dest == GIT_ROOT || volume.dest == "/tmp") ||
 +            workload.image_volumes.iter().any(|volume|
-+                volume.destination == WORKSPACE_ROOT || volume.destination == GIT_ROOT || volume.destination == "/tmp") {
++                volume.destination == WORKSPACE_ROOT || volume.destination == GIT_ROOT || volume.destination == "/tmp" ||
++                volume.destination == MIRROR_ROOT) {
 +            return Err(ComputeDriverError::Precondition("workspace mount collision".into()));
 +        }
 +        workload.read_only_filesystem = true;
 +        workload.mounts.extend([
 +            Mount { kind: "bind".into(), source: binding.workspace_source().into(),
 +                destination: WORKSPACE_ROOT.into(), options: vec!["rw".into(), "rbind".into()] },
-+            // Parent first, then the kernel RO child mount; policy loads later.
++            // Parent first, then the kernel RO child mounts; policy loads later.
 +            Mount { kind: "bind".into(), source: binding.git_source().into(),
 +                destination: GIT_ROOT.into(), options: vec!["ro".into(), "rbind".into()] },
 +            Mount { kind: "tmpfs".into(), source: "tmpfs".into(), destination: "/tmp".into(),
 +                options: vec!["rw".into(), "nosuid".into(), "nodev".into(), "mode=1777".into()] },
 +        ]);
++        if let Some(mirror) = binding.mirror_source() {
++            workload.mounts.push(Mount { kind: "bind".into(), source: mirror.into(),
++                destination: MIRROR_ROOT.into(), options: vec!["ro".into(), "rbind".into()] });
++        }
 +        workload.labels.insert(BINDING_LABEL.into(), binding.label()?);
 +        supervisor.labels.insert(BINDING_LABEL.into(), binding.label()?);
 +    }
- 
++
      supervisor.name = crate::isolation::supervisor_name(&input.sandbox.id);
      supervisor
-@@ -1791,6 +1839,68 @@
+         .labels
+@@ -1791,6 +1845,68 @@ fn parse_memory_to_bytes(quantity: &str) -> Option<u64> {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -185,54 +242,8 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
      use openshell_core::proto::compute::v1::{GpuResourceRequirements, ResourceRequirements};
  
      static ENV_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
-diff --git a/crates/openshell-driver-podman/src/client.rs b/crates/openshell-driver-podman/src/client.rs
---- a/crates/openshell-driver-podman/src/client.rs
-+++ b/crates/openshell-driver-podman/src/client.rs
-@@ -90,6 +90,9 @@
- pub struct ContainerInspect {
-     #[serde(default)]
-     pub mounts: Option<Vec<Value>>,
-+    // Podman reports OCI tmpfs mounts here, separately from raw Mounts.
-+    #[serde(default)]
-+    pub host_config: Option<Value>,
-     pub id: String,
-     pub name: String,
-     pub state: ContainerState,
-@@ -601,6 +604,24 @@
-         name: &str,
-         timeout_secs: u32,
-     ) -> Result<(), PodmanApiError> {
-+        self.remove_container_with_volumes(name, timeout_secs, true).await
-+    }
-+
-+    /// Remove only the container; custody of attached volumes is independent.
-+    pub(crate) async fn remove_container_preserving_volumes(
-+        &self,
-+        name: &str,
-+        timeout_secs: u32,
-+    ) -> Result<(), PodmanApiError> {
-+        self.remove_container_with_volumes(name, timeout_secs, false).await
-+    }
-+
-+    async fn remove_container_with_volumes(
-+        &self,
-+        name: &str,
-+        timeout_secs: u32,
-+        remove_volumes: bool,
-+    ) -> Result<(), PodmanApiError> {
-         validate_name(name)?;
-         // The delete request covers both the graceful stop and the subsequent
-         // storage, network, and anonymous-volume cleanup. Preserve the normal
-@@ -610,7 +631,7 @@
-             .request(
-                 hyper::Method::DELETE,
-                 &format!(
--                    "/libpod/containers/{name}?force=true&volumes=true&timeout={timeout_secs}"
-+                    "/libpod/containers/{name}?force=true&volumes={remove_volumes}&timeout={timeout_secs}"
-                 ),
-                 None,
-                 http_timeout,
 diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-driver-podman/src/driver.rs
+index 3788c756f..183dc553e 100644
 --- a/crates/openshell-driver-podman/src/driver.rs
 +++ b/crates/openshell-driver-podman/src/driver.rs
 @@ -3,9 +3,10 @@
@@ -247,7 +258,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
  use crate::watcher::{
      self, LifecycleEventFences, WatchStream, driver_sandbox_from_inspect,
      driver_sandbox_from_list_entry,
-@@ -733,109 +734,103 @@
+@@ -733,109 +734,103 @@ impl PodmanComputeDriver {
  
      /// Create a sandbox container.
      async fn admit_container_resources(&self, id: &str) -> Result<(), ComputeDriverError> {
@@ -324,6 +335,12 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -                                other => ComputeDriverError::from(other),
 -                            })?;
 -                    if volume.name != name {
+-                        return Err(missing());
+-                    }
+-                    if name == container::volume_name(sandbox_id)
+-                        || name == crate::isolation::channel_volume_name(sandbox_id)
+-                    {
+-                        let owned = volume.labels.as_ref().is_some_and(|labels| {
 +            .and_then(|value| serde_json::from_str(value).ok()).ok_or_else(missing)?;
 +        // Dedicated mode creates no caller/external attachment. Labels cannot
 +        // authorize a second writable root or revive the old workspace volume.
@@ -352,15 +369,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 +                    })?;
 +                    if volume.name != name || volume.driver != "local" || !volume.options.is_empty()
 +                        || !volume.labels.as_ref().is_some_and(|labels|
-+                            labels.get(LABEL_SANDBOX_ID) == Some(sandbox_id)
-+                            && labels.get(container::LABEL_SANDBOX_WORKSPACE) == Some(workspace)) {
-                         return Err(missing());
-                     }
--                    if name == container::volume_name(sandbox_id)
--                        || name == crate::isolation::channel_volume_name(sandbox_id)
--                    {
--                        let owned = volume.labels.as_ref().is_some_and(|labels| {
--                            labels.get(LABEL_SANDBOX_ID) == Some(sandbox_id)
+                             labels.get(LABEL_SANDBOX_ID) == Some(sandbox_id)
 -                                && labels.get(container::LABEL_SANDBOX_WORKSPACE) == Some(workspace)
 -                        });
 -                        if !owned || volume.driver != "local" || !volume.options.is_empty() {
@@ -390,7 +399,9 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -                                "bind-backed volume is disabled".into(),
 -                            ));
 -                        }
--                    }
++                            && labels.get(container::LABEL_SANDBOX_WORKSPACE) == Some(workspace)) {
++                        return Err(missing());
+                     }
                  }
 -                Some("tmpfs") => {}
 -                Some("bind")
@@ -441,7 +452,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
          }
          Ok(())
      }
-@@ -850,17 +845,35 @@
+@@ -850,17 +845,35 @@ impl PodmanComputeDriver {
          else {
              return;
          };
@@ -483,7 +494,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                  }
              }
          }
-@@ -894,7 +907,24 @@
+@@ -894,7 +907,24 @@ impl PodmanComputeDriver {
          // resources (volume), so we don't leave orphans when the name is
          // invalid.
          let name = validated_container_name(sandbox)?;
@@ -508,7 +519,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
  
          let vol_name = container::volume_name(&sandbox.id);
  
-@@ -1035,15 +1065,13 @@
+@@ -1035,15 +1065,13 @@ impl PodmanComputeDriver {
          let (resolver_secret_name, token_secret_name, proxy_auth_secret_name) = async {
              let phase_status = openshell_otel::ErrorStatusGuard::current();
              let result = async {
@@ -527,7 +538,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                              return Err(e);
                          }
                      };
-@@ -1052,7 +1080,6 @@
+@@ -1052,7 +1080,6 @@ impl PodmanComputeDriver {
                  {
                      Ok(name) => name,
                      Err(e) => {
@@ -535,7 +546,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                          cleanup_sandbox_resolver_secret(&self.client, &resolver_secret_name).await;
                          return Err(e);
                      }
-@@ -1063,7 +1090,6 @@
+@@ -1063,7 +1090,6 @@ impl PodmanComputeDriver {
                      {
                          Ok(name) => name,
                          Err(e) => {
@@ -543,7 +554,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                              if let Some(secret) = token_secret_name.as_deref() {
                                  cleanup_sandbox_token_secret(&self.client, secret).await;
                              }
-@@ -1096,7 +1122,6 @@
+@@ -1096,7 +1122,6 @@ impl PodmanComputeDriver {
              if channel_owned.load(std::sync::atomic::Ordering::Relaxed) {
                  let _ = self.client.remove_volume(&channel_volume).await;
              }
@@ -551,7 +562,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
              cleanup_sandbox_resolver_secret(&self.client, &resolver_secret_name).await;
              if let Some(secret) = token_secret_name.as_deref() {
                  cleanup_sandbox_token_secret(&self.client, secret).await;
-@@ -1121,6 +1146,10 @@
+@@ -1121,6 +1146,10 @@ impl PodmanComputeDriver {
                          return Err(e);
                      }
                  };
@@ -562,7 +573,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                  // Podman's image-volume support varies across libpod/runtime
                  // combinations. Always use the verified extraction cache so
                  // workload startup does not depend on type=image mounts.
-@@ -1151,7 +1180,7 @@
+@@ -1151,7 +1180,7 @@ impl PodmanComputeDriver {
                      }
                  };
  
@@ -571,7 +582,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                      sandbox,
                      config: &runtime_config,
                      token_secret: token_secret_name.as_deref(),
-@@ -1165,7 +1194,7 @@
+@@ -1165,7 +1194,7 @@ impl PodmanComputeDriver {
                      tls_secrets: tls_secret_names.as_ref(),
                      identity: &identity,
                      rootless: self.rootless,
@@ -580,7 +591,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                  let mut specs = match specs {
                      Ok(spec) => spec,
                      Err(e) => {
-@@ -1182,6 +1211,7 @@
+@@ -1182,6 +1211,7 @@ impl PodmanComputeDriver {
                          .create_owned_volume(&channel_volume, &sandbox.id, &sandbox.workspace)
                          .await?;
                      channel_owned.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -588,7 +599,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                      let workload_id = self.client.create_typed_container(&specs.workload).await?;
                      created_workload = Some(workload_id.clone());
                      self.client.verify_isolation_fence(&workload_id).await?;
-@@ -1222,9 +1252,8 @@
+@@ -1222,9 +1252,8 @@ impl PodmanComputeDriver {
                              archives.channel,
                          )
                          .await?;
@@ -600,7 +611,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                      let supervisor_id = self
                          .client
                          .create_typed_container(&specs.supervisor)
-@@ -1236,6 +1265,8 @@
+@@ -1236,6 +1265,8 @@ impl PodmanComputeDriver {
                      // Start the sandbox only after both containers and their
                      // bootstrap material exist. It keeps the agent stopped
                      // until the authenticated supervisor confirms the boundary.
@@ -609,7 +620,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                      self.client.start_container(&workload_id).await?;
                      self.client.start_container(&supervisor_id).await?;
                      Ok::<(), ComputeDriverError>(())
-@@ -1243,7 +1274,7 @@
+@@ -1243,7 +1274,7 @@ impl PodmanComputeDriver {
                  .await;
                  if create_result.is_err() {
                      for id in [created_supervisor, created_workload].into_iter().flatten() {
@@ -618,7 +629,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                      }
                  }
                  match create_result {
-@@ -1325,7 +1356,7 @@
+@@ -1325,7 +1356,7 @@ impl PodmanComputeDriver {
                  crate::isolation::resolve_identity(sandbox, image, image_user, passwd, group)
              }
              .await;
@@ -627,7 +638,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
          if let Err(error) = cleanup {
              warn!(container = %id, %error, "Failed to remove stopped identity inspection container");
          }
-@@ -1354,7 +1385,75 @@
+@@ -1354,9 +1385,77 @@ impl PodmanComputeDriver {
              ])
              .await
              .map_err(ComputeDriverError::from)?;
@@ -635,8 +646,8 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 +            return Err(ComputeDriverError::Precondition("ambiguous workload ownership".into()));
 +        }
          Ok(entries.into_iter().next())
-+    }
-+
+     }
+ 
 +    // These private backend helpers require the original owned executor scope.
 +    // No current approval, epoch or registration is used to authorize cleanup.
 +    async fn owned_workspace_container(&self, sandbox_id: &str)
@@ -700,10 +711,12 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 +            return Err(ComputeDriverError::Precondition("channel ownership unavailable".into()));
 +        }
 +        Ok(Some(volume.name))
-     }
- 
++    }
++
      async fn wait_for_container_stopped(
-@@ -1399,61 +1498,26 @@
+         &self,
+         sandbox_id: &str,
+@@ -1399,61 +1498,26 @@ impl PodmanComputeDriver {
      )]
      pub async fn stop_sandbox(&self, sandbox_id: &str) -> Result<(), ComputeDriverError> {
          let span_status = openshell_otel::ErrorStatusGuard::current();
@@ -727,15 +740,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -                self.lifecycle_event_fences
 -                    .record_previous_exit(sandbox_id, finished_at.as_deref());
 -                Ok(())
-+        let container = self.owned_workspace_container(sandbox_id).await?;
-+        let binding = container.labels.get(BINDING_LABEL).ok_or_else(||
-+            ComputeDriverError::Precondition("original binding unavailable".into()))?;
-+        let result = async {
-+            // Join revocation of this exact workload independently. An invalid
-+            // companion cannot authorize touching it or veto workload stop.
-+            if container.state == "running" {
-+                self.client.stop_container(&container.id, self.config.stop_timeout_secs).await?;
-             }
+-            }
 -            .await;
 -            return span_status.finish(result);
 -        }
@@ -744,7 +749,10 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -        }
 -        info!(sandbox_id = %sandbox_id, container = %container_id, "Stopping sandbox container");
 -
--        let result = async {
++        let container = self.owned_workspace_container(sandbox_id).await?;
++        let binding = container.labels.get(BINDING_LABEL).ok_or_else(||
++            ComputeDriverError::Precondition("original binding unavailable".into()))?;
+         let result = async {
 -            self.client
 -                .stop_container(&container_id, self.config.stop_timeout_secs)
 -                .await
@@ -767,6 +775,11 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -            // after a driver or gateway process restart.
 -            self.lifecycle_event_fences
 -                .record_previous_exit(sandbox_id, finished_at.as_deref());
++            // Join revocation of this exact workload independently. An invalid
++            // companion cannot authorize touching it or veto workload stop.
++            if container.state == "running" {
++                self.client.stop_container(&container.id, self.config.stop_timeout_secs).await?;
++            }
 +            if matches!(container.state.as_str(), "running" | "stopping") {
 +                let finished_at = self.wait_for_container_stopped(sandbox_id, &container.id).await?;
 +                self.lifecycle_event_fences.record_previous_exit(sandbox_id, finished_at.as_deref());
@@ -783,7 +796,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
          span_status.finish(result)
      }
  
-@@ -1479,24 +1543,25 @@
+@@ -1479,24 +1543,25 @@ impl PodmanComputeDriver {
          )
          .map_err(|error| ComputeDriverError::InvalidArgument(error.to_string()))?;
          let launch_authentication = decode_launch_authentication(encoded_authentication)?;
@@ -817,7 +830,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
                          crate::isolation::RESTART_METADATA_PATH,
                      )
                      .await?;
-@@ -1536,7 +1601,6 @@
+@@ -1536,7 +1601,6 @@ impl PodmanComputeDriver {
          self.lifecycle_event_fences
              .record_previous_exit(sandbox_id, previous.state.finished_at.as_deref());
          let result = async {
@@ -825,7 +838,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
              self.client
                  .stop_container(&supervisor, self.config.stop_timeout_secs)
                  .await?;
-@@ -1577,6 +1641,8 @@
+@@ -1577,6 +1641,8 @@ impl PodmanComputeDriver {
                  .copy_to_container(&supervisor, "/", archives.supervisor)
                  .await?;
              self.client.verify_isolation_fence(&container_id).await?;
@@ -834,7 +847,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
              self.client.start_container(&container_id).await?;
              if let Err(error) = self.client.start_container(&supervisor).await {
                  let _ = self.client.stop_container(&container_id, 0).await;
-@@ -1588,7 +1654,7 @@
+@@ -1588,7 +1654,7 @@ impl PodmanComputeDriver {
          span_status.finish(result)
      }
  
@@ -843,14 +856,15 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
      #[tracing::instrument(
          name = "podman.delete_sandbox",
          skip(self),
-@@ -1601,96 +1667,37 @@
+@@ -1601,96 +1667,37 @@ impl PodmanComputeDriver {
      pub async fn delete_sandbox(&self, sandbox_id: &str) -> Result<bool, ComputeDriverError> {
          let span_status = openshell_otel::ErrorStatusGuard::current();
          if sandbox_id.is_empty() {
 -            return Err(ComputeDriverError::Precondition(
 -                "sandbox id is required".into(),
 -            ));
--        }
++            return Err(ComputeDriverError::Precondition("sandbox id is required".into()));
+         }
 -
 -        let supervisor = crate::isolation::supervisor_name(sandbox_id);
 -        match self
@@ -860,7 +874,21 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -        {
 -            Ok(()) | Err(PodmanApiError::NotFound(_)) => {}
 -            Err(error) => return Err(error.into()),
--        }
++        // Missing workload is unknown owned cleanup, never inferred absence or
++        // permission to touch a guessed supervisor, channel, volume or secret.
++        let workload = self.owned_workspace_container(sandbox_id).await?;
++        let binding = workload.labels.get(BINDING_LABEL).ok_or_else(||
++            ComputeDriverError::Precondition("original binding unavailable".into()))?;
++        let supervisor = self.owned_supervisor_id(sandbox_id, binding).await?;
++        let channel = self.owned_channel_name(sandbox_id).await?;
++        // Corroborate companions before destructive effects. Keep the workload
++        // as the original ownership anchor until NON-FORCE channel removal
++        // succeeds. An attached/in-use channel remains explicit blocked cleanup;
++        // never force-remove it or lose provenance to make a retry appear safe.
++        self.client.stop_container(&workload.id, self.config.stop_timeout_secs).await?;
++        if let Some(supervisor) = supervisor {
++            self.client.remove_container_preserving_volumes(&supervisor, self.config.stop_timeout_secs).await?;
+         }
 -        match self
 -            .client
 -            .remove_volume(&crate::isolation::channel_volume_name(sandbox_id))
@@ -869,7 +897,9 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -            Ok(()) | Err(PodmanApiError::NotFound(_)) => {}
 -            // The workload still owns the volume until its removal below.
 -            Err(error) => debug!(%error, "Channel volume is still attached to workload"),
--        }
++        if let Some(channel) = channel {
++            self.client.remove_volume(&channel).await?;
+         }
 -
 -        let Some(container_id) = self.find_container_id(sandbox_id).await? else {
 -            debug!(sandbox_id = %sandbox_id, "Sandbox container not found (already deleted)");
@@ -934,26 +964,6 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 -        )
 -        .await;
 -        cleanup_tls_secrets(&self.client, &container::tls_secret_names(sandbox_id)).await;
-+            return Err(ComputeDriverError::Precondition("sandbox id is required".into()));
-+        }
-+        // Missing workload is unknown owned cleanup, never inferred absence or
-+        // permission to touch a guessed supervisor, channel, volume or secret.
-+        let workload = self.owned_workspace_container(sandbox_id).await?;
-+        let binding = workload.labels.get(BINDING_LABEL).ok_or_else(||
-+            ComputeDriverError::Precondition("original binding unavailable".into()))?;
-+        let supervisor = self.owned_supervisor_id(sandbox_id, binding).await?;
-+        let channel = self.owned_channel_name(sandbox_id).await?;
-+        // Corroborate companions before destructive effects. Keep the workload
-+        // as the original ownership anchor until NON-FORCE channel removal
-+        // succeeds. An attached/in-use channel remains explicit blocked cleanup;
-+        // never force-remove it or lose provenance to make a retry appear safe.
-+        self.client.stop_container(&workload.id, self.config.stop_timeout_secs).await?;
-+        if let Some(supervisor) = supervisor {
-+            self.client.remove_container_preserving_volumes(&supervisor, self.config.stop_timeout_secs).await?;
-+        }
-+        if let Some(channel) = channel {
-+            self.client.remove_volume(&channel).await?;
-+        }
 +        self.client.remove_container_preserving_volumes(&workload.id, self.config.stop_timeout_secs).await?;
 +        // This mode never creates the legacy workspace volume. Do not remove it.
 +        // Secret deletion by guessed name is also withheld: independently owned
@@ -970,7 +980,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
      }
  
      /// Check whether a sandbox container exists.
-@@ -1970,7 +1977,7 @@
+@@ -1970,7 +1977,7 @@ async fn extract_sandbox_bin(
  
      let result = extract_binary_from_container(client, &container_name, &cache_path).await;
  
@@ -979,11 +989,10 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
          warn!(
              container = container_name,
              error = %err,
-@@ -2051,6 +2058,398 @@
-     use std::collections::HashMap;
+@@ -2052,6 +2059,398 @@ mod tests {
      use std::fs;
      use std::path::{Path, PathBuf};
-+
+ 
 +    fn workspace_repair_labels(role: &str) -> HashMap<String, String> {
 +        HashMap::from([
 +            (container::LABEL_MANAGED.into(), "true".into()),
@@ -1375,13 +1384,15 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 +        assert_eq!(log[6], format!("DELETE {}", api_path("/libpod/containers/owned-workload?force=true&volumes=false&timeout=10")));
 +        assert!(!log.iter().any(|q| q.starts_with("DELETE ") && q.contains("/volumes/")));
 +    }
- 
++
      fn launch_authentication() -> SandboxLaunchAuthentication {
          SandboxLaunchAuthentication {
+             supervisor: SupervisorAuthBundle {
 diff --git a/crates/openshell-driver-podman/src/lib.rs b/crates/openshell-driver-podman/src/lib.rs
+index fa06cf486..6315584e4 100644
 --- a/crates/openshell-driver-podman/src/lib.rs
 +++ b/crates/openshell-driver-podman/src/lib.rs
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,7 @@ pub mod grpc;
  mod isolation;
  pub mod otel_tracing;
  mod socket_discovery;
@@ -1391,9 +1402,10 @@ diff --git a/crates/openshell-driver-podman/src/lib.rs b/crates/openshell-driver
  pub(crate) mod watcher;
 diff --git a/crates/openshell-driver-podman/src/workspace_binding.rs b/crates/openshell-driver-podman/src/workspace_binding.rs
 new file mode 100644
+index 000000000..53bfd4e57
 --- /dev/null
 +++ b/crates/openshell-driver-podman/src/workspace_binding.rs
-@@ -0,0 +1,515 @@
+@@ -0,0 +1,566 @@
 +// SPDX-License-Identifier: AGPL-3.0-or-later
 +//! Fixed operator registration for the dedicated auma-ws create path.
 +//!
@@ -1417,7 +1429,22 @@ new file mode 100644
 +pub(crate) const BINDING_LABEL: &str = "openshell.ai/trusted-workspace-binding";
 +pub(crate) const WORKSPACE_ROOT: &str = "/sandbox";
 +pub(crate) const GIT_ROOT: &str = "/sandbox/.git";
++pub(crate) const MIRROR_ROOT: &str = "/sandbox/prime-main";
 +const MAX_REGISTRATION_BYTES: u64 = 4096;
++
++fn open_mirror(path: &str) -> Result<File, ComputeDriverError> {
++    // Anchored no-follow open like the workspace pair, plus the mirror's own
++    // rule: the feed is root-owned and never group/other-writable, and its two
++    // pinned ancestors stay protected. Group read (auma-ws) is how the guest sees it.
++    let file = open_anchored(path, true, false, None)?;
++    for ancestor in ["/srv", "/srv/auma-mirror"] {
++        let meta = std::fs::metadata(ancestor).map_err(|_| refused())?;
++        protected_directory(&meta)?;
++    }
++    let meta = file.metadata().map_err(|_| refused())?;
++    if meta.uid() != 0 || meta.mode() & 0o022 != 0 { return Err(refused()); }
++    Ok(file)
++}
 +
 +fn refused() -> ComputeDriverError {
 +    // Do not expose host source paths in guest-visible RPC diagnostics.
@@ -1433,6 +1460,8 @@ new file mode 100644
 +    git_source: String,
 +    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_group_access")]
 +    group_access: Option<GroupAccess>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    mirror_source: Option<String>,
 +}
 +
 +#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1466,6 +1495,17 @@ new file mode 100644
 +        // approved directory pair. Never follow it or infer another source.
 +        if self.git_source != format!("{}/.git", self.workspace_source) {
 +            return Err(refused());
++        }
++        if let Some(mirror) = self.mirror_source.as_deref() {
++            // The mirror feed lives outside every agent-writable parent, as a
++            // dedicated root-owned sibling of the workspace, never inside it.
++            normalized_source(mirror)?;
++            if Path::new(mirror).parent() != Some(Path::new("/srv/auma-mirror")) ||
++                mirror == self.workspace_source || mirror == self.git_source ||
++                mirror.starts_with(&format!("{}/", self.workspace_source)) ||
++                self.workspace_source.starts_with(&format!("{}/", mirror)) {
++                return Err(refused());
++            }
 +        }
 +        Ok(())
 +    }
@@ -1616,6 +1656,7 @@ new file mode 100644
 +    registration_identity: FileIdentity,
 +    workspace_identity: FileIdentity,
 +    git_identity: FileIdentity,
++    mirror_identity: Option<FileIdentity>,
 +    // Hold the measured inodes until create finishes. Podman still consumes
 +    // pathnames; repeated custody checks do not claim atomic launch fencing.
 +    _anchors: Vec<File>,
@@ -1630,11 +1671,21 @@ new file mode 100644
 +        }
 +        let source = open_anchored(&registration.workspace_source, true, false, Some(&registration))?;
 +        let git = open_anchored(&registration.git_source, true, false, Some(&registration))?;
++        let workspace_identity = FileIdentity::of(&source.metadata().map_err(|_| refused())?);
++        let git_identity = FileIdentity::of(&git.metadata().map_err(|_| refused())?);
++        let mirror = registration.mirror_source.as_deref().map(open_mirror).transpose()?;
++        let mirror_identity = match mirror.as_ref() {
++            Some(file) => Some(FileIdentity::of(&file.metadata().map_err(|_| refused())?)),
++            None => None,
++        };
++        let mut anchors = vec![file, source, git];
++        if let Some(file) = mirror { anchors.push(file); }
 +        let binding = Self {
 +            registration, registration_identity,
-+            workspace_identity: FileIdentity::of(&source.metadata().map_err(|_| refused())?),
-+            git_identity: FileIdentity::of(&git.metadata().map_err(|_| refused())?),
-+            _anchors: vec![file, source, git],
++            workspace_identity,
++            git_identity,
++            mirror_identity,
++            _anchors: anchors,
 +        };
 +        binding.recheck()?;
 +        Ok(binding)
@@ -1642,6 +1693,7 @@ new file mode 100644
 +
 +    pub(crate) fn workspace_source(&self) -> &str { &self.registration.workspace_source }
 +    pub(crate) fn git_source(&self) -> &str { &self.registration.git_source }
++    pub(crate) fn mirror_source(&self) -> Option<&str> { self.registration.mirror_source.as_deref() }
 +
 +    pub(crate) fn ensure_guest_gid(&self, gid: u32) -> Result<(), ComputeDriverError> {
 +        if self.registration.group_access.as_ref().is_some_and(|access| access.guest_gid != gid) { return Err(refused()); }
@@ -1654,6 +1706,7 @@ new file mode 100644
 +            "registration_identity": self.registration_identity,
 +            "workspace_identity": self.workspace_identity,
 +            "git_identity": self.git_identity,
++            "mirror_identity": self.mirror_identity,
 +        })
 +    }
 +
@@ -1673,6 +1726,10 @@ new file mode 100644
 +            let file = open_anchored(path, directory, protected, Some(&self.registration))?;
 +            if FileIdentity::of(&file.metadata().map_err(|_| refused())?) != *expected { return Err(refused()); }
 +        }
++        if let (Some(mirror), Some(expected)) = (self.mirror_source(), &self.mirror_identity) {
++            let file = open_mirror(mirror)?;
++            if FileIdentity::of(&file.metadata().map_err(|_| refused())?) != *expected { return Err(refused()); }
++        }
 +        Ok(())
 +    }
 +
@@ -1680,6 +1737,10 @@ new file mode 100644
 +        let expected = match mount.get("Destination").and_then(Value::as_str) {
 +            Some(WORKSPACE_ROOT) => Some((self.workspace_source(), true)),
 +            Some(GIT_ROOT) => Some((self.git_source(), false)),
++            Some(MIRROR_ROOT) => match self.mirror_source() {
++                Some(source) => Some((source, false)),
++                None => return false,
++            },
 +            _ => None,
 +        };
 +        expected.is_some_and(|(source, writable)|
@@ -1811,6 +1872,8 @@ new file mode 100644
 +    registration_identity: FileIdentity,
 +    workspace_identity: FileIdentity,
 +    git_identity: FileIdentity,
++    #[serde(default)]
++    mirror_identity: Option<FileIdentity>,
 +}
 +
 +/// Original backend custody is an ownership fence, not approval. Only trusted

@@ -45,6 +45,17 @@
       "Propagation": "rprivate"
     },
     {
+      "Type": "bind",
+      "Destination": "/sandbox/prime-main",
+      "Driver": "",
+      "Mode": "",
+      "Options": [
+        "rbind"
+      ],
+      "RW": false,
+      "Propagation": "rprivate"
+    },
+    {
       "Type": "volume",
       "Destination": "/.openshell/channel",
       "Driver": "local",

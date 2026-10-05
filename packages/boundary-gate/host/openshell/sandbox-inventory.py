@@ -38,6 +38,7 @@ MOUNT_REQUIRED = frozenset(("Type", "Source", "Destination", "RW"))
 MOUNT_ROLES = {
     "/sandbox": ("bind", True),
     "/sandbox/.git": ("bind", False),
+    "/sandbox/prime-main": ("bind", False),
     "/.openshell/channel": ("volume", True),
     "/opt/openshell/bin/openshell-sandbox": ("bind", False),
 }
@@ -836,7 +837,7 @@ def read_workspace_registration():
         _fail("workspace registration version unavailable")
     if version == 2:
         keys = keys | {"group_access"}
-    _object(registration, keys, keys)
+    _object(registration, keys | {"mirror_source"}, keys | {"mirror_source"})
     if (type(registration["workspace_id"]) is not str or
             re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", registration["workspace_id"]) is None):
         _fail("workspace registration identity unavailable")
@@ -851,6 +852,14 @@ def read_workspace_registration():
         if (posixpath.dirname(source) != "/srv/auma-ws" or
                 access["owner_uid"] != pwd.getpwnam("auma").pw_uid):
             _fail("dedicated workspace owner/source mismatch")
+    mirror = registration.get("mirror_source")
+    if mirror is not None:
+        mirror = _path(mirror)
+        if (posixpath.dirname(mirror) != "/srv/auma-mirror" or
+                mirror == source or mirror == source + "/.git" or
+                mirror.startswith(source + "/") or source.startswith(mirror + "/")):
+            _fail("mirror registration must be a dedicated root-owned sibling")
+        registration["mirror_source"] = mirror
     return registration
 
 
@@ -859,6 +868,26 @@ def _registered_sources(profile, registration):
     if (mounts["/sandbox"]["Source"] != registration["workspace_source"] or
             mounts["/sandbox/.git"]["Source"] != registration["git_source"]):
         _fail("deployment profile differs from reviewed workspace registration")
+    mirror = registration.get("mirror_source")
+    if mirror is not None and mounts["/sandbox/prime-main"]["Source"] != mirror:
+        _fail("deployment profile differs from reviewed mirror registration")
+
+
+def _registered_mirror_protection(registration):
+    """The mirror leaf and every ancestor stay root-owned and not group/other-writable.
+
+    The guest reads the mirror through a kernel RO bind; the source tree must be
+    outside every agent-writable parent so the feed cannot be replaced underneath.
+    """
+    mirror = registration.get("mirror_source")
+    if mirror is None:
+        return
+    current = "/"
+    for component in (part for part in mirror.split("/") if part):
+        current = posixpath.join(current, component)
+        info = os.stat(current)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            _fail("registered mirror ancestor is writable or unprotected")
 
 
 def read_pin():
@@ -1760,6 +1789,7 @@ def admission(sb, mode):
     profile = None if mode == "generate" else read_profile()
     if profile is not None:
         _registered_sources(profile, registration)
+    _registered_mirror_protection(registration)
     if mode == "profile":
         _unchanged_workspace_scan(registration, workspace_scan, deadline)
         if read_workspace_registration() != registration:
@@ -1799,6 +1829,7 @@ def admission(sb, mode):
         profile = generate_profile(workload, supervisor, uid_ranges, gid_ranges, owner_uid, pin, schema,
                                    trusted_workspace_source=registration["workspace_source"])
     _registered_sources(profile, registration)
+    _registered_mirror_protection(registration)
     process, supervisor_process = observe_process(workload, workload=True), observe_process(supervisor)
     source = _mounts(workload["Mounts"])["/opt/openshell/bin/openshell-sandbox"]["Source"]
     observed_digest = binary_digest(source, deadline, process["pid"])
