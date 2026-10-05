@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { types } from 'node:util'
+import { createProtectedPostPolicy, PostPolicyError } from './post-policy.mjs'
 
 export const name = 'aukora-relay-auma'
 export const inject = ['tools']
@@ -115,8 +116,12 @@ function gateReceipt(value) {
 }
 
 /** The two tools. `getKey` is called per use; its value never leaves this closure. */
-export function createRelayTools({ getKey, baseUrl = RELAY_URL, gateSocket, gate = gateCall, limiter = createRateLimiter(), fetchImpl = fetch }) {
+export function createRelayTools({ getKey, baseUrl = RELAY_URL, gateSocket, gate = gateCall, limiter = createRateLimiter(), fetchImpl = fetch, postPolicy }) {
   if (baseUrl !== RELAY_URL && !/^http:\/\/127\.0\.0\.1:[0-9]{2,5}$/u.test(baseUrl)) throw new Error('relay URL must be loopback')
+  // Host configuration only. Construction reads no protected files. A missing
+  // policy disables posts without weakening the existing reader.
+  let protectedPostPolicy = null
+  try { protectedPostPolicy = createProtectedPostPolicy(postPolicy) } catch { /* posts refuse below */ }
   const scrub = (msg) => { let s = String(msg ?? 'error'); try { const k = getKey(); if (k) s = s.split(k).join('[redacted]') } catch { /* key unreadable */ } return s.slice(0, 300) }
   const refuse = (error) => JSON.stringify({ ok: false, state: 'REFUSED', reason: scrub(error?.message ?? error) })
   const exact = (args, keys) => {
@@ -169,17 +174,32 @@ export function createRelayTools({ getKey, baseUrl = RELAY_URL, gateSocket, gate
     timeoutMs: 30_000, isConcurrencySafe: () => false,
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
     async execute(args) {
+      let text, bytes
       try {
-        exact(args, ['text'])
-        const bytes = validateText(args.text)
+        if (args === null || typeof args !== 'object' || types.isProxy(args) || Array.isArray(args)
+          || ![Object.prototype, null].includes(Object.getPrototypeOf(args))) throw new Error('invalid post arguments')
+        const keys = Reflect.ownKeys(args), field = Object.getOwnPropertyDescriptor(args, 'text')
+        if (keys.length !== 1 || keys[0] !== 'text' || !field || !Object.hasOwn(field, 'value')
+          || field.enumerable !== true) throw new Error('invalid post arguments')
+        text = field.value
+        bytes = validateText(text)
+        if (protectedPostPolicy === null) throw new PostPolicyError('UNAVAILABLE')
+        protectedPostPolicy.assertAllowed(text)
+      } catch (error) {
+        // This path cannot call refuse/scrub: scrub itself reads the relay key.
+        return JSON.stringify({ ok: false, state: 'REFUSED',
+          reason: error instanceof PostPolicyError ? error.message : 'relay post refused',
+          error_code: error instanceof PostPolicyError ? error.code : 'REFUSED' })
+      }
+      try {
         limiter.check()
         const key = getKey()
-        const body_sha256 = createHash('sha256').update(args.text, 'utf8').digest('hex')
+        const body_sha256 = createHash('sha256').update(text, 'utf8').digest('hex')
         const client_request_id = `auma-${randomUUID().replaceAll('-', '')}`
         const intentReceipt = gateReceipt(await gate(gateSocket, 'relay_record', { phase: 'intent', author: 'auma', client_request_id, body_sha256, bytes }))
         limiter.take()
         const data = await relayFetch(baseUrl, key, '/v1/messages', { method: 'POST',
-          body: JSON.stringify({ clientRequestId: client_request_id, kind: 'chat', body: args.text, refs: [] }) }, fetchImpl)
+          body: JSON.stringify({ clientRequestId: client_request_id, kind: 'chat', body: text, refs: [] }) }, fetchImpl)
         const m = data?.message
         if (!m || m.author !== 'auma' || typeof m.id !== 'string' || !/^[0-9a-f]{64}$/u.test(m.id)) throw new Error('relay reply did not carry an auma message id')
         let postedReceipt = null
@@ -204,7 +224,7 @@ export function apply(ctx, config = {}) {
   const extraDenied = Array.isArray(config.workspaceRoots) ? config.workspaceRoots.filter(r => typeof r === 'string') : []
   // Refuse to register at all if the key is missing or not isolated. The tools are then absent; the app still boots.
   try { loadKey(keyFile, { extraDenied }) } catch (error) { console.warn('AUKORA_RELAY_AUMA_UNAVAILABLE', String(error?.message ?? error)); return }
-  const tools = createRelayTools({ getKey: () => loadKey(keyFile, { extraDenied }), gateSocket })
+  const tools = createRelayTools({ getKey: () => loadKey(keyFile, { extraDenied }), gateSocket, postPolicy: config.postPolicy })
   ctx.tools.register(tools.read)
   ctx.tools.register(tools.post)
   console.info('AUKORA_RELAY_AUMA_REGISTERED', READ_TOOL, POST_TOOL)

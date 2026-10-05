@@ -3,19 +3,29 @@
 // Fresh synthetic gate state is retained under the no-delete hold.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { makeGate } from '../packages/boundary-gate/checks/support/fixture.mjs'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createGate } from '../packages/boundary-gate/src/gate.mjs'
 import { createRelayTools } from '../plugins/aukora-relay-auma/lib/index.mjs'
+import { makeSyntheticPostPolicy } from '../plugins/aukora-relay-auma/checks/synthetic-policy.mjs'
 
 const PUBLIC_TOKEN = 'SYNTHETIC_PUBLIC_RETURN_FIXTURE_ONLY'.padEnd(64, '_')
 const ID = 'b'.repeat(64), CURSOR = '9170002', TEXT = 'Synthetic source-only relay return fixture.'
 const rows = gate => gate.db.prepare("SELECT seq, hash, event, detail FROM ledger WHERE event LIKE 'relay-%' ORDER BY seq").all()
 
 function fixture(t, { posted, intent, between } = {}) {
-  const { gate } = makeGate()
+  const { config: postPolicy, root } = makeSyntheticPostPolicy()
+  const home = path.join(root, 'retained-synthetic-gate')
+  fs.mkdirSync(home, { mode: 0o700 })
+  // Actual signed gate core with a fresh empty target set. Creation-time modes
+  // replace the older fixture's redundant chmod; no existing state is touched.
+  const gate = createGate({ home, targets: {}, store: { read: () => null, write: () => { throw new Error('no fixture target writes') } },
+    now: () => Date.UTC(2026, 9, 3, 12) })
+  gate.startup({ pid: 1 })
   t.after(() => gate.db.close())
   const calls = [], sent = []
   let intentReceipt
-  const tools = createRelayTools({ getKey: () => PUBLIC_TOKEN, gateSocket: '/synthetic-only/gate.sock',
+  const tools = createRelayTools({ getKey: () => PUBLIC_TOKEN, postPolicy, gateSocket: '/synthetic-only/gate.sock',
     gate: async (_socket, op, args) => {
       assert.equal(op, 'relay_record')
       calls.push(structuredClone(args))

@@ -11,6 +11,7 @@ import { createRelay } from '../host/relay/server.mjs'
 import { createStore } from '../host/relay/store.mjs'
 import { createAuthenticator, tokenDigest } from '../host/relay/auth.mjs'
 import { createRelayTools, createRateLimiter, loadKey, validateText, MAX_TEXT_BYTES, READ_TOOL, POST_TOOL, apply } from '../plugins/aukora-relay-auma/lib/index.mjs'
+import { makeSyntheticPostPolicy } from '../plugins/aukora-relay-auma/checks/synthetic-policy.mjs'
 
 const tok = a => `SYNTHETIC_PUBLIC_TEST_ONLY_${a}`.padEnd(64, '_')
 const AUTHORS = ['grok', 'dot', 'auma', 'peter']
@@ -24,7 +25,7 @@ async function fixture(t, { gateFails = false, limiter } = {}) {
   const gateCalls = []
   // Recording fixture acknowledges the exact gate result shape; it is not a signed-gate qualification.
   const gate = async (sock, op, args) => { gateCalls.push({ sock, op, args: structuredClone(args) }); if (gateFails) throw new Error('gate unavailable (ENOENT); fail closed'); return { ok: true, seq: gateCalls.length, hash: createHash('sha256').update(`synthetic-gate-ack:${gateCalls.length}`).digest('hex') } }
-  const tools = createRelayTools({ getKey: () => tok('auma'), baseUrl, gateSocket: '/run/test/gate.sock', gate, limiter: limiter ?? createRateLimiter() })
+  const tools = createRelayTools({ getKey: () => tok('auma'), postPolicy: makeSyntheticPostPolicy().config, baseUrl, gateSocket: '/run/test/gate.sock', gate, limiter: limiter ?? createRateLimiter() })
   const as = async (author, p, init = {}) => {
     const r = await fetch(baseUrl + p, { ...init, headers: { Authorization: `Bearer ${tok(author)}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } })
     return { code: r.status, data: await r.json() }
@@ -111,7 +112,7 @@ test('key isolation: the key file must be private, harness-owned, a real file, o
   assert.throws(() => loadKey('relative.key', open), /absolute/)
   for (const e of [() => loadKey(key, { ...open, uid: process.getuid() + 1 })]) { try { e() } catch (err) { noKey(err.message) } }
   // The model can name neither the key nor the server: no such parameters exist, and unknown arguments are refused.
-  const tools = createRelayTools({ getKey: () => tok('auma'), gateSocket: '/x', gate: async () => ({}), fetchImpl: async () => { throw new Error(`boom ${tok('auma')}`) } })
+  const tools = createRelayTools({ getKey: () => tok('auma'), postPolicy: makeSyntheticPostPolicy().config, gateSocket: '/x', gate: async () => ({}), fetchImpl: async () => { throw new Error(`boom ${tok('auma')}`) } })
   for (const tool of [tools.read, tools.post]) {
     assert.deepEqual(Object.keys(tool.parameters.properties), tool.name === READ_TOOL ? ['count', 'after', 'author'] : ['text'])
     assert.equal(tool.parameters.additionalProperties, false)
@@ -119,7 +120,7 @@ test('key isolation: the key file must be private, harness-owned, a real file, o
   }
   const leaked = await tools.read.execute({}); noKey(leaked); assert.equal(parse(leaked).state, 'REFUSED')
   const leakedPost = await tools.post.execute({ text: 'x' }); noKey(leakedPost)
-  const echoGate = createRelayTools({ getKey: () => tok('auma'), gateSocket: '/x', gate: async () => { throw new Error(`gate said ${tok('auma')}`) } })
+  const echoGate = createRelayTools({ getKey: () => tok('auma'), postPolicy: makeSyntheticPostPolicy().config, gateSocket: '/x', gate: async () => { throw new Error(`gate said ${tok('auma')}`) } })
   const echoed = await echoGate.post.execute({ text: 'x' }); noKey(echoed); assert.match(parse(echoed).reason, /\[redacted\]/)
   assert.throws(() => createRelayTools({ getKey: () => 'k', baseUrl: 'http://example.com', gate: async () => ({}) }), /loopback/)
   assert.equal(POST_TOOL, 'relay_post')
