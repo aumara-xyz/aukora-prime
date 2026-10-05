@@ -22,6 +22,12 @@ Group=aukora-host
 Type=exec
 TimeoutStartSec=120
 UMask=0077
+# Filesystem-only protection keeps the required privileged sbx-exec UID switch usable.
+# Seccomp-derived NoNewPrivileges would break that route. This is a limited source
+# proposal; Grok must verify the installed namespace, positive boundary and write probes.
+ProtectSystem=full
+ReadOnlyPaths=/opt
+PrivateTmp=yes
 WorkingDirectory=/opt/aukora-genesis/src
 EnvironmentFile=/etc/aukora-genesis/release.env
 # Node preload variables must be removed BEFORE any JavaScript starts, including the verifier bootstrap.
