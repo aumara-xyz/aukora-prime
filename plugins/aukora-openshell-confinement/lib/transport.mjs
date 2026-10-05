@@ -133,12 +133,19 @@ export const WORKSPACE_BINDING_KEYS = Object.freeze(['workspace_source', 'git_so
 // Keep these proposed required infrastructure shapes aligned with sandbox-inventory.py.
 // Actual runtime sources still require qualification by the protected collector;
 // an unlisted mount, including a second writable workspace, is unavailable.
+// Table and tmpfs shapes measured on the live bound auma-ws (2026-10-05).
 const INFRASTRUCTURE_MOUNTS = Object.freeze({
-  '/proc': ['proc', false],
-  '/dev': ['tmpfs', true],
+  '/proc': ['proc', true],
+  '/dev': ['tmpfs', false],
   '/dev/pts': ['devpts', true],
-  '/dev/shm': ['tmpfs', true],
+  '/dev/shm': ['tmpfs', false],
   '/dev/mqueue': ['mqueue', true],
+  '/dev/null': ['devtmpfs', true],
+  '/dev/zero': ['devtmpfs', true],
+  '/dev/full': ['devtmpfs', true],
+  '/dev/tty': ['devtmpfs', true],
+  '/dev/random': ['devtmpfs', true],
+  '/dev/urandom': ['devtmpfs', true],
   '/sys': ['sysfs', false],
   '/sys/fs/cgroup': ['cgroup2', false],
   '/proc/bus': ['proc', false],
@@ -148,16 +155,20 @@ const INFRASTRUCTURE_MOUNTS = Object.freeze({
   '/proc/sysrq-trigger': ['proc', false],
   '/proc/acpi': ['tmpfs', false],
   '/proc/scsi': ['tmpfs', false],
+  '/proc/kcore': ['devtmpfs', false],
+  '/proc/keys': ['devtmpfs', false],
+  '/proc/latency_stats': ['devtmpfs', false],
+  '/proc/timer_list': ['devtmpfs', false],
+  '/proc/sched_debug': ['devtmpfs', false],
   '/sys/firmware': ['tmpfs', false],
   '/sys/devices/virtual/powercap': ['tmpfs', false],
-  '/proc/kcore': ['tmpfs', true],
-  '/proc/keys': ['tmpfs', true],
-  '/proc/timer_list': ['tmpfs', true],
-  '/proc/latency_stats': ['tmpfs', true],
-  '/proc/sched_debug': ['tmpfs', true],
+  '/sys/dev/block': ['tmpfs', false],
+  '/etc/hostname': ['tmpfs', false],
+  '/etc/hosts': ['tmpfs', false],
+  '/etc/resolv.conf': ['ext4', false],
+  '/run/secrets': ['tmpfs', false],
+  '/run/.containerenv': ['tmpfs', false],
 });
-const MASKED_PROC_FILES = new Set(['/proc/kcore', '/proc/keys', '/proc/timer_list',
-  '/proc/latency_stats', '/proc/sched_debug']);
 
 function decimal(value, positive, ceiling) {
   return typeof value === 'string' && /^(?:0|[1-9][0-9]*)(?![\s\S])/.test(value) &&
@@ -249,11 +260,6 @@ function kernelMounts(rows, binding, mounts, claimedDigest) {
           row.device === root.device || row.device === byPath.get('/tmp').device) return false;
       continue;
     }
-    if (['/etc/hosts', '/etc/hostname', '/etc/resolv.conf'].includes(path)) {
-      // No exact externally anchored engine-file identity is in this contract.
-      // Read-only alone cannot distinguish configuration from a host secret.
-      return false;
-    }
     const role = Object.hasOwn(INFRASTRUCTURE_MOUNTS, path) ? INFRASTRUCTURE_MOUNTS[path] : undefined;
     if (!role || row.filesystem !== role[0] || writable !== role[1]) return false;
     if (row.filesystem === 'proc') {
@@ -262,11 +268,14 @@ function kernelMounts(rows, binding, mounts, claimedDigest) {
       if (!proc || row.source !== 'proc' || row.root !== expectedRoot || row.device !== proc.device) return false;
     }
     if (row.filesystem === 'tmpfs') {
-      if (row.source !== 'tmpfs' || row.optional.length !== 0) return false;
-      if (MASKED_PROC_FILES.has(path)) {
-        if (row.root !== '/null' || row.device !== byPath.get('/dev')?.device) return false;
-      } else if (row.root !== '/' || row.device === binding.workspace_device ||
-          row.device === binding.git_device) return false;
+      // Measured on the bound sandbox (2026-10-05): podman mounts its per-container
+      // userdata tmpfs subtrees at these four paths, and /dev/shm with source "shm".
+      const podmanUserdata = ['/run/secrets', '/run/.containerenv', '/etc/hostname', '/etc/hosts'].includes(path) &&
+        row.root.startsWith('/containers/overlay-containers/') && row.root.includes('/userdata/');
+      if ((row.source !== 'tmpfs' && !(path === '/dev/shm' && row.source === 'shm')) ||
+          (!podmanUserdata && row.root !== '/') || row.optional.length !== 0) return false;
+      if (!podmanUserdata &&
+          (row.device === binding.workspace_device || row.device === binding.git_device)) return false;
     }
   }
   const workspace = byPath.get('/sandbox');
@@ -449,6 +458,7 @@ export function validateConfinementInfo(info, expectedWorkspace) {
         ['/opt/openshell/bin/openshell-sandbox', 'bind', false],
         ['/sandbox', 'bind', true],
         ['/sandbox/.git', 'bind', false],
+        ['/sandbox/prime-main', 'bind', false],
       ], info.inventory_digest) ||
       !mountInventory(info.supervisor_inventory, [['/.openshell/channel', 'volume', false]],
         info.supervisor_inventory_digest) ||

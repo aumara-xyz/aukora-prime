@@ -3,7 +3,9 @@
 // They do not establish actual kernel mounts, EROFS, network containment or runtime qualification.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +17,7 @@ import { resolveLayout } from '../packages/boundary-gate/src/layout.mjs'
 const root = new URL('../', import.meta.url)
 const read = p => readFileSync(new URL(p, root), 'utf8')
 const HOST = '/synthetic/registered/workspace'
+const MIRROR = '/srv/auma-mirror/prime-main'
 const settings = readSettings({ workspaceRoot: '/sandbox', hostWorkspaceRoot: HOST, timeoutSeconds: 60 })
 const pol = (workspaceRoot, mode = 'workspace-write') => ({ mode, workspaceRoot, sessionId: 's1' })
 const refuses = (fn, reason) => assert.throws(fn, e => e.code === 'SANDBOX_UNAVAILABLE' && (!reason || e.reason === reason))
@@ -39,7 +42,8 @@ function mountinfo() {
     kernelMount('4', '1', '0:41', '/', '/tmp', true, 'tmpfs', 'tmpfs'),
     kernelMount('5', '1', '8:2', '/synthetic/volumes/channel/_data', '/.openshell/channel', true, 'ext4', '/dev/channel'),
     kernelMount('6', '1', '8:1', '/synthetic/runtime/openshell-sandbox', '/opt/openshell/bin/openshell-sandbox', false, 'ext4', '/dev/synthetic'),
-    kernelMount('7', '1', '0:43', '/', '/proc', false, 'proc', 'proc')]
+    kernelMount('7', '1', '0:43', '/', '/proc', true, 'proc', 'proc'),
+    kernelMount('30', '2', '8:3', MIRROR, '/sandbox/prime-main', false, 'ext4', '/dev/mirror')]
 }
 function envelope() {
   const channel = { Type: 'volume', Name: 'synthetic-channel', Source: '/synthetic/volumes/channel/_data',
@@ -64,6 +68,8 @@ function envelope() {
       { Type: 'bind', Source: HOST, Destination: '/sandbox', Driver: '', Mode: 'nosuid,nodev',
         Options: ['nosuid', 'nodev'], RW: true, Propagation: 'rprivate' },
       { Type: 'bind', Source: HOST + '/.git', Destination: '/sandbox/.git', Driver: '', Mode: 'ro,nosuid,nodev',
+        Options: ['ro', 'nosuid', 'nodev'], RW: false, Propagation: 'rprivate' },
+      { Type: 'bind', Source: MIRROR, Destination: '/sandbox/prime-main', Driver: '', Mode: 'ro,nosuid,nodev',
         Options: ['ro', 'nosuid', 'nodev'], RW: false, Propagation: 'rprivate' }],
     profile_digest: 'sha256:' + 'b'.repeat(64), isolation,
     supervisor_inventory: [{ ...structuredClone(channel), RW: false, Mode: 'ro,nosuid,nodev' }],
@@ -94,9 +100,40 @@ function helperFixture() {
     cap_bnd: e.isolation.cap_bnd, no_new_privs: 1, seccomp: 2 }
   const supervisorProcess = { ...structuredClone(process), pid: 4322,
     uid_map: structuredClone(e.supervisor_isolation.uid_map), gid_map: structuredClone(e.supervisor_isolation.gid_map) }
-  const registration = { version: 1, workspace_id: sid, workspace_source: HOST, git_source: HOST + '/.git' }
+  const registration = { version: 1, workspace_id: sid, workspace_source: HOST, git_source: HOST + '/.git',
+    mirror_source: MIRROR }
   return { e, sid, profile, container, supervisor, process, supervisor_process: supervisorProcess, registration,
     host_tmp_device: '9:1' }
+}
+
+// The pre-admission registered-workspace scan runs for real against a small
+// fixture tree: singly-linked readable regular files and one in-tree relative
+// symlink (admitted by the narrowed scan) resolve inside the registered root.
+function workspaceTree() {
+  const parent = mkdtempSync(join(realpathSync(tmpdir()), 'aukora-openshell-scan-'))
+  const ws = join(parent, 'workspace')
+  mkdirSync(join(ws, '.git'), { recursive: true })
+  mkdirSync(join(ws, 'docs'))
+  writeFileSync(join(ws, 'kept.txt'), 'synthetic workspace bytes\n')
+  writeFileSync(join(ws, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+  writeFileSync(join(ws, 'docs', 'note.txt'), 'synthetic note\n')
+  symlinkSync('docs', join(ws, 'docs-link'))
+  return { parent, ws }
+}
+function relocate(value, from, to) {
+  if (Array.isArray(value)) return value.map(item => relocate(item, from, to))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, relocate(item, from, to)]))
+  }
+  return typeof value === 'string' && (value === from || value.startsWith(from + '/'))
+    ? to + value.slice(from.length) : value
+}
+// Relocating a fixture's workspace source invalidates the envelope digests; reseal
+// recomputes them over the relocated bytes.
+function relocatedFixture(tree) {
+  const fixture = relocate(helperFixture(), HOST, tree.ws)
+  reseal(fixture.e)
+  return fixture
 }
 
 function helperPython(code, fixture = helperFixture()) {
@@ -238,9 +275,9 @@ test('v3 readback binds the entire closed mount records and companion channel in
   // Frozen independent Python json.dumps(sort_keys=True, separators=(',', ':'),
   // ensure_ascii=False) vectors cover compact UTF8 canonicalization.
   const vector = envelope()
-  assert.equal(vector.inventory_digest, 'sha256:e8d1965dd453e52169f7163104ecfc8740f65d3612bf49d81dea0d71b2f0e275')
+  assert.equal(vector.inventory_digest, 'sha256:7b83ab8b3a2ff90cf78372eea1ad602629faf018b0bf7414f4aef69df21ea926')
   vector.mount_inventory[1].Source = '/synthetic/runtime/é-sandbox'
-  vector.inventory_digest = 'sha256:80f1a7cea61d2867a5c617f609b22e4dbe34184ac31b4309da4b6e06b761a255'
+  vector.inventory_digest = 'sha256:2f2819762a91cdab1065a3c5a0b8293fa1c07266bd9ea2febf03fff35bce393b'
   validateConfinementInfo(vector)
   for (const mutate of [
     x => { x.extra = true }, x => { delete x.profile_digest },
@@ -401,7 +438,7 @@ print(json.dumps({'ok':True,'profile_digest':good['profile_digest']}))
 
 test('tmpfs readback keeps exactly the two producer roles even when profile and observation agree on an extra writable path', () => {
   helperPython(`
-assert len(f['container']['Mounts']) == 4
+assert len(f['container']['Mounts']) == 5
 m.validate_snapshot(f['container'], f['process'], f['profile'], workload_binary_digest=f['profile']['workload_binary_digest'])
 for edit in [lambda t: t.update({'/sandbox2':'rw,nosuid,nodev,mode=1777'}),
              lambda t: t.pop('/tmp'), lambda t: t.pop('/run/openshell-supervisor-ca'),
@@ -523,6 +560,7 @@ def registration():
     global registration_calls
     registration_calls += 1; r = copy.deepcopy(f['registration'])
     if scenario == 'changed_registration' and registration_calls > 1: r['workspace_id'] = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    if scenario == 'changed_mirror' and registration_calls > 1: r['mirror_source'] = '/srv/auma-mirror/other'
     return r
 workspace_calls = 0
 def workspace(container, profile, deadline):
@@ -533,35 +571,54 @@ def workspace(container, profile, deadline):
     if scenario == 'changed_workspace_inode' and workspace_calls > 1: result['workspace_binding']['workspace_inode'] = '2003'
     return result
 m.read_workspace_registration, m.observe_workspace = registration, workspace
+mirror_checks = 0
+def mirror_protection(value):
+    global mirror_checks
+    mirror_checks += 1
+    if scenario == 'mirror_unprotected': raise ValueError('mocked unprotected registered mirror')
+m._registered_mirror_protection = mirror_protection
 `
 
 test('mocked fresh admission emits the exact v3 envelope and refuses replaced or ambiguous observations', () => {
-  const result = JSON.parse(helperPython(admissionMockPrelude + `
+  const tree = workspaceTree()
+  let result
+  try {
+    result = JSON.parse(helperPython(admissionMockPrelude + `
 good = m.admission('auma-ws','print')
 assert good['version'] == 3 and good['inventory_digest'] == f['e']['inventory_digest']
+assert mirror_checks == 2
 for case in ('malformed','duplicate','nonzero_query','replaced_pid','changed_mount','reused_pid',
              'changed_profile','changed_policy','changed_sandbox','saved_gid','supplementary_group',
              'missing_hash','bool_active','bool_admission','global_policy','global_revision',
              'missing_config_revision','bool_config_revision','different_config_revision','missing_provider_revision','changed_provider_revision',
-             'changed_registration','changed_namespace','changed_workspace_inode','late_profile_change'):
-    scenario = case; counts.clear(); stat_calls.clear(); profile_calls = registration_calls = workspace_calls = 0
-    if case in ('changed_registration','changed_namespace','changed_workspace_inode','late_profile_change'):
+             'mirror_unprotected',
+             'changed_registration','changed_mirror','changed_namespace','changed_workspace_inode','late_profile_change'):
+    scenario = case; counts.clear(); stat_calls.clear(); profile_calls = registration_calls = workspace_calls = mirror_checks = 0
+    if case in ('changed_registration','changed_mirror','changed_namespace','changed_workspace_inode','late_profile_change'):
         protocol_refusal(lambda: m.admission('auma-ws','print'))
     else:refusal(lambda: m.admission('auma-ws','print'))
-scenario = 'volatile_health'; counts.clear(); stat_calls.clear(); profile_calls = registration_calls = workspace_calls = 0
+scenario = 'volatile_health'; counts.clear(); stat_calls.clear(); profile_calls = registration_calls = workspace_calls = mirror_checks = 0
 m.admission('auma-ws','print')
 print(json.dumps(good,separators=(',',':'),ensure_ascii=False))
-`))
+`, relocatedFixture(tree)))
+  } finally {
+    rmSync(tree.parent, { recursive: true, force: true })
+  }
   validateConfinementInfo(result)
   assert.equal(result.isolation.uid, 166536)
   assert.equal(result.supervisor_inventory.length, 1)
 })
 
 test('mocked profile generation requires protected pin and ranges and never adopts stale installed volume identities', () => {
-  const fixture = helperFixture()
+  const tree = workspaceTree()
+  const other = join(tree.parent, 'other')
+  mkdirSync(join(other, '.git'), { recursive: true })
+  const fixture = relocatedFixture(tree)
+  let result
+  try {
   fixture.generation_schema = JSON.parse(read('packages/boundary-gate/host/openshell/inventory-generation-schema.json'))
   fixture.generation_pin = JSON.parse(read('packages/boundary-gate/host/openshell/workload-pin.json')).workload_binary_digest
-  const result = JSON.parse(helperPython(admissionMockPrelude + `
+  result = JSON.parse(helperPython(admissionMockPrelude + `
 schema, pin = f['generation_schema'], f['generation_pin']
 old_profile = copy.deepcopy(f['profile'])
 def mounts(constraints):
@@ -570,6 +627,7 @@ def mounts(constraints):
         row = copy.deepcopy(constraint)
         if row['Destination'] == '/sandbox': row['Source'] = f['registration']['workspace_source']
         elif row['Destination'] == '/sandbox/.git': row['Source'] = f['registration']['git_source']
+        elif row['Destination'] == '/sandbox/prime-main': row['Source'] = f['registration']['mirror_source']
         else: row['Source'] = '/synthetic/new-generation/' + ('binary' if row['Type']=='bind' else row['Destination'].rsplit('/',1)[1])
         if row['Type'] == 'volume': row['Name'] = 'synthetic-new-uuid-' + row['Destination'].rsplit('/',1)[1]
         out.append(row)
@@ -588,9 +646,10 @@ good = m.admission('auma-ws','generate')
 assert set(good) == set(old_profile) and len(good) == 9
 assert good['workload_binary_digest'] == pin
 assert good['expected_mounts'] != old_profile['expected_mounts']
-assert all('/synthetic/new-generation/' in row['Source'] for row in good['expected_mounts'] if row['Destination'] not in ('/sandbox','/sandbox/.git'))
+assert all('/synthetic/new-generation/' in row['Source'] for row in good['expected_mounts'] if row['Destination'] not in ('/sandbox','/sandbox/.git','/sandbox/prime-main'))
 assert next(row for row in good['expected_mounts'] if row['Destination']=='/sandbox')['Source']==f['registration']['workspace_source']
 assert next(row for row in good['expected_mounts'] if row['Destination']=='/sandbox/.git')['Source']==f['registration']['git_source']
+assert next(row for row in good['expected_mounts'] if row['Destination']=='/sandbox/prime-main')['Source']==f['registration']['mirror_source']
 refusal(lambda: m.admission('auma-ws','print'))
 m.read_profile = lambda: copy.deepcopy(old_profile)
 refusal(lambda: m.admission('auma-ws','print'))
@@ -605,12 +664,16 @@ for bad_inputs in [('sha256:'+'0'*64,inputs[1],inputs[2],1001,schema,inputs[5]),
                    (pin,[{'host_id':1001,'size':65536}],inputs[2],1001,schema,inputs[5]),
                    (pin,inputs[1],[{'host_id':165536,'size':65537}],1001,schema,inputs[5]),
                    (pin,inputs[1],inputs[2],1002,schema,inputs[5]),
-                   (pin,inputs[1],inputs[2],1001,schema,{**inputs[5],'workspace_source':'/synthetic/other','git_source':'/synthetic/other/.git'})]:
+                   (pin,inputs[1],inputs[2],1001,schema,{**inputs[5],'mirror_source':'/srv/auma-mirror/other'}),
+                   (pin,inputs[1],inputs[2],1001,schema,{**inputs[5],'workspace_source':'${other}','git_source':'${other}/.git'})]:
     m.read_generation_inputs = lambda: copy.deepcopy(bad_inputs)
     refusal(lambda: m.admission('auma-ws','generate'))
 m.read_generation_inputs = lambda: copy.deepcopy(inputs)
 print(json.dumps({'ok':True,'profile':good}))
 `, fixture))
+  } finally {
+    rmSync(tree.parent, { recursive: true, force: true })
+  }
   assert.equal(result.ok, true)
   assert.equal(Object.keys(result.profile).length, 9)
 })
@@ -659,6 +722,9 @@ m.pwd.getpwnam = lambda name: SimpleNamespace(pw_uid=1001,pw_name='auma')
 for edit in (lambda r:r.update(version=True), lambda r:r.update(extra=True),
              lambda r:r.update(workspace_id='not-an-id'), lambda r:r.update(workspace_source='/'),
              lambda r:r.update(workspace_source='/synthetic/../alias'),
+             lambda r:r.pop('mirror_source'),
+             lambda r:r.update(mirror_source='/etc/auma-mirror/prime-main'),
+             lambda r:r.update(mirror_source='/synthetic/registered/workspace/mirror'),
              lambda r:r.update(git_source='/synthetic/other/.git')):
     registration=copy.deepcopy(f['registration']);edit(registration)
     files[m.WORKSPACE_REGISTRATION_PATH]=json.dumps(registration)
@@ -847,12 +913,22 @@ print(json.dumps({'ok':True}))
 
 test('actual workspace collector refuses PID, namespace, mount-table and inode races without a guest-exec fallback', () => {
   const result = JSON.parse(helperPython(`
+from types import SimpleNamespace
 from unittest.mock import patch
 def raw(rows):
     return '\\n'.join(' '.join([r['mount_id'],r['parent_id'],r['device'],r['root'],r['mountpoint'],','.join(r['options']),*r['optional']])+ ' - '+ ' '.join([r['filesystem'],r['source'],','.join(r['super_options'])]) for r in rows)
 table=raw(f['e']['mountinfo']); identities=(('8:1','2001'),('8:1','2002'))
+# The private-proc observer is modeled at the query() boundary: the podman-unshare
+# subprocess is answered with a valid observation JSON so the real observe_private_proc
+# and _validate_private_proc_observation still bind pid, start time, namespace custody
+# and the proof fields. Platform/proc authority the Mac host cannot supply is patched.
+observation={'version':1,'pid':4321,'start_time':12345,
+             'observer_user_namespace':'user:[500]','user_lineage':['user:[500]'],
+             'proof':{'pid_namespace':'pid:[4000]','guest_pid_namespace':'pid:[4000]',
+                      'collector_pid_namespace':'pid:[9000]','host_identity':[4321,12345],
+                      'guest_identity':[1,12345],'namespace_pids':[4321,51,1]}}
 def collect(case):
-    times=[12345,12346] if case=='pid' else [12345,12345]
+    times=[12345,12346]+[12345]*4 if case=='pid' else [12345]*6
     namespaces=['mnt:[4000]','mnt:[4001]'] if case=='namespace' else ['mnt:[4000]','mnt:[4000]']
     sources=[identities,(('8:1','2003'),identities[1])] if case=='source_inode' else [identities,identities]
     kernels=[(('8:1','2003'),identities[1])] if case=='wrong_initial_inode' else [identities,identities]
@@ -860,23 +936,40 @@ def collect(case):
     tables=[table,raw(changed)] if case=='table' else [table,table]
     host_namespace='mnt:[4000]' if case=='host_namespace' else 'mnt:[9000]'
     kernel_args={'side_effect':PermissionError('synthetic authority missing')} if case=='proc_authority' else {'side_effect':kernels}
-    with patch.object(m,'prove_private_proc',return_value=None,create=True) as private_proc,patch.object(m,'start_time',side_effect=times),patch.object(m,'_mount_namespace',side_effect=namespaces),patch.object(m.os,'readlink',return_value=host_namespace),patch.object(m,'_source_directory_identities',side_effect=sources),patch.object(m,'_kernel_directory_identities',**kernel_args),patch.object(m,'proc_read',side_effect=tables),patch.object(m,'_open_directory',return_value=41),patch.object(m,'_directory_identity',return_value=(f['host_tmp_device'],'9001')),patch.object(m.os,'close'):
+    def links(path):
+        if path=='/proc/self/ns/mnt': return host_namespace
+        if path=='/proc/self/ns/pid': return 'pid:[9000]'
+        if path=='/proc/self/ns/user': return 'user:[100]'
+        raise AssertionError('unexpected namespace link '+path)
+    observer_calls=[]
+    def observer_query(argv, deadline):
+        observer_calls.append(argv)
+        assert argv==['/usr/bin/podman','unshare','/usr/bin/python3','-I','-S',m.OBSERVER_PATH,
+                      '--private-proc-observer','4321','12345',str(int(999999999*1000000000))]
+        value=copy.deepcopy(observation)
+        if case=='observer_pid': value['pid']=4322
+        if case=='observer_lineage': value['user_lineage']=['user:[100]','user:[500]']
+        if case=='observer_proof': value['proof']['guest_identity']=[2,12345]
+        if case=='observer_namespace': value['proof']['collector_pid_namespace']='pid:[9001]'
+        return json.dumps(value)
+    owner=SimpleNamespace(pw_uid=1001)
+    with patch.object(m.sys,'platform','linux'),patch.object(m.pwd,'getpwnam',return_value=owner),patch.object(m.os,'getuid',return_value=1001),patch.object(m.os,'geteuid',return_value=1001),patch.object(m,'_read_protected',return_value='synthetic observer source'),patch.object(m,'query',side_effect=observer_query),patch.object(m,'start_time',side_effect=times),patch.object(m,'_mount_namespace',side_effect=namespaces),patch.object(m.os,'readlink',side_effect=links),patch.object(m,'_source_directory_identities',side_effect=sources),patch.object(m,'_kernel_directory_identities',**kernel_args),patch.object(m,'proc_read',side_effect=tables),patch.object(m,'_open_directory',return_value=41),patch.object(m,'_directory_identity',return_value=(f['host_tmp_device'],'9001')),patch.object(m.os,'close'):
         observed=m.observe_workspace(f['container'],f['profile'],999999999)
-        assert private_proc.call_count==2
-        assert all(call.args==(4321,12345) for call in private_proc.call_args_list)
+        assert len(observer_calls)==2
         return observed
 good=collect('good')
 assert good=={key:f['e'][key] for key in ('mountinfo','mountinfo_digest','workspace_binding')}
-for case in ('pid','namespace','source_inode','wrong_initial_inode','table','host_namespace'):
+for case in ('pid','namespace','source_inode','wrong_initial_inode','table','host_namespace',
+             'observer_pid','observer_lineage','observer_proof','observer_namespace'):
     protocol_refusal(lambda:collect(case))
 try:collect('proc_authority')
 except PermissionError:pass
 else:raise AssertionError('missing proc authority accepted')
 protocol_refusal(lambda:m.observe_workspace(f['container'],f['profile'],0))
-print(json.dumps({'ok':True,'refused':8}))
+print(json.dumps({'ok':True,'refused':12}))
 `))
   assert.equal(result.ok, true)
-  assert.equal(result.refused, 8)
+  assert.equal(result.refused, 12)
 })
 
 test('dedicated group-write registration joins exact owner, leaf custody and actual namespace mapping', () => {
@@ -889,7 +982,7 @@ guest_gid=1000
 host_gid=process['gid_map'][0]['host_id']+guest_gid-process['gid_map'][0]['container_id']
 source='/srv/auma-ws/aukora-prime'
 registered={'version':2,'workspace_id':f['registration']['workspace_id'],
-            'workspace_source':source,'git_source':source+'/.git',
+            'workspace_source':source,'git_source':source+'/.git','mirror_source':'/srv/auma-mirror/prime-main',
             'group_access':{'owner_uid':1001,'group_gid':host_gid,'guest_gid':guest_gid}}
 current=copy.deepcopy(registered)
 m._read_protected=lambda path:json.dumps(current)
@@ -900,9 +993,21 @@ for edit in (lambda r:r.update(version=1),lambda r:r.update(group_access=None),
              lambda r:r['group_access'].update(group_gid=True),
              lambda r:r['group_access'].update(guest_gid=-1),
              lambda r:r['group_access'].update(extra=1),
+             lambda r:r.pop('mirror_source'),
+             lambda r:r.update(mirror_source='/etc/auma-mirror/prime-main'),
+             lambda r:r.update(mirror_source=source),
+             lambda r:r.update(mirror_source=source+'/feed'),
              lambda r:r.update(workspace_source='/home/aukora-host/workspace',git_source='/home/aukora-host/workspace/.git')):
     current=copy.deepcopy(registered);edit(current);protocol_refusal(m.read_workspace_registration)
 current=copy.deepcopy(registered)
+protection=SimpleNamespace(st_mode=stat.S_IFDIR|0o755,st_uid=0)
+with patch.object(m.os,'stat',return_value=protection) as stated:
+    m._registered_mirror_protection(registered)
+    assert stated.call_count==3
+    for key,value in (('st_uid',1001),('st_mode',stat.S_IFDIR|0o2775),('st_mode',stat.S_IFREG|0o755)):
+        old=getattr(protection,key);setattr(protection,key,value)
+        protocol_refusal(lambda:m._registered_mirror_protection(registered));setattr(protection,key,old)
+m._registered_mirror_protection({'mirror_source':None})
 metadata=SimpleNamespace(st_mode=stat.S_IFDIR|0o2770,st_uid=1001,st_gid=host_gid)
 def no_acl(*args):raise OSError(errno.ENODATA,'no ACL')
 with patch.object(m.sys,'platform','linux'),patch.object(m.os,'fstat',return_value=metadata),patch.object(m.os,'getxattr',side_effect=no_acl,create=True):
@@ -941,29 +1046,29 @@ with patch.object(m,'_source_directory_identities',return_value=identity) as obs
 print(json.dumps({'ok':True}))
 `))
   assert.equal(result.ok, true)
-  const joined = JSON.parse(helperPython(admissionMockPrelude + `
+  const tree = workspaceTree()
+  let joined
+  try {
+    joined = JSON.parse(helperPython(admissionMockPrelude + `
 from types import SimpleNamespace
 from unittest.mock import patch
-old=f['registration']['workspace_source'];source='/srv/auma-ws/aukora-prime'
-def relocated(value):
-    if type(value) is dict:return {key:relocated(item) for key,item in value.items()}
-    if type(value) is list:return [relocated(item) for item in value]
-    if type(value) is str and (value==old or value.startswith(old+'/')):return source+value[len(old):]
-    return value
-f=relocated(f)
 guest_gid=1000
 row=f['process']['gid_map'][0]
 f['registration']['version']=2
 f['registration']['group_access']={'owner_uid':1001,'group_gid':row['host_id']+guest_gid-row['container_id'],'guest_gid':guest_gid}
 m.pwd.getpwnam=lambda name:SimpleNamespace(pw_uid=1001)
 identity=(('8:1','2001'),('8:1','2002'))
-with patch.object(m,'_source_directory_identities',return_value=identity) as sources:
+with patch.object(m,'_source_directory_identities',return_value=identity) as sources, patch.object(m,'_registered_directory',return_value=None) as custody:
     assert m.admission('auma-ws','print')['version']==3
     assert sources.call_count==2
+    assert custody.call_count>0
     f['registration']['group_access']['group_gid']+=1
     protocol_refusal(lambda:m.admission('auma-ws','print'))
 print(json.dumps({'ok':True}))
-`))
+`, relocatedFixture(tree)))
+  } finally {
+    rmSync(tree.parent, { recursive: true, force: true })
+  }
   assert.equal(joined.ok, true)
 })
 
@@ -1041,28 +1146,61 @@ test('C1-C5 source controls expose acceptance only when their production validat
 
 test('approved infrastructure mount shapes still bind device, source, root, topology and private propagation', () => {
   const valid = envelope()
-  valid.mountinfo.push(kernelMount('8', '1', '0:42', '/', '/dev', true, 'tmpfs', 'tmpfs'),
+  const userdata = '/containers/overlay-containers/aa11/userdata'
+  // The measured bound-sandbox table (2026-10-05): RO /dev and /dev/shm (source
+  // shm), udev devtmpfs nodes, devtmpfs /proc masks, podman userdata submounts.
+  valid.mountinfo.push(kernelMount('8', '1', '0:42', '/', '/dev', false, 'tmpfs', 'tmpfs'),
     kernelMount('9', '7', '0:43', '/sys', '/proc/sys', false, 'proc', 'proc'),
-    kernelMount('10', '8', '0:44', '/', '/dev/pts', true, 'devpts', 'devpts'),
-    kernelMount('11', '7', '0:42', '/null', '/proc/kcore', true, 'tmpfs', 'tmpfs'),
-    kernelMount('12', '1', '0:45', '/', '/run/openshell-supervisor-ca', true, 'tmpfs', 'tmpfs'),
-    kernelMount('13', '8', '0:46', '/', '/dev/shm', true, 'tmpfs', 'tmpfs'))
+    kernelMount('10', '7', '0:42', '/null', '/proc/kcore', false, 'devtmpfs', 'dev'),
+    kernelMount('11', '8', '0:42', '/null', '/dev/null', true, 'devtmpfs', 'dev'),
+    kernelMount('12', '8', '0:44', '/', '/dev/pts', true, 'devpts', 'devpts'),
+    kernelMount('13', '8', '0:42', '/', '/dev/mqueue', true, 'mqueue', 'mqueue'),
+    kernelMount('14', '8', '0:46', '/', '/dev/shm', false, 'tmpfs', 'shm'),
+    kernelMount('15', '1', '0:47', '/', '/sys', false, 'sysfs', 'sysfs'),
+    kernelMount('16', '15', '0:48', '/', '/sys/fs/cgroup', false, 'cgroup2', 'cgroup2'),
+    kernelMount('17', '15', '0:49', '/', '/sys/firmware', false, 'tmpfs', 'tmpfs'),
+    kernelMount('18', '15', '0:50', '/', '/sys/devices/virtual/powercap', false, 'tmpfs', 'tmpfs'),
+    kernelMount('19', '15', '0:51', '/', '/sys/dev/block', false, 'tmpfs', 'tmpfs'),
+    kernelMount('20', '7', '0:43', '/bus', '/proc/bus', false, 'proc', 'proc'),
+    kernelMount('21', '7', '0:43', '/fs', '/proc/fs', false, 'proc', 'proc'),
+    kernelMount('22', '7', '0:43', '/irq', '/proc/irq', false, 'proc', 'proc'),
+    kernelMount('23', '7', '0:43', '/sysrq-trigger', '/proc/sysrq-trigger', false, 'proc', 'proc'),
+    kernelMount('24', '7', '0:52', '/', '/proc/acpi', false, 'tmpfs', 'tmpfs'),
+    kernelMount('25', '7', '0:53', '/', '/proc/scsi', false, 'tmpfs', 'tmpfs'),
+    kernelMount('26', '7', '0:42', '/null', '/proc/keys', false, 'devtmpfs', 'dev'),
+    kernelMount('27', '7', '0:42', '/null', '/proc/timer_list', false, 'devtmpfs', 'dev'),
+    kernelMount('28', '7', '0:42', '/null', '/proc/latency_stats', false, 'devtmpfs', 'dev'),
+    kernelMount('29', '7', '0:42', '/null', '/proc/sched_debug', false, 'devtmpfs', 'dev'),
+    kernelMount('31', '1', '0:45', '/', '/run/openshell-supervisor-ca', true, 'tmpfs', 'tmpfs'),
+    kernelMount('32', '1', '0:54', userdata + '/run/secrets', '/run/secrets', false, 'tmpfs', 'tmpfs'),
+    kernelMount('33', '1', '0:54', userdata + '/.containerenv', '/run/.containerenv', false, 'tmpfs', 'tmpfs'),
+    kernelMount('34', '1', '0:54', userdata + '/hostname', '/etc/hostname', false, 'tmpfs', 'tmpfs'),
+    kernelMount('35', '1', '0:54', userdata + '/hosts', '/etc/hosts', false, 'tmpfs', 'tmpfs'),
+    kernelMount('36', '1', '8:9', userdata + '/resolv.conf', '/etc/resolv.conf', false, 'ext4', '/dev/sda9'))
   reseal(valid); validateConfinementInfo(valid, HOST)
   const invalid = []
-  for (const edit of [e => { e.mountinfo[8].device = '8:9' },
-    e => { e.mountinfo[8].source = '/dev/host-secret' }, e => { e.mountinfo[8].root = '/different' },
-    e => { e.mountinfo[8].parent_id = '1' }, e => { e.mountinfo[6].source = '/dev/host' },
-    e => { e.mountinfo[6].root = '/host-proc' }, e => { e.mountinfo[10].device = '0:99' },
-    e => { e.mountinfo[10].source = '/dev/host-secret' }, e => { e.mountinfo[10].root = '/' },
-    e => { e.mountinfo[11].source = '/synthetic/host' }, e => { e.mountinfo[11].device = '0:41' },
-    e => { e.mountinfo[11].device = '0:42' }, e => { e.mountinfo[11].device = '0:40' },
+  for (const edit of [e => { e.mountinfo[9].device = '8:9' },
+    e => { e.mountinfo[9].source = '/dev/host-secret' }, e => { e.mountinfo[9].root = '/different' },
+    e => { e.mountinfo[9].parent_id = '1' }, e => { e.mountinfo[6].source = '/dev/host' },
+    e => { e.mountinfo[6].root = '/host-proc' },
+    e => { e.mountinfo[6].options = e.mountinfo[6].super_options = ['ro'] },
+    e => { e.mountinfo[8].options = e.mountinfo[8].super_options = ['rw'] },
+    e => { e.mountinfo[8].root = '/different' }, e => { e.mountinfo[8].device = '8:1' },
+    e => { e.mountinfo[10].options = e.mountinfo[10].super_options = ['rw'] },
+    e => { e.mountinfo[14].source = '/dev/host-secret' },
+    e => { e.mountinfo[14].device = '0:42' }, e => { e.mountinfo[14].device = '0:41' },
+    e => { e.mountinfo[14].device = '0:40' }, e => { e.mountinfo[14].device = '8:1' },
+    e => { e.mountinfo[24].root = '/null' },
+    e => { e.mountinfo[30].source = '/synthetic/host' }, e => { e.mountinfo[30].device = '0:41' },
+    e => { e.mountinfo[30].device = '0:42' }, e => { e.mountinfo[30].device = '0:40' },
+    e => { e.mountinfo[31].root = '/containers/overlay-containers/aa11/secrets' },
+    e => { e.mountinfo[33].root = '/etc/hostname' },
+    e => { e.mountinfo[35].filesystem = 'tmpfs' },
     e => { e.mountinfo[3].device = '0:40' }, e => { e.mountinfo[3].device = '8:1' },
-    e => { e.mountinfo[7].device = '0:40'; e.mountinfo[10].device = '0:40' },
-    e => { e.mountinfo[12].device = '0:42' }, e => { e.mountinfo[12].device = '0:41' },
-    e => { e.mountinfo[12].device = '0:40' }, e => { e.mountinfo[12].device = '8:1' },
+    e => { e.mountinfo[8].device = '0:40'; e.mountinfo[10].device = '0:40' },
     e => { e.mountinfo[1].optional = ['shared:1'] }, e => { e.mountinfo[3].optional = ['shared:1'] },
     e => { e.workspace_binding.mount_namespace = 'mnt:[18446744073709551616]' },
-    e => { e.mountinfo.push(kernelMount('14', '1', '8:3', '/synthetic/secret', '/etc/hosts', false, 'ext4', '/dev/host')) }]) {
+    e => { e.mountinfo.push(kernelMount('40', '1', '8:7', '/synthetic/secret', '/genesis', false, 'ext4', '/dev/host')) }]) {
     const e = structuredClone(valid); edit(e); reseal(e)
     refuses(() => validateConfinementInfo(e, HOST), 'WORKSPACE_BINDING')
     invalid.push(e)
