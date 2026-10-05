@@ -236,7 +236,7 @@ test('materializer changes exactly two Kira names and retains the original rows/
   assert.equal(source.split(entry).length - 1, 2)
   assert.equal(source.includes('./plugins/aukora-kira/lib/index.js'), false)
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    'abf96c2ff3fce7b4c0eb929d5c93151414a5a54144f244f700eb8322ce0a8eb6')
+    '263283b74055f66b89c809013422d5236890de643510c65d95b4f1d76de24fe5')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
