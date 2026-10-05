@@ -510,7 +510,8 @@ await arm('the-whole-contribution-fits-one-shared-budget', async (broken) => {
 const { zstdCompressSync } = await import('node:zlib')
 const { registerRememberedCapture } = await import('../plugins/aukora-kira/lib/memory-remembered-hook.mjs')
 const { buildRouteDeps } = await import('../plugins/aukora-kira/lib/memory-deps.mjs')
-const { projectScopeOf, projectRecent } = await import('../plugins/aukora-kira/lib/project-memory.mjs')
+const { projectScopeOf, captureScopeOf, projectRecent } = await import('../plugins/aukora-kira/lib/project-memory.mjs')
+const { createProjectIdentityResolver } = await import('../plugins/aukora-kira/lib/project-identity.mjs')
 const { createOpenVikingRecall, uriFor, contentUri } = await import('../plugins/aukora-kira/lib/recall-openviking.mjs')
 const memoryFixture = async (broken = false, askText = 'Inspect the project staging directory.', finding = 'Orion workspace patch is STAGED, not live. The selected posture is bytes through intake; metal acceptance remains UNRUN.', findingSource = 'model') => {
   const home = scratch('kira-injection-capture-')
@@ -518,6 +519,12 @@ const memoryFixture = async (broken = false, askText = 'Inspect the project stag
   const sessionId = 'session-capture'
   const cwd = join(home, 'project')
   mkdirSync(cwd)
+  // This disposable workspace has a trusted, invented identity. Path spelling
+  // alone is not an attachment and no historical path-hash alias is enrolled.
+  const projectIdentityConfig = { version: 1, projects: [
+    { project_id: 'injection-court-fixture', workspace_roots: [cwd] },
+  ] }
+  const projectIdentity = createProjectIdentityResolver(projectIdentityConfig)
   const dir = join(home, 'sessions/project', sessionId)
   mkdirSync(dir, { recursive: true })
   const event = (type, seq, data) => ({ type, seq, time: Date.now() + seq, data })
@@ -529,10 +536,12 @@ const memoryFixture = async (broken = false, askText = 'Inspect the project stag
   let handler, created
   registerRememberedCapture({ sessions: { flush: async () => true }, on: (event, fn) => { if (event === 'agent/turn-stopping') handler = fn; if (event === 'agent/created') created = fn }, logger: { warn() {} } }, {
     stateDir, sessionsRoot: home, policyOf: async () => ({ subject: SUBJECT, privacy: 'local' }),
+    scopeFor: one => captureScopeOf(one, projectIdentity),
   })
   if (!broken) { await handler({ agent, turn: 1 }); await handler({ agent, turn: 1 }) }
   const deps = buildRouteDeps({ stateDir, sessionsRoot: home })
-  return { deps, notes: deps.liveRemembered().notes, agent, report, handler, created, home }
+  return { deps, notes: deps.liveRemembered().notes, agent, report, handler, created, home,
+    projectIdentityConfig, projectIdentity }
 }
 
 // Import a changed module in memory only; an invalid/unloaded mutant is not an assertion failure.
@@ -843,7 +852,8 @@ const mountMemory = async (run, module = kira, { score = .9, indexedNotes = fals
   }
   globalThis.fetch = scratchFetch
   const ctx = context ?? observingContext()
-  await module.apply(ctx, { memoryOwner: { stateDir: join(run.home, 'kira-memory'), subject: SUBJECT,
+  await module.apply(ctx, { projectIdentity: run.projectIdentityConfig,
+    memoryOwner: { stateDir: join(run.home, 'kira-memory'), subject: SUBJECT,
     permittedPrivacy: ['local'], approvalFile: join(run.home, 'a.json'), grantFile: join(run.home, 'g.json') } })
   globalThis.fetch = priorFetch
   const listener = context ? undefined : ctx._subscribed.find(one => one.event === 'agent/pre-step')
@@ -930,6 +940,13 @@ await arm('mounted eligible remembered corpus remains readable when the question
 // Keep the query's recorded read attempts while checking the corpus again at
 // the actual final owner-policy await. These worlds begin with eligible notes
 // and zero relevant snippets, so withdrawing returned snippets cannot catch them.
+const finalRecallFacts = `return normalizeRecallState(final, { readable: live.complete === true
+          && !(preTurnQuery && eligibleCorpus === 0 && answer.partialFailure === true),
+        eligibleRecords: preTurn ? eligibleCorpus : checked.size,
+        policyWithheldCount: Math.max(0, policyRecords.length - (preTurn ? eligibleCorpus : checked.size)) })`
+// Remove the final authoritative facts, keeping the final snippet filter. A
+// legacy availability-only edit is repaired by normalization and is a survivor.
+const staleRecallFacts = 'return normalizeRecallState({ ...final, availability: answer.availability })'
 for (const change of ['expire', 'missing', 'corrupt']) {
   await arm(`mounted query miss refreshes final corpus after ${change}`, async broken => {
     const marker = `OWNER-FINAL-${change.toUpperCase()}-FINDING`
@@ -938,9 +955,7 @@ for (const change of ['expire', 'missing', 'corrupt']) {
       'const policy = readOwnerPolicy(await owner.describe())\n    const live = memoryFor().read()',
       'const policy = readOwnerPolicy(await owner.describe().then(async policy => { await globalThis.__kiraInjectionFinalPolicy?.(answers); return policy }))\n    const live = memoryFor().read()',
     ]]
-    if (broken) changes.push(change === 'expire'
-      ? ['...(preTurnQuery ? { availability: finalAvailability } : {}), ', '']
-      : ['live.complete !== true', 'false'])
+    if (broken) changes.push([finalRecallFacts, staleRecallFacts])
     const module = await moduleWithRevert('index.js', changes)
     let changed = false, priorAttempts, priorAvailability, priorSnippets
     globalThis.__kiraInjectionFinalPolicy = async answers => {
@@ -1125,9 +1140,12 @@ if (dshBound) {
       assert.equal(session.header.cwd, run.workspaceRoot)
       assert.deepEqual(workspace.sessionIds, [run.homeSession], 'native creation attaches the configured identity')
       assert.ok(Object.isFrozen(session.header), 'the native header is a detached frozen snapshot')
-      const scope = projectScopeOf({ session })
-      assert.match(scope, /^project:[a-f0-9]{64}$/u)
-      assert.equal(scope, projectScopeOf({ session: { header: { cwd: run.workspaceRoot } } }))
+      const identity = createProjectIdentityResolver({ version: 1, projects: [
+        { project_id: 'native-home-fixture', workspace_roots: [run.workspaceRoot] },
+      ] })
+      const scope = projectScopeOf({ session }, identity)
+      assert.equal(scope, 'project:id:native-home-fixture')
+      assert.equal(scope, projectScopeOf({ session: { header: { cwd: run.workspaceRoot } } }, identity))
       run.createdMeta[0].cwd = process.cwd()
       assert.equal(session.header.cwd, run.workspaceRoot, 'borrowed factory metadata cannot retarget the header')
       const adopted = await run.ctx.sessionController.create({ sessionId: run.homeSession, workspaceId: workspace.id })
@@ -1255,7 +1273,7 @@ if (dshBound) {
   await arm('actual mounted DSH publisher reports a withdrawn result as undetermined', async broken => {
     const run = await memoryFixture(false, 'The project handoff OWNER-PUBLISH-FINDING is staged for tomorrow.', '')
     const changes = [['const live = memoryFor().read()', 'await globalThis.__kiraInjectionFinalRead?.(); const live = memoryFor().read()']]
-    if (broken) changes.push(["...(withdrawn ? { availability: 'undetermined', status: 'undetermined' } : {}), ", ''])
+    if (broken) changes.push([finalRecallFacts, staleRecallFacts])
     const module = await moduleWithRevert('index.js', changes)
     const ctx = new Context()
     ctx.provide('systemPrompt', { tools: () => () => {}, section: () => () => {} })
@@ -1265,7 +1283,9 @@ if (dshBound) {
     globalThis.__kiraInjectionFinalRead = () => {
       if (withdrawn) return
       withdrawn = true
-      for (const note of run.notes) moveNote(run, note, 'expire')
+      // Expiration is a readable policy withdrawal. This arm's unchanged
+      // unavailable assertion instead requires a failed final authoritative read.
+      for (const note of run.notes) rmSync(join(run.home, 'kira-memory/remembered', `${note.id.slice(4)}.json`))
     }
     try {
       const recall = await mountMemory(run, module, { indexedNotes: true, context: ctx,
@@ -1333,7 +1353,7 @@ await arm('fresh project capture remains DATA without automatic report reinjecti
   const policy = { subject: SUBJECT, permittedPrivacy: ['local'] }
   module.registerRecallInjection({ on: (_event, fn) => { listener = fn } }, {
     conversation: { turn: async () => { assert.equal(delegated, true); return { availability: 'empty', snippets: [] } } },
-    newest: async () => projectRecent(run.notes, policy, projectScopeOf(run.agent)),
+    newest: async () => projectRecent(run.notes, policy, projectScopeOf(run.agent, run.projectIdentity)),
   })
   const decision = await listener({ agent: { session: { header: run.agent.session.header } } }, async () => { delegated = true; return { kind: 'enter', messages: [] } })
   assert.equal(decision.messages.length, 1)
@@ -1343,16 +1363,16 @@ await arm('fresh project capture remains DATA without automatic report reinjecti
   assert.match(text, /model-authored-never-pre-turn/u)
   assert.ok(text.length <= injection.MAX_INJECTION_CHARS + 1)
   assert.equal(projectRecent(run.notes, policy, 'project:unrelated').snippets.length, 0)
-  assert.equal(projectRecent(run.notes.map(note => ({ ...note, privacy: 'private' })), policy, projectScopeOf(run.agent)).snippets.length, 0)
+  assert.equal(projectRecent(run.notes.map(note => ({ ...note, privacy: 'private' })), policy, projectScopeOf(run.agent, run.projectIdentity)).snippets.length, 0)
   const finding = run.notes.find(note => note.attributedTo === 'agent')
   for (const state of ['superseded', 'expired', 'hidden', 'archived']) {
-    assert.equal(projectRecent(run.notes, policy, projectScopeOf(run.agent), new Map([[finding.id, state]])).snippets.length, 0)
+    assert.equal(projectRecent(run.notes, policy, projectScopeOf(run.agent, run.projectIdentity), new Map([[finding.id, state]])).snippets.length, 0)
   }
-  assert.equal(projectRecent([{ ...finding, category: 'instruction' }], policy, projectScopeOf(run.agent)).snippets.length, 0)
+  assert.equal(projectRecent([{ ...finding, category: 'instruction' }], policy, projectScopeOf(run.agent, run.projectIdentity)).snippets.length, 0)
   const empty = { availability: 'empty', snippets: [] }
   assert.match(injection.recalledContextLine(empty, projectRecent([], policy, null)), /host project scope unavailable/u)
-  assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent))), /no eligible captured findings/u)
-  assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent), new Map(), { unreadable: 1 })), /PROJECT STATE: unavailable/u)
+  assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent, run.projectIdentity))), /no eligible captured findings/u)
+  assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent, run.projectIdentity), new Map(), { unreadable: 1 })), /PROJECT STATE: unavailable/u)
 })
 await arm('actual captured model reports stay available as DATA and out of mounted pre-step messages', async broken => {
   const run = await memoryFixture(false, 'OWNER-TIER-CONTROL remains readable.', 'MODEL-TIER-REPORT stays explicit DATA.')
@@ -1372,7 +1392,7 @@ await arm('actual captured model reports stay available as DATA and out of mount
   const finding = run.deps.liveRemembered().notes.find(note => note.attributedTo === 'agent')
   assert.ok(finding && finding.statement.includes('MODEL-TIER-REPORT'))
   assert.equal(finding.grantsAuthority, false)
-  const projected = projectRecent(run.notes, { subject: SUBJECT, permittedPrivacy: ['local'] }, projectScopeOf(run.agent))
+  const projected = projectRecent(run.notes, { subject: SUBJECT, permittedPrivacy: ['local'] }, projectScopeOf(run.agent, run.projectIdentity))
   assert.ok(projected.snippets.some(note => note.recordId === finding.id), 'explicit DATA projection retains the finding')
 })
 await arm('pre-turn author exclusion preserves explicit DATA eligibility and existing refusal reasons', async broken => {
@@ -1382,7 +1402,7 @@ await arm('pre-turn author exclusion preserves explicit DATA eligibility and exi
     : await import('../plugins/aukora-kira/lib/memory-frame.mjs')
   const finding = run.notes.find(note => note.attributedTo === 'agent')
   const owner = run.notes.find(note => note.attributedTo === 'owner')
-  const context = { now: new Date().toISOString(), attachedProjects: [projectScopeOf(run.agent)] }
+  const context = { now: new Date().toISOString(), attachedProjects: [projectScopeOf(run.agent, run.projectIdentity)] }
   assert.equal(module.recallFilter(finding, context).ok, true, 'explicit eligibility stays unchanged')
   assert.deepEqual(module.preTurnRecallFilter(finding, context), { ok: false, why: 'model-authored-never-pre-turn' })
   assert.equal(module.preTurnRecallFilter(owner, context).ok, true, 'the owner control stays eligible')
