@@ -104,6 +104,7 @@ STT_DECODE_TIMEOUT_SEC = 12.0
 STT_RECOVERY_FLUSH_SEC = 0.05
 
 STT_POOL = ThreadPoolExecutor(1, thread_name_prefix="stt")
+POCKET_POOL = ThreadPoolExecutor(1, thread_name_prefix="pocket-compat")
 TTS_POOL = ThreadPoolExecutor(1, thread_name_prefix="tts")        # kokoro (ONNX session is shared + unlocked → keep size 1)
 
 # How long, after the last audio frame we actually pushed to a client, we keep
@@ -242,12 +243,17 @@ def _restart_voice_process():
         os._exit(70)
 
 
+class _NoPocket:
+    # Linux has no Pocket engine; retain the injected Session contract.
+    VOICES = {}
+
+
 class Session:
     def __init__(self, ws, engines, loop, *,
                  stt_decode_timeout=STT_DECODE_TIMEOUT_SEC,
                  restart_process=_restart_voice_process):
         self.ws = ws
-        self.stt, self.vad, self.tts, self.default_voice = engines
+        self.stt, self.vad, self.tts, self.pocket, self.default_voice = engines
         self.loop = loop
         self.stt_decode_timeout = stt_decode_timeout
         self.restart_process = restart_process
@@ -391,13 +397,13 @@ class Session:
         voice = str(msg.get("voice", "")) or self.default_voice
         # H5: coerce an unknown voice (a stale client pick, a name that no longer
         # exists) to the default rather than KeyError-ing deep in the worker.
-        if voice not in self.tts.presences:
+        if voice not in getattr(self.pocket, "VOICES", {}) and voice not in self.tts.presences:
             voice = self.default_voice
         # KOKORO ONLY: the first chunk of a turn is split at a word boundary
         # (~30 chars) so the head clears kokoro's ~0.6s per-call floor sooner.
         # Pocket streams from the first frame, so splitting would only hurt it.
         parts = [text]
-        if msg.get("first") and len(text) > 45:
+        if msg.get("first") and voice not in getattr(self.pocket, "VOICES", {}) and len(text) > 45:
             cut = text.rfind(" ", 12, 34)
             if cut < 0:
                 cut = text.find(" ", 34)
@@ -459,6 +465,36 @@ class Session:
     async def _say_one(self, gen, cid, parts, voice, speed):
         begun = False
         t0 = time.monotonic()
+
+        if voice in getattr(self.pocket, "VOICES", {}):
+            # Preserve streaming error/terminal and cancellation behavior for injected engines.
+            q = asyncio.Queue()
+            def produce():
+                try:
+                    for pcm in self.pocket.stream(voice, parts[0], lambda: gen == self.tts_cancel):
+                        self.loop.call_soon_threadsafe(q.put_nowait, ("pcm", pcm))
+                    self.loop.call_soon_threadsafe(q.put_nowait, ("end", None))
+                except Exception as error:
+                    self.loop.call_soon_threadsafe(q.put_nowait, ("error", error))
+            self.loop.run_in_executor(POCKET_POOL, produce)
+            while True:
+                event, payload = await q.get()
+                if event == "end":
+                    break
+                if event == "error":
+                    raise payload
+                if gen != self.tts_cancel:
+                    continue
+                if not begun:
+                    if not await self._write_json({"t": "tts_begin", "id": cid, "sr": SR_OUT}):
+                        raise _SocketGone()
+                    begun = True
+                self._bump_her()
+                try:
+                    await self.ws.send_bytes(payload.tobytes())
+                except Exception:
+                    raise _SocketGone()
+            return
 
         # kokoro path (blends / legacy presences)
         for text in parts:
@@ -715,7 +751,7 @@ async def main():
             await ws.send_json({"t": "err", "where": "startup", "msg": _wire_error_message("voice engines", error)})
             await ws.close(code=1011, message=b"voice engines unavailable")
             return ws
-        s = Session(ws, (stt, vad, tts, default_voice), loop)
+        s = Session(ws, (stt, vad, tts, _NoPocket(), default_voice), loop)
         await ws.send_json({
             "t": "ready",
             "engines": {"stt": Stt.kind, "tts": "kokoro-82M CPU int8", "vad": "silero-v6"},
@@ -791,6 +827,7 @@ async def main():
         await runner.cleanup()
         STT_POOL.shutdown(wait=False)
         TTS_POOL.shutdown(wait=False)
+        POCKET_POOL.shutdown(wait=False)
 
 
 if __name__ == "__main__":

@@ -502,5 +502,13 @@
       "size": 117050,
       "license": "Apache-2.0"
     }
-  ]
+  ],
+  "bootstrap": {
+    "name": "pip",
+    "version": "24.2",
+    "filename": "pip-24.2-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/d4/55/90db48d85f7689ec6f81c0db0622d704306c5284850383c090e6c7195a5c/pip-24.2-py3-none-any.whl",
+    "sha256": "2cd581cf58ab7fcfca4ce8efa6dcacd0de5bf8d0a3eb9ec927e07405f4d9e2a2",
+    "size": 1815170
+  }
 }

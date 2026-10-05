@@ -11,6 +11,76 @@ import asyncio
 import json
 import time
 
+# This explicit mode exercises the real installer guards without importing voice dependencies.
+import sys
+if sys.argv[1:] == ["--install-controls"]:
+    import tempfile
+    import hashlib
+    import zipfile
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import install as builder
+
+    with tempfile.TemporaryDirectory(prefix="auma-installer-control-") as temporary:
+        root = Path(temporary)
+        artifact = root / "artifact.whl"
+        good = b"synthetic pinned artifact"
+        artifact.write_bytes(good)
+        record = {"size": len(good), "sha256": hashlib.sha256(good).hexdigest()}
+        builder.verify_artifact(artifact, record)
+        artifact.write_bytes(b"X" * len(good))
+
+        def artifact_refuses():
+            try:
+                builder.verify_artifact(artifact, record)
+            except ValueError:
+                return
+            raise AssertionError("tampered artifact was accepted")
+
+        artifact_refuses()
+        original = builder.verify_artifact
+        builder.verify_artifact = lambda path, record: Path(path)
+        try:
+            try:
+                artifact_refuses()
+            except AssertionError:
+                print("PASS artifact hash guard removal turns original assertion RED")
+            else:
+                raise AssertionError("artifact guard removal escaped detection")
+        finally:
+            builder.verify_artifact = original
+
+        wheel = root / "payload.whl"
+        with zipfile.ZipFile(wheel, "w") as archive:
+            archive.writestr("fixture/module.py", b"PINNED = True")
+        site = root / "site"
+        (site / "fixture").mkdir(parents=True)
+        (site / "fixture/module.py").write_bytes(b"PINNED = True")
+        assert builder.verify_wheel_payload(wheel, site) == 1
+        (site / "fixture/module.py").write_bytes(b"PINNED = False")
+
+        def payload_refuses():
+            try:
+                builder.verify_wheel_payload(wheel, site)
+            except ValueError:
+                return
+            raise AssertionError("changed installed payload was accepted")
+
+        payload_refuses()
+        original = builder.verify_wheel_payload
+        builder.verify_wheel_payload = lambda wheel, site: 0
+        try:
+            try:
+                payload_refuses()
+            except AssertionError:
+                print("PASS installed-payload guard removal turns original assertion RED")
+            else:
+                raise AssertionError("payload guard removal escaped detection")
+        finally:
+            builder.verify_wheel_payload = original
+    print("PASS real installer artifact/payload checks and both removal controls")
+    raise SystemExit(0)
+
 import aiohttp
 import numpy as np
 
