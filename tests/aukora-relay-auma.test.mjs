@@ -22,7 +22,8 @@ async function fixture(t, { gateFails = false, limiter } = {}) {
   const baseUrl = `http://127.0.0.1:${server.address().port}`
   t.after(async () => { await new Promise(done => server.close(done)); server.closeAllConnections(); store.close(); fs.rmSync(dir, { recursive: true, force: true }) })
   const gateCalls = []
-  const gate = async (sock, op, args) => { gateCalls.push({ sock, op, args: structuredClone(args) }); if (gateFails) throw new Error('gate unavailable (ENOENT); fail closed'); return { ok: true, seq: gateCalls.length } }
+  // Recording fixture acknowledges the exact gate result shape; it is not a signed-gate qualification.
+  const gate = async (sock, op, args) => { gateCalls.push({ sock, op, args: structuredClone(args) }); if (gateFails) throw new Error('gate unavailable (ENOENT); fail closed'); return { ok: true, seq: gateCalls.length, hash: createHash('sha256').update(`synthetic-gate-ack:${gateCalls.length}`).digest('hex') } }
   const tools = createRelayTools({ getKey: () => tok('auma'), baseUrl, gateSocket: '/run/test/gate.sock', gate, limiter: limiter ?? createRateLimiter() })
   const as = async (author, p, init = {}) => {
     const r = await fetch(baseUrl + p, { ...init, headers: { Authorization: `Bearer ${tok(author)}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } })
