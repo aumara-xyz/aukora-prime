@@ -420,8 +420,10 @@ try {
     await arm(ARMS.rememberBudget, async () => {
       const tool = tools.get('kira_remember')
       assert.equal(typeof tool?.execute, 'function', 'the actual mounted native remember tool is required')
-      const limit = tool.parameters.properties.text.maxLength
+      const { MAX_REMEMBER_INPUT_BYTES: limit } = await load('plugins/aukora-kira/lib/memory-input-bounds.mjs')
       assert.ok(Number.isSafeInteger(limit) && limit > 0, 'the native tool must advertise its input byte ceiling')
+      assert.ok(String(tool.parameters.properties.text.description).includes(String(limit)),
+        'the native tool schema must advertise its input byte ceiling (host schema subset has no maxLength)')
       // Settle the mount's absent-bridge retry before enabling a recording
       // synthetic bridge. No request here reaches a network or provider.
       await new Promise(setImmediate)
