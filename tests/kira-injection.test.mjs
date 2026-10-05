@@ -58,8 +58,14 @@ const KIRA = join(ROOT, 'plugins/aukora-kira')
 
 let arms = 0
 let passed = 0
+// This source court never boots the installed profile. Even when all source
+// arms pass, that remaining acceptance check must keep the result incomplete.
+const unperformed = ['installed profile acceptance']
+const markUnperformed = message => {
+  unperformed.push(message)
+  console.error(`  UNPERFORMED: ${message}`)
+}
 const MUTATE = process.argv.includes('--mutate')
-const SOURCE_ONLY = process.argv.includes('--source-only')
 const survivingAt = process.argv.indexOf('--surviving-control')
 const survivingControl = survivingAt < 0 ? undefined : process.argv[survivingAt + 1]
 strictAssert.ok(survivingAt < 0 || (MUTATE && ['quoting', 'metadata', 'directories', 'origins'].includes(survivingControl)),
@@ -1022,11 +1028,23 @@ const bindDshDependencies = dsh => {
 const dshAt = process.argv.indexOf('--dsh')
 const dsh = dshAt < 0 ? process.env.AUKORA_DSH_SOURCE : process.argv[dshAt + 1]
 assert.ok(dshAt < 0 || (dsh && !dsh.startsWith('--')), '--dsh requires the pinned harness directory')
+let dshBound = false
 if (dsh === undefined) {
-  console.error('  UNPERFORMED: actual DSH injection dispatch (supply --dsh or AUKORA_DSH_SOURCE).')
-  if (!SOURCE_ONLY) process.exitCode = 1
+  // --source-only does not turn omitted native arms into a successful run.
+  markUnperformed('actual DSH injection dispatch (supply --dsh or AUKORA_DSH_SOURCE).')
 } else {
-  bindDshDependencies(dsh)
+  try {
+    bindDshDependencies(dsh)
+    dshBound = true
+  } catch (error) {
+    // Preserve the prerequisite assertion, while distinguishing an absent
+    // dependency from a present dependency whose original hash assertion fails.
+    if (!(error instanceof strictAssert.AssertionError)
+      || !error.message.startsWith('UNPERFORMED: DSH dependency binding missing ')) throw error
+    markUnperformed(error.message.slice('UNPERFORMED: '.length))
+  }
+}
+if (dshBound) {
   const { Context } = await import(pathToFileURL(join(dsh, 'vendor/cordis/lib/index.js')).href)
   const { agentEvents } = await import(pathToFileURL(join(dsh, 'packages/core/agent/lib/index.js')).href)
   const { ToolRuntime } = await import(pathToFileURL(join(dsh, 'packages/core/tools/lib/index.js')).href)
@@ -1409,4 +1427,6 @@ await arm('semantic recall uses authoritative bytes and pure relevance without l
   assert.deepEqual(answer.hits.map(one => one.score), [.69, .4536])
 })
 
-console.log(`  ${passed}/${arms} arms passed, ${arms - passed} failed; DSH source dispatch ${dsh === undefined ? 'UNPERFORMED' : 'RAN'}; installed profile UNPERFORMED.`)
+console.log(`  ${passed}/${arms} arms passed, ${arms - passed} failed; ${unperformed.length} unperformed checks; DSH source dispatch ${dshBound ? 'RAN' : 'UNPERFORMED'}; installed profile UNPERFORMED.`)
+// A real assertion failure remains FAIL, even when another check could not run.
+process.exitCode = process.exitCode === 1 ? 1 : unperformed.length ? 2 : 0
