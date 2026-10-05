@@ -12,6 +12,7 @@ import {
   verify as edVerify,
 } from 'node:crypto'
 import { canonicalJSON } from '../../kernel-seed/canonical-json.mjs'
+import { GRANT_DOMAIN_V5 } from '../../../../aukora-aumlok/lib/grant-domain.mjs'
 import {
   delegationClaimDigest,
   parseDelegationClaim,
@@ -30,7 +31,7 @@ import {
   REFUSE,
 } from './grant.mjs'
 
-export const GRANT_DOMAIN_V5 = 'aukora:tool-grant:v5'
+export { GRANT_DOMAIN_V5 }
 
 /** One v5 action grant remains bounded to one hour. */
 export const MAX_TTL_SECONDS_V5 = 3600

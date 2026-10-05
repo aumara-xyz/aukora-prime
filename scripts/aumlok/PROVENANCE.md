@@ -344,3 +344,17 @@ node scripts/aumlok/project.mjs "$D"
 Expected from step 1: `AUMLOK ADAPTER: GREEN` with `MUTATION ARMS: 5 run, 5 detected, 0 missed`, and
 `AUMLOK SIGNER: GREEN`, all exit 0. A missing mutation target (stale mutation text) is reported as a
 failure, never skipped.
+
+
+## 2026-10-05 neutral v5 grant-domain module (source only)
+
+`plugins/aukora-aumlok/lib/grant-domain.mjs` and its adjacent declaration expose
+the existing `aukora:tool-grant:v5` literal without imports, filesystem access,
+session objects or authority state. The literal was extracted from
+`plugins/aukora-box/aukora/host-dsh/src/grant-v5.mjs` at Prime source commit
+`c5dd93c9683c1d884adb9b3d9d0f4c57565b0156` (original SHA256
+`f39ebe3135c7c174104d3823cd2a257c80d6e443183c1679403f9e312689cad2`).
+The action adapter retains its old export; the Aura evidence adapter imports
+the neutral module directly. Existing canonical Aumlok delegation code, donor
+hashes, domains, validation and attenuation behavior are preserved verbatim.
+This adds no verifier, policy kernel, enrollment or operational authority.

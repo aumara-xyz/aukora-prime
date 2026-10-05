@@ -22,7 +22,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { canonicalJSON } from '../kernel-seed/canonical-json.mjs'
-import { GRANT_DOMAIN_V5 } from '../host-dsh/src/grant-v5.mjs'
+import { GRANT_DOMAIN_V5 } from '../../../aukora-aumlok/lib/grant-domain.mjs'
 import {
   readAukoraId,
   readClosedDataRecord,

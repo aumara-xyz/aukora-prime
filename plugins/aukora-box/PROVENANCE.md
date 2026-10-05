@@ -183,3 +183,19 @@ These imports are unchanged and their targets were not copied. Node built-ins us
 - `aukora/supervisor/developer-launch.mjs:107-190` derives Deep's root from `../..` and expects root manifests/lockfiles, profiles, CLI boot/configuration, bundles and review/client assets. These outside-aukora runtime paths are not supplied.
 
 No import rewrites or proposed edits were applied. Running the full launch paths requires their original outside dependencies and runtime layout; the copy alone does not resolve them.
+
+
+## 2026-10-05 neutral v5 domain adaptation (source only)
+
+The selected original runtime and declaration closure was copied verbatim from
+Prime source commit `c5dd93c9683c1d884adb9b3d9d0f4c57565b0156` before this adaptation.
+The historical donor hashes above remain historical original identities.
+
+`aukora/host-dsh/src/grant-v5.mjs` now imports the unchanged
+`aukora:tool-grant:v5` literal from `plugins/aukora-aumlok/lib/grant-domain.mjs`
+and retains its compatibility export; its declaration re-exports the same
+literal type. `aukora/aura/authority-evidence.mjs` imports that neutral module
+directly. Claim inventories, canonical bytes, digest and signature preimages,
+parsers, refusal names and action-verification behavior are unchanged.
+The neutral module has no imports or runtime state. This is a local source
+adaptation, with no installed-system or runtime qualification claim.

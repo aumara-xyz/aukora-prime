@@ -59,7 +59,7 @@ export interface GrantV5Expectation {
   claimNonce?: (nonce: string, exp: number) => true | false | 'malformed' | 'uncertain'
 }
 
-export declare const GRANT_DOMAIN_V5: 'aukora:tool-grant:v5'
+export { GRANT_DOMAIN_V5 } from '../../../../aukora-aumlok/lib/grant-domain.mjs'
 export declare const MAX_TTL_SECONDS_V5: 3600
 export declare const AUTHORIZATION_V5_CLAIM_KEYS: readonly string[]
 export declare const GRANT_V5_KEYS: readonly string[]
