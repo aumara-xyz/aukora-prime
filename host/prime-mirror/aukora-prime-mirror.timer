@@ -1,7 +1,11 @@
+# The 10-minute auto-refresh is retired (Peter 2026-10-06, decision 2a): every refresh swaps
+# the feed's inode, which the running sandbox's binding label reads as drift and stops the
+# sandbox. The mirror now refreshes only when a release is switched — run the oneshot service
+# and recreate the sandbox right after (recreate-on-release). F's immutable generations
+# replace the swap later. This unit intentionally has no [Install]: it must not come back at boot.
 [Unit]
-Description=Refresh AUKORA Prime main mirror every 10 min
+Description=Refresh AUKORA Prime main mirror every 10 min (DISABLED: recreate-on-release only)
+
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=10min
-[Install]
-WantedBy=timers.target

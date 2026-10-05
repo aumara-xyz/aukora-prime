@@ -3,6 +3,9 @@
 # and the harness (aukora-host in auma-ws) can read, nobody but root can write. Refresh = fetch + forced checkout.
 # Lives OUTSIDE the agent-writable workspace at /srv/auma-mirror/prime-main (root-owned parent) and reaches
 # the guest only through the kernel RO bind the OpenShell workspace binding mounts at /sandbox/prime-main.
+# REFRESH POLICY (Peter 2026-10-06, decision 2a): the swap moves the feed inode, which a running sandbox's
+# binding label reads as drift — so this runs ONLY on a release switch, followed by a sandbox recreate.
+# The 10-minute timer is retired; F's immutable generations replace the swap later.
 set -euo pipefail
 REMOTE=https://github.com/aumara-xyz/aukora-prime.git
 BARE=/var/lib/aukora-prime-mirror/prime.git

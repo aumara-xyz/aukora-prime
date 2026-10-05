@@ -42,11 +42,15 @@ const componentStatus = ['| Component | Role and code | Existing check / observa
 const containment = e.observations.containment
 const baseline = containment.original_baseline
 const admission = e.observations.admission
+const exceptions = containment.named_exceptions
 const containmentStatus = [
   ...(admission ? [`**Current admission · REPORTED at ${esc(admission.evidence_at)}:** ${esc(admission.basis)} ${esc(admission.limit)}`] : []),
   `**Historical containment baseline. ${esc(containment.verdict_rule)}** The supplied operator result at ${esc(containment.evidence_at)} for runtime \`${containment.runtime_revision}\` remains **${containment.verdict}**: guest **${containment.guest.denied} DENIED / ${containment.guest.allowed} ALLOWED** (${esc(containment.guest.open_finding)}); host-as-auma **${containment.host_as_auma.denied} DENIED / ${containment.host_as_auma.allowed} ALLOWED** after the host firewall.`,
   `The original baseline at ${esc(baseline.evidence_at)} had guest **${baseline.guest_denied} DENIED / ${baseline.guest_allowed} ALLOWED** and host-as-auma **${baseline.host_denied} DENIED / ${baseline.host_allowed} ALLOWED**. The observer was ${esc(baseline.observer)}. The disposable control had ${esc(baseline.control)}; that is detection evidence, not containment PASS. Workspace operations were reported working.`,
-  `See the [three findings and their disposition](${containment.disposition_review_path}), [command scope](scripts/audit/containment/README.md) and [host-firewall scope](host/auma-local-deny/README.md). The inherited-descriptor finding stays OPEN. Required evidence: ${esc(containment.required)}. This docs task reran no live check; full containment remains unqualified.`
+  `See the [three findings and their disposition](${containment.disposition_review_path}), [command scope](scripts/audit/containment/README.md) and [host-firewall scope](host/auma-local-deny/README.md). The inherited-descriptor finding stays OPEN. Required evidence: ${esc(containment.required)}. This docs task reran no live check; full containment remains unqualified.`,
+  ...(exceptions ? [
+    `**Named host-as-auma exceptions · REPORTED at ${esc(exceptions.evidence_at)}:** ${esc(exceptions.context)}. ${esc(exceptions.disposition)}.\n\n${exceptions.routes.map(route => `- \`${esc(route.route)}\` — ${esc(route.nature)}; ${esc(route.assessment)}`).join('\n')}\n\n${esc(exceptions.verdict_rule)}.`
+  ] : [])
 ].join('\n\n')
 const outputs = [['README.md', 'current-revisions', revisions('README.md')], ['README.md', 'current-claims', claims('README.md')],
   ['README.md', 'current-containment', containmentStatus],
