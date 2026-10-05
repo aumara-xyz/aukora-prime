@@ -518,6 +518,9 @@ export async function apply(ctx, config, gateCaptureHost) {
     const live = memoryFor().read()
     const checked = new Map(governRecords(live.notes, { ...policy, ...recallContext(agent), nowMs: Date.now(),
       forgotten: live.forgotten, states: live.states }, report).map(note => [note.id, note]))
+    const eligibleCorpus = preTurn ? [...checked.values()].filter(note => recallFilter(note, {
+      now: new Date().toISOString(), states: live.states, ...recallContext(agent),
+    }).ok).length : 0
     return answers.map(answer => {
       if (!answer) return answer
       const project = notes => (notes ?? []).flatMap(shown => {
@@ -528,7 +531,13 @@ export async function apply(ctx, config, gateCaptureHost) {
       })
       const snippets = project(answer.snippets)
       const withdrawn = Array.isArray(answer.snippets) && answer.snippets.length > 0 && snippets.length === 0
-      return { ...answer, ...(withdrawn ? { availability: 'undetermined', status: 'undetermined' } : {}), snippets, memory: report,
+      // A query miss still described an earlier corpus. Refresh that current
+      // availability while preserving the recorded read attempts and failures.
+      const preTurnQuery = preTurn && Array.isArray(answer.retrieval)
+        && answer.retrieval.some(read => read.leg === 'remembered') && ['found', 'empty'].includes(answer.availability)
+      const finalAvailability = live.complete !== true
+        || (eligibleCorpus === 0 && answer.partialFailure === true) ? 'undetermined' : eligibleCorpus > 0 ? 'found' : 'empty'
+      return { ...answer, ...(preTurnQuery ? { availability: finalAvailability } : {}), ...(withdrawn ? { availability: 'undetermined', status: 'undetermined' } : {}), snippets, memory: report,
         ...(answer.remembered ? { remembered: { ...answer.remembered, notes: project(answer.remembered.notes) } } : {}) }
     })
   }

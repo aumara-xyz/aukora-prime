@@ -1090,7 +1090,8 @@ const inspectedDshBytes = {
   'packages/core/tools/src/json-schema.ts': '13deffdfd34539e23706b0fde235991da45b2f07c5c18dbbf3ca734c1da0c788',
   'packages/core/tools/lib/index.js': 'a5dad5666e38a1e16bc7b56213637621bb5a1bd5ef19337152afcf61419860c6',
   'packages/core/tools/lib/types/json-schema.js': '912e04e68c2455cbb77651031449574f992720c90311e6cbecb1d35020bc1072',
-  'vendor/cordis/lib/index.js': 'fb172fcbd060156645e16134855c659345fafa340f116711b9ffae2418f51f38',
+  // Compiled pinned base with the declared logger-exporter-disposer backport.
+  'vendor/cordis/lib/index.js': '6a9394c0877ff45218818c6e815edd038f8057e1a1deb390a8d43ec81c57691e',
 };
 for (const [path, expected] of Object.entries(inspectedDshBytes)) {
   const actualPath = join(dshRoot, path);

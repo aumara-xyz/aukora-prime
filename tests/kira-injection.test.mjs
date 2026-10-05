@@ -912,9 +912,71 @@ await arm('mounted eligible remembered corpus remains readable when the question
   const text = await recall()
   assert.match(text, /readable store holds records; no query matches or eligible items/u)
   assert.match(text, /below-threshold=/u)
+  assert.match(text, /remembered: readable\/found attempts=[1-9][0-9]*, readable\/empty attempts=0, unavailable attempts=0/u,
+    'each query must describe its eligible corpus independently of final publication')
   assert.ok(!text.includes('OWNER-QUERY-MISS-FINDING'), 'a below-threshold note must remain excluded')
   assert.doesNotMatch(text, /holds no record for this scope/u)
 })
+
+// Keep the query's recorded read attempts while checking the corpus again at
+// the actual final owner-policy await. These worlds begin with eligible notes
+// and zero relevant snippets, so withdrawing returned snippets cannot catch them.
+for (const change of ['expire', 'missing', 'corrupt']) {
+  await arm(`mounted query miss refreshes final corpus after ${change}`, async broken => {
+    const marker = `OWNER-FINAL-${change.toUpperCase()}-FINDING`
+    const run = await memoryFixture(false, `The project handoff ${marker} is staged for tomorrow.`, '')
+    const changes = [[
+      'const policy = readOwnerPolicy(await owner.describe())\n    const live = memoryFor().read()',
+      'const policy = readOwnerPolicy(await owner.describe().then(async policy => { await globalThis.__kiraInjectionFinalPolicy?.(answers); return policy }))\n    const live = memoryFor().read()',
+    ]]
+    if (broken) changes.push(change === 'expire'
+      ? ['...(preTurnQuery ? { availability: finalAvailability } : {}), ', '']
+      : ['live.complete !== true', 'false'])
+    const module = await moduleWithRevert('index.js', changes)
+    let changed = false, priorAttempts, priorAvailability, priorSnippets
+    globalThis.__kiraInjectionFinalPolicy = async answers => {
+      const reply = answers[0]
+      priorAvailability = reply.availability
+      priorSnippets = reply.snippets.length
+      priorAttempts = structuredClone(reply.retrieval)
+      await Promise.resolve()
+      for (const note of run.notes) {
+        if (change === 'expire') moveNote(run, note, 'expire')
+        else {
+          const object = join(run.home, 'kira-memory/remembered', `${note.id.slice(4)}.json`)
+          if (change === 'missing') rmSync(object)
+          else writeFileSync(object, '{not-json\n')
+        }
+      }
+      changed = true
+    }
+    try {
+      const recall = await mountMemory(run, module, { score: .01, indexedNotes: true })
+      const text = await recall()
+      assert.equal(priorAvailability, 'found', 'the query initially sees an eligible corpus')
+      assert.equal(priorSnippets, 0, 'the query already misses before publication')
+      assert.ok(priorAttempts.some(read => read.leg === 'remembered' && read.availability === 'found'))
+      assert.equal(changed, true, 'the final owner-policy await must run the fixture change')
+      assert.ok(!text.includes(marker), 'a query miss never publishes note text')
+      assert.match(text, /Query: eligible returned records=0\./u)
+      for (const leg of ['memory', 'remembered']) {
+        const reads = priorAttempts.filter(read => read.leg === leg)
+        const found = reads.filter(read => read.availability === 'found').length
+        const empty = reads.filter(read => read.availability === 'empty').length
+        assert.match(text, new RegExp(`${leg}: readable/found attempts=${found}, readable/empty attempts=${empty}, unavailable attempts=${reads.length - found - empty}`, 'u'),
+          'final availability must preserve historical read-attempt outcomes')
+      }
+      if (change === 'expire') {
+        assert.match(text, /Query: readable store; no visible records for this scope\./u)
+        assert.doesNotMatch(text, /Query: unavailable/u)
+      } else {
+        assert.match(text, /Query: unavailable; an empty store is NOT established/u)
+        assert.doesNotMatch(text, /Query: readable store; no visible records/u)
+      }
+      assert.doesNotMatch(text, /Query: readable store holds records/u)
+    } finally { delete globalThis.__kiraInjectionFinalPolicy }
+  })
+}
 
 // Exercise the production event dispatcher rather than calling an observed listener directly.
 // These are the inspected source and compiled bytes, not a commit inferred from
@@ -926,7 +988,8 @@ const dshDependencyHashes = {
   'packages/core/tools/src/json-schema.ts': '13deffdfd34539e23706b0fde235991da45b2f07c5c18dbbf3ca734c1da0c788',
   'packages/core/tools/lib/index.js': 'a5dad5666e38a1e16bc7b56213637621bb5a1bd5ef19337152afcf61419860c6',
   'packages/core/tools/lib/types/json-schema.js': '912e04e68c2455cbb77651031449574f992720c90311e6cbecb1d35020bc1072',
-  'vendor/cordis/lib/index.js': 'fb172fcbd060156645e16134855c659345fafa340f116711b9ffae2418f51f38',
+  // Compiled pinned base with the declared logger-exporter-disposer backport.
+  'vendor/cordis/lib/index.js': '6a9394c0877ff45218818c6e815edd038f8057e1a1deb390a8d43ec81c57691e',
   'packages/core/agent/src/index.ts': 'adc3f85968efc1bf6a97f66aec26d69b6c51e9c139ae0b508d94dcc9535fb8fd',
   'packages/core/agent/lib/index.js': 'fa1d790de853eb855b384a18e62b9c38df7a366344bd7bd627fe7fa68dbb5bbe',
   'packages/api/session-controller/lib/index.js': '7861bb582647249460547178a10b1476be96b38a1f557330f6d06edccd038521',
