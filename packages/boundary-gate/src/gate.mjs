@@ -778,6 +778,25 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   }
   const pendingRows = () => { sweepExpired(); return db.prepare("SELECT id,kind,target,base_sha,new_sha,why,session,created,expires FROM proposals WHERE state='pending' ORDER BY created DESC").all() }
 
+  function relayRecord(a) {
+    const hex64 = v => typeof v === 'string' && /^[0-9a-f]{64}$/u.test(v)
+    const phase = a && typeof a === 'object' ? Object.getOwnPropertyDescriptor(a, 'phase')?.value : undefined
+    if (phase === 'intent') {
+      if (!exactKeys(a, ['phase', 'author', 'client_request_id', 'body_sha256', 'bytes'])) throw new Error('relay_record intent takes exactly {phase, author, client_request_id, body_sha256, bytes}')
+    } else if (phase === 'posted') {
+      if (!exactKeys(a, ['phase', 'author', 'client_request_id', 'body_sha256', 'bytes', 'message_id', 'cursor'])) throw new Error('relay_record posted takes exactly {phase, author, client_request_id, body_sha256, bytes, message_id, cursor}')
+      if (!hex64(a.message_id) || typeof a.cursor !== 'string' || !/^[1-9][0-9]{0,18}$/u.test(a.cursor)) throw new Error('relay_record: message_id must be 64-hex and cursor a positive decimal string')
+    } else throw new Error('relay_record phase must be intent or posted')
+    if (a.author !== 'auma') throw new Error('relay_record records only the auma principal')
+    if (typeof a.client_request_id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(a.client_request_id)) throw new Error('relay_record: bad client_request_id')
+    if (!hex64(a.body_sha256) || !Number.isSafeInteger(a.bytes) || a.bytes < 1 || a.bytes > 2000) throw new Error('relay_record: body_sha256 must be 64-hex and bytes 1..2000')
+    if (phase === 'posted' && !db.prepare("SELECT 1 FROM ledger WHERE event='relay-intent' AND json_extract(detail,'$.client_request_id')=? AND json_extract(detail,'$.body_sha256')=? LIMIT 1").get(a.client_request_id, a.body_sha256))
+      throw new Error('relay_record: posted without a matching recorded intent')
+    const detail = { author: 'auma', client_request_id: a.client_request_id, body_sha256: a.body_sha256, bytes: a.bytes, ...(phase === 'posted' ? { message_id: a.message_id, cursor: a.cursor } : {}) }
+    const e = tx(() => append(phase === 'intent' ? 'relay-intent' : 'relay-posted', { detail }))
+    return { ok: true, seq: e.seq, hash: e.hash }
+  }
+
   const proposeOps = {
     ping: () => ({ ok: true, pubkey_fp: key.fp, pubkey_pem: key.pubPem }),
     targets: () => Object.entries(TARGETS).map(([t, s]) => ({ target: t, schema: s.schema, entry: s.entry, maxBytes: s.maxBytes })),
@@ -805,6 +824,10 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       for (const r of rows) { setState(r.id, 'pending', 'expired', 'harness restarted before decision'); append('expire', { proposal: r.id, target: r.target, detail: { reason: 'harness restarted before decision' } }) }
       append('harness-start', { detail: { pid: Number(pid) || null, expired_pending: rows.length } }); return { expired: rows.length }
     }),
+    // RELAY RECORD (harness only): every AUMA relay post is written to this signed ledger, and therefore into Aura, twice:
+    // an intent (body digest and size) BEFORE the harness sends it, and the server-assigned message id AFTER. It records
+    // nothing else, grants nothing, and accepts only these closed shapes. Bodies are never stored here, only digests.
+    relay_record: (a) => relayRecord(a),
     selfcheck: ({ result }) => { append('selfcheck', { detail: result && typeof result === 'object' ? result : { raw: String(result).slice(0, 2000) } }); return { ok: true } },
     log: ({ limit, target }) => {
       const n = Math.max(1, Math.min(200, Number(limit) || 30))

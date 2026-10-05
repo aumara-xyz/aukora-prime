@@ -229,3 +229,44 @@ test('N11 NUL boundary: body, refs and status reject zero bytes before SQLite', 
   assert.equal(first.message.body, control.body); assert.deepEqual(replay.message, first.message); assert(replay.replayed);
   const safeStatus = await f.client('gpt').setStatus('before-after'); assert.equal(safeStatus.doing, 'before-after');
 });
+test('claude principal: authenticates, posts chat under its server identity, never decisions', async t => {
+  const f = await fixture(t);
+  const me = await f.client('claude').whoami(); assert.equal(me.author, 'claude'); assert(!me.scopes.includes('messages:post:decision'));
+  const posted = await f.client('claude').post(message('claude-hello')); assert.equal(posted.message.author, 'claude');
+  const read = await f.client('gpt').read(); assert.equal(read.messages.at(-1).id, posted.message.id); assert.equal(read.messages.at(-1).author, 'claude');
+  assert.equal((await f.request('/v1/messages', { author: 'claude', method: 'POST', input: message('claude-decision', { kind: 'decision' }) })).code, 403);
+});
+test('auma principal: reads and posts plain chat only, under her own server identity', async t => {
+  const f = await fixture(t);
+  const me = await f.client('auma').whoami(); assert.equal(me.author, 'auma'); assert.deepEqual(me.scopes, ['messages:read', 'messages:post:chat']);
+  const posted = await f.client('auma').post(message('auma-hello')); assert.equal(posted.message.author, 'auma');
+  const seen = await f.client('grok').read(); assert.equal(seen.messages.at(-1).id, posted.message.id); assert.equal(seen.messages.at(-1).author, 'auma');
+  assert.equal((await f.request('/v1/messages', { author: 'auma' })).code, 200);
+  for (const kind of ['claim', 'review', 'decision']) assert.equal((await f.request('/v1/messages', { author: 'auma', method: 'POST', input: message(`auma-${kind}`, { kind }) })).code, 403, kind);
+  assert.equal((await f.request('/v1/status', { author: 'auma' })).code, 403);
+  assert.equal((await f.request('/v1/status', { author: 'auma', method: 'PUT', input: { doing: 'x' } })).code, 403);
+  assert.equal((await f.request('/v1/status', { author: 'grok' })).code, 200, 'other agents keep status');
+  assert.equal((await f.request('/v1/messages', { author: 'grok', method: 'POST', input: message('grok-claim', { kind: 'claim' }) })).code, 201, 'other agents keep claims');
+});
+test('auma body cap: her posts are capped at 2000 bytes while other agents keep the general cap', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.request('/v1/messages', { author: 'auma', method: 'POST', input: message('auma-max', { body: 'a'.repeat(2000) }) })).code, 201);
+  assert.equal((await f.request('/v1/messages', { author: 'auma', method: 'POST', input: message('auma-big', { body: 'a'.repeat(2001) }) })).code, 413);
+  assert.equal((await f.request('/v1/messages', { author: 'grok', method: 'POST', input: message('grok-big', { body: 'a'.repeat(2001) }) })).code, 201);
+  assert.equal((await f.client('grok').read()).messages.filter(m => m.author === 'auma').length, 1);
+});
+test('auma rate: 12 requests per minute, then 429; other agents are not throttled by her budget', async t => {
+  const f = await fixture(t);
+  for (let i = 0; i < 12; i += 1) assert.equal((await f.request('/v1/messages', { author: 'auma' })).code, 200, `request ${i + 1}`);
+  assert.equal((await f.request('/v1/messages', { author: 'auma' })).code, 429);
+  assert.equal((await f.request('/v1/messages', { author: 'auma', method: 'POST', input: message('auma-late') })).code, 429);
+  for (let i = 0; i < 13; i += 1) assert.equal((await f.request('/v1/messages', { author: 'grok' })).code, 200);
+});
+test('tail read: tail=N returns the newest N ascending in one request; bounds and mixing are refused', async t => {
+  const f = await fixture(t);
+  for (let i = 0; i < 25; i += 1) await f.client('grok').post(message(`m${i}`, { body: `message ${i}` }));
+  const r = await f.request('/v1/messages?tail=20', { author: 'auma' }); assert.equal(r.code, 200);
+  assert.equal(r.data.messages.length, 20); assert.equal(r.data.messages[0].body, 'message 5'); assert.equal(r.data.messages.at(-1).body, 'message 24');
+  assert.equal(r.data.nextCursor, r.data.messages.at(-1).cursor);
+  for (const q of ['tail=0', 'tail=21', 'tail=x', 'tail=5&after=1', 'tail=5&limit=5', 'tail=1&tail=2']) assert.equal((await f.request(`/v1/messages?${q}`, { author: 'auma' })).code, 400, q);
+});
