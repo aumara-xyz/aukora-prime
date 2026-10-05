@@ -41,8 +41,10 @@ const componentStatus = ['| Component | Role and code | Existing check / observa
   })].join('\n')
 const containment = e.observations.containment
 const baseline = containment.original_baseline
+const admission = e.observations.admission
 const containmentStatus = [
-  `**${esc(containment.verdict_rule)}** The supplied operator result at ${esc(containment.evidence_at)} for runtime \`${containment.runtime_revision}\` remains **${containment.verdict}**: guest **${containment.guest.denied} DENIED / ${containment.guest.allowed} ALLOWED** (${esc(containment.guest.open_finding)}); host-as-auma **${containment.host_as_auma.denied} DENIED / ${containment.host_as_auma.allowed} ALLOWED** after the host firewall.`,
+  ...(admission ? [`**Current admission · REPORTED at ${esc(admission.evidence_at)}:** ${esc(admission.basis)} ${esc(admission.limit)}`] : []),
+  `**Historical containment baseline. ${esc(containment.verdict_rule)}** The supplied operator result at ${esc(containment.evidence_at)} for runtime \`${containment.runtime_revision}\` remains **${containment.verdict}**: guest **${containment.guest.denied} DENIED / ${containment.guest.allowed} ALLOWED** (${esc(containment.guest.open_finding)}); host-as-auma **${containment.host_as_auma.denied} DENIED / ${containment.host_as_auma.allowed} ALLOWED** after the host firewall.`,
   `The original baseline at ${esc(baseline.evidence_at)} had guest **${baseline.guest_denied} DENIED / ${baseline.guest_allowed} ALLOWED** and host-as-auma **${baseline.host_denied} DENIED / ${baseline.host_allowed} ALLOWED**. The observer was ${esc(baseline.observer)}. The disposable control had ${esc(baseline.control)}; that is detection evidence, not containment PASS. Workspace operations were reported working.`,
   `See the [three findings and their disposition](${containment.disposition_review_path}), [command scope](scripts/audit/containment/README.md) and [host-firewall scope](host/auma-local-deny/README.md). The inherited-descriptor finding stays OPEN. Required evidence: ${esc(containment.required)}. This docs task reran no live check; full containment remains unqualified.`
 ].join('\n\n')

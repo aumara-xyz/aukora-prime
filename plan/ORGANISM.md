@@ -5,6 +5,10 @@ design points), Honey Pot round 2 (48 RAN rows disproved by fresh agents), plus 
 Labels: RAN = seen with output. SOURCE = code, not live. NOT YET. ? = reports disagree or nobody saw it.
 CHECKED-BY-CLAUDE marks what I verified on the box; everything else is as reported by its source.
 
+**Current status refresh · REPORTED, 2026-10-05 12:41 UTC:** Peter reports live release `3673b98`, old gate package `4c24fd0`, no normal admitted shell and no accepted bound workspace. Earlier bound guest 33/0 was ADMISSION-BYPASSED; host-as-auma was 40/7. Kimi later reports observer pass; admission blockers remain. This docs refresh ran no organism or live tests. Historical RAN labels below belong to their original reporters, not this task.
+
+**Overnight scope:** current allocated branches/staging only; Kimi integrates. No deployment, cards, deletion, spending, key/credential changes or enrollment is authorized. Real organism acceptance remains owed on the normal admitted route.
+
 NORTH STAR: one owner-sovereign organism. Auma proposes; only Peter's key decides; the gate applies exactly what was
 approved; Aura records it; Kira remembers it; anyone can verify it. Inside walls she cannot move.
 
@@ -12,7 +16,7 @@ approved; Aura records it; Kira remembers it; anyone can verify it. Inside walls
 - The spine works: runtime -> gate -> owner card -> exact apply -> signed ledger -> public anchors (24 to 321+ continuous).
 - Auma can speak and refuse. She cannot ACT (no shell), VERIFY (no ./prime verify), or REMEMBER (46/47 notes dropped).
 - The guest shares no files with her workspace (linux-openshell.patch.yml:14), so the shell fix is a bind, not a mapping.
-- Her workspace is 0a01aeb; the running release is 4c24fd0. What she edits is not what runs.
+- The earlier report named workspace 0a01aeb. Peter now reports live release 3673b98 and old gate package 4c24fd0; no accepted bound workspace. Source edits do not establish what runs.
 - Her memory header says "0 records" while recall returns records. aura_association's error path breaks its own schema.
 - Kira <-> Aura is not live. Aura covers the gate ledger only, with INTERIM keys.
 - Self-change on Prime does not exist as a working loop. Voice runs only in staging. Nostr node-to-node is NOT YET.
@@ -22,7 +26,7 @@ approved; Aura records it; Kira remembers it; anyone can verify it. Inside walls
 - Is semantic recall working? Auma: failed, degraded. Honey Pot: "recall is not lexical-only". Auma's own tool output wins until shown otherwise.
 - Containment: staging 35 denied / 0 allowed on 4c24fd0 with controls (Grok, Dot). Dot adds some denials were missing executables,
   not permissions, and the staging result does not cover the new workspace bind. Live runtime result: not shown.
-- Which release runs: four sources say 4c24fd0; the front door says cdfb55f/3ac3509. Not checked by me.
+- Current reported runtime is 3673b98, with old gate package 4c24fd0. Historical release disagreements remain historical; no current runtime readback ran in this docs refresh.
 
 ## NEW from the Honey Pot, ranked by danger
 1. Provider credential exposure to Auma's file tool (detail withheld from this public file; see relay c181). Rotation is Peter's
@@ -59,12 +63,12 @@ LATER: Nostr on Prime and three test nodes, voice into Auma Live, WASM cell / Fi
 
 ## Checkpoints today
 10:00 Tier 0 done; Tier 1 items 1-2 staged. 13:00 staging RAN for items 1-4, Kimi + GPT review of the frozen candidate.
-16:00 candidate live; Auma reruns her diagnosis. 19:00 item 5 RAN or a named blocker.
+The earlier 16:00 live-candidate target is superseded by the overnight branches/staging-only allocation. Kimi integrates source handoffs; any future deployment needs separate authorization. Item 5 remains RAN only with actual organism output, otherwise a named blocker.
 Each checkpoint: Status updated from RAN evidence only. Disproved claims go back to ?.
 
 ## Feature status (merged)
-THE WALL: separate Linux users RAN | firewall for auma RAN | guest containment: staging 35/0 with controls, live ? | workspace bind
-NOT YET | .git read-only kernel mount NOT YET | exact mount inventory SOURCE | pre-Node hash bootstrap SOURCE (reported RAN) | launcher
+THE WALL: separate Linux users RAN | firewall for auma RAN | guest containment: historical staging 35/0; later bound 33/0 ADMISSION-BYPASSED, host-as-auma 40/7; observer pass reported, admission open | workspace bind
+NOT ACCEPTED | .git read-only kernel mount NOT YET | exact mount inventory SOURCE | pre-Node hash bootstrap SOURCE (reported RAN) | launcher
 in hash closure SOURCE | firewall-missing-means-no-start SOURCE.
 GATE + AUMLOK: owner card one-click, gate-labelled RAN | exact-byte apply + floor RAN (seq 302) | relay posts in the gate ledger RAN
 (seq 308/309) | owner-key (G) SOURCE inert | Aumlok phrase works on Prime ? | wrong owner/pin/grant refused ?.
