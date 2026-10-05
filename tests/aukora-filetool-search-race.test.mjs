@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Read-path consistency/security regressions over the carried tool registry, action gate, grep body,
+// local subprocess provider and packaged ripgrep. Only synthetic files change.
+// An exposed canary is a FAILURE, never an accepted window or containment PASS.
+// Run directly with `node` to preserve UNPERFORMED exit 2 when vendor/dsh is
+// absent. --dsh-root <absolute path> selects a local materialization; its module
+// hashes are printed. This does not establish an installed/current DSH build.
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import test from 'node:test'
+import * as ActionGate from '../plugins/aukora-action-gate/lib/index.mjs'
+
+const supplied = process.argv.slice(2)
+if (supplied.length !== 0 && (supplied.length !== 2 || supplied[0] !== '--dsh-root' || !isAbsolute(supplied[1]))) {
+  throw new Error('expected only --dsh-root <absolute path>')
+}
+const dshRoot = supplied[1] ?? fileURLToPath(new URL('../vendor/dsh', import.meta.url))
+const paths = {
+  tools: 'packages/core/tools/lib/index.js',
+  prompt: 'packages/core/system-prompt/lib/index.js',
+  subprocess: 'packages/subprocess/subprocess-local/lib/index.js',
+  search: 'packages/fs/tool-fs-search/lib/index.js',
+}
+const missing = Object.values(paths).filter(path => !existsSync(join(dshRoot, path)))
+if (missing.length !== 0) {
+  console.error(`UNPERFORMED: carried DSH modules unavailable: ${missing.join(', ')}`)
+  process.exit(2)
+}
+const requireDsh = createRequire(join(dshRoot, 'packages/core/tools/package.json'))
+const { Context } = await import(pathToFileURL(requireDsh.resolve('@deepseek-ai/cordis')).href)
+const loaded = await Promise.all(Object.values(paths).map(path => import(pathToFileURL(join(dshRoot, path)).href)))
+const [{ default: ToolRuntime }, { default: SystemPrompt }, { default: LocalSubprocessRuntime }, ToolFsSearch] = loaded
+for (const [role, path] of Object.entries(paths)) {
+  console.log(`SOURCE module ${role} sha256=${createHash('sha256').update(readFileSync(join(dshRoot, path))).digest('hex')}`)
+}
+
+const publicCanary = 'SEARCH_CANARY_PUBLIC'
+const secretCanary = 'SEARCH_CANARY_SYNTHETIC_SECRET'
+let callId = 0
+
+async function fixture(t, { executionRecheck = false } = {}) {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'aukora-search-race-'))
+  const workspace = join(root, 'workspace')
+  const target = join(workspace, 'search')
+  const replacement = join(root, 'replacement')
+  for (const path of [target, replacement]) mkdirSync(path, { recursive: true })
+  writeFileSync(join(target, 'public.txt'), `${publicCanary}\n`)
+  writeFileSync(join(replacement, 'auma.key'), `${secretCanary}\n`)
+  const ctx = new Context()
+  const fibers = []
+  t.after(async () => { for (const fiber of fibers.reverse()) await fiber.dispose() })
+  fibers.push(await ctx.plugin(SystemPrompt))
+  fibers.push(await ctx.plugin(ToolRuntime))
+  fibers.push(await ctx.plugin(LocalSubprocessRuntime))
+  fibers.push(await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: true }))
+  let sameGuard
+  const registerGuard = ctx.tools.guard
+  ctx.tools.guard = function (guard) { sameGuard = guard; return registerGuard.call(this, guard) }
+  t.after(() => { ctx.tools.guard = registerGuard })
+  fibers.push(await ctx.plugin(ActionGate, {
+    auraDir: join(root, 'aura'), dshHome: join(root, 'state', 'home'), home: root,
+    supportRoot: join(root, 'support'), repoRoots: [], releaseRoots: [], readRoots: [],
+    defaultWorkspace: workspace, confineReads: true, allowLoopback: false, networkAllow: [],
+  }))
+  ctx.tools.guard = registerGuard
+  assert.equal(typeof sameGuard, 'function', 'capture the actual mounted guard, without substituting a verdict')
+  if (executionRecheck) {
+    // Minimal defensive candidate, in this disposable registry only: run the
+    // SAME production guard/receipt writer again immediately before the body.
+    // No production source is changed and no additional policy is invented.
+    const definition = ctx.tools.get('grep')
+    const execute = definition.execute
+    definition.execute = function (args, exec) {
+      const reason = sameGuard(exec)
+      if (reason !== undefined) throw new Error(reason)
+      return execute.call(this, args, exec)
+    }
+    t.after(() => { definition.execute = execute })
+  }
+  const agent = { id: 'synthetic-search-agent', session: { header: { id: 'synthetic-search-session', cwd: workspace } } }
+  const swap = () => {
+    // Two synchronous renames happen in a test-controlled seam before launch;
+    // no sleep, scheduling guess, deletion or real credential is involved.
+    renameSync(target, join(workspace, 'approved-original'))
+    renameSync(replacement, target)
+  }
+  const call = () => ctx.tools.execute({
+    signal: new AbortController().signal, callId: `synthetic-search-${++callId}`,
+    name: 'grep', arguments: { path: 'search', pattern: 'SEARCH_CANARY_' }, agent,
+  })
+  const decisions = () => readFileSync(join(root, 'aura', 'aura.jsonl'), 'utf8').trim().split('\n')
+    .map(line => JSON.parse(line)).filter(row => row.op === 'tool.decision')
+  return { ctx, call, swap, target, decisions }
+}
+
+const output = result => JSON.stringify({
+  value: result.value, content: result.content, meta: result.meta,
+})
+const secretAbsent = result => assert.equal(output(result).includes(secretCanary), false,
+  'UNRESOLVED grep TOCTOU: synthetic credential canary reached canonical results or presentation')
+
+test('genuine carried grep has an available-target clean control', async t => {
+  const f = await fixture(t)
+  const result = await f.call()
+  assert.equal(result.isError, false, 'clean search must actually execute, not fail because a provider is unavailable')
+  assert.equal(f.decisions().at(-1)?.decision, 'allow', 'actual Aura receipt must record admission')
+  assert.ok(result.value?.matches.some(match => match.line === publicCanary))
+  assert.ok(output(result).includes(publicCanary), 'actual rendered search output must contain the public control')
+  secretAbsent(result)
+})
+
+test('a credential present before the guard prevents real grep launch', async t => {
+  const f = await fixture(t)
+  f.swap()
+  let launches = 0
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  f.ctx.subprocess.spawn = spec => { launches++; return spawn(spec) }
+  const result = await f.call()
+  assert.equal(result.isError, true)
+  assert.match(output(result), /key-material:auma-relay-key/u)
+  assert.equal(launches, 0, 'actual guard refusal must prevent subprocess execution')
+  assert.equal(f.decisions().at(-1)?.decision, 'deny', 'actual Aura receipt must record refusal')
+  secretAbsent(result)
+})
+
+test('a concurrent fixture writer after the read-path check must not expose protected bytes', async t => {
+  const f = await fixture(t)
+  let aroundCalls = 0
+  f.ctx.on('tools/execute', async (exec, next) => {
+    assert.equal(exec.name, 'grep')
+    aroundCalls++
+    f.swap()
+    return next()
+  })
+  const result = await f.call()
+  assert.equal(aroundCalls, 1, 'the genuine registry must have admitted the call before mutation')
+  assert.equal(f.decisions().at(-1)?.decision, 'allow', 'mutation occurs after a genuine receipted allow')
+  secretAbsent(result)
+})
+
+test('a concurrent fixture writer at the read launch must not expose protected bytes', async t => {
+  const f = await fixture(t)
+  let launches = 0
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  f.ctx.subprocess.spawn = spec => {
+    launches++
+    assert.ok(spec.argv.includes('--json'), 'interposition must still delegate the carried grep argv')
+    f.swap()
+    return spawn(spec)
+  }
+  const result = await f.call()
+  assert.equal(launches, 1, 'actual local subprocess provider must receive the launch')
+  assert.equal(f.decisions().at(-1)?.decision, 'allow', 'launch follows a genuine receipted allow')
+  secretAbsent(result)
+})
+
+test('minimal execution-time recheck refuses a fixture changed after admission', async t => {
+  const f = await fixture(t, { executionRecheck: true })
+  let launches = 0
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  f.ctx.subprocess.spawn = spec => { launches++; return spawn(spec) }
+  f.ctx.on('tools/execute', async (_exec, next) => { f.swap(); return next() })
+  const result = await f.call()
+  assert.equal(result.isError, true)
+  assert.equal(launches, 0, 'the real guard recheck must refuse before starting the actual reader')
+  assert.equal(f.decisions().at(-1)?.decision, 'deny')
+  secretAbsent(result)
+})
+
+test('minimal execution-time recheck must still cover a writer at the read launch', async t => {
+  const f = await fixture(t, { executionRecheck: true })
+  let launches = 0
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  f.ctx.subprocess.spawn = spec => { launches++; f.swap(); return spawn(spec) }
+  const result = await f.call()
+  assert.equal(launches, 1, 'candidate still reaches the actual local reader')
+  assert.deepEqual(f.decisions().map(row => row.decision), ['allow', 'allow'], 'both actual guard checks precede mutation')
+  secretAbsent(result)
+})
