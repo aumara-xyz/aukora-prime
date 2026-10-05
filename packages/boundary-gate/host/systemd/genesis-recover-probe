@@ -1,0 +1,24 @@
+#!/bin/bash
+# Genesis recovery probe (Peter overnight item 5): restarts the SAME release only after the
+# floor check AND the real boundary self-check pass. Never edits release.env, never switches
+# releases, quiet no-op while Genesis is active or already starting, and never runs its
+# self-check concurrently with another self-check (concurrent admissions exceed the 4s
+# deadline — measured on staging 2026-10-05). Root-owned 0755.
+set -u
+systemctl is-active --quiet aukora-genesis && exit 0
+systemctl is-active --quiet aukora-selfcheck.service && exit 0
+[ "$(systemctl show -p ActiveState --value aukora-genesis)" = activating ] && exit 0
+[ "$(systemctl show -p ActiveState --value aukora-selfcheck.service)" = activating ] && exit 0
+. /etc/aukora-genesis/release.env
+export AUKORA_RELEASE_DIR AUKORA_APPROVAL_ROOT AUKORA_RECORD_SHA
+/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap floor check \
+  --release-dir "$AUKORA_RELEASE_DIR" --approval-state-root "$AUKORA_APPROVAL_ROOT" || exit 0
+# The self-check proves the harness boundary only as the harness user.
+runuser -u aukora-host -- /usr/local/lib/aukora-boundary/selfcheck-with-retry -- \
+  --run /run/aukora-gate --gate-home /home/aukora-gate \
+  --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis \
+  --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs \
+  --forbid-write /usr/local/lib/aukora-boundary/sbx-exec || exit 0
+echo "genesis-recover-probe: checks passed, restarting aukora-genesis (same release)"
+systemctl reset-failed aukora-genesis
+systemctl restart aukora-genesis

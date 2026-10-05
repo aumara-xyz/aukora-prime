@@ -8,6 +8,9 @@ OnFailure=aukora-genesis-failclosed.service
 
 [Service]
 Type=oneshot
+# A completed oneshot must stay 'active (exited)': aukora-genesis.service binds to this
+# unit, and a dead state makes every later Genesis start lose the dependency race.
+RemainAfterExit=yes
 RemainAfterExit=yes
 User=aukora-host
 Group=aukora-host

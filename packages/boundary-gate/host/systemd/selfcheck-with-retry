@@ -7,8 +7,9 @@
 set -u
 [ "${1:-}" = -- ] && shift
 L=/usr/local/lib/aukora-boundary
+SELFCHECK_ARGS=("$@")
 attempt () {
-  OUT=$(/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs "$@" 2>&1); RC=$?
+  OUT=$(/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs ${SELFCHECK_ARGS[@]+"${SELFCHECK_ARGS[@]}"} 2>&1); RC=$?
   [ $RC -eq 0 ] && return 0
   LEG=$(printf '%s' "$OUT" | python3 -c "
 import json, sys
