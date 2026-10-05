@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { registerHooks } from 'node:module'
 import { zstdCompressSync } from 'node:zlib'
 import { createTrackedMemory, contentHash, memoryChain } from '../plugins/aukora-kira/lib/tracked-memory.mjs'
 import { createVikingDoor } from '../plugins/aukora-kira/lib/viking-door.mjs'
@@ -19,6 +20,25 @@ import { stageKiraMemoryRecord, memoryEffectBody } from '../plugins/aukora-kira/
 import { createOpenVikingRecall, modelsOffMachine, readBridgeConfig } from '../plugins/aukora-kira/lib/recall-openviking.mjs'
 import { digestsOfPhrases, writeForbiddenDigests } from '../plugins/aukora-kira/lib/forbidden-digests.mjs'
 import { applyHarness } from '../plugins/aukora-kira/lib/memory-harness.mjs'
+const retryMutantIndex = process.argv.indexOf('--mutant')
+const retryMutant = retryMutantIndex < 0 ? null : process.argv[retryMutantIndex + 1]
+assert(retryMutantIndex < 0 || retryMutant === 'retry-success-reset', 'unknown or missing focused retry mutant')
+let retryMutationApplied = false
+const retryModule = new URL('../plugins/aukora-kira/lib/tracked-memory.mjs?retry-recovery-control', import.meta.url)
+if (retryMutant) registerHooks({
+  load(url, context, next) {
+    const loaded = next(url, context)
+    if (url !== retryModule.href) return loaded
+    const source = typeof loaded.source === 'string' ? loaded.source : Buffer.from(loaded.source).toString('utf8')
+    const before = 'failures: failed ? claim.next.failures : 0'
+    assert.equal(source.split(before).length, 2, 'actual production success reset must exist exactly once')
+    retryMutationApplied = true
+    return { ...loaded, source: source.replace(before, 'failures: claim.next.failures') }
+  },
+})
+// Only the focused fixture loads the guard-removed actual module. Production
+// files and all existing groups keep their original imports and assertions.
+const retryMemory = retryMutant ? (await import(retryModule.href)).createTrackedMemory : createTrackedMemory
 const root = mkdtempSync(join(tmpdir(), 'kira-shared-memory-')), stateDir = join(root, 'home/kira-memory')
 const subject = 'aukora:1:' + '3c'.repeat(32), files = new Map(), scores = new Map()
 const config = { configured: true, url: 'http://scratch.invalid', account: 'scratch', user: 'scratch', key: 'not-a-secret', limit: 5, scoreThreshold: 0.4 }
@@ -114,6 +134,99 @@ try {
     assert.equal((await queued.retry()).pending, 0)
     assert.equal(queued.read().notes.length, 6)
     for (const note of queued.read().notes) files.delete(`viking://user/scratch/memories/kira/content/${note.contentHash}.md`)
+  })
+  await arm('retry counter saturation at 20 still schedules and durably recovers after store and bridge recreation', async () => {
+    const retryState = join(root, 'retry-saturation'), statement = 'A painted wooden weather vane stands beside the orchard.'
+    const retryConfig = { ...config, syncBatch: 2, retryBaseMs: 30_000 }
+    const uri = `viking://user/scratch/memories/kira/content/${contentHash(statement)}.md`
+    let clock = Date.parse('2026-10-01T00:00:00Z'), writes = 0
+    const retryFetch = async (...args) => {
+      if (new URL(args[0]).pathname === '/api/v1/content/write') writes++
+      return fakeFetch(...args)
+    }
+    const make = () => retryMemory({ stateDir: retryState, subject, config: retryConfig, fetch: retryFetch, now: () => clock })
+    let store = make()
+    down = true
+    try {
+      const first = await store.remember({ text: statement, from: 'retry-first' })
+      const second = await store.remember({ text: statement, from: 'retry-second' })
+      assert.equal(first.remembered, 1); assert.equal(second.remembered, 1)
+      assert.equal(new Set([...first.ids, ...second.ids]).size, 2)
+      const ids = store.read().notes.map(note => note.id).sort(), chain = JSON.stringify(memoryChain(retryState))
+      const retryPath = join(retryState, 'remembered/index/retry.json')
+      let due
+      for (let attempt = 1; attempt <= 21; attempt++) {
+        const before = writes, result = await store.retry()
+        assert.equal(result.skipped, false, `attempt ${attempt} must still run`)
+        assert.equal(result.failures, Math.min(attempt, 20))
+        assert.equal(result.pending, 1); assert.equal(result.requests, 1)
+        assert.equal(writes, before + 1)
+        assert.equal(result.nextRetryAt - clock, Math.min(900_000, 30_000 * 2 ** (result.failures - 1)))
+        const durable = JSON.parse(readFileSync(retryPath, 'utf8'))
+        assert.equal(durable.failures, result.failures); assert.equal(durable.leaseUntil, 0)
+        assert.equal(durable.nextRetryAt, result.nextRetryAt)
+        assert.deepEqual(store.read().notes.map(note => note.id).sort(), ids)
+        assert.equal(JSON.stringify(memoryChain(retryState)), chain)
+        assert.equal(files.has(uri), false)
+        due = result.nextRetryAt; clock = due
+      }
+      // A recreated store and bridge observe the durable deadline, then resume without
+      // a reset, force, deletion, or another capture when the provider recovers.
+      store = make(); down = false; clock = due - 1
+      const before = writes, early = await store.retry()
+      assert.equal(early.skipped, true); assert.equal(early.reason, 'retry-backoff')
+      assert.equal(early.requests, 0); assert.equal(writes, before)
+      clock = due
+      const recovered = await store.retry()
+      assert.equal(recovered.skipped, false); assert.equal(recovered.added, 1); assert.equal(recovered.pending, 0)
+      assert.ok(recovered.requests <= recovered.batchSize)
+      assert.equal(files.get(uri), statement)
+      const ack = JSON.parse(readFileSync(join(retryState, 'remembered/index/ack.json'), 'utf8'))
+      assert.deepEqual(Object.keys(ack), [uri]); assert.deepEqual([...ack[uri].ids].sort(), ids)
+      assert.equal(ack[uri].contentHash, contentHash(statement))
+      assert.deepEqual(store.read().notes.map(note => note.id).sort(), ids)
+      assert.equal(JSON.stringify(memoryChain(retryState)), chain)
+      assert.equal(recovered.failures, 0, 'successful retry must reset the failure counter')
+      assert.equal(recovered.nextRetryAt, 0)
+      assert.deepEqual(JSON.parse(readFileSync(retryPath, 'utf8')), { failures: 0, leaseUntil: 0, nextRetryAt: 0 })
+    } finally { down = false; files.delete(uri) }
+  })
+  await arm('forced recovery bypasses backoff but preserves an active durable retry lease', async () => {
+    const retryState = join(root, 'retry-lease'), statement = 'The painted blue garden gate stands open beside the oldest orchard pear tree.'
+    const uri = `viking://user/scratch/memories/kira/content/${contentHash(statement)}.md`
+    let clock = Date.parse('2026-10-02T00:00:00Z'), writes = 0
+    const retryFetch = async (...args) => {
+      if (new URL(args[0]).pathname === '/api/v1/content/write') writes++
+      return fakeFetch(...args)
+    }
+    const make = () => retryMemory({ stateDir: retryState, subject, config: { ...config, syncBatch: 2 }, fetch: retryFetch, now: () => clock })
+    let store = make()
+    down = true
+    try {
+      const captured = await store.remember({ text: statement, from: 'retry-lease' })
+      assert.equal(captured.remembered, 1); assert.equal(captured.index.pending, 1)
+      const chain = JSON.stringify(memoryChain(retryState)), ids = store.read().notes.map(note => note.id)
+      const retryPath = join(retryState, 'remembered/index/retry.json')
+      const leaseUntil = clock + 60_000
+      const leased = { failures: 20, nextRetryAt: clock + 900_000, leaseUntil, token: 'scratch-existing-flight' }
+      mkdirSync(join(retryState, 'remembered/index'), { recursive: true })
+      writeFileSync(retryPath, JSON.stringify(leased) + '\n')
+      store = make(); down = false
+      const before = writes, active = await store.retry({ force: true })
+      assert.equal(active.skipped, true); assert.equal(active.reason, 'retry-in-flight')
+      assert.equal(active.requests, 0); assert.equal(writes, before)
+      assert.deepEqual(JSON.parse(readFileSync(retryPath, 'utf8')), leased)
+      clock = leaseUntil
+      const recovered = await store.retry({ force: true, batchSize: 1 })
+      assert.equal(recovered.skipped, false, 'expired lease must permit forced recovery')
+      assert.equal(recovered.requests, 1, `forced recovery must spend only its requested batch: ${JSON.stringify(recovered)}`)
+      assert.equal(recovered.added, 1, 'forced recovery must acknowledge the pending content')
+      assert.equal(recovered.pending, 0)
+      assert.equal(recovered.failures, 0); assert.equal(recovered.nextRetryAt, 0)
+      assert.equal(files.get(uri), statement)
+      assert.deepEqual(store.read().notes.map(note => note.id), ids)
+      assert.equal(JSON.stringify(memoryChain(retryState)), chain)
+    } finally { down = false; files.delete(uri) }
   })
   await arm('summary-only hits fetch exact content; tampered and unchained indexed hits are dropped and counted', async () => {
     const [uri, text] = files.entries().next().value
@@ -335,4 +448,5 @@ try {
   })
 } finally { rmSync(root, { recursive: true, force: true }) }
 console.log(`kira-openviking-recall: ${passed} passed, ${failed} failed (scratch only)`)
+if (retryMutant) assert(retryMutationApplied, 'focused production retry mutation must be applied')
 process.exitCode = failed ? 1 : 0

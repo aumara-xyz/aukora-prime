@@ -45,6 +45,7 @@ const ARMS = Object.freeze({
   auma: '2. auma: the mounted plugin captures a spoken turn from auma/turn-finished',
   everything: '3. everything: every finished owner turn, text chat and Auma Live, becomes a remembered note',
   keeps: '3k. keeps: off the record, lane door, secret scan, no authority and the separate chain still hold',
+  rememberBudget: '3b. native remember: over-budget UTF-8 input refuses before storage or indexing',
   tier: '4a. tier: a note under remembered/ that says signed is listed as Remembered',
   chain: '4b. chain: verify reads the chain, so a deleted or rewritten chain is not VERIFIED',
   forget: '5. forget: explicit cell staging stays inert; forget reaches its pending copy and names unreached stores',
@@ -67,6 +68,18 @@ const MUTANTS = Object.freeze({
     from: '  const whole = wholeTurnText(text)\n',
     to: "  const whole = ''\n",
     arm: ARMS.everything,
+  },
+  'native-remember-budget-bypassed': {
+    file: 'plugins/aukora-kira/lib/index.js',
+    from: "if (Buffer.byteLength(text, 'utf8') > MAX_REMEMBER_INPUT_BYTES)",
+    to: 'if (false)',
+    arm: ARMS.rememberBudget,
+  },
+  'native-remember-characters-as-bytes': {
+    file: 'plugins/aukora-kira/lib/index.js',
+    from: "Buffer.byteLength(text, 'utf8') > MAX_REMEMBER_INPUT_BYTES",
+    to: 'text.length > MAX_REMEMBER_INPUT_BYTES',
+    arm: ARMS.rememberBudget,
   },
   'automatic-authority': {
     file: 'plugins/aukora-kira/lib/memory-tiers.mjs',
@@ -195,7 +208,10 @@ function filesUnder(dir) {
 
 const work = mkdtempSync(join(tmpdir(), 'kira-memory-live-path-'))
 const bridgeHome = process.env.AUKORA_OPENVIKING_HOME, originalFetch = globalThis.fetch, disposers = []
+const priorState = process.env.AUKORA_STATE, priorRoom = process.env.AUKORA_ROOM_LOG
 process.env.AUKORA_OPENVIKING_HOME = join(work, 'openviking')
+process.env.AUKORA_STATE = work
+process.env.AUKORA_ROOM_LOG = join(work, 'absent-room.jsonl')
 globalThis.fetch = () => { throw Error('memory-live-path fixture prohibits all network/provider calls') }
 assert.equal(statSync(work).mode & 0o777, 0o700)
 assert.ok(!work.includes('Application Support'), `refusing: ${work} is not a scratch directory`)
@@ -401,6 +417,59 @@ try {
     const approvedChain = approvedChainNow()
     const rememberedWith = async words => (await listed('remembered')).filter(one => String(one.text).includes(words))
 
+    await arm(ARMS.rememberBudget, async () => {
+      const tool = tools.get('kira_remember')
+      assert.equal(typeof tool?.execute, 'function', 'the actual mounted native remember tool is required')
+      const limit = tool.parameters.properties.text.maxLength
+      assert.ok(Number.isSafeInteger(limit) && limit > 0, 'the native tool must advertise its input byte ceiling')
+      // Settle the mount's absent-bridge retry before enabling a recording
+      // synthetic bridge. No request here reaches a network or provider.
+      await new Promise(setImmediate)
+      await new Promise(setImmediate)
+      const bridge = process.env.AUKORA_OPENVIKING_HOME
+      mkdirSync(bridge, { recursive: true, mode: 0o700 })
+      writeFileSync(join(bridge, 'aukora-bridge.json'), JSON.stringify({ url: 'http://127.0.0.1:1' }))
+      writeFileSync(join(bridge, 'root.key'), 'disposable-bridge-key')
+      writeFileSync(join(bridge, 'ov.conf'), '{}')
+      const requests = []
+      globalThis.fetch = async (url, options = {}) => {
+        requests.push({ path: new URL(url).pathname, method: options.method })
+        return Response.json({ status: 'ok', result: {} })
+      }
+      const snapshot = () => filesUnder(stateDir).map(file => ({ path: relative(stateDir, file.path), text: file.text }))
+        .sort((a, b) => a.path.localeCompare(b.path))
+      const prefix = 'The invented orbital beacon is visible at the eastern edge. '
+      const ascii = prefix + 'x'.repeat(Math.max(0, limit + 1 - prefix.length))
+      const multibyte = 'The invented orbital beacon ' + '🌌'.repeat(Math.ceil(limit / 4))
+      assert.ok(ascii.length > limit)
+      assert.ok(multibyte.length <= limit && Buffer.byteLength(multibyte, 'utf8') > limit,
+        'the multibyte control must fit a character count while exceeding the byte budget')
+      try {
+        for (const text of [ascii, multibyte]) {
+          const before = snapshot(), requestCount = requests.length
+          const result = await tool.execute({ text }, { agent: { session: hostSession } })
+          assert.deepEqual(snapshot(), before, 'over-budget native input must not write any memory/index file')
+          assert.equal(requests.length, requestCount, 'over-budget native input must not call the index bridge')
+          assert.equal(result.remembered, 0)
+          assert.deepEqual(result.ids, [])
+          assert.equal(result.reason, 'remember-input-too-long')
+          assert.equal(result.maxInputBytes, limit)
+          assert.equal(result.grantsAuthority, false)
+        }
+        const atLimit = prefix.repeat(Math.ceil(limit / prefix.length)).slice(0, limit)
+        const accepted = await tool.execute({ text: atLimit }, { agent: { session: hostSession } })
+        assert.ok(accepted.remembered > 0, 'the exact byte boundary must accept an ordinary note')
+        const { readTrackedMemory } = await load('plugins/aukora-kira/lib/tracked-memory.mjs')
+        assert.ok(readTrackedMemory(stateDir).notes.some(note => note.statement === atLimit),
+          'accepted native input must preserve its exact bytes')
+        assert.ok(requests.some(request => request.path === '/api/v1/content/write'),
+          'the positive control must reach the recording index bridge')
+      } finally {
+        globalThis.fetch = () => { throw Error('memory-live-path fixture prohibits all network/provider calls') }
+        rmSync(bridge, { recursive: true, force: true })
+      }
+    })
+
     // ── ARM 2: AUMA LIVE REACHES MEMORY ──────────────────────────────────────────────────────────────────────────────
     await arm(ARMS.auma, async () => {
       assert.ok(on('auma/turn-finished').length > 0, 'the mounted plugin does not listen for auma/turn-finished')
@@ -494,7 +563,8 @@ try {
       assert.ok(!joined.includes(secret), 'a turn carrying a secret-shaped token was remembered')
       assert.ok(!/knee needs surgery/u.test(joined), 'a stop-remembering voice turn was remembered')
       assert.ok(all.length >= 4, `vacuity: expected the earlier notes to be listed, got ${String(all.length)}`)
-      for (const file of filesUnder(join(stateDir, 'remembered')).filter(one => one.path.endsWith('.json'))) {
+      for (const file of filesUnder(join(stateDir, 'remembered')).filter(one => one.path.endsWith('.json')
+        && dirname(one.path) === join(stateDir, 'remembered'))) {
         assert.equal(JSON.parse(file.text).grantsAuthority, false, `${basename(file.path)} does not say grantsAuthority: false`)
       }
       assert.equal(approvedChainNow(), approvedChain, 'a capture wrote into the approved chain aura.jsonl')
@@ -598,11 +668,15 @@ try {
   globalThis.fetch = originalFetch
   if (bridgeHome === undefined) delete process.env.AUKORA_OPENVIKING_HOME
   else process.env.AUKORA_OPENVIKING_HOME = bridgeHome
+  if (priorState === undefined) delete process.env.AUKORA_STATE
+  else process.env.AUKORA_STATE = priorState
+  if (priorRoom === undefined) delete process.env.AUKORA_ROOM_LOG
+  else process.env.AUKORA_ROOM_LOG = priorRoom
   // ONLY THE DIRECTORY THIS RUN CREATED: a mkdtemp child of the temp directory with this check's own prefix.
   if (dirname(work) === resolve(tmpdir()) && basename(work).startsWith('kira-memory-live-path-')) rmSync(work, { recursive: true, force: true })
 }
 
 const total = passed + failures
-const expected = (runRelease ? 1 : 0) + (runPlugin ? 6 : 0)
+const expected = (runRelease ? 1 : 0) + (runPlugin ? 7 : 0)
 process.stdout.write(`KIRA MEMORY LIVE PATH: ${failures === 0 && total === expected ? 'GREEN' : 'RED'} — ${String(passed)}/${String(total)} arms\n`)
 process.exit(failures === 0 && total === expected ? 0 : 1)

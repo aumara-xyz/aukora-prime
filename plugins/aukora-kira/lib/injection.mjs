@@ -92,7 +92,7 @@ export const NO_VISIBLE_RECORD = 'no visible record'
 const DIAGNOSTIC_REASONS = new Set([
   'not-a-note', 'tier-not-recallable', 'instruction-never-pre-turn', 'superseded-not-recallable',
   'hidden-not-recallable', 'expired-not-recallable', 'archived-not-recallable', 'migrated-never-pre-turn',
-  'derived-record-never-pre-turn', 'scope-not-attached', 'validTo-in-the-past', 'just-heard-it',
+  'derived-record-never-pre-turn', 'model-authored-never-pre-turn', 'scope-not-attached', 'validTo-in-the-past', 'just-heard-it',
   'invalid-score', 'below-threshold', 'capacity', 'lexical-corroboration', 'semantic-threshold', 'window-backfill',
   'content-hash-mismatch', 'unmapped', 'unreadable', 'unchained', 'query-read-failed', 'remembered-read-failed', 'newest-read-failed',
 ])
@@ -523,6 +523,20 @@ export function recalledUserMessage(text, newId) {
   }
 }
 
+// Legacy read owners can supply snippets without the tracked-store publisher.
+// Respect only their explicit agent attribution; absent author metadata does
+// not invent a model classification or discard anonymous fallback DATA.
+function preTurnReply(reply) {
+  const snippets = Array.isArray(reply?.snippets) ? reply.snippets : []
+  const kept = snippets.filter(snippet => snippet?.attributedTo !== 'agent')
+  const excluded = snippets.length - kept.length
+  if (excluded === 0) return reply
+  return { ...reply, snippets: kept,
+    ...(kept.length === 0 ? { status: 'insufficient' } : {}),
+    diagnostics: [...(reply.diagnostics ?? []), { reason: 'model-authored-never-pre-turn', count: excluded }],
+  }
+}
+
 /**
  * Subscribe the recall contribution to a context's pre-step waterfall.
  *
@@ -654,6 +668,8 @@ export function registerRecallInjection(ctx, { conversation, newId, onInjected, 
       }
       // Recheck after all query/newest awaits, immediately before rendering any bytes.
       if (typeof beforePublish === 'function') [reply, recent] = await beforePublish(reply, recent, { agent })
+      reply = preTurnReply(reply)
+      recent = preTurnReply(recent)
       // A sibling leg may still contribute data, but no supplier configuration may hide a throw.
       const fault = reply.faults.length > 0 ? memoryFaultInjectionLine(reply.faults[0]) : null
       if (fault !== null && mayReturnPreviousDecisionOnMemoryFault()) return decision

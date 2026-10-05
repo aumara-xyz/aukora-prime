@@ -59,6 +59,7 @@ const KIRA = join(ROOT, 'plugins/aukora-kira')
 let arms = 0
 let passed = 0
 const MUTATE = process.argv.includes('--mutate')
+const SOURCE_ONLY = process.argv.includes('--source-only')
 const survivingAt = process.argv.indexOf('--surviving-control')
 const survivingControl = survivingAt < 0 ? undefined : process.argv[survivingAt + 1]
 strictAssert.ok(survivingAt < 0 || (MUTATE && ['quoting', 'metadata', 'directories', 'origins'].includes(survivingControl)),
@@ -530,6 +531,7 @@ const memoryFixture = async (broken = false, askText = 'Inspect the project stag
 
 // Import a changed module in memory only; an invalid/unloaded mutant is not an assertion failure.
 let mutationId = 0
+const moduleLocations = new WeakMap()
 const moduleWithRevert = async (file, from, to, dependencies = {}) => {
   const url = `${pathToFileURL(join(KIRA, 'lib', file)).href}?wiring=${++mutationId}`
   let applied = 0
@@ -553,6 +555,7 @@ const moduleWithRevert = async (file, from, to, dependencies = {}) => {
   try {
     const module = await import(url)
     if (applied !== 1) throw new Error(`mutant was not loaded: ${file}`)
+    moduleLocations.set(module, url)
     return module
   } finally { hook.deregister() }
 }
@@ -853,13 +856,13 @@ const mountMemory = async (run, module = kira, { score = .9, indexedNotes = fals
   }
 }
 await arm('mounted semantic supplier passes live journal states', async broken => {
-  const run = await memoryFixture()
+  const run = await memoryFixture(false, 'OWNER-SEMANTIC-STAGED report remains DATA.', '')
   const module = broken ? await moduleWithRevert('index.js',
-    [['const verdict = recallFilter(note, context)', 'const verdict = { ok: true }'],
-      ['if (preTurn && !recallFilter(note, { now: new Date().toISOString(), states: live.states, ...recallContext(agent) }).ok) return []', 'if (false) return []']]) : kira
+    [['const verdict = preTurnRecallFilter(note, context)', 'const verdict = { ok: true }'],
+      ['if (preTurn && !preTurnRecallFilter(note, { now: new Date().toISOString(), states: live.states, ...recallContext(agent) }).ok) return []', 'if (false) return []']]) : kira
   const recall = await mountMemory(run, module)
-  const note = run.notes.find(one => one.attributedTo === 'agent')
-  assert.match(await recall(), /Orion workspace patch is STAGED/u)
+  const note = run.notes.find(one => one.attributedTo === 'owner')
+  assert.match(await recall(), /OWNER-SEMANTIC-STAGED/u)
   for (const [op, state] of [['supersede', 'superseded'], ['expire', 'expired'], ['archive', 'archived']]) {
     moveNote(run, note, op)
     assert.equal(run.deps.liveRemembered().states.get(note.id), state)
@@ -868,12 +871,12 @@ await arm('mounted semantic supplier passes live journal states', async broken =
     assert.match(text, new RegExp(`${state}-not-recallable`, 'u'))
   }
   moveNote(run, note, 'restore')
-  assert.match(await recall(), /Orion workspace patch is STAGED/u)
+  assert.match(await recall(), /OWNER-SEMANTIC-STAGED/u)
 })
 await arm('mounted remembered supplier filters live journal states', async broken => {
   const run = await memoryFixture(false, 'handoff status next step OWNER-WIRING-FINDING', '')
   const filter = `notes.filter(note => {
-        const verdict = recallFilter(note, context)
+        const verdict = preTurnRecallFilter(note, context)
         if (!verdict.ok) diagnostics.diagnostics.push({ reason: verdict.why })
         return verdict.ok
       }).map(note => [note.id, note])`
@@ -1021,7 +1024,7 @@ const dsh = dshAt < 0 ? process.env.AUKORA_DSH_SOURCE : process.argv[dshAt + 1]
 assert.ok(dshAt < 0 || (dsh && !dsh.startsWith('--')), '--dsh requires the pinned harness directory')
 if (dsh === undefined) {
   console.error('  UNPERFORMED: actual DSH injection dispatch (supply --dsh or AUKORA_DSH_SOURCE).')
-  process.exitCode = 1
+  if (!SOURCE_ONLY) process.exitCode = 1
 } else {
   bindDshDependencies(dsh)
   const { Context } = await import(pathToFileURL(join(dsh, 'vendor/cordis/lib/index.js')).href)
@@ -1301,13 +1304,16 @@ await arm('agent findings are automatically receipt-backed and never attributed 
   assert.equal(findings[0].source.sha256, sha256Hex(JSON.stringify(run.report)))
   assert.ok(run.notes.every(note => !note.statement.includes('INJECTED-SNAPSHOT')))
 })
-await arm('fresh project context contains captured staged state with one snapshot after delegation', async broken => {
+await arm('fresh project capture remains DATA without automatic report reinjection', async broken => {
   const run = await memoryFixture(true)
-  if (!broken) await run.created({ agent: { session: { id: 'session-fresh', header: run.agent.session.header } } })
+  await run.created({ agent: { session: { id: 'session-fresh', header: run.agent.session.header } } })
   run.notes = run.deps.liveRemembered().notes
+  assert.equal(run.notes.filter(note => note.attributedTo === 'agent').length, 1)
+  const module = broken ? await moduleWithRevert('injection.mjs',
+    'reply = preTurnReply(reply)\n      recent = preTurnReply(recent)', '') : injection
   let listener, delegated = false
   const policy = { subject: SUBJECT, permittedPrivacy: ['local'] }
-  injection.registerRecallInjection({ on: (_event, fn) => { listener = fn } }, {
+  module.registerRecallInjection({ on: (_event, fn) => { listener = fn } }, {
     conversation: { turn: async () => { assert.equal(delegated, true); return { availability: 'empty', snippets: [] } } },
     newest: async () => projectRecent(run.notes, policy, projectScopeOf(run.agent)),
   })
@@ -1315,8 +1321,8 @@ await arm('fresh project context contains captured staged state with one snapsho
   assert.equal(decision.messages.length, 1)
   assert.equal(decision.messages[0].source.form, 'snapshot')
   const text = decision.messages[0].content[0].text
-  assert.match(text, /Orion workspace patch is STAGED, not live/u)
-  assert.match(text, /UNRUN/u)
+  assert.doesNotMatch(text, /Orion workspace patch is STAGED, not live/u)
+  assert.match(text, /model-authored-never-pre-turn/u)
   assert.ok(text.length <= injection.MAX_INJECTION_CHARS + 1)
   assert.equal(projectRecent(run.notes, policy, 'project:unrelated').snippets.length, 0)
   assert.equal(projectRecent(run.notes.map(note => ({ ...note, privacy: 'private' })), policy, projectScopeOf(run.agent)).snippets.length, 0)
@@ -1329,6 +1335,47 @@ await arm('fresh project context contains captured staged state with one snapsho
   assert.match(injection.recalledContextLine(empty, projectRecent([], policy, null)), /host project scope unavailable/u)
   assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent))), /no eligible captured findings/u)
   assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent), new Map(), { unreadable: 1 })), /PROJECT STATE: unavailable/u)
+})
+await arm('actual captured model reports stay available as DATA and out of mounted pre-step messages', async broken => {
+  const run = await memoryFixture(false, 'OWNER-TIER-CONTROL remains readable.', 'MODEL-TIER-REPORT stays explicit DATA.')
+  let module = kira
+  if (broken) {
+    const frame = await moduleWithRevert('memory-frame.mjs',
+      "if (note.attributedTo === 'agent') return { ok: false, why: 'model-authored-never-pre-turn' }", '')
+    const bridge = await moduleWithRevert('injection.mjs', "snippet?.attributedTo !== 'agent'", 'true')
+    module = await moduleWithRevert('index.js', "from './memory-frame.mjs'", "from './memory-frame.mjs'",
+      { './memory-frame.mjs': moduleLocations.get(frame), './injection.mjs': moduleLocations.get(bridge) })
+  }
+  const recall = await mountMemory(run, module)
+  const text = await recall()
+  assert.match(text, /OWNER-TIER-CONTROL/u)
+  assert.doesNotMatch(text, /MODEL-TIER-REPORT/u)
+  assert.match(text, /model-authored-never-pre-turn/u)
+  const finding = run.deps.liveRemembered().notes.find(note => note.attributedTo === 'agent')
+  assert.ok(finding && finding.statement.includes('MODEL-TIER-REPORT'))
+  assert.equal(finding.grantsAuthority, false)
+  const projected = projectRecent(run.notes, { subject: SUBJECT, permittedPrivacy: ['local'] }, projectScopeOf(run.agent))
+  assert.ok(projected.snippets.some(note => note.recordId === finding.id), 'explicit DATA projection retains the finding')
+})
+await arm('pre-turn author exclusion preserves explicit DATA eligibility and existing refusal reasons', async broken => {
+  const run = await memoryFixture(false, 'OWNER-FILTER-CONTROL remains readable.', 'MODEL-FILTER-REPORT stays explicit DATA.')
+  const module = broken ? await moduleWithRevert('memory-frame.mjs',
+    "if (note.attributedTo === 'agent') return { ok: false, why: 'model-authored-never-pre-turn' }", '')
+    : await import('../plugins/aukora-kira/lib/memory-frame.mjs')
+  const finding = run.notes.find(note => note.attributedTo === 'agent')
+  const owner = run.notes.find(note => note.attributedTo === 'owner')
+  const context = { now: new Date().toISOString(), attachedProjects: [projectScopeOf(run.agent)] }
+  assert.equal(module.recallFilter(finding, context).ok, true, 'explicit eligibility stays unchanged')
+  assert.deepEqual(module.preTurnRecallFilter(finding, context), { ok: false, why: 'model-authored-never-pre-turn' })
+  assert.equal(module.preTurnRecallFilter(owner, context).ok, true, 'the owner control stays eligible')
+  for (const state of ['hidden', 'expired', 'superseded']) {
+    const moved = { ...context, states: new Map([[finding.id, state]]) }
+    assert.deepEqual(module.preTurnRecallFilter(finding, moved), module.recallFilter(finding, moved))
+  }
+  const elapsed = { ...finding, validTo: '2000-01-01T00:00:00.000Z' }
+  assert.deepEqual(module.preTurnRecallFilter(elapsed, context), module.recallFilter(elapsed, context))
+  const detached = { ...finding, scope: 'project:unattached' }
+  assert.deepEqual(module.preTurnRecallFilter(detached, context), module.recallFilter(detached, context))
 })
 await arm('off-record and secret filters still stop agent findings, including echoed snapshots', async broken => {
   for (const [ask, report, source = 'model'] of [

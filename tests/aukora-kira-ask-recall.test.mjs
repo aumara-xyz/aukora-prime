@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// The per-step recall asks memory with the person's own latest message first. Synthetic messages only;
-// no store, model, key or live service. KIRA_ASK_MUTANT removes the guard in memory to prove the test bites.
+// The per-step recall asks memory with the person's own latest message first. Synthetic messages and
+// a disposable store only; no model, private key or live service. KIRA_ASK_MUTANT removes the guard in memory.
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
+import { preTurnRecallFilter, recallFilter } from '../plugins/aukora-kira/lib/memory-frame.mjs'
+import { createTrackedMemory } from '../plugins/aukora-kira/lib/tracked-memory.mjs'
 
 const url = new URL('../plugins/aukora-kira/lib/injection.mjs', import.meta.url)
 async function load() {
@@ -13,6 +17,7 @@ async function load() {
   const original = source
   if (mutant === 'no-ask') source = source.replace('ask: latestAsk(decision?.messages)', "ask: ''")
   else if (mutant === 'any-role') source = source.replace("message?.source?.kind !== 'user'", 'false')
+  else if (mutant === 'no-tiering') source = source.replace('reply = preTurnReply(reply)\n      recent = preTurnReply(recent)', '')
   else throw new Error('unknown mutant')
   assert.notEqual(source, original, 'the mutant must remove the guard')
   source = source.replace(/from (['"])(\.[^'"]+)\1/gu, (_m, _q, rel) => `from ${JSON.stringify(new URL(rel, url).href)}`)
@@ -55,4 +60,76 @@ test('bounded, text parts only, and explicit queries still win', async () => {
   const { asked, step } = harness({ queries: ['named'] })
   await step([person('ignored when the caller named its queries')])
   assert.deepEqual(asked, ['named'])
+})
+
+test('automatic context excludes attributed model notes after final publication, retaining owner and anonymous DATA', async () => {
+  const model = { recordId: 'model-fixture', tier: 'remembered', attributedTo: 'agent', text: 'MODEL-AUTO-CONTEXT' }
+  const owner = { recordId: 'owner-fixture', tier: 'remembered', attributedTo: 'owner', text: 'OWNER-AUTO-CONTROL' }
+  const anonymous = { recordId: 'anonymous-fixture', text: 'ANONYMOUS-DATA-CONTROL' }
+  const { step } = harness({ queries: ['named'],
+    conversation: { turn: async () => ({ availability: 'found', snippets: [owner] }) },
+    newest: async () => ({ availability: 'found', snippets: [model] }),
+    beforePublish: (reply, recent) => [{ ...reply, snippets: [...reply.snippets, model, anonymous] }, recent],
+  })
+  const decision = await step([person('Read the fixture.')])
+  assert.equal(decision.messages.at(-1).source.form, 'snapshot')
+  const text = decision.messages.at(-1).content[0].text
+  assert.doesNotMatch(text, /MODEL-AUTO-CONTEXT/u)
+  assert.match(text, /OWNER-AUTO-CONTROL/u)
+  assert.match(text, /ANONYMOUS-DATA-CONTROL/u)
+  assert.match(text, /model-authored-never-pre-turn/u)
+  assert.match(text, /no authority or live-state attestation/iu)
+})
+
+test('model-only legacy supplier is withheld without inventing an empty store or changing explicit lookup', async () => {
+  const { step } = harness({ queries: ['named'],
+    conversation: { turn: async () => ({ availability: 'found', snippets: [
+      { recordId: 'legacy-model', attributedTo: 'agent', text: 'LEGACY-MODEL-DATA' },
+    ] }) },
+  })
+  const decision = await step([person('Read the fixture.')])
+  const text = decision.messages.at(-1).content[0].text
+  assert.doesNotMatch(text, /LEGACY-MODEL-DATA/u)
+  assert.match(text, /model-authored-never-pre-turn/u)
+  assert.match(text, /readable store holds records/u)
+  assert.doesNotMatch(text, /holds no record for this scope/u)
+})
+
+test('actual remembered model note remains explicitly recallable as advisory DATA', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'kira-authorship-data-'))
+  try {
+    const memory = createTrackedMemory({ stateDir: join(home, 'memory'), subject: `aukora:1:${'4'.repeat(64)}`,
+      config: { configured: false }, policyOf: async () => ({ subject: `aukora:1:${'4'.repeat(64)}`, privacy: 'local' }) })
+    await memory.remember({ text: 'MODEL-EXPLICIT-DATA is a synthetic model report.', from: 'agent', scope: 'owner' })
+    await memory.remember({ text: 'OWNER-EXPLICIT-CONTROL is a synthetic owner statement.', from: 'owner', scope: 'owner' },
+      { attributedTo: 'owner' })
+    const model = memory.read().notes.find(note => note.attributedTo === 'agent')
+    const owner = memory.read().notes.find(note => note.attributedTo === 'owner')
+    const context = { now: new Date().toISOString() }
+    assert.equal(recallFilter(model, context).ok, true, 'existing explicit frame eligibility is preserved')
+    assert.deepEqual(preTurnRecallFilter(model, context), { ok: false, why: 'model-authored-never-pre-turn' })
+    assert.equal(preTurnRecallFilter(owner, context).ok, true)
+    for (const attribution of ['owner-voice', 'owner-edit']) {
+      assert.equal(preTurnRecallFilter({ ...owner, attributedTo: attribution }, context).ok, true)
+    }
+    assert.equal(preTurnRecallFilter({ ...owner, category: 'instruction' }, context).ok, false)
+    assert.equal(preTurnRecallFilter(owner, { ...context, states: new Map([[owner.id, 'hidden']]) }).ok, false)
+    for (const state of ['hidden', 'expired', 'superseded']) {
+      const moved = { ...context, states: new Map([[model.id, state]]) }
+      assert.deepEqual(preTurnRecallFilter(model, moved), recallFilter(model, moved), 'existing state refusal takes precedence')
+    }
+    const elapsed = { ...model, validTo: '2000-01-01T00:00:00.000Z' }
+    assert.deepEqual(preTurnRecallFilter(elapsed, context), recallFilter(elapsed, context), 'existing expiration refusal is preserved')
+    const detached = { ...model, scope: 'project:unattached' }
+    assert.deepEqual(preTurnRecallFilter(detached, context), recallFilter(detached, context), 'existing scope refusal is preserved')
+    assert.equal(preTurnRecallFilter({ ...model, origin: { by: 'gate-apply' } }, context).ok, false)
+    const answer = await memory.recall({ question: 'MODEL-EXPLICIT-DATA', lexical: true })
+    assert.equal(answer.grantsAuthority, false)
+    const found = answer.notes.find(note => note.id === model.id)
+    assert.ok(found && found.text.includes('MODEL-EXPLICIT-DATA'))
+    assert.equal(found.attributedTo, 'agent')
+    assert.equal(found.grantsAuthority, false)
+    assert.equal(found.containment.kind, 'DATA')
+    assert.equal(found.containment.provenance, 'untrusted-external')
+  } finally { rmSync(home, { recursive: true, force: true }) }
 })

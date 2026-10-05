@@ -117,6 +117,17 @@ export function recallFilter(note, context) {
   return { ok: true }
 }
 
+/** Automatic context excludes model-authored notes. Attribution is read from
+ * the validated, ID-covered note; explicit lookup keeps the existing DATA path.
+ * A receipt-backed host report still uses agent attribution and receives no
+ * automatic exception from its origin text. */
+export function preTurnRecallFilter(note, context) {
+  const verdict = recallFilter(note, context)
+  if (!verdict.ok) return verdict
+  if (note.attributedTo === 'agent') return { ok: false, why: 'model-authored-never-pre-turn' }
+  return verdict
+}
+
 /**
  * The score (§4.1): BM25 × tier weight × the usage multiplier, clamped so the bias can never become a filter.
  * @param {{bm25: number, tier: string, recalls?: number}} input
