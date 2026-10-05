@@ -1,0 +1,17 @@
+# Recovery for aukora-genesis: restarts the SAME release only after the boundary checks pass.
+# Never edits release.env, never switches releases, never runs while genesis is active.
+[Unit]
+Description=AUKORA Genesis recovery probe (restart only after self-check passes)
+After=aukora-boundary-gate.service
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/aukora-genesis/release.env
+# Quiet no-op while Genesis runs.
+ExecCondition=/bin/bash -c '! systemctl is-active --quiet aukora-genesis'
+# Restart only when the monotonic floor check AND the real boundary self-check both pass.
+ExecCondition=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap floor check --release-dir ${AUKORA_RELEASE_DIR} --approval-state-root ${AUKORA_APPROVAL_ROOT}
+ExecCondition=/usr/local/lib/aukora-boundary/selfcheck-with-retry -- --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec
+ExecStart=/usr/bin/systemctl reset-failed aukora-genesis
+ExecStart=/usr/bin/systemctl restart aukora-genesis

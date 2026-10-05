@@ -1,0 +1,41 @@
+#!/bin/bash
+# Self-check with one spaced retry before failing closed (Peter overnight item 5).
+# Runs the REAL boundary self-check (bin/selfcheck.mjs, unchanged) up to twice, 45s apart,
+# and names the failing leg (forbidden-write / egress / floor / package) on each attempt.
+# Root-owned 0755 as /usr/local/lib/aukora-boundary/selfcheck-with-retry; the unit's exact
+# selfcheck argv is appended after --. Never edits, never switches releases.
+set -u
+[ "${1:-}" = -- ] && shift
+L=/usr/local/lib/aukora-boundary
+attempt () {
+  OUT=$(/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs "$@" 2>&1); RC=$?
+  [ $RC -eq 0 ] && return 0
+  LEG=$(printf '%s' "$OUT" | python3 -c "
+import json, sys
+try:
+    for line in sys.stdin:
+        line = line.strip()
+        if not line.startswith('{'):
+            continue
+        row = json.loads(line)
+        if row.get('state') != 'FAILED':
+            continue
+        legs = [a['action'] for a in row.get('forbidden', []) if not str(a.get('result', '')).startswith('refused')]
+        egress = row.get('egress', {})
+        if legs:
+            print('forbidden:' + ','.join(legs[:3]))
+        elif egress.get('passed') is False:
+            print('egress-exit-' + str(egress.get('exit')))
+        else:
+            print('selfcheck-internal')
+        break
+except Exception:
+    print('unparsed')
+" 2>/dev/null)
+  echo "selfcheck-with-retry: attempt $1 FAILED rc=$RC leg=${LEG:-unknown}" >&2
+  return $RC
+}
+attempt 1 && exit 0
+echo "selfcheck-with-retry: waiting 45s before the second and final attempt" >&2
+sleep 45
+attempt 2

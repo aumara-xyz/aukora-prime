@@ -1,0 +1,11 @@
+# Fires the Genesis recovery probe every two minutes. The probe is a quiet no-op while Genesis is active.
+[Unit]
+Description=AUKORA Genesis recovery probe timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
