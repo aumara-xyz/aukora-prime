@@ -283,22 +283,40 @@ async function createAcceptedEFixture() {
   ])
   const requested = process.env.AUKORA_TEST_KIRA_SOURCE ?? new URL('../plugins/aukora-kira/lib/index.js', import.meta.url)
   const indexURL = requested instanceof URL ? requested : fileE(resolveE(requested))
-  let indexSource, associationSource, recallSource
+  let indexSource, associationSource, recallSource, qualitySource, recallStateSource, projectIdentitySource
   try {
     indexSource = readE(indexURL, 'utf8')
     associationSource = readE(new URL('./aura-association.mjs', indexURL), 'utf8')
     recallSource = readE(new URL('./aura-recall.mjs', indexURL), 'utf8')
+    qualitySource = readE(new URL('./memory-quality.mjs', indexURL), 'utf8')
+    recallStateSource = readE(new URL('./recall-state.mjs', indexURL), 'utf8')
+    projectIdentitySource = readE(new URL('./project-identity.mjs', indexURL), 'utf8')
   } catch { throw Error('missing-dependency:accepted-kira-index-or-helper-closure') }
-  assert.equal(sha(indexSource), 'c9788b5eab0c79b39d8c1c2af7df1d1c970d491d2916aef8a0a30504c1654858',
+  assert.equal(sha(indexSource), '220058c00b9ec10b5567042429351027500192f41d34fdea842acb55c54eb13e',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')
-  assert.equal(sha(recallSource), '574a02698fff47a4ef51f2ff4b5ac0e9052f1ca6cc37e74c29f2f6d3fa462467',
+  assert.equal(sha(recallSource), '3e9d3c0751b3241ce93419dcdfd4c67a4dbeeb1f3d8f93f420202c6d06d80cc6',
     'missing-dependency:accepted-kira-recall-sha256')
+  assert.equal(sha(qualitySource), 'd8245578a2553040c2974e63040e58a4ca2c2a61a68bc5c0bba5b0445b93ca42',
+    'missing-dependency:accepted-kira-quality-sha256')
+  assert.equal(sha(recallStateSource), 'ed00c677d931972cabe36d29d952c0462f36259bf4ebf8b77c39931a72feb5bf',
+    'missing-dependency:accepted-kira-recall-state-sha256')
+  assert.equal(sha(projectIdentitySource), '2da15b5b87ef5154f9bc02f2eb8b896e97719c7e7d44e12aacb088f0daf8725b',
+    'missing-dependency:accepted-kira-project-identity-sha256')
   const dataURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
   const associationURL = dataURL(associationSource)
+  // memory-tiers.mjs pulls the vendor envelope/ingest/canonical closure; the accepted-E
+  // fixture needs only sha256Hex, supplied here with the identical implementation.
+  const tiersStubURL = dataURL("import { createHash } from 'node:crypto'\n"
+    + "export function sha256Hex(text) {\n"
+    + "  return createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')\n"
+    + "}\n")
+  const qualityURL = dataURL(qualitySource.replace('./memory-tiers.mjs', tiersStubURL))
+  const recallStateURL = dataURL(recallStateSource)
+  const projectIdentityURL = dataURL(projectIdentitySource)
   const association = await import(associationURL)
-  const recallURL = dataURL(recallSource.replace('./aura-association.mjs', associationURL))
+  const recallURL = dataURL(recallSource.replace('./aura-association.mjs', associationURL).replace('./memory-quality.mjs', qualityURL))
   const observations = { remembers: [], memoryConstructions: [], mounts: [], injects: [], warnings: [], reflectReads: [] }
   const notes = [], provided = new Map(), listeners = new Map(), effects = [], tools = new Map()
   let disposed = false, memoryOptions
@@ -347,6 +365,12 @@ async function createAcceptedEFixture() {
     createTrackedMemory: options => { observations.memoryConstructions.push(options); memoryOptions = options; return memory },
     readTrackedMemory: liveRead,
     projectScopeOf: agent => agent?.fixtureProject ?? null, sessionIdOfAgent: agent => agent?.session?.id,
+    captureScopeOf: agent => {
+      const scope = agent?.fixtureProject ?? null
+      if (scope !== null) return scope
+      const cwd = agent?.session?.header?.cwd
+      return typeof cwd === 'string' && cwd.startsWith('/') ? 'project:unresolved' : 'owner'
+    },
     defaultRoomLog: () => [], captureRoom: async () => {},
     provideKiraCite: () => ({ provided: true }),
     registerRememberedCapture: noop, registerAumaTurnCapture: noop, registerRecallInjection: noop,
@@ -366,6 +390,8 @@ async function createAcceptedEFixture() {
       (statement, bindings, _quote, specifier) => {
         if (specifier === './aura-association.mjs') return statement.replace(specifier, associationURL)
         if (specifier === './aura-recall.mjs') return statement.replace(specifier, recallURL)
+        if (specifier === './recall-state.mjs') return statement.replace(specifier, recallStateURL)
+        if (specifier === './project-identity.mjs') return statement.replace(specifier, projectIdentityURL)
         const exports = bindings.split(',').map(value => value.trim()).filter(Boolean)
         dependencies[specifier] = Object.fromEntries(exports.map(binding => {
           if (!/^[A-Za-z_$][\w$]*$/u.test(binding)) throw Error('fixture-import-binding-unhandled')
