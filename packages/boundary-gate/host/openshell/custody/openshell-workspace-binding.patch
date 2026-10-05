@@ -243,7 +243,7 @@ index bb4ee88c9..f84661133 100644
  
      static ENV_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
 diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-driver-podman/src/driver.rs
-index 3788c756f..183dc553e 100644
+index 3788c756f..779791857 100644
 --- a/crates/openshell-driver-podman/src/driver.rs
 +++ b/crates/openshell-driver-podman/src/driver.rs
 @@ -3,9 +3,10 @@
@@ -254,11 +254,11 @@ index 3788c756f..183dc553e 100644
 +use crate::client::{ContainerInspect, ContainerListEntry, PodmanApiError, PodmanClient, VolumeInspect};
  use crate::config::{PodmanComputeConfig, podman_image_pull_policy};
  use crate::container::{self, LABEL_MANAGED_FILTER, LABEL_SANDBOX_ID, PodmanSandboxDriverConfig};
-+use crate::workspace_binding::{BINDING_LABEL, GIT_ROOT, TrustedWorkspaceBinding, WORKSPACE_ROOT, verify_original_binding_record};
++use crate::workspace_binding::{BINDING_LABEL, GIT_ROOT, MIRROR_ROOT, TrustedWorkspaceBinding, WORKSPACE_ROOT, verify_original_binding_record};
  use crate::watcher::{
      self, LifecycleEventFences, WatchStream, driver_sandbox_from_inspect,
      driver_sandbox_from_list_entry,
-@@ -733,109 +734,103 @@ impl PodmanComputeDriver {
+@@ -733,109 +734,104 @@ impl PodmanComputeDriver {
  
      /// Create a sandbox container.
      async fn admit_container_resources(&self, id: &str) -> Result<(), ComputeDriverError> {
@@ -345,10 +345,11 @@ index 3788c756f..183dc553e 100644
 +        // Dedicated mode creates no caller/external attachment. Labels cannot
 +        // authorize a second writable root or revive the old workspace volume.
 +        if !expected.is_empty() { return Err(missing()); }
-+        let required = std::collections::BTreeSet::from([
++        let mut required = std::collections::BTreeSet::from([
 +            WORKSPACE_ROOT, GIT_ROOT, openshell_core::driver_utils::SUPERVISOR_CONTAINER_BINARY,
 +            crate::isolation::CHANNEL_ROOT,
 +        ]);
++        if binding.mirror_source().is_some() { required.insert(MIRROR_ROOT); }
 +        let mut seen = std::collections::BTreeSet::new();
 +        for mount in inspect.mounts.as_ref().ok_or_else(missing)? {
 +            let destination = mount["Destination"].as_str().ok_or_else(missing)?;
@@ -452,7 +453,7 @@ index 3788c756f..183dc553e 100644
          }
          Ok(())
      }
-@@ -850,17 +845,35 @@ impl PodmanComputeDriver {
+@@ -850,17 +846,35 @@ impl PodmanComputeDriver {
          else {
              return;
          };
@@ -494,7 +495,7 @@ index 3788c756f..183dc553e 100644
                  }
              }
          }
-@@ -894,7 +907,24 @@ impl PodmanComputeDriver {
+@@ -894,7 +908,24 @@ impl PodmanComputeDriver {
          // resources (volume), so we don't leave orphans when the name is
          // invalid.
          let name = validated_container_name(sandbox)?;
@@ -519,7 +520,7 @@ index 3788c756f..183dc553e 100644
  
          let vol_name = container::volume_name(&sandbox.id);
  
-@@ -1035,15 +1065,13 @@ impl PodmanComputeDriver {
+@@ -1035,15 +1066,13 @@ impl PodmanComputeDriver {
          let (resolver_secret_name, token_secret_name, proxy_auth_secret_name) = async {
              let phase_status = openshell_otel::ErrorStatusGuard::current();
              let result = async {
@@ -538,7 +539,7 @@ index 3788c756f..183dc553e 100644
                              return Err(e);
                          }
                      };
-@@ -1052,7 +1080,6 @@ impl PodmanComputeDriver {
+@@ -1052,7 +1081,6 @@ impl PodmanComputeDriver {
                  {
                      Ok(name) => name,
                      Err(e) => {
@@ -546,7 +547,7 @@ index 3788c756f..183dc553e 100644
                          cleanup_sandbox_resolver_secret(&self.client, &resolver_secret_name).await;
                          return Err(e);
                      }
-@@ -1063,7 +1090,6 @@ impl PodmanComputeDriver {
+@@ -1063,7 +1091,6 @@ impl PodmanComputeDriver {
                      {
                          Ok(name) => name,
                          Err(e) => {
@@ -554,7 +555,7 @@ index 3788c756f..183dc553e 100644
                              if let Some(secret) = token_secret_name.as_deref() {
                                  cleanup_sandbox_token_secret(&self.client, secret).await;
                              }
-@@ -1096,7 +1122,6 @@ impl PodmanComputeDriver {
+@@ -1096,7 +1123,6 @@ impl PodmanComputeDriver {
              if channel_owned.load(std::sync::atomic::Ordering::Relaxed) {
                  let _ = self.client.remove_volume(&channel_volume).await;
              }
@@ -562,7 +563,7 @@ index 3788c756f..183dc553e 100644
              cleanup_sandbox_resolver_secret(&self.client, &resolver_secret_name).await;
              if let Some(secret) = token_secret_name.as_deref() {
                  cleanup_sandbox_token_secret(&self.client, secret).await;
-@@ -1121,6 +1146,10 @@ impl PodmanComputeDriver {
+@@ -1121,6 +1147,10 @@ impl PodmanComputeDriver {
                          return Err(e);
                      }
                  };
@@ -573,7 +574,7 @@ index 3788c756f..183dc553e 100644
                  // Podman's image-volume support varies across libpod/runtime
                  // combinations. Always use the verified extraction cache so
                  // workload startup does not depend on type=image mounts.
-@@ -1151,7 +1180,7 @@ impl PodmanComputeDriver {
+@@ -1151,7 +1181,7 @@ impl PodmanComputeDriver {
                      }
                  };
  
@@ -582,7 +583,7 @@ index 3788c756f..183dc553e 100644
                      sandbox,
                      config: &runtime_config,
                      token_secret: token_secret_name.as_deref(),
-@@ -1165,7 +1194,7 @@ impl PodmanComputeDriver {
+@@ -1165,7 +1195,7 @@ impl PodmanComputeDriver {
                      tls_secrets: tls_secret_names.as_ref(),
                      identity: &identity,
                      rootless: self.rootless,
@@ -591,7 +592,7 @@ index 3788c756f..183dc553e 100644
                  let mut specs = match specs {
                      Ok(spec) => spec,
                      Err(e) => {
-@@ -1182,6 +1211,7 @@ impl PodmanComputeDriver {
+@@ -1182,6 +1212,7 @@ impl PodmanComputeDriver {
                          .create_owned_volume(&channel_volume, &sandbox.id, &sandbox.workspace)
                          .await?;
                      channel_owned.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -599,7 +600,7 @@ index 3788c756f..183dc553e 100644
                      let workload_id = self.client.create_typed_container(&specs.workload).await?;
                      created_workload = Some(workload_id.clone());
                      self.client.verify_isolation_fence(&workload_id).await?;
-@@ -1222,9 +1252,8 @@ impl PodmanComputeDriver {
+@@ -1222,9 +1253,8 @@ impl PodmanComputeDriver {
                              archives.channel,
                          )
                          .await?;
@@ -611,7 +612,7 @@ index 3788c756f..183dc553e 100644
                      let supervisor_id = self
                          .client
                          .create_typed_container(&specs.supervisor)
-@@ -1236,6 +1265,8 @@ impl PodmanComputeDriver {
+@@ -1236,6 +1266,8 @@ impl PodmanComputeDriver {
                      // Start the sandbox only after both containers and their
                      // bootstrap material exist. It keeps the agent stopped
                      // until the authenticated supervisor confirms the boundary.
@@ -620,7 +621,7 @@ index 3788c756f..183dc553e 100644
                      self.client.start_container(&workload_id).await?;
                      self.client.start_container(&supervisor_id).await?;
                      Ok::<(), ComputeDriverError>(())
-@@ -1243,7 +1274,7 @@ impl PodmanComputeDriver {
+@@ -1243,7 +1275,7 @@ impl PodmanComputeDriver {
                  .await;
                  if create_result.is_err() {
                      for id in [created_supervisor, created_workload].into_iter().flatten() {
@@ -629,7 +630,7 @@ index 3788c756f..183dc553e 100644
                      }
                  }
                  match create_result {
-@@ -1325,7 +1356,7 @@ impl PodmanComputeDriver {
+@@ -1325,7 +1357,7 @@ impl PodmanComputeDriver {
                  crate::isolation::resolve_identity(sandbox, image, image_user, passwd, group)
              }
              .await;
@@ -638,7 +639,7 @@ index 3788c756f..183dc553e 100644
          if let Err(error) = cleanup {
              warn!(container = %id, %error, "Failed to remove stopped identity inspection container");
          }
-@@ -1354,9 +1385,77 @@ impl PodmanComputeDriver {
+@@ -1354,9 +1386,77 @@ impl PodmanComputeDriver {
              ])
              .await
              .map_err(ComputeDriverError::from)?;
@@ -716,7 +717,7 @@ index 3788c756f..183dc553e 100644
      async fn wait_for_container_stopped(
          &self,
          sandbox_id: &str,
-@@ -1399,61 +1498,26 @@ impl PodmanComputeDriver {
+@@ -1399,61 +1499,26 @@ impl PodmanComputeDriver {
      )]
      pub async fn stop_sandbox(&self, sandbox_id: &str) -> Result<(), ComputeDriverError> {
          let span_status = openshell_otel::ErrorStatusGuard::current();
@@ -796,7 +797,7 @@ index 3788c756f..183dc553e 100644
          span_status.finish(result)
      }
  
-@@ -1479,24 +1543,25 @@ impl PodmanComputeDriver {
+@@ -1479,24 +1544,25 @@ impl PodmanComputeDriver {
          )
          .map_err(|error| ComputeDriverError::InvalidArgument(error.to_string()))?;
          let launch_authentication = decode_launch_authentication(encoded_authentication)?;
@@ -830,7 +831,7 @@ index 3788c756f..183dc553e 100644
                          crate::isolation::RESTART_METADATA_PATH,
                      )
                      .await?;
-@@ -1536,7 +1601,6 @@ impl PodmanComputeDriver {
+@@ -1536,7 +1602,6 @@ impl PodmanComputeDriver {
          self.lifecycle_event_fences
              .record_previous_exit(sandbox_id, previous.state.finished_at.as_deref());
          let result = async {
@@ -838,7 +839,7 @@ index 3788c756f..183dc553e 100644
              self.client
                  .stop_container(&supervisor, self.config.stop_timeout_secs)
                  .await?;
-@@ -1577,6 +1641,8 @@ impl PodmanComputeDriver {
+@@ -1577,6 +1642,8 @@ impl PodmanComputeDriver {
                  .copy_to_container(&supervisor, "/", archives.supervisor)
                  .await?;
              self.client.verify_isolation_fence(&container_id).await?;
@@ -847,7 +848,7 @@ index 3788c756f..183dc553e 100644
              self.client.start_container(&container_id).await?;
              if let Err(error) = self.client.start_container(&supervisor).await {
                  let _ = self.client.stop_container(&container_id, 0).await;
-@@ -1588,7 +1654,7 @@ impl PodmanComputeDriver {
+@@ -1588,7 +1655,7 @@ impl PodmanComputeDriver {
          span_status.finish(result)
      }
  
@@ -856,7 +857,7 @@ index 3788c756f..183dc553e 100644
      #[tracing::instrument(
          name = "podman.delete_sandbox",
          skip(self),
-@@ -1601,96 +1667,37 @@ impl PodmanComputeDriver {
+@@ -1601,96 +1668,37 @@ impl PodmanComputeDriver {
      pub async fn delete_sandbox(&self, sandbox_id: &str) -> Result<bool, ComputeDriverError> {
          let span_status = openshell_otel::ErrorStatusGuard::current();
          if sandbox_id.is_empty() {
@@ -980,7 +981,7 @@ index 3788c756f..183dc553e 100644
      }
  
      /// Check whether a sandbox container exists.
-@@ -1970,7 +1977,7 @@ async fn extract_sandbox_bin(
+@@ -1970,7 +1978,7 @@ async fn extract_sandbox_bin(
  
      let result = extract_binary_from_container(client, &container_name, &cache_path).await;
  
@@ -989,7 +990,7 @@ index 3788c756f..183dc553e 100644
          warn!(
              container = container_name,
              error = %err,
-@@ -2052,6 +2059,398 @@ mod tests {
+@@ -2052,6 +2060,398 @@ mod tests {
      use std::fs;
      use std::path::{Path, PathBuf};
  
@@ -1402,10 +1403,10 @@ index fa06cf486..6315584e4 100644
  pub(crate) mod watcher;
 diff --git a/crates/openshell-driver-podman/src/workspace_binding.rs b/crates/openshell-driver-podman/src/workspace_binding.rs
 new file mode 100644
-index 000000000..53bfd4e57
+index 000000000..5f69cd03c
 --- /dev/null
 +++ b/crates/openshell-driver-podman/src/workspace_binding.rs
-@@ -0,0 +1,566 @@
+@@ -0,0 +1,569 @@
 +// SPDX-License-Identifier: AGPL-3.0-or-later
 +//! Fixed operator registration for the dedicated auma-ws create path.
 +//!
@@ -1726,9 +1727,12 @@ index 000000000..53bfd4e57
 +            let file = open_anchored(path, directory, protected, Some(&self.registration))?;
 +            if FileIdentity::of(&file.metadata().map_err(|_| refused())?) != *expected { return Err(refused()); }
 +        }
-+        if let (Some(mirror), Some(expected)) = (self.mirror_source(), &self.mirror_identity) {
++        if let Some(mirror) = self.mirror_source() {
 +            let file = open_mirror(mirror)?;
-+            if FileIdentity::of(&file.metadata().map_err(|_| refused())?) != *expected { return Err(refused()); }
++            // The feed refreshes by root-owned atomic swap: inode and timestamps change
++            // legitimately. What must not change is the custody shape (root:auma-ws, modes).
++            let meta = file.metadata().map_err(|_| refused())?;
++            if meta.uid() != 0 || meta.mode() & 0o022 != 0 { return Err(refused()); }
 +        }
 +        Ok(())
 +    }
