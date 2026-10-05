@@ -890,7 +890,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
         .run(expired ? t : row.window_start_ms, expired ? 1 : row.used + 1)
     })
   }
-  for (const op of ['propose', 'revert', 'close', 'harness_start', 'selfcheck']) {
+  for (const op of ['propose', 'revert', 'close', 'harness_start', 'selfcheck', 'relay_record']) {
     const handler = proposeOps[op]
     proposeOps[op] = (...args) => { chargePropose(); return handler(...args) }
   }
