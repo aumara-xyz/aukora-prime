@@ -53,7 +53,6 @@ async function fixture(t, { executionRecheck = false } = {}) {
   writeFileSync(join(replacement, 'auma.key'), `${secretCanary}\n`)
   const ctx = new Context()
   const fibers = []
-  t.after(async () => { for (const fiber of fibers.reverse()) await fiber.dispose() })
   fibers.push(await ctx.plugin(SystemPrompt))
   fibers.push(await ctx.plugin(ToolRuntime))
   fibers.push(await ctx.plugin(LocalSubprocessRuntime))
@@ -62,6 +61,13 @@ async function fixture(t, { executionRecheck = false } = {}) {
   const registerGuard = ctx.tools.guard
   ctx.tools.guard = function (guard) { sameGuard = guard; return registerGuard.call(this, guard) }
   t.after(() => { ctx.tools.guard = registerGuard })
+  // node:test runs after-hooks in registration order. Disposal is registered
+  // AFTER the guard restore above because disposing the ToolRuntime fiber
+  // unregisters the `tools` service, and `ctx.tools` then reads as undefined —
+  // the original fixture registered disposal first and its restore hook died
+  // on that (pinned cordis 4.0.2 service semantics; hook order only, no
+  // assertion touched).
+  t.after(async () => { for (const fiber of fibers.reverse()) await fiber.dispose() })
   fibers.push(await ctx.plugin(ActionGate, {
     auraDir: join(root, 'aura'), dshHome: join(root, 'state', 'home'), home: root,
     supportRoot: join(root, 'support'), repoRoots: [], releaseRoots: [], readRoots: [],
