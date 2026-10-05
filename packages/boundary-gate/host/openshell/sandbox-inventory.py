@@ -19,6 +19,7 @@ import stat
 import subprocess
 import sys
 import time
+import unicodedata
 
 
 READ_ONLY = frozenset(("/bin", "/usr", "/lib", "/lib64", "/etc", "/proc", "/dev/urandom"))
@@ -728,6 +729,30 @@ MAX_READBACK_BYTES = 64 * 1024
 MAX_BINARY_BYTES = 256 * 1024 * 1024
 QUERY_SECONDS = 4.0
 
+# Scan only the protected registration's tree; neither cwd nor a guest/env path
+# can choose its root. These are the filesystem paths from the action gate's
+# KEY_PATTERNS, LINUX_HOST_PATTERNS and CORE_PATTERNS, not a content-secret
+# detector. An unnamed credential copy is not qualified by this name scan.
+WORKSPACE_CREDENTIAL_PATTERNS = (
+    "**/state/aumlok", "**/machine-seed*.json", "**/aumlok-signer.sock",
+    "**/.aukora/signer", "**/kira-memory/issuer.json", "**/kira-memory/keys",
+    "**/kira-memory/key", "**/openviking/root.key", "**/auma.key",
+    "**/nostr/identity.json", "**/.config/gh", "**/.git-credentials",
+    "**/.netrc", "**/.ssh", "**/.gnupg", "**/.aws", "**/library/keychains",
+    "**/.credentials.yaml", "**/launch-url.json", "home/aukora-gate",
+    "var/lib/aukora-boundary", "run/aukora-gate", "etc/aukora*", "etc/sudoers",
+    "etc/sudoers.d", "etc/shadow", "etc/gshadow", "root", "proc/*/environ",
+    "proc/*/mem", "proc/*/cmdline", "proc/*/task/*/environ", "proc/*/task/*/mem",
+    "**/kira-deployment-overlay.patch.yml", "**/openviking", "**/viking-door.key",
+    "**/state/launch.json", "**/state/lane-door", "**/state/eye", "**/gate-state",
+    "**/kira-approve-queue", "**/owner-console", "**/*.sock",
+)
+MAX_WORKSPACE_SCAN_ENTRIES = 131072
+MAX_WORKSPACE_SCAN_DEPTH = 64
+MAX_WORKSPACE_SCAN_NAME_BYTES = 8 * 1024 * 1024
+MAX_WORKSPACE_SCAN_FILE_BYTES = 128 * 1024 * 1024
+MAX_WORKSPACE_SCAN_BYTES = 512 * 1024 * 1024
+
 
 def _anchored_file(path, protected=False):
     """Open a regular inode through no-follow directory descriptors."""
@@ -1078,6 +1103,174 @@ def _open_directory(path, registration=None):
             os.close(fd)
 
 
+def _workspace_scan_key(path):
+    # Match the action gate's NFC/lowercase/trailing-dot-space segment folding.
+    return "/".join(part for part in (
+        unicodedata.normalize("NFC", segment).lower().rstrip(". ")
+        for segment in path.split("/")) if part and part != ".")
+
+
+def _workspace_scan_pattern(pattern):
+    pattern = _workspace_scan_key(pattern.rstrip("/"))
+    if pattern.endswith("/**"):
+        pattern = pattern[:-3]
+    body, index = [], 0
+    while index < len(pattern):
+        character = pattern[index]
+        if character == "*":
+            if pattern[index:index + 2] == "**":
+                if pattern[index + 2:index + 3] == "/":
+                    body.append("(?:[^/]+/)*")
+                    index += 3
+                    continue
+                body.append(".*")
+                index += 2
+                continue
+            body.append("[^/]*")
+        elif character == "?":
+            body.append("[^/]")
+        else:
+            body.append(re.escape(character))
+        index += 1
+    return re.compile("^(?:" + "".join(body) + ")(?:/.*)?$")
+
+
+def _workspace_scan_identity(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _scan_registered_workspace(registration, deadline):
+    """Bounded no-follow name/inode scan of the exact registered source.
+
+    Hash reads establish the observed bytes and reject an observed change; they
+    do not detect arbitrary secret content or close a later writable-tree race.
+    No names, bytes or individual file hashes leave this function.
+    """
+    source = _path(registration["workspace_source"])
+    patterns = tuple(_workspace_scan_pattern(pattern) for pattern in WORKSPACE_CREDENTIAL_PATTERNS)
+    fingerprint = hashlib.sha256(b"aukora-prime.workspace-scan.v1\0")
+    counts = {"entries": 0, "directories": 0, "files": 0, "bytes": 0}
+    name_bytes, visited = 0, set()
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    file_flags = os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
+
+    def check_deadline():
+        if time.monotonic() >= deadline:
+            _fail("registered workspace scan deadline")
+
+    def record(value):
+        raw = json.dumps(value, separators=(",", ":"), ensure_ascii=False,
+                         allow_nan=False).encode("utf-8", "strict")
+        fingerprint.update(len(raw).to_bytes(8, "big"))
+        fingerprint.update(raw)
+
+    def entry_name(path):
+        nonlocal name_bytes
+        _text(path, True)
+        check_deadline()
+        counts["entries"] += 1
+        name_bytes += len(path.encode("utf-8", "strict"))
+        if counts["entries"] > MAX_WORKSPACE_SCAN_ENTRIES or name_bytes > MAX_WORKSPACE_SCAN_NAME_BYTES:
+            _fail("registered workspace scan entry/name limit")
+        key = _workspace_scan_key(path)
+        if any(pattern.fullmatch(key) is not None for pattern in patterns):
+            _fail("registered workspace credential path refused")
+
+    def walk(fd, path, depth, device):
+        check_deadline()
+        if depth > MAX_WORKSPACE_SCAN_DEPTH:
+            _fail("registered workspace scan depth limit")
+        initial = os.fstat(fd)
+        identity = _workspace_scan_identity(initial)
+        if not stat.S_ISDIR(initial.st_mode) or initial.st_dev != device:
+            _fail("registered workspace scan directory/device unavailable")
+        inode = (initial.st_dev, initial.st_ino)
+        if inode in visited:
+            _fail("registered workspace scan repeated directory")
+        visited.add(inode)
+        counts["directories"] += 1
+        record((path, "directory", identity))
+        names = []
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                child_path = path + "/" + entry.name
+                entry_name(child_path)
+                names.append(entry.name)
+        for name in sorted(names):
+            check_deadline()
+            child_path = path + "/" + name
+            before = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            before_identity = _workspace_scan_identity(before)
+            if before.st_dev != device:
+                _fail("registered workspace scan cross-device entry")
+            if stat.S_ISDIR(before.st_mode):
+                child = os.open(name, directory_flags, dir_fd=fd)
+                try:
+                    if _workspace_scan_identity(os.fstat(child)) != before_identity:
+                        _fail("registered workspace scan directory replaced")
+                    walk(child, child_path, depth + 1, device)
+                finally:
+                    os.close(child)
+            elif stat.S_ISREG(before.st_mode):
+                if before.st_nlink != 1 or not before.st_mode & 0o444:
+                    _fail("registered workspace scan linked/unreadable file")
+                if (before.st_size > MAX_WORKSPACE_SCAN_FILE_BYTES or
+                        counts["bytes"] + before.st_size > MAX_WORKSPACE_SCAN_BYTES):
+                    _fail("registered workspace scan byte limit")
+                child = os.open(name, file_flags, dir_fd=fd)
+                try:
+                    opened = os.fstat(child)
+                    if _workspace_scan_identity(opened) != before_identity or not stat.S_ISREG(opened.st_mode):
+                        _fail("registered workspace scan file replaced")
+                    digest, size = hashlib.sha256(), 0
+                    while True:
+                        check_deadline()
+                        chunk = os.read(child, 65536)
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        counts["bytes"] += len(chunk)
+                        if size > MAX_WORKSPACE_SCAN_FILE_BYTES or counts["bytes"] > MAX_WORKSPACE_SCAN_BYTES:
+                            _fail("registered workspace scan byte limit")
+                        digest.update(chunk)
+                    if size != before.st_size or _workspace_scan_identity(os.fstat(child)) != before_identity:
+                        _fail("registered workspace scan file changed")
+                    record((child_path, "file", before_identity, digest.hexdigest()))
+                    counts["files"] += 1
+                finally:
+                    os.close(child)
+            else:
+                _fail("registered workspace scan symlink/special file refused")
+            if _workspace_scan_identity(os.stat(name, dir_fd=fd, follow_symlinks=False)) != before_identity:
+                _fail("registered workspace scan entry changed")
+        if _workspace_scan_identity(os.fstat(fd)) != identity:
+            _fail("registered workspace scan directory changed")
+
+    root = _open_directory(source, registration if registration["version"] == 2 else None)
+    try:
+        initial = os.fstat(root)
+        entry_name(source)
+        walk(root, source, 0, initial.st_dev)
+        # Re-open the registered path to reject a renamed/replaced root while
+        # its old descriptor remained readable. All child opens stayed fd-relative.
+        final_root = _open_directory(source, registration if registration["version"] == 2 else None)
+        try:
+            if _workspace_scan_identity(os.fstat(final_root)) != _workspace_scan_identity(initial):
+                _fail("registered workspace scan root changed")
+        finally:
+            os.close(final_root)
+        check_deadline()
+        return {"version": 1, "digest": "sha256:" + fingerprint.hexdigest(), **counts}
+    finally:
+        os.close(root)
+
+
+def _unchanged_workspace_scan(registration, initial, deadline):
+    if _scan_registered_workspace(registration, deadline) != initial:
+        _fail("registered workspace changed across admission")
+
+
 def _directory_identity(fd):
     info = os.fstat(fd)
     if not stat.S_ISDIR(info.st_mode):
@@ -1349,14 +1542,21 @@ def _inspect(names, deadline):
 def admission(sb, mode):
     if sb != "auma-ws" or mode not in ("check", "print", "id", "policy", "profile", "bootstrap", "generate"):
         _fail("unsupported admission arguments")
-    if mode == "profile":
-        profile = read_profile()
-        _registered_sources(profile, read_workspace_registration())
-        return None
     if mode == "bootstrap":
         read_generation_inputs()
         return None
     deadline = time.monotonic() + QUERY_SECONDS
+    generation_inputs = read_generation_inputs() if mode == "generate" else None
+    registration = generation_inputs[-1] if mode == "generate" else read_workspace_registration()
+    workspace_scan = _scan_registered_workspace(registration, deadline)
+    profile = None if mode == "generate" else read_profile()
+    if profile is not None:
+        _registered_sources(profile, registration)
+    if mode == "profile":
+        _unchanged_workspace_scan(registration, workspace_scan, deadline)
+        if read_workspace_registration() != registration:
+            _fail("workspace registration changed during observation")
+        return None
     p = strict_json(query(["/usr/bin/openshell", "policy", "get", sb, "--full", "-o", "json"], deadline))
     pol = dict(_object(p.get("policy")))
     pol.setdefault("network_policies", {})
@@ -1372,12 +1572,10 @@ def admission(sb, mode):
             _fail("sandbox startup policy generation unavailable")
     local_policy(p)
     if mode == "policy":
+        _unchanged_workspace_scan(registration, workspace_scan, deadline)
+        if read_workspace_registration() != registration:
+            _fail("workspace registration changed during observation")
         return None
-    generation_inputs = read_generation_inputs() if mode == "generate" else None
-    profile = None if mode == "generate" else read_profile()
-    registration = generation_inputs[-1] if mode == "generate" else read_workspace_registration()
-    if profile is not None:
-        _registered_sources(profile, registration)
     ver = query(["/usr/bin/openshell", "--version"], deadline).split()
     s = strict_json(query(["/usr/bin/openshell", "sandbox", "get", sb, "-o", "json"], deadline))
     sid = s.get("id")
@@ -1476,6 +1674,9 @@ def admission(sb, mode):
     if mode == "generate":
         if read_generation_inputs() != generation_inputs:
             _fail("generation custody inputs changed during final observation")
+        _unchanged_workspace_scan(registration, workspace_scan, deadline)
+        if read_generation_inputs() != generation_inputs:
+            _fail("generation custody inputs changed during final scan")
         if time.monotonic() >= deadline:
             _fail("generation deadline")
         return profile
@@ -1483,6 +1684,9 @@ def admission(sb, mode):
         _fail("deployment profile changed during final observation")
     if read_workspace_registration() != registration:
         _fail("workspace registration changed during final observation")
+    _unchanged_workspace_scan(registration, workspace_scan, deadline)
+    if read_workspace_registration() != registration or read_profile() != profile:
+        _fail("workspace/profile custody changed during final scan")
     if time.monotonic() >= deadline:
         _fail("admission deadline")
     return envelope
