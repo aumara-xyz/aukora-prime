@@ -48,11 +48,17 @@ WORKSPACE_BINDING_KEYS = frozenset(("workspace_source", "git_source", "workspace
 # Proposed required infrastructure shapes, not a qualified runtime baseline.
 # A new mountpoint/filesystem or unproven origin must refuse qualification.
 INFRASTRUCTURE_MOUNTS = {
-    "/proc": ("proc", False),
-    "/dev": ("tmpfs", True),
+    "/proc": ("proc", True),
+    "/dev": ("tmpfs", False),
     "/dev/pts": ("devpts", True),
-    "/dev/shm": ("tmpfs", True),
+    "/dev/shm": ("tmpfs", False),
     "/dev/mqueue": ("mqueue", True),
+    "/dev/null": ("devtmpfs", True),
+    "/dev/zero": ("devtmpfs", True),
+    "/dev/full": ("devtmpfs", True),
+    "/dev/tty": ("devtmpfs", True),
+    "/dev/random": ("devtmpfs", True),
+    "/dev/urandom": ("devtmpfs", True),
     "/sys": ("sysfs", False),
     "/sys/fs/cgroup": ("cgroup2", False),
     "/proc/bus": ("proc", False),
@@ -62,13 +68,19 @@ INFRASTRUCTURE_MOUNTS = {
     "/proc/sysrq-trigger": ("proc", False),
     "/proc/acpi": ("tmpfs", False),
     "/proc/scsi": ("tmpfs", False),
+    "/proc/kcore": ("devtmpfs", False),
+    "/proc/keys": ("devtmpfs", False),
+    "/proc/latency_stats": ("devtmpfs", False),
+    "/proc/timer_list": ("devtmpfs", False),
+    "/proc/sched_debug": ("devtmpfs", False),
     "/sys/firmware": ("tmpfs", False),
     "/sys/devices/virtual/powercap": ("tmpfs", False),
-    "/proc/kcore": ("tmpfs", True),
-    "/proc/keys": ("tmpfs", True),
-    "/proc/timer_list": ("tmpfs", True),
-    "/proc/latency_stats": ("tmpfs", True),
-    "/proc/sched_debug": ("tmpfs", True),
+    "/sys/dev/block": ("tmpfs", False),
+    "/etc/hostname": ("tmpfs", False),
+    "/etc/hosts": ("tmpfs", False),
+    "/etc/resolv.conf": ("ext4", False),
+    "/run/secrets": ("tmpfs", False),
+    "/run/.containerenv": ("tmpfs", False),
 }
 
 
@@ -506,11 +518,20 @@ def validate_mountinfo(rows, binding, mounts, *, host_tmp_device=None):
             _fail("unknown or unapproved kernel mount")
         if row["filesystem"] == "tmpfs":
             masked = path.startswith("/proc/") and role[1] is True
-            if row["source"] != "tmpfs" or row["root"] != ("/null" if masked else "/") or row["optional"]:
+            # Measured on the bound sandbox (2026-10-05): podman mounts its per-container
+            # userdata tmpfs subtrees at these four paths (root under the container's own
+            # userdata), and /dev/shm with source "shm". Shapes pinned from observation.
+            podman_userdata = (path in ("/run/secrets", "/run/.containerenv", "/etc/hostname", "/etc/hosts")
+                               and row["root"].startswith("/containers/overlay-containers/")
+                               and "/userdata/" in row["root"])
+            if ((row["source"] != "tmpfs" and not (path == "/dev/shm" and row["source"] == "shm")) or
+                    (not masked and not podman_userdata and row["root"] != "/") or
+                    (masked and row["root"] != "/null") or
+                    row["optional"]):
                 _fail("infrastructure tmpfs identity is not an approved shape")
             if masked and ("/dev" not in by_path or row["device"] != by_path["/dev"]["device"]):
                 _fail("masked proc device does not come from guest dev tmpfs")
-            if not masked and row["device"] in {binding["workspace_device"], binding["git_device"]}:
+            if not masked and not podman_userdata and row["device"] in {binding["workspace_device"], binding["git_device"]}:
                 _fail("infrastructure tmpfs aliases a payload filesystem")
         if row["filesystem"] == "proc":
             expected_root = "/" if path == "/proc" else path[len("/proc"):]
