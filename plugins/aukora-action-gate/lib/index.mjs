@@ -63,11 +63,12 @@ import { DEFAULT_NETWORK_ALLOW, createPolicy } from './policy.mjs'
 import { decideCall } from './kernel.mjs'
 import { argsDigest, createReceiptLog } from './receipts.mjs'
 import { createSelfChangeTool } from './self-change-tool.mjs'
+import { createDescriptorSearch } from './descriptor-search.mjs'
 
 export const name = 'aukora-action-gate'
 
-/** The one service this gate needs: the tool runtime it guards. It provides nothing. */
-export const inject = ['tools']
+/** The gate owns the tool guard and the selected scoped matcher provider. It provides nothing. */
+export const inject = ['tools', 'subprocess']
 
 /** The release this module was loaded from: `<release>/plugins/aukora-action-gate/lib/index.mjs`. */
 export const LOADED_FROM_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
@@ -169,10 +170,10 @@ export function presetOf(ctx, agent) {
  * @param {{settings: object, lookupPreset?: (agent: object|undefined) => unknown, partialFailureOf?: (agent: object|undefined, exec?: object) => unknown, logger?: object}} options
  * @returns {(exec: object) => string|undefined}
  */
-export function createGuard({ settings, lookupPreset = () => null, partialFailureOf = () => undefined, logger, definitionOf = null }) {
+export function createGuard({ settings, lookupPreset = () => null, partialFailureOf = () => undefined, logger, definitionOf = null, ctx, loadSearch }) {
   const policy = createPolicy(settings, { definitionOf, partialFailureOf: call => partialFailureOf(call?.agent, call) })
   const receipts = createReceiptLog({ auraDir: settings.auraDir, ...settings.rotateBytes === undefined ? {} : { rotateBytes: settings.rotateBytes } })
-  return function actionGate(exec) {
+  const guard = function actionGate(exec) {
     const agent = exec?.agent
     let verdict
     let digest
@@ -212,6 +213,31 @@ export function createGuard({ settings, lookupPreset = () => null, partialFailur
     }
     return verdict.decision === 'deny' ? verdict.message : undefined
   }
+  if (ctx !== undefined) {
+    // Share the guard's one receipt-chain writer. A second independently cached
+    // head would fork evidence when an execution-time refusal follows an allow.
+    const recordDenial = (exec, refusal) => {
+      const digest = argsDigest(exec.arguments)
+      const verdict = decideCall({ kind: 'read', rule: refusal.rule, message: refusal.message,
+        targets: [`tool:${exec.name}`] }, digest)
+      receipts.append({ op: 'tool.decision', by: 'aukora-action-gate/v1', at: new Date().toISOString(),
+        session: typeof exec.agent?.id === 'string' ? exec.agent.id : null,
+        callId: typeof exec.callId === 'string' ? exec.callId : null,
+        nested: exec.parent !== undefined, tool: String(exec.name), argsDigest: digest,
+        decision: 'deny', rule: verdict.rule, kernelCode: verdict.kernelCode, phase: 'execution' })
+    }
+    let provider
+    Object.defineProperty(guard, 'searchExecutor', { value: createDescriptorSearch({ ctx, settings, policy,
+      lookupPreset, recordDenial,
+      // The host may bind its exact selected DSH module with createPlugin().
+      // The default is only this release's declared package; missing source
+      // refuses. Neither guest config nor environment selects an SDK fallback.
+      loadSearch: () => provider ??= loadSearch === undefined
+        ? import(join(LOADED_FROM_ROOT, 'vendor/dsh/packages/fs/tool-fs-search/lib/index.js'))
+        : loadSearch(),
+    }) })
+  }
+  return guard
 }
 
 /**
@@ -220,7 +246,7 @@ export function createGuard({ settings, lookupPreset = () => null, partialFailur
  * @param {object} ctx - the plugin context.
  * @param {object} config - the row's config.
  */
-export function apply(ctx, config) {
+function mount(ctx, config, loadSearch) {
   const settings = readSettings(config ?? {})
   let logger
   try { logger = ctx.logger } catch { logger = undefined }
@@ -238,12 +264,28 @@ export function apply(ctx, config) {
       return ledger?.forAgent?.(agent)
     } catch { return undefined }
   }
-  const guard = createGuard({ settings, lookupPreset: agent => presetOf(ctx, agent), partialFailureOf, logger, definitionOf })
+  const guard = createGuard({ settings, lookupPreset: agent => presetOf(ctx, agent), partialFailureOf, logger, definitionOf, ctx, loadSearch })
   ctx.tools.guard(guard)
+  // Around-dispatch is the pinned DSH boundary that normalizes a replacement
+  // value through the ORIGINAL grep schema/render/meta and post-execute policy.
+  // Its path-based body cannot reopen the tree after our descriptor verdict.
+  ctx.on('tools/execute', guard.searchExecutor)
   logger?.info?.(`aukora-action-gate: guarding every tool call; receipts in ${settings.auraDir}`)
   if (settings.worktreesRoot !== undefined) {
     ctx.tools.register(createSelfChangeTool({ repo: settings.repoRoots[0], worktreesRoot: settings.worktreesRoot, supportRoot: settings.supportRoot }))
   }
+}
+
+export function apply(ctx, config) { return mount(ctx, config) }
+
+/** Host-only composition boundary. The host supplies the same pinned search
+ * module used to register grep, and mounts this plugin in the SAME subprocess
+ * isolate/intercept scope. Module identity and provider confinement require
+ * deployment qualification; a loader never substitutes for that proof. */
+export function createPlugin({ loadSearch } = {}) {
+  if (typeof loadSearch !== 'function') throw new TypeError('the trusted host must supply its selected search-module loader')
+  return Object.freeze({ name, inject: Object.freeze([...inject]),
+    apply(ctx, config) { return mount(ctx, config, loadSearch) } })
 }
 
 function refused(message) {

@@ -6,7 +6,9 @@
  * its lexical and its real form and folds it (paths.mjs), `compileAll`/`judge` match the folded keys against a law's
  * patterns (law.mjs), and `decide` gives the full write verdict — repository root, the guard's own code, outside the
  * root, protected, hard links (guard.mjs). This file only decides WHICH law to ask about WHICH path for WHICH tool,
- * and maps the guard's verdict to this deployment's rule names. It does not resolve, fold or match a path itself.
+ * and maps the guard's verdict to this deployment's rule names. The descriptor reader is the exception: its trusted
+ * host supplies identities from held descriptors, so their classification uses only lexical containment and the
+ * seed's `foldPath`/`judge`, without resolving those names through the mutable filesystem again.
  *
  * The laws it asks (patterns in the seed's own glob language):
  *   key material and credentials   refused for READ and WRITE (root `/`, so a copy of the support folder is still keys)
@@ -23,11 +25,11 @@
  * @module @aukora/dsh-plugin-action-gate/policy
  */
 import { lstatSync, opendirSync, realpathSync, statSync } from 'node:fs'
-import { basename, isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { REASON, decide } from '../../../vendor/seed/src/guard.mjs'
 import { compileAll, judge } from '../../../vendor/seed/src/law.mjs'
-import { analyse, realpathish } from '../../../vendor/seed/src/paths.mjs'
+import { analyse, foldPath, realpathish } from '../../../vendor/seed/src/paths.mjs'
 import { SELF_CHANGE_ROUTE, routedRefusal } from './routes.mjs'
 import { authorityRefusal, credentialRefusal, effectiveShellCommands, gitMainRefusal, hostsNamed, shellWriteTargets, shellCommands } from './shell.mjs'
 import { decidePartialFailure } from '../../aukora-kira/lib/partial-failure.mjs'
@@ -186,6 +188,19 @@ function protectedBy({ root, rules }, abs) {
   return v.protected ? { rule: v.rule } : null
 }
 
+/** Pure lexical containment and matching for an identity already held by the trusted descriptor reader. */
+function descriptorRelation(root, abs) {
+  const rel = relative(resolve(root), abs).split(sep).join('/')
+  return { outside: rel === '..' || rel.startsWith('../') || isAbsolute(rel), key: foldPath(rel) }
+}
+
+function protectedDescriptorBy({ root, rules }, abs) {
+  const relation = descriptorRelation(root, abs)
+  if (relation.outside) return null
+  const v = judge(rules, [relation.key])
+  return v.protected ? { rule: v.rule } : null
+}
+
 /** The seed guard's full WRITE verdict for `abs` against one root and law. */
 function writeVerdict(root, abs, patterns, writesOutsideRepo) {
   return decide({
@@ -289,7 +304,8 @@ export const DEFAULT_ALLOW_TOOLS = Object.freeze([
 /**
  * Build the policy for one deployment.
  * @param {object} settings - validated settings (see `index.mjs`).
- * @returns {{judge: (call: object) => {decision: 'allow'|'deny', rule: string, message: string|null}}}
+ * @returns {{judge: (call: object) => {decision: 'allow'|'deny', rule: string, message: string|null},
+ *   judgeReadDescriptor: (proof: object, call: object) => {decision: 'allow'|'deny', rule: string, message: string|null}}}
  */
 export function createPolicy(settings, { definitionOf = null, partialFailureOf = () => undefined } = {}) {
   const { home, supportRoot, dshHome, auraDir, repoRoots, releaseRoots, extraWritableRoots, readRoots = [], confineReads = false, networkAllow, allowLoopback, mainBranch } = settings
@@ -371,6 +387,67 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
   /** Whether `abs` is one of `roots` or beneath it, by the seed guard's own containment (lexical and real forms). */
   function insideAny(roots, abs) {
     return roots.some(root => { const a = analyse(root, abs); return a.ok && !a.outside })
+  }
+
+  /**
+   * Private trusted-host boundary: only the no-follow reader supplies this proof, never guest tool arguments.
+   * It opens each path component without following links, obtains the physical name and metadata from the held descriptor,
+   * and reads that same descriptor after this verdict. Reopening or resolving a supplied name here would let a
+   * concurrent rename substitute a different object between classification and reading; keep this boundary
+   * lexical, including its root comparisons. The original logical name and the descriptor's physical name must
+   * both pass, because either name may identify protected material after an ancestor rename.
+   */
+  function judgeReadDescriptor(proof, call = {}) {
+    const usablePath = path => typeof path === 'string' && path !== '' && !path.includes('\0') &&
+      !path.endsWith(' (deleted)') && isAbsolute(path) && resolve(path) === path
+    if (proof === null || typeof proof !== 'object' || Array.isArray(proof)) {
+      return deny('path:unresolvable', 'the descriptor proof must be a metadata record from the trusted reader')
+    }
+    const { logicalPath, physicalPath, kind, nlink } = proof
+    if (!usablePath(logicalPath) || !usablePath(physicalPath) ||
+        !['file', 'directory'].includes(kind) || typeof nlink !== 'bigint' || nlink < 1n) {
+      return deny('path:unresolvable', 'the descriptor proof must contain normalized absolute logical and physical paths, a regular-file or directory kind, and a positive bigint link count')
+    }
+    const forms = [...new Set([logicalPath, physicalPath])]
+    const inside = (roots, abs) => roots.some(root => typeof root === 'string' && root !== '' &&
+      !root.includes('\0') && isAbsolute(root) && !descriptorRelation(root, abs).outside)
+    for (const abs of forms) {
+      const key = protectedDescriptorBy(keyLaw, abs)
+      if (key !== null) {
+        const { id, why } = keyById.get(key.rule)
+        return deny(`key-material:${id}`, `${logicalPath} is ${why} (seed guard rule "${key.rule}"). Agents never read or write key material or credentials; if a task needs it, ask Peter`)
+      }
+      for (const anchored of anchoredKeyLaws) {
+        if (protectedDescriptorBy(anchored.law, abs)?.rule !== undefined) {
+          return deny(`key-material:${anchored.id}`, `${logicalPath} is ${anchored.why}. Agents never read or write it`)
+        }
+      }
+      const host = protectedDescriptorBy(hostLaw, abs)
+      if (host !== null) {
+        const { id, why } = hostById.get(host.rule)
+        return deny(`host-secret:${id}`, `${logicalPath} is ${why}. Agents never read or write it; if a task needs it, ask Peter`)
+      }
+      // Other names of a regular inode cannot be located from its descriptor. Directory links count entries,
+      // rather than alternate file names, and are exempt; every regular file must have exactly one name.
+      if (kind === 'file' && nlink !== 1n) {
+        return deny('read:hardlink', `${logicalPath} is a multiply-linked file; another name for these bytes has not been judged`)
+      }
+      if (confineReads && inside([stateRoot], abs) && !inside(workspaceOf(call), abs)) {
+        return deny('host-secret:harness-state', `${logicalPath} is inside the harness state (${stateRoot}), which holds the provider credential, the launch token and every session. Only the session workspace is the agent's`)
+      }
+      if (protectedDescriptorBy(coreLaw, abs)?.rule !== undefined && isCore(call)) {
+        return deny('core-read', `${logicalPath} is withheld from a CORE session (the rows aukora-core-read-deny carried)`)
+      }
+    }
+    if (confineReads) {
+      const readable = [...workspaceOf(call), settings.defaultWorkspace, ...repoRoots, ...releaseRoots, ...extraWritableRoots, ...readRoots]
+      for (const abs of forms) {
+        if (!inside(readable, abs)) {
+          return deny('read:outside-workspace', `${logicalPath} resolves outside the session workspace${call.workspace ? ` (${call.workspace})` : ''} and the roots this deployment allows reading. On this host the agent reads only inside those`)
+        }
+      }
+    }
+    return allow()
   }
 
   /** Judge one declared path for an operation kind: read, list, search, dir or write. */
@@ -722,5 +799,5 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       targets: targets.size === 0 ? [`tool:${String(call.tool)}`] : [...targets].sort() }
   }
 
-  return Object.freeze({ judge: judgeCall, classify })
+  return Object.freeze({ judge: judgeCall, classify, judgeReadDescriptor })
 }
