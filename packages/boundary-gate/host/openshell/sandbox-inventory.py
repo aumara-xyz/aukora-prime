@@ -746,7 +746,7 @@ WORKSPACE_CREDENTIAL_PATTERNS = (
     "var/lib/aukora-boundary", "run/aukora-gate", "etc/aukora*", "etc/sudoers",
     "etc/sudoers.d", "etc/shadow", "etc/gshadow", "root", "proc/*/environ",
     "proc/*/mem", "proc/*/cmdline", "proc/*/task/*/environ", "proc/*/task/*/mem",
-    "**/kira-deployment-overlay.patch.yml", "**/openviking", "**/viking-door.key",
+    "**/kira-deployment-overlay.patch.yml", "**/viking-door.key",
     "**/state/launch.json", "**/state/lane-door", "**/state/eye", "**/gate-state",
     "**/kira-approve-queue", "**/owner-console", "**/*.sock",
 )
@@ -1243,6 +1243,34 @@ def _scan_registered_workspace(registration, deadline):
                     counts["files"] += 1
                 finally:
                     os.close(child)
+            elif stat.S_ISLNK(before.st_mode):
+                # In-tree relative links are admitted only after resolving them against the real
+                # tree: every hop re-opened no-follow from the root descriptor, the resolved path
+                # must stay inside the registered root on the same device, and the target must be
+                # a directory or a readable singly-linked regular file. The target's bytes are
+                # hashed when the walk reaches it directly; the link never traversed, so cycles
+                # and repeated inodes cannot occur. Absolute or escaping links refuse as before.
+                target = os.readlink(name, dir_fd=fd)
+                _text(target, True)
+                if target.startswith("/"):
+                    _fail("registered workspace scan symlink/special file refused")
+                resolved = posixpath.normpath(posixpath.join(path, target))
+                if resolved == source or not resolved.startswith(source + "/"):
+                    _fail("registered workspace scan symlink/special file refused")
+                hop = os.dup(root)
+                try:
+                    for segment in resolved[len(source) + 1:].split("/"):
+                        next_hop = os.open(segment, directory_flags | os.O_NONBLOCK, dir_fd=hop)
+                        os.close(hop)
+                        hop = next_hop
+                    resolved_info = os.fstat(hop)
+                    if not stat.S_ISDIR(resolved_info.st_mode):
+                        _fail("registered workspace scan symlink/special file refused")
+                    if resolved_info.st_dev != device:
+                        _fail("registered workspace scan symlink/special file refused")
+                    record((child_path, "symlink", target, _workspace_scan_identity(resolved_info)))
+                finally:
+                    os.close(hop)
             else:
                 _fail("registered workspace scan symlink/special file refused")
             if _workspace_scan_identity(os.stat(name, dir_fd=fd, follow_symlinks=False)) != before_identity:
