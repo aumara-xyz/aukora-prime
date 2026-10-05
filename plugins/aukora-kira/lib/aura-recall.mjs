@@ -2,6 +2,7 @@
 // Read-only consumer of D's cold citation reader. The host supplies the association;
 // this module creates no identity, record, approval, source mapping or transport.
 import { referenceForAssociatedNote } from './aura-association.mjs'
+import { verifyMemoryRecordHashes } from './memory-quality.mjs'
 export const AURA_RECALL_PROVIDER = 'aura.records'
 export const AURA_RECALL_LIMIT = 50
 const HEX = /^[0-9a-f]{64}$/u
@@ -56,8 +57,11 @@ export function sameRecallRecord(left, right) {
   return !!left && !!right && left.id === right.id
     && (left.subject === undefined || left.subject === right.subject)
     && left.contentHash === right.contentHash
-    && (left.statement === undefined ? typeof left.text === 'string' && left.text === right.statement?.slice(0, left.text.length)
-      : left.statement === right.statement)
+    && (left.statement === undefined || left.statement === right.statement)
+    && (left.partHash !== undefined || left.byteRange !== undefined || left.statementHash !== undefined
+      ? verifyMemoryRecordHashes({ ...left, statement: right.statement }).ok
+      : left.statement === undefined ? typeof left.text === 'string' && left.text === right.statement?.slice(0, left.text.length)
+        : left.statement === right.statement)
     && JSON.stringify(left.source) === JSON.stringify(right.source)
     && JSON.stringify(left.rememberedChain ?? left.aura) === JSON.stringify(right.rememberedChain ?? right.aura)
 }

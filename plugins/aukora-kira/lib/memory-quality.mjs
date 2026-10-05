@@ -53,3 +53,52 @@ export function verifyContentHash(text, expected) {
   if (typeof text !== 'string' || contentHash(text) !== expected) return { ok: false, reason: 'content-hash-mismatch' }
   return { ok: true, contentHash: expected }
 }
+
+const isHash = value => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value)
+const isByteRange = range => range?.unit === 'utf8-bytes' && Number.isSafeInteger(range.start)
+  && Number.isSafeInteger(range.end) && range.start >= 0 && range.end >= range.start
+
+/** Hash domains are explicit: contentHash remains the historical full statement
+ * commitment, never the hash of a displayed excerpt. A projection can verify
+ * its displayed part only; it cannot independently verify the parent statement.
+ * Callers still verify the original chained record before making a projection. */
+export function verifyMemoryRecordHashes(note) {
+  const statementHash = note.statementHash ?? note.contentHash
+  if (statementHash === undefined && note.partHash === undefined && note.byteRange === undefined) return { ok: true, domain: 'uncommitted' }
+  if (!isHash(statementHash) || (note.contentHash !== undefined && note.contentHash !== statementHash)) return { ok: false, reason: 'content-hash-mismatch' }
+  const full = typeof note.statement === 'string'
+  const text = full ? note.statement : note.text
+  if (full || (note.partHash === undefined && note.byteRange === undefined)) {
+    if (!verifyContentHash(text, statementHash).ok) return { ok: false, reason: 'content-hash-mismatch' }
+    if (note.partHash === undefined && note.byteRange === undefined) return { ok: true, domain: 'statement', statementVerified: true, statementHash }
+  }
+  const displayed = note.text ?? text, range = note.byteRange
+  if (typeof displayed !== 'string' || !isHash(note.partHash) || !isByteRange(range)
+    || Buffer.byteLength(displayed, 'utf8') !== range.end - range.start || !verifyContentHash(displayed, note.partHash).ok) {
+    return { ok: false, reason: 'content-hash-mismatch' }
+  }
+  if (full) {
+    const bytes = Buffer.from(note.statement, 'utf8')
+    if (range.end > bytes.length || !bytes.subarray(range.start, range.end).equals(Buffer.from(displayed, 'utf8'))) return { ok: false, reason: 'content-hash-mismatch' }
+  }
+  return { ok: true, domain: 'part', statementVerified: full, statementHash, partHash: note.partHash, byteRange: range }
+}
+
+/** Project exact bytes from an already verified record. start is relative to the
+ * input representation in UTF-8 bytes, not JavaScript characters. No note ID,
+ * canonical statement or parent commitment is changed. */
+export function projectMemoryText(note, text, { start = 0 } = {}) {
+  const checked = verifyMemoryRecordHashes(note)
+  if (!checked.ok) throw new Error('content-hash-mismatch')
+  const source = note.statement ?? note.text
+  // String.slice can end halfway through a surrogate pair; omit that unfinished
+  // point rather than hash replacement bytes that never occurred in the source.
+  const shown = typeof text === 'string' ? text.replace(/[\uD800-\uDBFF]$/u, '') : text
+  if (typeof source !== 'string' || typeof shown !== 'string' || !Number.isSafeInteger(start) || start < 0) throw new Error('memory-byte-range-invalid')
+  const bytes = Buffer.from(source, 'utf8'), selected = Buffer.from(shown, 'utf8')
+  if (start + selected.length > bytes.length || !bytes.subarray(start, start + selected.length).equals(selected)) throw new Error('memory-byte-range-invalid')
+  if (checked.domain === 'uncommitted') return { text: shown }
+  const absoluteStart = (typeof note.statement === 'string' || checked.domain === 'statement' ? 0 : note.byteRange.start) + start
+  return { text: shown, statementHash: checked.statementHash, contentHash: checked.statementHash, contentHashScope: 'full-statement',
+    partHash: contentHash(shown), byteRange: { start: absoluteStart, end: absoluteStart + selected.length, unit: 'utf8-bytes' } }
+}

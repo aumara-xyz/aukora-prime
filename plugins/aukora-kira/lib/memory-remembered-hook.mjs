@@ -6,7 +6,7 @@ import { eventText, isRealAsk, sessionIdOfAgent, setLaneDoorMessageIds } from '.
 import { laneDoorMessageIds } from './lane-door-messages.mjs'
 import { readJsonStrict, readLinesIfPresent } from './strict-read.mjs'
 import { readMemoryTurn, recentSessionHeaders, readLastUserMessage } from './session-read.mjs'
-import { projectScopeOf } from './project-memory.mjs'
+import { captureScopeOf } from './project-memory.mjs'
 import { CONTROLS, ownerControlIn } from './memory-forget.mjs'
 import { createTrackedMemory } from './tracked-memory.mjs'
 import { openVikingHome, readBridgeConfig } from './recall-openviking.mjs'
@@ -29,6 +29,7 @@ export function bodyAtCaptureReader({ releaseRoot, home }) {
 
 export function registerRememberedCapture(ctx, options = {}) {
   const { stateDir, sessionsRoot, policyOf } = options
+  const scopeFor = typeof options.scopeFor === 'function' ? options.scopeFor : agent => captureScopeOf(agent, options.projectIdentity)
   const logger = options.logger ?? ctx.logger
   if (typeof ctx.on !== 'function' || !stateDir || !sessionsRoot || typeof policyOf !== 'function') return () => {}
   const bootedAt = Date.now()
@@ -67,7 +68,7 @@ export function registerRememberedCapture(ctx, options = {}) {
         if (!text?.trim()) continue
         const result = await memory.captureTurn({ sessionId, sessionTitle: payload.agent.session?.header?.title ?? 'auma',
           seq: event.seq, at: event.time, turn: read.turn ?? payload.turn ?? 0, text, canonicalEventLine: line },
-          { ...p, attributedTo: agentFinding ? 'agent' : 'owner', scope: projectScopeOf(payload.agent) ?? 'owner',
+          { ...p, attributedTo: agentFinding ? 'agent' : 'owner', scope: scopeFor(payload.agent),
             bodyAtCapture: !recovery && event.time >= bootedAt ? bodyNow() : null })
         count += result.remembered
         if (result.remembered) options.onRemembered?.({ sessionId, turn: read.turn, seq: event.seq, ...result })
@@ -84,16 +85,20 @@ export function registerRememberedCapture(ctx, options = {}) {
     const parent = ctx.agents?.currentInitiator?.()
     const sessionId = sessionIdOfAgent(parent)
     const ask = sessionId ? readLastUserMessage({ stateRoot: sessionsRoot, sessionId }) : null
-    runs.set(info.runId, { scope: projectScopeOf(parent) ?? 'owner', paused: Boolean(ask && ownerControlIn(eventText(ask.event))), at: Date.now() })
+    runs.set(info.runId, { scope: scopeFor(parent), paused: Boolean(ask && ownerControlIn(eventText(ask.event))), at: Date.now() })
   }))
   stops.push(ctx.on('subagent/end', async info => {
     const run = runs.get(info.runId)
     runs.delete(info.runId)
     if (info.local || info.stopReason !== 'completed' || run?.paused) return
+    if (typeof run?.scope !== 'string' || run.scope === '') {
+      logger?.warn?.('aukora-kira: child capture deferred; retained scope unavailable')
+      return
+    }
     const text = (info.lastAssistantMessage ?? []).filter(part => part?.type === 'text').map(part => part.text).join('\n')
     if (!text.trim()) return
     try {
-      const result = await (await memoryFor()).remember({ text, from: `agent:${info.provider}`, scope: run?.scope ?? 'owner',
+      const result = await (await memoryFor()).remember({ text, from: `agent:${info.provider}`, scope: run.scope,
         migrationKey: `subagent:${info.id}:${info.runId}`, at: run?.at ?? Date.now(), bodyAtCapture: bodyNow(),
         source: { state: 'UNLINKED', cited: false, because: 'host subagent/end result; no local session event was claimed', runId: info.runId, agentId: info.id } })
       if (result.remembered) options.onRemembered?.({ sessionId: info.id, turn: info.runId, ...result })
@@ -101,11 +106,12 @@ export function registerRememberedCapture(ctx, options = {}) {
   }))
   const recovered = new Set()
   stops.push(ctx.on('agent/created', async ({ agent }) => {
-    const scope = projectScopeOf(agent) ?? 'owner'
+    const scope = scopeFor(agent)
+    if (scope === 'project:unresolved') return
     if (recovered.has(scope)) return
     recovered.add(scope)
     try {
-      for (const header of recentSessionHeaders(sessionsRoot).filter(header => (projectScopeOf({ session: { header } }) ?? 'owner') === scope).slice(0, 8)) {
+      for (const header of recentSessionHeaders(sessionsRoot).filter(header => scopeFor({ session: { header } }) === scope).slice(0, 8)) {
         let beforeSeq
         for (let round = 0; round < 8; round++) {
           const result = await capture({ agent: { session: { id: header.id, header } }, beforeSeq }, true)

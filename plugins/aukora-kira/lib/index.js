@@ -1,7 +1,9 @@
 /** Automatic tracked memory. Historical operator config fields remain readable for migration only. */
 import { KiraConversation, KiraConversationError } from './conversation.mjs'
-import { projectScopeOf, projectRecent, rememberedSnippet, visibleRemembered } from './project-memory.mjs'
+import { projectScopeOf, captureScopeOf, projectRecent, rememberedSnippet, visibleRemembered } from './project-memory.mjs'
+import { createProjectIdentityResolver } from './project-identity.mjs'
 import { registerRecallInjection, recallDiagnostics } from './injection.mjs'
+import { normalizeRecallState } from './recall-state.mjs'
 import { preTurnRecallFilter } from './memory-frame.mjs'
 import { laneForSession, readReflectFor } from './compaction-export-hook.mjs'
 import { sessionIdOfAgent } from './autostage-hook.mjs'
@@ -135,6 +137,7 @@ function snapshotGateResult(value, depth = 0, seen = new Set()) {
 export function registerGateCaptureIngestion(ctx, {
   memoryFor, stateForProposal, proposalFromToolResult, inputForCompletion, isLive,
   verifyCompletedGateCapture, capturePins, referenceForAppliedAction, isCaptureScopeLive,
+  scopeForAgent = agent => captureScopeOf(agent),
   pollIntervalMs = 1000, maxWaitMs = 86_400_000, maxPending = 32, now = Date.now,
 } = {}) {
   if (typeof ctx?.on !== 'function' || [stateForProposal, proposalFromToolResult, inputForCompletion, isLive, isCaptureScopeLive, now]
@@ -231,7 +234,7 @@ export function registerGateCaptureIngestion(ctx, {
     if (seen.size >= 128) seen.delete(seen.values().next().value)
     seen.add(selected.id)
     const capturedExecution = Object.freeze({ callId: execution.callId, rootCallId: execution.rootCallId,
-      scope: projectScopeOf(execution.agent) ?? 'owner' })
+      scope: scopeForAgent(execution.agent) })
     const controller = new AbortController()
     // The native observer does not await returned promises. Retain and dispose
     // every flight here, without blocking the tool or its conversation turn.
@@ -303,11 +306,12 @@ export function readConfig(config) {
   }
   const record = /** @type {Record<string, unknown>} */ (config)
   for (const key of Object.keys(record)) {
-    if (!['retrieval', 'readOwner', 'memoryOwner', 'maxSessions', 'autoStage'].includes(key)) {
-      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, maxSessions, autoStage`)
+    if (!['retrieval', 'readOwner', 'memoryOwner', 'projectIdentity', 'maxSessions', 'autoStage'].includes(key)) {
+      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, projectIdentity, maxSessions, autoStage`)
     }
   }
   if (record.autoStage !== undefined && typeof record.autoStage !== 'boolean') refuse('config-autostage', 'autoStage must be a boolean')
+  const projectIdentity = record.projectIdentity === undefined ? undefined : createProjectIdentityResolver(record.projectIdentity)
   const retrieval = record.retrieval ?? IMPLEMENTED_RETRIEVAL
   if (typeof retrieval !== 'string' || !RETRIEVAL_OPTIONS.some(option => option.id === retrieval)) {
     refuse(
@@ -359,6 +363,7 @@ export function readConfig(config) {
     return Object.freeze({
       retrieval,
       maxSessions,
+      ...(projectIdentity === undefined ? {} : { projectIdentity }),
       memoryOwner: Object.freeze({
         stateDir: identity.stateDir,
         subject: identity.subject,
@@ -394,6 +399,7 @@ export function readConfig(config) {
   return Object.freeze({
     retrieval,
     maxSessions,
+    ...(projectIdentity === undefined ? {} : { projectIdentity }),
     readOwner: Object.freeze({
       module: ownerRecord.module,
       ...(ownerRecord.options === undefined ? {} : { options: ownerRecord.options }),
@@ -410,6 +416,9 @@ export function readConfig(config) {
  */
 export async function apply(ctx, config, gateCaptureHost) {
   const normalized = readConfig(config)
+  const projectIdentity = normalized.projectIdentity ?? createProjectIdentityResolver()
+  const projectScopeFor = agent => projectScopeOf(agent, projectIdentity)
+  const captureScopeFor = agent => captureScopeOf(agent, projectIdentity)
   // ── NOT LINKED YET: MEMORY STAYS OFF, POLITELY, AND SAYS SO ─────────────────────────────────────
   // A fresh install carries the release's placeholder subject until the desktop's first Aumlok link
   // writes the per-install `kira-deployment-overlay.patch.yml`. Building a memory owner over the
@@ -476,6 +485,7 @@ export async function apply(ctx, config, gateCaptureHost) {
   // ordinary Cordis configuration/model arguments cannot configure this join.
   if (gateCaptureHost !== undefined) {
     const capture = registerGateCaptureIngestion(ctx, { ...gateCaptureHost,
+      scopeForAgent: captureScopeFor,
       memoryFor: () => associationHostLive ? memoryFor() : undefined,
       isLive: () => associationHostLive,
       inputForCompletion: (execution, selected, completed) => ({
@@ -484,7 +494,7 @@ export async function apply(ctx, config, gateCaptureHost) {
       }) })
     ctx.effect(() => () => capture.dispose(), 'aukora-kira: gate completion capture')
   }
-  const recallContext = agent => ({ sessionId: sessionIdOfAgent(agent), attachedProjects: [projectScopeOf(agent)].filter(Boolean) })
+  const recallContext = agent => ({ sessionId: sessionIdOfAgent(agent), ...projectIdentity.contextFor(agent) })
   // Every Room post joins tracked memory on the same tick, whichever program posted it; a failed pass never blocks the index.
   const roomLog = defaultRoomLog()
   const semanticIndex = () => void Promise.resolve().then(async () => {
@@ -517,7 +527,8 @@ export async function apply(ctx, config, gateCaptureHost) {
     if (!memoryFor()) return answers
     const policy = readOwnerPolicy(await owner.describe())
     const live = memoryFor().read()
-    const checked = new Map(governRecords(live.notes, { ...policy, ...recallContext(agent), nowMs: Date.now(),
+    const policyRecords = live.notes.filter(note => note.subject === policy.subject && policy.permittedPrivacy.includes(note.privacy))
+    const checked = new Map(governRecords(policyRecords, { ...policy, ...recallContext(agent), nowMs: Date.now(),
       forgotten: live.forgotten, states: live.states }, report).map(note => [note.id, note]))
     const eligibleCorpus = preTurn ? [...checked.values()].filter(note => preTurnRecallFilter(note, {
       now: new Date().toISOString(), states: live.states, ...recallContext(agent),
@@ -531,15 +542,19 @@ export async function apply(ctx, config, gateCaptureHost) {
         return [{ ...shown, ...recallAnnotations(note) }]
       })
       const snippets = project(answer.snippets)
-      const withdrawn = Array.isArray(answer.snippets) && answer.snippets.length > 0 && snippets.length === 0
       // A query miss still described an earlier corpus. Refresh that current
       // availability while preserving the recorded read attempts and failures.
       const preTurnQuery = preTurn && Array.isArray(answer.retrieval)
-        && answer.retrieval.some(read => read.leg === 'remembered') && ['found', 'empty'].includes(answer.availability)
+        && answer.retrieval.some(read => read.leg === 'remembered')
       const finalAvailability = live.complete !== true
         || (eligibleCorpus === 0 && answer.partialFailure === true) ? 'undetermined' : eligibleCorpus > 0 ? 'found' : 'empty'
-      return { ...answer, ...(preTurnQuery ? { availability: finalAvailability } : {}), ...(withdrawn ? { availability: 'undetermined', status: 'undetermined' } : {}), snippets, memory: report,
+      const final = { ...answer, ...(preTurnQuery ? { availability: finalAvailability } : {}), snippets, memory: report,
+        partialFailure: answer.partialFailure === true || answer.availability === 'undetermined' || live.complete !== true,
         ...(answer.remembered ? { remembered: { ...answer.remembered, notes: project(answer.remembered.notes) } } : {}) }
+      return normalizeRecallState(final, { readable: live.complete === true
+          && !(preTurnQuery && eligibleCorpus === 0 && answer.partialFailure === true),
+        eligibleRecords: preTurn ? eligibleCorpus : checked.size,
+        policyWithheldCount: Math.max(0, policyRecords.length - (preTurn ? eligibleCorpus : checked.size)) })
     })
   }
 
@@ -593,9 +608,11 @@ export async function apply(ctx, config, gateCaptureHost) {
               const currentPolicy = readOwnerPolicy(await owner.describe())
               const currentSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
               const live = readTrackedMemory(memoryOwner.stateDir)
-              return governRecords(live.notes, { ...currentPolicy,
+              const policyRecords = live.notes.filter(note => note.subject === currentPolicy.subject && currentPolicy.permittedPrivacy.includes(note.privacy))
+              const records = governRecords(policyRecords, { ...currentPolicy,
                 ...(currentSession ? recallContext({ session: currentSession }) : {}),
                 nowMs: Date.now(), forgotten: live.forgotten, states: live.states }, { dropped: 0, reasons: {} })
+              return { records, readable: live.complete === true, policyWithheldCount: policyRecords.length - records.length }
             }
             const getProvider = () => ctx.reflect?.get?.(AURA_RECALL_PROVIDER, false)
             const citationProvider = getProvider()
@@ -603,12 +620,12 @@ export async function apply(ctx, config, gateCaptureHost) {
               // One recall uses one provider instance even if the host remounts
               // it between selected notes. The final reread checks it again.
               getProvider: () => getProvider() === citationProvider ? citationProvider : undefined,
-              currentRecord: async id => (await currentRecords()).find(note => note.id === id),
+              currentRecord: async id => (await currentRecords()).records.find(note => note.id === id),
             })
-            let current
-            try { current = new Map((await currentRecords()).map(note => [note.id, note])) }
-            catch { return { ...result, state: 'undetermined', status: 'undetermined',
-              reason: 'aura-recall:memory-unavailable', notes: [], records: [], auraCitations: [] } }
+            let current, finalRead
+            try { finalRead = await currentRecords(); current = new Map(finalRead.records.map(note => [note.id, note])) }
+            catch { return normalizeRecallState({ ...result, state: 'undetermined', availability: 'undetermined',
+              partialFailure: true, reason: 'aura-recall:memory-unavailable', notes: [], records: [], auraCitations: [] }, { readable: false }) }
             const notes = result.notes.filter(note => sameRecallRecord(note, current.get(note.id)))
               .map(note => ({ ...note, ...recallAnnotations(current.get(note.id)) }))
             // The last owner/store reread also crosses an await. A citation
@@ -624,10 +641,12 @@ export async function apply(ctx, config, gateCaptureHost) {
               return reason ? Object.freeze({ ...one, status: 'undetermined', reason, citation: null, verification: null }) : one
             })
             const changed = notes.length !== result.notes.length
-            return { ...result, ...(changed && notes.length === 0
-                ? { state: 'undetermined', status: 'undetermined', reason: 'aura-recall:recall-changed' }
-                : { status: result.state === 'found' ? 'match' : result.state }),
-              notes, records: notes, auraCitations: currentCitations }
+            const final = normalizeRecallState({ ...result, availability: finalRead.readable ? (current.size ? 'found' : 'empty') : 'undetermined',
+              partialFailure: result.partialFailure === true || result.state === 'undetermined' || !finalRead.readable,
+              ...(changed && notes.length === 0 ? { reason: 'aura-recall:recall-changed' } : {}),
+              notes, records: notes, auraCitations: currentCitations },
+              { readable: finalRead.readable, eligibleRecords: current.size, policyWithheldCount: finalRead.policyWithheldCount })
+            return { ...final, state: final.availability }
           },
           citeRemembered: async (recordId, session) => {
             const unverified = reason => ({ verdict: 'UNVERIFIED', namespace: 'kira.remembered', reason })
@@ -731,6 +750,7 @@ export async function apply(ctx, config, gateCaptureHost) {
     sessionsRoot: String(normalized.memoryOwner.stateDir).replace(/\/[^/]+$/u, ''),
     policyOf: capturePolicyOf,
     memory: memoryFor,
+    scopeFor: captureScopeFor,
     logger: ctx.logger,
     onRemembered: info => { ctx.logger?.info?.(`aukora-kira: remembered ${String(info.remembered)} note(s) from ${info.sessionId} turn ${String(info.turn)}`); semanticIndex() },
   })
@@ -771,14 +791,14 @@ export async function apply(ctx, config, gateCaptureHost) {
   registerRecallInjection(ctx, {
     conversation: recallConversation,
     remembered: memoryOwner === undefined ? undefined : async (text, event) => {
-      const scope = projectScopeOf(event?.agent)
+      const scope = projectScopeFor(event?.agent)
       const deps = storeDepsForRecall()
       const reply = await rememberedFor(deps.recallCandidates, text, event?.agent, true)
       const policy = readOwnerPolicy(await owner.describe())
       const live = deps.liveRemembered()
-      const notes = visibleRemembered(live.notes, policy, scope)
+      const notes = visibleRemembered(live.notes, policy, scope, recallContext(event?.agent))
       const diagnostics = recallDiagnostics(reply)
-      const context = { now: new Date().toISOString(), attachedProjects: scope === null ? [] : [scope], states: live.states }
+      const context = { ...recallContext(event?.agent), now: new Date().toISOString(), states: live.states }
       const byId = new Map(notes.filter(note => {
         const verdict = preTurnRecallFilter(note, context)
         if (!verdict.ok) diagnostics.diagnostics.push({ reason: verdict.why })
@@ -935,7 +955,7 @@ export async function apply(ctx, config, gateCaptureHost) {
         if (Buffer.byteLength(text, 'utf8') > MAX_REMEMBER_INPUT_BYTES) return {
           remembered: 0, ids: [], reason: 'remember-input-too-long', maxInputBytes: MAX_REMEMBER_INPUT_BYTES, grantsAuthority: false,
         }
-        return memoryFor().remember({ text, from: 'agent', scope: projectScopeOf(exec?.agent) ?? 'owner' })
+        return memoryFor().remember({ text, from: 'agent', scope: captureScopeFor(exec?.agent) })
       },
     }
     registry.register(rememberTool)
@@ -950,8 +970,12 @@ export async function apply(ctx, config, gateCaptureHost) {
         relations: [], interpretation: { kind: 'search' }, retrieval: { method: remembered.method ?? 'openviking-semantic', degraded: remembered.degraded === true }, ceiling: remembered.ceiling ?? [], state: {},
         snippets: remembered.notes.map(note => ({ ...note, recordId: note.id, citation: { remembered: true, entryHash: note.rememberedChain?.entryHash } })),
         remembered, memory: report, grantsAuthority: false }
-      partialFailureState.record(exec?.agent, { outer: answer.availability, remembered: remembered.state })
-      return answer
+      const [final] = await publishRecall([answer], exec?.agent, report)
+      const decision = partialFailureState.record(exec?.agent, {
+        outer: final.partialFailure === true ? 'undetermined' : final.availability, remembered: remembered.state,
+      })
+      return { ...final, status: final.recallState === 'returned' ? 'match' : 'insufficient',
+        partialFailure: { ...decision, reconciledAvailability: final.availability } }
     }
     const kind = typeof request.kind === 'string' ? request.kind : ''
     if (kind !== '' && !recordKind.includes(/** @type {never} */ (kind))) {

@@ -91,7 +91,8 @@ test('model-only legacy supplier is withheld without inventing an empty store or
   const text = decision.messages.at(-1).content[0].text
   assert.doesNotMatch(text, /LEGACY-MODEL-DATA/u)
   assert.match(text, /model-authored-never-pre-turn/u)
-  assert.match(text, /readable store holds records/u)
+  assert.match(text, /memory: readable\/found attempts=1/u)
+  assert.match(text, /Records exist, withheld by policy \(1\)\./u)
   assert.doesNotMatch(text, /holds no record for this scope/u)
 })
 

@@ -34,6 +34,7 @@ import {
 } from './wasm-proposal.mjs'
 import { CONVERSATION_ACTIONS, KiraConversationError } from './conversation.mjs'
 import { readOwnerPolicy } from './read-owner.mjs'
+import { projectMemoryText } from './memory-quality.mjs'
 import { RETRIEVAL_LIMITS } from './retrieval.mjs'
 // The phase 9 policy's OWN vocabularies, so the declared output schema cannot drift from the values
 // `reconcileRecallAvailability` actually returns. A copy of the enum here would be one more thing to
@@ -606,6 +607,10 @@ export function recallTool(dispatch) {
         properties: {
           availability: { type: 'string', enum: ['found', 'empty', 'undetermined'] },
           status: { type: 'string', enum: ['match', 'ambiguous', 'insufficient', 'exhausted'] },
+          recallState: { type: 'string', enum: ['returned', 'withheld', 'query-miss', 'empty', 'unavailable'] },
+          returnedRecords: { type: 'integer' },
+          eligibleRecords: { type: 'integer' },
+          policyWithheldCount: { type: 'integer' },
           grantsAuthority: { type: 'boolean' },
           reason: { type: 'string' },
           subject: { type: 'string' },
@@ -652,6 +657,10 @@ export function recallTool(dispatch) {
     async execute(args, exec) {
       assertParameters(RECALL_PARAMETERS, args)
       const answer = await dispatch(exec, /** @type {Record<string, unknown>} */ (args))
+      for (const key of ['returnedRecords', 'eligibleRecords', 'policyWithheldCount']) {
+        if (answer?.[key] !== undefined && (!Number.isSafeInteger(answer[key]) || answer[key] < 0))
+          throw new TypeError('kira_recall: recall counts must be non-negative safe integers')
+      }
       // The harness schema subset cannot express nonnegative counts or typed dictionary values.
       const memory = answer?.memory, count = value => Number.isInteger(value) && value >= 0
       if (memory !== undefined && (!memory || !count(memory.dropped) || !memory.reasons
@@ -690,8 +699,8 @@ export async function recallRemembered(listNotes, text, limit = 5, govern = note
   return {
     state: notes.length === 0 ? 'empty' : 'found', grantsAuthority: false,
     notes: notes.sort((a, b) => score.get(b) - score.get(a)).slice(0, limit).map(note => ({
-      id: note.id, text: String(note.text).slice(0, 600), observedAt: note.observedAt ?? null,
-      contentHash: note.contentHash, contentHashScope: 'full-statement', tier: note.tier,
+      id: note.id, ...projectMemoryText(note, String(note.text).slice(0, 600)), observedAt: note.observedAt ?? null,
+      tier: note.tier,
       source: { sessionId: note.source?.sessionId ?? null, seq: note.source?.seq ?? null }, bodyAtCapture: note.bodyAtCapture ?? null,
       ...(note.containment ? { advisoryOnly: true, grantsAuthority: false, containment: note.containment, staleness: note.staleness } : {}),
     })),

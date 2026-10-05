@@ -289,15 +289,20 @@ try {
     assert.equal(payload.containment.kind, 'DATA'); assert.equal(payload.grantsAuthority, false)
   })
   await arm('subagent lifecycle captures external finals and skips the duplicate local-child event', async () => {
-    const handlers = new Map()
-    const stop = registerRememberedCapture({ on: (name, handler) => { handlers.set(name, handler); return () => {} }, logger: { warn: message => { throw new Error(message) } } },
+    const handlers = new Map(), warnings = []
+    const stop = registerRememberedCapture({ on: (name, handler) => { handlers.set(name, handler); return () => {} },
+      agents: { currentInitiator: () => ({ session: { id: 'synthetic-personal-parent', header: {} } }) },
+      logger: { warn: message => warnings.push(message) } },
       { stateDir, sessionsRoot: join(root, 'home'), memory, policyOf: async () => ({ subject, privacy: 'local' }) })
     const event = { runId: 'run-1', id: 'child-1', provider: 'claude-code', local: false, stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'The bearing is worn and needs replacement.' }] }
     const before = memory.read().notes.length
+    await handlers.get('subagent/start')({ runId: event.runId })
     await handlers.get('subagent/end')(event); await handlers.get('subagent/end')(event)
     await handlers.get('subagent/end')({ ...event, runId: 'local', local: true })
     await handlers.get('subagent/end')({ ...event, runId: 'failed', stopReason: 'error' })
-    assert.equal(memory.read().notes.length, before + 1); stop()
+    assert.equal(memory.read().notes.length, before + 1)
+    assert.deepEqual(warnings, ['aukora-kira: child capture deferred; retained scope unavailable'])
+    stop()
   })
   await arm('off-record and secrets stop capture before either chain or index changes', async () => {
     const before = memory.read().notes.length

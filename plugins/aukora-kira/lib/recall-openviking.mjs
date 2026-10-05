@@ -1,5 +1,5 @@
 import { sha256Hex, MEMORY_TIER, MEMORY_STORAGE } from './memory-tiers.mjs'
-import { memoryQuality, verifyContentHash } from './memory-quality.mjs'
+import { memoryQuality, verifyContentHash, projectMemoryText } from './memory-quality.mjs'
 import { dirname } from 'node:path'
 import { readJsonStrict, readTextStrict, stateExists, durableWrite, ensureDirectory, withFileLock } from './strict-read.mjs'
 import { SEMANTIC_WINDOW } from './reserved-slots.mjs'
@@ -138,7 +138,8 @@ export function contentUri(user, hash) {
  * bytes. The short-note URI stays compatible with the existing index. */
 export function contentDocuments(user, note) {
   const base = contentUri(user, note.contentHash), parts = embeddingParts(note.statement)
-  return parts.map(part => ({ ...part, contentHash: note.contentHash, partHash: sha256Hex(part.content),
+  return parts.map(part => ({ ...part, contentHash: note.contentHash, statementHash: note.contentHash, partHash: sha256Hex(part.content),
+    byteRange: { start: part.start, end: part.end, unit: 'utf8-bytes' },
     uri: parts.length === 1 ? base : `${base.slice(0, -3)}-part-${part.start}-${part.end}-${sha256Hex(part.content)}.md` }))
 }
 
@@ -151,6 +152,7 @@ export function createOpenVikingRecall(input) {
   const root = `viking://user/${config.user}/memories/kira`
   const acknowledgementFile = input.stateDir ? `${input.stateDir}/remembered/index/ack.json` : null
   let acknowledgements = {}
+  const documentMetadata = new Map()
   // Loading a bridge during initialization must not read its growing index ledger.
   const readAcknowledgements = () => {
     if (acknowledgementFile) {
@@ -198,9 +200,13 @@ export function createOpenVikingRecall(input) {
   const idsOf = entry => Array.isArray(entry) ? entry : Array.isArray(entry?.ids) ? entry.ids : []
   const ackMany = updates => {
     const apply = current => {
-      for (const [uri, value] of updates) {
+      for (const [uri, value, contentWritten = false] of updates) {
         if (value === null) delete current[uri]
-        else current[uri] = value
+        else current[uri] = { ...value,
+          // Check the latest locked state: another capture process may have
+          // quarantined this URI after this bridge read its acknowledgement.
+          ...(current[uri]?.status === 'quarantined' && !contentWritten ? { status: 'quarantined' } : {}),
+          ...(value.quarantine === undefined && current[uri]?.quarantine ? { quarantine: current[uri].quarantine } : {}) }
       }
     }
     if (acknowledgementFile) {
@@ -216,11 +222,16 @@ export function createOpenVikingRecall(input) {
       }, { waitMs: 0 })
     } else apply(acknowledgements)
   }
-  const ack = (uri, ids, hash = uri.match(/\/content\/([0-9a-f]{64})(?:\.md|-part-[0-9]+-[0-9]+-[0-9a-f]{64}\.md)$/u)?.[1] ?? null, removal = null) => {
-    const value = ids === null ? null : { ids, contentHash: hash,
+  const ackValue = (uri, ids, hash, removal = null) => {
+    const document = documentMetadata.get(uri)
+    return { ids, contentHash: hash, ...(hash ? { statementHash: hash } : {}),
+      ...(document ? { partHash: document.partHash, byteRange: document.byteRange } : {}),
       storageTier: uri.startsWith(`${root}/${MEMORY_STORAGE.content}/`) ? MEMORY_STORAGE.content : uri.split('/').at(-2),
       ...(removal ? { removal } : {}) }
-    ackMany([[uri, value]])
+  }
+  const ack = (uri, ids, hash = uri.match(/\/content\/([0-9a-f]{64})(?:\.md|-part-[0-9]+-[0-9]+-[0-9a-f]{64}\.md)$/u)?.[1] ?? null, removal = null, contentWritten = false) => {
+    const value = ids === null ? null : ackValue(uri, ids, hash, removal)
+    ackMany([[uri, value, contentWritten]])
   }
   const removeUri = async uri => {
     try { await call('DELETE', `/api/v1/fs?uri=${encodeURIComponent(uri)}`) }
@@ -231,15 +242,37 @@ export function createOpenVikingRecall(input) {
     // Previously indexed full documents remain readable; do not delete or
     // rewrite their exact bytes merely because transport now uses parts.
     ?? (uri === contentUri(config.user, hashOf(note)) || idFromUri(config.user, uri) === note.id ? { content: note.statement, contentHash: hashOf(note),
-      partHash: hashOf(note), start: 0, end: Buffer.byteLength(note.statement, 'utf8'), uri } : undefined)
+      statementHash: hashOf(note), partHash: hashOf(note), start: 0, end: Buffer.byteLength(note.statement, 'utf8'),
+      byteRange: { start: 0, end: Buffer.byteLength(note.statement, 'utf8'), unit: 'utf8-bytes' }, uri } : undefined)
+  const acknowledged = entry => Boolean(entry) && entry.status !== 'quarantined'
+  const acknowledgementMatches = (note, uri) => {
+    const entry = acknowledgements[uri], document = documentFor(note, uri)
+    if (!entry || !document) return false
+    // Current-scheme part acknowledgements commit contentHash to the PARENT.
+    // Missing legacy fields are not a mismatch; exact index bytes still get read.
+    return (entry.contentHash == null || entry.contentHash === hashOf(note))
+      && (entry.statementHash === undefined || entry.statementHash === hashOf(note))
+      && (entry.partHash === undefined || entry.partHash === document.partHash)
+      && (entry.byteRange === undefined || (entry.byteRange?.unit === 'utf8-bytes'
+        && entry.byteRange.start === document.start && entry.byteRange.end === document.end))
+  }
+  const quarantineAcknowledgement = (uri, notes) => {
+    const entry = acknowledgements[uri]
+    if (!entry || entry.status === 'quarantined') return
+    const document = documentFor(notes[0], uri)
+    ackMany([[uri, { ...(Array.isArray(entry) ? { ids: entry } : entry), status: 'quarantined',
+      quarantine: { reason: 'acknowledgement-hash-mismatch',
+        previous: Object.fromEntries(['contentHash', 'statementHash', 'partHash', 'byteRange'].filter(key => entry[key] !== undefined).map(key => [key, entry[key]])),
+        expected: { statementHash: hashOf(notes[0]), partHash: document.partHash, byteRange: document.byteRange } } }]])
+  }
   const matchesDocument = (note, uri, bytes) => {
     const document = documentFor(note, uri)
     return document !== undefined && verifyContentHash(note.statement, hashOf(note)).ok
       && document.content === bytes && document.partHash === sha256Hex(bytes)
-      && (acknowledgements[uri]?.contentHash == null || acknowledgements[uri].contentHash === hashOf(note))
+      && (!acknowledgements[uri] || (acknowledged(acknowledgements[uri]) && acknowledgementMatches(note, uri)))
   }
   const auditAcknowledged = async (grouped, budget = config.syncBatch) => {
-    const uris = Object.keys(acknowledgements).filter(uri => grouped.has(uri))
+    const uris = Object.keys(acknowledgements).filter(uri => grouped.has(uri) && acknowledged(acknowledgements[uri]))
     const unreadable = [], tampered = [], failed = [], failures = []
     const count = Math.min(uris.length, syncBudget(budget))
     let requests = 0
@@ -264,7 +297,9 @@ export function createOpenVikingRecall(input) {
     const grouped = new Map()
     for (const note of live.entries.values()) {
       if (!verifyContentHash(note.statement, hashOf(note)).ok || !memoryQuality(note.statement).keep) continue
-      for (const { uri } of contentDocuments(config.user, note)) {
+      for (const document of contentDocuments(config.user, note)) {
+        const { uri } = document
+        documentMetadata.set(uri, document)
         if (!grouped.has(uri)) grouped.set(uri, [])
         grouped.get(uri).push(note)
       }
@@ -293,7 +328,8 @@ export function createOpenVikingRecall(input) {
       if (requests >= budget || failed.length) break
       await remove(uri)
     }
-    const missing = [...grouped].filter(([uri]) => !acknowledgements[uri])
+    for (const [uri, notes] of grouped) if (acknowledgements[uri] && notes.some(note => !acknowledgementMatches(note, uri))) quarantineAcknowledgement(uri, notes)
+    const missing = [...grouped].filter(([uri]) => !acknowledged(acknowledgements[uri]))
     const priority = new Set(options.priorityHashes ?? [])
     const current = missing.filter(([, notes]) => priority.has(hashOf(notes[0])))
     const older = missing.filter(([, notes]) => !priority.has(hashOf(notes[0])))
@@ -308,7 +344,7 @@ export function createOpenVikingRecall(input) {
           timeout: Math.max(1, Math.round(config.timeoutMs / 1000)), tags: [`contentHash=${hashOf(notes[0])}`, `content_sha256=${document.partHash}`,
             `byte_start=${document.start}`, `byte_end=${document.end}`, `storageTier=${MEMORY_STORAGE.content}`, 'source=kira-memory'] })
         // Keep a durable deletion target even if a forget races this write and the budget is spent.
-        ack(uri, notes.map(note => note.id)); written.push(uri)
+        ack(uri, notes.map(note => note.id), undefined, null, true); written.push(uri)
       } catch (error) {
         failed.push('index-write-failed')
         failures.push(failureOf(error))
@@ -324,8 +360,8 @@ export function createOpenVikingRecall(input) {
     const associations = [...latestGroups].flatMap(([uri, notes]) => {
       const prior = acknowledgements[uri], liveIds = notes.map(note => note.id)
       const ids = latest.complete ? liveIds : [...new Set([...idsOf(prior), ...liveIds])]
-      return prior && JSON.stringify(idsOf(prior)) !== JSON.stringify(ids)
-        ? [[uri, { ids, contentHash: hashOf(notes[0]), storageTier: MEMORY_STORAGE.content }]] : []
+      return acknowledged(prior) && JSON.stringify(idsOf(prior)) !== JSON.stringify(ids)
+        ? [[uri, ackValue(uri, ids, hashOf(notes[0]))]] : []
     })
     if (associations.length) ackMany(associations)
     for (const uri of written) {
@@ -343,10 +379,10 @@ export function createOpenVikingRecall(input) {
     if (audit.tampered.length) failed.push('index-content-mismatch')
     if (audit.requests) { latest = await ledgerNow(source); latestGroups = groupLedger(latest) }
     const latestRetained = latest.complete ? retainedOf(latest) : null
-    return { added, removed, pending: [...latestGroups.keys()].filter(uri => !acknowledgements[uri]).length,
+    return { added, removed, pending: [...latestGroups.keys()].filter(uri => !acknowledged(acknowledgements[uri])).length,
       removalPending: latestRetained ? Object.keys(acknowledgements).filter(uri => uri.startsWith(`${root}/`) && !latestGroups.has(uri)
         && !latestRetained.has(uri)).length : null,
-      indexed: Object.keys(acknowledgements).length, failed, failures, audit, requests, budget }
+      indexed: Object.values(acknowledgements).filter(acknowledged).length, failed, failures, audit, requests, budget }
   })
   const forget = id => inTurn(async () => {
     readAcknowledgements()
@@ -494,12 +530,20 @@ export function createOpenVikingRecall(input) {
 
 export function semanticNotes(answer, chars = 600) {
   return { state: answer.hits.length ? 'found' : 'empty', method: SEMANTIC_METHOD, grantsAuthority: false,
-    notes: answer.hits.map(({ id, score, note, relevance, uri, semanticSpan }) => ({ id, text: note.statement.slice(0, chars), score,
-      contentHash: note.contentHash, contentHashScope: 'full-statement', uri, observedAt: note.observedAt ?? null,
+    notes: answer.hits.map(({ id, score, note, relevance, uri, semanticSpan }) => {
+      // A short display of a long note should show the verified matching part,
+      // not always its first characters. Offsets are UTF-8 bytes, never slice's
+      // UTF-16 positions. Full-statement callers retain the unchanged statement.
+      const useSpan = note.statement.length > chars && semanticSpan?.unit === 'utf8-bytes'
+      const start = useSpan ? semanticSpan.start : 0
+      const text = useSpan ? Buffer.from(note.statement, 'utf8').subarray(start, semanticSpan.end).toString('utf8') : note.statement
+      return { id, ...projectMemoryText(note, text.slice(0, chars), { start }), score,
+      uri, observedAt: note.observedAt ?? null,
       ...(semanticSpan ? { semanticSpan } : {}),
       tier: MEMORY_TIER.remembered, relevance, attributedTo: note.attributedTo, scope: note.scope, source: note.source,
       bodyAtCapture: note.bodyAtCapture ?? null, rememberedChain: note.aura,
-      advisoryOnly: true, grantsAuthority: false, containment: note.containment, staleness: note.staleness })),
+      advisoryOnly: true, grantsAuthority: false, containment: note.containment, staleness: note.staleness }
+    }),
     droppedUnmapped: answer.dropped.unmapped.length, droppedTampered: answer.dropped.tampered.length,
     droppedUnreadable: answer.dropped.unreadable.length, droppedBelowThreshold: answer.dropped.belowThreshold,
     hashMismatches: answer.dropped.tampered.length, droppedQuality: answer.dropped.quality ?? 0,

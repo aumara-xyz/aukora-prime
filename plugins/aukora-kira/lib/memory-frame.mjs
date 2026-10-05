@@ -18,6 +18,7 @@
  * @module @aukora/dsh-plugin-kira/memory-frame
  */
 import { MEMORY_TIERS } from './memory-tiers.mjs'
+import { isProjectScopeAttached } from './project-identity.mjs'
 
 /** The tier weight in the score (§4.1): a Signed note outranks a Remembered one, and never hides it. */
 export const TIER_WEIGHT = Object.freeze({ signed: 1.2, remembered: 1 })
@@ -106,7 +107,7 @@ export function recallFilter(note, context) {
   // about "anything not captured by the live hook" would refuse future origins nobody has measured. Add an entry here when an instrument starts storing records.
   if (DERIVED_ORIGINS.includes(String(note.origin?.by ?? ''))) return { ok: false, why: 'derived-record-never-pre-turn' }
   const scope = String(note.scope ?? 'owner')
-  if (scope !== 'owner' && scope !== 'agent' && !(context?.attachedProjects ?? []).includes(scope)) return { ok: false, why: 'scope-not-attached' }
+  if (scope !== 'owner' && scope !== 'agent' && !isProjectScopeAttached(note, context)) return { ok: false, why: 'scope-not-attached' }
   if (note.validTo !== null && note.validTo !== undefined && String(note.validTo) < String(context?.now ?? '')) {
     return { ok: false, why: 'validTo-in-the-past' }
   }

@@ -7,7 +7,8 @@
 import { recallScoped } from './recall.mjs'
 import { classifyEvidence, decodeToAuditVerdict } from './containment.mjs'
 import { stalenessVerdict } from './staleness.mjs'
-import { contentHash, verifyContentHash } from '../memory-quality.mjs'
+import { contentHash, verifyMemoryRecordHashes } from '../memory-quality.mjs'
+import { isProjectScopeAttached } from '../project-identity.mjs'
 
 const counted = new WeakMap()
 export function countDrop(governed, reason, id) {
@@ -50,7 +51,7 @@ export function filterMemoryRecords(records, context, governed) {
     const forgotten = context.forgotten?.has(id) || note.forgotten === true
     const hidden = moved === 'hidden' || note.hidden === true
     const text = note.statement ?? note.text
-    if (note.contentHash !== undefined && !verifyContentHash(text, note.contentHash).ok) {
+    if (!verifyMemoryRecordHashes(note).ok) {
       countDrop(governed, 'content-hash-mismatch', id); continue
     }
     const record = { recordId: id, content: text, createdAt: instant(note.observedAt ?? note.createdAt) ?? '',
@@ -66,7 +67,7 @@ export function filterMemoryRecords(records, context, governed) {
     if (!refusal && (scope === 'session' || String(scope).startsWith('session:'))) {
       const session = scope === 'session' ? note.source?.sessionId : scope.slice(8)
       if (!session || session !== context.sessionId) refusal = 'session-out-of-scope'
-    } else if (!refusal && scope !== 'owner' && scope !== 'agent' && !(context.attachedProjects ?? []).includes(scope)) refusal = 'scope-not-attached'
+    } else if (!refusal && scope !== 'owner' && scope !== 'agent' && !isProjectScopeAttached(note, context)) refusal = 'scope-not-attached'
     if (refusal) { countDrop(governed, refusal, id); continue }
     // Consent controls visibility, never approval to remember. Owner-only is ordinary private memory.
     if (note.consent === 'hidden') { countDrop(governed, 'hidden', id); continue }
