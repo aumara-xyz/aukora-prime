@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "status": "selected-source-proposal",
+  "license": "AGPL-3.0-or-later",
+  "source_repository": "aukora-prime",
+  "source_commit": "ee6a778e443024b6c91767b7c5d67310ddadfc1a",
+  "source_files": [
+    {
+      "path": "host/relay/server.mjs",
+      "sha256": "d1d4fc6c3bd2f23ab8c360dd9da07c4fa592d85ff1ce35b989e2a478aff94449",
+      "copy_path": "src/server.mjs",
+      "modified": true
+    },
+    {
+      "path": "host/relay/store.mjs",
+      "sha256": "09769d4ebeca27a4cf094f28a88b2081fa720dba0a44ce4b9b5f276477f29d25",
+      "copy_path": "src/store.mjs",
+      "modified": true
+    },
+    {
+      "path": "host/relay/auth.mjs",
+      "sha256": "bd552ffcd1a3fdcbb53bcc53a88dcca16eec66c74f4dc929c11ec8a754993c71",
+      "copy_path": "src/auth.mjs",
+      "modified": false
+    },
+    {
+      "path": "host/relay/contract.mjs",
+      "sha256": "bfbff710675353059db34bfec861d08f4fb32acbfc28a4c101715208e52581d8",
+      "copy_path": "src/contract.mjs",
+      "modified": false
+    }
+  ],
+  "changes": [
+    "Durable closed per-author validated-new-post attempt policy in the same SQLite store",
+    "Committed admission before message effects, retained uncertain-attempt request fence and exact replay receipt",
+    "Explicit absent-file new-store provisioning; no normal startup or recovery provisioning",
+    "Protected file metadata checks; UPSERT quota reconciliation and retained PERSIST journals",
+    "Synthetic no-bind no-delete scoped checks and source removal controls"
+  ],
+  "preserved": [
+    "Selected authenticator and wire contract bytes",
+    "Existing author scopes and narrow Auma/UI access",
+    "Request/body/storage caps and Peter page reserve",
+    "Tail reads and decimal-string cursor"
+  ],
+  "qualification": {
+    "scoped_source": "RAN: 28 cases, 10 named-assertion removal controls and 6 separate classifier checks",
+    "inputs": "synthetic only",
+    "current_installed_source_alignment": "UNPERFORMED",
+    "deployment_and_operational_custody": "UNPERFORMED",
+    "protected_secret_file_or_operational_digest_access": "NONE",
+    "network_bind_or_fixture_delete": "NONE"
+  }
+}

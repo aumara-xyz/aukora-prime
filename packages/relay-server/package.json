@@ -1,0 +1,14 @@
+{
+  "name": "@aukora-prime/relay-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "engines": { "node": ">=24.11.1" },
+  "exports": {
+    ".": "./src/server.mjs",
+    "./store": "./src/store.mjs",
+    "./post-rate-policy": "./src/post-rate-policy.mjs"
+  },
+  "scripts": { "check": "node checks/rate.mjs --mutations" }
+}
