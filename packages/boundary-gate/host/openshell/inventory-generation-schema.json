@@ -2,7 +2,7 @@
   "version": 1,
   "expected_workload_config": {
     "Tmpfs": {
-      "/tmp": "rw,nosuid,nodev,mode=1777",
+      "/tmp": "rw,nosuid,nodev,mode=1777,rprivate,tmpcopyup",
       "/run/openshell-supervisor-ca": "rw,noexec,nosuid,nodev,mode=0777,size=1m,rprivate,tmpcopyup"
     },
     "Devices": [],
