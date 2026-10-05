@@ -37,3 +37,6 @@ LimitNOFILE=256
 LimitCORE=0
 StandardOutput=null
 StandardError=null
+
+[Install]
+WantedBy=multi-user.target
