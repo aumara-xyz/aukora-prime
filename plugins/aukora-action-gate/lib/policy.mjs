@@ -22,7 +22,7 @@
  *
  * @module @aukora/dsh-plugin-action-gate/policy
  */
-import { lstatSync } from 'node:fs'
+import { lstatSync, opendirSync, realpathSync, statSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 
 import { REASON, decide } from '../../../vendor/seed/src/guard.mjs'
@@ -43,6 +43,8 @@ export const KEY_PATTERNS = Object.freeze([
   ['**/kira-memory/keys', 'kira-keys', 'the Kira keys'],
   ['**/kira-memory/key', 'kira-key', 'the Kira key'],
   ['**/openviking/root.key', 'openviking-root-key', "OpenViking's root API key, which opens every account's memory"],
+  ['**/auma.key', 'auma-relay-key', "Auma's relay bearer credential"],
+  ['**/nostr/identity.json', 'nostr-identity', 'the Nostr identity, including its secret signing key'],
   ['**/.config/gh', 'gh-config', "the GitHub CLI's stored token"],
   ['**/.git-credentials', 'git-credentials', "git's stored credentials"],
   ['**/.netrc', 'netrc', 'stored network credentials'],
@@ -55,7 +57,7 @@ export const KEY_PATTERNS = Object.freeze([
 /** The same material spelled in command text. Folded to lowercase; a tripwire on the plain spelling, nothing more. */
 export const KEY_MENTIONS = Object.freeze([
   'state/aumlok', 'machine-seed', '.aukora/signer', 'kira-memory/issuer', 'kira-memory/key', 'openviking/root.key', '.config/gh',
-  '.git-credentials', '.ssh/id_', 'library/keychains', 'aumlok-signer.sock', '.netrc',
+  '.git-credentials', '.ssh/id_', 'library/keychains', 'aumlok-signer.sock', '.netrc', 'auma.key', 'nostr/identity.json',
 ])
 
 // The Linux file fence also protects these plain command spellings. This is a
@@ -416,6 +418,12 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       // A recursive CONTENT search rooted above key material reaches it: asked as "is the key inside this root?".
       const reached = anchoredKeys.find(keyPath => forms.some(root => { const a = analyse(root, keyPath); return a.ok && !a.outside }))
       if (reached !== undefined) return deny('key-material:search-root', `a content search rooted at ${raw} reaches ${reached}. Pass a narrower path that does not contain key material`)
+      const base = call.workspace ?? settings.defaultWorkspace
+      // grep passes the path literally to its subprocess, without a shell's
+      // tilde expansion. The checked descendants must be that actual subtree.
+      const root = resolve(base, raw)
+      const refused = judgeSearchTree(root, call)
+      if (refused !== null) return refused
     }
     if (kind !== 'write') {
       // FAIL CLOSED ON LINUX (2026-10-04): a read, list or search lands only inside the session workspace, the
@@ -464,6 +472,49 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
         + `(seed guard: ${REASON.OUTSIDE}). Agents write only inside those`)
     }
     return allow()
+  }
+
+  /**
+   * A recursive content search can bypass direct-file guards. Before dispatch,
+   * judge every possible descendant, including hidden entries and symlink
+   * targets, using metadata only. An incomplete walk refuses the entire search.
+   * This preflight does not make the later search atomic with these checks.
+   */
+  function judgeSearchTree(root, call) {
+    const pending = [{ path: root, depth: 0, ancestors: [] }]
+    const deadline = performance.now() + 1000
+    let entries = 1
+    const incomplete = () => deny('search:unqualified', 'the content-search tree could not be completely checked within its metadata budget; use a narrower, resolvable path')
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node.depth > 32 || performance.now() > deadline) return incomplete()
+      const refused = judgePath(node.path, 'read', call)
+      if (refused.decision === 'deny') return refused
+      try {
+        // Require affirmative resolution and link metadata; a missing, denied
+        // or looping alias is not evidence that the search can reach no secret.
+        realpathSync(node.path)
+        const leaf = lstatSync(node.path)
+        const metadata = leaf.isSymbolicLink() ? statSync(node.path) : leaf
+        if (metadata.isFile()) {
+          if (!Number.isSafeInteger(metadata.nlink) || metadata.nlink < 1) return incomplete()
+          if (metadata.nlink > 1) return deny('read:hardlink', `${node.path} is a multiply-linked file; another name for these bytes has not been judged`)
+          continue
+        }
+        if (!metadata.isDirectory()) return incomplete()
+        const identity = `${metadata.dev}:${metadata.ino}`
+        if (node.ancestors.includes(identity)) return incomplete()
+        const ancestors = [...node.ancestors, identity]
+        const directory = opendirSync(node.path)
+        try {
+          for (let child; (child = directory.readSync()) !== null;) {
+            if (++entries > 16384 || performance.now() > deadline) return incomplete()
+            pending.push({ path: join(node.path, child.name), depth: node.depth + 1, ancestors })
+          }
+        } finally { directory.closeSync() }
+      } catch { return incomplete() }
+    }
+    return null
   }
 
   /** Judge one host a call names. */
@@ -572,6 +623,10 @@ export function createPolicy(settings, { definitionOf = null, partialFailureOf =
       case 'str_replace_editor':
         return paths([args.path], args.command === 'view' ? 'read' : 'write') ?? allow()
       case 'grep':
+        if ((typeof args.path !== 'string' || !isAbsolute(args.path)) &&
+            (typeof call.workspace !== 'string' || call.workspace === '')) {
+          return deny('search:unbound-root', 'a relative or default content search needs the trusted session workspace; pass an absolute path')
+        }
         return paths([args.path ?? call.workspace ?? settings.defaultWorkspace], 'search') ?? allow()
       case 'glob':
         return paths([args.path ?? call.workspace ?? settings.defaultWorkspace], 'list') ?? allow()
