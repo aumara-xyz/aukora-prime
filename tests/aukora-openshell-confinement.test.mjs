@@ -879,6 +879,94 @@ print(json.dumps({'ok':True,'refused':8}))
   assert.equal(result.refused, 8)
 })
 
+test('dedicated group-write registration joins exact owner, leaf custody and actual namespace mapping', () => {
+  const result = JSON.parse(helperPython(`
+import errno,stat
+from types import SimpleNamespace
+from unittest.mock import patch
+process=copy.deepcopy(f['process'])
+guest_gid=1000
+host_gid=process['gid_map'][0]['host_id']+guest_gid-process['gid_map'][0]['container_id']
+source='/srv/auma-ws/aukora-prime'
+registered={'version':2,'workspace_id':f['registration']['workspace_id'],
+            'workspace_source':source,'git_source':source+'/.git',
+            'group_access':{'owner_uid':1001,'group_gid':host_gid,'guest_gid':guest_gid}}
+current=copy.deepcopy(registered)
+m._read_protected=lambda path:json.dumps(current)
+m.pwd.getpwnam=lambda name:SimpleNamespace(pw_uid=1001)
+assert m.read_workspace_registration()==registered
+for edit in (lambda r:r.update(version=1),lambda r:r.update(group_access=None),
+             lambda r:r['group_access'].update(owner_uid=1002),
+             lambda r:r['group_access'].update(group_gid=True),
+             lambda r:r['group_access'].update(guest_gid=-1),
+             lambda r:r['group_access'].update(extra=1),
+             lambda r:r.update(workspace_source='/home/aukora-host/workspace',git_source='/home/aukora-host/workspace/.git')):
+    current=copy.deepcopy(registered);edit(current);protocol_refusal(m.read_workspace_registration)
+current=copy.deepcopy(registered)
+metadata=SimpleNamespace(st_mode=stat.S_IFDIR|0o2770,st_uid=1001,st_gid=host_gid)
+def no_acl(*args):raise OSError(errno.ENODATA,'no ACL')
+with patch.object(m.sys,'platform','linux'),patch.object(m.os,'fstat',return_value=metadata),patch.object(m.os,'getxattr',side_effect=no_acl,create=True):
+    m._registered_directory(41,source,registered)
+    m._registered_directory(41,source+'/.git',registered)
+    protocol_refusal(lambda:m._registered_directory(41,'/srv/auma-ws',registered))
+    for key,value in (('st_uid',1002),('st_gid',host_gid+1),('st_mode',stat.S_IFDIR|0o2777),('st_mode',stat.S_IFDIR|0o0770)):
+        old=getattr(metadata,key);setattr(metadata,key,value)
+        protocol_refusal(lambda:m._registered_directory(41,source,registered));setattr(metadata,key,old)
+    with patch.object(m.os,'getxattr',return_value=b'ACL grant'):
+        protocol_refusal(lambda:m._registered_directory(41,source,registered))
+    metadata.st_uid=0;metadata.st_mode=stat.S_IFDIR|0o755
+    m._registered_directory(41,'/srv/auma-ws',registered)
+    metadata.st_mode=stat.S_IFDIR|0o775
+    protocol_refusal(lambda:m._registered_directory(41,'/srv/auma-ws',registered))
+identity=(('8:1','2001'),('8:1','2002'))
+status=lambda gid:'Uid: '+' '.join([str(process['uid'])]*4)+'\\nGid: '+' '.join([str(gid)]*4)
+m.start_time=lambda pid:process['start_time']
+map_text=lambda:'\\n'.join(' '.join(str(row[key]) for key in ('container_id','host_id','size')) for row in process['gid_map'])
+m.proc_read=lambda pid,leaf:map_text() if leaf=='gid_map' else status(host_gid)
+with patch.object(m,'_source_directory_identities',return_value=identity) as observed:
+    assert m._registered_workspace_access(registered,process)==identity
+    assert observed.call_args.args==(source,registered)
+    wrong=copy.deepcopy(registered);wrong['group_access']['group_gid']+=1
+    protocol_refusal(lambda:m._registered_workspace_access(wrong,process))
+    wrong=copy.deepcopy(registered);wrong['group_access']['guest_gid']+=1
+    protocol_refusal(lambda:m._registered_workspace_access(wrong,process))
+    m.proc_read=lambda pid,leaf:map_text() if leaf=='gid_map' else status(host_gid+1)
+    protocol_refusal(lambda:m._registered_workspace_access(registered,process))
+    # Another actual guest identity derives another group; no fixture GID constant.
+    alternate=copy.deepcopy(registered);alternate['group_access']['guest_gid']+=7;alternate['group_access']['group_gid']+=7
+    m.proc_read=lambda pid,leaf:map_text() if leaf=='gid_map' else status(host_gid+7)
+    assert m._registered_workspace_access(alternate,process)==identity
+    m.proc_read=lambda pid,leaf:'0 1 1' if leaf=='gid_map' else status(host_gid)
+    protocol_refusal(lambda:m._registered_workspace_access(registered,process))
+print(json.dumps({'ok':True}))
+`))
+  assert.equal(result.ok, true)
+  const joined = JSON.parse(helperPython(admissionMockPrelude + `
+from types import SimpleNamespace
+from unittest.mock import patch
+old=f['registration']['workspace_source'];source='/srv/auma-ws/aukora-prime'
+def relocated(value):
+    if type(value) is dict:return {key:relocated(item) for key,item in value.items()}
+    if type(value) is list:return [relocated(item) for item in value]
+    if type(value) is str and (value==old or value.startswith(old+'/')):return source+value[len(old):]
+    return value
+f=relocated(f)
+guest_gid=1000
+row=f['process']['gid_map'][0]
+f['registration']['version']=2
+f['registration']['group_access']={'owner_uid':1001,'group_gid':row['host_id']+guest_gid-row['container_id'],'guest_gid':guest_gid}
+m.pwd.getpwnam=lambda name:SimpleNamespace(pw_uid=1001)
+identity=(('8:1','2001'),('8:1','2002'))
+with patch.object(m,'_source_directory_identities',return_value=identity) as sources:
+    assert m.admission('auma-ws','print')['version']==3
+    assert sources.call_count==2
+    f['registration']['group_access']['group_gid']+=1
+    protocol_refusal(lambda:m.admission('auma-ws','print'))
+print(json.dumps({'ok':True}))
+`))
+  assert.equal(joined.ok, true)
+})
+
 test('actual source-directory anchoring rejects symlink workspace, symlink ancestors, .git aliases and linked-worktree files', () => {
   assert.equal(JSON.parse(helperPython(`
 import errno,os,tempfile

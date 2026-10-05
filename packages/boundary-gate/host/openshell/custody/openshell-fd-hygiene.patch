@@ -1,10 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# First-party FD source patch; no runtime qualification.
+# Applies-to: NVIDIA/OpenShell 6648bd0c290efbc41ba131ee9831ee45cd431f94
 diff --git a/crates/openshell-sandbox/src/process.rs b/crates/openshell-sandbox/src/process.rs
 --- a/crates/openshell-sandbox/src/process.rs
 +++ b/crates/openshell-sandbox/src/process.rs
-@@ -260,6 +260,30 @@
+@@ -277,6 +277,31 @@
+         .ok()
          .and_then(|json| serde_json::from_str(&json).ok())
          .unwrap_or_default()
- }
++}
++
 +/// Mark every non-stdio descriptor for closure on successful workload exec.
 +///
 +/// Keep temporary Landlock descriptors and Rust's private startup-error channel
@@ -28,33 +33,31 @@ diff --git a/crates/openshell-sandbox/src/process.rs b/crates/openshell-sandbox/
 +    } else {
 +        Ok(())
 +    }
-+}
+ }
+ 
  #[cfg(unix)]
- pub fn harden_child_process() -> Result<()> {
-     use rustix::process::{Resource, Rlimit, setrlimit};
-@@ -587,15 +611,18 @@
-                     } else if libc::setpgid(0, 0) < 0 {
+@@ -627,6 +652,7 @@
                          return Err(std::io::Error::last_os_error());
                      }
+ 
 +                    mark_inherited_fds_close_on_exec()?;
                      harden_child_process().map_err(|err| std::io::Error::other(err.to_string()))?;
+ 
                      // Phase 2 (as unprivileged user): Enforce the prepared
-                     // Landlock ruleset via restrict_self() + apply seccomp.
-                     // restrict_self() does not require root.
-                     #[cfg(target_os = "linux")]
-                     if let Some(prepared) = prepared_sandbox.take() {
+@@ -637,6 +663,9 @@
                          sandbox::linux::enforce_capability_free(prepared, &mut child_hardening)
                              .map_err(|err| std::io::Error::other(err.to_string()))?;
                      }
-+                    // Cover any descriptors created during policy enforcement.
++
++                    // Cover descriptors created while installing the policy.
 +                    mark_inherited_fds_close_on_exec()?;
+ 
                      Ok(())
                  });
-             }
 diff --git a/crates/openshell-sandbox/src/pty.rs b/crates/openshell-sandbox/src/pty.rs
 --- a/crates/openshell-sandbox/src/pty.rs
 +++ b/crates/openshell-sandbox/src/pty.rs
-@@ -118,10 +118,12 @@
+@@ -124,6 +124,8 @@
      #[cfg(target_os = "linux")]
      child_hardening: &mut openshell_isolation_interface::linux::child_seccomp::ChildHardeningProgram,
  ) -> std::io::Result<()> {
@@ -62,14 +65,14 @@ diff --git a/crates/openshell-sandbox/src/pty.rs b/crates/openshell-sandbox/src/
 +    crate::process::mark_inherited_fds_close_on_exec()?;
      crate::process::harden_child_process()
          .map_err(|error| std::io::Error::other(error.to_string()))?;
+ 
+@@ -140,5 +142,9 @@
      #[cfg(target_os = "linux")]
-     if let Some(prepared) = prepared {
-         crate::sandbox::linux::enforce_capability_free(prepared, child_hardening)
-             .map_err(|error| std::io::Error::other(error.to_string()))?;
-     }
-@@ -136,2 +138,5 @@
-+    // Cover any descriptors created during policy enforcement.
+     let _ = policy;
+ 
++    // Cover descriptors created while installing the policy.
 +    #[cfg(target_os = "linux")]
 +    crate::process::mark_inherited_fds_close_on_exec()?;
++
      Ok(())
  }

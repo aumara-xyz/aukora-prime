@@ -1,6 +1,6 @@
 # First-party source patch; no runtime or containment qualification.
 # Applies-to: NVIDIA/OpenShell 6648bd0c290efbc41ba131ee9831ee45cd431f94
-# Dedicated auma-ws/default create path; fixed protected four-field registration.
+# Dedicated auma-ws/default create path; protected versioned owner/group registration.
 # Requires joined H pre-bind review, exact image/rootfs/idmap qualification.
 # No registration/install/keys/host-workspace copy/chown is performed by this asset.
 # Stop/delete acknowledgement is NEVER full owned cleanup/confirmed_absent proof.
@@ -53,7 +53,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
          apparmor_profile: None,
          // Omission selects the runtime default, never an unconfined profile.
          seccomp_profile_path: String::new(),
-@@ -1471,6 +1480,13 @@
+@@ -1471,6 +1480,14 @@
  pub fn build_isolation_specs(
      input: IsolationSpecInput<'_>,
  ) -> Result<IsolationSpecs, ComputeDriverError> {
@@ -64,10 +64,11 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
 +    input: IsolationSpecInput<'_>,
 +    workspace: Option<&TrustedWorkspaceBinding>,
 +) -> Result<IsolationSpecs, ComputeDriverError> {
++    if let Some(binding) = workspace { binding.ensure_guest_gid(input.identity.gid)?; }
      let base = || {
          build_base_spec(
              input.sandbox,
-@@ -1510,8 +1526,12 @@
+@@ -1510,8 +1527,12 @@
              input.identity.uid.to_string(),
              input.identity.gid.to_string(),
              crate::isolation::BOOTSTRAP_PATH.into(),
@@ -81,7 +82,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
          workload.user = "0:0".into();
          workload.groups.clear();
          workload.cap_drop = vec!["ALL".into()];
-@@ -1584,6 +1604,33 @@
+@@ -1584,6 +1605,33 @@
          dest: crate::isolation::CHANNEL_ROOT.into(),
          options: vec!["rw".into(), "z".into()],
      });
@@ -115,7 +116,7 @@ diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-
  
      supervisor.name = crate::isolation::supervisor_name(&input.sandbox.id);
      supervisor
-@@ -1791,6 +1838,68 @@
+@@ -1791,6 +1839,68 @@
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -978,7 +979,7 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
          warn!(
              container = container_name,
              error = %err,
-@@ -2051,6 +2058,319 @@
+@@ -2051,6 +2058,398 @@
      use std::collections::HashMap;
      use std::fs;
      use std::path::{Path, PathBuf};
@@ -1170,6 +1171,85 @@ diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-dri
 +    }
 +
 +    #[tokio::test]
++    async fn workspace_repair_retained_group_binding_owns_lifecycle_after_current_drift() {
++        // Use the existing transport fixture and actual lifecycle methods. The
++        // retained group identity is immutable; current source/mount drift is
++        // cleanup evidence, never a reason to discard original ownership.
++        let mut retained: serde_json::Value = serde_json::from_str(
++            &TrustedWorkspaceBinding::synthetic().label().unwrap()).unwrap();
++        retained["registration"]["version"] = serde_json::json!(2);
++        retained["registration"]["workspace_source"] = serde_json::json!("/srv/auma-ws/retained-lifecycle");
++        retained["registration"]["git_source"] = serde_json::json!("/srv/auma-ws/retained-lifecycle/.git");
++        retained["registration"]["group_access"] = serde_json::json!({"owner_uid":7,"group_gid":23,"guest_gid":41});
++        for field in ["workspace_identity", "git_identity"] {
++            retained[field]["uid"] = serde_json::json!(7);
++            retained[field]["gid"] = serde_json::json!(23);
++            retained[field]["mode"] = serde_json::json!(0o42770);
++        }
++        let label = retained.to_string();
++        let mut list: serde_json::Value = serde_json::from_str(&workspace_repair_list()).unwrap();
++        let mut inspect: serde_json::Value = serde_json::from_str(&workspace_repair_inspect(workspace_repair_mounts())).unwrap();
++        list[0]["Labels"][BINDING_LABEL] = serde_json::json!(label);
++        inspect["Config"]["Labels"][BINDING_LABEL] = serde_json::json!(label);
++        inspect["Mounts"][0]["Source"] = serde_json::json!("/current-permissions-unavailable");
++        inspect["Mounts"][1]["RW"] = serde_json::json!(true);
++        let mut exited = inspect.clone();
++        exited["State"] = serde_json::json!({"Status":"exited","Running":false,"FinishedAt":"2026-01-01T00:00:00Z"});
++        let mut companion_labels = workspace_repair_labels("supervisor");
++        companion_labels.insert(BINDING_LABEL.into(), label);
++        let supervisor = serde_json::json!({"Id":"owned-supervisor","Name":crate::isolation::supervisor_name("sandbox-1"),
++            "State":{"Status":"running","Running":true},"Config":{"Labels":companion_labels}}).to_string();
++        for action in ["stop", "reconcile", "delete", "restart"] {
++            let mut responses = vec![StubResponse::new(StatusCode::OK, list.to_string())];
++            if action == "reconcile" { responses.push(StubResponse::new(StatusCode::OK, list.to_string())); }
++            responses.push(StubResponse::new(StatusCode::OK, inspect.to_string()));
++            match action {
++                "stop" => responses.extend([
++                    StubResponse::new(StatusCode::NO_CONTENT, ""),
++                    StubResponse::new(StatusCode::OK, exited.to_string()),
++                    StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++                ]),
++                "reconcile" => responses.extend([
++                    StubResponse::new(StatusCode::NO_CONTENT, ""),
++                    StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++                ]),
++                "delete" => responses.extend([
++                    StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++                    StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++                    StubResponse::new(StatusCode::NO_CONTENT, ""),
++                    StubResponse::new(StatusCode::NO_CONTENT, ""),
++                ]),
++                "restart" => responses.push(StubResponse::new(StatusCode::OK, supervisor.clone())),
++                _ => unreachable!(),
++            }
++            let (socket, requests, handle) = spawn_podman_stub("repair-retained-group", responses);
++            let driver = test_driver(socket.clone());
++            let result = tokio::time::timeout(Duration::from_secs(2), async {
++                match action {
++                    "stop" => driver.stop_sandbox("sandbox-1").await,
++                    "reconcile" => { driver.reconcile_resource_admission().await; Ok(()) },
++                    "delete" => driver.delete_sandbox("sandbox-1").await.map(|_| ()),
++                    "restart" => driver.start_sandbox("sandbox-1", "generation-1", &encoded_launch_authentication()).await,
++                    _ => unreachable!(),
++                }
++            }).await.unwrap();
++            let log = requests.lock().unwrap().clone(); handle.abort(); let _ = fs::remove_file(socket);
++            if action == "restart" {
++                assert!(matches!(result, Err(ComputeDriverError::Precondition(ref reason)) if reason == "workspace requires resource admission"),
++                    "restart must pass retained ownership then refuse fresh admission: {result:?}");
++                assert!(log.iter().all(|request| request.starts_with("GET ")));
++            } else {
++                assert!(result.is_ok(), "retained group {action} failed: {result:?}");
++                assert!(log.iter().any(|request| request.starts_with("POST ") && request.contains("owned-workload/stop")),
++                    "retained group {action} skipped owned stop: {log:?}");
++                if action == "delete" {
++                    assert!(log.iter().any(|request| request.starts_with("DELETE ") && request.contains("owned-workload?")));
++                }
++            }
++        }
++    }
++
++    #[tokio::test]
 +    async fn workspace_repair_stop_joins_workload_before_companion_refusal() {
 +        let mut exited: serde_json::Value = serde_json::from_str(&workspace_repair_inspect(workspace_repair_mounts())).unwrap();
 +        exited["State"] = serde_json::json!({"Status":"exited","Running":false,"FinishedAt":"2026-01-01T00:00:00Z"});
@@ -1313,7 +1393,7 @@ diff --git a/crates/openshell-driver-podman/src/workspace_binding.rs b/crates/op
 new file mode 100644
 --- /dev/null
 +++ b/crates/openshell-driver-podman/src/workspace_binding.rs
-@@ -0,0 +1,381 @@
+@@ -0,0 +1,515 @@
 +// SPDX-License-Identifier: AGPL-3.0-or-later
 +//! Fixed operator registration for the dedicated auma-ws create path.
 +//!
@@ -1351,13 +1431,34 @@ new file mode 100644
 +    workspace_id: String,
 +    workspace_source: String,
 +    git_source: String,
++    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_group_access")]
++    group_access: Option<GroupAccess>,
++}
++
++#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
++#[serde(deny_unknown_fields)]
++struct GroupAccess {
++    owner_uid: u32,
++    group_gid: u32,
++    guest_gid: u32,
++}
++
++fn deserialize_group_access<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<GroupAccess>, D::Error> {
++    // Missing legacy field defaults to None; explicit null is not an access grant.
++    GroupAccess::deserialize(deserializer).map(Some)
 +}
 +
 +impl Registration {
 +    fn validate(&self) -> Result<(), ComputeDriverError> {
 +        let id = uuid::Uuid::parse_str(&self.workspace_id).map_err(|_| refused())?;
-+        if self.version != 1 || id.is_nil() || id.hyphenated().to_string() != self.workspace_id {
++        if id.is_nil() || id.hyphenated().to_string() != self.workspace_id {
 +            return Err(refused());
++        }
++        match (self.version, self.group_access.as_ref()) {
++            (1, None) => (),
++            (2, Some(access)) if access.owner_uid > 0 && access.group_gid > 0 && access.guest_gid > 0 &&
++                Path::new(&self.workspace_source).parent() == Some(Path::new("/srv/auma-ws")) => (),
++            _ => return Err(refused()),
 +        }
 +        normalized_source(&self.workspace_source)?;
 +        normalized_source(&self.git_source)?;
@@ -1406,6 +1507,52 @@ new file mode 100644
 +    Ok(())
 +}
 +
++fn group_source_directory(meta: &Metadata, access: &GroupAccess) -> Result<(), ComputeDriverError> {
++    group_source_identity(&FileIdentity::of(meta), access)
++}
++
++fn group_source_identity(identity: &FileIdentity, access: &GroupAccess) -> Result<(), ComputeDriverError> {
++    // Only the protected registration's dedicated owner/group pair may share
++    // write access. Setgid preserves that group on newly created directories;
++    // other users, sticky/setuid modes and ordinary shared ancestors refuse.
++    if identity.mode & 0o170000 != 0o040000 || identity.uid != access.owner_uid || identity.gid != access.group_gid ||
++        !matches!(identity.mode & 0o7777, 0o2750 | 0o2770) { return Err(refused()); }
++    Ok(())
++}
++
++#[cfg(target_os = "linux")]
++fn no_source_acls(file: &File) -> Result<(), ComputeDriverError> {
++    for name in [c"system.posix_acl_access", c"system.posix_acl_default"] {
++        // SAFETY: this is a size query on an owned descriptor and constant
++        // NUL-terminated name; no memory is written. Any ACL grant refuses.
++        let size = unsafe { nix::libc::fgetxattr(file.as_raw_fd(), name.as_ptr(), std::ptr::null_mut(), 0) };
++        if size >= 0 { return Err(refused()); }
++        let error = std::io::Error::last_os_error().raw_os_error();
++        if error != Some(nix::libc::ENODATA) { return Err(refused()); }
++    }
++    Ok(())
++}
++
++#[cfg(not(target_os = "linux"))]
++fn no_source_acls(_file: &File) -> Result<(), ComputeDriverError> {
++    // This registration is a Linux runtime capability; another platform cannot
++    // qualify ACL absence by omitting the Linux observation.
++    Err(refused())
++}
++
++fn check_source_directory(file: &File, path: &Path, registration: Option<&Registration>) -> Result<(), ComputeDriverError> {
++    let meta = file.metadata().map_err(|_| refused())?;
++    if let Some(registration) = registration.filter(|r| r.group_access.is_some()) {
++        if path == Path::new(&registration.workspace_source) || path == Path::new(&registration.git_source) {
++            group_source_directory(&meta, registration.group_access.as_ref().ok_or_else(refused)?)?;
++            return no_source_acls(file);
++        }
++        // Dedicated group write never permits a writable or non-root ancestor.
++        return protected_directory(&meta);
++    }
++    source_directory(&meta)
++}
++
 +fn open_child(parent: &File, name: &std::ffi::OsStr, directory: bool) -> Result<File, ComputeDriverError> {
 +    let name = CString::new(name.as_bytes()).map_err(|_| refused())?;
 +    let flags = nix::libc::O_RDONLY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC |
@@ -1418,7 +1565,7 @@ new file mode 100644
 +    Ok(unsafe { File::from_raw_fd(raw) })
 +}
 +
-+fn open_anchored(path: &str, directory: bool, protected: bool) -> Result<File, ComputeDriverError> {
++fn open_anchored(path: &str, directory: bool, protected: bool, registration: Option<&Registration>) -> Result<File, ComputeDriverError> {
 +    normalized_source(path)?;
 +    let mut parent = OpenOptions::new().read(true)
 +        .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
@@ -1426,17 +1573,19 @@ new file mode 100644
 +    let parts: Vec<_> = Path::new(path).components().filter_map(|part| {
 +        if let Component::Normal(value) = part { Some(value) } else { None }
 +    }).collect();
++    let mut current = std::path::PathBuf::from("/");
 +    for (index, part) in parts.iter().enumerate() {
 +        let before = parent.metadata().map_err(|_| refused())?;
 +        if protected { protected_directory(&before)?; }
-+        // Sources need real, non-shared-writable ancestors too. Source-owner
-+        // writeability is intentional; a quiescent H/root review is still required.
-+        source_directory(&before)?;
++        check_source_directory(&parent, &current, registration)?;
 +        let leaf = index + 1 == parts.len();
 +        parent = open_child(&parent, part, !leaf || directory)?;
++        current.push(part);
 +    }
 +    let meta = parent.metadata().map_err(|_| refused())?;
-+    if (directory && !meta.is_dir()) || (!directory && !meta.is_file()) || meta.mode() & 0o022 != 0 {
++    if directory {
++        check_source_directory(&parent, &current, registration)?;
++    } else if !meta.is_file() || meta.mode() & 0o022 != 0 {
 +        return Err(refused());
 +    }
 +    if protected && (meta.uid() != 0 || meta.mode() & 0o777 != 0o644) { return Err(refused()); }
@@ -1458,7 +1607,7 @@ new file mode 100644
 +}
 +
 +fn read_registration() -> Result<(Registration, FileIdentity, File), ComputeDriverError> {
-+    read_registration_file(open_anchored(REGISTRATION_PATH, false, true)?)
++    read_registration_file(open_anchored(REGISTRATION_PATH, false, true, None)?)
 +}
 +
 +#[derive(Debug)]
@@ -1476,8 +1625,11 @@ new file mode 100644
 +    pub(crate) fn load(name: &str, workspace: &str) -> Result<Self, ComputeDriverError> {
 +        if name != "auma-ws" || workspace != "default" { return Err(refused()); }
 +        let (registration, registration_identity, file) = read_registration()?;
-+        let source = open_anchored(&registration.workspace_source, true, false)?;
-+        let git = open_anchored(&registration.git_source, true, false)?;
++        if registration.group_access.as_ref().is_some_and(|access| access.owner_uid != nix::unistd::geteuid().as_raw()) {
++            return Err(refused());
++        }
++        let source = open_anchored(&registration.workspace_source, true, false, Some(&registration))?;
++        let git = open_anchored(&registration.git_source, true, false, Some(&registration))?;
 +        let binding = Self {
 +            registration, registration_identity,
 +            workspace_identity: FileIdentity::of(&source.metadata().map_err(|_| refused())?),
@@ -1490,6 +1642,11 @@ new file mode 100644
 +
 +    pub(crate) fn workspace_source(&self) -> &str { &self.registration.workspace_source }
 +    pub(crate) fn git_source(&self) -> &str { &self.registration.git_source }
++
++    pub(crate) fn ensure_guest_gid(&self, gid: u32) -> Result<(), ComputeDriverError> {
++        if self.registration.group_access.as_ref().is_some_and(|access| access.guest_gid != gid) { return Err(refused()); }
++        Ok(())
++    }
 +
 +    pub(crate) fn identity(&self) -> Value {
 +        serde_json::json!({
@@ -1506,14 +1663,14 @@ new file mode 100644
 +
 +    pub(crate) fn recheck(&self) -> Result<(), ComputeDriverError> {
 +        // An in-place root rewrite can preserve dev/ino/mode. Reread the strict
-+        // four-field content under the same custody fence before each effect.
++        // versioned content under the same custody fence before each effect.
 +        let (registration, identity, _file) = read_registration()?;
 +        if registration != self.registration || identity != self.registration_identity { return Err(refused()); }
 +        for (path, expected, directory, protected) in [
 +            (self.workspace_source(), &self.workspace_identity, true, false),
 +            (self.git_source(), &self.git_identity, true, false),
 +        ] {
-+            let file = open_anchored(path, directory, protected)?;
++            let file = open_anchored(path, directory, protected, Some(&self.registration))?;
 +            if FileIdentity::of(&file.metadata().map_err(|_| refused())?) != *expected { return Err(refused()); }
 +        }
 +        Ok(())
@@ -1537,7 +1694,7 @@ new file mode 100644
 +        Self { registration: Registration { version: 1,
 +            workspace_id: "6adab3d7-52db-4724-89bd-26a574e91d92".into(),
 +            workspace_source: "/srv/reviewed/workspace".into(),
-+            git_source: "/srv/reviewed/workspace/.git".into() },
++            git_source: "/srv/reviewed/workspace/.git".into(), group_access: None },
 +            registration_identity: FileIdentity { device: 1, inode: 1, uid: 0, gid: 0, mode: 0o100644 }, workspace_identity: directory(2), git_identity: directory(3), _anchors: Vec::new() }
 +    }
 +}
@@ -1592,6 +1749,39 @@ new file mode 100644
 +    }
 +
 +    #[test]
++    fn registered_group_write_binds_exact_owner_gid_path_and_guest_identity() {
++        let mut binding = TrustedWorkspaceBinding::synthetic();
++        binding.registration.version = 2;
++        binding.registration.workspace_source = "/srv/auma-ws/test-workspace".into();
++        binding.registration.git_source = "/srv/auma-ws/test-workspace/.git".into();
++        binding.registration.group_access = Some(GroupAccess { owner_uid: 7, group_gid: 23, guest_gid: 41 });
++        binding.registration.validate().unwrap();
++        binding.ensure_guest_gid(41).unwrap();
++        assert!(binding.ensure_guest_gid(42).is_err());
++        binding.registration.workspace_source = "/home/another/workspace".into();
++        binding.registration.git_source = "/home/another/workspace/.git".into();
++        assert!(binding.registration.validate().is_err());
++        binding.registration.version = 1;
++        assert!(binding.registration.validate().is_err());
++        // Linux-owned permission bits are checked directly. Mac may silently
++        // clear setgid on a disposable directory whose inherited group differs.
++        let mut identity = FileIdentity { device: 1, inode: 2, uid: 7, gid: 23, mode: 0o42770 };
++        let access = GroupAccess { owner_uid: 7, group_gid: 23, guest_gid: 41 };
++        for mode in [0o42750, 0o42770] {
++            identity.mode = mode;
++            assert!(group_source_identity(&identity, &access).is_ok());
++        }
++        let wrong_owner = GroupAccess { owner_uid: 8, group_gid: 23, guest_gid: 41 };
++        assert!(group_source_identity(&identity, &wrong_owner).is_err());
++        let wrong_group = GroupAccess { owner_uid: 7, group_gid: 24, guest_gid: 41 };
++        assert!(group_source_identity(&identity, &wrong_group).is_err());
++        for mode in [0o42777, 0o40770, 0o44770, 0o43750, 0o102770] {
++            identity.mode = mode;
++            assert!(group_source_identity(&identity, &access).is_err());
++        }
++    }
++
++    #[test]
 +    fn no_follow_sources_refuse_symlink_and_shared_writable_directory() {
 +        let root = std::env::temp_dir().canonicalize().unwrap().join(format!("openshell-binding-{}", uuid::Uuid::new_v4()));
 +        std::fs::create_dir(&root).unwrap();
@@ -1607,8 +1797,8 @@ new file mode 100644
 +        assert!(source_directory(&real.metadata().unwrap()).is_ok());
 +        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o777)).unwrap();
 +        assert!(source_directory(&real.metadata().unwrap()).is_err());
-+        assert!(open_anchored(real.to_str().unwrap(), true, false).is_err());
-+        assert!(open_anchored(real.to_str().unwrap(), true, true).is_err());
++        assert!(open_anchored(real.to_str().unwrap(), true, false, None).is_err());
++        assert!(open_anchored(real.to_str().unwrap(), true, true, None).is_err());
 +        std::fs::remove_dir_all(root).unwrap();
 +    }
 +}
@@ -1629,12 +1819,17 @@ new file mode 100644
 +    if label.len() > 16384 { return Err(refused()); }
 +    let original: OriginalBinding = serde_json::from_str(label).map_err(|_| refused())?;
 +    original.registration.validate()?;
++    // Validate the original captured identities against their original versioned
++    // grant. Cleanup never reads mutable registration, permissions, ACLs or maps.
 +    let regular = 0o100000;
 +    let directory = 0o040000;
 +    if original.registration_identity.uid != 0 ||
 +        original.registration_identity.mode != (regular | 0o644) ||
 +        [&original.workspace_identity, &original.git_identity].iter().any(|identity|
-+            identity.mode & 0o170000 != directory || identity.mode & 0o022 != 0) {
++            match original.registration.group_access.as_ref() {
++                Some(access) => group_source_identity(identity, access).is_err(),
++                None => identity.mode & 0o170000 != directory || identity.mode & 0o022 != 0,
++            }) {
 +        return Err(refused());
 +    }
 +    if (original.workspace_identity.device, original.workspace_identity.inode) ==
@@ -1693,5 +1888,24 @@ new file mode 100644
 +        assert!(verify_original_binding(&changed.to_string(), &pair).is_err());
 +        let duplicate = label.replacen("\"registration\":", "\"registration_identity\":{},\"registration\":", 1);
 +        assert!(verify_original_binding(&duplicate, &pair).is_err());
++        binding.registration.version = 2;
++        binding.registration.workspace_source = "/srv/auma-ws/retained-unit".into();
++        binding.registration.git_source = "/srv/auma-ws/retained-unit/.git".into();
++        binding.registration.group_access = Some(GroupAccess { owner_uid: 7, group_gid: 23, guest_gid: 41 });
++        for identity in [&mut binding.workspace_identity, &mut binding.git_identity] {
++            identity.uid = 7; identity.gid = 23; identity.mode = 0o42770;
++        }
++        let group_label = binding.label().unwrap();
++        verify_original_binding_record(&group_label).unwrap();
++        for field in ["workspace_identity", "git_identity"] {
++            for (key, value) in [("uid", 8), ("gid", 24), ("mode", 0o42777), ("mode", 0o40770)] {
++                let mut changed: Value = serde_json::from_str(&group_label).unwrap();
++                changed[field][key] = Value::Number(value.into());
++                assert!(verify_original_binding_record(&changed.to_string()).is_err());
++            }
++        }
++        binding.registration.version = 1;
++        binding.registration.group_access = None;
++        assert!(verify_original_binding_record(&binding.label().unwrap()).is_err());
 +    }
 +}

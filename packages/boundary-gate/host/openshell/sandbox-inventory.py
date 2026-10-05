@@ -6,6 +6,7 @@ installs a profile or launches a guest command. Explicit generation only emits
 an operator proposal from protected invariants. Missing custody/evidence refuses.
 """
 
+import errno
 import hashlib
 import json
 import math
@@ -802,14 +803,26 @@ def read_workspace_registration():
     """Read only the root-reviewed registration, never a model/env path choice."""
     registration = strict_json(_read_protected(WORKSPACE_REGISTRATION_PATH))
     keys = frozenset(("version", "workspace_id", "workspace_source", "git_source"))
+    version = registration.get("version") if type(registration) is dict else None
+    if type(version) is not int or version not in (1, 2):
+        _fail("workspace registration version unavailable")
+    if version == 2:
+        keys = keys | {"group_access"}
     _object(registration, keys, keys)
-    if (type(registration["version"]) is not int or registration["version"] != 1 or
-            type(registration["workspace_id"]) is not str or
+    if (type(registration["workspace_id"]) is not str or
             re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", registration["workspace_id"]) is None):
         _fail("workspace registration identity unavailable")
     source = _path(registration["workspace_source"])
     if source == "/" or _path(registration["git_source"]) != source + "/.git":
         _fail("workspace registration metadata source mismatch")
+    if version == 2:
+        access_keys = frozenset(("owner_uid", "group_gid", "guest_gid"))
+        access = _object(registration["group_access"], access_keys, access_keys)
+        for key in access_keys:
+            _uint(access[key], True)
+        if (posixpath.dirname(source) != "/srv/auma-ws" or
+                access["owner_uid"] != pwd.getpwnam("auma").pw_uid):
+            _fail("dedicated workspace owner/source mismatch")
     return registration
 
 
@@ -1015,18 +1028,49 @@ def proc_read(pid, leaf):
     return raw.decode("utf-8", "strict")
 
 
-def _open_directory(path):
+def _registered_directory(fd, path, registration):
+    """Group write is an exact registered leaf grant, never an ACL/parent grant."""
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode):
+        _fail("registered workspace source is not a directory")
+    if path not in (registration["workspace_source"], registration["git_source"]):
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            _fail("registered workspace ancestor is writable or unprotected")
+        return
+    access = registration["group_access"]
+    if (info.st_uid != access["owner_uid"] or info.st_gid != access["group_gid"] or
+            stat.S_IMODE(info.st_mode) not in (0o2750, 0o2770)):
+        _fail("registered workspace owner/group/mode mismatch")
+    if sys.platform != "linux":
+        _fail("workspace ACL absence requires Linux observation")
+    for name in ("system.posix_acl_access", "system.posix_acl_default"):
+        try:
+            os.getxattr(fd, name)
+        except OSError as error:
+            if error.errno != errno.ENODATA:
+                raise
+        else:
+            _fail("workspace ACL grants are not registered")
+
+
+def _open_directory(path, registration=None):
     """Anchor every component; workspace/git symlinks and gitdir files refuse."""
     _path(path)
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     fd = os.open("/", flags)
+    current = "/"
     try:
         for component in path.split("/")[1:]:
             if not component:
                 continue
+            if registration is not None:
+                _registered_directory(fd, current, registration)
             child = os.open(component, flags, dir_fd=fd)
             os.close(fd)
             fd = child
+            current = posixpath.join(current, component)
+        if registration is not None:
+            _registered_directory(fd, current, registration)
         result, fd = fd, None
         return result
     finally:
@@ -1044,17 +1088,50 @@ def _directory_identity(fd):
     return device, inode
 
 
-def _source_directory_identities(source):
-    workspace = _open_directory(source)
+def _source_directory_identities(source, registration=None):
+    workspace = _open_directory(source, registration)
     git = None
     try:
         git = os.open(".git", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                       dir_fd=workspace)
+        if registration is not None:
+            _registered_directory(git, registration["git_source"], registration)
         return _directory_identity(workspace), _directory_identity(git)
     finally:
         if git is not None:
             os.close(git)
         os.close(workspace)
+
+
+def _registered_workspace_access(registration, process):
+    if registration["version"] == 1:
+        return None
+    access = registration["group_access"]
+    if access["owner_uid"] != pwd.getpwnam("auma").pw_uid:
+        _fail("workspace owner account changed")
+    mapped = [row["host_id"] + access["guest_gid"] - row["container_id"]
+              for row in process["gid_map"]
+              if row["container_id"] <= access["guest_gid"] < row["container_id"] + row["size"]]
+    if mapped != [access["group_gid"]]:
+        _fail("registered workspace group differs from actual guest mapping")
+    pid = process["pid"]
+    before = start_time(pid)
+    if before != process["start_time"] or id_map(proc_read(pid, "gid_map")) != process["gid_map"]:
+        _fail("workspace group process identity or mapping changed")
+    status = {}
+    for line in proc_read(pid, "status").splitlines():
+        key, _, value = line.partition(":")
+        if key in status:
+            _fail("duplicate workspace group process status")
+        status[key] = value.strip()
+    for key, expected in (("Uid", process["uid"]), ("Gid", access["group_gid"])):
+        fields = status.get(key, "").split()
+        if len(fields) != 4 or any(re.fullmatch(r"[0-9]+", field) is None or int(field) != expected for field in fields):
+            _fail("actual workspace process identity differs from registration")
+    identities = _source_directory_identities(registration["workspace_source"], registration)
+    if before != start_time(pid) or id_map(proc_read(pid, "gid_map")) != process["gid_map"]:
+        _fail("workspace group process or mapping changed during observation")
+    return identities
 
 
 def _kernel_directory_identities(pid):
@@ -1321,6 +1398,7 @@ def admission(sb, mode):
     observed_digest = binary_digest(source, deadline, process["pid"])
     observed = validate_snapshot(workload, process, profile, workload_binary_digest=observed_digest)
     observed.update(validate_supervisor(supervisor, supervisor_process, profile))
+    registered_access = _registered_workspace_access(registration, process)
     observed.update(observe_workspace(workload, profile, deadline))
     after = _inspect(names, deadline)
     # Reject replacement/configuration drift and PID reuse across observation.
@@ -1337,6 +1415,8 @@ def admission(sb, mode):
         _fail("deployment profile changed during observation")
     if read_workspace_registration() != registration:
         _fail("workspace registration changed during observation")
+    if _registered_workspace_access(registration, process) != registered_access:
+        _fail("registered workspace access changed during observation")
     cond = {}
     for condition in s.get("conditions", []):
         key = condition.get("type")
