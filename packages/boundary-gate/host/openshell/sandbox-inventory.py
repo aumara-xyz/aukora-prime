@@ -7,6 +7,7 @@ an operator proposal from protected invariants. Missing custody/evidence refuses
 """
 
 import errno
+import fcntl
 import hashlib
 import json
 import math
@@ -728,6 +729,8 @@ MAX_READ_BYTES = 256 * 1024
 MAX_READBACK_BYTES = 64 * 1024
 MAX_BINARY_BYTES = 256 * 1024 * 1024
 QUERY_SECONDS = 4.0
+OBSERVER_PATH = "/usr/local/lib/aukora-boundary/openshell/sandbox-inventory.py"
+NS_GET_PARENT = 0xb702
 
 # Scan only the protected registration's tree; neither cwd nor a guest/env path
 # can choose its root. These are the filesystem paths from the action gate's
@@ -1437,10 +1440,187 @@ def prove_private_proc(pid, expected_start):
         initial = snapshot()
         if snapshot() != initial:
             _fail("mounted procfs identity changed during observation")
+        return initial
     finally:
         for fd in (guest_ns, host_ns, guest_one, guest_proc, root, host):
             if fd is not None:
                 os.close(fd)
+
+
+def _user_namespace(value):
+    if type(value) is not str or re.fullmatch(r"user:\[[1-9][0-9]*\]", value) is None:
+        _fail("kernel user namespace unavailable")
+    _decimal(value[6:-1], True)
+    return value
+
+
+def _observer_rootless_context():
+    """Require auma's mapped root, never host root or a guest identity."""
+    if sys.platform != "linux" or os.getuid() != 0 or os.geteuid() != 0:
+        _fail("rootless namespace observer unavailable")
+    owner = pwd.getpwnam("auma")
+    if owner.pw_uid <= 0 or owner.pw_gid <= 0:
+        _fail("rootless observer owner unavailable")
+    for leaf, owner_id in (("uid_map", owner.pw_uid), ("gid_map", owner.pw_gid)):
+        expected = [{"container_id": 0, "host_id": owner_id, "size": 1},
+                    {"container_id": 1, **APPROVED_HOST_RANGE}]
+        if id_map(proc_read(os.getpid(), leaf)) != expected:
+            _fail("rootless observer mapping differs from auma custody")
+
+
+def _observer_user_lineage(pid):
+    """Prove the observed process user namespace is our own or a descendant.
+
+    Linux grants capabilities down the namespace tree, not across siblings.
+    A different Podman pause namespace must refuse rather than gain host-root
+    help. These ioctls only return namespace descriptors; no setns is used.
+    """
+    flags = os.O_RDONLY | os.O_CLOEXEC
+    own = os.open("/proc/self/ns/user", flags)
+    current = None
+    try:
+        current = os.open("/proc/" + str(_uint(pid, True)) + "/ns/user", flags)
+        own_info = os.fstat(own)
+        lineage, seen = [], set()
+        for _ in range(33):
+            info = os.fstat(current)
+            identity = (info.st_dev, info.st_ino)
+            if identity in seen:
+                _fail("observer user namespace lineage cycle")
+            seen.add(identity)
+            lineage.append(_user_namespace("user:[" + str(info.st_ino) + "]"))
+            if identity == (own_info.st_dev, own_info.st_ino):
+                return lineage
+            parent = fcntl.ioctl(current, NS_GET_PARENT)
+            try:
+                os.set_inheritable(parent, False)
+            except BaseException:
+                os.close(parent)
+                raise
+            os.close(current)
+            current = parent
+        _fail("observer does not own the workload namespace lineage")
+    finally:
+        if current is not None:
+            os.close(current)
+        os.close(own)
+
+
+def _validate_private_proc_observation(value, pid, expected_start, collector_namespace, caller_user_namespace):
+    keys = frozenset(("version", "pid", "start_time", "observer_user_namespace", "user_lineage", "proof"))
+    _object(value, keys, keys)
+    if type(value["version"]) is not int or value["version"] != 1 or type(value["start_time"]) is not int:
+        _fail("private proc observer version/identity unavailable")
+    if _uint(value["pid"], True) != pid or value["start_time"] != expected_start:
+        _fail("private proc observer process binding mismatch")
+    observer_namespace = _user_namespace(value["observer_user_namespace"])
+    lineage = value["user_lineage"]
+    if (type(lineage) is not list or not 1 <= len(lineage) <= 33 or
+            len(set(_user_namespace(item) for item in lineage)) != len(lineage) or
+            lineage[-1] != observer_namespace or caller_user_namespace in lineage or
+            observer_namespace == caller_user_namespace):
+        _fail("private proc observer namespace custody unavailable")
+    proof_keys = frozenset(("pid_namespace", "guest_pid_namespace", "collector_pid_namespace",
+                            "host_identity", "guest_identity", "namespace_pids"))
+    proof = _object(value["proof"], proof_keys, proof_keys)
+    bound_namespace = _pid_namespace(proof["pid_namespace"])
+    guest_namespace = _pid_namespace(proof["guest_pid_namespace"])
+    observed_collector = _pid_namespace(proof["collector_pid_namespace"])
+    for key in ("host_identity", "guest_identity"):
+        identity = proof[key]
+        if (type(identity) is not list or len(identity) != 2 or
+                type(identity[1]) is not int or not 0 < identity[1] <= SAFE_INTEGER_MAX):
+            _fail("private proc observer typed identity unavailable")
+        _uint(identity[0], True)
+    namespace_pids = proof["namespace_pids"]
+    if type(namespace_pids) is not list or not 1 <= len(namespace_pids) <= 128:
+        _fail("private proc observer PID list unavailable")
+    for namespace_pid in namespace_pids:
+        _uint(namespace_pid, True)
+    # The original proof conditions remain mandatory at the caller boundary as
+    # well as inside the read-only observer. Namespaced UID values do not enter
+    # the host-context uid/gid-map or mount validators.
+    if (observed_collector != collector_namespace or bound_namespace == collector_namespace or
+            guest_namespace != bound_namespace or proof["host_identity"] != [pid, expected_start] or
+            proof["guest_identity"] != [1, expected_start] or
+            namespace_pids[0] != pid or namespace_pids[-1] != 1):
+        _fail("mounted procfs does not belong to the workload PID namespace")
+    return value
+
+
+def collect_private_proc_observation(pid, expected_start, deadline_ns):
+    """Fixed metadata-only observer entry, executed by local podman unshare.
+
+    The retained pidfd/proc directory and repeated identities reject observed
+    exit, PID reuse and namespace drift. They do not lease the process or make
+    observation and later use atomic; evidence may change after this returns.
+    """
+    pid = _uint(pid, True)
+    if type(expected_start) is not int or not 0 < expected_start <= SAFE_INTEGER_MAX:
+        _fail("process start time unavailable")
+    if (type(deadline_ns) is not int or deadline_ns <= time.monotonic_ns() or
+            deadline_ns - time.monotonic_ns() > int(QUERY_SECONDS * 1000000000)):
+        _fail("private proc observer deadline unavailable")
+    _observer_rootless_context()
+    if not hasattr(os, "pidfd_open"):
+        _fail("private proc observer process handle unavailable")
+    handle = os.pidfd_open(pid, 0)
+    proc = None
+    try:
+        proc = _open_directory("/proc/" + str(pid))
+        def live_identity():
+            with selectors.DefaultSelector() as selector:
+                selector.register(handle, selectors.EVENT_READ)
+                if selector.select(0):
+                    _fail("private proc observer process exited")
+            if (_stat_identity(_read_proc_at(proc, "stat")) != (pid, expected_start) or
+                    time.monotonic_ns() >= deadline_ns):
+                _fail("private proc observer process changed or expired")
+        live_identity()
+        own = _user_namespace(os.readlink("/proc/self/ns/user"))
+        lineage = _observer_user_lineage(pid)
+        proof = prove_private_proc(pid, expected_start)
+        live_identity()
+        if (_observer_user_lineage(pid) != lineage or
+                _user_namespace(os.readlink("/proc/self/ns/user")) != own):
+            _fail("private proc observer namespace changed")
+        bound, guest, collector, host_identity, guest_identity, namespace_pids = proof
+        return {"version": 1, "pid": pid, "start_time": expected_start,
+                "observer_user_namespace": own, "user_lineage": lineage,
+                "proof": {"pid_namespace": bound, "guest_pid_namespace": guest,
+                          "collector_pid_namespace": collector, "host_identity": list(host_identity),
+                          "guest_identity": list(guest_identity), "namespace_pids": list(namespace_pids)}}
+    finally:
+        if proc is not None:
+            os.close(proc)
+        os.close(handle)
+
+
+def observe_private_proc(pid, expected_start, deadline):
+    """Read private proc in auma's own Podman namespace, without a root helper.
+
+    Trust is the local Podman/newuidmap/newgidmap installation, its protected
+    subordinate ranges, this root-owned observer source and Linux nsfs/procfs.
+    No guest exec, sudo, permission edit or fallback supplies missing evidence.
+    """
+    pid = _uint(pid, True)
+    if type(expected_start) is not int or not 0 < expected_start <= SAFE_INTEGER_MAX:
+        _fail("process start time unavailable")
+    owner = pwd.getpwnam("auma")
+    if (sys.platform != "linux" or os.getuid() != owner.pw_uid or os.geteuid() != owner.pw_uid or
+            time.monotonic() >= deadline or start_time(pid) != expected_start):
+        _fail("private proc observer caller/process unavailable")
+    collector = _pid_namespace(os.readlink("/proc/self/ns/pid"))
+    caller_user = _user_namespace(os.readlink("/proc/self/ns/user"))
+    source = _read_protected(OBSERVER_PATH)
+    value = strict_json(query(["/usr/bin/podman", "unshare", "/usr/bin/python3", "-I", "-S",
+                              OBSERVER_PATH, "--private-proc-observer", str(pid), str(expected_start),
+                              str(int(deadline * 1000000000))], deadline))
+    _validate_private_proc_observation(value, pid, expected_start, collector, caller_user)
+    if (start_time(pid) != expected_start or _read_protected(OBSERVER_PATH) != source or
+            _pid_namespace(os.readlink("/proc/self/ns/pid")) != collector or
+            _user_namespace(os.readlink("/proc/self/ns/user")) != caller_user or time.monotonic() >= deadline):
+        _fail("private proc observer source/process changed")
 
 
 def observe_workspace(container, profile, deadline):
@@ -1455,7 +1635,7 @@ def observe_workspace(container, profile, deadline):
     before, namespace = start_time(pid), _mount_namespace(pid)
     if namespace == os.readlink("/proc/self/ns/mnt"):
         _fail("workload uses the host mount namespace")
-    prove_private_proc(pid, before)
+    observe_private_proc(pid, before, deadline)
     host_workspace, host_git = _source_directory_identities(source)
     if _kernel_directory_identities(pid) != (host_workspace, host_git):
         _fail("mounted workspace does not match registered source inodes")
@@ -1474,7 +1654,7 @@ def observe_workspace(container, profile, deadline):
             (host_workspace, host_git) != _source_directory_identities(source) or
             (host_workspace, host_git) != _kernel_directory_identities(pid)):
         _fail("workspace/mount observation changed")
-    prove_private_proc(pid, before)
+    observe_private_proc(pid, before, deadline)
     if time.monotonic() >= deadline:
         _fail("workspace observation deadline")
     return {"mountinfo": rows, "mountinfo_digest": _canonical_digest(rows), "workspace_binding": binding}
@@ -1695,6 +1875,12 @@ def admission(sb, mode):
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     try:
+        if len(args) == 4 and args[0] == "--private-proc-observer":
+            if any(re.fullmatch(r"[1-9][0-9]*", value) is None for value in args[1:]):
+                _fail("private proc observer arguments unavailable")
+            result = collect_private_proc_observation(*(int(value) for value in args[1:]))
+            print(json.dumps(result, separators=(",", ":"), ensure_ascii=False))
+            return 0
         generating = len(args) == 4 and args[0:3] == ["auma-ws", "generate", "--out"]
         if generating:
             result = admission(args[0], args[1])
