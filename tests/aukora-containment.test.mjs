@@ -477,6 +477,8 @@ function profileReadback() {
       { Type: 'bind', Source: profileWorkspace, Destination: '/sandbox', Driver: '', Mode: 'nosuid,nodev',
         Options: ['nosuid', 'nodev'], RW: true, Propagation: 'rprivate' },
       { Type: 'bind', Source: profileWorkspace + '/.git', Destination: '/sandbox/.git', Driver: '',
+        Mode: 'ro,nosuid,nodev', Options: ['ro', 'nosuid', 'nodev'], RW: false, Propagation: 'rprivate' },
+      { Type: 'bind', Source: '/synthetic/mirror', Destination: '/sandbox/prime-main', Driver: '',
         Mode: 'ro,nosuid,nodev', Options: ['ro', 'nosuid', 'nodev'], RW: false, Propagation: 'rprivate' }],
     profile_digest: 'sha256:' + 'b'.repeat(64), isolation,
     supervisor_inventory: [{ ...structuredClone(channel), RW: false, Mode: 'ro,nosuid,nodev' }],
@@ -488,7 +490,8 @@ function profileReadback() {
       kernelRow('4', '1', '0:41', '/', '/tmp', true, 'tmpfs', 'tmpfs'),
       kernelRow('5', '1', '8:2', '/synthetic/channel', '/.openshell/channel', true, 'ext4', '/dev/channel'),
       kernelRow('6', '1', '8:1', '/synthetic/runtime', '/opt/openshell/bin/openshell-sandbox', false, 'ext4', '/dev/source', true),
-      kernelRow('7', '1', '0:43', '/', '/proc', false, 'proc', 'proc')],
+      kernelRow('7', '2', '8:3', '/synthetic/mirror', '/sandbox/prime-main', false, 'ext4', '/dev/mirror', true),
+      kernelRow('8', '1', '0:43', '/', '/proc', true, 'proc', 'proc')],
     workspace_binding: { workspace_source: profileWorkspace, git_source: profileWorkspace + '/.git',
       workspace_device: '8:1', workspace_inode: '2001', git_device: '8:1', git_inode: '2002',
       mount_namespace: 'mnt:[4000]' } })
@@ -524,7 +527,7 @@ test('Auma v3 source join preserves the complete ordered probe mount table and t
 test('Auma C5 source join refuses a second RW workspace after parsing and resealing, with guard-removal sensitivity', async () => {
   const info = profileReadback()
   validateConfinementInfo(info, profileWorkspace)
-  info.mountinfo.push(kernelRow('8', '1', '8:1', profileWorkspace, '/sandbox2', true, 'ext4', '/dev/source'))
+  info.mountinfo.push(kernelRow('9', '1', '8:1', profileWorkspace, '/sandbox2', true, 'ext4', '/dev/source'))
   info.mountinfo = probeMountRows(info.mountinfo)
   sealProfile(info)
   assert.deepEqual(info.policy.filesystem_policy.read_write,

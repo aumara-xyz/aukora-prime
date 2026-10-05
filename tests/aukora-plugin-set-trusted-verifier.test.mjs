@@ -218,7 +218,7 @@ test('committed genesis unit checks custody before Node and launches with signed
   assert.match(exec, /^ExecStart=.*launch-dsh\.py .*--foreground --node \/opt\/aukora-node\/bin\/node --approval-state-root \$\{AUKORA_APPROVAL_ROOT\} --approved-record-sha \$\{AUKORA_RECORD_SHA\}/mu)
   assert.match(exec, /^ExecStartPre=\/usr\/bin\/python3 -I -S \/usr\/local\/lib\/aukora-boundary\/gate-bootstrap floor check --release-dir \$\{AUKORA_RELEASE_DIR\} --approval-state-root \$\{AUKORA_APPROVAL_ROOT\}$/mu)
   assert.equal(execLines[0], 'ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-package', 'package custody is checked before the first Node process')
-  assert.match(exec, /^ExecStartPre=.*selfcheck\.mjs/mu)
+  assert.match(exec, /^ExecStartPre=\/usr\/local\/lib\/aukora-boundary\/selfcheck-with-retry -- --run/mu, 'the spaced-retry wrapper runs the self-check before the launcher')
   assert.match(u, /^EnvironmentFile=\/etc\/aukora-genesis\/release\.env$/mu)
   assert.match(u, /^UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT$/mu)
   // and the launcher itself refuses a waiver on a service launch
