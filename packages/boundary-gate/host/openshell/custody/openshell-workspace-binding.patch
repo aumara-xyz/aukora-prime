@@ -1,0 +1,1697 @@
+# First-party source patch; no runtime or containment qualification.
+# Applies-to: NVIDIA/OpenShell 6648bd0c290efbc41ba131ee9831ee45cd431f94
+# Dedicated auma-ws/default create path; fixed protected four-field registration.
+# Requires joined H pre-bind review, exact image/rootfs/idmap qualification.
+# No registration/install/keys/host-workspace copy/chown is performed by this asset.
+# Stop/delete acknowledgement is NEVER full owned cleanup/confirmed_absent proof.
+# Independent guest/resource absence and late-create fencing remain mandatory;
+# unreclaimed job secrets keep full cleanup uncertain and runtime unqualified.
+diff --git a/crates/openshell-driver-podman/src/container.rs b/crates/openshell-driver-podman/src/container.rs
+--- a/crates/openshell-driver-podman/src/container.rs
++++ b/crates/openshell-driver-podman/src/container.rs
+@@ -4,6 +4,7 @@
+ //! Container spec construction for the Podman driver.
+ 
+ use crate::config::PodmanComputeConfig;
++use crate::workspace_binding::{BINDING_LABEL, GIT_ROOT, TrustedWorkspaceBinding, WORKSPACE_ROOT};
+ use openshell_core::ComputeDriverError;
+ use openshell_core::driver_mounts::SelinuxLabel;
+ #[cfg(test)]
+@@ -87,6 +88,8 @@
+ }
+ 
+ impl PodmanSandboxDriverConfig {
++    pub(crate) fn has_mounts(&self) -> bool { !self.mounts.is_empty() }
++
+     pub(crate) fn admit_mount_types(
+         &self,
+         policy: &openshell_core::resource_admission::ResourceAdmissionConfig,
+@@ -169,6 +172,8 @@
+     true
+ }
+ 
++fn is_false(value: &bool) -> bool { !value }
++
+ /// Build a Podman container name from the sandbox workspace, name, and ID.
+ ///
+ /// Format: `openshell-{workspace}--{name}-{id}`
+@@ -244,6 +249,9 @@
+     cap_drop: Vec<String>,
+     cap_add: Vec<String>,
+     no_new_privileges: bool,
++    // Podman v4.9.3 pkg/specgen/specgen.go: ReadOnlyFilesystem bool.
++    #[serde(skip_serializing_if = "is_false")]
++    read_only_filesystem: bool,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     apparmor_profile: Option<String>,
+     #[serde(skip_serializing_if = "String::is_empty")]
+@@ -1206,6 +1214,7 @@
+         cap_drop: vec!["ALL".into()],
+         cap_add: Vec::new(),
+         no_new_privileges: true,
++        read_only_filesystem: false,
+         apparmor_profile: None,
+         // Omission selects the runtime default, never an unconfined profile.
+         seccomp_profile_path: String::new(),
+@@ -1471,6 +1480,13 @@
+ pub fn build_isolation_specs(
+     input: IsolationSpecInput<'_>,
+ ) -> Result<IsolationSpecs, ComputeDriverError> {
++    build_isolation_specs_with_workspace(input, None)
++}
++
++pub(crate) fn build_isolation_specs_with_workspace(
++    input: IsolationSpecInput<'_>,
++    workspace: Option<&TrustedWorkspaceBinding>,
++) -> Result<IsolationSpecs, ComputeDriverError> {
+     let base = || {
+         build_base_spec(
+             input.sandbox,
+@@ -1510,8 +1526,12 @@
+             input.identity.uid.to_string(),
+             input.identity.gid.to_string(),
+             crate::isolation::BOOTSTRAP_PATH.into(),
+-            driver_mounts::DEFAULT_WORKSPACE_ROOT.into(),
+         ];
++        // Host binding must never pass the launcher's optional ownership target.
++        // Its identity/capability drop remains the unchanged trusted path.
++        if workspace.is_none() {
++            workload.command.push(driver_mounts::DEFAULT_WORKSPACE_ROOT.into());
++        }
+         workload.user = "0:0".into();
+         workload.groups.clear();
+         workload.cap_drop = vec!["ALL".into()];
+@@ -1584,6 +1604,33 @@
+         dest: crate::isolation::CHANNEL_ROOT.into(),
+         options: vec!["rw".into(), "z".into()],
+     });
++
++    if let Some(binding) = workspace {
++        // Replace the managed root rather than appending a duplicate destination.
++        if workload.volumes.iter().filter(|volume| volume.dest == WORKSPACE_ROOT).count() != 1 {
++            return Err(ComputeDriverError::Precondition("workspace mount collision".into()));
++        }
++        workload.volumes.retain(|volume| volume.dest != WORKSPACE_ROOT);
++        if workload.mounts.iter().any(|mount|
++            mount.destination == WORKSPACE_ROOT || mount.destination == GIT_ROOT || mount.destination == "/tmp") ||
++            workload.volumes.iter().any(|volume| volume.dest == GIT_ROOT || volume.dest == "/tmp") ||
++            workload.image_volumes.iter().any(|volume|
++                volume.destination == WORKSPACE_ROOT || volume.destination == GIT_ROOT || volume.destination == "/tmp") {
++            return Err(ComputeDriverError::Precondition("workspace mount collision".into()));
++        }
++        workload.read_only_filesystem = true;
++        workload.mounts.extend([
++            Mount { kind: "bind".into(), source: binding.workspace_source().into(),
++                destination: WORKSPACE_ROOT.into(), options: vec!["rw".into(), "rbind".into()] },
++            // Parent first, then the kernel RO child mount; policy loads later.
++            Mount { kind: "bind".into(), source: binding.git_source().into(),
++                destination: GIT_ROOT.into(), options: vec!["ro".into(), "rbind".into()] },
++            Mount { kind: "tmpfs".into(), source: "tmpfs".into(), destination: "/tmp".into(),
++                options: vec!["rw".into(), "nosuid".into(), "nodev".into(), "mode=1777".into()] },
++        ]);
++        workload.labels.insert(BINDING_LABEL.into(), binding.label()?);
++        supervisor.labels.insert(BINDING_LABEL.into(), binding.label()?);
++    }
+ 
+     supervisor.name = crate::isolation::supervisor_name(&input.sandbox.id);
+     supervisor
+@@ -1791,6 +1838,68 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++
++    #[test]
++    fn trusted_workspace_replaces_root_and_keeps_git_ro_without_ownership_target() {
++        let sandbox = test_sandbox("trusted-pair", "auma-ws");
++        let config = PodmanComputeConfig::default();
++        let identity = openshell_isolation_interface::contract::ResolvedWorkloadIdentity::new(
++            1000, 1000, vec![], "image".into(), "sha256:image".into()).unwrap();
++        let binding = TrustedWorkspaceBinding::synthetic();
++        let specs = build_isolation_specs_with_workspace(IsolationSpecInput {
++            sandbox: &sandbox, config: &config, token_secret: None, resolver_secret: "resolver",
++            gpu_devices: None, requested_image: "image", image_id: "sha256:image", image_user: "1000:1000",
++            image_env: &[], supervisor_bin: Some(Path::new("/runtime/pinned")), tls_secrets: None,
++            identity: &identity, rootless: true,
++        }, Some(&binding)).unwrap();
++        assert!(!specs.workload.volumes.iter().any(|volume| volume.dest == WORKSPACE_ROOT));
++        let root = specs.workload.mounts.iter().position(|mount| mount.destination == WORKSPACE_ROOT).unwrap();
++        let git = specs.workload.mounts.iter().position(|mount| mount.destination == GIT_ROOT).unwrap();
++        assert!(root < git);
++        assert_eq!(specs.workload.mounts[root].source, binding.workspace_source());
++        assert_eq!(specs.workload.mounts[root].options, vec!["rw", "rbind"]);
++        assert_eq!(specs.workload.mounts[git].options, vec!["ro", "rbind"]);
++        assert_eq!(specs.workload.mounts.iter().filter(|mount| mount.destination == WORKSPACE_ROOT).count(), 1);
++        assert_eq!(specs.workload.mounts.iter().filter(|mount| mount.destination == GIT_ROOT).count(), 1);
++        let tmp = specs.workload.mounts.iter().find(|mount| mount.destination == "/tmp").unwrap();
++        assert_eq!(tmp.kind, "tmpfs"); assert_eq!(tmp.source, "tmpfs");
++        assert!(tmp.options.iter().any(|option| option == "mode=1777"));
++        assert!(specs.workload.read_only_filesystem);
++        assert_eq!(serde_json::to_value(&specs.workload).unwrap()["read_only_filesystem"], true);
++        assert_eq!(specs.workload.command, vec!["launch-capability-free", "1000", "1000", crate::isolation::BOOTSTRAP_PATH]);
++        assert!(specs.workload.no_new_privileges);
++        assert_eq!(specs.workload.cap_drop, vec!["ALL"]);
++        assert_eq!(specs.workload.cap_add, vec!["CHOWN", "SETGID", "SETUID", "SETPCAP"]);
++        assert_eq!(specs.workload.netns.nsmode, "none");
++        assert!(!specs.supervisor.read_only_filesystem);
++        assert!(!specs.supervisor.mounts.iter().any(|mount| matches!(mount.destination.as_str(), WORKSPACE_ROOT | GIT_ROOT)));
++        assert_eq!(specs.workload.labels[BINDING_LABEL], binding.label().unwrap());
++    }
++
++    #[test]
++    fn trusted_workspace_refuses_caller_collisions_instead_of_adopting_sources() {
++        use openshell_core::proto::compute::v1::{DriverSandboxSpec, DriverSandboxTemplate};
++        let config = PodmanComputeConfig { enable_bind_mounts: true, ..Default::default() };
++        let identity = openshell_isolation_interface::contract::ResolvedWorkloadIdentity::new(
++            1000, 1000, vec![], "image".into(), "sha256:image".into()).unwrap();
++        let binding = TrustedWorkspaceBinding::synthetic();
++        for target in [WORKSPACE_ROOT, GIT_ROOT, "/tmp"] {
++            let mut sandbox = test_sandbox("collision", "auma-ws");
++            sandbox.spec = Some(DriverSandboxSpec { template: Some(DriverSandboxTemplate {
++                driver_config: Some(json_struct(serde_json::json!({"mounts":[{
++                    "type":"bind","source":"/caller/chosen","target":target,"read_only":false
++                }]}))), ..Default::default()
++            }), ..Default::default() });
++            assert!(PodmanSandboxDriverConfig::from_sandbox(&sandbox).unwrap().has_mounts());
++            assert!(build_isolation_specs_with_workspace(IsolationSpecInput {
++                sandbox: &sandbox, config: &config, token_secret: None, resolver_secret: "resolver",
++                gpu_devices: None, requested_image: "image", image_id: "sha256:image", image_user: "1000:1000",
++                image_env: &[], supervisor_bin: Some(Path::new("/runtime/pinned")), tls_secrets: None,
++                identity: &identity, rootless: true,
++            }, Some(&binding)).is_err());
++        }
++    }
++
+     use openshell_core::proto::compute::v1::{GpuResourceRequirements, ResourceRequirements};
+ 
+     static ENV_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
+diff --git a/crates/openshell-driver-podman/src/client.rs b/crates/openshell-driver-podman/src/client.rs
+--- a/crates/openshell-driver-podman/src/client.rs
++++ b/crates/openshell-driver-podman/src/client.rs
+@@ -90,6 +90,9 @@
+ pub struct ContainerInspect {
+     #[serde(default)]
+     pub mounts: Option<Vec<Value>>,
++    // Podman reports OCI tmpfs mounts here, separately from raw Mounts.
++    #[serde(default)]
++    pub host_config: Option<Value>,
+     pub id: String,
+     pub name: String,
+     pub state: ContainerState,
+@@ -601,6 +604,24 @@
+         name: &str,
+         timeout_secs: u32,
+     ) -> Result<(), PodmanApiError> {
++        self.remove_container_with_volumes(name, timeout_secs, true).await
++    }
++
++    /// Remove only the container; custody of attached volumes is independent.
++    pub(crate) async fn remove_container_preserving_volumes(
++        &self,
++        name: &str,
++        timeout_secs: u32,
++    ) -> Result<(), PodmanApiError> {
++        self.remove_container_with_volumes(name, timeout_secs, false).await
++    }
++
++    async fn remove_container_with_volumes(
++        &self,
++        name: &str,
++        timeout_secs: u32,
++        remove_volumes: bool,
++    ) -> Result<(), PodmanApiError> {
+         validate_name(name)?;
+         // The delete request covers both the graceful stop and the subsequent
+         // storage, network, and anonymous-volume cleanup. Preserve the normal
+@@ -610,7 +631,7 @@
+             .request(
+                 hyper::Method::DELETE,
+                 &format!(
+-                    "/libpod/containers/{name}?force=true&volumes=true&timeout={timeout_secs}"
++                    "/libpod/containers/{name}?force=true&volumes={remove_volumes}&timeout={timeout_secs}"
+                 ),
+                 None,
+                 http_timeout,
+diff --git a/crates/openshell-driver-podman/src/driver.rs b/crates/openshell-driver-podman/src/driver.rs
+--- a/crates/openshell-driver-podman/src/driver.rs
++++ b/crates/openshell-driver-podman/src/driver.rs
+@@ -3,9 +3,10 @@
+ 
+ //! Podman compute driver.
+ 
+-use crate::client::{ContainerListEntry, PodmanApiError, PodmanClient, VolumeInspect};
++use crate::client::{ContainerInspect, ContainerListEntry, PodmanApiError, PodmanClient, VolumeInspect};
+ use crate::config::{PodmanComputeConfig, podman_image_pull_policy};
+ use crate::container::{self, LABEL_MANAGED_FILTER, LABEL_SANDBOX_ID, PodmanSandboxDriverConfig};
++use crate::workspace_binding::{BINDING_LABEL, GIT_ROOT, TrustedWorkspaceBinding, WORKSPACE_ROOT, verify_original_binding_record};
+ use crate::watcher::{
+     self, LifecycleEventFences, WatchStream, driver_sandbox_from_inspect,
+     driver_sandbox_from_list_entry,
+@@ -733,109 +734,103 @@
+ 
+     /// Create a sandbox container.
+     async fn admit_container_resources(&self, id: &str) -> Result<(), ComputeDriverError> {
+-        if self.config.allow_driver_config && !self.config.resource_admission.enabled {
+-            return Ok(());
++        // This dedicated create artifact never treats disabled admission as permission.
++        if !self.config.resource_admission.enabled {
++            return Err(ComputeDriverError::Precondition("workspace requires resource admission".into()));
+         }
+         let inspect = self.client.inspect_container(id).await?;
+         let labels = &inspect.config.labels;
+-        let precondition =
+-            |error: tonic::Status| ComputeDriverError::Precondition(error.message().into());
++        let registered = labels.get(BINDING_LABEL).ok_or_else(||
++            ComputeDriverError::Precondition("workspace binding provenance unavailable".into()))?;
++        let binding = TrustedWorkspaceBinding::load(
++            labels.get(container::LABEL_SANDBOX_NAME).map(String::as_str).unwrap_or(""),
++            labels.get(container::LABEL_SANDBOX_WORKSPACE).map(String::as_str).unwrap_or(""),
++        )?;
++        if serde_json::from_str::<serde_json::Value>(registered).ok() != Some(binding.identity()) {
++            return Err(ComputeDriverError::Precondition("workspace binding changed".into()));
++        }
++        self.admit_bound_container_mounts(&inspect, &binding).await?;
++        binding.recheck()?;
++        Ok(())
++    }
++
++    // Shared actual admission body: callers must establish/recheck protected
++    // registration; disposable native tests supply only a synthetic binding.
++    async fn admit_bound_container_mounts(
++        &self, inspect: &ContainerInspect, binding: &TrustedWorkspaceBinding,
++    ) -> Result<(), ComputeDriverError> {
++        let labels = &inspect.config.labels;
++        let missing = || ComputeDriverError::Precondition("trusted workload attachment inventory changed".into());
+         openshell_core::resource_admission::check_config_provenance(
+             self.config.allow_driver_config,
+-            labels
+-                .get(openshell_core::resource_admission::CONFIG_USED_LABEL)
+-                .map(String::as_str),
+-        )
+-        .map_err(precondition)?;
+-        if !self.config.resource_admission.enabled {
+-            return Ok(());
+-        }
+-        let missing =
+-            || ComputeDriverError::Precondition("sandbox lacks attachment provenance".into());
+-        let workspace = labels
+-            .get(container::LABEL_SANDBOX_WORKSPACE)
+-            .ok_or_else(missing)?;
++            labels.get(openshell_core::resource_admission::CONFIG_USED_LABEL).map(String::as_str),
++        ).map_err(|error| ComputeDriverError::Precondition(error.message().into()))?;
++        if !self.config.resource_admission.enabled { return Err(missing()); }
+         let sandbox_id = labels.get(LABEL_SANDBOX_ID).ok_or_else(missing)?;
+-        let mounts = inspect.mounts.as_ref().ok_or_else(missing)?;
++        let workspace = labels.get(container::LABEL_SANDBOX_WORKSPACE).ok_or_else(missing)?;
++        if workspace != "default" { return Err(missing()); }
+         let expected: std::collections::BTreeMap<String, serde_json::Value> = labels
+             .get(openshell_core::resource_admission::IDENTITIES_LABEL)
+-            .and_then(|value| serde_json::from_str(value).ok())
+-            .ok_or_else(missing)?;
+-        let mut actual = std::collections::BTreeMap::new();
+-        for mount in mounts {
+-            match mount["Type"].as_str() {
+-                Some("volume") => {
+-                    let name = mount["Name"].as_str().ok_or_else(missing)?;
+-                    let volume =
+-                        self.client
+-                            .inspect_volume(name)
+-                            .await
+-                            .map_err(|error| match error {
+-                                PodmanApiError::NotFound(_) => ComputeDriverError::Precondition(
+-                                    "attached volume no longer exists".into(),
+-                                ),
+-                                other => ComputeDriverError::from(other),
+-                            })?;
+-                    if volume.name != name {
++            .and_then(|value| serde_json::from_str(value).ok()).ok_or_else(missing)?;
++        // Dedicated mode creates no caller/external attachment. Labels cannot
++        // authorize a second writable root or revive the old workspace volume.
++        if !expected.is_empty() { return Err(missing()); }
++        let required = std::collections::BTreeSet::from([
++            WORKSPACE_ROOT, GIT_ROOT, openshell_core::driver_utils::SUPERVISOR_CONTAINER_BINARY,
++            crate::isolation::CHANNEL_ROOT,
++        ]);
++        let mut seen = std::collections::BTreeSet::new();
++        for mount in inspect.mounts.as_ref().ok_or_else(missing)? {
++            let destination = mount["Destination"].as_str().ok_or_else(missing)?;
++            if !required.contains(destination) || !seen.insert(destination) { return Err(missing()); }
++            if binding.admits_mount(mount) { continue; }
++            match destination {
++                openshell_core::driver_utils::SUPERVISOR_CONTAINER_BINARY
++                    if mount["Type"].as_str() == Some("bind") && mount["RW"].as_bool() == Some(false)
++                        && labels.get("openshell.ai/runtime-binary-source").filter(|source| !source.is_empty())
++                            .map(String::as_str) == mount["Source"].as_str() => {}
++                crate::isolation::CHANNEL_ROOT
++                    if mount["Type"].as_str() == Some("volume") && mount["RW"].as_bool() == Some(true) => {
++                    let name = crate::isolation::channel_volume_name(sandbox_id);
++                    if mount["Name"].as_str() != Some(name.as_str()) { return Err(missing()); }
++                    let volume = self.client.inspect_volume(&name).await.map_err(|error| match error {
++                        PodmanApiError::NotFound(_) => missing(),
++                        other => ComputeDriverError::from(other),
++                    })?;
++                    if volume.name != name || volume.driver != "local" || !volume.options.is_empty()
++                        || !volume.labels.as_ref().is_some_and(|labels|
++                            labels.get(LABEL_SANDBOX_ID) == Some(sandbox_id)
++                            && labels.get(container::LABEL_SANDBOX_WORKSPACE) == Some(workspace)) {
+                         return Err(missing());
+                     }
+-                    if name == container::volume_name(sandbox_id)
+-                        || name == crate::isolation::channel_volume_name(sandbox_id)
+-                    {
+-                        let owned = volume.labels.as_ref().is_some_and(|labels| {
+-                            labels.get(LABEL_SANDBOX_ID) == Some(sandbox_id)
+-                                && labels.get(container::LABEL_SANDBOX_WORKSPACE) == Some(workspace)
+-                        });
+-                        if !owned || volume.driver != "local" || !volume.options.is_empty() {
+-                            return Err(missing());
+-                        }
+-                    } else {
+-                        actual.insert(name.to_string(), volume.admission_identity());
+-                        self.config
+-                            .resource_admission
+-                            .admit(
+-                                workspace,
+-                                volume
+-                                    .labels
+-                                    .as_ref()
+-                                    .into_iter()
+-                                    .flat_map(|labels| labels.iter()),
+-                            )
+-                            .map_err(|error| {
+-                                ComputeDriverError::Precondition(format!(
+-                                    "podman volume '{name}': {}",
+-                                    error.message()
+-                                ))
+-                            })?;
+-                        if !self.config.enable_bind_mounts && podman_volume_is_bind_backed(&volume)
+-                        {
+-                            return Err(ComputeDriverError::Precondition(
+-                                "bind-backed volume is disabled".into(),
+-                            ));
+-                        }
+-                    }
+                 }
+-                Some("tmpfs") => {}
+-                Some("bind")
+-                    if mount["Destination"].as_str()
+-                        == Some(openshell_core::driver_utils::SUPERVISOR_CONTAINER_BINARY)
+-                        && mount["RW"].as_bool() == Some(false)
+-                        && labels
+-                            .get("openshell.ai/runtime-binary-source")
+-                            .filter(|path| !path.is_empty())
+-                            .map(String::as_str)
+-                            == mount["Source"].as_str() => {}
+-                _ => self
+-                    .config
+-                    .resource_admission
+-                    .reject_unlabelable("effective Podman mount")
+-                    .map_err(precondition)?,
++                _ => return Err(missing()),
+             }
+         }
+-        if actual != expected {
+-            return Err(ComputeDriverError::Precondition(
+-                "external volume identity or attachment inventory changed".into(),
+-            ));
++        if seen != required { return Err(missing()); }
++        // Actual Podman inspect separates tmpfs into HostConfig.Tmpfs. Keep
++        // those two exact roles closed; never normalize an extra writable path
++        // into the admitted raw bind/channel inventory.
++        let tmpfs = inspect.host_config.as_ref()
++            .and_then(|host| host.get("Tmpfs"))
++            .and_then(serde_json::Value::as_object)
++            .filter(|entries| entries.len() == 2).ok_or_else(missing)?;
++        for (destination, producer_options) in [
++            ("/tmp", &["rw", "nosuid", "nodev", "mode=1777"][..]),
++            (openshell_sandbox_backend::SUPERVISOR_CA_RUNTIME_ROOT,
++                &["rw", "noexec", "nosuid", "nodev", "mode=0777", "size=1m"][..]),
++        ] {
++            let options = tmpfs.get(destination).and_then(serde_json::Value::as_str)
++                .filter(|text| text.len() <= 1024).ok_or_else(missing)?;
++            let tokens: Vec<&str> = options.split(',').collect();
++            let actual: std::collections::BTreeSet<&str> = tokens.iter().copied().collect();
++            let needed: std::collections::BTreeSet<&str> = producer_options.iter().copied().collect();
++            let mut allowed = needed.clone();
++            // Only these engine-added options were observed in owned staging.
++            allowed.extend(["rprivate", "tmpcopyup"]);
++            if actual.len() != tokens.len() || !needed.is_subset(&actual) || !actual.is_subset(&allowed) {
++                return Err(missing());
++            }
+         }
+         Ok(())
+     }
+@@ -850,17 +845,35 @@
+         else {
+             return;
+         };
+-        for entry in entries.iter().filter(|entry| entry.state == "running") {
++        for entry in entries.iter().filter(|entry| entry.state == "running" &&
++            entry.labels.contains_key(BINDING_LABEL) &&
++            entry.labels.get(container::LABEL_SANDBOX_NAME).map(String::as_str) == Some("auma-ws") &&
++            entry.labels.get(container::LABEL_SANDBOX_WORKSPACE).map(String::as_str) == Some("default")) {
++            // This artifact must not stop unrelated/legacy managed workloads.
+             if let Err(ComputeDriverError::Precondition(reason)) =
+                 self.admit_container_resources(&entry.id).await
+             {
+                 warn!(container = %entry.id, %reason, "Stopping sandbox after resource admission denial");
+-                let _ = self.client.stop_container(&entry.id, 0).await;
+                 if let Some(id) = entry.labels.get(LABEL_SANDBOX_ID) {
+-                    let _ = self
+-                        .client
+-                        .stop_container(&crate::isolation::supervisor_name(id), 0)
+-                        .await;
++                    // Revocation cleanup uses original ownership, not the failed
++                    // current admission that triggered this branch.
++                    let Ok(owned) = self.owned_workspace_container(id).await else { continue; };
++                    if owned.id != entry.id { continue; }
++                    let Some(binding) = owned.labels.get(BINDING_LABEL) else { continue; };
++                    // Companion uncertainty must not veto revocation of the
++                    // independently corroborated original workload.
++                    if let Err(error) = self.client.stop_container(&owned.id, 0).await {
++                        warn!(container = %owned.id, %error, "Owned workload stop remains uncertain");
++                    }
++                    match self.owned_supervisor_id(id, binding).await {
++                        Ok(Some(supervisor)) => {
++                            if let Err(error) = self.client.stop_container(&supervisor, 0).await {
++                                warn!(container = %supervisor, %error, "Owned supervisor stop remains uncertain");
++                            }
++                        }
++                        Ok(None) => {}
++                        Err(error) => warn!(sandbox = %id, %error, "Supervisor ownership unavailable; companion left untouched"),
++                    }
+                 }
+             }
+         }
+@@ -894,7 +907,24 @@
+         // resources (volume), so we don't leave orphans when the name is
+         // invalid.
+         let name = validated_container_name(sandbox)?;
++        // Fixed operator registration; request JSON cannot appoint a source.
++        // Missing registration for this intended workload is refusal, not a
++        // fallback to a private managed volume. Other names/workspaces refuse.
++        let workspace_binding = TrustedWorkspaceBinding::load(&sandbox.name, &sandbox.workspace)?;
++        if !self.config.resource_admission.enabled {
++            return Err(ComputeDriverError::Precondition("workspace requires resource admission".into()));
++        }
++        let requested_driver = PodmanSandboxDriverConfig::from_sandbox(sandbox)?;
++        let requested_gpu = sandbox.spec.as_ref()
++            .and_then(|spec| spec.resource_requirements.as_ref())
++            .and_then(|requirements| driver_gpu_requirements(Some(requirements)));
++        if requested_driver.cdi_devices.is_some() || requested_gpu.is_some() {
++            return Err(ComputeDriverError::Precondition("devices unavailable in trusted workspace mode".into()));
++        }
+         let validated = self.validated_sandbox_create(sandbox).await?;
++        if validated.driver_config.has_mounts() {
++            return Err(ComputeDriverError::Precondition("caller mounts unavailable in trusted workspace mode".into()));
++        }
+ 
+         let vol_name = container::volume_name(&sandbox.id);
+ 
+@@ -1035,15 +1065,13 @@
+         let (resolver_secret_name, token_secret_name, proxy_auth_secret_name) = async {
+             let phase_status = openshell_otel::ErrorStatusGuard::current();
+             let result = async {
+-                self.client
+-                    .create_owned_volume(&vol_name, &sandbox.id, &sandbox.workspace)
+-                    .await
+-                    .map_err(ComputeDriverError::from)?;
++                // The trusted workspace belongs to the host. Do not create,
++                // populate, snapshot or transfer ownership of a workspace volume.
++                workspace_binding.recheck()?;
+                 let resolver_secret_name =
+                     match create_sandbox_resolver_secret(&self.client, &sandbox.id).await {
+                         Ok(name) => name,
+                         Err(e) => {
+-                            let _ = self.client.remove_volume(&vol_name).await;
+                             return Err(e);
+                         }
+                     };
+@@ -1052,7 +1080,6 @@
+                 {
+                     Ok(name) => name,
+                     Err(e) => {
+-                        let _ = self.client.remove_volume(&vol_name).await;
+                         cleanup_sandbox_resolver_secret(&self.client, &resolver_secret_name).await;
+                         return Err(e);
+                     }
+@@ -1063,7 +1090,6 @@
+                     {
+                         Ok(name) => name,
+                         Err(e) => {
+-                            let _ = self.client.remove_volume(&vol_name).await;
+                             if let Some(secret) = token_secret_name.as_deref() {
+                                 cleanup_sandbox_token_secret(&self.client, secret).await;
+                             }
+@@ -1096,7 +1122,6 @@
+             if channel_owned.load(std::sync::atomic::Ordering::Relaxed) {
+                 let _ = self.client.remove_volume(&channel_volume).await;
+             }
+-            let _ = self.client.remove_volume(&vol_name).await;
+             cleanup_sandbox_resolver_secret(&self.client, &resolver_secret_name).await;
+             if let Some(secret) = token_secret_name.as_deref() {
+                 cleanup_sandbox_token_secret(&self.client, secret).await;
+@@ -1121,6 +1146,10 @@
+                         return Err(e);
+                     }
+                 };
++                if gpu_devices.is_some() {
++                    cleanup_created().await;
++                    return Err(ComputeDriverError::Precondition("resolved devices unavailable in trusted workspace mode".into()));
++                }
+                 // Podman's image-volume support varies across libpod/runtime
+                 // combinations. Always use the verified extraction cache so
+                 // workload startup does not depend on type=image mounts.
+@@ -1151,7 +1180,7 @@
+                     }
+                 };
+ 
+-                let specs = container::build_isolation_specs(container::IsolationSpecInput {
++                let specs = container::build_isolation_specs_with_workspace(container::IsolationSpecInput {
+                     sandbox,
+                     config: &runtime_config,
+                     token_secret: token_secret_name.as_deref(),
+@@ -1165,7 +1194,7 @@
+                     tls_secrets: tls_secret_names.as_ref(),
+                     identity: &identity,
+                     rootless: self.rootless,
+-                });
++                }, Some(&workspace_binding));
+                 let mut specs = match specs {
+                     Ok(spec) => spec,
+                     Err(e) => {
+@@ -1182,6 +1211,7 @@
+                         .create_owned_volume(&channel_volume, &sandbox.id, &sandbox.workspace)
+                         .await?;
+                     channel_owned.store(true, std::sync::atomic::Ordering::Relaxed);
++                    workspace_binding.recheck()?;
+                     let workload_id = self.client.create_typed_container(&specs.workload).await?;
+                     created_workload = Some(workload_id.clone());
+                     self.client.verify_isolation_fence(&workload_id).await?;
+@@ -1222,9 +1252,8 @@
+                             archives.channel,
+                         )
+                         .await?;
+-                    self.client
+-                        .copy_to_container(&workload_id, "/sandbox", archives.workspace)
+-                        .await?;
++                    // Never upload archives.workspace into the host workspace:
++                    // the archive's directory entry would change mode/ownership.
+                     let supervisor_id = self
+                         .client
+                         .create_typed_container(&specs.supervisor)
+@@ -1236,6 +1265,8 @@
+                     // Start the sandbox only after both containers and their
+                     // bootstrap material exist. It keeps the agent stopped
+                     // until the authenticated supervisor confirms the boundary.
++                    workspace_binding.recheck()?;
++                    self.admit_container_resources(&workload_id).await?;
+                     self.client.start_container(&workload_id).await?;
+                     self.client.start_container(&supervisor_id).await?;
+                     Ok::<(), ComputeDriverError>(())
+@@ -1243,7 +1274,7 @@
+                 .await;
+                 if create_result.is_err() {
+                     for id in [created_supervisor, created_workload].into_iter().flatten() {
+-                        let _ = self.client.remove_container(&id, 0).await;
++                        let _ = self.client.remove_container_preserving_volumes(&id, 0).await;
+                     }
+                 }
+                 match create_result {
+@@ -1325,7 +1356,7 @@
+                 crate::isolation::resolve_identity(sandbox, image, image_user, passwd, group)
+             }
+             .await;
+-        let cleanup = self.client.remove_container(&id, 0).await;
++        let cleanup = self.client.remove_container_preserving_volumes(&id, 0).await;
+         if let Err(error) = cleanup {
+             warn!(container = %id, %error, "Failed to remove stopped identity inspection container");
+         }
+@@ -1354,7 +1385,75 @@
+             ])
+             .await
+             .map_err(ComputeDriverError::from)?;
++        if entries.len() > 1 {
++            return Err(ComputeDriverError::Precondition("ambiguous workload ownership".into()));
++        }
+         Ok(entries.into_iter().next())
++    }
++
++    // These private backend helpers require the original owned executor scope.
++    // No current approval, epoch or registration is used to authorize cleanup.
++    async fn owned_workspace_container(&self, sandbox_id: &str)
++        -> Result<ContainerListEntry, ComputeDriverError> {
++        let mut owned = self.find_container(sandbox_id).await?.ok_or_else(||
++            ComputeDriverError::Precondition("owned workload evidence unavailable; cleanup outcome unknown".into()))?;
++        let inspect = self.client.inspect_container(&owned.id).await?;
++        let labels = &inspect.config.labels;
++        let expected_name = container::container_name("default", "auma-ws", sandbox_id);
++        if owned.id.is_empty() || inspect.name.trim_start_matches('/') != expected_name ||
++            !owned.names.iter().any(|name| name.trim_start_matches('/') == expected_name) ||
++            inspect.id != owned.id || !Self::owned_labels(labels, sandbox_id, "sandbox") ||
++            !Self::owned_labels(&owned.labels, sandbox_id, "sandbox") ||
++            labels.get(BINDING_LABEL) != owned.labels.get(BINDING_LABEL) {
++            return Err(ComputeDriverError::Precondition("owned workload binding unavailable".into()));
++        }
++        // Admission/restart checks current mounts. Revocation owns this exact
++        // original container even when those mounts or current policy drift.
++        verify_original_binding_record(labels.get(BINDING_LABEL).ok_or_else(||
++            ComputeDriverError::Precondition("original workspace binding unavailable".into()))?)?;
++        owned.state = inspect.state.status;
++        Ok(owned)
++    }
++
++    fn owned_labels(labels: &std::collections::HashMap<String, String>, sandbox_id: &str, role: &str) -> bool {
++        labels.get(container::LABEL_MANAGED).map(String::as_str) == Some("true") &&
++        labels.get(LABEL_SANDBOX_ID).map(String::as_str) == Some(sandbox_id) &&
++        labels.get(container::LABEL_SANDBOX_NAME).map(String::as_str) == Some("auma-ws") &&
++        labels.get(container::LABEL_SANDBOX_WORKSPACE).map(String::as_str) == Some("default") &&
++        labels.get(crate::isolation::LABEL_ROLE).map(String::as_str) == Some(role) &&
++        labels.get(BINDING_LABEL).is_some_and(|label| !label.is_empty())
++    }
++
++    async fn owned_supervisor_id(&self, sandbox_id: &str, binding: &str)
++        -> Result<Option<String>, ComputeDriverError> {
++        let inspect = match self.client.inspect_container(&crate::isolation::supervisor_name(sandbox_id)).await {
++            Ok(inspect) => inspect,
++            Err(PodmanApiError::NotFound(_)) => return Ok(None),
++            Err(error) => return Err(error.into()),
++        };
++        if inspect.id.is_empty() ||
++            inspect.name.trim_start_matches('/') != crate::isolation::supervisor_name(sandbox_id) ||
++            !Self::owned_labels(&inspect.config.labels, sandbox_id, "supervisor") ||
++            inspect.config.labels.get(BINDING_LABEL).map(String::as_str) != Some(binding) {
++            return Err(ComputeDriverError::Precondition("supervisor ownership unavailable".into()));
++        }
++        Ok(Some(inspect.id))
++    }
++
++    async fn owned_channel_name(&self, sandbox_id: &str) -> Result<Option<String>, ComputeDriverError> {
++        let name = crate::isolation::channel_volume_name(sandbox_id);
++        let volume = match self.client.inspect_volume(&name).await {
++            Ok(volume) => volume,
++            Err(PodmanApiError::NotFound(_)) => return Ok(None),
++            Err(error) => return Err(error.into()),
++        };
++        if volume.name != name || volume.driver != "local" || !volume.options.is_empty() ||
++            !volume.labels.as_ref().is_some_and(|labels|
++                labels.get(LABEL_SANDBOX_ID).map(String::as_str) == Some(sandbox_id) &&
++                labels.get(container::LABEL_SANDBOX_WORKSPACE).map(String::as_str) == Some("default")) {
++            return Err(ComputeDriverError::Precondition("channel ownership unavailable".into()));
++        }
++        Ok(Some(volume.name))
+     }
+ 
+     async fn wait_for_container_stopped(
+@@ -1399,61 +1498,26 @@
+     )]
+     pub async fn stop_sandbox(&self, sandbox_id: &str) -> Result<(), ComputeDriverError> {
+         let span_status = openshell_otel::ErrorStatusGuard::current();
+-        let container = self.find_container(sandbox_id).await?;
+-        let supervisor = crate::isolation::supervisor_name(sandbox_id);
+-        match self
+-            .client
+-            .stop_container(&supervisor, self.config.stop_timeout_secs)
+-            .await
+-        {
+-            Ok(()) | Err(PodmanApiError::NotFound(_)) => {}
+-            Err(error) => return Err(error.into()),
+-        }
+-        let container = container.ok_or(ComputeDriverError::NotFound)?;
+-        let container_id = container.id;
+-        if container.state == "stopping" {
+-            let result = async {
+-                let finished_at = self
+-                    .wait_for_container_stopped(sandbox_id, &container_id)
+-                    .await?;
+-                self.lifecycle_event_fences
+-                    .record_previous_exit(sandbox_id, finished_at.as_deref());
+-                Ok(())
++        let container = self.owned_workspace_container(sandbox_id).await?;
++        let binding = container.labels.get(BINDING_LABEL).ok_or_else(||
++            ComputeDriverError::Precondition("original binding unavailable".into()))?;
++        let result = async {
++            // Join revocation of this exact workload independently. An invalid
++            // companion cannot authorize touching it or veto workload stop.
++            if container.state == "running" {
++                self.client.stop_container(&container.id, self.config.stop_timeout_secs).await?;
+             }
+-            .await;
+-            return span_status.finish(result);
+-        }
+-        if container.state != "running" {
+-            return span_status.finish(Ok(()));
+-        }
+-        info!(sandbox_id = %sandbox_id, container = %container_id, "Stopping sandbox container");
+-
+-        let result = async {
+-            self.client
+-                .stop_container(&container_id, self.config.stop_timeout_secs)
+-                .await
+-                .map_err(ComputeDriverError::from)?;
+-
+-            // Podman can return from the stop request before inspect reports the
+-            // container as exited. If start runs during that interval, the exit
+-            // event from the previous run can arrive after the gateway has moved
+-            // the same sandbox to Starting, causing it to regress to Error. Wait
+-            // for the terminal container state before allowing a restart.
+-            let finished_at = self
+-                .wait_for_container_stopped(sandbox_id, &container_id)
+-                .await?;
+-
+-            // Record the completed run before returning the stop RPC. The server
+-            // may begin a restart as soon as this method returns, while Podman's
+-            // stop/die event can still be queued. Recording the fence here keeps
+-            // that delayed event from regressing the new run from Starting to
+-            // Error. Keep the start-side recording as a fallback for restarts
+-            // after a driver or gateway process restart.
+-            self.lifecycle_event_fences
+-                .record_previous_exit(sandbox_id, finished_at.as_deref());
++            if matches!(container.state.as_str(), "running" | "stopping") {
++                let finished_at = self.wait_for_container_stopped(sandbox_id, &container.id).await?;
++                self.lifecycle_event_fences.record_previous_exit(sandbox_id, finished_at.as_deref());
++            }
++            if let Some(supervisor) = self.owned_supervisor_id(sandbox_id, binding).await? {
++                self.client.stop_container(&supervisor, self.config.stop_timeout_secs).await?;
++            }
+             Ok(())
+-        }
+-        .await;
++        }.await;
++        // Failure after workload stop still reports incomplete companion cleanup.
++        // This RPC is not independent guest termination/absence evidence.
+         span_status.finish(result)
+     }
+ 
+@@ -1479,24 +1543,25 @@
+         )
+         .map_err(|error| ComputeDriverError::InvalidArgument(error.to_string()))?;
+         let launch_authentication = decode_launch_authentication(encoded_authentication)?;
+-        let container = self
+-            .find_container(sandbox_id)
+-            .await?
+-            .ok_or(ComputeDriverError::NotFound)?;
++        let container = self.owned_workspace_container(sandbox_id).await?;
++        let binding = container.labels.get(BINDING_LABEL).ok_or_else(||
++            ComputeDriverError::Precondition("original binding unavailable".into()))?;
++        let supervisor = self.owned_supervisor_id(sandbox_id, binding).await?.ok_or_else(||
++            ComputeDriverError::Precondition("owned supervisor unavailable for restart".into()))?;
+         self.admit_container_resources(&container.id).await?;
+         if container.state == "running" {
+-            let supervisor = self
++            let supervisor_inspect = self
+                 .client
+-                .inspect_container(&crate::isolation::supervisor_name(sandbox_id))
++                .inspect_container(&supervisor)
+                 .await;
+-            if supervisor
++            if supervisor_inspect
+                 .as_ref()
+                 .is_ok_and(|inspect| inspect.state.running)
+             {
+                 let archive = self
+                     .client
+                     .copy_from_container(
+-                        &crate::isolation::supervisor_name(sandbox_id),
++                        &supervisor,
+                         crate::isolation::RESTART_METADATA_PATH,
+                     )
+                     .await?;
+@@ -1536,7 +1601,6 @@
+         self.lifecycle_event_fences
+             .record_previous_exit(sandbox_id, previous.state.finished_at.as_deref());
+         let result = async {
+-            let supervisor = crate::isolation::supervisor_name(sandbox_id);
+             self.client
+                 .stop_container(&supervisor, self.config.stop_timeout_secs)
+                 .await?;
+@@ -1577,6 +1641,8 @@
+                 .copy_to_container(&supervisor, "/", archives.supervisor)
+                 .await?;
+             self.client.verify_isolation_fence(&container_id).await?;
++            // Async restart preparation may outlive the first admission read.
++            self.admit_container_resources(&container_id).await?;
+             self.client.start_container(&container_id).await?;
+             if let Err(error) = self.client.start_container(&supervisor).await {
+                 let _ = self.client.stop_container(&container_id, 0).await;
+@@ -1588,7 +1654,7 @@
+         span_status.finish(result)
+     }
+ 
+-    /// Delete a sandbox container and its workspace volume.
++    /// Delete only corroborated owned workload and companion resources.
+     #[tracing::instrument(
+         name = "podman.delete_sandbox",
+         skip(self),
+@@ -1601,96 +1667,37 @@
+     pub async fn delete_sandbox(&self, sandbox_id: &str) -> Result<bool, ComputeDriverError> {
+         let span_status = openshell_otel::ErrorStatusGuard::current();
+         if sandbox_id.is_empty() {
+-            return Err(ComputeDriverError::Precondition(
+-                "sandbox id is required".into(),
+-            ));
+-        }
+-
+-        let supervisor = crate::isolation::supervisor_name(sandbox_id);
+-        match self
+-            .client
+-            .remove_container(&supervisor, self.config.stop_timeout_secs)
+-            .await
+-        {
+-            Ok(()) | Err(PodmanApiError::NotFound(_)) => {}
+-            Err(error) => return Err(error.into()),
+-        }
+-        match self
+-            .client
+-            .remove_volume(&crate::isolation::channel_volume_name(sandbox_id))
+-            .await
+-        {
+-            Ok(()) | Err(PodmanApiError::NotFound(_)) => {}
+-            // The workload still owns the volume until its removal below.
+-            Err(error) => debug!(%error, "Channel volume is still attached to workload"),
+-        }
+-
+-        let Some(container_id) = self.find_container_id(sandbox_id).await? else {
+-            debug!(sandbox_id = %sandbox_id, "Sandbox container not found (already deleted)");
+-            let vol = container::volume_name(sandbox_id);
+-            if let Err(e) = self.client.remove_volume(&vol).await {
+-                warn!(sandbox_id = %sandbox_id, volume = %vol, error = %e, "Failed to remove workspace volume");
+-            }
+-            cleanup_sandbox_token_secret(&self.client, &container::token_secret_name(sandbox_id))
+-                .await;
+-            cleanup_sandbox_resolver_secret(
+-                &self.client,
+-                &container::resolver_secret_name(sandbox_id),
+-            )
+-            .await;
+-            cleanup_sandbox_proxy_auth_secret(
+-                &self.client,
+-                &container::proxy_auth_secret_name(sandbox_id),
+-            )
+-            .await;
+-            cleanup_tls_secrets(&self.client, &container::tls_secret_names(sandbox_id)).await;
+-            self.lifecycle_event_fences.remove(sandbox_id);
+-            return span_status.finish(Ok(false));
+-        };
+-        info!(sandbox_id = %sandbox_id, container = %container_id, "Deleting sandbox container");
+-
+-        // Keep stop, timeout, and removal in one Podman operation. Splitting
+-        // stop and remove can race with another container starting an image
+-        // mount when the stop reaches its timeout.
+-        let container_existed = match self
+-            .client
+-            .remove_container(&container_id, self.config.stop_timeout_secs)
+-            .await
+-        {
+-            Ok(()) => true,
+-            Err(PodmanApiError::NotFound(_)) => false,
+-            Err(e) => return Err(ComputeDriverError::from(e)),
+-        };
+-
+-        // Remove workspace volume.
+-        if let Err(error) = self
+-            .client
+-            .remove_volume(&crate::isolation::channel_volume_name(sandbox_id))
+-            .await
+-        {
+-            warn!(%sandbox_id, %error, "Failed to remove private channel volume");
+-        }
+-        let vol = container::volume_name(sandbox_id);
+-        if let Err(e) = self.client.remove_volume(&vol).await {
+-            warn!(
+-                sandbox_id = %sandbox_id,
+-                volume = %vol,
+-                error = %e,
+-                "Failed to remove workspace volume"
+-            );
+-        }
+-        cleanup_sandbox_token_secret(&self.client, &container::token_secret_name(sandbox_id)).await;
+-        cleanup_sandbox_resolver_secret(&self.client, &container::resolver_secret_name(sandbox_id))
+-            .await;
+-        cleanup_sandbox_proxy_auth_secret(
+-            &self.client,
+-            &container::proxy_auth_secret_name(sandbox_id),
+-        )
+-        .await;
+-        cleanup_tls_secrets(&self.client, &container::tls_secret_names(sandbox_id)).await;
++            return Err(ComputeDriverError::Precondition("sandbox id is required".into()));
++        }
++        // Missing workload is unknown owned cleanup, never inferred absence or
++        // permission to touch a guessed supervisor, channel, volume or secret.
++        let workload = self.owned_workspace_container(sandbox_id).await?;
++        let binding = workload.labels.get(BINDING_LABEL).ok_or_else(||
++            ComputeDriverError::Precondition("original binding unavailable".into()))?;
++        let supervisor = self.owned_supervisor_id(sandbox_id, binding).await?;
++        let channel = self.owned_channel_name(sandbox_id).await?;
++        // Corroborate companions before destructive effects. Keep the workload
++        // as the original ownership anchor until NON-FORCE channel removal
++        // succeeds. An attached/in-use channel remains explicit blocked cleanup;
++        // never force-remove it or lose provenance to make a retry appear safe.
++        self.client.stop_container(&workload.id, self.config.stop_timeout_secs).await?;
++        if let Some(supervisor) = supervisor {
++            self.client.remove_container_preserving_volumes(&supervisor, self.config.stop_timeout_secs).await?;
++        }
++        if let Some(channel) = channel {
++            self.client.remove_volume(&channel).await?;
++        }
++        self.client.remove_container_preserving_volumes(&workload.id, self.config.stop_timeout_secs).await?;
++        // This mode never creates the legacy workspace volume. Do not remove it.
++        // Secret deletion by guessed name is also withheld: independently owned
++        // secret evidence is not exposed by this pinned client's inspect schema.
++        // Residual per-job secret reclamation remains a qualification prerequisite.
+         self.lifecycle_event_fences.remove(sandbox_id);
+-
+-        span_status.finish(Ok(container_existed))
++        // Upstream bool is operation acknowledgement/container-existed only.
++        // Stop/delete success MUST NOT become ExecutionReceipt cleanup.confirmed_absent.
++        // Independent factual guest/owned-resource absence and late-create fencing
++        // remain mandatory; unreclaimed secrets keep full cleanup uncertain.
++        span_status.finish(Ok(true))
+     }
+ 
+     /// Check whether a sandbox container exists.
+@@ -1970,7 +1977,7 @@
+ 
+     let result = extract_binary_from_container(client, &container_name, &cache_path).await;
+ 
+-    if let Err(err) = client.remove_container(&container_name, 0).await {
++    if let Err(err) = client.remove_container_preserving_volumes(&container_name, 0).await {
+         warn!(
+             container = container_name,
+             error = %err,
+@@ -2051,6 +2058,319 @@
+     use std::collections::HashMap;
+     use std::fs;
+     use std::path::{Path, PathBuf};
++
++    fn workspace_repair_labels(role: &str) -> HashMap<String, String> {
++        HashMap::from([
++            (container::LABEL_MANAGED.into(), "true".into()),
++            (LABEL_SANDBOX_ID.into(), "sandbox-1".into()),
++            (container::LABEL_SANDBOX_NAME.into(), "auma-ws".into()),
++            (container::LABEL_SANDBOX_WORKSPACE.into(), "default".into()),
++            (crate::isolation::LABEL_ROLE.into(), role.into()),
++            (BINDING_LABEL.into(), TrustedWorkspaceBinding::synthetic().label().unwrap()),
++            ("openshell.ai/runtime-binary-source".into(), "/cache/verified-runtime".into()),
++            (openshell_core::resource_admission::IDENTITIES_LABEL.into(), "{}".into()),
++            (openshell_core::resource_admission::CONFIG_USED_LABEL.into(), "false".into()),
++        ])
++    }
++
++    fn workspace_repair_mounts() -> Vec<serde_json::Value> {
++        let binding = TrustedWorkspaceBinding::synthetic();
++        vec![
++            serde_json::json!({"Type":"bind","Destination":WORKSPACE_ROOT,"Source":binding.workspace_source(),"RW":true}),
++            serde_json::json!({"Type":"bind","Destination":GIT_ROOT,"Source":binding.git_source(),"RW":false}),
++            serde_json::json!({"Type":"bind","Destination":openshell_core::driver_utils::SUPERVISOR_CONTAINER_BINARY,"Source":"/cache/verified-runtime","RW":false}),
++            serde_json::json!({"Type":"volume","Destination":crate::isolation::CHANNEL_ROOT,"Name":crate::isolation::channel_volume_name("sandbox-1"),"RW":true}),
++        ]
++    }
++
++    fn workspace_repair_list() -> String {
++        serde_json::json!([{"Id":"owned-workload","Names":[container::container_name("default","auma-ws","sandbox-1")],"State":"running","Labels":workspace_repair_labels("sandbox")}]).to_string()
++    }
++
++    fn workspace_repair_inspect(mounts: Vec<serde_json::Value>) -> String {
++        serde_json::json!({"Id":"owned-workload","Name":container::container_name("default","auma-ws","sandbox-1"),"State":{"Status":"running","Running":true},"Config":{"Labels":workspace_repair_labels("sandbox")},"Mounts":mounts,"HostConfig":{"Tmpfs":workspace_repair_tmpfs()}}).to_string()
++    }
++
++    fn workspace_repair_channel() -> String {
++        serde_json::json!({"Name":crate::isolation::channel_volume_name("sandbox-1"),"Driver":"local","Options":{},"Labels":{LABEL_SANDBOX_ID:"sandbox-1",container::LABEL_SANDBOX_WORKSPACE:"default"}}).to_string()
++    }
++
++    fn workspace_repair_tmpfs() -> serde_json::Value {
++        // CA options and the split location were observed by A in owned legacy
++        // staging at 01:14:09 UTC. /tmp is the proposed producer fixture;
++        // corrected producer mounted readback remains a separate staging check.
++        serde_json::json!({
++            "/run/openshell-supervisor-ca":"rw,noexec,nosuid,nodev,mode=0777,size=1m,rprivate,tmpcopyup",
++            "/tmp":"rw,nosuid,nodev,mode=1777"
++        })
++    }
++
++    async fn workspace_repair_admit_snapshot(raw: serde_json::Value) -> Result<(), ComputeDriverError> {
++        let (socket, _requests, handle) = spawn_podman_stub("repair-admit", vec![StubResponse::new(StatusCode::OK, workspace_repair_channel())]);
++        let mut driver = test_driver(socket.clone());
++        driver.config.resource_admission.enabled = true;
++        let inspect: ContainerInspect = serde_json::from_value(raw).unwrap();
++        let result = driver.admit_bound_container_mounts(&inspect, &TrustedWorkspaceBinding::synthetic()).await;
++        handle.abort();
++        let _ = fs::remove_file(socket);
++        result
++    }
++
++    async fn workspace_repair_admit(mounts: Vec<serde_json::Value>) -> Result<(), ComputeDriverError> {
++        workspace_repair_admit_snapshot(serde_json::from_str(&workspace_repair_inspect(mounts)).unwrap()).await
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_podman_split_tmpfs_inventory_passes() {
++        let mut raw: serde_json::Value = serde_json::from_str(&workspace_repair_inspect(workspace_repair_mounts())).unwrap();
++        raw["Mounts"] = serde_json::Value::Array(workspace_repair_mounts().into_iter().take(4).collect());
++        raw["HostConfig"] = serde_json::json!({"Tmpfs":workspace_repair_tmpfs()});
++        workspace_repair_admit_snapshot(raw).await.unwrap();
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_exact_inventory_passes() {
++        workspace_repair_admit(workspace_repair_mounts()).await.unwrap();
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_admission_rejects_extra_tmpfs() {
++        let mut mounts = workspace_repair_mounts();
++        mounts.push(serde_json::json!({"Type":"tmpfs","Destination":"/sandbox2","RW":true}));
++        assert!(matches!(workspace_repair_admit(mounts).await, Err(ComputeDriverError::Precondition(_))));
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_admission_checks_each_role_and_exact_types() {
++        let original = workspace_repair_mounts();
++        for index in 0..original.len() {
++            let mut missing = original.clone(); missing.remove(index);
++            assert!(workspace_repair_admit(missing).await.is_err(), "missing role {index}");
++            let mut duplicate = original.clone(); duplicate.push(original[index].clone());
++            assert!(workspace_repair_admit(duplicate).await.is_err(), "duplicate role {index}");
++            for (field, value) in [
++                ("Destination", serde_json::json!("/sandbox2")),
++                ("Type", serde_json::json!("unknown")),
++                ("RW", serde_json::Value::Null),
++                ("RW", serde_json::json!(1)),
++                ("RW", serde_json::json!("true")),
++                ("RW", serde_json::json!(!original[index]["RW"].as_bool().unwrap())),
++            ] {
++                let mut changed = original.clone(); changed[index][field] = value;
++                assert!(workspace_repair_admit(changed).await.is_err(), "role {index}, field {field}");
++            }
++        }
++        for index in [0, 1, 2] {
++            let mut changed = original.clone(); changed[index]["Source"] = serde_json::json!("/unrelated/source");
++            assert!(workspace_repair_admit(changed).await.is_err(), "source drift role {index}");
++        }
++        let mut legacy = original.clone(); legacy[3]["Name"] = serde_json::json!(container::volume_name("sandbox-1"));
++        assert!(workspace_repair_admit(legacy).await.is_err());
++        let mut external = original; external.push(serde_json::json!({"Type":"volume","Name":"external","Destination":"/sandbox2","RW":true}));
++        assert!(workspace_repair_admit(external).await.is_err());
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_tmpfs_roles_reject_extra_rw_and_malformed_options() {
++        let original: serde_json::Value = serde_json::from_str(&workspace_repair_inspect(workspace_repair_mounts())).unwrap();
++        for malformed in [serde_json::Value::Null, serde_json::json!(true), serde_json::json!([]), serde_json::json!({})] {
++            let mut changed = original.clone(); changed["HostConfig"]["Tmpfs"] = malformed;
++            assert!(workspace_repair_admit_snapshot(changed).await.is_err());
++        }
++        let mut missing_host = original.clone(); missing_host.as_object_mut().unwrap().remove("HostConfig");
++        assert!(workspace_repair_admit_snapshot(missing_host).await.is_err());
++        let mut extra = original.clone();
++        extra["HostConfig"]["Tmpfs"]["/sandbox2"] = serde_json::json!("rw,nosuid,nodev,mode=1777");
++        assert!(workspace_repair_admit_snapshot(extra).await.is_err(), "extra writable tmpfs accepted");
++        for destination in ["/tmp", openshell_sandbox_backend::SUPERVISOR_CA_RUNTIME_ROOT] {
++            let mut missing = original.clone(); missing["HostConfig"]["Tmpfs"].as_object_mut().unwrap().remove(destination);
++            assert!(workspace_repair_admit_snapshot(missing).await.is_err(), "missing tmpfs role {destination}");
++            for value in [serde_json::Value::Null, serde_json::json!(true), serde_json::json!(1), serde_json::json!([]), serde_json::json!({}), serde_json::json!("")] {
++                let mut changed = original.clone(); changed["HostConfig"]["Tmpfs"][destination] = value;
++                assert!(workspace_repair_admit_snapshot(changed).await.is_err(), "wrong tmpfs type {destination}");
++            }
++            let options = original["HostConfig"]["Tmpfs"][destination].as_str().unwrap();
++            for value in [format!("{options},rw"), format!("{options},ro"), format!("{options},exec"), format!("{options},"), options.replace("nosuid,", ""), options.replace("rw,", ""), options.replace("mode=", "mode=0")] {
++                let mut changed = original.clone(); changed["HostConfig"]["Tmpfs"][destination] = serde_json::json!(value);
++                assert!(workspace_repair_admit_snapshot(changed).await.is_err(), "wrong tmpfs options {destination}");
++            }
++        }
++        let mut extra_bind = workspace_repair_mounts();
++        extra_bind.push(serde_json::json!({"Type":"bind","Destination":"/sandbox2","Source":"/unowned","RW":true}));
++        assert!(workspace_repair_admit(extra_bind).await.is_err(), "extra writable bind accepted");
++        // Legacy staging has neither the registered git bind nor private /tmp.
++        let mut legacy = original; legacy["Mounts"].as_array_mut().unwrap().remove(1);
++        legacy["Mounts"][0]["Type"] = serde_json::json!("volume");
++        legacy["HostConfig"]["Tmpfs"].as_object_mut().unwrap().remove("/tmp");
++        assert!(workspace_repair_admit_snapshot(legacy).await.is_err(), "legacy producer admitted");
++    }
++
++    async fn workspace_repair_revoke_with(mounts: Vec<serde_json::Value>, job_list: String, job_inspect: String) -> Vec<String> {
++        let invalid_supervisor = serde_json::json!({"Id":"unrelated","Name":crate::isolation::supervisor_name("sandbox-1"),"State":{"Status":"running","Running":true},"Config":{"Labels":{}}}).to_string();
++        let _ = mounts;
++        let (socket, requests, handle) = spawn_podman_stub("repair-revoke-check", vec![
++            StubResponse::new(StatusCode::OK, workspace_repair_list()),
++            StubResponse::new(StatusCode::OK, job_list),
++            StubResponse::new(StatusCode::OK, job_inspect),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++            StubResponse::new(StatusCode::OK, invalid_supervisor),
++        ]);
++        tokio::time::timeout(Duration::from_secs(2), test_driver(socket.clone()).reconcile_resource_admission()).await.unwrap();
++        let log = requests.lock().unwrap().clone(); handle.abort(); let _ = fs::remove_file(socket); log
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_mount_drift_does_not_veto_original_workload_stop() {
++        let mut mounts = workspace_repair_mounts(); mounts[1]["RW"] = serde_json::json!(true);
++        let log = workspace_repair_revoke_with(mounts.clone(), workspace_repair_list(), workspace_repair_inspect(mounts)).await;
++        assert!(log.iter().any(|q| q.starts_with("POST ") && q.contains("owned-workload/stop")), "mount drift vetoed original stop: {log:?}");
++        assert!(!log.iter().any(|q| q.starts_with("POST ") && q.contains("supervisor")));
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_reconciliation_refuses_uncorroborated_workloads() {
++        for field in ["duplicate", "managed", "id", "name", "record"] {
++            let mut list: serde_json::Value = serde_json::from_str(&workspace_repair_list()).unwrap();
++            let mut inspect: serde_json::Value = serde_json::from_str(&workspace_repair_inspect(workspace_repair_mounts())).unwrap();
++            match field {
++                "duplicate" => { let entry = list[0].clone(); list.as_array_mut().unwrap().push(entry); }
++                "managed" => { list[0]["Labels"][container::LABEL_MANAGED] = serde_json::json!("false"); inspect["Config"]["Labels"][container::LABEL_MANAGED] = serde_json::json!("false"); }
++                "id" => inspect["Id"] = serde_json::json!("different-workload"),
++                "name" => inspect["Name"] = serde_json::json!("different-name"),
++                "record" => { list[0]["Labels"][BINDING_LABEL] = serde_json::json!("{}"); inspect["Config"]["Labels"][BINDING_LABEL] = serde_json::json!("{}"); }
++                _ => unreachable!(),
++            }
++            let log = workspace_repair_revoke_with(workspace_repair_mounts(), list.to_string(), inspect.to_string()).await;
++            assert!(!log.iter().any(|q| q.starts_with("POST ") || q.starts_with("DELETE ")), "uncorroborated {field} caused mutation: {log:?}");
++        }
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_stop_joins_workload_before_companion_refusal() {
++        let mut exited: serde_json::Value = serde_json::from_str(&workspace_repair_inspect(workspace_repair_mounts())).unwrap();
++        exited["State"] = serde_json::json!({"Status":"exited","Running":false,"FinishedAt":"2026-01-01T00:00:00Z"});
++        let invalid_supervisor = serde_json::json!({"Id":"unrelated","Name":crate::isolation::supervisor_name("sandbox-1"),"State":{"Status":"running","Running":true},"Config":{"Labels":{}}}).to_string();
++        let (socket, requests, handle) = spawn_podman_stub("repair-stop", vec![
++            StubResponse::new(StatusCode::OK, workspace_repair_list()),
++            StubResponse::new(StatusCode::OK, workspace_repair_inspect(workspace_repair_mounts())),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++            StubResponse::new(StatusCode::OK, exited.to_string()),
++            StubResponse::new(StatusCode::OK, invalid_supervisor),
++        ]);
++        let result = tokio::time::timeout(Duration::from_secs(2), test_driver(socket.clone()).stop_sandbox("sandbox-1")).await.unwrap();
++        let log = requests.lock().unwrap().clone(); handle.abort(); let _ = fs::remove_file(socket);
++        assert!(matches!(result, Err(ComputeDriverError::Precondition(_))), "companion uncertainty erased: {result:?}");
++        assert_eq!(log[2], format!("POST {}", api_path("/libpod/containers/owned-workload/stop?timeout=10")));
++        assert_eq!(log[3], format!("GET {}", api_path("/libpod/containers/owned-workload/json")));
++        assert!(!log.iter().any(|q| q.starts_with("POST ") && q.contains("supervisor")));
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_reconciliation_stops_owned_workload_with_invalid_supervisor() {
++        let list = workspace_repair_list();
++        let inspect = workspace_repair_inspect(workspace_repair_mounts());
++        let invalid_supervisor = serde_json::json!({"Id":"unrelated","Name":crate::isolation::supervisor_name("sandbox-1"),"State":{"Status":"running","Running":true},"Config":{"Labels":{}}}).to_string();
++        let (socket, requests, handle) = spawn_podman_stub("repair-revoke", vec![
++            StubResponse::new(StatusCode::OK, list.clone()),
++            StubResponse::new(StatusCode::OK, list),
++            StubResponse::new(StatusCode::OK, inspect),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++            StubResponse::new(StatusCode::OK, invalid_supervisor),
++        ]);
++        tokio::time::timeout(Duration::from_secs(2), test_driver(socket.clone()).reconcile_resource_admission()).await.unwrap();
++        let log = requests.lock().unwrap().clone();
++        handle.abort(); let _ = fs::remove_file(socket);
++        assert!(log.iter().any(|q| q == &format!("POST {}", api_path("/libpod/containers/owned-workload/stop?timeout=0"))), "owned workload stop missing: {log:?}");
++        assert!(!log.iter().any(|q| q.starts_with("POST ") && q.contains("supervisor")), "unrelated companion touched: {log:?}");
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_delete_channel_failure_retains_workload_for_retry() {
++        let responses = (0..2).flat_map(|_| vec![
++            StubResponse::new(StatusCode::OK, workspace_repair_list()),
++            StubResponse::new(StatusCode::OK, workspace_repair_inspect(workspace_repair_mounts())),
++            StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++            StubResponse::new(StatusCode::OK, workspace_repair_channel()),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++            StubResponse::new(StatusCode::CONFLICT, r#"{"message":"channel in use"}"#),
++        ]).collect();
++        let (socket, requests, handle) = spawn_podman_stub("repair-delete", responses);
++        let driver = test_driver(socket.clone());
++        for _ in 0..2 {
++            let result = tokio::time::timeout(Duration::from_secs(2), driver.delete_sandbox("sandbox-1")).await.unwrap();
++            assert!(result.is_err(), "channel failure must remain incomplete");
++        }
++        let log = requests.lock().unwrap().clone();
++        handle.abort(); let _ = fs::remove_file(socket);
++        assert_eq!(log.iter().filter(|q| q.contains("/volumes/") && q.starts_with("DELETE ")).count(), 2);
++        assert!(!log.iter().any(|q| q.starts_with("DELETE ") && q.contains("owned-workload")), "last ownership anchor was removed: {log:?}");
++        assert!(!log.iter().any(|q| q.contains("/volumes/") && q.contains("force=true")));
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_delete_refuses_unrelated_channel_before_mutation() {
++        let mut channel: serde_json::Value = serde_json::from_str(&workspace_repair_channel()).unwrap();
++        channel["Labels"][LABEL_SANDBOX_ID] = serde_json::json!("another-job");
++        let (socket, requests, handle) = spawn_podman_stub("repair-delete-unrelated", vec![
++            StubResponse::new(StatusCode::OK, workspace_repair_list()),
++            StubResponse::new(StatusCode::OK, workspace_repair_inspect(workspace_repair_mounts())),
++            StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++            StubResponse::new(StatusCode::OK, channel.to_string()),
++        ]);
++        assert!(test_driver(socket.clone()).delete_sandbox("sandbox-1").await.is_err());
++        let log = requests.lock().unwrap().clone(); handle.abort(); let _ = fs::remove_file(socket);
++        assert!(log.iter().all(|q| q.starts_with("GET ")), "unrelated channel caused mutation: {log:?}");
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_delete_detached_absent_channel_finishes_with_anchor_last() {
++        // This fixture is explicitly detached with a typed volume 404. It does
++        // not pretend an attached named volume can be removed while in use.
++        let mut mounts = workspace_repair_mounts(); mounts.remove(3);
++        let (socket, requests, handle) = spawn_podman_stub("repair-delete-detached", vec![
++            StubResponse::new(StatusCode::OK, workspace_repair_list()),
++            StubResponse::new(StatusCode::OK, workspace_repair_inspect(mounts)),
++            StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++            StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++        ]);
++        assert!(test_driver(socket.clone()).delete_sandbox("sandbox-1").await.unwrap());
++        let log = requests.lock().unwrap().clone(); handle.abort(); let _ = fs::remove_file(socket);
++        assert!(log[4].starts_with("POST ") && log[4].contains("owned-workload/stop"));
++        assert!(log[5].starts_with("DELETE ") && log[5].contains("owned-workload?"));
++        assert!(!log.iter().any(|q| q.contains("/volumes/") && q.starts_with("DELETE ")));
++    }
++
++    #[tokio::test]
++    async fn workspace_repair_delete_preserves_drifted_anonymous_volumes() {
++        // Original custody permits stopping/removing the exact containers after
++        // drift. It does not grant custody of an added anonymous volume.
++        let mut mounts = workspace_repair_mounts();
++        mounts.remove(3);
++        mounts.push(serde_json::json!({"Type":"volume","Name":"unowned-anonymous","Destination":"/drift","RW":true}));
++        let supervisor = serde_json::json!({
++            "Id":"owned-supervisor",
++            "Name":crate::isolation::supervisor_name("sandbox-1"),
++            "State":{"Status":"running","Running":true},
++            "Config":{"Labels":workspace_repair_labels("supervisor")},
++            "Mounts":[{"Type":"volume","Name":"another-unowned-anonymous","Destination":"/drift","RW":true}]
++        });
++        let (socket, requests, handle) = spawn_podman_stub("repair-preserve", vec![
++            StubResponse::new(StatusCode::OK, workspace_repair_list()),
++            StubResponse::new(StatusCode::OK, workspace_repair_inspect(mounts)),
++            StubResponse::new(StatusCode::OK, supervisor.to_string()),
++            StubResponse::new(StatusCode::NOT_FOUND, "{}"),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++            StubResponse::new(StatusCode::NO_CONTENT, ""),
++        ]);
++        assert!(test_driver(socket.clone()).delete_sandbox("sandbox-1").await.unwrap());
++        let log = requests.lock().unwrap().clone(); handle.abort(); let _ = fs::remove_file(socket);
++        assert_eq!(log[5], format!("DELETE {}", api_path("/libpod/containers/owned-supervisor?force=true&volumes=false&timeout=10")));
++        assert_eq!(log[6], format!("DELETE {}", api_path("/libpod/containers/owned-workload?force=true&volumes=false&timeout=10")));
++        assert!(!log.iter().any(|q| q.starts_with("DELETE ") && q.contains("/volumes/")));
++    }
+ 
+     fn launch_authentication() -> SandboxLaunchAuthentication {
+         SandboxLaunchAuthentication {
+diff --git a/crates/openshell-driver-podman/src/lib.rs b/crates/openshell-driver-podman/src/lib.rs
+--- a/crates/openshell-driver-podman/src/lib.rs
++++ b/crates/openshell-driver-podman/src/lib.rs
+@@ -9,6 +9,7 @@
+ mod isolation;
+ pub mod otel_tracing;
+ mod socket_discovery;
++mod workspace_binding;
+ #[cfg(test)]
+ pub(crate) mod test_utils;
+ pub(crate) mod watcher;
+diff --git a/crates/openshell-driver-podman/src/workspace_binding.rs b/crates/openshell-driver-podman/src/workspace_binding.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/openshell-driver-podman/src/workspace_binding.rs
+@@ -0,0 +1,381 @@
++// SPDX-License-Identifier: AGPL-3.0-or-later
++//! Fixed operator registration for the dedicated auma-ws create path.
++//!
++//! Registration custody is necessary, not approval or qualification. The root
++//! qualifier must join H's secret/hardlink/pre-bind review to these exact source
++//! identities before registering a snapshot. This reader cannot prove that scan,
++//! idmapped access, image qualification, or atomic mount realization occurred.
++
++use openshell_core::ComputeDriverError;
++use serde::{Deserialize, Serialize};
++use serde_json::Value;
++use std::ffi::CString;
++use std::fs::{File, Metadata, OpenOptions};
++use std::io::Read;
++use std::os::fd::{AsRawFd, FromRawFd};
++use std::os::unix::ffi::OsStrExt;
++use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
++use std::path::{Component, Path};
++
++pub(crate) const REGISTRATION_PATH: &str = "/etc/aukora-boundary-gate/openshell-workspace.json";
++pub(crate) const BINDING_LABEL: &str = "openshell.ai/trusted-workspace-binding";
++pub(crate) const WORKSPACE_ROOT: &str = "/sandbox";
++pub(crate) const GIT_ROOT: &str = "/sandbox/.git";
++const MAX_REGISTRATION_BYTES: u64 = 4096;
++
++fn refused() -> ComputeDriverError {
++    // Do not expose host source paths in guest-visible RPC diagnostics.
++    ComputeDriverError::Precondition("protected workspace registration unavailable".into())
++}
++
++#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
++#[serde(deny_unknown_fields)]
++struct Registration {
++    version: u32,
++    workspace_id: String,
++    workspace_source: String,
++    git_source: String,
++}
++
++impl Registration {
++    fn validate(&self) -> Result<(), ComputeDriverError> {
++        let id = uuid::Uuid::parse_str(&self.workspace_id).map_err(|_| refused())?;
++        if self.version != 1 || id.is_nil() || id.hyphenated().to_string() != self.workspace_id {
++            return Err(refused());
++        }
++        normalized_source(&self.workspace_source)?;
++        normalized_source(&self.git_source)?;
++        // A linked-worktree .git file or external common directory is not the
++        // approved directory pair. Never follow it or infer another source.
++        if self.git_source != format!("{}/.git", self.workspace_source) {
++            return Err(refused());
++        }
++        Ok(())
++    }
++}
++
++fn normalized_source(value: &str) -> Result<(), ComputeDriverError> {
++    if !value.starts_with('/') || value == "/" || value.ends_with('/') ||
++        value.contains("//") || value != value.trim() || value.chars().any(char::is_control) ||
++        Path::new(value).components().any(|part| matches!(part, Component::CurDir | Component::ParentDir | Component::Prefix(_))) ||
++        value.split('/').any(|part| part == "." || part == "..") {
++        return Err(refused());
++    }
++    Ok(())
++}
++
++#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
++#[serde(deny_unknown_fields)]
++struct FileIdentity {
++    device: u64,
++    inode: u64,
++    uid: u32,
++    gid: u32,
++    mode: u32,
++}
++
++impl FileIdentity {
++    fn of(meta: &Metadata) -> Self {
++        Self { device: meta.dev(), inode: meta.ino(), uid: meta.uid(), gid: meta.gid(), mode: meta.mode() }
++    }
++}
++
++fn protected_directory(meta: &Metadata) -> Result<(), ComputeDriverError> {
++    if !meta.is_dir() || meta.uid() != 0 || meta.mode() & 0o022 != 0 { return Err(refused()); }
++    Ok(())
++}
++
++fn source_directory(meta: &Metadata) -> Result<(), ComputeDriverError> {
++    if !meta.is_dir() || meta.mode() & 0o022 != 0 { return Err(refused()); }
++    Ok(())
++}
++
++fn open_child(parent: &File, name: &std::ffi::OsStr, directory: bool) -> Result<File, ComputeDriverError> {
++    let name = CString::new(name.as_bytes()).map_err(|_| refused())?;
++    let flags = nix::libc::O_RDONLY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC |
++        if directory { nix::libc::O_DIRECTORY } else { nix::libc::O_NONBLOCK };
++    // SAFETY: parent is an owned directory FD, name is NUL-terminated, and
++    // no creation flags are used. The descriptor is transferred exactly once.
++    let raw = unsafe { nix::libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
++    if raw < 0 { return Err(refused()); }
++    // SAFETY: openat returned one new valid descriptor, now owned by File.
++    Ok(unsafe { File::from_raw_fd(raw) })
++}
++
++fn open_anchored(path: &str, directory: bool, protected: bool) -> Result<File, ComputeDriverError> {
++    normalized_source(path)?;
++    let mut parent = OpenOptions::new().read(true)
++        .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
++        .open("/").map_err(|_| refused())?;
++    let parts: Vec<_> = Path::new(path).components().filter_map(|part| {
++        if let Component::Normal(value) = part { Some(value) } else { None }
++    }).collect();
++    for (index, part) in parts.iter().enumerate() {
++        let before = parent.metadata().map_err(|_| refused())?;
++        if protected { protected_directory(&before)?; }
++        // Sources need real, non-shared-writable ancestors too. Source-owner
++        // writeability is intentional; a quiescent H/root review is still required.
++        source_directory(&before)?;
++        let leaf = index + 1 == parts.len();
++        parent = open_child(&parent, part, !leaf || directory)?;
++    }
++    let meta = parent.metadata().map_err(|_| refused())?;
++    if (directory && !meta.is_dir()) || (!directory && !meta.is_file()) || meta.mode() & 0o022 != 0 {
++        return Err(refused());
++    }
++    if protected && (meta.uid() != 0 || meta.mode() & 0o777 != 0o644) { return Err(refused()); }
++    Ok(parent)
++}
++
++fn read_registration_file(mut file: File) -> Result<(Registration, FileIdentity, File), ComputeDriverError> {
++    let before = file.metadata().map_err(|_| refused())?;
++    if before.len() > MAX_REGISTRATION_BYTES { return Err(refused()); }
++    let mut bytes = Vec::new();
++    Read::by_ref(&mut file).take(MAX_REGISTRATION_BYTES + 1).read_to_end(&mut bytes).map_err(|_| refused())?;
++    let after = file.metadata().map_err(|_| refused())?;
++    if bytes.len() as u64 > MAX_REGISTRATION_BYTES || FileIdentity::of(&before) != FileIdentity::of(&after) ||
++        before.len() != after.len() || before.mtime() != after.mtime() || before.mtime_nsec() != after.mtime_nsec() ||
++        before.ctime() != after.ctime() || before.ctime_nsec() != after.ctime_nsec() { return Err(refused()); }
++    let registration: Registration = serde_json::from_slice(&bytes).map_err(|_| refused())?;
++    registration.validate()?;
++    Ok((registration, FileIdentity::of(&after), file))
++}
++
++fn read_registration() -> Result<(Registration, FileIdentity, File), ComputeDriverError> {
++    read_registration_file(open_anchored(REGISTRATION_PATH, false, true)?)
++}
++
++#[derive(Debug)]
++pub(crate) struct TrustedWorkspaceBinding {
++    registration: Registration,
++    registration_identity: FileIdentity,
++    workspace_identity: FileIdentity,
++    git_identity: FileIdentity,
++    // Hold the measured inodes until create finishes. Podman still consumes
++    // pathnames; repeated custody checks do not claim atomic launch fencing.
++    _anchors: Vec<File>,
++}
++
++impl TrustedWorkspaceBinding {
++    pub(crate) fn load(name: &str, workspace: &str) -> Result<Self, ComputeDriverError> {
++        if name != "auma-ws" || workspace != "default" { return Err(refused()); }
++        let (registration, registration_identity, file) = read_registration()?;
++        let source = open_anchored(&registration.workspace_source, true, false)?;
++        let git = open_anchored(&registration.git_source, true, false)?;
++        let binding = Self {
++            registration, registration_identity,
++            workspace_identity: FileIdentity::of(&source.metadata().map_err(|_| refused())?),
++            git_identity: FileIdentity::of(&git.metadata().map_err(|_| refused())?),
++            _anchors: vec![file, source, git],
++        };
++        binding.recheck()?;
++        Ok(binding)
++    }
++
++    pub(crate) fn workspace_source(&self) -> &str { &self.registration.workspace_source }
++    pub(crate) fn git_source(&self) -> &str { &self.registration.git_source }
++
++    pub(crate) fn identity(&self) -> Value {
++        serde_json::json!({
++            "registration": self.registration,
++            "registration_identity": self.registration_identity,
++            "workspace_identity": self.workspace_identity,
++            "git_identity": self.git_identity,
++        })
++    }
++
++    pub(crate) fn label(&self) -> Result<String, ComputeDriverError> {
++        serde_json::to_string(&self.identity()).map_err(|_| refused())
++    }
++
++    pub(crate) fn recheck(&self) -> Result<(), ComputeDriverError> {
++        // An in-place root rewrite can preserve dev/ino/mode. Reread the strict
++        // four-field content under the same custody fence before each effect.
++        let (registration, identity, _file) = read_registration()?;
++        if registration != self.registration || identity != self.registration_identity { return Err(refused()); }
++        for (path, expected, directory, protected) in [
++            (self.workspace_source(), &self.workspace_identity, true, false),
++            (self.git_source(), &self.git_identity, true, false),
++        ] {
++            let file = open_anchored(path, directory, protected)?;
++            if FileIdentity::of(&file.metadata().map_err(|_| refused())?) != *expected { return Err(refused()); }
++        }
++        Ok(())
++    }
++
++    pub(crate) fn admits_mount(&self, mount: &Value) -> bool {
++        let expected = match mount.get("Destination").and_then(Value::as_str) {
++            Some(WORKSPACE_ROOT) => Some((self.workspace_source(), true)),
++            Some(GIT_ROOT) => Some((self.git_source(), false)),
++            _ => None,
++        };
++        expected.is_some_and(|(source, writable)|
++            mount.get("Type").and_then(Value::as_str) == Some("bind") &&
++            mount.get("Source").and_then(Value::as_str) == Some(source) &&
++            mount.get("RW").and_then(Value::as_bool) == Some(writable))
++    }
++
++    #[cfg(test)]
++    pub(crate) fn synthetic() -> Self {
++        let directory = |inode| FileIdentity { device: 1, inode, uid: 7, gid: 7, mode: 0o40700 };
++        Self { registration: Registration { version: 1,
++            workspace_id: "6adab3d7-52db-4724-89bd-26a574e91d92".into(),
++            workspace_source: "/srv/reviewed/workspace".into(),
++            git_source: "/srv/reviewed/workspace/.git".into() },
++            registration_identity: FileIdentity { device: 1, inode: 1, uid: 0, gid: 0, mode: 0o100644 }, workspace_identity: directory(2), git_identity: directory(3), _anchors: Vec::new() }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn closed_registration_rejects_unknown_duplicate_and_wrong_types() {
++        let good = r#"{"version":1,"workspace_id":"6adab3d7-52db-4724-89bd-26a574e91d92","workspace_source":"/srv/reviewed/workspace","git_source":"/srv/reviewed/workspace/.git"}"#;
++        let registration: Registration = serde_json::from_str(good).unwrap();
++        registration.validate().unwrap();
++        for bad in [good.replace("\"version\":1", "\"version\":true"),
++            good.replace("\"version\":1", "\"version\":1,\"version\":1"),
++            good.replace("\"version\":1", "\"version\":1,\"caller_source\":\"/elsewhere\"")] {
++            assert!(serde_json::from_str::<Registration>(&bad).is_err());
++        }
++    }
++
++    #[test]
++    fn registry_uuid_is_not_backend_workspace_and_sources_are_exact() {
++        let mut binding = TrustedWorkspaceBinding::synthetic();
++        binding.registration.validate().unwrap();
++        binding.registration.workspace_id = "default".into();
++        assert!(binding.registration.validate().is_err());
++        for source in ["relative", "/srv/../workspace", "/srv//workspace", "/srv/./workspace", "/srv/workspace/"] {
++            assert!(normalized_source(source).is_err());
++        }
++        binding.registration.workspace_id = "6adab3d7-52db-4724-89bd-26a574e91d92".into();
++        binding.registration.git_source = "/srv/outside/common.git".into();
++        assert!(binding.registration.validate().is_err());
++        assert!(TrustedWorkspaceBinding::load("another", "default").is_err());
++        assert!(TrustedWorkspaceBinding::load("auma-ws", "other").is_err());
++    }
++
++    #[test]
++    fn only_the_registered_pair_and_exact_rw_types_are_admitted() {
++        let binding = TrustedWorkspaceBinding::synthetic();
++        let root = serde_json::json!({"Type":"bind","Destination":"/sandbox","Source":"/srv/reviewed/workspace","RW":true});
++        let git = serde_json::json!({"Type":"bind","Destination":"/sandbox/.git","Source":"/srv/reviewed/workspace/.git","RW":false});
++        assert!(binding.admits_mount(&root));
++        assert!(binding.admits_mount(&git));
++        for (key, value) in [("Type", Value::String("volume".into())),
++            ("Source", Value::String("/srv/other".into())), ("Destination", Value::String("/second-root".into())),
++            ("RW", Value::Bool(false)), ("RW", Value::Number(1.into()))] {
++            let mut changed = root.clone(); changed[key] = value;
++            assert!(!binding.admits_mount(&changed));
++        }
++        let mut writable_git = git; writable_git["RW"] = Value::Bool(true);
++        assert!(!binding.admits_mount(&writable_git));
++    }
++
++    #[test]
++    fn no_follow_sources_refuse_symlink_and_shared_writable_directory() {
++        let root = std::env::temp_dir().canonicalize().unwrap().join(format!("openshell-binding-{}", uuid::Uuid::new_v4()));
++        std::fs::create_dir(&root).unwrap();
++        use std::os::unix::fs::{PermissionsExt, symlink};
++        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
++        let real = root.join("real"); std::fs::create_dir(&real).unwrap();
++        let alias = root.join("alias"); symlink(&real, &alias).unwrap();
++        // Exercise the actual no-follow openat leaf with a positive control.
++        // Full source ancestry intentionally refuses public writable /tmp.
++        let parent = File::open(&root).unwrap();
++        assert!(open_child(&parent, std::ffi::OsStr::new("real"), true).is_ok());
++        assert!(open_child(&parent, std::ffi::OsStr::new("alias"), true).is_err());
++        assert!(source_directory(&real.metadata().unwrap()).is_ok());
++        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o777)).unwrap();
++        assert!(source_directory(&real.metadata().unwrap()).is_err());
++        assert!(open_anchored(real.to_str().unwrap(), true, false).is_err());
++        assert!(open_anchored(real.to_str().unwrap(), true, true).is_err());
++        std::fs::remove_dir_all(root).unwrap();
++    }
++}
++
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct OriginalBinding {
++    registration: Registration,
++    registration_identity: FileIdentity,
++    workspace_identity: FileIdentity,
++    git_identity: FileIdentity,
++}
++
++/// Original backend custody is an ownership fence, not approval. Only trusted
++/// OwnedExecutor callers may enter lifecycle APIs; labels do not grant authority.
++fn original_binding(label: &str) -> Result<OriginalBinding, ComputeDriverError> {
++    if label.len() > 16384 { return Err(refused()); }
++    let original: OriginalBinding = serde_json::from_str(label).map_err(|_| refused())?;
++    original.registration.validate()?;
++    let regular = 0o100000;
++    let directory = 0o040000;
++    if original.registration_identity.uid != 0 ||
++        original.registration_identity.mode != (regular | 0o644) ||
++        [&original.workspace_identity, &original.git_identity].iter().any(|identity|
++            identity.mode & 0o170000 != directory || identity.mode & 0o022 != 0) {
++        return Err(refused());
++    }
++    if (original.workspace_identity.device, original.workspace_identity.inode) ==
++        (original.git_identity.device, original.git_identity.inode) { return Err(refused()); }
++    Ok(original)
++}
++
++pub(crate) fn verify_original_binding_record(label: &str) -> Result<(), ComputeDriverError> {
++    original_binding(label).map(|_| ())
++}
++
++#[cfg(test)]
++pub(crate) fn verify_original_binding(label: &str, mounts: &[Value]) -> Result<(), ComputeDriverError> {
++    let original = original_binding(label)?;
++    let mut root = 0; let mut git = 0;
++    for mount in mounts {
++        match mount["Destination"].as_str() {
++            Some(WORKSPACE_ROOT) => {
++                if mount["Type"].as_str() != Some("bind") || mount["RW"].as_bool() != Some(true) ||
++                    mount["Source"].as_str() != Some(original.registration.workspace_source.as_str()) { return Err(refused()); }
++                root += 1;
++            }
++            Some(GIT_ROOT) => {
++                if mount["Type"].as_str() != Some("bind") || mount["RW"].as_bool() != Some(false) ||
++                    mount["Source"].as_str() != Some(original.registration.git_source.as_str()) { return Err(refused()); }
++                git += 1;
++            }
++            _ => {}
++        }
++    }
++    if root != 1 || git != 1 { return Err(refused()); }
++    Ok(())
++}
++
++
++#[cfg(test)]
++mod original_cleanup_tests {
++    use super::*;
++
++    #[test]
++    fn original_cleanup_proof_accepts_exact_pair_and_refuses_changed_or_duplicate_mounts() {
++        let mut binding = TrustedWorkspaceBinding::synthetic();
++        binding.registration_identity = FileIdentity { device: 1, inode: 10, uid: 0, gid: 0, mode: 0o100644 };
++        let label = binding.label().unwrap();
++        let root = serde_json::json!({"Type":"bind","Source":binding.workspace_source(),"Destination":WORKSPACE_ROOT,"RW":true});
++        let git = serde_json::json!({"Type":"bind","Source":binding.git_source(),"Destination":GIT_ROOT,"RW":false});
++        let pair = vec![root.clone(), git.clone()];
++        assert!(verify_original_binding(&label, &pair).is_ok());
++        assert!(verify_original_binding(&label, &[root.clone()]).is_err());
++        assert!(verify_original_binding(&label, &[root.clone(), git.clone(), root.clone()]).is_err());
++        let mut changed = git.clone(); changed["RW"] = Value::Bool(true);
++        assert!(verify_original_binding(&label, &[root.clone(), changed]).is_err());
++        let mut changed = root.clone(); changed["Source"] = Value::String("/unowned".into());
++        assert!(verify_original_binding(&label, &[changed, git]).is_err());
++        let mut changed: Value = serde_json::from_str(&label).unwrap(); changed["caller"] = Value::Bool(true);
++        assert!(verify_original_binding(&changed.to_string(), &pair).is_err());
++        let duplicate = label.replacen("\"registration\":", "\"registration_identity\":{},\"registration\":", 1);
++        assert!(verify_original_binding(&duplicate, &pair).is_err());
++    }
++}

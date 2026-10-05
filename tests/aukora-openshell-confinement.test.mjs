@@ -399,6 +399,30 @@ print(json.dumps({'ok':True,'profile_digest':good['profile_digest']}))
   assert.match(result.profile_digest, /^sha256:[0-9a-f]{64}$/)
 })
 
+test('tmpfs readback keeps exactly the two producer roles even when profile and observation agree on an extra writable path', () => {
+  helperPython(`
+assert len(f['container']['Mounts']) == 4
+m.validate_snapshot(f['container'], f['process'], f['profile'], workload_binary_digest=f['profile']['workload_binary_digest'])
+for edit in [lambda t: t.update({'/sandbox2':'rw,nosuid,nodev,mode=1777'}),
+             lambda t: t.pop('/tmp'), lambda t: t.pop('/run/openshell-supervisor-ca'),
+             lambda t: t.update({'/tmp':True}), lambda t: t.update({'/tmp':[]} ),
+             lambda t: t.update({'/tmp':'rw,nosuid,nodev,mode=1777,rw'}),
+             lambda t: t.update({'/tmp':'ro,nosuid,nodev,mode=1777'}),
+             lambda t: t.update({'/tmp':'rw,nosuid,nodev,mode=1777,exec'}),
+             lambda t: t.update({'/tmp':'rw,nodev,mode=1777'}),
+             lambda t: t.update({'/run/openshell-supervisor-ca':'rw,nosuid,nodev,mode=0777,size=1m'})]:
+    p, c = copy.deepcopy(f['profile']), copy.deepcopy(f['container'])
+    edit(p['expected_workload_config']['Tmpfs'])
+    c['HostConfig']['Tmpfs'] = copy.deepcopy(p['expected_workload_config']['Tmpfs'])
+    refusal(lambda: m.validate_snapshot(c, f['process'], p, workload_binary_digest=p['workload_binary_digest']))
+for kind in ['bind', 'tmpfs']:
+    c = copy.deepcopy(f['container'])
+    c['Mounts'].append({'Type':kind, 'Source':'/synthetic/extra', 'Destination':'/sandbox2',
+        'Driver':'', 'Mode':'rw', 'Options':['rw'], 'RW':True, 'Propagation':'rprivate'})
+    refusal(lambda: m.validate_snapshot(c, f['process'], f['profile'], workload_binary_digest=f['profile']['workload_binary_digest']))
+`)
+})
+
 test('binary evidence binds the observed source and actual process executable without a fallback', () => {
   const result = JSON.parse(helperPython(`
 from types import SimpleNamespace

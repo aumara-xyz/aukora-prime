@@ -588,6 +588,26 @@ def validate_supervisor(container, process, profile):
     }
 
 
+def _workload_tmpfs(tmpfs):
+    # Podman inspect reports these separately from its four raw Mounts. Exact
+    # profile comparison below remains mandatory after this semantic guard.
+    roles = {
+        "/tmp": frozenset(("rw", "nosuid", "nodev", "mode=1777")),
+        "/run/openshell-supervisor-ca": frozenset(("rw", "noexec", "nosuid", "nodev", "mode=0777", "size=1m")),
+    }
+    if set(tmpfs) != set(roles):
+        _fail("workload tmpfs role inventory mismatch")
+    for destination, required in roles.items():
+        options = _text(tmpfs[destination], True)
+        if len(options) > 1024:
+            _fail("workload tmpfs options limit")
+        tokens = options.split(",")
+        actual = set(tokens)
+        allowed = required | {"rprivate", "tmpcopyup"}
+        if len(actual) != len(tokens) or not required <= actual or not actual <= allowed:
+            _fail("workload tmpfs options mismatch")
+
+
 def _config(value):
     config = _object(value, CONFIG_KEYS, CONFIG_KEYS)
     tmpfs = _object(config["Tmpfs"])
@@ -600,6 +620,8 @@ def _config(value):
             config["IpcMode"] != "shareable" or config["PidMode"] != "private" or
             type(config["ReadonlyRootfs"]) is not bool):
         _fail("container configuration differs from supported deployment")
+    if config["ReadonlyRootfs"] is True:
+        _workload_tmpfs(tmpfs)
     return config
 
 
