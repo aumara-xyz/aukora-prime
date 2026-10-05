@@ -10,7 +10,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { tmpHome } from './support/fixture.mjs'
-import { createGate } from '../src/gate.mjs'
+import { createGate, DEFAULT_LIMITS } from '../src/gate.mjs'
 import { createOwnerPage } from '../src/owner-page.mjs'
 import { loadOwnerSecret, rotateBearer } from '../src/secrets.mjs'
 import { THEME_TARGET } from '../src/targets.mjs'
@@ -35,13 +35,16 @@ function refusalClass(msg) {
 }
 
 function scratchGate(baseText) {
-  const root = tmpHome(), home = path.join(root, 'gate'), targetRoot = path.join(root, 'targets')
+  // Canonicalize this fixture's own temp root (macOS /var is a system alias),
+  // rather than weakening the real store's no-symlink target boundary.
+  const root = fs.realpathSync(tmpHome()), home = path.join(root, 'gate'), targetRoot = path.join(root, 'targets')
   fs.mkdirSync(home, { mode: 0o700 }); fs.mkdirSync(path.join(targetRoot, 'plugins/auma-theme'), { recursive: true })
   const file = path.join(targetRoot, THEME_TARGET); fs.writeFileSync(file, baseText)
   const clock = { t: Date.UTC(2026, 9, 3, 12) }
   const owner = loadOwnerSecret(home); rotateBearer(home, owner, () => clock.t)
-  // the lab replay lifted only the 3-per-10-minute window so the corpus is not throttled; every other limit is default
-  const gate = createGate({ home, owner, targets: gateTargets(targetRoot), store: gateStore(), limits: { maxPerWindow: 1e9 }, now: () => clock.t })
+  // Card/schema corpus cases are independent, not a sustained-traffic experiment.
+  // Keep ALL production limits; replay advances only the synthetic trusted clock.
+  const gate = createGate({ home, owner, targets: gateTargets(targetRoot), store: gateStore(), now: () => clock.t })
   gate.startup({ pid: 1 })
   return { gate, clock, file, root, home, page: createOwnerPage(gate) }
 }
@@ -52,10 +55,17 @@ function replay(corpus) {
   const base = g.gate.proposeOps.read({ target: THEME_TARGET }).sha256
   const rows = []
   for (const a of corpus.items) {
-    g.clock.t += 1000
+    // A pending case uses three append-capable calls. The old 1-second cadence
+    // exhausted 32/min before its cancellation check. Isolate cases beyond every
+    // default window; all calls WITHIN one case still share the same live budget.
+    g.clock.t += Math.max(DEFAULT_LIMITS.windowMs, DEFAULT_LIMITS.proposeWindowMs,
+      DEFAULT_LIMITS.rejectCooldownMs, DEFAULT_LIMITS.dedupeMs) + 1
     let p
     try { p = g.gate.proposeOps.propose({ target: THEME_TARGET, content: a.content, why: a.note, claimed_base: base, session: 'rt3s-' + a.id, call_id: 'rt3-' + a.id }) }
-    catch (e) { rows.push({ a, result: 'blocked', blocked_by: refusalClass(e.message) }); continue }
+    catch (e) {
+      assert.equal(g.gate.db.prepare('SELECT used FROM propose_budget').get().used, 1, a.id + ' refused call remains charged')
+      rows.push({ a, result: 'blocked', blocked_by: refusalClass(e.message) }); continue
+    }
     const html = g.page.pageHtml('', null)
     const at = html.indexOf(`data-id="${p.id}"`)
     const card = at < 0 ? '' : html.slice(html.lastIndexOf('<div class=card', at), html.indexOf('</form></div>', at) + 13)
@@ -70,6 +80,7 @@ function replay(corpus) {
     assert.throws(() => g.gate.proposeOps.close({ id: p.id, outcome: 'approved' }), /cannot approve/, a.id)
     assert.equal(g.gate.proposeOps.state({ id: p.id }).state, 'pending', a.id)
     assert.equal(g.gate.proposeOps.close({ id: p.id, outcome: 'cancelled' }).state, 'expired', a.id)
+    assert.equal(g.gate.db.prepare('SELECT used FROM propose_budget').get().used, 3, a.id + ' same-case dispatch budget')
     rows.push({ a, result: 'pending', new_sha: p.new_sha, after: p.popup.after_apply, flags: p.popup.flags, owner })
   }
   return { g, base, rows }
@@ -127,7 +138,7 @@ test('rt3 attacks: 673 reach the owner card, 142 refused (89 schema, 53 no-op); 
     assertMatchesLab(rows)
     const log = assertNothingApplied(g, base)
     assert.equal(log.filter(e => e.event === 'decide-refused' && e.detail?.via === 'propose-close').length, 673, 'every approving close was refused and recorded')
-  } finally { g.gate.close(); fs.rmSync(g.root, { recursive: true, force: true }) }
+  } finally { g.gate.close() }
 })
 
 test('rt3 benign: all 61 reach the owner card; 7 carry by-design warnings (6x #D4AF37 name collision, 1x default); matches lab', () => {
@@ -140,5 +151,29 @@ test('rt3 benign: all 61 reach the owner card; 7 carry by-design warnings (6x #D
     assert.match(warned[6].after, /accent = default/)
     assertMatchesLab(rows)
     assertNothingApplied(g, base)
-  } finally { g.gate.close(); fs.rmSync(g.root, { recursive: true, force: true }) }
+  } finally { g.gate.close() }
+})
+
+test('rt3 same-window abuse: default budget caps refused proposals despite varying labels; no approval or writes', () => {
+  const g = scratchGate(ATTACKS.base)
+  const base = g.gate.proposeOps.read({ target: THEME_TARGET }).sha256
+  try {
+    for (let i = 0; i < DEFAULT_LIMITS.proposeMaxPerWindow; i++)
+      assert.throws(() => g.gate.proposeOps.propose({ target: THEME_TARGET, content: '{"not-accent":true}',
+        claimed_base: base, session: 'flood-' + i, call_id: 'flood-' + i }), /schema/)
+    const before = g.gate.db.prepare('SELECT count(*) AS n FROM ledger').get().n
+    for (let i = 0; i < 20; i++) {
+      assert.throws(() => g.gate.proposeOps.propose({ target: THEME_TARGET, content: '{"not-accent":true}',
+        claimed_base: base, session: 'new-label-' + i, call_id: 'new-call-' + i }), /budget exhausted/)
+      assert.throws(() => g.gate.proposeOps.selfcheck({ result: { ok: true } }), /budget exhausted/)
+    }
+    assert.equal(g.gate.db.prepare('SELECT count(*) AS n FROM ledger').get().n, before)
+    assert.equal(g.gate.db.prepare('SELECT used FROM propose_budget').get().used, DEFAULT_LIMITS.proposeMaxPerWindow)
+    assertNothingApplied(g, base)
+    g.clock.t += DEFAULT_LIMITS.proposeWindowMs
+    assert.throws(() => g.gate.proposeOps.propose({ target: THEME_TARGET, content: '{"not-accent":true}',
+      claimed_base: base }), /schema/)
+    assert.equal(g.gate.db.prepare('SELECT used FROM propose_budget').get().used, 1)
+    assertNothingApplied(g, base)
+  } finally { g.gate.close() }
 })
