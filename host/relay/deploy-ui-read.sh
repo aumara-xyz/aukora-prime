@@ -30,7 +30,7 @@ os.chmod("/root/ui-read.token.tmp", 0o600)
 print("auth updated (ui-read added); backup next to the auth file")
 EOF
 install -m 0600 -o root -g root /root/ui-read.token.tmp "$OUT" && rm -f /root/ui-read.token.tmp
-echo "token at $OUT (0600) — deliver to Peter's Mac ~/.aukora-nebius/ 0600, never print"
+echo "token at $OUT (0600) — deliver to the owner's relay key directory (0600) on his machine, never print"
 systemctl restart aukora-relay && sleep 3 && systemctl is-active aukora-relay
 python3 - <<'EOF'
 import json, urllib.request
