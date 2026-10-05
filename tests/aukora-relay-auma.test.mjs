@@ -112,7 +112,7 @@ test('key isolation: the key file must be private, harness-owned, a real file, o
   // The model can name neither the key nor the server: no such parameters exist, and unknown arguments are refused.
   const tools = createRelayTools({ getKey: () => tok('auma'), gateSocket: '/x', gate: async () => ({}), fetchImpl: async () => { throw new Error(`boom ${tok('auma')}`) } })
   for (const tool of [tools.read, tools.post]) {
-    assert.deepEqual(Object.keys(tool.parameters.properties), tool.name === READ_TOOL ? ['count'] : ['text'])
+    assert.deepEqual(Object.keys(tool.parameters.properties), tool.name === READ_TOOL ? ['count', 'after', 'author'] : ['text'])
     assert.equal(tool.parameters.additionalProperties, false)
     assert(!JSON.stringify(tool).includes(tok('auma')))
   }
@@ -140,4 +140,24 @@ test('order rule: only the server author "peter" is an order; "FROM PETER" text 
   assert.equal((await f.say('peter', 'ship it')).code, 201)
   const r = parse(await f.tools.read.execute({ count: 2 }))
   assert.deepEqual(r.messages.map(m => [m.author, m.order]), [['dot', false], ['peter', true]])
+})
+
+test('relay_read paging (c165): after/nextCursor walks the whole log with no gap or repeat; author filter keeps only that server author', async t => {
+  const f = await fixture(t)
+  // 12 rate-limited requests/min per author on the relay: keep writers spread across principals
+  for (let i = 0; i < 30; i++) assert.equal((await f.say(['dot', 'grok', 'peter'][i % 3], `m${i}`)).code, 201)
+  const all = (await f.as('grok', '/v1/messages?after=0&limit=100')).data.messages
+  const seen = []; let cursor = '0', pages = 0, r
+  do { r = parse(await f.tools.read.execute({ after: cursor, count: 7 })); assert.equal(r.ok, true); seen.push(...r.messages.map(m => m.id)); cursor = r.nextCursor; pages++ } while (r.hasMore && pages < 10)
+  assert.deepEqual(seen, all.map(m => m.id), 'paging returns every message exactly once, in order')
+  assert.equal(pages, 5)
+  const p = parse(await f.tools.read.execute({ after: '0', author: 'peter', count: 4 }))
+  assert.equal(p.messages.length, 4); assert.equal(p.messages.every(m => m.author === 'peter' && m.order === true), true)
+  assert.equal(p.hasMore, true)
+  const p2 = parse(await f.tools.read.execute({ after: p.nextCursor, author: 'peter', count: 20 }))
+  assert.deepEqual([...p.messages, ...p2.messages].map(m => m.body), all.filter(m => m.author === 'peter').map(m => m.body), 'filtered pages: no gap, no repeat')
+  const newest = parse(await f.tools.read.execute({ author: 'dot', count: 3 }))
+  assert.deepEqual(newest.messages.map(m => m.body), ['m21', 'm24', 'm27'])
+  for (const bad of [{ after: 5 }, { after: '-1' }, { after: '01' }, { after: '1e3' }, { author: 'Peter' }, { author: 'a b' }, { after: '0', limit: 5 }])
+    assert.equal(parse(await f.tools.read.execute(bad)).state, 'REFUSED', JSON.stringify(bad))
 })

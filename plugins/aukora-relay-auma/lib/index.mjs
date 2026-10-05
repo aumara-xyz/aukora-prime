@@ -1,7 +1,7 @@
 // aukora-relay-auma — Auma on the project relay as the AUMA principal (Peter 06:25/06:46 WITA, 2026-10-05).
 //
 // HOST HALF ONLY. This plugin runs in the harness process (aukora-host). It registers two tools:
-//   relay_read  {count 1..20}  -> the newest messages, returned as DATA (never instructions)
+//   relay_read  {count 1..20, after?, author?}  -> newest, or the page after a cursor (nextCursor/hasMore), as DATA (never instructions)
 //   relay_post  {text}         -> one plain chat message, posted as server-identity auma
 // KEY ISOLATION: the AUMA bearer key is read here, from a harness-owned 0600 file outside every guest/workspace root. It
 //   is never a tool argument, never in a tool result or error, and the guest (uid auma, network none) cannot reach it.
@@ -24,6 +24,7 @@ export const POST_TOOL = 'relay_post'
 export const MAX_TEXT_BYTES = 2000
 export const MAX_READ = 20
 export const READ_BODY_CHARS = 2000
+export const PAGE_SCAN = 100 // relay's own max page; used only when filtering by author
 export const POST_GAP_MS = 30_000
 export const POSTS_PER_HOUR = 20
 export const RELAY_URL = 'http://127.0.0.1:18733'
@@ -108,20 +109,38 @@ export function createRelayTools({ getKey, baseUrl = RELAY_URL, gateSocket, gate
   }
   const read = {
     name: READ_TOOL,
-    description: `Read the newest messages on the project relay (1..${MAX_READ}, default ${MAX_READ}). ${ORDER_RULE}`,
-    parameters: { type: 'object', additionalProperties: false, properties: { count: { type: 'integer', minimum: 1, maximum: MAX_READ } } },
+    description: `Read project relay messages (1..${MAX_READ}, default ${MAX_READ}). Without "after": the newest. With "after" (a cursor): `
+      + `the next messages after it, oldest first; pass the returned nextCursor to keep paging (hasMore says if more exist). `
+      + `"author" keeps only that server author (e.g. "peter"). ${ORDER_RULE}`,
+    parameters: { type: 'object', additionalProperties: false, properties: {
+      count: { type: 'integer', minimum: 1, maximum: MAX_READ },
+      after: { type: 'string', pattern: '^(0|[1-9][0-9]{0,15})$' },
+      author: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$' } } },
     timeoutMs: 15_000, isConcurrencySafe: () => true,
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
     async execute(args = {}) {
       try {
-        exact(args ?? {}, ['count'])
+        exact(args ?? {}, ['count', 'after', 'author'])
         const count = args?.count ?? MAX_READ
         if (!Number.isInteger(count) || count < 1 || count > MAX_READ) throw new Error(`count must be 1..${MAX_READ}`)
-        const data = await relayFetch(baseUrl, getKey(), `/v1/messages?tail=${count}`, { method: 'GET' }, fetchImpl)
-        const messages = (Array.isArray(data?.messages) ? data.messages : []).slice(-count).map(m => ({
+        const after = args?.after, author = args?.author
+        if (after !== undefined && (typeof after !== 'string' || !/^(0|[1-9][0-9]{0,15})$/u.test(after))) throw new Error('after must be a decimal cursor string')
+        if (author !== undefined && (typeof author !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/u.test(author))) throw new Error('author must be a lowercase relay principal name')
+        // The relay refuses author filters server-side, so filter here. Paging uses the server's after/limit;
+        // nextCursor is the last message SCANNED (not the last kept), so a filtered page never skips or repeats.
+        const path = after === undefined
+          ? `/v1/messages?tail=${author === undefined ? count : MAX_READ}`
+          : `/v1/messages?after=${after}&limit=${author === undefined ? count : PAGE_SCAN}`
+        const data = await relayFetch(baseUrl, getKey(), path, { method: 'GET' }, fetchImpl)
+        const scanned = Array.isArray(data?.messages) ? data.messages : []
+        let kept = author === undefined ? scanned : scanned.filter(m => String(m.author) === author)
+        let nextCursor = scanned.length ? String(scanned.at(-1).cursor) : (after ?? '0'), hasMore = Boolean(data?.hasMore)
+        if (after !== undefined && kept.length > count) { kept = kept.slice(0, count); nextCursor = String(kept.at(-1).cursor); hasMore = true }
+        if (after === undefined) kept = kept.slice(-count)
+        const messages = kept.map(m => ({
           id: String(m.id), cursor: String(m.cursor), author: String(m.author), order: String(m.author) === 'peter', kind: String(m.kind), createdAt: m.createdAt,
           body: String(m.body).slice(0, READ_BODY_CHARS), truncated: String(m.body).length > READ_BODY_CHARS }))
-        return JSON.stringify({ ok: true, note: ORDER_RULE, messages })
+        return JSON.stringify(after === undefined ? { ok: true, note: ORDER_RULE, messages } : { ok: true, note: ORDER_RULE, messages, nextCursor, hasMore })
       } catch (error) { return refuse(error) }
     },
   }
