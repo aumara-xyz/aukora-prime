@@ -4,7 +4,7 @@ import type {
   ControlHistoryDigest,
   DelegationClaimDigest,
   DelegationClaimV1,
-} from '../../identity/delegation.mjs'
+} from '../../../../aukora-aumlok/lib/delegation.mjs'
 
 export interface ActionBudgetV5 {
   calls: number

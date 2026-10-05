@@ -4,7 +4,7 @@ import type {
   ControlHistoryDigest,
   DelegationClaimDigest,
   DelegationBudgetsV1,
-} from '../identity/delegation.mjs'
+} from '../../../aukora-aumlok/lib/delegation.mjs'
 
 export declare const AUTHORITY_EVIDENCE_DOMAIN: 'aukora:aura-authority-evidence:v1'
 export declare const AUTHORITY_EVIDENCE_DIRECTORY: 'authority-evidence'

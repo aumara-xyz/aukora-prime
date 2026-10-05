@@ -1,5 +1,7 @@
-import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AukoraId } from './genesis.mjs'
+// Declarations for ./delegation.mjs. Harness-agnostic: no DSH/OpenShell imports.
+// Moved from plugins/aukora-box/aukora/identity/delegation.d.mts (same shapes); brand is local.
+type Branded<K extends string> = string & { readonly __aukoraBrand: K }
+export type AukoraId = Branded<'AukoraId'>
 
 export type DelegationKind = 'root' | 'device' | 'session' | 'agent'
 export type DelegationClaimDigest = Branded<'DelegationClaimDigest'>

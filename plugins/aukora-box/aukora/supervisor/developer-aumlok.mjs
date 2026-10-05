@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto'
 import { createSubjectAuthorityContext } from '../broker/subject-authority.mjs'
 import { identityControlDigest, parseIdentityControlState } from '../identity/control.mjs'
-import { createDelegationClaim, delegationClaimDigest } from '../identity/delegation.mjs'
+import { createDelegationClaim, delegationClaimDigest } from '../../../aukora-aumlok/lib/delegation.mjs'
 import { LOCAL_AUMLOK_CUSTODY_CLASS } from '../identity/local-control-store.mjs'
 import {
   readAukoraId,

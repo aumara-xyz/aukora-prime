@@ -16,7 +16,7 @@ import {
   delegationClaimDigest,
   parseDelegationClaim,
   verifyDelegationAttenuation,
-} from '../../identity/delegation.mjs'
+} from '../../../../aukora-aumlok/lib/delegation.mjs'
 import {
   readAukoraId,
   readClosedDataRecord,

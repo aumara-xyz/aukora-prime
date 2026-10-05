@@ -88,7 +88,7 @@ if (startupFailure === null) {
       import('../plugins/aukora-box/aukora/broker/confinement.mjs'),
       import('../plugins/aukora-box/aukora/identity/control.mjs'),
       import('../plugins/aukora-box/aukora/identity/genesis.mjs'),
-      import('../plugins/aukora-box/aukora/identity/delegation.mjs'),
+      import('../plugins/aukora-aumlok/lib/delegation.mjs'),
       import('../plugins/aukora-box/aukora/identity/broker-state.mjs'),
       import('../plugins/aukora-box/aukora/activation/broker-state.mjs'),
     ])

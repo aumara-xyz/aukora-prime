@@ -151,7 +151,7 @@ async function runCase(arm, removeGuard) {
     import(new URL('host-dsh/src/grant-v5.mjs', box)), import(new URL('host-dsh/src/nonce-book.mjs', box)),
     import(new URL('broker/operation.mjs', box)), import(new URL('broker/effect-definition.mjs', box)),
     import(new URL('broker/confinement.mjs', box)), import(new URL('identity/control.mjs', box)),
-    import(new URL('identity/genesis.mjs', box)), import(new URL('identity/delegation.mjs', box)),
+    import(new URL('identity/genesis.mjs', box)), import(new URL('../../aukora-aumlok/lib/delegation.mjs', box)),
     import(new URL('identity/broker-state.mjs', box)), import(new URL('activation/broker-state.mjs', box)),
     import('@noble/post-quantum/ml-dsa.js'),
   ]))

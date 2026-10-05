@@ -17,7 +17,7 @@ import { assertBootConfinement } from '../../aukora-box/aukora/broker/confinemen
 import { receiptKeyIdForPublicKey } from '../../aukora-box/aukora/host-dsh/src/grant.mjs'
 import { rootKeySetId, createInitialIdentityControl, identityControlDigest, AUMLOK_ROOT_CONTROL_SUITE } from '../../aukora-box/aukora/identity/control.mjs'
 import { createIdentityGenesis } from '../../aukora-box/aukora/identity/genesis.mjs'
-import { createDelegationClaim, delegationClaimDigest } from '../../aukora-box/aukora/identity/delegation.mjs'
+import { createDelegationClaim, delegationClaimDigest } from '../../aukora-aumlok/lib/delegation.mjs'
 import { bindIdentityControlState } from '../../aukora-box/aukora/identity/broker-state.mjs'
 import { bindActivation } from '../../aukora-box/aukora/activation/broker-state.mjs'
 import { renderApprovalArtifact } from '../../aukora-box/aukora/approval/render.mjs'
