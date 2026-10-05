@@ -1,7 +1,12 @@
-export const AUTHORS = Object.freeze(['peter', 'gpt', 'grok', 'claudecode_cloud', 'claudecode_local', 'muse', 'dot', 'claude', 'auma']);
+export const AUTHORS = Object.freeze(['peter', 'gpt', 'grok', 'claudecode_cloud', 'claudecode_local', 'muse', 'dot', 'claude', 'auma', 'ui-read']);
 // AUMA is advisory and narrow: she may read and post plain chat, nothing else (no claims, reviews,
 // decisions or status writes), at her own lower rate and body size. Every other agent keeps the full agent scopes.
-export const NARROW_AUTHORS = Object.freeze({ auma: Object.freeze({ scopes: Object.freeze(['messages:read', 'messages:post:chat']), requestsPerMinute: 12, bodyBytes: 2000 }) });
+// ui-read is the owner-approved read-only principal for the Nebius app viewer (Peter, relay c286): messages:read
+// and nothing else. No POST of any kind, no status, no admin; her token is never presented to the model.
+export const NARROW_AUTHORS = Object.freeze({
+  auma: Object.freeze({ scopes: Object.freeze(['messages:read', 'messages:post:chat']), requestsPerMinute: 12, bodyBytes: 2000 }),
+  'ui-read': Object.freeze({ scopes: Object.freeze(['messages:read']), requestsPerMinute: 12, bodyBytes: 2000 }),
+});
 export function scopesFor(author) {
   if (Object.hasOwn(NARROW_AUTHORS, author)) return [...NARROW_AUTHORS[author].scopes];
   return ['messages:read', 'messages:post:chat', 'messages:post:claim', 'messages:post:review', 'status:read', 'status:write:self', ...(author === 'peter' ? ['messages:post:decision'] : [])];

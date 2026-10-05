@@ -248,6 +248,16 @@ test('auma principal: reads and posts plain chat only, under her own server iden
   assert.equal((await f.request('/v1/status', { author: 'grok' })).code, 200, 'other agents keep status');
   assert.equal((await f.request('/v1/messages', { author: 'grok', method: 'POST', input: message('grok-claim', { kind: 'claim' }) })).code, 201, 'other agents keep claims');
 });
+test('ui-read principal: read-only viewer; every write and status route refuses', async t => {
+  const f = await fixture(t);
+  const me = await f.client('ui-read').whoami(); assert.equal(me.author, 'ui-read'); assert.deepEqual(me.scopes, ['messages:read']);
+  const posted = await f.client('grok').post(message('grok-visible'));
+  const seen = await f.client('ui-read').read(); assert.equal(seen.messages.at(-1).id, posted.message.id);
+  assert.equal((await f.request('/v1/messages', { author: 'ui-read' })).code, 200);
+  for (const kind of ['chat', 'claim', 'review', 'decision']) assert.equal((await f.request('/v1/messages', { author: 'ui-read', method: 'POST', input: message(`ui-read-${kind}`, { kind }) })).code, 403, kind);
+  assert.equal((await f.request('/v1/status', { author: 'ui-read' })).code, 403);
+  assert.equal((await f.request('/v1/status', { author: 'ui-read', method: 'PUT', input: { doing: 'x' } })).code, 403);
+});
 test('auma body cap: her posts are capped at 2000 bytes while other agents keep the general cap', async t => {
   const f = await fixture(t);
   assert.equal((await f.request('/v1/messages', { author: 'auma', method: 'POST', input: message('auma-max', { body: 'a'.repeat(2000) }) })).code, 201);
