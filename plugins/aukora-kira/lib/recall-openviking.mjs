@@ -118,6 +118,16 @@ export class OpenVikingError extends Error {
   }
 }
 
+// The attempted route is observed locally. Upstream attribution needs a reviewed
+// structured error schema; a collapsed token or message mentioning embeddings
+// does not establish which upstream leg failed. Never retain the error body here.
+const observedFailure = (path, httpStatus = null) => ({
+  call: path === '/api/v1/content/write' ? 'content-write' : path === '/api/v1/search/find' ? 'search' : 'other',
+  cause: 'unknown',
+  httpStatus: Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
+})
+const failureOf = error => error?.failure ?? { call: 'unknown', cause: 'unknown', httpStatus: null }
+
 /** URI identity is the SHA-256 of the exact UTF-8 capture bytes, never a title or summary. */
 export function contentUri(user, hash) {
   if (!/^[a-zA-Z0-9_-]{1,64}$/u.test(user) || !/^[0-9a-f]{64}$/u.test(hash)) throw new Error('memory-uri-invalid')
@@ -158,10 +168,12 @@ export function createOpenVikingRecall(input) {
   }
   const hashOf = note => note.contentHash
   const call = async (method, path, body) => {
+    let httpStatus = null
     try {
       const response = await doFetch(`${config.url}${path}`, { method, redirect: 'error',
         headers: { 'content-type': 'application/json', 'x-api-key': config.key ?? '', 'x-openviking-account': config.account, 'x-openviking-user': config.user },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(config.timeoutMs) })
+      httpStatus = response.status
       const parsed = await response.json()
       if (!response.ok || parsed?.status !== 'ok') {
         const failure = new OpenVikingError(response.status === 404 ? 'not-found'
@@ -171,8 +183,9 @@ export function createOpenVikingRecall(input) {
       }
       return parsed.result
     } catch (error) {
-      if (error instanceof OpenVikingError) throw error
-      throw new OpenVikingError('unreachable', 'index request failed')
+      const failure = error instanceof OpenVikingError ? error : new OpenVikingError('unreachable', 'index request failed')
+      failure.failure = observedFailure(path, httpStatus)
+      throw failure
     }
   }
   const available = async () => {
@@ -227,7 +240,7 @@ export function createOpenVikingRecall(input) {
   }
   const auditAcknowledged = async (grouped, budget = config.syncBatch) => {
     const uris = Object.keys(acknowledgements).filter(uri => grouped.has(uri))
-    const unreadable = [], tampered = [], failed = []
+    const unreadable = [], tampered = [], failed = [], failures = []
     const count = Math.min(uris.length, syncBudget(budget))
     let requests = 0
     for (let i = 0; i < count; i++) {
@@ -241,11 +254,11 @@ export function createOpenVikingRecall(input) {
           [...new Set([...idsOf(acknowledgements[uri]), ...grouped.get(uri).map(note => note.id)])], hashOf(grouped.get(uri)[0]))
       } catch (error) {
         if (error.code === 'kira.semantic:not-found') { ack(uri, null); unreadable.push(uri) }
-        else { failed.push('index-audit-failed'); break }
+        else { failed.push('index-audit-failed'); failures.push(failureOf(error)); break }
       }
     }
     auditOffset = uris.length ? (auditOffset + requests) % uris.length : 0
-    return { unreadable, tampered, failed, requests }
+    return { unreadable, tampered, failed, failures, requests }
   }
   const groupLedger = live => {
     const grouped = new Map()
@@ -270,11 +283,11 @@ export function createOpenVikingRecall(input) {
     const live = await ledgerNow(options.snapshot ?? source), grouped = groupLedger(live), retained = retainedOf(live)
     const budget = syncBudget(options.budget ?? config.syncBatch)
     let added = 0, removed = 0, requests = 0
-    const failed = [], written = []
+    const failed = [], failures = [], written = []
     const remove = async uri => {
       requests++
       try { await removeUri(uri); ack(uri, null); removed++ }
-      catch { failed.push('remove-failed') }
+      catch (error) { failed.push('remove-failed'); failures.push(failureOf(error)) }
     }
     if (live.complete) for (const uri of Object.keys(acknowledgements)) if (uri.startsWith(`${root}/`) && !grouped.has(uri) && !retained.has(uri)) {
       if (requests >= budget || failed.length) break
@@ -298,6 +311,7 @@ export function createOpenVikingRecall(input) {
         ack(uri, notes.map(note => note.id)); written.push(uri)
       } catch (error) {
         failed.push('index-write-failed')
+        failures.push(failureOf(error))
         // A refused document remains pending, but does not stop other documents
         // in this bounded batch. An outage stops requests until the next retry.
         if (error.code !== 'kira.semantic:refused' || ![400, 413, 422].includes(error.httpStatus)) break
@@ -325,14 +339,14 @@ export function createOpenVikingRecall(input) {
     }
     const audit = options.verifyAcknowledged && !failed.length
       ? await auditAcknowledged(latestGroups, budget - requests) : { unreadable: [], tampered: [], failed: [], requests: 0 }
-    requests += audit.requests; failed.push(...audit.failed)
+    requests += audit.requests; failed.push(...audit.failed); failures.push(...(audit.failures ?? []))
     if (audit.tampered.length) failed.push('index-content-mismatch')
     if (audit.requests) { latest = await ledgerNow(source); latestGroups = groupLedger(latest) }
     const latestRetained = latest.complete ? retainedOf(latest) : null
     return { added, removed, pending: [...latestGroups.keys()].filter(uri => !acknowledgements[uri]).length,
       removalPending: latestRetained ? Object.keys(acknowledgements).filter(uri => uri.startsWith(`${root}/`) && !latestGroups.has(uri)
         && !latestRetained.has(uri)).length : null,
-      indexed: Object.keys(acknowledgements).length, failed, audit, requests, budget }
+      indexed: Object.keys(acknowledgements).length, failed, failures, audit, requests, budget }
   })
   const forget = id => inTurn(async () => {
     readAcknowledgements()
@@ -365,12 +379,14 @@ export function createOpenVikingRecall(input) {
       return { available: false, reason: up.reason, hits: [], dropped, ledgerComplete: live.complete }
     }
     let synced
-    try { synced = await sync(source, { budget: config.syncBatch, snapshot: live }) } catch { synced = { failed: ['index-sync-failed'] } }
+    try { synced = await sync(source, { budget: config.syncBatch, snapshot: live }) }
+    catch { synced = { failed: ['index-sync-failed'], failures: [failureOf(null)] } }
+    const failures = [...(synced.failures ?? [])]
     let result
     try { result = await call('POST', '/api/v1/search/find', { query: `${config.queryInstruction}${String(question)}`, target_uri: `${root}/${MEMORY_STORAGE.content}`, limit: config.candidates }) }
-    catch {
+    catch (error) {
       live = await ledgerNow(source)
-      return { available: false, reason: 'semantic-recall-failed', hits: [], dropped, ledgerComplete: live.complete }
+      return { available: false, reason: 'semantic-recall-failed', failures: [...failures, failureOf(error)], hits: [], dropped, ledgerComplete: live.complete }
     }
     const candidateNotes = typeof readCandidates === 'function' ? await readCandidates() : []
     // Read content concurrently, then govern everything with one latest ledger after network I/O.
@@ -404,10 +420,11 @@ export function createOpenVikingRecall(input) {
       const ids = byUri.get(uri) ?? (named && live.entries.has(named) ? [named] : [])
       if (!uri.startsWith(`${root}/`) || !ids.length) return { uri, ids: [], unmapped: true }
       try { return { uri, ids, score, bytes: await call('GET', `/api/v1/content/read?uri=${encodeURIComponent(uri)}`) } }
-      catch (error) { return { uri, ids, unreadable: true, unavailable: error.code !== 'kira.semantic:not-found' } }
+      catch (error) { return { uri, ids, unreadable: true, unavailable: error.code !== 'kira.semantic:not-found', failure: failureOf(error) } }
     }))
     live = await ledgerNow(source)
     if (reads.some(read => read.unavailable)) return { available: false, reason: 'semantic-recall-failed', hits: [],
+      failures: [...failures, ...reads.filter(read => read.unavailable).map(read => read.failure)],
       dropped: { ...dropped, unreadable: reads.filter(read => read.unreadable).map(read => read.uri) }, ledgerComplete: live.complete }
     const verified = [], raw = []
     for (const read of reads) {
@@ -434,9 +451,10 @@ export function createOpenVikingRecall(input) {
     // missing documents become durable retries, while changed bytes stay withheld, never overwritten.
     if (reads.length === 0) {
       const audit = await inTurn(() => auditAcknowledged(groupLedger(live)))
+      failures.push(...(audit.failures ?? []))
       dropped.unreadable.push(...audit.unreadable); dropped.tampered.push(...audit.tampered)
       live = await ledgerNow(source)
-      if (audit.failed.length) return { available: false, reason: 'semantic-recall-failed', hits: [], dropped, ledgerComplete: live.complete }
+      if (audit.failed.length) return { available: false, reason: 'semantic-recall-failed', failures, hits: [], dropped, ledgerComplete: live.complete }
     }
     for (const hit of raw) {
       const note = filtered.get(hit.id)
@@ -444,7 +462,7 @@ export function createOpenVikingRecall(input) {
     }
     verified.sort((a, b) => b.score - a.score || String(b.note.observedAt ?? '').localeCompare(String(a.note.observedAt ?? '')) || (Number.isSafeInteger(b.note.aura?.index) ? b.note.aura.index : -1) - (Number.isSafeInteger(a.note.aura?.index) ? a.note.aura.index : -1) || a.id.localeCompare(b.id))
     const hits = verified.slice(0, Math.max(1, Math.min(50, limit)))
-    return { available: true, hits, dropped, diagnostics, threshold: config.scoreThreshold, sync: synced, ledgerComplete: live.complete }
+    return { available: true, hits, dropped, diagnostics, failures, threshold: config.scoreThreshold, sync: synced, ledgerComplete: live.complete }
   }
   const listLegacy = async () => {
     const found = []

@@ -101,6 +101,21 @@ const SEMANTIC_FAILURES = new Set([
   'openviking-root-key-empty', 'openviking-models-off-machine', 'openviking-config-unreadable',
   'openviking-not-configured', 'openviking-unhealthy', 'openviking-unreachable', 'semantic-recall-failed',
 ])
+const SEMANTIC_CALLS = new Set(['content-write', 'search', 'other', 'unknown'])
+const semanticFailureDetails = semantic => {
+  // Only closed diagnostic fields reach the header. The bridge currently emits
+  // unknown causes; embedding attribution awaits its reviewed upstream schema.
+  // Eight sync writes can precede a failed search. Deduplicate before limiting
+  // output; 64 inputs also cover the existing 50-candidate content-read bound.
+  const items = Array.isArray(semantic?.failures) ? semantic.failures.slice(0, 64) : []
+  if (!items.length && semantic?.available !== true) items.push({})
+  return [...new Map(items.map(item => {
+    const value = { call: SEMANTIC_CALLS.has(item?.call) ? item.call : 'unknown',
+      cause: item?.cause === 'embedding-call' ? 'embedding-call' : 'unknown',
+      httpStatus: Number.isInteger(item?.httpStatus) && item.httpStatus >= 100 && item.httpStatus <= 599 ? item.httpStatus : null }
+    return [JSON.stringify(value), value]
+  })).values()].slice(0, 8)
+}
 
 export function recallDiagnostics(reply) {
   const semantic = reply?.semantic
@@ -118,6 +133,7 @@ export function recallDiagnostics(reply) {
     diagnostics: [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => ({ reason, count })),
     ...(semantic === undefined ? {} : { semantic: {
       available: semantic.available === true,
+      failures: semanticFailureDetails(semantic),
       ...(semantic.available === true ? {} : { reason: SEMANTIC_FAILURES.has(failure) ? failure : 'semantic-recall-failed' }),
       ledgerUnread: semantic.ledgerUnread === true,
       ...Object.fromEntries(['threshold', 'window', 'outsideWindow'].map(key => [key, Number.isFinite(details[key]) ? details[key] : null])),
@@ -156,12 +172,19 @@ function retrievalStatus(reply, recent) {
           ? 'PROJECT STATE: eligible captured agent reports; unreviewed, not live attestation.'
           : 'PROJECT STATE: readable scope; no eligible captured findings.')
   } else if (recent?.availability === 'undetermined') lines.push('Newest records: unavailable; absence not established.')
-  const semantics = reads.map(one => one.semantic).filter(Boolean)
+  const semantics = reads.map(one => one.semantic === undefined ? undefined : recallDiagnostics({ semantic: one.semantic }).semantic).filter(Boolean)
   if (semantics.length > 0) {
     const available = semantics.filter(one => one.available).length
     const failures = [...new Set(semantics.filter(one => !one.available).map(one => one.reason))].sort()
     const values = key => [...new Set(semantics.map(one => one[key] ?? 'unknown'))].sort().join('/')
     lines.push(`Semantic: available=${available}, unavailable=${semantics.length - available}${failures.length ? ` (${failures.join(', ')})` : ''}; threshold=${values('threshold')}; window=${values('window')}; outsideWindow=${values('outsideWindow')}${semantics.some(one => one.ledgerUnread) ? '; ledger unavailable' : ''}.`)
+    const calls = [...new Set(semantics.flatMap(one => one.failures).map(one =>
+      `call=${one.call}, upstream=${one.cause}, HTTP=${one.httpStatus ?? 'unknown'}`))].sort()
+    if (calls.length) {
+      const shown = []
+      for (const call of calls) if ([...shown, call].join('; ').length <= 480) shown.push(call)
+      lines.push(`Semantic failed calls: ${shown.join('; ')}${shown.length < calls.length ? '; further failures omitted' : ''}.`)
+    }
   }
   const diagnostics = recallDiagnostics({ diagnostics: [...reads.flatMap(one => one.diagnostics), ...recallDiagnostics(recent).diagnostics] }).diagnostics
   if (diagnostics.length) {

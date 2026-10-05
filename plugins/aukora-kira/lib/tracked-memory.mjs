@@ -412,7 +412,7 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
             uri: contentUri(config.user ?? SEMANTIC_DEFAULTS.user, byId.get(row.recordId).contentHash) }))
         return { ...semanticNotes({ ...answer, hits, threshold: LEXICAL_METHOD.minScore }, 60_000),
           ...(live.complete ? {} : { state: 'undetermined' }), method: LEXICAL_METHOD.name, ceiling: RETRIEVAL_CEILING,
-          degraded: !lexical, semantic: { available: false, reason: answer.reason }, memory: report, dropped: answer.dropped }
+          degraded: !lexical, semantic: { available: false, reason: answer.reason, failures: answer.failures }, memory: report, dropped: answer.dropped }
       }
       const hits = answer.hits.flatMap(hit => {
         const note = byId.get(hit.id)
@@ -421,7 +421,7 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
         return [{ ...hit, note }]
       })
       return { ...semanticNotes({ ...answer, hits }, 60_000), ...(live.complete && answer.ledgerComplete ? {} : { state: 'undetermined' }),
-        semantic: { available: true }, memory: report, dropped: answer.dropped }
+        semantic: { available: true, failures: answer.failures }, memory: report, dropped: answer.dropped }
     } catch {
       // Store integrity/read failures cannot be laundered into a successful local fallback.
       return { state: 'undetermined', notes: [], grantsAuthority: false, reason: 'memory-store-unavailable', memory: report }
