@@ -212,3 +212,4 @@
 {"seq":474,"head":"bb0e78d527fd29858a17f89f2241de0cdfe031e830b6d72dff3eebc620583586","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T15:55:21.995Z","anchored_at":"2026-10-05T15:55:31Z"}
 {"seq":476,"head":"c252e62eb2c33aa470fa8d6246f60e08f94b7ecc4acab7c22dd54a5df0f72fdc","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T16:10:22.744Z","anchored_at":"2026-10-05T16:10:26Z"}
 {"seq":478,"head":"dc677673533ff27caf93e1ad0062ff438e276265ced90676af4f721f93a06ee7","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T16:25:23.531Z","anchored_at":"2026-10-05T16:25:23Z"}
+{"seq":480,"head":"bf1d65be99ae5c2592ec43ca3e76bded628ce432ca01925f5e1912f7aa316242","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-05T16:40:24.290Z","anchored_at":"2026-10-05T16:41:20Z"}
