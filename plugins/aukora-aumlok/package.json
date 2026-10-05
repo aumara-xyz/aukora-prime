@@ -12,6 +12,10 @@
     "./service": {
       "default": "./lib/service.mjs"
     },
+    "./delegation": {
+      "types": "./lib/delegation.d.mts",
+      "default": "./lib/delegation.mjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [
