@@ -1,0 +1,6 @@
+[Unit]
+Description=AUKORA read-only Prime main mirror for Auma
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/aukora-prime-mirror
