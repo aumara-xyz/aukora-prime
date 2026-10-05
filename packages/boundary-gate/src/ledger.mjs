@@ -8,6 +8,57 @@ import { DatabaseSync } from 'node:sqlite'
 export const sha256 = (b) => createHash('sha256').update(b).digest('hex')
 export const SHA = /^[0-9a-f]{64}$/
 
+// Bounds apply to NEW audit entries only. Retained signed TEXT is never normalized,
+// truncated or rewritten. Detached data prevents caller getters/toJSON from signing a
+// different payload, while ordinary JSON property order and bytes stay unchanged.
+export const LEDGER_DETAIL_MAX_BYTES = 64 * 1024
+export const LEDGER_BODY_MAX_BYTES = 160 * 1024
+export function boundedLedgerJson(value) {
+  let nodes = 0, textBytes = 0
+  const seen = new Set()
+  const fail = () => { throw new Error('ledger entry refused: bounded JSON data required') }
+  const text = s => {
+    if (!s.isWellFormed()) fail()
+    textBytes += Buffer.byteLength(s, 'utf8')
+    if (textBytes > LEDGER_DETAIL_MAX_BYTES) fail()
+    return s
+  }
+  function copy(v, depth) {
+    if (++nodes > 4096 || depth > 16) fail()
+    if (v === null || typeof v === 'boolean') return v
+    if (typeof v === 'string') return text(v)
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    if (!v || typeof v !== 'object' || seen.has(v)) fail()
+    const array = Array.isArray(v), proto = Object.getPrototypeOf(v)
+    if (array ? proto !== Array.prototype : ![Object.prototype, null].includes(proto)) fail()
+    const keys = Reflect.ownKeys(v)
+    if (keys.length > 4097 || keys.some(k => typeof k !== 'string')) fail()
+    seen.add(v)
+    const out = array ? [] : Object.create(null)
+    if (array) {
+      const length = Object.getOwnPropertyDescriptor(v, 'length')?.value
+      if (!Number.isSafeInteger(length) || length > 4096 || keys.length !== length + 1) fail()
+      // JSON.stringify still recognizes an array after removing inherited hooks.
+      Object.setPrototypeOf(out, null)
+      for (let i = 0; i < length; i++) {
+        const d = Object.getOwnPropertyDescriptor(v, String(i))
+        if (!d?.enumerable || !Object.hasOwn(d, 'value')) fail()
+        out[i] = d.value === undefined ? null : copy(d.value, depth + 1)
+      }
+    } else for (const k of keys) {
+      const d = Object.getOwnPropertyDescriptor(v, k)
+      if (!d?.enumerable || !Object.hasOwn(d, 'value')) fail()
+      if (d.value === undefined) continue
+      out[text(k)] = copy(d.value, depth + 1)
+    }
+    seen.delete(v)
+    return out
+  }
+  const encoded = JSON.stringify(copy(value, 0))
+  if (Buffer.byteLength(encoded, 'utf8') > LEDGER_DETAIL_MAX_BYTES) fail()
+  return encoded
+}
+
 export const GATE_COMPLETED_RESULT_DOMAIN = 'aukora:gate-completed-result:v1\0'
 export const GATE_CAPTURE_DOMAIN = 'aukora:gate-capture:v1\0'
 export const GATE_COMPLETED_RESULT_FIELDS = Object.freeze(['applied', 'state', 'entry', 'receipt', 'receipt_sig', 'ledger_seq', 'ledger_hash', 'message'])
@@ -152,6 +203,9 @@ export function openDb(file, { readOnly = false } = {}) {
       base_sha TEXT, new_sha TEXT, detail TEXT, prev TEXT NOT NULL, hash TEXT NOT NULL, sig TEXT NOT NULL);
     CREATE TRIGGER IF NOT EXISTS ledger_no_update BEFORE UPDATE ON ledger BEGIN SELECT RAISE(ABORT, 'ledger is append-only'); END;
     CREATE TRIGGER IF NOT EXISTS ledger_no_delete BEFORE DELETE ON ledger BEGIN SELECT RAISE(ABORT, 'ledger is append-only'); END;
+    -- A shared bounded-window admission counter, not signed history or an owner limit.
+    CREATE TABLE IF NOT EXISTS propose_budget(singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+      window_start_ms INTEGER NOT NULL CHECK(window_start_ms>=0), used INTEGER NOT NULL CHECK(used>=0));
     -- Additive source migration: existing signed rows and positional inserts stay byte-identical.
     CREATE TABLE IF NOT EXISTS owner_authorization_required(
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), gate TEXT NOT NULL,
@@ -218,10 +272,20 @@ export function verifyLedger(db, pub) {
 
 export function createLedger(db, key, iso = () => new Date().toISOString()) {
   function append(event, f = {}) {
+    const field = (v, max, nullable = true) => {
+      if (v === null && nullable) return v
+      if (typeof v !== 'string' || !v.isWellFormed() || Buffer.byteLength(v, 'utf8') > max)
+        throw new Error('ledger entry refused: field exceeds bound or is invalid')
+      return v
+    }
+    const detail = f.detail === undefined ? null : boundedLedgerJson(f.detail)
     const last = db.prepare('SELECT seq, hash FROM ledger ORDER BY seq DESC LIMIT 1').get()
-    const e = { seq: (last?.seq ?? 0) + 1, at: iso(), event, proposal: f.proposal ?? null, target: f.target ?? null,
-      base_sha: f.base_sha ?? null, new_sha: f.new_sha ?? null, detail: f.detail === undefined ? null : JSON.stringify(f.detail), prev: last?.hash ?? 'GENESIS' }
-    e.hash = sha256(entryBody(e)); e.sig = sign(null, Buffer.from(e.hash, 'hex'), key.priv).toString('base64')
+    const e = { seq: (last?.seq ?? 0) + 1, at: field(iso(), 64, false), event: field(event, 128, false),
+      proposal: field(f.proposal ?? null, 128), target: field(f.target ?? null, 512),
+      base_sha: field(f.base_sha ?? null, 128), new_sha: field(f.new_sha ?? null, 128), detail, prev: last?.hash ?? 'GENESIS' }
+    const body = entryBody(e)
+    if (Buffer.byteLength(body, 'utf8') > LEDGER_BODY_MAX_BYTES) throw new Error('ledger entry refused: body exceeds byte bound')
+    e.hash = sha256(body); e.sig = sign(null, Buffer.from(e.hash, 'hex'), key.priv).toString('base64')
     db.prepare('INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(e.seq, e.at, e.event, e.proposal, e.target, e.base_sha, e.new_sha, e.detail, e.prev, e.hash, e.sig)
     return e
   }

@@ -28,6 +28,7 @@ import { AUTHORIZATION_FIELDS, ownerAuthorization, ownerAuthorizationText, owner
 export const DEFAULT_LIMITS = Object.freeze({
   ttlMs: 5 * 60 * 1000, popupLimit: 12000, keepVersions: 50, whyMax: 4000,
   maxPendingGlobal: 1, maxPerWindow: 3, windowMs: 10 * 60 * 1000, rejectCooldownMs: 60 * 1000, dedupeMs: 10 * 60 * 1000,
+  proposeMaxPerWindow: 32, proposeWindowMs: 60 * 1000,
 })
 const CLOSE_OUTCOMES = ['rejected', 'cancelled', 'unavailable', 'expired']
 const APPLIED_EVENTS = "('apply','revert-applied','genesis-target')"
@@ -37,6 +38,9 @@ export const maskId = (id) => id ? String(id).slice(0, 8) + '…' : id
 // store:   { read(name, spec) -> Buffer|null, write(name, spec, bytes, proposalId) }
 export function createGate({ home, targets = {}, store, now = Date.now, limits = {}, key, owner, db, iso, readOwnerState, journalId } = {}) {
   const L = { ...DEFAULT_LIMITS, ...limits }
+  if (!Number.isSafeInteger(L.proposeMaxPerWindow) || L.proposeMaxPerWindow < 1 || L.proposeMaxPerWindow > 1024
+    || !Number.isSafeInteger(L.proposeWindowMs) || L.proposeWindowMs < 1000 || L.proposeWindowMs > 3600000)
+    throw new Error('invalid trusted propose budget')
   key ??= loadOrCreateKey(home)
   owner ??= loadOwnerSecret(home)
   db ??= openDb(path.join(home, 'gate.db'))
@@ -276,6 +280,8 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       throw new Error('refused: the harness channel cannot approve; approval happens only on the gate owner channel')
     }
     if (!p) return { applied: false, state: 'unknown', message: 'unknown proposal id' }
+    if (!Object.hasOwn(TARGETS, p.target) || TARGETS[p.target].operatorOnly)
+      throw new Error('refused: only the owner channel may close an operator-only proposal')
     const to = outcome === 'rejected' ? 'refused' : 'expired'
     return tx(() => {
       if (!setState(id, 'pending', to, String(outcome))) { append('decide-refused', { proposal: id, target: p.target, detail: { reason: 'not pending', state: p.state, outcome, via: 'propose-close' } }); return { applied: false, state: p.state, message: `proposal is ${p.state}` } }
@@ -820,15 +826,22 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       return out
     },
     harness_start: ({ pid }) => tx(() => {
-      const rows = db.prepare("SELECT id, target FROM proposals WHERE state='pending'").all()
-      for (const r of rows) { setState(r.id, 'pending', 'expired', 'harness restarted before decision'); append('expire', { proposal: r.id, target: r.target, detail: { reason: 'harness restarted before decision' } }) }
-      append('harness-start', { detail: { pid: Number(pid) || null, expired_pending: rows.length } }); return { expired: rows.length }
+      if (pid !== undefined && (!Number.isSafeInteger(pid) || pid <= 0)) throw new Error('invalid harness pid')
+      const count = db.prepare("SELECT count(*) AS n FROM proposals WHERE state='pending'").get().n
+      // A harness restart is a caller report, never authority to burn an owner intent.
+      // Gate-clock TTL checks and the existing gate recovery path still apply.
+      append('harness-start', { detail: { source: 'propose-socket/harness', verification: 'caller-reported-unverified',
+        pid: pid ?? null, expired_pending: 0, preserved_pending: count } })
+      return { expired: 0, preserved_pending: count }
     }),
     // RELAY RECORD (harness only): every AUMA relay post is written to this signed ledger, and therefore into Aura, twice:
     // an intent (body digest and size) BEFORE the harness sends it, and the server-assigned message id AFTER. It records
     // nothing else, grants nothing, and accepts only these closed shapes. Bodies are never stored here, only digests.
     relay_record: (a) => relayRecord(a),
-    selfcheck: ({ result }) => { append('selfcheck', { detail: result && typeof result === 'object' ? result : { raw: String(result).slice(0, 2000) } }); return { ok: true } },
+    selfcheck: ({ result }) => {
+      append('selfcheck', { detail: { source: 'propose-socket/harness', verification: 'caller-reported-unverified', result: result ?? null } })
+      return { ok: true, verification: 'caller-reported-unverified' }
+    },
     log: ({ limit, target }) => {
       const n = Math.max(1, Math.min(200, Number(limit) || 30))
       const rows = target ? db.prepare('SELECT seq,at,event,proposal,target,base_sha,new_sha,detail,hash FROM ledger WHERE target=? ORDER BY seq DESC LIMIT ?').all(String(target), n)
@@ -861,6 +874,25 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       return { verify: checked, pubkey_fp: key.fp, entries: rows.map(r => ({ ...r, detail: r.detail ? JSON.parse(r.detail) : null, signed_entry: signedEntryData(r) })) }
     },
     verify: proposeOps.verify,
+  }
+  // Charge every append-capable propose RPC BEFORE entering its handler. This separate
+  // committed transaction survives refusals, multiple gate processes, and restarts.
+  // There is one counter, never one per caller/session. Exhaustion signs nothing.
+  // Owner operations retain the original handlers and do not share this admission limit.
+  function chargePropose() {
+    tx(() => {
+      const t = currentMs(), row = db.prepare('SELECT window_start_ms,used FROM propose_budget WHERE singleton=1').get()
+      if (row && (!Number.isSafeInteger(row.window_start_ms) || !Number.isSafeInteger(row.used)
+        || row.used < 0 || row.window_start_ms > t)) throw new Error('propose budget unavailable: invalid retained clock/counter')
+      const expired = !row || t - row.window_start_ms >= L.proposeWindowMs
+      if (!expired && row.used >= L.proposeMaxPerWindow) throw new Error('propose budget exhausted; owner channel remains available')
+      db.prepare('INSERT INTO propose_budget VALUES(1,?,?) ON CONFLICT(singleton) DO UPDATE SET window_start_ms=excluded.window_start_ms,used=excluded.used')
+        .run(expired ? t : row.window_start_ms, expired ? 1 : row.used + 1)
+    })
+  }
+  for (const op of ['propose', 'revert', 'close', 'harness_start', 'selfcheck']) {
+    const handler = proposeOps[op]
+    proposeOps[op] = (...args) => { chargePropose(); return handler(...args) }
   }
   if (['approve', 'decide', 'review', 'decide_review', 'raise'].some(op => Object.hasOwn(proposeOps, op))) throw new Error('invariant: the propose channel must not expose approval')
   // ONE approval ceremony: review (fresh single-use challenge over exact base/new) -> decide_review. No direct approve.

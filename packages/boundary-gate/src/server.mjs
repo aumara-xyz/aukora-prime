@@ -13,13 +13,16 @@ export const OWNER_SOCKET_APPROVER = 'owner via owner.sock (local; 0600 gate use
 
 export function lineServer(opmap, approverFor) {
   return net.createServer((c) => {
-    let buf = ''; c.setTimeout(30000, () => c.destroy())
+    let buf = Buffer.alloc(0), handled = false; c.setTimeout(30000, () => c.destroy())
     c.on('data', (d) => {
-      buf += d; if (buf.length > 1 << 20) { c.destroy(); return }
-      const nl = buf.indexOf('\n'); if (nl < 0) return
+      if (handled) return
+      if (buf.length + d.length > 1 << 20) { handled = true; c.destroy(); return }
+      buf = Buffer.concat([buf, d])
+      const nl = buf.indexOf(10); if (nl < 0) return
+      handled = true
       let res
       try {
-        const req = JSON.parse(buf.slice(0, nl)); const fn = typeof req?.op === 'string' && Object.hasOwn(opmap, req.op) ? opmap[req.op] : null
+        const req = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, nl))); const fn = typeof req?.op === 'string' && Object.hasOwn(opmap, req.op) ? opmap[req.op] : null
         if (!fn) throw new Error('unknown op')
         const args = req.args && typeof req.args === 'object' && !Array.isArray(req.args) ? req.args : {}
         res = { ok: true, result: fn(args, approverFor ? approverFor(c) : undefined) }
