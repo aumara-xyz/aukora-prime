@@ -142,7 +142,12 @@ run_check() {
         use Errno qw(EINTR);
         my ($prefix, $command, $run, $format) = @ARGV;
         $format //= "plain";
-        die "report format" unless $format =~ /\A(?:plain|tap|unittest)\z/;
+        die "report format" unless $format =~ /\A(?:plain|tap|unittest|injection)\z/;
+        # Only this source-owned court declares exit 2 as incomplete acceptance.
+        # An arbitrary failing command must not acquire the same exemption.
+        if ($format eq "injection") {
+            die "injection command" unless $command eq "node tests/kira-injection.test.mjs --mutate" && $run eq $command;
+        }
         my $start = time;
         open my $log, ">", "$prefix.log" or die "log: $!";
         my $pid = fork();
@@ -187,8 +192,20 @@ run_check() {
         my $reported_failure = 0;
         my ($unit_tests, $unit_skipped, $unit_expected, $unit_unexpected, $unit_ok) = (undef, 0, 0, 0, 0);
         my ($unit_runs, $unit_summaries, $unit_invalid, $unit_failed) = (0, 0, 0, 0);
+        my ($court_reports, $court_invalid, $court_failure) = (0, 0, 0);
+        my ($court_pass, $court_arms, $court_fail, $court_unperformed, $court_dsh);
         while (<$output>) {
             chomp;
+            if ($format eq "injection") {
+                $court_failure = 1 if /\A[ \t]*FAIL\s+[^\n]+:/;
+                if (/\A[ \t]*[0-9]+\/[0-9]+ arms passed\b/) {
+                    $court_reports++;
+                    if (/\A  ([0-9]{1,6})\/([0-9]{1,6}) arms passed, ([0-9]{1,6}) failed; ([0-9]{1,6}) unperformed checks; DSH source dispatch (RAN|UNPERFORMED); installed profile UNPERFORMED\.\z/) {
+                        ($court_pass, $court_arms, $court_fail, $court_unperformed, $court_dsh) = (0 + $1, 0 + $2, 0 + $3, 0 + $4, $5);
+                        $court_failure = 1 if $court_fail > 0;
+                    } else { $court_invalid = 1 }
+                }
+            }
             if (/\A# (tests|pass|fail|cancelled|skipped|todo) ([0-9]+)\s*\z/) {
                 my ($name, $number) = ($1, 0 + $2);
                 $totals{$name} = $number; $seen{$name}++;
@@ -241,7 +258,24 @@ run_check() {
         my $reported = "";
         # Process failures take precedence over an incomplete or contradictory report.
         # Native direct Node tests are recognized by their footer even in plain rows.
-        if (%totals || $format eq "tap") {
+        if ($format eq "injection") {
+            $reported = " | injection arms=" . ($court_arms // "?") . " passed=" . ($court_pass // "?")
+                . " failed=" . ($court_fail // "?") . " unperformed=" . ($court_unperformed // "?")
+                . " DSH=" . ($court_dsh // "?") . " installed=UNPERFORMED";
+            # Exit 1, signals and watchdog failures remain failures. Even a
+            # wrong exit 0/2 cannot conceal a reported failed arm or open join.
+            if ($ok || ($status == (2 << 8) && $reason eq "exit 2")) {
+                if ($court_failure || $reported_failure) {
+                    $disposition = "FAIL"; $reason = "reported failing injection arms";
+                } elsif ($court_reports != 1 || $court_invalid || !defined($court_arms)
+                    || $court_arms == 0 || $court_pass != $court_arms || $court_fail != 0
+                    || $court_unperformed == 0 || ($court_dsh eq "UNPERFORMED" && $court_unperformed < 2)) {
+                    $disposition = "FAIL"; $reason = "missing or inconsistent injection court totals";
+                } else {
+                    $disposition = "UNPERFORMED"; $reason = "reported unperformed injection checks";
+                }
+            }
+        } elsif (%totals || $format eq "tap") {
             $reported = " | TAP " . join(" ", map { "$_=" . (exists $totals{$_} ? $totals{$_} : "?") } qw(tests pass fail cancelled skipped todo));
             if ($ok && $reported_failure) {
                 $disposition = "FAIL"; $reason = "reported failing or cancelled tests";
@@ -302,6 +336,7 @@ run_check() {
 # Standalone checks use their normal interpreters and make no confinement claim.
 check_self_confined() { run_check "$1" "$1"; }
 check() { run_check "$1" "$1"; }
+check_injection() { run_check "$1" "$1" injection; }
 check_tap() { run_check "$1" "$1" tap; }
 check_unittest() { run_check "$1" "$1" unittest; }
 
@@ -321,7 +356,7 @@ check 'python3 vendor/append-only/verify.py --selftest'
 check 'python3 scripts/phase0-check-pins.py'
 check 'node plugins/aukora-kira/lib/wasm-cell/courts/harness/wasm-proposal-cell/run.mjs'
 check 'node tests/kira-diamond-cold.test.mjs'
-check 'node tests/kira-injection.test.mjs --mutate'
+check_injection 'node tests/kira-injection.test.mjs --mutate'
 check 'node tests/public-evidence.test.mjs'
 check 'node tests/receipt-v3.test.mjs'
 check 'node tests/aukora-aumlok-verify.test.mjs'
