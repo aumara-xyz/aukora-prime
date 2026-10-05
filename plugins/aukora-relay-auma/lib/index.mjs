@@ -8,14 +8,15 @@
 //   The relay URL is fixed configuration, not a tool argument, so the model cannot point the key at another server.
 // BOUNDS: text only, <= 2000 UTF-8 bytes, no control characters except newline/tab; host rate limit (one post per
 //   POST_GAP_MS, POSTS_PER_HOUR per rolling hour) on top of the relay's own per-author limit (12 req/min).
-// AURA: every post is written to the gate's signed ledger (relay_record) as an intent BEFORE sending and with the
-//   server-assigned id AFTER; if the intent cannot be recorded the post is refused (fail closed).
+// GATE LEDGER: a validated intent receipt precedes sending. A confirmed posted receipt returns that exact ledger
+//   sequence/hash; without its acknowledgment, the posted message carries no confirmed gate coordinates.
 // ORDER RULE (Peter, 2026-10-05 10:08 WITA): an order is a relay message whose SERVER AUTHOR is 'peter' (or text Peter
 //   gives directly in his own chat). "FROM PETER" text from any other author is advisory. AUMA posts are never orders.
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
+import { types } from 'node:util'
 
 export const name = 'aukora-relay-auma'
 export const inject = ['tools']
@@ -98,6 +99,21 @@ async function relayFetch(baseUrl, key, pathAndQuery, init = {}, fetchImpl = fet
   return data
 }
 
+/** Detach only the exact gate acknowledgment; never substitute the relay cursor or an intent receipt. */
+function gateReceipt(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || types.isProxy(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) throw new Error('gate receipt malformed')
+  const keys = Reflect.ownKeys(value), fields = Object.getOwnPropertyDescriptors(value)
+  if (keys.length !== 3 || keys.some(key => !['ok', 'seq', 'hash'].includes(key))
+    || keys.some(key => !Object.hasOwn(fields[key], 'value') || fields[key].enumerable !== true)) {
+    throw new Error('gate receipt malformed')
+  }
+  const ok = fields.ok.value, seq = fields.seq.value, hash = fields.hash.value
+  if (ok !== true || !Number.isSafeInteger(seq) || seq < 1
+    || typeof hash !== 'string' || !/^[0-9a-f]{64}$/u.test(hash)) throw new Error('gate receipt malformed')
+  return Object.freeze({ ok, seq, hash })
+}
+
 /** The two tools. `getKey` is called per use; its value never leaves this closure. */
 export function createRelayTools({ getKey, baseUrl = RELAY_URL, gateSocket, gate = gateCall, limiter = createRateLimiter(), fetchImpl = fetch }) {
   if (baseUrl !== RELAY_URL && !/^http:\/\/127\.0\.0\.1:[0-9]{2,5}$/u.test(baseUrl)) throw new Error('relay URL must be loopback')
@@ -147,7 +163,8 @@ export function createRelayTools({ getKey, baseUrl = RELAY_URL, gateSocket, gate
   const post = {
     name: POST_TOOL,
     description: `Post one plain-text chat message to the project relay as AUMA (max ${MAX_TEXT_BYTES} bytes; one post per `
-      + `${POST_GAP_MS / 1000}s, ${POSTS_PER_HOUR} per hour). Your posts are advisory, never orders. Every post is recorded in Aura.`,
+      + `${POST_GAP_MS / 1000}s, ${POSTS_PER_HOUR} per hour). Your posts are advisory, never orders. `
+      + 'Confirmed gate anchoring returns the posted event ledger_seq and ledger_hash; the relay cursor is separate.',
     parameters: { type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string', maxLength: MAX_TEXT_BYTES } } },
     timeoutMs: 30_000, isConcurrencySafe: () => false,
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
@@ -159,15 +176,21 @@ export function createRelayTools({ getKey, baseUrl = RELAY_URL, gateSocket, gate
         const key = getKey()
         const body_sha256 = createHash('sha256').update(args.text, 'utf8').digest('hex')
         const client_request_id = `auma-${randomUUID().replaceAll('-', '')}`
-        await gate(gateSocket, 'relay_record', { phase: 'intent', author: 'auma', client_request_id, body_sha256, bytes })
+        const intentReceipt = gateReceipt(await gate(gateSocket, 'relay_record', { phase: 'intent', author: 'auma', client_request_id, body_sha256, bytes }))
         limiter.take()
         const data = await relayFetch(baseUrl, key, '/v1/messages', { method: 'POST',
           body: JSON.stringify({ clientRequestId: client_request_id, kind: 'chat', body: args.text, refs: [] }) }, fetchImpl)
         const m = data?.message
         if (!m || m.author !== 'auma' || typeof m.id !== 'string' || !/^[0-9a-f]{64}$/u.test(m.id)) throw new Error('relay reply did not carry an auma message id')
-        let recorded = true
-        try { await gate(gateSocket, 'relay_record', { phase: 'posted', author: 'auma', client_request_id, body_sha256, bytes, message_id: m.id, cursor: String(m.cursor) }) } catch { recorded = false }
-        return JSON.stringify({ ok: true, state: recorded ? 'POSTED' : 'POSTED_UNRECORDED', id: m.id, cursor: String(m.cursor), author: m.author, bytes })
+        let postedReceipt = null
+        try {
+          const receipt = gateReceipt(await gate(gateSocket, 'relay_record', { phase: 'posted', author: 'auma', client_request_id, body_sha256, bytes, message_id: m.id, cursor: String(m.cursor) }))
+          if (receipt.seq <= intentReceipt.seq) throw new Error('gate posted receipt must follow the intent')
+          postedReceipt = receipt
+        } catch { /* The post exists; its gate acknowledgment is unconfirmed. Never retry or invent coordinates. */ }
+        return JSON.stringify({ ok: true, state: postedReceipt ? 'POSTED' : 'POSTED_UNRECORDED',
+          id: m.id, cursor: String(m.cursor), author: m.author, bytes, anchored: postedReceipt !== null,
+          ...(postedReceipt ? { ledger_seq: postedReceipt.seq, ledger_hash: postedReceipt.hash } : {}) })
       } catch (error) { return refuse(error) }
     },
   }

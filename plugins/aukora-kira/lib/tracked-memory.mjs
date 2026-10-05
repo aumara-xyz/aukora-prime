@@ -166,7 +166,17 @@ function append(stateDir, notes, live) {
   live.notes.push(...stored.map(note => ({ ...note, ...note.origin?.metadata, trackedContent: true })))
   live.withheld = live.withheld.filter(item => !stored.some(note => note.id === item.id))
   live.complete = live.withheld.length === 0
-  return stored
+  return { notes: stored, entries }
+}
+
+// A return acknowledgment of these committed unsigned rows, not a new durable
+// event or an owner-settlement receipt. Build it under the append lock, before
+// awaited indexing can allow another capture to advance the chain.
+function appendReceipt(entries) {
+  if (entries.length === 0) return null
+  return Object.freeze({ kind: 'kira.remembered-append/v1', signed: false, grantsAuthority: false,
+    entries: Object.freeze(entries.map(({ op, id, index, sequence, prev, hash, entryHash, contentHash }) =>
+      Object.freeze({ op, id, index, sequence, prev, hash, entryHash, contentHash }))) })
 }
 
 export function createTrackedMemory({ stateDir, subject, config = { configured: false }, fetch, client, now = Date.now, policyOf } = {}) {
@@ -270,22 +280,23 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
   }
   const save = async notes => {
     prepare()
-    const { written, live } = withFileLock(chainFile(stateDir), () => {
+    const { written, receipt, live } = withFileLock(chainFile(stateDir), () => {
       const live = readTrackedMemory(stateDir)
-      return { written: append(stateDir, notes, live), live }
+      const appended = append(stateDir, notes, live)
+      return { written: appended.notes, receipt: appendReceipt(appended.entries), live }
     })
     const index = await indexSnapshot(live, notes.map(note => contentHash(note.statement)))
     const origins = new Map(live.chain.map(entry => [entry.originKey, entry.id]))
-    return { remembered: written.length, ids: notes.map(note => origins.get(note.origin?.run) ?? note.id), notes: written, index }
+    return { remembered: written.length, ids: notes.map(note => origins.get(note.origin?.run) ?? note.id), notes: written, receipt, index }
   }
   const captureTurn = async (turn, options = {}) => {
     rejectCallerAssociation(turn)
     const auraSource = hostAuraSource(options.auraSource)
     const p = await policy(options)
-    if (blocked(p, p.attributedTo === 'agent' ? '' : turn.text)) return { remembered: 0, ids: [], reason: 'capture-paused' }
-    if (typeof turn.text === 'string' && !turn.text.isWellFormed()) return { remembered: 0, ids: [], reason: 'memory-text-not-well-formed' }
+    if (blocked(p, p.attributedTo === 'agent' ? '' : turn.text)) return { remembered: 0, ids: [], receipt: null, reason: 'capture-paused' }
+    if (typeof turn.text === 'string' && !turn.text.isWellFormed()) return { remembered: 0, ids: [], receipt: null, reason: 'memory-text-not-well-formed' }
     const at = canonicalInstant(turn.at ?? now()), digests = forbiddenDigests()
-    if (privateContent(String(turn.text), digests)) return { remembered: 0, ids: [], reason: 'private-content-filter' }
+    if (privateContent(String(turn.text), digests)) return { remembered: 0, ids: [], receipt: null, reason: 'private-content-filter' }
     const captured = consumeTurn({ ...turn, at }, { ...p, observedAt: at, validFrom: at.slice(0, 10),
       forbiddenDigests: digests, secretPatterns: SECRET_PATTERNS })
     const notes = captured.notes.flatMap(note => {
@@ -310,7 +321,7 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
     // The host can unload while its existing policy read is pending. Check
     // that capture's actual lifetime before any directory or durable append.
     if (isCaptureLive !== undefined && isCaptureLive() !== true) return {
-      results: inputs.map(() => ({ remembered: 0, ids: [], reason: 'capture-paused' })),
+      results: inputs.map(() => ({ remembered: 0, ids: [], receipt: null, reason: 'capture-paused' })),
       index: { added: 0, requests: 0, skipped: true, reason: 'capture-paused' },
     }
     const digests = forbiddenDigests()
@@ -364,10 +375,13 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
           results.push({ remembered: 0, ids, notes })
         } catch (error) { results.push({ remembered: 0, ids: [], error: String(error?.message ?? 'memory-input-invalid') }) }
       }
-      const written = new Map(append(stateDir, candidates, live).map(note => [note.id, note]))
+      const appended = append(stateDir, candidates, live)
+      const written = new Map(appended.notes.map(note => [note.id, note]))
+      const committed = new Map(appended.entries.map(entry => [entry.id, entry]))
       for (const result of results) {
         result.notes = (result.notes ?? []).flatMap(note => written.has(note.id) ? [written.get(note.id)] : [])
         result.remembered = result.notes.length
+        result.receipt = appendReceipt(result.notes.map(note => committed.get(note.id)))
       }
       return { results, live, candidates }
     })
