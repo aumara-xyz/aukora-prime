@@ -2,7 +2,7 @@
 
 `gate-bootstrap.py` is the reviewed standalone launcher source. The operator's installed copy is `/usr/local/lib/aukora-boundary/gate-bootstrap`; services and operators invoke it with `/usr/bin/python3 -I -S`. It verifies the complete fixed `/opt/aukora-boundary-gate` package and protected public signer registry before starting `/opt/aukora-node/bin/node` for the gate, approval or release-floor role. This source addition does not install, configure, start, or qualify a host.
 
-The manifest is `/etc/aukora-boundary-gate/gate-package-manifest.json`, outside the package. Its closed `aukora-gate-package/v1` schema contains the fixed package root and `bin/gate.mjs` entry, every regular package file's SHA256, and exactly one `external_files` SHA256 entry for `/etc/aukora-boundary-gate/signer-epochs.json`. The inventory must include `bin/gate.mjs`, `bin/plugin-set-approval.mjs`, `bin/release-floor.mjs` and `package.json`. Missing, added, removed, or modified files refuse before Node starts. The inventory also includes every first-party transitive helper, all present `host/aura/**` source including `trusted-context.mjs`, and the source check files. Check files are hashed as data; none executes during boot. Manifest keys cannot name absolute or escaping package paths, aliases, candidates, or additional external files. Duplicate JSON keys refuse.
+The manifest is `/etc/aukora-boundary-gate/gate-package-manifest.json`, outside the package. Its closed `aukora-gate-package/v1` schema contains the fixed package root and `bin/gate.mjs` entry, every regular package file's SHA256, and exactly one `external_files` SHA256 entry for `/etc/aukora-boundary-gate/signer-epochs.json`. The version-2 schema below adds pinned `launcher` and `owner_key` profiles under the same external manifest. The inventory must include `bin/gate.mjs`, `bin/plugin-set-approval.mjs`, `bin/release-floor.mjs` and `package.json`. Missing, added, removed, or modified files refuse before Node starts. The inventory also includes every first-party transitive helper, all present `host/aura/**` source including `trusted-context.mjs`, and the source check files. Check files are hashed as data; none executes during boot. Manifest keys cannot name absolute or escaping package paths, aliases, candidates, or additional external files. Duplicate JSON keys refuse.
 
 The package, bootstrap, Node binary, manifest and public signer registry must be regular single-link files under directories owned by root with no group/other write access, readable by the gate service user. Typical protected public data modes are root-owned `0755` directories and `0644` files; the Node executable also needs execute permission. Every ancestor is checked from `/`, opened without following links, and checked again through its descriptor. Package symlinks are rejected even when their target stays within the package; absolute, escaping and dangling links, hardlinks and special files also refuse. File hashing uses bounded reads from checked no-follow descriptors, with identity and size checks before and after reading. The whole installed package must be complete: generating an inventory from a sparse development checkout is insufficient.
 
@@ -30,6 +30,34 @@ Review and materialize the complete package plus the exact public epoch registry
 ```
 
 The generator hashes all regular staged package files, validates the public epoch registry, sorts mapping keys and writes deterministic JSON. It creates a new output file outside the package, refuses to overwrite existing files, and performs no installation or permission changes. Its staging paths are generator inputs only; the production launcher has no path, UID, fixture, context or manifest overrides. The operator must review the resulting inventory and separately materialize the reviewed bootstrap, package, external manifest and registry at their fixed protected paths. Do not copy an unchecked candidate into the trusted package to make the checks pass.
+
+### Version-2 manifest: launcher and owner-key profiles
+
+Supplying `--owner-key` selects the closed `aukora-gate-package/v2` schema and makes `--launcher-checkout` mandatory. The v2 manifest adds a `profiles` object beside the v1 package inventory. The `launcher` profile names the fixed root `/opt/aukora-genesis/src` and exactly the six pinned launcher inputs — `scripts/launch-dsh.py`, `scripts/genesis-check.mjs`, `scripts/lib/artifact-integrity.mjs`, `scripts/lib/release-strip.mjs`, `scripts/artifacts-coverage.json` and `upstream-dsh.json` — each hash-pinned in the reviewed bootstrap source. The `owner_key` profile names the fixed root `/opt/owner-key` and its closed eleven-file inventory (`PROVENANCE.json`, `README.md`, `TRUSTED-PATH.json`, `package.json`, the five `checks/` files, `src/authorization.mjs` and `src/index.mjs`), with the two `src/` files hash-pinned in the bootstrap source. A v2 manifest with a missing, added, renamed or modified launcher or owner-key file refuses before Node; the pinned entries refuse on any byte change, so a v2 manifest can only describe the exact reviewed launcher and owner-key sources.
+
+Every v2 input must be a staged copy outside every installed root: naming an installed path (`/opt/aukora-boundary-gate`, `/opt/owner-key`, `/opt/aukora-genesis/src`, `/opt/aukora-aura`, the bootstrap or Node directories) refuses `staging-installed-path`, and no staged root may contain another staged root or the output (`staging-profile-overlap`, `manifest-inside-profile`). Stage the launcher as its own six-file checkout layout, not the whole source tree. The working recipe, run as root with the reviewed source (RAN on the pilot for the r3 package; printed `SOURCE-ONLY staged manifest: 78 package files; no installation performed`):
+
+```sh
+install -d -m 700 /root/stage-launcher/scripts/lib
+for f in scripts/launch-dsh.py scripts/genesis-check.mjs \
+  scripts/lib/artifact-integrity.mjs scripts/lib/release-strip.mjs \
+  scripts/artifacts-coverage.json upstream-dsh.json; do
+  install -m 644 "/reviewed/checkout/$f" "/root/stage-launcher/$f"
+done
+install -d -m 700 /root/stage-owner-key
+cp -a /opt/owner-key/. /root/stage-owner-key/
+install -m 600 /etc/aukora-boundary-gate/signer-epochs.json /root/stage-signer-epochs.json
+
+/usr/bin/python3 -I -S packages/boundary-gate/host/install/generate-manifest.py \
+  --package /operator-staging/gate-package \
+  --signer-epochs /root/stage-signer-epochs.json \
+  --owner-key /root/stage-owner-key \
+  --launcher-checkout /root/stage-launcher \
+  --output /root/gate-package-manifest.json
+```
+
+Copying `/opt/owner-key` reads public package source only; the owner key's private material is never an input. The generator then writes one deterministic v2 manifest whose package, launcher and owner-key inventories the bootstrap verifies together at every boot. Install the manifest at the same fixed external path as v1; the installed launcher checkout and owner-key package must satisfy the same root-owned, single-link, no-group/other-write custody as the gate package itself.
+
 
 The installed gate service invocation is:
 
