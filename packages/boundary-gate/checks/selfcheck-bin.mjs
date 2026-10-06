@@ -65,7 +65,24 @@ test('the Linux unit runs it as ExecStartPre before the launcher, and the timer 
   assert.match(wrapper, /sleep 45/, 'one spaced retry before failing closed')
   assert.match(unit, /StartLimitBurst=3/)
   const svc = fs.readFileSync(new URL('../host/systemd/aukora-selfcheck.service', import.meta.url), 'utf8')
-  assert.match(svc, /OnFailure=aukora-genesis-failclosed\.service/); assert.match(svc, /User=aukora-host/)
+  const periodic = fs.readFileSync(new URL('../host/systemd/aukora-selfcheck-periodic.service', import.meta.url), 'utf8')
+  // Separate handler instances retain the failed selfcheck's MONITOR_* provenance; a shared handler loses that binding.
+  for (const selfcheck of [svc, periodic])
+    assert.deepEqual(selfcheck.split('\n').filter(line => /^\s*OnFailure\s*=/u.test(line)),
+      ['OnFailure=aukora-genesis-failclosed@%n.service'], 'one exact invocation-aware failure handler')
+  assert.match(svc, /User=aukora-host/)
   assert.match(svc, /RemainAfterExit=yes/, 'a completed oneshot stays active for the Genesis BindsTo')
+  const handler = fs.readFileSync(new URL('../host/systemd/aukora-genesis-failclosed@.service', import.meta.url), 'utf8')
+  assert.deepEqual(handler.split('\n').filter(line => /^\s*User\s*=/u.test(line)), ['User=root'])
+  assert.deepEqual(handler.split('\n').filter(line => /^\s*ExecStart\s*=/u.test(line)),
+    ['ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/genesis-recover-probe failclosed %i'])
+  const recovery = fs.readFileSync(new URL('../host/systemd/genesis-recover-probe', import.meta.url), 'utf8')
+  assert.match(recovery, /^SYSTEMCTL = "\/usr\/bin\/systemctl"$/mu)
+  assert.match(recovery, /^GENESIS = "aukora-genesis\.service"$/mu)
+  const failureStart = recovery.indexOf('def failclosed(source):\n'), recoveryStart = recovery.indexOf('\ndef recover():\n')
+  assert.ok(failureStart >= 0 && recoveryStart > failureStart, 'the failclosed helper body is present')
+  assert.match(recovery.slice(failureStart, recoveryStart),
+    /^        require\(command\(\[SYSTEMCTL, "stop", GENESIS\], timeout=180\)\.returncode == 0, "stop-refused"\)$/mu,
+    'the invocation-aware handler requires the fixed Genesis stop')
   assert.match(fs.readFileSync(new URL('../host/systemd/aukora-genesis-failclosed.service', import.meta.url), 'utf8'), /systemctl stop aukora-genesis\.service/)
 })
