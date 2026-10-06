@@ -169,13 +169,16 @@ test('readiness returns fresh and applied public bindings under the writer lock 
 test('a fabricated applied or failed proposal label is not a signed terminal outcome for readiness', async t => {
   for (const terminal of ['applied', 'failed']) await t.test(terminal, st => {
     const f = effectFixture(st), { proposal, review, args } = accepted(f)
+    let readinessChecksCompleted = false
     const didInterleave = afterConsumptionCommit(f, proposal.id, () => {
       // Only this nonimmutable proposal label changes; the original proof and signed rows stay retained.
       f.gate.db.prepare('UPDATE proposals SET state=? WHERE id=?').run(terminal, proposal.id)
       refuseReadinessWithoutMutation(f)
+      readinessChecksCompleted = true
     })
     refuseWithoutWrite(f, () => f.gate.ownerOps.decide_review(args, 'synthetic-owner-channel'))
     didInterleave()
+    assert.equal(readinessChecksCompleted, true, 'all readiness assertions must finish; their failure cannot substitute for an organism refusal')
     assertSpent(f, proposal.id, review)
     assert.equal(noCompletedResult(f, proposal.id).state, terminal)
     assert.equal(f.read().toString(), BEFORE)
