@@ -18,6 +18,7 @@ import { openDb, verifyLedger, loadOrCreateKey, keyFingerprint } from '../src/le
 import { gateTargets, gateStore } from '../src/wiring.mjs'
 import { verifyReceipt } from '../src/receipts.mjs'
 import { readOwnerState } from '../host/owner-state.mjs'
+import { checkGateReadiness } from '../host/readiness.mjs'
 
 process.umask(0o027)
 const [cmd, ...rest] = process.argv.slice(2)
@@ -30,9 +31,6 @@ if (o['journal-id'] !== undefined && (cmd !== 'serve' || o['journal-id'] !== 'au
   console.error('--journal-id requires serve and the fixed aukora-gate-pilot journal'); process.exit(2)
 }
 const abs = (label, p) => { if (!p || !path.isAbsolute(p)) { console.error(`--${label} must be an absolute path`); process.exit(2) } return p }
-const ready = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-  && [Object.prototype, null].includes(Object.getPrototypeOf(value))
-  && Object.getOwnPropertyDescriptor(value, 'ok')?.value === true
 
 if (cmd === 'check-ready') {
   // A fixed readonly core verifier is required; absence is not a legacy-success fallback.
@@ -41,8 +39,7 @@ if (cmd === 'check-ready') {
   try {
     if (typeof gateCore.ownerAuthorizationReadiness !== 'function') throw new Error('readiness unavailable')
     readOwnerState()
-    const result = gateCore.ownerAuthorizationReadiness({ home: '/home/aukora-gate', readOwnerState })
-    if (!ready(result)) throw new Error('readiness unavailable')
+    checkGateReadiness(() => gateCore.ownerAuthorizationReadiness({ home: '/home/aukora-gate', readOwnerState }))
     console.log('OWNER_AUTHORIZATION_READY')
   } catch { console.error('boundary-gate:readiness-unavailable'); process.exit(1) }
 } else if (cmd === 'verify') {
@@ -64,21 +61,21 @@ if (cmd === 'check-ready') {
     readOwnerState()
     // The constructor can retain enforcement facts. Verify readiness through the readonly
     // core seam first so an unavailable verifier cannot reach secret/key creation or ledger writes.
-    if (typeof gateCore.ownerAuthorizationReadiness !== 'function'
-      || !ready(gateCore.ownerAuthorizationReadiness({ home, readOwnerState }))) throw new Error('boundary-gate:owner-authorization-unavailable')
+    if (typeof gateCore.ownerAuthorizationReadiness !== 'function') throw new Error('boundary-gate:owner-authorization-unavailable')
+    checkGateReadiness(() => gateCore.ownerAuthorizationReadiness({ home, readOwnerState }))
     const owner = loadOwnerSecret(home)
     gate = createGate({ home, owner, readOwnerState, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }),
       ...(o['journal-id'] === undefined ? {} : { journalId: o['journal-id'] }) })
     // Verification failure must stop before bearer rotation, startup effects or serving sockets.
     if (gate.verify().ok !== true) throw new Error('boundary-gate:startup-verification-failed')
-    if (typeof gate.ownerAuthorizationReadiness !== 'function'
-      || !ready(gate.ownerAuthorizationReadiness())) throw new Error('boundary-gate:owner-authorization-unavailable')
+    if (typeof gate.readiness !== 'function') throw new Error('boundary-gate:owner-authorization-unavailable')
+    checkGateReadiness(() => gate.readiness())
     readOwnerState()
     const bearerInfo = rotateBearer(home, owner)
     const v = gate.startup({ bearerInfo })
     if (v?.ok !== true) throw new Error('boundary-gate:startup-verification-failed')
     readOwnerState()
-    if (!ready(gate.ownerAuthorizationReadiness())) throw new Error('boundary-gate:owner-authorization-unavailable')
+    checkGateReadiness(() => gate.readiness())
     srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC', ownerPage: o['owner-page'] === true })
   } catch {
     gate?.close()

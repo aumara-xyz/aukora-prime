@@ -230,12 +230,24 @@ test('ordinary Kira configuration errors remain errors from actual mount', async
   await assert.rejects(f.plugin.apply(f.ctx, existingConfig), error => error === rejected)
 })
 
-test('materializer changes exactly two Kira names and retains the original rows/config/socket', async () => {
+test('materializer preserves the exact Kira rows alongside the reviewed H token selector', async () => {
   const bytes = await readFile(new URL('../scripts/materialize-aukora-release.py', import.meta.url))
   const source = bytes.toString('utf8'), entry = './plugins/aukora-kira/lib/gate-capture-host.mjs'
   assert.equal(source.split(entry).length - 1, 2)
   assert.equal(source.includes('./plugins/aukora-kira/lib/index.js'), false)
-  assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
+  // Remove only the reviewed H addition before checking the unchanged legacy baseline.
+  // A newly learned whole-file hash would hide unrelated composition drift.
+  const tokenSelector = "        + '                - kind: url-query-token\\n'\n"
+    + "        + '                  pointer: /url\\n'\n"
+  const selectedComment = '        # every post closed (UNAVAILABLE), never open. The closed localhost URL selector protects both the\n'
+    + '        # whole /url value and its exact 43-character base64url token, including non-hex bare-token posts.\n'
+  const legacyComment = '        # every post closed (UNAVAILABLE), never open. Known gap, named for H: the launch token is protected only\n'
+    + '        # as the whole /url value — a bare 43-char non-hex token matches neither the URL digest nor the long-hex\n'
+    + '        # shape, so a bare-token post still passes until a token-only file or selector kind exists.\n'
+  assert.equal(source.split(tokenSelector).length - 1, 1, 'exact reviewed token projection')
+  assert.equal(source.split(selectedComment).length - 1, 1, 'exact reviewed comment delta')
+  const legacy = source.replace(tokenSelector, '').replace(selectedComment, legacyComment)
+  assert.equal(sha(Buffer.from(legacy.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
     '81c20572772229916a17b57f5ebb1b22d8c8143e3a33349e8a7125d62ff2b8cd')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
@@ -901,6 +913,12 @@ async function runGateCli(args, source) {
   source ??= await readFile(binURL, 'utf8')
   const observed = { calls: [], gates: [], servers: [], messages: [], exit: null, error: null }
   const exit = Object.freeze({ fixture: 'process-exit' }), owner = Object.freeze({ fixture: 'owner' })
+  const readiness = () => ({ version: 1, kind: 'aukora-boundary-gate-readiness/v1', ready: true,
+    checked_at_ms: Date.now(), gate_pubkey_sha256: '8'.repeat(64), owner_state_sha256: '9'.repeat(64),
+    owner_subject: `aukora:1:${'1'.repeat(64)}`, owner_root_id: '2'.repeat(64), owner_epoch: 1,
+    registry_sha256: '3'.repeat(64), activation_sha256: '4'.repeat(64),
+    ledger: { entries: 1, head: '5'.repeat(64) },
+    consumed_effects: { retained: 0, unresolved: 0, applying: 0, incomplete: 0, conflict: 0 } })
   const fixture = {
     process: { argv: ['node', 'gate.mjs', ...args],
       umask: value => { observed.calls.push(['umask', value]); return 0o022 },
@@ -910,13 +928,30 @@ async function runGateCli(args, source) {
     console: { log: (...values) => observed.messages.push(values), error: (...values) => observed.messages.push(values) },
     fs: { readFileSync: () => { observed.calls.push(['read-file']); return 'fixture public bytes' } },
     createPublicKey: () => { observed.calls.push(['public-key']); return 'fixture-public-key' },
+    readOwnerState: () => { observed.calls.push(['owner-state']); return { fixture: 'public-owner-state' } },
+    ownerAuthorizationReadiness: options => {
+      assert.equal(options.readOwnerState, fixture.readOwnerState)
+      observed.calls.push(['readonly-readiness', options.home]); return readiness()
+    },
+    // This journal/parser fixture does not assert real registry or peer custody.
+    // The dedicated H suite exercises the actual full binding validator.
+    checkGateReadiness: call => {
+      observed.calls.push(['binding-readiness'])
+      const result = call()
+      assert.equal(result.version, 1); assert.equal(result.kind, 'aukora-boundary-gate-readiness/v1')
+      assert.equal(result.ready, true)
+      return result
+    },
     loadOwnerSecret: home => { observed.calls.push(['owner', home]); return owner },
     rotateBearer: (home, actualOwner) => { assert.equal(actualOwner, owner); observed.calls.push(['bearer', home]); return { fixture: 'bearer-info' } },
     gateTargets: (root, options) => { observed.calls.push(['targets', root, options]); return { fixtureTarget: {} } },
     gateStore: options => { observed.calls.push(['store', options]); return { fixture: 'store' } },
     createGate: options => {
+      assert.equal(options.readOwnerState, fixture.readOwnerState, 'the protected reader reaches the actual gate seam')
       observed.gates.push(options)
       return { fp: 'fixture-fingerprint', targets: options.targets,
+        verify: () => { observed.calls.push(['gate-verify']); return { ok: true } },
+        readiness: () => { observed.calls.push(['gate-readiness']); return readiness() },
         startup: args => { observed.calls.push(['startup', args]); return { ok: true } }, close() {} }
     },
     serveGate: async (gate, options) => {
@@ -935,6 +970,8 @@ async function runGateCli(args, source) {
   const dependency = `globalThis[Symbol.for('aukora.tests.gateCli.dependencies')].get(${JSON.stringify(id)})`
   let rewritten = source.replace(/^#![^\n]*\n/u, '').replace(/import fs from 'node:fs'/u,
     `import fs from '${dataURL(`export default ${dependency}.fs;`)}'`)
+  rewritten = rewritten.replace(/import \* as gateCore from '\.\.\/src\/gate\.mjs'/u,
+    `import * as gateCore from '${dataURL(`export const ownerAuthorizationReadiness = ${dependency}.ownerAuthorizationReadiness;`)}'`)
   rewritten = rewritten.replace(/import\s*\{([^}]+)\}\s*from\s*(['"])([^'"]+)\2/gu,
     (statement, bindings, _quote, specifier) => {
       if (specifier === 'node:util') return statement
@@ -951,10 +988,10 @@ async function runGateCli(args, source) {
 }
 const serveArgs = ['serve', '--home', '/fixture/gate', '--run', '/fixture/run', '--target-root', '/fixture/targets']
 
-test('gate CLI binds only the optional exact operator journal while legacy serve stays unchanged', async () => {
+test('gate CLI binds the exact optional journal without changing mandatory owner readiness', async () => {
   const legacy = await runGateCli(serveArgs)
   assert.equal(legacy.error, null); assert.equal(legacy.exit, null); assert.equal(legacy.gates.length, 1)
-  assert.deepEqual(Object.keys(legacy.gates[0]).sort(), ['home', 'owner', 'store', 'targets'])
+  assert.deepEqual(Object.keys(legacy.gates[0]).sort(), ['home', 'owner', 'readOwnerState', 'store', 'targets'])
   assert.equal(Object.hasOwn(legacy.gates[0], 'journalId'), false)
   const selected = await runGateCli([...serveArgs, '--journal-id', 'aukora-gate-pilot'])
   assert.equal(selected.error, null); assert.equal(selected.exit, null); assert.equal(selected.gates.length, 1)
@@ -983,10 +1020,12 @@ test('gate CLI refuses wrong, missing, repeated and non-serve journal arguments 
   }
 })
 
-test('source gate unit adds only the journal argument and supplies the actual CLI binding', async () => {
+test('source gate unit preserves journal binding and adds only the reviewed boot preflight', async () => {
   const source = await readFile(unitURL, 'utf8'), append = ' --journal-id aukora-gate-pilot'
+  const boot = 'ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-boot\n'
   assert.equal(source.split(append).length - 1, 1)
-  assert.equal(sha(source.replace(append, '')), '2e0098d22f217a76f847018585a7502e5f95ececec3cfc71849dd58143468861')
+  assert.equal(source.split(boot).length - 1, 1)
+  assert.equal(sha(source.replace(boot, '').replace(append, '')), '2e0098d22f217a76f847018585a7502e5f95ececec3cfc71849dd58143468861')
   const starts = source.split('\n').filter(line => line.startsWith('ExecStart='))
   assert.equal(starts.length, 1)
   const argv = starts[0].slice('ExecStart='.length).split(' ')

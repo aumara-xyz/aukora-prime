@@ -22,16 +22,29 @@ legacy HMAC approval route. The owner secret remains part of bearer handling.
 
 Immediately after registry validation, the ordinary entry requires the named
 readonly core export `ownerAuthorizationReadiness({ home, readOwnerState })`
-with a synchronous own `ok: true` data field. Missing, asynchronous or failed
+with the full closed D readiness profile. Missing, asynchronous or failed
 readonly readiness stops before owner-secret loading, key creation or mutable
 gate construction. The constructor's enforcement-latch writes are therefore
 unreachable when the required readonly verifier is absent.
 
 The ordinary entry then also requires the core's synchronous
-`gate.ownerAuthorizationReadiness()` result with an own `ok: true` data field,
+`gate.readiness()` result with no arguments,
 before bearer/startup work and again before sockets. Missing, asynchronous or
 failed readiness refuses. The core owns retained-proof verification; this host
 entry supplies no replacement verifier or readiness boolean.
+
+`host/readiness.mjs` applies the same closed-profile validator to the readonly
+preflight, readonly CLI and instance checks. It reads normalized current owner
+state and the latest explicit row of the independently protected public signer
+epoch registry before and after each call. The profile must literally match that
+gate pin and owner subject/root/epoch/registry/activation, including
+`sha256(JSON.stringify(normalizedOwnerState))`. It requires `ready: true`, an exact
+safe-integer observation time inside the five-second call bracket, a valid ledger
+count/head and zero unresolved/applying/incomplete/conflict effects. Unknown
+fields, accessors, functions, promises, thenables and coarse `{ok:true}` responses
+refuse. Protected owner or signer-registry drift also refuses. This binds D's
+selected source observation; it does not establish installed custody or future
+database state.
 
 The fixed readonly CLI is `bin/gate.mjs check-ready` without arguments or options.
 It calls the required core export

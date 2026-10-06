@@ -29,6 +29,90 @@ const p256 = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).publicKey.e
 const state = { version: 1, kind: 'aukora-owner-state/v1', owner_subject: 'aukora:1:' + '1'.repeat(64),
   owner_root_spki_base64: p256.toString('base64'), owner_root_id: createHash('sha256').update(p256).digest('hex'),
   owner_epoch: 1, registry_sha256: '2'.repeat(64), activation_sha256: '3'.repeat(64) }
+const normalizedState = parseTrustedOwnerState(JSON.stringify(state))
+const gatePin = 'a'.repeat(64)
+const epochsText = JSON.stringify({ version: 1, kind: 'aukora-signer-epochs/v1', epochs: [
+  { epoch: 1, gate_pubkey_sha256: 'b'.repeat(64) }, { epoch: 2, gate_pubkey_sha256: gatePin }] })
+function profileFor(owner = normalizedState, over = {}) {
+  return { version: 1, kind: 'aukora-boundary-gate-readiness/v1', ready: true, checked_at_ms: Date.now(),
+    gate_pubkey_sha256: gatePin, owner_state_sha256: createHash('sha256').update(JSON.stringify(owner)).digest('hex'),
+    owner_subject: owner.owner_subject, owner_root_id: owner.owner_root_id, owner_epoch: owner.owner_epoch,
+    registry_sha256: owner.registry_sha256, activation_sha256: owner.activation_sha256,
+    ledger: { entries: 1, head: 'c'.repeat(64) },
+    consumed_effects: { retained: 0, unresolved: 0, applying: 0, incomplete: 0, conflict: 0 }, ...over }
+}
+function readinessSource(ownerModule, publicModule, mutant) {
+  let code = source('../host/readiness.mjs')
+  code = replaceOnce(code, "from '../src/vendor/signer-epochs.mjs'", `from '${new URL('../src/vendor/signer-epochs.mjs', import.meta.url).href}'`)
+  code = replaceOnce(code, "from './owner-state.mjs'", `from '${ownerModule}'`)
+  code = replaceOnce(code, "from './protected-public-data.mjs'", `from '${publicModule}'`)
+  if (mutant) code = replaceOnce(code, mutant[0], mutant[1])
+  return code
+}
+async function readinessModule(control = {}, mutant) {
+  const key = `__hReadiness${serial++}`; globalThis[key] = control
+  control.ownerReads = 0; control.pinReads = 0
+  const ownerModule = url(`import {parseTrustedOwnerState} from '${new URL('../host/owner-state.mjs', import.meta.url).href}';
+    export function readOwnerState(){const c=globalThis.${key};const n=++c.ownerReads;return parseTrustedOwnerState(JSON.stringify(c.owner ? c.owner(n) : ${JSON.stringify(state)}));}`)
+  const publicModule = url(`export function readProtectedPublicText(file,maximum){const c=globalThis.${key};const n=++c.pinReads;
+    if(file!=='/etc/aukora-boundary-gate/signer-epochs.json'||maximum!==16384) throw Error('wrong protected pin path');
+    return c.pin ? c.pin(n) : ${JSON.stringify(epochsText)};}`)
+  return import(url(readinessSource(ownerModule, publicModule, mutant)))
+}
+
+test('full readiness profile rejects coarse success, wrong owner/pin, stale time, unresolved work and open shapes', async () => {
+  const check = await readinessModule(), binding = check.readGateReadinessBinding(), at = 1000
+  const valid = profileFor(normalizedState, { checked_at_ms: at })
+  const window = { startedAtMs: at, finishedAtMs: at }
+  assert.equal(check.validateGateReadiness(valid, binding, window).ready, true)
+  assert.equal(binding.gate_pubkey_sha256, gatePin); assert.equal(binding.signer_epoch, 2)
+  assert.equal(binding.owner_state_sha256, valid.owner_state_sha256)
+  const invalid = [{ ok: true }, Promise.resolve(valid), () => valid, [], { ...valid, extra: true }, { ...valid, [Symbol('extra')]: true },
+    { ...valid, ready: false }, { ...valid, checked_at_ms: -0 }, { ...valid, checked_at_ms: at - 1 }, { ...valid, checked_at_ms: at + 1 },
+    { ...valid, gate_pubkey_sha256: 'b'.repeat(64) }, { ...valid, owner_state_sha256: 'd'.repeat(64) },
+    { ...valid, ledger: { entries: -0, head: 'GENESIS' } }, { ...valid, ledger: { entries: 1, head: 'GENESIS' } },
+    { ...valid, ledger: { entries: 1, head: 'c'.repeat(64), extra: true } },
+    { ...valid, consumed_effects: { ...valid.consumed_effects, retained: -0 } },
+    { ...valid, consumed_effects: { ...valid.consumed_effects, extra: 0 } }, { ...valid, then() {} }]
+  for (const field of ['owner_subject', 'owner_root_id', 'owner_epoch', 'registry_sha256', 'activation_sha256'])
+    invalid.push({ ...valid, [field]: field === 'owner_epoch' ? 2 : 'mismatch' })
+  for (const field of ['unresolved', 'applying', 'incomplete', 'conflict'])
+    invalid.push({ ...valid, consumed_effects: { ...valid.consumed_effects, [field]: 1 } })
+  let invoked = false
+  invalid.push(Object.defineProperty({ ...valid }, 'ready', { enumerable: true, get() { invoked = true; return true } }))
+  invalid.push({ ...valid, ledger: Object.defineProperty({ entries: 1 }, 'head', { enumerable: true, get() { invoked = true; return 'c'.repeat(64) } }) })
+  for (const value of invalid) assert.throws(() => check.validateGateReadiness(value, binding, window), /gate-readiness:unavailable/u)
+  assert.equal(invoked, false, 'response accessors must never run')
+  assert.throws(() => check.validateGateReadiness(valid, { ...binding }, window), /unavailable/u, 'caller-created bindings do not establish trust')
+  assert.throws(() => check.validateGateReadiness(valid, binding, { startedAtMs: 0, finishedAtMs: 5001 }), /unavailable/u)
+  for (const descriptor of [{ value() {}, configurable: true }, { get() { invoked = true; return () => {} }, configurable: true }]) {
+    Object.defineProperty(Object.prototype, 'then', descriptor)
+    try { assert.throws(() => check.validateGateReadiness(valid, binding, window), /unavailable/u) }
+    finally { delete Object.prototype.then }
+  }
+  assert.equal(invoked, false, 'inherited then accessors must never run')
+  const noPin = await readinessModule({}, ['|| profile.gate_pubkey_sha256 !== binding.gate_pubkey_sha256', ''])
+  assert.equal(noPin.validateGateReadiness({ ...valid, gate_pubkey_sha256: 'b'.repeat(64) }, noPin.readGateReadinessBinding(), window).ready, true,
+    'RED: removing current gate pin binding accepts an older registered key')
+  console.log('RED control caught: removing independent current gate pin accepts a mismatched readiness profile')
+})
+
+test('readiness brackets fresh owner/pin reads and refuses owner or registry drift', async () => {
+  const normal = {}, good = await readinessModule(normal)
+  assert.equal(good.checkGateReadiness(() => profileFor()).ready, true)
+  assert.equal(normal.ownerReads, 2); assert.equal(normal.pinReads, 2)
+  const changedOwner = parseTrustedOwnerState(JSON.stringify({ ...state, registry_sha256: '9'.repeat(64) }))
+  const ownerDrift = await readinessModule({ owner: n => n === 1 ? state : changedOwner })
+  assert.throws(() => ownerDrift.checkGateReadiness(() => profileFor(changedOwner)), /unavailable/u)
+  const changedEpochs = epochsText.replace('b'.repeat(64), 'e'.repeat(64))
+  const pinDrift = await readinessModule({ pin: n => n === 1 ? epochsText : changedEpochs })
+  assert.throws(() => pinDrift.checkGateReadiness(() => profileFor()), /unavailable/u, 'registry drift refuses even if latest key stays the same')
+  const noDrift = await readinessModule({ owner: n => n === 1 ? state : changedOwner },
+    ['if (JSON.stringify(before) !== JSON.stringify(after)) refuse()', 'void 0'])
+  assert.equal(noDrift.checkGateReadiness(() => profileFor(changedOwner)).ready, true,
+    'RED: removing before/after binding guard accepts owner state changing during verification')
+  console.log('RED control caught: removing owner/pin bracket admits protected binding drift')
+})
 
 test('owner state preserves the existing closed eight-field protocol and rejects ambiguous data', () => {
   assert.deepEqual({ ...parseTrustedOwnerState(JSON.stringify(state, null, 2)) }, state)
@@ -97,8 +181,12 @@ test('protected public reads reject missing, writable, wrong-owner, links, size 
   assert.equal(removed.module.readProtectedPublicText(unsafe), JSON.stringify(state), 'RED: removing file write guard admits untrusted writable registry')
 })
 
+const binReadinessUrl = url(readinessSource(
+  url(`export function readOwnerState(){return ${JSON.stringify(normalizedState)}}`),
+  url(`export function readProtectedPublicText(){return ${JSON.stringify(epochsText)}}`)))
 const stub = url(`
 const f = new Proxy({}, {get:(_target,key)=>globalThis.__hBinFixture[key]});
+function profile(ready,over={}){return {...${JSON.stringify(profileFor())},checked_at_ms:Date.now(),ready,...over};}
 export function readOwnerState() { console.log('OWNERREAD'); if(f.registryBad) throw Error('fixture unavailable'); return {}; }
 export function loadOwnerSecret() {console.log('OWNERSECRET');return {};}
 export function rotateBearer() {console.log('ROTATE');return {};}
@@ -106,14 +194,15 @@ export function gateTargets(){return {};}
 export function gateStore(){return {};}
 export function createGate(options) { console.log(options.readOwnerState === readOwnerState ? 'TRUSTEDREADER' : 'NOREADER');
  return {targets:{},fp:'fixture',verify:()=>({ok:f.preverify}), startup:()=>{console.log('STARTUP');return {ok:f.startup};},
- ownerAuthorizationReadiness:f.missingReadiness ? undefined : ()=>{console.log('READY');return f.readinessAsync ? Promise.resolve({ok:true}) : {ok:f.ready};},close:()=>console.log('CLOSE')}; }
-export function ownerAuthorizationReadiness(options) {console.log('READY_READONLY');const expectedHome=process.argv[2]==='check-ready' ? '/home/aukora-gate' : '/fixture/home';if(options.home !== expectedHome || options.readOwnerState !== readOwnerState) throw Error('wrong host readiness binding');return (f.readonlyAsync ?? f.readinessAsync) ? Promise.resolve({ok:true}) : {ok:f.readonlyReady ?? f.ready};}
+ readiness:f.missingReadiness ? undefined : ()=>{console.log('READY');const p=f.legacyReady ? {ok:true} : profile(f.ready,f.instanceOverride);return f.readinessAsync ? Promise.resolve(p) : p;},close:()=>console.log('CLOSE')}; }
+export function ownerAuthorizationReadiness(options) {console.log('READY_READONLY');const expectedHome=process.argv[2]==='check-ready' ? '/home/aukora-gate' : '/fixture/home';if(options.home !== expectedHome || options.readOwnerState !== readOwnerState) throw Error('wrong host readiness binding');const p=f.readonlyLegacy ? {ok:true} : profile(f.readonlyReady ?? f.ready,f.readonlyOverride);return (f.readonlyAsync ?? f.readinessAsync) ? Promise.resolve(p) : p;}
 export async function serveGate(){console.log('SERVE');return {proposeSocket:'fixture',ownerSocket:'fixture',port:null};}
 export function openDb(){} export function verifyLedger(){} export function loadOrCreateKey(){} export function keyFingerprint(){}
 export function verifyReceipt(){}
 `)
 function runBin(fixture, mutant, command = 'serve', args, missingExport = false) {
   let code = source('../bin/gate.mjs').replace(/^#![^\n]*\n/u, '')
+  code = replaceOnce(code, "from '../host/readiness.mjs'", `from '${binReadinessUrl}'`)
   let selectedStub = stub
   if (missingExport) selectedStub = url(Buffer.from(stub.slice(stub.indexOf(',') + 1), 'base64').toString().replace('export function ownerAuthorizationReadiness(options)', 'function ownerAuthorizationReadiness(options)'))
   code = code.replace(/from '[.][^']+'/gu, `from '${selectedStub}'`)
@@ -132,7 +221,8 @@ test('ordinary entry passes the trusted reader and refuses before bearer rotatio
   assert.notEqual(missing.status, 0); assert.doesNotMatch(missing.stdout, /OWNERSECRET|ROTATE|SERVE/u)
   const broken = runBin({ ...ok, preverify: false })
   assert.notEqual(broken.status, 0); assert.doesNotMatch(broken.stdout, /ROTATE|STARTUP|SERVE/u)
-  for (const fixture of [{ ...ok, ready: false }, { ...ok, missingReadiness: true }, { ...ok, readinessAsync: true }]) {
+  for (const fixture of [{ ...ok, ready: false }, { ...ok, missingReadiness: true }, { ...ok, readinessAsync: true },
+    { ...ok, legacyReady: true }, { ...ok, instanceOverride: { gate_pubkey_sha256: 'b'.repeat(64) } }]) {
     const unready = runBin(fixture)
     assert.notEqual(unready.status, 0); assert.doesNotMatch(unready.stdout, /ROTATE|STARTUP|SERVE/u)
   }
@@ -142,21 +232,22 @@ test('ordinary entry passes the trusted reader and refuses before bearer rotatio
   assert.equal(removed.status, 0, removed.stderr); assert.match(removed.stdout, /SERVE/u, 'RED: removing startup verification admits failed startup')
   const noPreverify = runBin({ ...ok, preverify: false }, ["if (gate.verify().ok !== true) throw new Error('boundary-gate:startup-verification-failed')", 'void 0'])
   assert.equal(noPreverify.status, 0, noPreverify.stderr); assert.match(noPreverify.stdout, /ROTATE/u, 'RED: removing preverification rotates after a broken ledger')
-  const noReady = runBin({ ...ok, readonlyReady: true, ready: false }, ["if (typeof gate.ownerAuthorizationReadiness !== 'function'\n      || !ready(gate.ownerAuthorizationReadiness())) throw new Error('boundary-gate:owner-authorization-unavailable')", 'void 0'])
+  const noReady = runBin({ ...ok, readonlyReady: true, ready: false }, ["    checkGateReadiness(() => gate.readiness())\n    readOwnerState()", '    readOwnerState()'])
   assert.notEqual(noReady.status, 0, 'post-start readiness still refuses'); assert.match(noReady.stdout, /ROTATE|STARTUP/u,
     'RED: removing pre-start readiness admits bearer/startup work for failed owner readiness')
 })
 
 test('ordinary entry refuses missing/failed readonly readiness before secret loading or gate construction', () => {
   const ok = { preverify: true, startup: true, ready: true }
-  for (const [fixture, missingExport] of [[ok, true], [{ ...ok, readonlyReady: false }, false], [{ ...ok, readonlyAsync: true }, false]]) {
+  for (const [fixture, missingExport] of [[ok, true], [{ ...ok, readonlyReady: false }, false], [{ ...ok, readonlyAsync: true }, false],
+    [{ ...ok, readonlyLegacy: true }, false], [{ ...ok, readonlyOverride: { owner_state_sha256: 'd'.repeat(64) } }, false]]) {
     const refused = runBin(fixture, undefined, 'serve', undefined, missingExport)
     assert.notEqual(refused.status, 0)
     assert.match(refused.stdout, /OWNERREAD/u, 'fixed registry preflight runs before readonly core readiness')
     assert.doesNotMatch(refused.stdout, /OWNERSECRET|TRUSTEDREADER|NOREADER|ROTATE|STARTUP|SERVE|CLOSE/u,
       'readonly readiness refusal precedes every mutable constructor/secret API')
   }
-  const removed = ["if (typeof gateCore.ownerAuthorizationReadiness !== 'function'\n      || !ready(gateCore.ownerAuthorizationReadiness({ home, readOwnerState }))) throw new Error('boundary-gate:owner-authorization-unavailable')", 'void 0']
+  const removed = ["if (typeof gateCore.ownerAuthorizationReadiness !== 'function') throw new Error('boundary-gate:owner-authorization-unavailable')\n    checkGateReadiness(() => gateCore.ownerAuthorizationReadiness({ home, readOwnerState }))", 'void 0']
   for (const [fixture, missingExport] of [[ok, true], [{ ...ok, readonlyReady: false }, false]]) {
     const admitted = runBin(fixture, removed, 'serve', undefined, missingExport)
     assert.equal(admitted.status, 0, admitted.stderr)
@@ -172,7 +263,8 @@ test('fixed readonly readiness CLI refuses missing core API, false/async readine
   const success = runBin(ok, undefined, 'check-ready')
   assert.equal(success.status, 0, success.stderr); assert.match(success.stdout, /OWNER_AUTHORIZATION_READY/u)
   assert.doesNotMatch(success.stdout, /OWNERSECRET|ROTATE|TRUSTEDREADER|STARTUP|SERVE/u)
-  for (const [fixture, missing] of [[{ ready: false }, false], [{ ready: true, registryBad: true }, false], [{ ready: true, readinessAsync: true }, false], [ok, true]]) {
+  for (const [fixture, missing] of [[{ ready: false }, false], [{ ready: true, registryBad: true }, false], [{ ready: true, readinessAsync: true }, false],
+    [{ ready: true, readonlyLegacy: true }, false], [{ ready: true, readonlyOverride: { gate_pubkey_sha256: 'b'.repeat(64) } }, false], [ok, true]]) {
     const refused = runBin(fixture, undefined, 'check-ready', [], missing)
     assert.notEqual(refused.status, 0); assert.doesNotMatch(refused.stdout, /OWNER_AUTHORIZATION_READY|OWNERSECRET|ROTATE|TRUSTEDREADER|STARTUP|SERVE/u)
   }
