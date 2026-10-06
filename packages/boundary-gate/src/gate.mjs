@@ -13,10 +13,13 @@
 // P-256 owner proof reference. Rate limits are global and per target, never per
 // harness-chosen session label. Targets are injected; with an empty allowlist every proposal is refused.
 import path from 'node:path'
+import { lstatSync, realpathSync } from 'node:fs'
+import { AURA_CONTEXT_PATH, readProtectedAuraData } from '../host/aura/context.mjs'
+import { parseStrictJson } from '../../contracts/src/json.mjs'
 import { ownerCardClarity } from './targets.mjs'
-import { createHmac, randomUUID, randomBytes, sign, verify, timingSafeEqual } from 'node:crypto'
+import { createHmac, createPublicKey, randomUUID, randomBytes, sign, verify, timingSafeEqual } from 'node:crypto'
 import { sha256, SHA, loadOrCreateKey, openDb, createLedger, signedEntryData,
-  gateCompletedResultDigest, gateCaptureSigningBytes, entryBody } from './ledger.mjs'
+  gateCompletedResultDigest, gateCaptureSigningBytes, entryBody, verifyLedger } from './ledger.mjs'
 import { loadOwnerSecret, rotateBearer } from './secrets.mjs'
 import { lineDiff, cleanNote, noteMeta, cardWarnings, swatchText, noteDisplay } from './card.mjs'
 // Concrete G protocol, not a caller-supplied verifier. Installed use requires an independently
@@ -34,6 +37,228 @@ const CLOSE_OUTCOMES = ['rejected', 'cancelled', 'unavailable', 'expired']
 const APPLIED_EVENTS = "('apply','revert-applied','genesis-target')"
 export const maskId = (id) => id ? String(id).slice(0, 8) + '…' : id
 
+const synchronous = (value, label) => {
+  if (value && (typeof value === 'object' || typeof value === 'function')) {
+    for (let prototype = value; prototype !== null; prototype = Object.getPrototypeOf(prototype)) {
+      const then = Object.getOwnPropertyDescriptor(prototype, 'then')
+      if (then && (!Object.hasOwn(then, 'value') || typeof then.value === 'function')) throw new Error(`${label} must be synchronous`)
+    }
+  }
+  return value
+}
+
+function currentGateMs(now) {
+  const value = synchronous(now(), 'gate clock')
+  if (!Number.isSafeInteger(value) || Object.is(value, -0) || value < 0) throw new Error('invalid gate clock')
+  return value
+}
+
+const OWNER_STATE_FIELDS = ['version', 'kind', 'owner_subject', 'owner_root_spki_base64', 'owner_root_id',
+  'owner_epoch', 'registry_sha256', 'activation_sha256']
+// This callback is a trusted host registry source, never an RPC input or qualification boolean.
+// Configuring enforcement is durable; losing or corrupting the registry cannot restore legacy approval.
+function readCurrentOwnerState(readOwnerState) {
+  if (typeof readOwnerState !== 'function') throw new Error('owner authorization unavailable: trusted owner state is unconfigured')
+  const state = synchronous(readOwnerState(), 'trusted owner state')
+  if (!state || typeof state !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(state))) throw new Error('invalid trusted owner state')
+  const descriptors = Object.getOwnPropertyDescriptors(state), keys = Reflect.ownKeys(descriptors)
+  if (keys.length !== OWNER_STATE_FIELDS.length || keys.some(k => typeof k !== 'string' || !OWNER_STATE_FIELDS.includes(k))) throw new Error('invalid trusted owner state')
+  const out = Object.create(null)
+  for (const field of OWNER_STATE_FIELDS) {
+    const d = descriptors[field]
+    if (!d?.enumerable || !Object.hasOwn(d, 'value')) throw new Error('invalid trusted owner state')
+    out[field] = d.value
+  }
+  if (out.version !== 1 || out.kind !== 'aukora-owner-state/v1'
+    || typeof out.owner_subject !== 'string' || !/^aukora:1:[0-9a-f]{64}$/u.test(out.owner_subject)
+    || out.owner_subject.length !== 73 || !Number.isSafeInteger(out.owner_epoch) || out.owner_epoch < 1
+    || !['owner_root_id', 'registry_sha256', 'activation_sha256'].every(k => typeof out[k] === 'string' && out[k].length === 64 && SHA.test(out[k]))
+    || ownerRootPin(out.owner_root_spki_base64).owner_root_id !== out.owner_root_id) throw new Error('invalid trusted owner state')
+  return Object.freeze(out)
+}
+
+// Both startup observation and the live writer-fenced observation authenticate
+// the same original rows. Public observation never mints receipts or authority.
+function createRetainedOwnerValidator(db, pub) {
+  const gateId = sha256(pub.export({ type: 'spki', format: 'der' }))
+  const key = { pub, fp: gateId.slice(0, 16) }
+  function retainedReceipt(p, consumption, appliedAt) {
+    const state = JSON.parse(consumption.owner_state_text)
+    return { v: 3, kind: p.kind, proposal: p.id, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha,
+      applied_at: appliedAt, approver: state.owner_subject, pubkey_fp: key.fp, gate_pubkey_sha256: consumption.gate,
+      owner_authorization: { version: 1, kind: 'aukora-owner-authorization-ref/v1',
+        authorization_id: consumption.authorization_id, proof_sha256: consumption.proof_sha256 },
+      owner_accepted_at_ms: consumption.accepted_at_ms,
+      owner_consumption: { ledger_seq: consumption.consume_seq, ledger_hash: consumption.consume_hash,
+        review_issue: { ledger_seq: consumption.issue_seq, ledger_hash: consumption.issue_hash } } }
+  }
+  function assertRetainedConsumption(p, c, review) {
+    const consumed = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(c.consume_seq, c.consume_hash)
+    const issue = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(c.issue_seq, c.issue_hash)
+    if (!p || c.gate !== gateId || !review || review.state !== 'spent' || review.proposal_id !== p.id
+      || review.authorization_id !== c.authorization_id || review.owner_state_text !== c.owner_state_text
+      || review.spend_seq !== c.consume_seq || review.spent_at_ms !== c.accepted_at_ms
+      || review.issue_seq !== c.issue_seq || review.issue_hash !== c.issue_hash
+      || !consumed || consumed.event !== 'owner-authorization-consumed' || !issue || issue.event !== 'review-issued'
+      || [consumed, issue].some(row => row.proposal !== p.id || row.target !== p.target
+        || row.base_sha !== p.base_sha || row.new_sha !== p.new_sha))
+      throw new Error('original consumed-effect binding unavailable')
+    const detail = JSON.parse(consumed.detail), issued = JSON.parse(issue.detail)
+    const state = ownerAuthorizationOwnerState(JSON.parse(c.owner_state_text))
+    const authorization = ownerAuthorization(JSON.parse(review.authorization_text))
+    if (ownerAuthorizationText(authorization) !== review.authorization_text
+      || authorization.gate !== c.gate || authorization.challenge !== c.challenge || authorization.proposal_id !== p.id
+      || authorization.operation !== p.kind || authorization.target !== p.target
+      || authorization.before_sha256 !== p.base_sha || authorization.after_sha256 !== p.new_sha
+      || authorization.issued_at_ms !== review.issued_at_ms || authorization.expires_at_ms !== review.expires_at_ms
+      || authorization.owner_subject !== state.owner_subject || authorization.owner_root_id !== state.owner_root_id
+      || authorization.owner_epoch !== state.owner_epoch
+      || issued.authorization_text !== review.authorization_text || issued.authorization_id !== c.authorization_id
+      || issued.gate_pubkey_sha256 !== c.gate || issued.issued_at_ms !== review.issued_at_ms
+      || issued.expires_at_ms !== review.expires_at_ms || JSON.stringify(issued.owner_state) !== c.owner_state_text
+      || detail.outcome !== 'allowed-once' || detail.operation !== p.kind || detail.spent !== true
+      || detail.accepted_at_ms !== c.accepted_at_ms || detail.proof_text !== c.proof_text
+      || detail.owner_authorization?.authorization_id !== c.authorization_id
+      || detail.owner_authorization?.proof_sha256 !== c.proof_sha256
+      || JSON.stringify(detail.owner_state) !== c.owner_state_text
+      || detail.review_issue?.ledger_seq !== c.issue_seq || detail.review_issue?.ledger_hash !== c.issue_hash)
+      throw new Error('original signed consumption or issuance differs from retained facts')
+    // Historical proof validation uses its original accepted instant/root. A current
+    // epoch change never revives it and must not invalidate factual old outcomes.
+    const verified = verifyOwnerAuthorization(JSON.parse(c.proof_text), {
+      owner_root_spki_base64: state.owner_root_spki_base64, authorization_digest: c.authorization_id,
+      ...Object.fromEntries(AUTHORIZATION_FIELDS.map(field => [field, authorization[field]])) }, c.accepted_at_ms)
+    if (verified.reference.proof_sha256 !== c.proof_sha256 || ownerAuthorizationProofText(verified.proof) !== c.proof_text)
+      throw new Error('original owner proof differs from retained consumption')
+  }
+  function retainedConsumptions() {
+    const rows = db.prepare('SELECT * FROM owner_authorization_consumptions').all()
+    if (db.prepare("SELECT count(*) AS n FROM ledger WHERE event='owner-authorization-consumed'").get().n !== rows.length)
+      throw new Error('original consumption retention unavailable')
+    for (const c of rows) assertRetainedConsumption(
+      db.prepare('SELECT * FROM proposals WHERE id=?').get(c.proposal_id), c,
+      db.prepare('SELECT * FROM owner_authorization_reviews WHERE gate=? AND challenge=?').get(c.gate, c.challenge))
+    return rows
+  }
+  function readinessSnapshot(activeOwnerState, currentMs) {
+    const state = activeOwnerState(), checked = verifyLedger(db, pub)
+    if (!checked.ok) throw new Error('readiness refused: signed ledger unavailable')
+    const required = db.prepare('SELECT * FROM owner_authorization_required WHERE singleton=1').get()
+    const requiredEntry = required && db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(required.require_seq, required.require_hash)
+    const requiredDetail = requiredEntry ? JSON.parse(requiredEntry.detail) : null
+    if (!required || required.gate !== gateId || requiredEntry?.event !== 'owner-authorization-required'
+      || requiredDetail?.version !== 1 || requiredDetail.kind !== 'aukora-owner-authorization-required/v1'
+      || requiredDetail.gate_pubkey_sha256 !== gateId
+      || !['trusted-reader-configured', 'retained-G-history'].includes(requiredDetail.reason))
+      throw new Error('readiness refused: original owner enforcement latch unavailable')
+    const consumptions = retainedConsumptions()
+    let unresolvedConsumptions = 0
+    for (const c of consumptions) {
+      const p = db.prepare('SELECT * FROM proposals WHERE id=?').get(c.proposal_id)
+      if (!['applied', 'failed'].includes(p.state)) unresolvedConsumptions++
+      else {
+        const terminal = db.prepare("SELECT * FROM ledger WHERE proposal=? AND seq>? AND event IN ('apply','revert-applied','apply-failed','reconcile') ORDER BY seq DESC LIMIT 1")
+          .get(p.id, c.consume_seq)
+        const outcome = terminal ? JSON.parse(terminal.detail) : null
+        const binding = terminal && terminal.target === p.target && terminal.base_sha === p.base_sha && terminal.new_sha === p.new_sha
+        const applied = p.state === 'applied' && binding && ['apply', 'revert-applied'].includes(terminal.event)
+          && outcome?.receipt?.v === 3 && typeof outcome.receipt.applied_at === 'string'
+          && JSON.stringify(outcome.receipt) === JSON.stringify(retainedReceipt(p, c, outcome.receipt.applied_at))
+          && verify(null, Buffer.from(JSON.stringify(outcome.receipt)), key.pub, Buffer.from(outcome.receipt_sig ?? '', 'base64'))
+        const failed = p.state === 'failed' && binding && outcome?.consumption_seq === c.consume_seq
+          && (terminal.event === 'apply-failed' || terminal.event === 'reconcile' && outcome.result === 'failed: not written, spent, NOT replayed')
+        if (!applied && !failed) throw new Error('readiness refused: original terminal outcome unavailable')
+      }
+    }
+    const counts = Object.fromEntries(['applying', 'incomplete', 'conflict'].map(value =>
+      [value, db.prepare('SELECT count(*) AS n FROM proposals WHERE state=?').get(value).n]))
+    if (JSON.stringify(activeOwnerState()) !== JSON.stringify(state))
+      throw new Error('readiness refused: owner state changed during observation')
+    return { version: 1, kind: 'aukora-boundary-gate-readiness/v1',
+      ready: unresolvedConsumptions === 0 && Object.values(counts).every(n => n === 0),
+      checked_at_ms: currentMs(), gate_pubkey_sha256: gateId, owner_state_sha256: sha256(JSON.stringify(state)),
+      owner_subject: state.owner_subject, owner_root_id: state.owner_root_id, owner_epoch: state.owner_epoch,
+      registry_sha256: state.registry_sha256, activation_sha256: state.activation_sha256,
+      ledger: { entries: checked.entries, head: checked.head },
+      consumed_effects: { retained: consumptions.length, unresolved: unresolvedConsumptions, ...counts } }
+  }
+  return { retainedReceipt, assertRetainedConsumption, retainedConsumptions, readinessSnapshot }
+}
+
+const READINESS_CONFIGURATION_FIELDS = ['version', 'kind', 'owner_subject', 'store_dir', 'source', 'nostr', 'anchors', 'python_executable']
+const READINESS_SOURCE_FIELDS = ['db_path', 'source_id', 'public_key_pem', 'key_sha256', 'max_rows', 'max_bytes', 'max_record_bytes']
+function closedReadinessData(value, fields) {
+  if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
+    throw new Error('readiness refused: invalid public source binding')
+  const descriptors = Object.getOwnPropertyDescriptors(value), keys = Reflect.ownKeys(descriptors)
+  if (keys.length !== fields.length || keys.some(field => typeof field !== 'string' || !fields.includes(field))
+    || fields.some(field => !descriptors[field]?.enumerable || !Object.hasOwn(descriptors[field], 'value')))
+    throw new Error('readiness refused: invalid public source binding')
+  return Object.fromEntries(fields.map(field => [field, descriptors[field].value]))
+}
+function readinessPublicSource(home, state) {
+  // Only the existing protected public source projection is used. Nostr author
+  // material and collector construction are unrelated to this P-256 observation.
+  const text = readProtectedAuraData(AURA_CONTEXT_PATH)
+  if (typeof text !== 'string' || text.charCodeAt(0) === 0xfeff)
+    throw new Error('readiness refused: public source unavailable')
+  const configuration = closedReadinessData(parseStrictJson(text, { maxBytes: 1024 * 1024 }), READINESS_CONFIGURATION_FIELDS)
+  const source = closedReadinessData(configuration.source, READINESS_SOURCE_FIELDS)
+  const bounded = (value, maximum) => Number.isSafeInteger(value) && value > 0 && value <= maximum
+  if (configuration.version !== 1 || configuration.kind !== 'aukora-aura-context/v1'
+    || configuration.owner_subject !== state.owner_subject || source.db_path !== path.join(home, 'gate.db')
+    || typeof source.source_id !== 'string' || source.source_id.length > 128
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(source.source_id)
+    || typeof source.key_sha256 !== 'string' || source.key_sha256.length !== 64 || !SHA.test(source.key_sha256)
+    || typeof source.public_key_pem !== 'string' || source.public_key_pem.length > 1024
+    || !/^-----BEGIN PUBLIC KEY-----\r?\n[A-Za-z0-9+/=\r\n]+-----END PUBLIC KEY-----\r?\n?$/u.test(source.public_key_pem)
+    || !bounded(source.max_rows, 50000) || !bounded(source.max_bytes, 16 * 1024 * 1024)
+    || !bounded(source.max_record_bytes, 48 * 1024))
+    throw new Error('readiness refused: public source binding unavailable')
+  const pub = createPublicKey({ key: source.public_key_pem, type: 'spki', format: 'pem' })
+  if (pub.asymmetricKeyType !== 'ed25519' || sha256(pub.export({ type: 'spki', format: 'der' })) !== source.key_sha256)
+    throw new Error('readiness refused: public source key differs')
+  return { pub, configuration_sha256: sha256(text) }
+}
+
+/** Cold preconstruction observation of EXISTING public key and signed state.
+ * No writable constructor, migration, secret, append, sweep or reconciliation.
+ * SQLite readOnly opens preserve committed WAL visibility; its own lock metadata
+ * is distinct from authority state. This snapshot does not hold the live effect
+ * writer fence: H must still check the instance readiness before serving.
+ */
+export function ownerAuthorizationReadiness(options) {
+  const { home, readOwnerState } = closedReadinessData(options, ['home', 'readOwnerState'])
+  if (typeof home !== 'string' || home.length > 4096 || !home.isWellFormed()
+    || /[\u0000-\u001f\u007f]/u.test(home) || !path.isAbsolute(home) || path.resolve(home) !== home
+    || realpathSync(home) !== home)
+    throw new Error('readiness refused: existing gate home unavailable')
+  const initialState = readCurrentOwnerState(readOwnerState)
+  const source = readinessPublicSource(home, initialState), file = path.join(home, 'gate.db')
+  const before = lstatSync(file)
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || realpathSync(file) !== file)
+    throw new Error('readiness refused: existing gate database unavailable')
+  let db, transaction = false
+  try {
+    db = openDb(file, { readOnly: true })
+    db.exec('PRAGMA temp_store=MEMORY; PRAGMA query_only=ON; BEGIN')
+    transaction = true
+    const validator = createRetainedOwnerValidator(db, source.pub)
+    const result = validator.readinessSnapshot(() => readCurrentOwnerState(readOwnerState), () => currentGateMs(Date.now))
+    const after = lstatSync(file), finalState = readCurrentOwnerState(readOwnerState)
+    if (!after.isFile() || after.isSymbolicLink() || realpathSync(home) !== home || realpathSync(file) !== file
+      || before.dev !== after.dev || before.ino !== after.ino || before.nlink !== after.nlink
+      || result.owner_state_sha256 !== sha256(JSON.stringify(initialState))
+      || result.owner_state_sha256 !== sha256(JSON.stringify(finalState))
+      || readinessPublicSource(home, finalState).configuration_sha256 !== source.configuration_sha256)
+      throw new Error('readiness refused: public binding changed during observation')
+    db.exec('COMMIT'); transaction = false
+    return result
+  } finally {
+    try { if (transaction) db.exec('ROLLBACK') } finally { db?.close() }
+  }
+}
+
 // targets: { [name]: { entry, maxBytes, schema, validate(text), accentOf?, plain?, after? } }
 // store:   { read(name, spec) -> Buffer|null, write(name, spec, bytes, proposalId) }
 export function createGate({ home, targets = {}, store, now = Date.now, limits = {}, key, owner, db, iso, readOwnerState, journalId } = {}) {
@@ -48,15 +273,6 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   const TARGETS = Object.freeze({ ...targets })
   const ledger = createLedger(db, key, iso)
   const append = ledger.append
-  const synchronous = (value, label) => {
-    if (value && (typeof value === 'object' || typeof value === 'function')) {
-      for (let prototype = value; prototype !== null; prototype = Object.getPrototypeOf(prototype)) {
-        const then = Object.getOwnPropertyDescriptor(prototype, 'then')
-        if (then && (!Object.hasOwn(then, 'value') || typeof then.value === 'function')) throw new Error(`${label} must be synchronous`)
-      }
-    }
-    return value
-  }
   const tx = (fn, beforeCommit, refuseWithinLock) => { db.exec('BEGIN IMMEDIATE'); try {
     if (refuseWithinLock) db.exec('SAVEPOINT owner_claim')
     let r
@@ -72,38 +288,12 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     }
     db.exec('COMMIT'); return r
   } catch (e) { db.exec('ROLLBACK'); throw e } }
-  const currentMs = () => {
-    const value = synchronous(now(), 'gate clock')
-    if (!Number.isSafeInteger(value) || Object.is(value, -0) || value < 0) throw new Error('invalid gate clock')
-    return value
-  }
+  const currentMs = () => currentGateMs(now)
   const gateId = sha256(key.pub.export({ type: 'spki', format: 'der' }))
   if (journalId !== undefined && (typeof journalId !== 'string' || journalId.length < 1 || journalId.length > 128
     || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(journalId) || /[^A-Za-z0-9._:-]/u.test(journalId)))
     throw new Error('trusted journalId must be a bounded public identifier')
-  const OWNER_STATE_FIELDS = ['version', 'kind', 'owner_subject', 'owner_root_spki_base64', 'owner_root_id',
-    'owner_epoch', 'registry_sha256', 'activation_sha256']
-  // This callback is a trusted host registry source, never an RPC input or qualification boolean.
-  // Configuring enforcement is durable; losing or corrupting the registry cannot restore legacy approval.
-  function activeOwnerState() {
-    if (typeof readOwnerState !== 'function') throw new Error('owner authorization unavailable: trusted owner state is unconfigured')
-    const state = synchronous(readOwnerState(), 'trusted owner state')
-    if (!state || typeof state !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(state))) throw new Error('invalid trusted owner state')
-    const descriptors = Object.getOwnPropertyDescriptors(state), keys = Reflect.ownKeys(descriptors)
-    if (keys.length !== OWNER_STATE_FIELDS.length || keys.some(k => typeof k !== 'string' || !OWNER_STATE_FIELDS.includes(k))) throw new Error('invalid trusted owner state')
-    const out = Object.create(null)
-    for (const field of OWNER_STATE_FIELDS) {
-      const d = descriptors[field]
-      if (!d?.enumerable || !Object.hasOwn(d, 'value')) throw new Error('invalid trusted owner state')
-      out[field] = d.value
-    }
-    if (out.version !== 1 || out.kind !== 'aukora-owner-state/v1'
-      || typeof out.owner_subject !== 'string' || !/^aukora:1:[0-9a-f]{64}$/u.test(out.owner_subject)
-      || out.owner_subject.length !== 73 || !Number.isSafeInteger(out.owner_epoch) || out.owner_epoch < 1
-      || !['owner_root_id', 'registry_sha256', 'activation_sha256'].every(k => typeof out[k] === 'string' && out[k].length === 64 && SHA.test(out[k]))
-      || ownerRootPin(out.owner_root_spki_base64).owner_root_id !== out.owner_root_id) throw new Error('invalid trusted owner state')
-    return Object.freeze(out)
-  }
+  const activeOwnerState = () => readCurrentOwnerState(readOwnerState)
   function ownerAuthorizationRequired() {
     if (readOwnerState !== undefined) return true
     if (db.prepare('SELECT 1 FROM owner_authorization_required LIMIT 1').get()
@@ -436,16 +626,9 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     })
   }
 
-  function retainedReceipt(p, consumption, appliedAt = iso()) {
-    const state = JSON.parse(consumption.owner_state_text)
-    return { v: 3, kind: p.kind, proposal: p.id, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha,
-      applied_at: appliedAt, approver: state.owner_subject, pubkey_fp: key.fp, gate_pubkey_sha256: consumption.gate,
-      owner_authorization: { version: 1, kind: 'aukora-owner-authorization-ref/v1',
-        authorization_id: consumption.authorization_id, proof_sha256: consumption.proof_sha256 },
-      owner_accepted_at_ms: consumption.accepted_at_ms,
-      owner_consumption: { ledger_seq: consumption.consume_seq, ledger_hash: consumption.consume_hash,
-        review_issue: { ledger_seq: consumption.issue_seq, ledger_hash: consumption.issue_hash } } }
-  }
+  const retainedValidator = createRetainedOwnerValidator(db, key.pub)
+  const { assertRetainedConsumption, retainedConsumptions } = retainedValidator
+  const retainedReceipt = (p, consumption, appliedAt = iso()) => retainedValidator.retainedReceipt(p, consumption, appliedAt)
   function recordApplied(p, consumption, note, extra = {}) {
     const receipt = retainedReceipt(p, consumption), receipt_sig = signReceipt(receipt)
     if (!setState(p.id, 'applying', 'applied', note)) throw new Error('apply state compare-and-set failed')
@@ -457,54 +640,6 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   // Consumption commits first and remains spent if this process dies. Dispatch
   // must then win the SAME writer fence as startup reconciliation; a prior
   // applying snapshot is not permission to write after another gate closes it.
-  function assertRetainedConsumption(p, c, review) {
-    const consumed = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(c.consume_seq, c.consume_hash)
-    const issue = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(c.issue_seq, c.issue_hash)
-    if (!p || c.gate !== gateId || !review || review.state !== 'spent' || review.proposal_id !== p.id
-      || review.authorization_id !== c.authorization_id || review.owner_state_text !== c.owner_state_text
-      || review.spend_seq !== c.consume_seq || review.spent_at_ms !== c.accepted_at_ms
-      || review.issue_seq !== c.issue_seq || review.issue_hash !== c.issue_hash
-      || !consumed || consumed.event !== 'owner-authorization-consumed' || !issue || issue.event !== 'review-issued'
-      || [consumed, issue].some(row => row.proposal !== p.id || row.target !== p.target
-        || row.base_sha !== p.base_sha || row.new_sha !== p.new_sha))
-      throw new Error('original consumed-effect binding unavailable')
-    const detail = JSON.parse(consumed.detail), issued = JSON.parse(issue.detail)
-    const state = ownerAuthorizationOwnerState(JSON.parse(c.owner_state_text))
-    const authorization = ownerAuthorization(JSON.parse(review.authorization_text))
-    if (ownerAuthorizationText(authorization) !== review.authorization_text
-      || authorization.gate !== c.gate || authorization.challenge !== c.challenge || authorization.proposal_id !== p.id
-      || authorization.operation !== p.kind || authorization.target !== p.target
-      || authorization.before_sha256 !== p.base_sha || authorization.after_sha256 !== p.new_sha
-      || authorization.issued_at_ms !== review.issued_at_ms || authorization.expires_at_ms !== review.expires_at_ms
-      || authorization.owner_subject !== state.owner_subject || authorization.owner_root_id !== state.owner_root_id
-      || authorization.owner_epoch !== state.owner_epoch
-      || issued.authorization_text !== review.authorization_text || issued.authorization_id !== c.authorization_id
-      || issued.gate_pubkey_sha256 !== c.gate || issued.issued_at_ms !== review.issued_at_ms
-      || issued.expires_at_ms !== review.expires_at_ms || JSON.stringify(issued.owner_state) !== c.owner_state_text
-      || detail.outcome !== 'allowed-once' || detail.operation !== p.kind || detail.spent !== true
-      || detail.accepted_at_ms !== c.accepted_at_ms || detail.proof_text !== c.proof_text
-      || detail.owner_authorization?.authorization_id !== c.authorization_id
-      || detail.owner_authorization?.proof_sha256 !== c.proof_sha256
-      || JSON.stringify(detail.owner_state) !== c.owner_state_text
-      || detail.review_issue?.ledger_seq !== c.issue_seq || detail.review_issue?.ledger_hash !== c.issue_hash)
-      throw new Error('original signed consumption or issuance differs from retained facts')
-    // Historical proof validation uses its original accepted instant/root. A current
-    // epoch change never revives it and must not invalidate factual old outcomes.
-    const verified = verifyOwnerAuthorization(JSON.parse(c.proof_text), {
-      owner_root_spki_base64: state.owner_root_spki_base64, authorization_digest: c.authorization_id,
-      ...Object.fromEntries(AUTHORIZATION_FIELDS.map(field => [field, authorization[field]])) }, c.accepted_at_ms)
-    if (verified.reference.proof_sha256 !== c.proof_sha256 || ownerAuthorizationProofText(verified.proof) !== c.proof_text)
-      throw new Error('original owner proof differs from retained consumption')
-  }
-  function retainedConsumptions() {
-    const rows = db.prepare('SELECT * FROM owner_authorization_consumptions').all()
-    if (db.prepare("SELECT count(*) AS n FROM ledger WHERE event='owner-authorization-consumed'").get().n !== rows.length)
-      throw new Error('original consumption retention unavailable')
-    for (const c of rows) assertRetainedConsumption(
-      db.prepare('SELECT * FROM proposals WHERE id=?').get(c.proposal_id), c,
-      db.prepare('SELECT * FROM owner_authorization_reviews WHERE gate=? AND challenge=?').get(c.gate, c.challenge))
-    return rows
-  }
   function assertConsumedEffect(p, consumption) {
     const current = db.prepare('SELECT * FROM proposals WHERE id=?').get(p.id)
     const retained = db.prepare('SELECT * FROM owner_authorization_consumptions WHERE proposal_id=?').get(p.id)
@@ -858,40 +993,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   // This signs/appends nothing and never starts, reconciles or retries an effect;
   // a live socket or valid ledger alone is insufficient readiness evidence.
   function readiness() {
-    return tx(() => {
-      const state = activeOwnerState(), checked = ledger.verify()
-      if (!checked.ok) throw new Error('readiness refused: signed ledger unavailable')
-      const consumptions = retainedConsumptions()
-      let unresolvedConsumptions = 0
-      for (const c of consumptions) {
-        const p = db.prepare('SELECT * FROM proposals WHERE id=?').get(c.proposal_id)
-        if (!['applied', 'failed'].includes(p.state)) unresolvedConsumptions++
-        else {
-          const terminal = db.prepare("SELECT * FROM ledger WHERE proposal=? AND seq>? AND event IN ('apply','revert-applied','apply-failed','reconcile') ORDER BY seq DESC LIMIT 1")
-            .get(p.id, c.consume_seq)
-          const outcome = terminal ? JSON.parse(terminal.detail) : null
-          const binding = terminal && terminal.target === p.target && terminal.base_sha === p.base_sha && terminal.new_sha === p.new_sha
-          const applied = p.state === 'applied' && binding && ['apply', 'revert-applied'].includes(terminal.event)
-            && outcome?.receipt?.v === 3 && typeof outcome.receipt.applied_at === 'string'
-            && JSON.stringify(outcome.receipt) === JSON.stringify(retainedReceipt(p, c, outcome.receipt.applied_at))
-            && verify(null, Buffer.from(JSON.stringify(outcome.receipt)), key.pub, Buffer.from(outcome.receipt_sig ?? '', 'base64'))
-          const failed = p.state === 'failed' && binding && outcome?.consumption_seq === c.consume_seq
-            && (terminal.event === 'apply-failed' || terminal.event === 'reconcile' && outcome.result === 'failed: not written, spent, NOT replayed')
-          if (!applied && !failed) throw new Error('readiness refused: original terminal outcome unavailable')
-        }
-      }
-      const counts = Object.fromEntries(['applying', 'incomplete', 'conflict'].map(value =>
-        [value, db.prepare('SELECT count(*) AS n FROM proposals WHERE state=?').get(value).n]))
-      if (JSON.stringify(activeOwnerState()) !== JSON.stringify(state))
-        throw new Error('readiness refused: owner state changed during observation')
-      return { version: 1, kind: 'aukora-boundary-gate-readiness/v1',
-        ready: unresolvedConsumptions === 0 && Object.values(counts).every(n => n === 0),
-        checked_at_ms: currentMs(), gate_pubkey_sha256: gateId, owner_state_sha256: sha256(JSON.stringify(state)),
-        owner_subject: state.owner_subject, owner_root_id: state.owner_root_id, owner_epoch: state.owner_epoch,
-        registry_sha256: state.registry_sha256, activation_sha256: state.activation_sha256,
-        ledger: { entries: checked.entries, head: checked.head },
-        consumed_effects: { retained: consumptions.length, unresolved: unresolvedConsumptions, ...counts } }
-    })
+    return tx(() => retainedValidator.readinessSnapshot(activeOwnerState, currentMs))
   }
 
   // everything the owner sees about one proposal, computed by the gate (same function as the popup flags)
