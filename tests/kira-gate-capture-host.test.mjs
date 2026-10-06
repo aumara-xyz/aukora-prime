@@ -292,7 +292,7 @@ async function createAcceptedEFixture() {
     recallStateSource = readE(new URL('./recall-state.mjs', indexURL), 'utf8')
     projectIdentitySource = readE(new URL('./project-identity.mjs', indexURL), 'utf8')
   } catch { throw Error('missing-dependency:accepted-kira-index-or-helper-closure') }
-  assert.equal(sha(indexSource), 'c899150a23fb20ace1a4f658b0982b657cb3cbd29c063cf2facc5be8fb89e13e',
+  assert.equal(sha(indexSource), '3cd82ef516442899ee1812802ed055c3e0557bf4d2a87212944180b4508db2ef',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')
@@ -302,7 +302,7 @@ async function createAcceptedEFixture() {
     'missing-dependency:accepted-kira-quality-sha256')
   assert.equal(sha(recallStateSource), 'ed00c677d931972cabe36d29d952c0462f36259bf4ebf8b77c39931a72feb5bf',
     'missing-dependency:accepted-kira-recall-state-sha256')
-  assert.equal(sha(projectIdentitySource), '2da15b5b87ef5154f9bc02f2eb8b896e97719c7e7d44e12aacb088f0daf8725b',
+  assert.equal(sha(projectIdentitySource), '250988a815bd8f3686d0af87afc649536cfe241a6ea0b65a65aee3b00f5fee67',
     'missing-dependency:accepted-kira-project-identity-sha256')
   const dataURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
   const associationURL = dataURL(associationSource)
