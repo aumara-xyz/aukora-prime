@@ -111,6 +111,51 @@ WORKSPACE = "/home/aukora-host/workspaces/aukora-prime"
 WORKSPACE_MAX_FILES = 200000
 WORKSPACE_MAX_FILE = 64 * 1024 * 1024
 WORKSPACE_MAX_TOTAL = 2 * 1024 * 1024 * 1024
+BOOT_KIND = "aukora-prime-boot-identity/v1"
+# An operator materializes this exact closure from reviewed source. Runtime
+# verification never imports or sources the checkout. The manifest is the
+# fixed, protected authority for bytes; this map closes its path/ref grammar.
+BOOT_SOURCE_FILES = {
+    BOOTSTRAP: "packages/boundary-gate/host/install/gate-bootstrap.py",
+    "/usr/local/lib/aukora-boundary/selfcheck-with-retry": "packages/boundary-gate/host/systemd/selfcheck-with-retry",
+    "/usr/local/lib/aukora-boundary/genesis-recover-probe": "packages/boundary-gate/host/systemd/genesis-recover-probe",
+    "/usr/local/lib/aukora-boundary/sbx-exec": "packages/boundary-gate/host/sbx-exec",
+    "/usr/local/lib/aukora-boundary/openshell/custody/exec_fds.py": "packages/boundary-gate/host/openshell/custody/exec_fds.py",
+    "/usr/local/lib/aukora-boundary/openshell/custody/sbx_exec_body.sh": "packages/boundary-gate/host/openshell/custody/sbx_exec_body.sh",
+    "/usr/local/lib/aukora-boundary/openshell/sandbox-inventory.py": "packages/boundary-gate/host/openshell/sandbox-inventory.py",
+    "/usr/local/lib/aukora-boundary/openshell/ensure-sandbox.sh": "packages/boundary-gate/host/openshell/ensure-sandbox.sh",
+    "/usr/local/lib/aukora-boundary/openshell/gateway.sh": "packages/boundary-gate/host/openshell/gateway.sh",
+    "/usr/local/lib/aukora-boundary/openshell/podman-service.sh": "packages/boundary-gate/host/openshell/podman-service.sh",
+    "/usr/local/lib/aukora-boundary/openshell/workload-pin.json": "packages/boundary-gate/host/openshell/workload-pin.json",
+    "/usr/local/lib/aukora-boundary/openshell/inventory-generation-schema.json": "packages/boundary-gate/host/openshell/inventory-generation-schema.json",
+    "/etc/aukora-boundary/auma-local-deny.nft": "host/auma-local-deny/auma-local-deny.nft",
+    "/etc/sudoers.d/aukora-boundary": "packages/boundary-gate/host/sudoers.template",
+    "/etc/systemd/system/aukora-auma-local-deny.service": "host/auma-local-deny/aukora-auma-local-deny.service",
+}
+for _boot_unit in (
+        "aukora-auma-podman.service", "aukora-auma-sandbox.service",
+        "aukora-openshell-gateway.service", "aukora-boundary-gate.service",
+        "aukora-genesis.service", "aukora-selfcheck.service",
+        "aukora-selfcheck-periodic.service", "aukora-selfcheck.timer",
+        "aukora-genesis-failclosed.service", "aukora-genesis-failclosed@.service",
+        "aukora-genesis-recover.service", "aukora-genesis-recover.timer"):
+    BOOT_SOURCE_FILES["/etc/systemd/system/" + _boot_unit] = "packages/boundary-gate/host/systemd/" + _boot_unit
+del _boot_unit
+BOOT_DATA_FILES = {
+    "/etc/aukora-genesis/release.env": "operator-data:genesis-release/v1",
+    "/etc/aukora-boundary-gate/openshell-inventory.json": "operator-data:openshell-inventory/v1",
+    "/etc/aukora-boundary-gate/openshell-workspace.json": "operator-data:openshell-workspace/v1",
+    "/etc/aukora-boundary-gate/owner-state.json": "operator-data:owner-state/v1",
+}
+BOOT_FILE_REFERENCES = {**BOOT_SOURCE_FILES, **BOOT_DATA_FILES}
+BOOT_SYSTEMD_ROOT = "/etc/systemd/system"
+BOOT_OVERRIDE_ROOTS = (
+    "/etc/systemd/system", "/run/systemd/system",
+    "/usr/local/lib/systemd/system", "/usr/lib/systemd/system",
+    "/etc/systemd/system.control", "/run/systemd/system.control",
+    "/run/systemd/transient", "/run/systemd/generator.early",
+    "/run/systemd/generator", "/run/systemd/generator.late",
+)
 
 
 class Refused(Exception):
@@ -275,8 +320,34 @@ def validate_launcher_profile(value):
     return value
 
 
+def boot_identity_digest(manifest, files):
+    """One domain-separated digest binds all existing profiles and boot bytes."""
+    payload = {"kind": BOOT_KIND, "package": manifest["package"], "entry": manifest["entry"],
+               "files": manifest["files"], "external_files": manifest["external_files"],
+               "profiles": {name: profile for name, profile in manifest["profiles"].items() if name != "boot"},
+               "boot_files": files}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def validate_boot_profile(value, manifest=None):
+    require(isinstance(value, dict) and set(value) == {"kind", "files", "digest"}
+            and value["kind"] == BOOT_KIND, "boot-profile")
+    files = value["files"]
+    require(isinstance(files, dict) and set(files) == set(BOOT_FILE_REFERENCES), "boot-inventory")
+    for path, reference in files.items():
+        require(isinstance(reference, dict) and set(reference) == {"source", "source_sha256", "sha256"}
+                and reference["source"] == BOOT_FILE_REFERENCES[path], "boot-source-reference")
+        require(all(isinstance(reference[name], str) and SHA256.fullmatch(reference[name])
+                    for name in ("source_sha256", "sha256")), "boot-sha256")
+    require(isinstance(value["digest"], str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value["digest"]), "boot-digest")
+    if manifest is not None:
+        require(value["digest"] == boot_identity_digest(manifest, files), "boot-digest")
+    return value
+
+
 def parse_profiles(value):
-    require(isinstance(value, dict) and set(value) <= {"owner_key", "aura", "launcher"}, "manifest-profiles")
+    require(isinstance(value, dict) and set(value) <= {"owner_key", "aura", "launcher", "boot"}, "manifest-profiles")
     require("launcher" in value, "launcher-profile-unconfigured")
     validate_launcher_profile(value["launcher"])
     require("aura" not in value or "owner_key" in value, "aura-owner-key-profile")
@@ -284,6 +355,8 @@ def parse_profiles(value):
         validate_owner_key_profile(value["owner_key"])
     if "aura" in value:
         validate_aura_profile(value["aura"])
+    if "boot" in value:
+        validate_boot_profile(value["boot"])
     return value
 
 
@@ -303,6 +376,8 @@ def parse_manifest(data):
     require(set(external) == set(EXTERNAL_FILES), "manifest-external-files")
     if value["version"] == 2:
         parse_profiles(value["profiles"])
+        if "boot" in value["profiles"]:
+            validate_boot_profile(value["profiles"]["boot"], value)
     return value
 
 
@@ -575,7 +650,10 @@ def operator_arguments(arguments):
 
 def launch_arguments(arguments):
     require(bool(arguments), "launch-action")
-    if arguments[0] in ("check-package", "check-runtime", "check-runtime-aura", "check-workspace"):
+    if arguments[0] == "check-ready":
+        require(len(arguments) == 1, "launch-option")
+        return ENTRY, ["check-ready"]
+    if arguments[0] in ("check-package", "check-runtime", "check-runtime-aura", "check-workspace", "check-boot"):
         require(len(arguments) == 1, "launch-option")
         return None, [] if arguments[0] == "check-package" else [arguments[0]]
     if arguments[0] in OPERATOR_ENTRIES:
@@ -793,6 +871,53 @@ def verify_source_profiles(manifest):
         verify_package(OWNER_KEY_ROOT, profile["files"])
     if "aura" in profiles:
         verify_aura_profile(profiles["aura"])
+    if "boot" in profiles:
+        verify_boot_profile(manifest)
+
+
+def verify_boot_profile(manifest):
+    """Read installed files only; no service action or workspace execution."""
+    require(manifest["version"] == 2 and "boot" in manifest.get("profiles", {}), "boot-profile-unconfigured")
+    profile = validate_boot_profile(manifest["profiles"]["boot"], manifest)
+    reject_boot_unit_overrides()
+    total = 0
+    for path in sorted(profile["files"]):
+        data = protected_read(path)
+        total += len(data)
+        require(total <= MAX_TOTAL, "boot-size")
+        require(hashlib.sha256(data).hexdigest() == profile["files"][path]["sha256"], "boot-hash:" + path)
+    return profile["digest"]
+
+
+def reject_boot_unit_overrides():
+    """A reviewed fragment must not acquire unlisted local drop-in code."""
+    units = {os.path.basename(path) for path in BOOT_SOURCE_FILES if path.startswith("/etc/systemd/system/")}
+    dropins = {"service.d", "timer.d"}
+    for unit in units:
+        dropins.add(unit + ".d")
+        stem, suffix = unit.rsplit(".", 1)
+        components = stem.split("-")
+        for end in range(1, len(components)):
+            dropins.add("-".join(components[:end]) + "-." + suffix + ".d")
+    for root in BOOT_OVERRIDE_ROOTS:
+        try:
+            metadata = os.lstat(root)
+        except FileNotFoundError:
+            continue
+        protected_ancestors(root)
+        protected_metadata(metadata, directory=True)
+        protected_directory(root)
+        with os.scandir(root) as entries:
+            for entry in entries:
+                instance_dropin = any("@." in unit and entry.name.startswith(unit.split("@", 1)[0] + "@")
+                                     and entry.name.endswith("." + unit.rsplit(".", 1)[1] + ".d") for unit in units)
+                require(entry.name not in dropins and not instance_dropin, "boot-unit-override")
+                instance_fragment = entry.name not in units and any(
+                    "@." in unit and entry.name.startswith(unit.split("@", 1)[0] + "@")
+                    and entry.name.endswith("." + unit.rsplit(".", 1)[1]) for unit in units)
+                require(not instance_fragment, "boot-unit-override")
+                if root != BOOT_SYSTEMD_ROOT:
+                    require(entry.name not in units, "boot-unit-override")
 
 
 def require_node_profile(manifest, entry):
@@ -836,7 +961,12 @@ def main():
         environment = node_environment(os.environ)
         manifest = verify_installation()
         if entry is None:
-            if arguments == ["check-runtime"]:
+            if arguments == ["check-boot"]:
+                require_node_profile(manifest, ENTRY)
+                # Identity/custody is separate from provider readiness. The
+                # gate itself may invoke this preflight before it is active.
+                print("BOOT_VERIFIED PrimeBootIdentity=" + verify_boot_profile(manifest))
+            elif arguments == ["check-runtime"]:
                 # Fixed service preflight, with no code dispatch. A unit may
                 # continue to its fixed Node command only after this succeeds.
                 require_node_profile(manifest, "bin/selfcheck.mjs")
@@ -853,6 +983,10 @@ def main():
                 print("PACKAGE_VERIFIED")
             return 0
         require_node_profile(manifest, entry)
+        if entry == ENTRY and arguments == ["check-ready"]:
+            # The fixed gate entry owns the closed read-only readiness action;
+            # no ping, key creation or alternate module path is a fallback.
+            verify_boot_profile(manifest)
         if entry == AURA_ROOT + "/" + AURA_ENTRY:
             # Re-pin the fixed public document before the private metadata
             # operation; no cached context or private bytes enter other roles.
