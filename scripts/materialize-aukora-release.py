@@ -1534,6 +1534,13 @@ def main() -> int:
         # AUMA ON THE PROJECT RELAY (2026-10-05): relay_read/relay_post host tools as server identity auma. The key is
         # harness-owned (0600, outside every guest/workspace root) and never reaches the model; every post is written
         # to the gate ledger (relay_record) and so into Aura. Inert off Linux. AUMA posts are advisory, never orders.
+        # POST POLICY (2026-10-06): the joined entry refuses relay_post without this block. It names the four
+        # protected files explicitly (credentials, auma key, nostr secret, launch URL); the host closure re-reads
+        # them per post and refuses secret shapes and protected digests. reader_uid/owner_uid resolve to the
+        # harness's own UID at composition load; the model sees none of this. A MISSING or unreadable file fails
+        # every post closed (UNAVAILABLE), never open. Known gap, named for H: the launch token is protected only
+        # as the whole /url value — a bare 43-char non-hex token matches neither the URL digest nor the long-hex
+        # shape, so a bare-token post still passes until a token-only file or selector kind exists.
         + '    - id: aukora-relay-auma\n'
         + '      name: ./plugins/aukora-relay-auma/lib/index.mjs\n'
         + '      config:\n'
@@ -1541,6 +1548,41 @@ def main() -> int:
         + '        gateSocket: /run/aukora-gate/gate.sock\n'
         + '        workspaceRoots:\n'
         + "          - !!js process.env.HOME + '/workspaces'\n"
+        + '        postPolicy:\n'
+        + '          version: 1\n'
+        + '          kind: aukora-relay-post-policy/v1\n'
+        + '          algorithm: sha256\n'
+        + "          domain: 'aukora-relay:protected-secret:v1'\n"
+        + '          encoding: strict-utf8-no-bom/v1\n'
+        + '          normalization: literal-and-ecmascript-trim/v1\n'
+        + '          matching_unit: contiguous-utf8-byte-window/v1\n'
+        + '          refresh: per-post-stable-read/v1\n'
+        + '          reader_uid: !!js process.getuid()\n'
+        + '          files:\n'
+        + '            - category: credentials\n'
+        + "              path: !!js process.env.HOME + '/genesis/state/home/.credentials.yaml'\n"
+        + '              owner_uid: !!js process.getuid()\n'
+        + '              selectors:\n'
+        + '                - kind: whole-utf8\n'
+        + "                  pointer: ''\n"
+        + '            - category: auma-key\n'
+        + "              path: !!js process.env.HOME + '/.config/aukora-relay/auma.key'\n"
+        + '              owner_uid: !!js process.getuid()\n'
+        + '              selectors:\n'
+        + '                - kind: whole-utf8\n'
+        + "                  pointer: ''\n"
+        + '            - category: nostr-identity\n'
+        + "              path: !!js process.env.HOME + '/genesis/state/home/nostr/identity.json'\n"
+        + '              owner_uid: !!js process.getuid()\n'
+        + '              selectors:\n'
+        + '                - kind: json-pointer\n'
+        + '                  pointer: /secretKeyHex\n'
+        + '            - category: launch-token\n'
+        + "              path: !!js process.env.HOME + '/genesis/state/launch-url.json'\n"
+        + '              owner_uid: !!js process.getuid()\n'
+        + '              selectors:\n'
+        + '                - kind: json-pointer\n'
+        + '                  pointer: /url\n'
         + '    - id: aukora-kira\n'
         + '      name: ./plugins/aukora-kira/lib/gate-capture-host.mjs\n'
         + '      config:\n'
