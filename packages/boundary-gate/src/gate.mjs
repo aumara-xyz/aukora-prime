@@ -14,12 +14,10 @@
 // harness-chosen session label. Targets are injected; with an empty allowlist every proposal is refused.
 import path from 'node:path'
 import { lstatSync, realpathSync } from 'node:fs'
-import { AURA_CONTEXT_PATH, readProtectedAuraData } from '../host/aura/context.mjs'
-import { parseStrictJson } from '../../contracts/src/json.mjs'
 import { ownerCardClarity } from './targets.mjs'
 import { createHmac, createPublicKey, randomUUID, randomBytes, sign, verify, timingSafeEqual } from 'node:crypto'
 import { sha256, SHA, loadOrCreateKey, openDb, createLedger, signedEntryData,
-  gateCompletedResultDigest, gateCaptureSigningBytes, entryBody, verifyLedger } from './ledger.mjs'
+  gateCompletedResultDigest, gateCaptureSigningBytes, entryBody, verifyLedger, readGateReadinessPublicSource } from './ledger.mjs'
 import { loadOwnerSecret, rotateBearer } from './secrets.mjs'
 import { lineDiff, cleanNote, noteMeta, cardWarnings, swatchText, noteDisplay } from './card.mjs'
 // Concrete G protocol, not a caller-supplied verifier. Installed use requires an independently
@@ -199,10 +197,10 @@ function closedReadinessData(value, fields) {
 function readinessPublicSource(home, state) {
   // Only the existing protected public source projection is used. Nostr author
   // material and collector construction are unrelated to this P-256 observation.
-  const text = readProtectedAuraData(AURA_CONTEXT_PATH)
+  const { text, value } = readGateReadinessPublicSource()
   if (typeof text !== 'string' || text.charCodeAt(0) === 0xfeff)
     throw new Error('readiness refused: public source unavailable')
-  const configuration = closedReadinessData(parseStrictJson(text, { maxBytes: 1024 * 1024 }), READINESS_CONFIGURATION_FIELDS)
+  const configuration = closedReadinessData(value, READINESS_CONFIGURATION_FIELDS)
   const source = closedReadinessData(configuration.source, READINESS_SOURCE_FIELDS)
   const bounded = (value, maximum) => Number.isSafeInteger(value) && value > 0 && value <= maximum
   if (configuration.version !== 1 || configuration.kind !== 'aukora-aura-context/v1'

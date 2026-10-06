@@ -1,25 +1,98 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Synthetic source checks only: real read-only SQLite, original signed ledger and
-// historical P-256 proof validation. The public carrier seam does not qualify
-// installed protected-file custody or startup admission.
+// historical P-256 proof validation. Only public carrier filesystem metadata and
+// FD reads are synthetic; this does not qualify installed custody or admission.
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { generateKeyPairSync } from 'node:crypto'
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const carrierUrl = new URL('../packages/boundary-gate/host/aura/context.mjs', import.meta.url).href
+const syntheticFsUrl = 'aukora-synthetic:readiness-public-fs'
 const gateUrl = new URL('../packages/boundary-gate/src/gate.mjs', import.meta.url)
+const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const publicCarrierState = Symbol.for('aukora.synthetic.preconstruction-public-carrier')
-globalThis[publicCarrierState] = { text: null, texts: null, reads: [] }
-// Only this existing protected PUBLIC carrier module is substituted. The gate,
-// owner verifier, ledger, fs and DatabaseSync modules are never mocked.
+globalThis[publicCarrierState] = { text: null, texts: null, reads: [], closes: 0, liveFds: 0,
+  namedReads: 0, ancestorReads: 0, fault: null, bytes: null }
+const builtinFsNames = Object.keys(process.getBuiltinModule('node:fs')).filter(name => /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(name))
+const overriddenFsNames = new Set(['lstatSync', 'openSync', 'fstatSync', 'readSync', 'closeSync', 'realpathSync'])
+const publicFsSource = `
+  const fs = process.getBuiltinModule('node:fs')
+  const fixed = '/etc/aukora-boundary-gate/aura-context.json'
+  const ancestors = ['/', '/etc', '/etc/aukora-boundary-gate']
+  const handles = new Map()
+  let nextFd = 1073741824
+  const state = () => globalThis[Symbol.for('aukora.synthetic.preconstruction-public-carrier')]
+  const fileInfo = bytes => ({dev:1,ino:7,uid:0,gid:0,mode:0o100644,nlink:1,size:bytes.length,
+    mtimeMs:100,ctimeMs:100,isDirectory:()=>false,isFile:()=>true,isSymbolicLink:()=>false})
+  function lstatSync(file, ...args) {
+    const s = state()
+    if (ancestors.includes(file)) {
+      s.ancestorReads++
+      return {dev:1,ino:2,uid:s.fault==='ancestor-owner' || s.fault==='ancestor-drift' && s.ancestorReads>3?1000:0,
+        mode:s.fault==='ancestor-write'?0o40775:0o40755,nlink:1,size:0,
+        isDirectory:()=>s.fault!=='ancestor-symlink',isFile:()=>false,isSymbolicLink:()=>s.fault==='ancestor-symlink'}
+    }
+    if (file===fixed) {
+      const info=fileInfo(s.bytes ?? Buffer.from(s.text ?? '', 'utf8'))
+      s.namedReads++
+      if (s.fault==='named-identity' && s.namedReads>1) info.ino++
+      return info
+    }
+    return fs.lstatSync(file, ...args)
+  }
+  function openSync(file, flags, ...args) {
+    if (file!==fixed) return fs.openSync(file, flags, ...args)
+    const s = state()
+    s.reads.push(file)
+    if (s.text===null || s.fault==='file-symlink') throw Object.assign(new Error('synthetic public file unavailable'),{code:'ENOENT'})
+    if ((flags & (fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_WRONLY | fs.constants.O_RDWR))!==0
+      || (flags & fs.constants.O_NOFOLLOW)===0 || (flags & fs.constants.O_NONBLOCK)===0)
+      throw new Error('synthetic public file requires exact nonmutating no-follow open')
+    const text = s.texts?.length ? s.texts.shift() : s.text
+    const fd = nextFd++
+    handles.set(fd,{bytes:s.bytes ?? Buffer.from(text,'utf8'),offset:0,statReads:0})
+    s.liveFds++
+    return fd
+  }
+  function fstatSync(fd, ...args) {
+    if (!handles.has(fd)) return fs.fstatSync(fd, ...args)
+    const h=handles.get(fd),s=state(),info=fileInfo(h.bytes)
+    h.statReads++
+    if (s.fault==='file-owner') info.uid=1000
+    if (s.fault==='file-write') info.mode=0o100664
+    if (s.fault==='file-hardlink') info.nlink=2
+    if (s.fault==='fd-identity' && h.statReads>1) info.ino++
+    if (s.fault==='oversize') info.size=1024*1024+1
+    return info
+  }
+  function readSync(fd, buffer, offset, length, position) {
+    if (!handles.has(fd)) return fs.readSync(fd,buffer,offset,length,position)
+    const h=handles.get(fd),count=Math.min(length,h.bytes.length-h.offset)
+    h.bytes.copy(buffer,offset,h.offset,h.offset+count)
+    h.offset+=count
+    return count
+  }
+  function closeSync(fd) {
+    if (handles.has(fd)) {handles.delete(fd);state().closes++;state().liveFds--;return}
+    return fs.closeSync(fd)
+  }
+  function realpathSync(file, ...args) {
+    return file===fixed || ancestors.includes(file) ? file : fs.realpathSync(file,...args)
+  }
+  const forwarded = {...fs,lstatSync,openSync,fstatSync,readSync,closeSync,realpathSync}
+  export default forwarded
+  ${builtinFsNames.map(name => overriddenFsNames.has(name) ? 'export { ' + name + ' }'
+    : 'export const ' + name + ' = forwarded[' + JSON.stringify(name) + ']').join('\n')}
+`
+// Only the fixed PUBLIC carrier and its reserved synthetic FDs are substituted.
+// Gate/owner validators, ledger/crypto/DatabaseSync and all other fs paths run real code.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (context.parentURL?.includes('/packages/boundary-gate/src/gate.mjs')
-      && specifier.endsWith('/host/aura/context.mjs')) return { url: carrierUrl, shortCircuit: true }
+    if (specifier === 'node:fs') return { url: syntheticFsUrl, shortCircuit: true }
     return nextResolve(specifier, context)
   },
   load(url, context, nextLoad) {
@@ -30,21 +103,13 @@ registerHooks({
       return { format: 'module', shortCircuit: true,
         source: source.replace(guard, '/* synthetic removal control: signed-chain refusal removed */') }
     }
-    if (url === carrierUrl) return { format: 'module', shortCircuit: true, source: `
-      export const AURA_CONTEXT_PATH = '/etc/aukora-boundary-gate/aura-context.json'
-      export function readProtectedAuraData(path) {
-        const s = globalThis[Symbol.for('aukora.synthetic.preconstruction-public-carrier')]
-        s.reads.push(path)
-        if (s.text === null) throw new Error('synthetic protected public carrier unavailable')
-        return s.texts?.length ? s.texts.shift() : s.text
-      }
-    ` }
+    if (url === syntheticFsUrl) return { format: 'module', shortCircuit: true, source: publicFsSource }
     return nextLoad(url, context)
   },
 })
 
 const { ownerAuthorizationReadiness } = await import(gateUrl.href)
-const { entryBody, sha256 } = await import('../packages/boundary-gate/src/ledger.mjs')
+const { entryBody, sha256, readGateReadinessPublicSource } = await import('../packages/boundary-gate/src/ledger.mjs')
 const { AFTER, BEFORE, decision, effectFixture, fixtureParent, proofFor } = await import('./fixtures/owner-effect-worker.mjs')
 const { DatabaseSync } = process.getBuiltinModule('node:sqlite')
 
@@ -64,6 +129,12 @@ function useCarrier(configuration) {
   globalThis[publicCarrierState].text = JSON.stringify(configuration)
   globalThis[publicCarrierState].texts = null
   globalThis[publicCarrierState].reads = []
+  globalThis[publicCarrierState].closes = 0
+  globalThis[publicCarrierState].liveFds = 0
+  globalThis[publicCarrierState].namedReads = 0
+  globalThis[publicCarrierState].ancestorReads = 0
+  globalThis[publicCarrierState].fault = null
+  globalThis[publicCarrierState].bytes = null
 }
 
 function inspect(f, reader = () => f.ownerState) {
@@ -119,6 +190,8 @@ function assertObservation(f, expected) {
   assert.deepEqual(rest, expected, 'public readiness is the exact closed original-history observation')
   assert.deepEqual(globalThis[publicCarrierState].reads, Array(2).fill('/etc/aukora-boundary-gate/aura-context.json'),
     'verifier obtains and freshly rechecks the gate key only from the fixed existing public carrier')
+  assert.equal(globalThis[publicCarrierState].closes, 2, 'both public descriptors are closed')
+  assert.equal(globalThis[publicCarrierState].liveFds, 0, 'observation leaks no public descriptor')
 }
 
 function retainedCopy(t, f, fault) {
@@ -318,4 +391,89 @@ test('retained consumption facts and applied terminal outcome must match origina
     useCarrier(carrier(damaged))
     assertUnchanged(damaged, () => assert.throws(() => inspect(damaged), /retained|binding|consum|original|proof|issuance|unavailable|terminal|signed/i))
   })
+})
+
+test('local public carrier parser preserves exact UTF8 and rejects decoded duplicates, rounding, surrogate, BOM and depth faults', async t => {
+  const f = effectFixture(t), configuration = carrier(f)
+  useCarrier(configuration)
+  const text = globalThis[publicCarrierState].text
+  assert.deepEqual(readGateReadinessPublicSource(), { text, value: configuration },
+    'real local strict parser returns the original public bytes and decoded data')
+  assert.equal(globalThis[publicCarrierState].closes, 1)
+  const faults = [
+    ['decoded-duplicate', text.replace('"version":1', '"version":1,"\\u0076ersion":1'), 'JSON_DUPLICATE_KEY'],
+    ['decimal-rounding', text.replace('"max_rows":256', '"max_rows":256.000000000000000001'), 'JSON_UNSAFE_NUMBER'],
+    ['lone-surrogate', text.replace('"nostr":{}', '"nostr":{"unused":"\\ud800"}'), 'JSON_LONE_SURROGATE'],
+    ['BOM', '\ufeff' + text, 'JSON_MALFORMED'],
+    ['negative-zero', text.replace('"version":1', '"version":-0'), 'JSON_NEGATIVE_ZERO'],
+    ['depth', text.replace('"nostr":{}', '"nostr":{"unused":' + '['.repeat(65) + '1' + ']'.repeat(65) + '}'), 'JSON_DEPTH'],
+  ]
+  for (const [fault, bytes, reason] of faults) await t.test(fault, () => {
+    useCarrier(configuration)
+    globalThis[publicCarrierState].text = bytes
+    assert.throws(() => readGateReadinessPublicSource(), { reason })
+    assert.equal(globalThis[publicCarrierState].liveFds, 0, 'parse refusal follows an already closed public descriptor')
+    assert.equal(globalThis[publicCarrierState].closes, 1)
+  })
+  await t.test('invalid-UTF8', () => {
+    useCarrier(configuration)
+    globalThis[publicCarrierState].bytes = Buffer.from([0xc3, 0x28])
+    assert.throws(() => readGateReadinessPublicSource(), /^Error: protected-public-data:unavailable$/u)
+    assert.equal(globalThis[publicCarrierState].liveFds, 0)
+    assert.equal(globalThis[publicCarrierState].closes, 1)
+  })
+})
+
+test('real protected reader rejects synthetic public metadata and identity faults and closes opened descriptors', async t => {
+  for (const fault of ['ancestor-owner', 'ancestor-write', 'ancestor-symlink', 'ancestor-drift', 'file-owner',
+    'file-write', 'file-hardlink', 'file-symlink', 'fd-identity', 'named-identity', 'oversize']) await t.test(fault, st => {
+    const f = retainedCopy(st, effectFixture(st))
+    useCarrier(carrier(f))
+    globalThis[publicCarrierState].fault = fault
+    assertUnchanged(f, () => assert.throws(() => inspect(f), /^Error: protected-public-data:unavailable$/u))
+    assert.equal(globalThis[publicCarrierState].liveFds, 0, 'every opened synthetic public FD closes even on identity refusal')
+    const beforeOpen = ['ancestor-owner', 'ancestor-write', 'ancestor-symlink', 'file-symlink'].includes(fault)
+    assert.equal(globalThis[publicCarrierState].closes, beforeOpen ? 0 : 1)
+  })
+})
+
+test('corrected eight-file gate closure imports cold alone while old gate imports refuse missing Aura context', () => {
+  const selected = ['boundary-gate/src/gate.mjs', 'boundary-gate/src/ledger.mjs', 'boundary-gate/src/card.mjs',
+    'boundary-gate/src/targets.mjs', 'boundary-gate/src/secrets.mjs', 'boundary-gate/src/release-floor.mjs',
+    'owner-key/src/index.mjs', 'owner-key/src/authorization.mjs']
+  const materialize = oldGate => {
+    const home = mkdtempSync(join(fixtureParent(), oldGate ? 'readiness-flat-old-' : 'readiness-flat-new-'))
+    for (const relative of selected) {
+      const destination = join(home, relative)
+      mkdirSync(dirname(destination), { recursive: true, mode: 0o700 })
+      const bytes = oldGate && relative === 'boundary-gate/src/gate.mjs'
+        ? execFileSync('git', ['show', '809c7c5e1668222567f150cf72b7d9aecfba4489:packages/' + relative], { cwd: repoRoot })
+        : readFileSync(join(repoRoot, 'packages', relative))
+      writeFileSync(destination, bytes, { flag: 'wx', mode: 0o600 })
+    }
+    assert.deepEqual(readdirSync(home).sort(), ['boundary-gate', 'owner-key'],
+      'flat fixture contains only the two selected source directories')
+    for (const directory of ['contracts', 'host', 'plugins', 'scripts', 'node_modules'])
+      assert.equal(existsSync(join(home, directory)), false, 'no unselected dependency is materialized')
+    return home
+  }
+  const run = home => {
+    const childEnv = { ...process.env }
+    delete childEnv.NODE_TEST_CONTEXT
+    delete childEnv.AUKORA_OWNER_READINESS_REMOVE_LEDGER_GUARD
+    return spawnSync(process.execPath, ['--input-type=module', '-e',
+      "const g=await import(process.argv[1]); if(typeof g.ownerAuthorizationReadiness!=='function') throw new Error('missing concrete export'); console.log('FLAT_GATE_IMPORT_OK')",
+      pathToFileURL(join(home, 'boundary-gate/src/gate.mjs')).href],
+    { cwd: home, env: childEnv, encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024 })
+  }
+  const current = run(materialize(false))
+  assert.equal(current.error, undefined)
+  assert.equal(current.status, 0, current.stderr)
+  assert.equal(current.stdout, 'FLAT_GATE_IMPORT_OK\n', 'fresh child imports concrete export without any module substitution')
+  const old = run(materialize(true))
+  assert.equal(old.error, undefined)
+  assert.equal(old.status, 1, 'old gate source alone must fail in the identical minimal closure')
+  assert.match(old.stderr, /ERR_MODULE_NOT_FOUND/u)
+  assert.match(old.stderr, /boundary-gate\/host\/aura\/context\.mjs/u,
+    'control fails for the precise old uninstalled dependency, not an unrelated missing module')
 })

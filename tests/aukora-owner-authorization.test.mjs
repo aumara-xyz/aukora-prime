@@ -2,8 +2,7 @@
 // Disposable fixture keys only; these checks make no enrollment or custody claim.
 import assert from 'node:assert/strict'
 import { createHmac, generateKeyPairSync, randomUUID, sign, verify } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -17,6 +16,7 @@ import { OWNER_KEY_ALGORITHM, ownerRootPin } from '../packages/owner-key/src/ind
 import { ownerAuthorizationDigest, ownerAuthorizationProofDigest, ownerAuthorizationProofText,
   ownerAuthorizationSigningBytes } from '../packages/owner-key/src/authorization.mjs'
 import { gateCall, PROPOSE_OPS, proposeTheme } from '../plugins/aukora-auma-theme/lib/propose.mjs'
+import { fixtureParent } from './fixtures/owner-effect-worker.mjs'
 
 const BEFORE = '{"accent": "default"}'
 const AFTER = '{"accent": "#112233"}'
@@ -24,7 +24,7 @@ const BASE_TIME = 1791072000000
 const JOURNAL_ID = 'aukora-gate-pilot'
 
 function fixture(t, options = {}) {
-  const home = mkdtempSync(path.join(tmpdir(), 'aukora-owner-authorization-'))
+  const home = mkdtempSync(path.join(fixtureParent(), 'owner-authorization-'))
   const gatePair = generateKeyPairSync('ed25519')
   const ownerPair = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
   const ownerSpki = ownerPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64')
@@ -73,7 +73,7 @@ function fixture(t, options = {}) {
     try { return (options.createGate ?? createGate)(args) }
     catch (error) { args.db.close(); throw error }
   }
-  t.after(() => { f.gate?.close(); rmSync(home, { recursive: true, force: true }) })
+  t.after(() => { f.gate?.close() }) // Retain every synthetic fixture, including failed state.
   f.gate = makeGate()
   f.openGate = makeGate
   f.reopen = () => { f.gate.close(); f.gate = makeGate(); return f.gate }
@@ -334,9 +334,23 @@ test('legacy startup between spend and effect cannot erase the applying fence an
   assert.equal(f.gate.db.prepare('SELECT COUNT(*) n FROM gate_completed_results').get().n, 0)
 })
 
-test('a G configuration winning the startup writer lock retains its interrupted-effect uncertainty fence', t => {
+test('a G configuration winning the startup writer lock refuses a missing reader without changing retained uncertainty', t => {
   const options = { ownerStateMode: 'missing' }, f = fixture(t, options), proposal = f.propose()
   const originalExec = f.gate.db.exec.bind(f.gate.db)
+  const originalGateSpki = f.gate.pub.export({ type: 'spki', format: 'der' })
+  const snapshot = () => ({
+    proposals: f.gate.db.prepare('SELECT * FROM proposals ORDER BY id').all(),
+    blobs: f.gate.db.prepare('SELECT * FROM blobs ORDER BY sha').all(),
+    latch: f.gate.db.prepare('SELECT * FROM owner_authorization_required ORDER BY singleton').all(),
+    reviews: f.gate.db.prepare('SELECT * FROM owner_authorization_reviews ORDER BY gate,challenge').all(),
+    consumptions: f.gate.db.prepare('SELECT * FROM owner_authorization_consumptions ORDER BY authorization_id').all(),
+    ledger: f.gate.db.prepare('SELECT * FROM ledger ORDER BY seq').all(),
+    completions: f.gate.db.prepare('SELECT * FROM gate_completed_results ORDER BY proposal_id').all(),
+    budget: f.gate.db.prepare('SELECT * FROM propose_budget ORDER BY singleton').all(),
+    gate_spki: f.gate.pub.export({ type: 'spki', format: 'der' }),
+    current: Buffer.from(f.current), writes: f.writes.map(row => ({ ...row, bytes: Buffer.from(row.bytes) })),
+  })
+  let originalReview, originalProof, beforeRefusal
   let armed = true
   f.gate.db.exec = sql => {
     if (armed && sql === 'BEGIN IMMEDIATE') {
@@ -344,20 +358,43 @@ test('a G configuration winning the startup writer lock retains its interrupted-
       options.ownerStateMode = undefined
       const configured = f.openGate()
       const review = configured.ownerOps.review({ id: proposal.id })
+      originalReview = review
+      originalProof = proofFor(f, review.owner_authorization)
       f.beforeWrite = ({ bytes }) => { f.current = bytes; throw new Error('fixture interrupted after bytes became present') }
-      assert.throws(() => configured.ownerOps.decide_review(decision(review, proofFor(f, review.owner_authorization)), 'fixture-G-owner'), /fixture interrupted/)
+      assert.throws(() => configured.ownerOps.decide_review(decision(review, originalProof), 'fixture-G-owner'), /fixture interrupted/)
       f.beforeWrite = null
       configured.close()
       options.ownerStateMode = 'missing'
+      // The authorized concurrent setup committed first. Compare only the
+      // refused outer startup against that exact retained state.
+      beforeRefusal = snapshot()
     }
     return originalExec(sql)
   }
-  f.gate.startup({ pid: 3 })
-  assert.equal(f.gate.proposeOps.state({ id: proposal.id }).state, 'incomplete')
+  assert.throws(() => f.gate.startup({ pid: 3 }), /owner authorization unavailable: trusted owner state is unconfigured/)
+  assert.ok(beforeRefusal, 'the G setup must win before observing the refused startup')
+  assert.deepEqual(snapshot(), beforeRefusal, 'refused startup must append, reconcile and effect nothing')
+  assert.equal(f.gate.proposeOps.state({ id: proposal.id }).state, 'applying')
+  const retained = consumption(f, originalReview.authorization_digest)
+  assert.equal(f.gate.db.prepare('SELECT COUNT(*) n FROM owner_authorization_consumptions').get().n, 1)
+  assert.equal(retained.proof_text, ownerAuthorizationProofText(originalProof))
+  assert.equal(retained.proof_sha256, ownerAuthorizationProofDigest(originalProof))
+  assert.equal(retained.gate, sha256(originalGateSpki))
+  assert.deepEqual(f.gate.pub.export({ type: 'spki', format: 'der' }), originalGateSpki)
+  assert.deepEqual({ ledger_seq: retained.issue_seq, ledger_hash: retained.issue_hash }, originalReview.review_issue)
+  const spent = f.gate.db.prepare('SELECT * FROM owner_authorization_reviews WHERE authorization_id=?').get(retained.authorization_id)
+  assert.equal(spent.state, 'spent')
+  assert.equal(spent.spend_seq, retained.consume_seq)
+  assert.equal(spent.spent_at_ms, retained.accepted_at_ms)
+  assert.equal(verify('sha256', ownerAuthorizationSigningBytes(originalProof.authorization), f.ownerPair.publicKey,
+    Buffer.from(originalProof.signature_base64, 'base64')), true, 'the retained original P256 proof remains valid')
+  assert.equal(f.current.toString(), AFTER)
   assert.equal(f.gate.db.prepare("SELECT COUNT(*) n FROM ledger WHERE event='genesis-target'").get().n, 0)
   assert.equal(f.gate.db.prepare("SELECT COUNT(*) n FROM ledger WHERE event IN ('apply','revert-applied')").get().n, 0)
   assert.equal(f.gate.db.prepare('SELECT COUNT(*) n FROM gate_completed_results').get().n, 0)
+  assert.equal(f.gate.db.prepare("SELECT COUNT(*) n FROM ledger WHERE event='gate-start'").get().n, 0)
   assert.equal(f.writes.length, 0)
+  assert.equal(f.gate.verify().ok, true)
 })
 
 test('legacy effect refuses a base changed after its durable spend', t => {
@@ -741,7 +778,7 @@ test('two concurrent database connections can consume the same signed proof only
 })
 
 test('specific in-memory faults are killed by proof, final-clock, and atomic CAS assertions', async t => {
-  await t.test('legacy no-proof fallback', async st => {
+  await t.test('legacy no-proof fallback and retained-proof fence omitted', async st => {
     const create = await inMemoryGateMutant([
       ["if (outcome && Object.hasOwn(outcome, 'value') && outcome.value === 'allowed-once') fields.push('owner_authorization_proof')",
         "if (outcome && Object.hasOwn(outcome, 'value') && outcome.value === 'allowed-once' && args.owner_authorization_proof !== undefined) fields.push('owner_authorization_proof')"],
@@ -750,15 +787,18 @@ test('specific in-memory faults are killed by proof, final-clock, and atomic CAS
           proof: { algorithm: 'p256-ecdsa-sha256', authorization: a, signature_base64: 'AAAAAAAAAAA=' },
           reference: { version: 1, kind: 'aukora-owner-authorization-ref/v1', authorization_id: r.authorization_id,
             proof_sha256: '0'.repeat(64) } } : verifyOwnerAuthorization(args.owner_authorization_proof, expectations, currentMs())`],
+      ['assertRetainedConsumption(p, consumption, review)', '/* named mutant: retained owner-proof fence omitted */'],
     ])
     const f = fixture(st, { createGate: create }), proposal = f.propose(), review = f.review(proposal)
     assert.throws(() => assertRefused(f, () => f.gate.ownerOps.decide_review(decision(review), 'legacy-fixture-channel')), assert.AssertionError)
     assert.equal(f.writes.length, 1, 'the named fallback mutant really crosses the effect boundary')
   })
-  await t.test('final commit expiry omitted', async st => {
+  await t.test('final commit and dispatch expiry omitted', async st => {
     const create = await inMemoryGateMutant([
       ["if (at < c.accepted_at_ms || at >= r.expires_at_ms || at >= p.expires) throw new Error('owner authorization expired at final commit clock')",
         "if (at < c.accepted_at_ms) throw new Error('owner authorization expired at final commit clock')"],
+      ['|| at < consumption.accepted_at_ms || at >= review.expires_at_ms || at >= p.expires)',
+        '|| at < consumption.accepted_at_ms)'],
     ])
     const f = commitFaultFixture(st, 'expiry', create), proposal = f.propose(), review = f.review(proposal)
     const proof = proofFor(f, review.owner_authorization)
@@ -766,12 +806,13 @@ test('specific in-memory faults are killed by proof, final-clock, and atomic CAS
     assert.throws(() => assertRefused(f, () => f.gate.ownerOps.decide_review(decision(review, proof), 'fixture-owner-channel')), assert.AssertionError)
     assert.equal(f.writes.length, 1)
   })
-  await t.test('proposal CAS and redundant final-state fence omitted', async st => {
+  await t.test('proposal CAS, final-state and dispatch applying-state fences omitted', async st => {
     const create = await inMemoryGateMutant([
       ["if (spent.changes !== 1 || !setState(id, 'pending', 'applying', 'owner authorization spent')) throw new Error('owner consumption compare-and-set failed')",
         "setState(id, 'pending', 'applying', 'owner authorization spent')"],
       ["!r || r.state !== 'spent' || !p || p.state !== 'applying' || JSON.stringify(activeOwnerState()) !== c.owner_state_text",
         "!r || !p || JSON.stringify(activeOwnerState()) !== c.owner_state_text"],
+      ["if (!current || current.state !== 'applying'", 'if (!current'],
     ])
     const f = fixture(st, { createGate: create }), proposal = f.propose(), review = f.review(proposal)
     const proof = proofFor(f, review.owner_authorization)

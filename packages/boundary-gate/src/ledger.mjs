@@ -8,6 +8,179 @@ import { DatabaseSync } from 'node:sqlite'
 export const sha256 = (b) => createHash('sha256').update(b).digest('hex')
 export const SHA = /^[0-9a-f]{64}$/
 
+// Public-only preconstruction support retained locally for the flat gate package.
+// AGPL-3.0-or-later selected pure JSON decoder from Prime packages/contracts/src/json.mjs,
+// SHA256 068aa14d3be101413cb028dc5f39e442130b4eeb87c40e18209ddce3ffce4639.
+// Its duplicate/depth scan preserves Genesis 645d3213b8aede3b544269b4224ae09df06b0a42 provenance.
+// Bounded no-follow public reader from H protected-public-data.mjs,
+// SHA256 ab9f809f37831e2c227c330350ba5cedb14831e96c9ec970230ef81f431a50cd.
+// Only public data and Node builtins; no Aura/Nostr/contracts runtime imports.
+class ContractValidationError extends TypeError {
+ constructor(reason, path = '$') {
+  super(`INVALID: ${reason} at ${path}`);
+  this.name = 'ContractValidationError'; this.code = 'INVALID'; this.error_code = 'INVALID';
+  this.reason = reason; this.path = path;
+ }
+}
+function invalid(reason, path) { throw new ContractValidationError(reason, path); }
+const MAX_JSON_DEPTH = 64;
+const MAX_JSON_BYTES = 8 * 1024 * 1024;
+function assertUnicode(value, path = '$') {
+ if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)) invalid('JSON_LONE_SURROGATE', path);
+}
+function canonicalJson(value) {
+ const ancestors = new Set();
+ function encode(node, depth) {
+  if (depth > MAX_JSON_DEPTH) invalid('JSON_DEPTH');
+  if (node === null || typeof node === 'boolean') return JSON.stringify(node);
+  if (typeof node === 'string') { assertUnicode(node); return JSON.stringify(node); }
+  if (typeof node === 'number') {
+   if (Object.is(node, -0)) invalid('JSON_NEGATIVE_ZERO');
+   if (!Number.isSafeInteger(node)) invalid('JSON_UNSAFE_NUMBER');
+   return JSON.stringify(node);
+  }
+  if (!node || typeof node !== 'object') invalid('JSON_VALUE');
+  if (ancestors.has(node)) invalid('JSON_CYCLE');
+  const array = Array.isArray(node), proto = Object.getPrototypeOf(node);
+  if (array ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) invalid('JSON_PROTOTYPE');
+  const keys = Reflect.ownKeys(node);
+  for (const key of keys) {
+   if (array && key === 'length') continue;
+   const d = Object.getOwnPropertyDescriptor(node, key);
+   if (typeof key !== 'string' || !d?.enumerable || !Object.hasOwn(d, 'value')) invalid('JSON_DATA_PROPERTY');
+   assertUnicode(key);
+  }
+  if (array && (keys.length !== node.length + 1 || Array.from({length: node.length}, (_, i) => Object.hasOwn(node, i)).some(present => !present))) invalid('JSON_ARRAY');
+  ancestors.add(node);
+  const result = array ? '[' + node.map(item => encode(item, depth + 1)).join(',') + ']'
+   : '{' + Object.keys(node).sort().map(key => JSON.stringify(key) + ':' + encode(node[key], depth + 1)).join(',') + '}';
+  ancestors.delete(node);
+  return result;
+ }
+ return encode(value, 0);
+}
+
+// Check the mathematical value before native parsing can round a decimal token
+// such as 1.00000000000000001 to the safe integer 1. Exact 1e0/1.0 remain usable.
+function exactNumber(token) {
+ const m = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(token);
+ let digits = (m[2] + (m[3] ?? '')).replace(/^0+/, '');
+ if (!digits) { if (m[1]) invalid('JSON_NEGATIVE_ZERO'); return; }
+ const scale = Number(m[4] ?? 0) - (m[3]?.length ?? 0);
+ if (!Number.isSafeInteger(scale)) invalid('JSON_UNSAFE_NUMBER');
+ if (scale < 0) {
+  const count = -scale;
+  if (count > digits.length || !/^0*$/.test(digits.slice(-count))) invalid('JSON_UNSAFE_NUMBER');
+  digits = digits.slice(0, -count);
+ } else {
+  if (digits.length + scale > 16) invalid('JSON_UNSAFE_NUMBER');
+  digits += '0'.repeat(scale);
+ }
+ if (digits.length > 16 || BigInt(digits) > BigInt(Number.MAX_SAFE_INTEGER)) invalid('JSON_UNSAFE_NUMBER');
+}
+function parseStrictJson(text, options = {}) {
+ if (!options || typeof options !== 'object' || Array.isArray(options)) invalid('JSON_LIMIT');
+ const {maxBytes = MAX_JSON_BYTES, maxDepth = MAX_JSON_DEPTH} = options;
+ if (typeof text !== 'string') invalid('JSON_TEXT_REQUIRED');
+ if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_JSON_BYTES
+  || !Number.isSafeInteger(maxDepth) || maxDepth < 0 || maxDepth > MAX_JSON_DEPTH) invalid('JSON_LIMIT');
+ assertUnicode(text);
+ if (text.length > maxBytes || new TextEncoder().encode(text).length > maxBytes) invalid('JSON_SIZE');
+ // Bound depth BEFORE the native parser. Escaped quotes/brackets do not count.
+ let depth = 0;
+ for (let i = 0; i < text.length; i++) {
+  if (text[i] === '"') { for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === '\\') i++; }
+  else if (text[i] === '{' || text[i] === '[') { if (++depth > maxDepth) invalid('JSON_DEPTH'); }
+  else if (text[i] === '}' || text[i] === ']') depth--;
+ }
+ let value;
+ try { value = JSON.parse(text); } catch { invalid('JSON_MALFORMED'); }
+ // Scan the SAME validated text for decoded keys, scoped to each object, before
+ // returning a value whose duplicate keys would already have been discarded.
+ const stack = [];
+ for (let i = 0; i < text.length; i++) {
+  const ch = text[i];
+  if (ch === '"') {
+   const start = i;
+   for (i++; text[i] !== '"'; i++) if (text[i] === '\\') i++;
+   let probe = i + 1;
+   while (/^[\x20\t\r\n]$/.test(text[probe] ?? '')) probe++;
+   if (text[probe] === ':') {
+    const key = JSON.parse(text.slice(start, i + 1)), frame = stack[stack.length - 1];
+    if (frame.has(key)) invalid('JSON_DUPLICATE_KEY');
+    frame.add(key);
+   }
+  } else if (ch === '{') stack.push(new Set());
+  else if (ch === '[') stack.push(null);
+  else if (ch === '}' || ch === ']') stack.pop();
+  else if (ch === '-' || /[0-9]/.test(ch)) {
+   const start = i;
+   while (i + 1 < text.length && /[0-9.eE+-]/.test(text[i + 1])) i++;
+   exactNumber(text.slice(start, i + 1));
+  }
+ }
+ canonicalJson(value); // Includes decoded lone surrogates in values AND keys.
+ return value;
+}
+
+const canonicalAbsolutePath = value => typeof value === 'string' && path.isAbsolute(value)
+  && value.length <= 4096 && value.isWellFormed() && !/[\u0000-\u001f\u007f]/u.test(value)
+  && path.normalize(value) === value && !value.startsWith('//')
+const refuse = () => { throw new Error('protected-public-data:unavailable') }
+const sameFileIdentity = (before, after) => ['dev', 'ino', 'uid', 'gid', 'mode', 'nlink', 'size', 'mtimeMs', 'ctimeMs']
+  .every(field => before[field] === after[field])
+
+function checkProtectedPublicAncestors(file, { readerGid } = {}) {
+  if (!canonicalAbsolutePath(file)) refuse()
+  for (let directory = path.dirname(file); ; directory = path.dirname(directory)) {
+    const info = fs.lstatSync(directory)
+    if (!info.isDirectory() || info.uid !== 0 || (info.mode & 0o022) !== 0
+      || (readerGid !== undefined && (info.mode & 0o001) === 0
+        && !(info.gid === readerGid && (info.mode & 0o010) !== 0))) refuse()
+    if (directory === '/') break
+  }
+}
+
+/** No-follow descriptor read; bounded UTF8; no key creation, discovery or writes. */
+function readProtectedPublicBytes(file, maximum = 4096) {
+  let fd
+  try {
+    if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 32 * 1024 * 1024
+      || typeof fs.constants.O_NOFOLLOW !== 'number' || typeof fs.constants.O_NONBLOCK !== 'number') refuse()
+    checkProtectedPublicAncestors(file)
+    const named = fs.lstatSync(file)
+    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
+    const before = fs.fstatSync(fd)
+    if (!before.isFile() || before.uid !== 0 || before.nlink !== 1 || (before.mode & 0o022) !== 0
+      || before.size < 1 || before.size > maximum || !sameFileIdentity(named, before)) refuse()
+    const bytes = Buffer.alloc(maximum + 1)
+    let used = 0, count
+    while ((count = fs.readSync(fd, bytes, used, bytes.length - used, null)) > 0) {
+      used += count
+      if (used > maximum) refuse()
+    }
+    if (used !== before.size || !sameFileIdentity(before, fs.fstatSync(fd))
+      || !sameFileIdentity(before, fs.lstatSync(file))) refuse()
+    checkProtectedPublicAncestors(file)
+    return bytes.subarray(0, used)
+  } catch { refuse() }
+  finally { if (fd !== undefined) fs.closeSync(fd) }
+}
+
+function readProtectedPublicText(file, maximum = 4096) {
+  try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readProtectedPublicBytes(file, maximum)) }
+  catch { refuse() }
+}
+
+const GATE_READINESS_SOURCE_FILE = '/etc/aukora-boundary-gate/aura-context.json'
+// H must independently pin this fixed existing public document before admission.
+// Its full collector configuration is not a G authority profile or runtime dependency.
+export function readGateReadinessPublicSource() {
+  const text = readProtectedPublicText(GATE_READINESS_SOURCE_FILE, 1024 * 1024)
+  const value = parseStrictJson(text, { maxBytes: 1024 * 1024 })
+  return { text, value }
+}
+
 // Bounds apply to NEW audit entries only. Retained signed TEXT is never normalized,
 // truncated or rewritten. Detached data prevents caller getters/toJSON from signing a
 // different payload, while ordinary JSON property order and bytes stay unchanged.
