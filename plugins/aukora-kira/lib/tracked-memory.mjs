@@ -426,7 +426,8 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
             uri: contentUri(config.user ?? SEMANTIC_DEFAULTS.user, byId.get(row.recordId).contentHash) }))
         return { ...semanticNotes({ ...answer, hits, threshold: LEXICAL_METHOD.minScore }, 60_000),
           ...(live.complete ? {} : { state: 'undetermined' }), method: LEXICAL_METHOD.name, ceiling: RETRIEVAL_CEILING,
-          degraded: !lexical, semantic: { available: false, reason: answer.reason, failures: answer.failures }, memory: report, dropped: answer.dropped }
+          degraded: !lexical, semantic: { available: false, reason: answer.reason,
+            ...(answer.failures === undefined ? {} : { failures: answer.failures }) }, memory: report, dropped: answer.dropped }
       }
       const hits = answer.hits.flatMap(hit => {
         const note = byId.get(hit.id)
