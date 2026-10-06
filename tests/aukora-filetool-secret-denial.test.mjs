@@ -5,9 +5,18 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
+
+// The control compares against a real ripgrep: prefer the DSH tree's packaged
+// binary (what production spawns), fall back to a system rg.
+const rgBinary = (() => {
+  try {
+    return createRequire(new URL('../vendor/dsh/packages/fs/tool-fs-search/package.json', import.meta.url))('@vscode/ripgrep').rgPath
+  } catch { return 'rg' }
+})()
 
 const indexUrl = new URL('../plugins/aukora-action-gate/lib/index.mjs', import.meta.url)
 const policyUrl = new URL('../plugins/aukora-action-gate/lib/policy.mjs', import.meta.url)
@@ -63,7 +72,7 @@ function fixture() {
     // This transport is a fixture, not an attestation of installed DSH tools.
     if (name === 'grep') {
       const path = args.path ?? cwd
-      return { invoked: true, value: execFileSync('rg', ['--hidden', '--no-ignore', '--follow', 'FIXTURE_MARKER', path], { encoding: 'utf8', cwd: cwd ?? workspace }) }
+      return { invoked: true, value: execFileSync(rgBinary, ['--hidden', '--no-ignore', '--follow', 'FIXTURE_MARKER', path], { encoding: 'utf8', cwd: cwd ?? workspace }) }
     }
     const raw = args.file_path ?? args.path ?? args.files?.[0]?.path
     const path = raw.startsWith('~/') ? resolve(root, raw.slice(2)) : resolve(cwd, raw)

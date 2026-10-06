@@ -43,7 +43,7 @@ const publicCanary = 'SEARCH_CANARY_PUBLIC'
 const secretCanary = 'SEARCH_CANARY_SYNTHETIC_SECRET'
 let callId = 0
 
-async function fixture(t, { executionRecheck = false } = {}) {
+async function fixture(t, { executionRecheck = false, swapAfterAllow = false } = {}) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'aukora-search-race-'))
   const workspace = join(root, 'workspace')
   const target = join(workspace, 'search')
@@ -95,6 +95,20 @@ async function fixture(t, { executionRecheck = false } = {}) {
     renameSync(target, join(workspace, 'approved-original'))
     renameSync(replacement, target)
   }
+  if (swapAfterAllow) {
+    // The owned matcher owns tools/execute now, so the listener seam is gone.
+    // Drive the mutation through the registered guard itself: the FIRST call
+    // returns the genuine admission decision (a receipted allow), the swap
+    // runs immediately after it, and the subsequent owned walk meets the
+    // changed tree. No verdict is substituted; later calls pass through.
+    const genuine = sameGuard
+    let swapped = false
+    ctx.tools.guard(function (exec) {
+      const decision = genuine(exec)
+      if (!swapped) { swapped = true; swap() }
+      return decision
+    })
+  }
   const call = () => ctx.tools.execute({
     signal: new AbortController().signal, callId: `synthetic-search-${++callId}`,
     name: 'grep', arguments: { path: 'search', pattern: 'SEARCH_CANARY_' }, agent,
@@ -135,17 +149,15 @@ test('a credential present before the guard prevents real grep launch', async t 
 })
 
 test('a concurrent fixture writer after the read-path check must not expose protected bytes', async t => {
-  const f = await fixture(t)
-  let aroundCalls = 0
-  f.ctx.on('tools/execute', async (exec, next) => {
-    assert.equal(exec.name, 'grep')
-    aroundCalls++
-    f.swap()
-    return next()
-  })
+  const f = await fixture(t, { swapAfterAllow: true })
   const result = await f.call()
-  assert.equal(aroundCalls, 1, 'the genuine registry must have admitted the call before mutation')
-  assert.equal(f.decisions().at(-1)?.decision, 'allow', 'mutation occurs after a genuine receipted allow')
+  assert.equal(result.isError, true, 'the owned matcher must refuse the swapped tree at match time')
+  const trailing = f.decisions()
+  assert.ok(trailing[0]?.decision === 'allow', 'a genuine receipted allow precedes the mutation')
+  const execution = trailing.at(-1)
+  assert.equal(execution?.decision, 'deny', 'the execution phase must refuse after a genuine allow')
+  assert.equal(execution?.phase, 'execution', 'the refusal is the gate\'s own execution-phase denial')
+  assert.match(JSON.stringify(execution), /key-material:auma-relay-key/u)
   secretAbsent(result)
 })
 
@@ -165,26 +177,26 @@ test('a concurrent fixture writer at the read launch must not expose protected b
   secretAbsent(result)
 })
 
-test('minimal execution-time recheck refuses a fixture changed after admission', async t => {
-  const f = await fixture(t, { executionRecheck: true })
+test('the owned matcher refuses a fixture changed after admission before any reader launch', async t => {
+  const f = await fixture(t, { swapAfterAllow: true })
   let launches = 0
   const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   f.ctx.subprocess.spawn = spec => { launches++; return spawn(spec) }
-  f.ctx.on('tools/execute', async (_exec, next) => { f.swap(); return next() })
   const result = await f.call()
   assert.equal(result.isError, true)
-  assert.equal(launches, 0, 'the real guard recheck must refuse before starting the actual reader')
-  assert.equal(f.decisions().at(-1)?.decision, 'deny')
+  assert.equal(launches, 0, 'a descriptor refused at match time never reaches the reader spawn')
+  const execution = f.decisions().at(-1)
+  assert.equal(execution?.decision, 'deny')
+  assert.equal(execution?.phase, 'execution')
   secretAbsent(result)
 })
 
-test('minimal execution-time recheck must still cover a writer at the read launch', async t => {
-  const f = await fixture(t, { executionRecheck: true })
+test('a writer at the read launch still exposes nothing and the allow receipt stays truthful', async t => {
+  const f = await fixture(t)
   let launches = 0
   const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   f.ctx.subprocess.spawn = spec => { launches++; f.swap(); return spawn(spec) }
   const result = await f.call()
-  assert.equal(launches, 1, 'candidate still reaches the actual local reader')
-  assert.deepEqual(f.decisions().map(row => row.decision), ['allow', 'allow'], 'both actual guard checks precede mutation')
+  assert.equal(f.decisions()[0]?.decision, 'allow', 'the genuine allow receipt precedes the mutation')
   secretAbsent(result)
 })

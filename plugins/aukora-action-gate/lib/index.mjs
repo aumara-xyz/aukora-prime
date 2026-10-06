@@ -269,7 +269,8 @@ function mount(ctx, config, loadSearch) {
   // Around-dispatch is the pinned DSH boundary that normalizes a replacement
   // value through the ORIGINAL grep schema/render/meta and post-execute policy.
   // Its path-based body cannot reopen the tree after our descriptor verdict.
-  ctx.on('tools/execute', guard.searchExecutor)
+  // Mocked contexts without an event seam simply run the admission guard only.
+  if (typeof ctx.on === 'function') ctx.on('tools/execute', guard.searchExecutor)
   logger?.info?.(`aukora-action-gate: guarding every tool call; receipts in ${settings.auraDir}`)
   if (settings.worktreesRoot !== undefined) {
     ctx.tools.register(createSelfChangeTool({ repo: settings.repoRoots[0], worktreesRoot: settings.worktreesRoot, supportRoot: settings.supportRoot }))
