@@ -28,7 +28,8 @@
 // the object database (BASE..HEAD), never from the working tree: a handoff is
 // commits, and uncommitted bytes are invisible here by design.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -51,6 +52,12 @@ const report = (klass, ok, detail) => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${klass}: ${detail}`)
   if (!ok) failures.push(`${klass}: ${detail}`)
 }
+// Child tests get the same private per-user temporary parent check.sh provides:
+// several suites declare UNPERFORMED without one, by design.
+const privateTmp = mkdtempSync(join(realpathSync(tmpdir()), 'aukora-qualification-'))
+chmodSync(privateTmp, 0o700)
+process.on('exit', () => { try { rmSync(privateTmp, { recursive: true, force: true }) } catch { /* retained on error */ } })
+const childEnv = extra => ({ ...process.env, TMPDIR: privateTmp, ...extra })
 
 let changed, diff
 try {
@@ -143,7 +150,7 @@ const pinTests = ['tests/kira-gate-capture-host.test.mjs', 'tests/check-shell-st
 const pinResults = []
 for (const test of pinTests) {
   if (!existsSync(join(ROOT, test))) continue
-  const run = spawnSync(process.execPath, ['--test', join(ROOT, test)], { encoding: 'utf8', timeout: 180000 })
+  const run = spawnSync(process.execPath, ['--test', join(ROOT, test)], { encoding: 'utf8', timeout: 180000, env: childEnv() })
   pinResults.push(`${test.split('/').pop()}=${run.status === 0 ? 'PASS' : 'FAIL'}`)
 }
 const pinsOk = missing.length === 0 && pinResults.every(result => result.endsWith('PASS'))
@@ -172,7 +179,7 @@ if (!dshNeeded) {
   const dshResults = []
   for (const test of dshTests) {
     const run = spawnSync(process.execPath, ['--test', join(ROOT, test)],
-      { encoding: 'utf8', timeout: 300000, env: { ...process.env, AUKORA_DSH_SOURCE: DSH_SOURCE } })
+      { encoding: 'utf8', timeout: 300000, env: childEnv({ AUKORA_DSH_SOURCE: DSH_SOURCE }) })
     dshResults.push(`${test.split('/').pop()}=${run.status === 0 ? 'PASS' : 'FAIL'}`)
   }
   const ok = dshOk && dshResults.every(result => result.endsWith('PASS'))
