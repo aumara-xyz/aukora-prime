@@ -1,11 +1,11 @@
 {
  "schema": "aukora-current-evidence/v1",
- "updated_at": "2026-10-06T10:12:31Z",
+ "updated_at": "2026-10-06T14:04:59Z",
  "revisions": {
   "source": "9815c56e985bca2198342e78344e97a81e19597a",
   "main_observed": {
    "sha": "9815c56e985bca2198342e78344e97a81e19597a",
-   "at": "2026-10-06T10:12:31Z (r4-candidate-3 labs tip after D/H/E/F/M integration; SOURCE, ahead of the frozen main and the deployment)"
+   "at": "2026-10-06T14:04:59Z (r4-candidate-3 frozen a33d5f6 + this evidence commit; packet on the pilot at the frozen SHA: 98/109 + 1 UNPERFORMED with three named reds — selfcheck-bin arm 8 and plugin-set-trusted-verifier arm 5 (H, both fixed on labs/kimi-r4c3-fixes after the freeze) and aukora-owner-authorization legacy arms (D, fixed the same way) — plus four standing residuals)"
   },
   "deployment": {
    "sha": "3673b98a3e090d122ed0853386ff60913287c3a8",
@@ -328,6 +328,38 @@
    "limit": "Retained report/digest inspection, not complete independent reproduction. No training/GPU evaluation ran in this cleanup; no deployed AUKORA provider or product acceptance follows.",
    "evidence_kind": "RESEARCH_RECORD",
    "scope": "RESEARCH"
+  },
+  {
+   "id": "readiness-join",
+   "claim": "Gate startup readiness join (owner-state file, carrier pin, check-ready) is HELD: the aura-context carrier was defined in source but never provisioned; no original bytes exist and none were invented. check-ready refuses by design until approved original bytes are supplied.",
+   "status": "NOT YET",
+   "basis": "Peter's decision 2026-10-06: ship without the readiness join, named as held; D's source defined the file; ENOENT on the pilot confirmed by H (10:36 UTC) and accepted by D (no provisioning anywhere).",
+   "references": [
+    {
+     "path": "packages/boundary-gate/host/readiness.mjs",
+     "label": "readiness reader"
+    }
+   ],
+   "limit": "A held join is not a working join; nothing about readiness admission is claimed.",
+   "evidence_at": "2026-10-06T14:04:59Z",
+   "evidence_kind": "UNQUALIFIED",
+   "scope": "SOURCE"
+  },
+  {
+   "id": "owner-state-writer",
+   "claim": "The owner-state.json writer (owner enrollment) is unbuilt; the r4-candidate-3 gate/readiness package is qualified in source and on staging, NOT installed anywhere.",
+   "status": "UNPERFORMED",
+   "basis": "Peter's decision 2026-10-06; the staged Boot Identity manifest generation proves the only missing input is owner-state.json (only-delta verified on staging).",
+   "references": [
+    {
+     "path": "packages/boundary-gate/host/owner-state.mjs",
+     "label": "owner-state reader"
+    }
+   ],
+   "limit": "Installed check-boot/check-ready and the staging unit swap wait for the writer; this is a scope statement, not a defect report.",
+   "evidence_at": "2026-10-06T14:04:59Z",
+   "evidence_kind": "UNQUALIFIED",
+   "scope": "SOURCE"
   }
  ],
  "unperformed": [
@@ -338,7 +370,9 @@
   "Real owner passkey enrollment, protected root/key custody and human attendance.",
   "Scoped-key Aura collector and cold-record Kira recall acceptance; only the INTERIM collector runs.",
   "Protected NEXT service joins, live paid inference/budget qualification and browser/rendered owner acceptance.",
-  "External ledger-anchor freshness/completeness; offline L2 check validates only the retained signed prefix."
+  "External ledger-anchor freshness/completeness; offline L2 check validates only the retained signed prefix.",
+  "Readiness join HELD by owner decision (2026-10-06): the aura-context carrier was defined in source but never provisioned; no original bytes exist and none are invented. check-ready refuses by design until approved original bytes are supplied.",
+  "owner-state.json writer (owner enrollment) is unbuilt; the r4-candidate-3 gate/readiness package is qualified in source and on staging, NOT installed anywhere."
  ],
  "frontdoor": {
   "version": 1,

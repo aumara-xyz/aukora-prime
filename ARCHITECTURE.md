@@ -24,7 +24,7 @@ The repository holds two layers. Keep them apart while reading:
 | Identity | Revision / observation | Meaning |
 | --- | --- | --- |
 | Source account | `9815c56e985bca2198342e78344e97a81e19597a` | Base reviewed for this documentation snapshot; the review command emits the received HEAD and dirty state. |
-| Public main observed | `9815c56e985bca2198342e78344e97a81e19597a`, 2026-10-06T10:12:31Z (r4-candidate-3 labs tip after D/H/E/F/M integration; SOURCE, ahead of the frozen main and the deployment) | Read/fetch observation, not a deployment proof; main may advance. |
+| Public main observed | `9815c56e985bca2198342e78344e97a81e19597a`, 2026-10-06T14:04:59Z (r4-candidate-3 frozen a33d5f6 + this evidence commit; packet on the pilot at the frozen SHA: 98/109 + 1 UNPERFORMED with three named reds — selfcheck-bin arm 8 and plugin-set-trusted-verifier arm 5 (H, both fixed on labs/kimi-r4c3-fixes after the freeze) and aukora-owner-authorization legacy arms (D, fixed the same way) — plus four standing residuals) | Read/fetch observation, not a deployment proof; main may advance. |
 | Pilot deployment | `3673b98a3e090d122ed0853386ff60913287c3a8`, 2026-10-06T10:12:31Z · **REPORTED** | Live release 3673b98 is Peter-reported; the installed gate remains the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance. |
 | Tested revision | Per-check HEAD and file digests from `./security-review` | No current test result is inferred from a commit message or this table. Historical results stay in [evidence history](docs/EVIDENCE-HISTORY.md). |
 <!-- END GENERATED current-revisions -->
