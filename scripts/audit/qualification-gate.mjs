@@ -28,8 +28,8 @@
 // the object database (BASE..HEAD), never from the working tree: a handoff is
 // commits, and uncommitted bytes are invisible here by design.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -52,9 +52,21 @@ const report = (klass, ok, detail) => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${klass}: ${detail}`)
   if (!ok) failures.push(`${klass}: ${detail}`)
 }
-// Child tests get the same private per-user temporary parent check.sh provides:
-// several suites declare UNPERFORMED without one, by design.
-const privateTmp = mkdtempSync(join(realpathSync(tmpdir()), 'aukora-qualification-'))
+// Child tests get a private per-user temporary parent, and suites like E's
+// walk its ANCESTORS: /tmp is 1777, so the parent must live under the caller's
+// home (root-or-reader-owned, never group/other-writable) — the same rule the
+// fixture-custody class enforces on handoffs.
+const privateRoot = join(homedir(), '.aukora-qualification-tmp')
+if (existsSync(privateRoot)) {
+  const stat = lstatSync(privateRoot)
+  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o700) {
+    console.error(`gate setup: ${privateRoot} exists but is not a caller-owned 0700 directory`)
+    process.exit(2)
+  }
+} else {
+  mkdirSync(privateRoot, { mode: 0o700 })
+}
+const privateTmp = mkdtempSync(join(privateRoot, 'run-'))
 chmodSync(privateTmp, 0o700)
 process.on('exit', () => { try { rmSync(privateTmp, { recursive: true, force: true }) } catch { /* retained on error */ } })
 const childEnv = extra => ({ ...process.env, TMPDIR: privateTmp, ...extra })
