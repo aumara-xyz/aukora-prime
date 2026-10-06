@@ -102,7 +102,8 @@ test('key isolation: the key file must be private, harness-owned, a real file, o
   const key = path.join(dir, 'auma.key'); fs.writeFileSync(key, tok('auma') + '\n', { mode: 0o600 })
   const open = { deniedRoots: [] }
   assert.equal(loadKey(key, open), tok('auma'))
-  assert.throws(() => loadKey(key), /must not live under a guest, workspace or temp root/) // the real default denies /tmp
+  if (os.tmpdir().startsWith('/tmp')) assert.throws(() => loadKey(key), /must not live under a guest, workspace or temp root/) // the real default denies /tmp
+  assert.throws(() => loadKey(key, { deniedRoots: [dir] }), /must not live under/)
   assert.throws(() => loadKey('/sandbox/auma.key'), /must not live under/)
   assert.throws(() => loadKey('/home/auma/.relay'), /must not live under/)
   assert.throws(() => loadKey(key, { deniedRoots: [], extraDenied: [dir] }), /must not live under/)

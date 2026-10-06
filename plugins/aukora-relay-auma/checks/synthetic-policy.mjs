@@ -2,6 +2,7 @@
 // Invented, retained source fixtures only. This helper never discovers or reads
 // operational configuration, and never removes or changes existing files.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { POST_POLICY_PROFILE, PROTECTED_CATEGORIES } from '../lib/post-policy.mjs'
@@ -16,8 +17,10 @@ const protectedValues = Object.freeze([
 export function makeSyntheticPostPolicy() {
   const uid = process.getuid?.()
   if (!Number.isSafeInteger(uid) || uid <= 0) throw new Error('non-root synthetic fixture reader required')
-  const checksRoot = fs.realpathSync(path.dirname(fileURLToPath(import.meta.url)))
-  const parent = path.join(checksRoot, '.post-policy-fixtures')
+  // The validator's ancestor rule refuses group/other-writable parents: the
+  // checkout may sit under one (the pilot's ~/aukora-zip is 0775) and /tmp is
+  // 1777, so the fixture parent lives under the caller's protected home.
+  const parent = path.join(os.homedir(), '.aukora-post-policy-fixtures')
   if (!fs.existsSync(parent)) fs.mkdirSync(parent, { mode: 0o700 })
   const stat = fs.lstatSync(parent)
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== uid || (stat.mode & 0o077) !== 0)
