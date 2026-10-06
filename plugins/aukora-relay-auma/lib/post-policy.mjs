@@ -61,10 +61,11 @@ function captureConfig(input) {
     const selected = new Set()
     const selectors = file.selectors.map(selector => {
       exact(selector, ['kind', 'pointer'])
-      if (!['whole-utf8', 'json-pointer'].includes(selector.kind) || typeof selector.pointer !== 'string'
+      if (!['whole-utf8', 'json-pointer', 'url-query-token'].includes(selector.kind) || typeof selector.pointer !== 'string'
         || (selector.kind === 'whole-utf8' && selector.pointer !== '')
-        || (selector.kind === 'json-pointer' && (!selector.pointer.startsWith('/') || selector.pointer.length > 512
+        || (selector.kind !== 'whole-utf8' && (!selector.pointer.startsWith('/') || selector.pointer.length > 512
           || /~(?![01])/u.test(selector.pointer) || !selector.pointer.isWellFormed()))) unavailable()
+      if (selector.kind === 'url-query-token' && file.category !== 'launch-token') unavailable()
       const key = selector.kind + ':' + selector.pointer
       if (selected.has(key)) unavailable()
       selected.add(key)
@@ -134,6 +135,18 @@ function pointerValue(value, pointer) {
   return value
 }
 const digest = bytes => createHash('sha256').update(DOMAIN_BYTES).update(bytes).digest('hex')
+function launchToken(value) {
+  // A protected launch descriptor binds both its URL and its decoded token.
+  // Shape screening alone does not catch a bare base64url token in prose.
+  let url
+  try { url = new URL(value) } catch { unavailable() }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash
+    || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.pathname !== '/') unavailable()
+  const keys = [...url.searchParams.keys()], token = url.searchParams.get('token')
+  if (keys.length !== 1 || keys[0] !== 'token' || typeof token !== 'string'
+    || !/^[A-Za-z0-9_-]{43}$/u.test(token)) unavailable()
+  return token
+}
 function protectedDigests(config) {
   const byLength = new Map(), snapshots = []
   for (const file of config.files) {
@@ -143,8 +156,9 @@ function protectedDigests(config) {
       const text = new TextDecoder('utf-8', { fatal: true }).decode(loaded.bytes)
       let parsed
       for (const selector of file.selectors) {
-        if (selector.kind === 'json-pointer' && parsed === undefined) parsed = parseStrictJson(text, { maxBytes: MAX_FILE_BYTES, maxDepth: 32 })
-        const literal = selector.kind === 'whole-utf8' ? text : pointerValue(parsed, selector.pointer)
+        if (selector.kind !== 'whole-utf8' && parsed === undefined) parsed = parseStrictJson(text, { maxBytes: MAX_FILE_BYTES, maxDepth: 32 })
+        const selectedValue = selector.kind === 'whole-utf8' ? text : pointerValue(parsed, selector.pointer)
+        const literal = selector.kind === 'url-query-token' ? launchToken(selectedValue) : selectedValue
         for (const projected of new Set([literal, literal.trim()])) {
           const bytes = Buffer.from(projected, 'utf8')
           try {

@@ -1538,9 +1538,8 @@ def main() -> int:
         # protected files explicitly (credentials, auma key, nostr secret, launch URL); the host closure re-reads
         # them per post and refuses secret shapes and protected digests. reader_uid/owner_uid resolve to the
         # harness's own UID at composition load; the model sees none of this. A MISSING or unreadable file fails
-        # every post closed (UNAVAILABLE), never open. Known gap, named for H: the launch token is protected only
-        # as the whole /url value — a bare 43-char non-hex token matches neither the URL digest nor the long-hex
-        # shape, so a bare-token post still passes until a token-only file or selector kind exists.
+        # every post closed (UNAVAILABLE), never open. The closed localhost URL selector protects both the
+        # whole /url value and its exact 43-character base64url token, including non-hex bare-token posts.
         + '    - id: aukora-relay-auma\n'
         + '      name: ./plugins/aukora-relay-auma/lib/index.mjs\n'
         + '      config:\n'
@@ -1582,6 +1581,8 @@ def main() -> int:
         + '              owner_uid: !!js process.getuid()\n'
         + '              selectors:\n'
         + '                - kind: json-pointer\n'
+        + '                  pointer: /url\n'
+        + '                - kind: url-query-token\n'
         + '                  pointer: /url\n'
         + '    - id: aukora-kira\n'
         + '      name: ./plugins/aukora-kira/lib/gate-capture-host.mjs\n'

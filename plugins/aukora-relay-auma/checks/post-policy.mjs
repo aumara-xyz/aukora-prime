@@ -2,8 +2,8 @@
 // Actual host module, invented protected inputs only. Fixtures are retained:
 // no cleanup, permission modification, operational inputs or network calls.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { registerHooks } from 'node:module'
 
@@ -12,8 +12,9 @@ const baselineSource = fs.readFileSync(moduleUrl, 'utf8')
 const baseline = await import(moduleUrl.href)
 const uid = process.getuid?.()
 if (!Number.isSafeInteger(uid) || uid <= 0) throw new Error('non-root fixture reader required')
-const checksRoot = fs.realpathSync(path.dirname(fileURLToPath(import.meta.url)))
-const fixtureParent = path.join(checksRoot, '.post-policy-fixtures')
+// Existing checkout fixtures stay untouched; new protected fixtures use the
+// same caller-owned private home boundary as synthetic-policy.mjs.
+const fixtureParent = path.join(os.homedir(), '.aukora-post-policy-fixtures')
 if (!fs.existsSync(fixtureParent)) fs.mkdirSync(fixtureParent, { mode: 0o700 })
 const fixtureParentStat = fs.lstatSync(fixtureParent)
 if (!fixtureParentStat.isDirectory() || fixtureParentStat.isSymbolicLink()
@@ -44,6 +45,7 @@ function write(file, value, mode = 0o600) {
 }
 const whole = () => ({ kind: 'whole-utf8', pointer: '' })
 const selected = pointer => ({ kind: 'json-pointer', pointer })
+const selectedToken = () => ({ kind: 'url-query-token', pointer: '/url' })
 const values = Object.freeze([
   'river lantern paper hollow',
   'glass kite meadow note',
@@ -68,6 +70,37 @@ function fixture(api = baseline) {
 const ordinary = 'A brief status update for the project.'
 const embedded = value => 'A note includes ' + value + ' and stops.'
 const cases = [
+  ['bare-launch-token-and-refresh', api => {
+    const f = fixture(api), token = 'G'.repeat(42) + '_'
+    const descriptor = f.extra('invented-launch-url', JSON.stringify({ url: 'http://127.0.0.1:18735/?token=' + token }))
+    f.files[3].path = descriptor
+    f.files[3].selectors = [selected('/url'), selectedToken()]
+    const policy = api.createProtectedPostPolicy(f.config)
+    policy.assertAllowed(ordinary)
+    expectCode(() => policy.assertAllowed(embedded(token)), 'REFUSED', 'bare nonhex launch token refuses')
+    expectCode(() => policy.assertAllowed('http://127.0.0.1:18735/?token=' + token), 'REFUSED', 'full launch URL refuses')
+    const rotated = 'H'.repeat(42) + '_'
+    fs.writeFileSync(descriptor, JSON.stringify({ url: 'http://localhost:18735/?token=' + rotated }))
+    expectCode(() => policy.assertAllowed(embedded(rotated)), 'REFUSED', 'new token refreshes per post')
+    policy.assertAllowed(embedded(token))
+  }],
+  ['launch-token-selector-closed-descriptor', api => {
+    const token = 'G'.repeat(42) + '_'
+    for (const url of ['https://example.invalid/?token=' + token,
+      'http://127.0.0.1/?token=' + token + '&token=' + token,
+      'http://127.0.0.1/?token=' + token + '&other=1',
+      'http://127.0.0.1/private?token=' + token,
+      'http://invented-user@127.0.0.1/?token=' + token,
+      'http://127.0.0.1/?token=short', 'http://127.0.0.1/?token=' + token + '#fragment']) {
+      const f = fixture(api)
+      f.files[3].path = f.extra('invalid-launch-url', JSON.stringify({ url }))
+      f.files[3].selectors = [selectedToken()]
+      expectCode(() => api.createProtectedPostPolicy(f.config).assertAllowed(ordinary), 'UNAVAILABLE', 'malformed launch descriptor refuses')
+    }
+    const wrongCategory = fixture(api)
+    wrongCategory.files[0].selectors = [selectedToken()]
+    expectCode(() => api.createProtectedPostPolicy(wrongCategory.config), 'UNAVAILABLE', 'token selector only launch category')
+  }],
   ['ordinary-post-and-closed-output', api => {
     const f = fixture(api), policy = api.createProtectedPostPolicy(f.config)
     check(Object.isFrozen(policy), 'policy must be frozen')
@@ -348,6 +381,16 @@ function replaceUnique(source, before, after) {
   return source.replace(before, after)
 }
 const mutations = [
+  { id: 'launch-token-projection-removed', caseId: 'bare-launch-token-and-refresh',
+    change: source => replaceUnique(source, "selector.kind === 'url-query-token' ? launchToken(selectedValue) : selectedValue",
+      'selectedValue') },
+  { id: 'launch-token-category-guard-removed', caseId: 'launch-token-selector-closed-descriptor',
+    change: source => replaceUnique(source,
+      "if (selector.kind === 'url-query-token' && file.category !== 'launch-token') unavailable()",
+      'if (false) unavailable()') },
+  { id: 'launch-token-loopback-guard-removed', caseId: 'launch-token-selector-closed-descriptor',
+    change: source => replaceUnique(source,
+      "!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)", 'false') },
   { id: 'shapes-removed', caseId: 'shape-catalogue-and-explicit-shapes',
     change: source => replaceUnique(source, 'if (shaped(text)) return true', 'if (false && shaped(text)) return true') },
   { id: 'digest-match-removed', caseId: 'all-four-embedded-values',
