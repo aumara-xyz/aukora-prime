@@ -1,11 +1,14 @@
-# Recovery for aukora-genesis: restarts the SAME release only after the boundary checks pass.
-# All logic lives in genesis-recover-probe (root-owned): quiet no-op while Genesis or the
-# self-check is active/activating; never edits release.env; never switches releases.
+# Recovery accepts only this helper's proven selfcheck failure-stop of the SAME release.
+# A successful active startup latch is permitted; an executing selfcheck is not.
 [Unit]
-Description=AUKORA Genesis recovery probe (restart only after self-check passes)
+Description=AUKORA Genesis recovery probe (owned failure-stop only, same release)
 After=aukora-boundary-gate.service
 
 [Service]
 Type=oneshot
 User=root
-ExecStart=/usr/local/lib/aukora-boundary/genesis-recover-probe
+UMask=0077
+Environment=PATH=/usr/bin:/bin
+UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
+TimeoutStartSec=600
+ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/genesis-recover-probe recover

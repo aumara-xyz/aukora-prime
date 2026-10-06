@@ -1,5 +1,5 @@
-# Started only by aukora-selfcheck.service OnFailure: a forbidden action succeeded (or the check could not be recorded),
-# so the runtime is stopped. It stays stopped: aukora-genesis's own ExecStartPre refuses to start it until the check passes.
+# Legacy conservative stop-only handler. Current selfchecks use the invocation-aware
+# template; this unit cannot create owned recovery eligibility.
 [Unit]
 Description=AUKORA fail closed: stop aukora-genesis after a failed boundary self-check
 

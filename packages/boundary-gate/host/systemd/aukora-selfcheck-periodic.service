@@ -3,7 +3,7 @@
 [Unit]
 Description=AUKORA periodic boundary self-check (harness user; stops aukora-genesis on failure)
 After=aukora-boundary-gate.service aukora-auma-sandbox.service
-OnFailure=aukora-genesis-failclosed.service
+OnFailure=aukora-genesis-failclosed@%n.service
 
 [Service]
 Type=oneshot
@@ -15,5 +15,8 @@ Environment=PATH=/usr/bin:/bin
 # Check root-protected package bytes before Node; inherited loaders must not run before verification.
 UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
 TimeoutStartSec=300
+ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-boot
+ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-ready
 ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-runtime
-ExecStart=/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec
+ExecStartPre=+/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/genesis-recover-probe prepare-selfcheck-lock
+ExecStart=/usr/bin/flock --exclusive --no-fork /run/aukora-boundary-selfcheck.lock /opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec

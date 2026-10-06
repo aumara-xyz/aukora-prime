@@ -5,6 +5,10 @@
 # Root-owned 0755 as /usr/local/lib/aukora-boundary/selfcheck-with-retry; the unit's exact
 # selfcheck argv is appended after --. Never edits, never switches releases.
 set -u
+# The root-protected read-only descriptor fences this wrapper with both systemd
+# selfcheck units. Hold it across both attempts; snapshots cannot prevent a timer race.
+exec 9</run/aukora-boundary-selfcheck.lock || exit 1
+/usr/bin/flock --exclusive 9 || exit 1
 [ "${1:-}" = -- ] && shift
 L=/usr/local/lib/aukora-boundary
 SELFCHECK_ARGS=("$@")

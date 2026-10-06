@@ -1,24 +1,424 @@
-#!/bin/bash
-# Genesis recovery probe (Peter overnight item 5): restarts the SAME release only after the
-# floor check AND the real boundary self-check pass. Never edits release.env, never switches
-# releases, quiet no-op while Genesis is active or already starting, and never runs its
-# self-check concurrently with another self-check (concurrent admissions exceed the 4s
-# deadline — measured on staging 2026-10-05). Root-owned 0755.
-set -u
-systemctl is-active --quiet aukora-genesis && exit 0
-systemctl is-active --quiet aukora-selfcheck.service && exit 0
-[ "$(systemctl show -p ActiveState --value aukora-genesis)" = activating ] && exit 0
-[ "$(systemctl show -p ActiveState --value aukora-selfcheck.service)" = activating ] && exit 0
-. /etc/aukora-genesis/release.env
-export AUKORA_RELEASE_DIR AUKORA_APPROVAL_ROOT AUKORA_RECORD_SHA
-/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap floor check \
-  --release-dir "$AUKORA_RELEASE_DIR" --approval-state-root "$AUKORA_APPROVAL_ROOT" || exit 0
-# The self-check proves the harness boundary only as the harness user.
-runuser -u aukora-host -- /usr/local/lib/aukora-boundary/selfcheck-with-retry -- \
-  --run /run/aukora-gate --gate-home /home/aukora-gate \
-  --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis \
-  --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs \
-  --forbid-write /usr/local/lib/aukora-boundary/sbx-exec || exit 0
-echo "genesis-recover-probe: checks passed, restarting aukora-genesis (same release)"
-systemctl reset-failed aukora-genesis
-systemctl restart aukora-genesis
+#!/usr/bin/python3
+"""AGPL-3.0-or-later. Fixed-path, root-owned Genesis failure-stop protocol.
+
+Recovery authority requires a verified selfcheck OnFailure invocation and an exact
+successful stop-post witness in this helper's supported transaction. Inactivity
+alone is never recovery authority. Root operators must use inhibit for intentional
+stops; a raw concurrent/already-inactive stop is not attributable by this protocol.
+Installed systemd >= 251 and the template handler are required for MONITOR_*.
+"""
+
+import fcntl
+import hashlib
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+
+SYSTEMCTL = "/usr/bin/systemctl"
+PYTHON = "/usr/bin/python3"
+BOOTSTRAP = "/usr/local/lib/aukora-boundary/gate-bootstrap"
+RUNUSER = "/usr/sbin/runuser"
+SELFCHECK = "/usr/local/lib/aukora-boundary/selfcheck-with-retry"
+STATE = "/run/aukora-genesis-recovery"
+INHIBITOR = "/etc/aukora-genesis/recovery-operator.json"
+RELEASE = "/etc/aukora-genesis/release.env"
+BOOT_ID = "/proc/sys/kernel/random/boot_id"
+SELF_LOCK = "/run/aukora-boundary-selfcheck.lock"
+GENESIS = "aukora-genesis.service"
+LATCH = "aukora-selfcheck.service"
+PERIODIC = "aukora-selfcheck-periodic.service"
+PROVIDERS = ("aukora-boundary-gate.service", "aukora-auma-local-deny.service",
+             "aukora-auma-podman.service", "aukora-openshell-gateway.service",
+             "aukora-auma-sandbox.service")
+ONESHOT_PROVIDERS = frozenset(("aukora-auma-local-deny.service", "aukora-auma-sandbox.service"))
+PROPERTIES = ("LoadState", "ActiveState", "SubState", "Result", "InvocationID",
+              "InactiveEnterTimestampMonotonic", "ExecMainStartTimestampMonotonic",
+              "ExecMainExitTimestampMonotonic", "StateChangeTimestampMonotonic",
+              "MainPID", "Job", "NeedDaemonReload")
+FAILED_RESULTS = frozenset(("exit-code", "signal", "core-dump", "timeout", "watchdog",
+                            "oom-kill", "resources", "protocol"))
+HEX32 = re.compile(r"[0-9a-f]{32}\Z")
+SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+CLEAN_ENV = {"PATH": "/usr/bin:/bin", "HOME": "/", "LANG": "C", "LC_ALL": "C"}
+SELF_ARGS = ["--run", "/run/aukora-gate", "--gate-home", "/home/aukora-gate",
+             "--target-root", "/var/lib/aukora-boundary/targets",
+             "--release-parent", "/opt/aukora-genesis", "--forbid-write",
+             "/opt/aukora-boundary-gate/bin/gate.mjs", "--forbid-write",
+             "/usr/local/lib/aukora-boundary/sbx-exec"]
+
+
+class Refused(Exception):
+    pass
+
+
+def require(condition, reason):
+    if not condition:
+        raise Refused(reason)
+
+
+def trusted(metadata, directory=False):
+    require(metadata.st_uid == 0 and not metadata.st_mode & 0o022, "custody")
+    require(stat.S_ISDIR(metadata.st_mode) if directory else
+            stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1, "file-type")
+
+
+def directory(path):
+    """Check every ancestor and return an opened no-follow directory descriptor."""
+    require(os.path.isabs(path) and os.path.normpath(path) == path, "path")
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        trusted(os.fstat(fd), True)
+        for component in path.split("/")[1:]:
+            next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+            trusted(os.fstat(fd), True)
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def read(path, absent=None):
+    parent = directory(os.path.dirname(path))
+    try:
+        try:
+            fd = os.open(os.path.basename(path), os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+        except FileNotFoundError:
+            return absent
+        try:
+            before = os.fstat(fd)
+            trusted(before)
+            require(before.st_size <= 8192, "file-size")
+            data = os.read(fd, 8193)
+            after = os.fstat(fd)
+            require(len(data) == before.st_size and len(data) <= 8192
+                    and (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns,
+                         before.st_ctime_ns) == (after.st_dev, after.st_ino, after.st_size,
+                                               after.st_mtime_ns, after.st_ctime_ns), "file-changed")
+            trusted(after)
+            return data
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def save(path, value):
+    """Publish a bounded protected record; never follow or reuse a candidate file."""
+    parent = directory(os.path.dirname(path))
+    temporary = ".recovery-" + os.urandom(16).hex()
+    fd = None
+    try:
+        try:
+            trusted(os.stat(os.path.basename(path), dir_fd=parent, follow_symlinks=False))
+        except FileNotFoundError:
+            pass
+        data = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        require(len(data) <= 8192, "record-size")
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=parent)
+        require(os.write(fd, data) == len(data), "short-write")
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        os.replace(temporary, os.path.basename(path), src_dir_fd=parent, dst_dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(parent)
+
+
+def record(name):
+    data = read(STATE + "/" + name + ".json")
+    return json.loads(data) if data is not None else None
+
+
+def consumed():
+    save(STATE + "/eligibility.json", {"version": 1, "eligible": False})
+
+
+def inhibited():
+    data = read(INHIBITOR)
+    if data is None:
+        return False
+    value = json.loads(data)
+    require(isinstance(value, dict) and set(value) == {"version", "inhibited"}
+            and value["version"] == 1 and type(value["inhibited"]) is bool, "operator-record")
+    return value["inhibited"]
+
+
+def boot_id():
+    with open(BOOT_ID, "r", encoding="ascii") as stream:
+        value = stream.read(64).strip()
+    require(re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value), "boot-id")
+    return value
+
+
+def command(argv, timeout=30):
+    completed = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, env=CLEAN_ENV, timeout=timeout)
+    require(len(completed.stdout) <= 16384 and len(completed.stderr) <= 16384, "command-output")
+    return completed
+
+
+def prepare_selfcheck_lock():
+    """Root creates the shared execution fence; the harness can only open it read-only."""
+    parent = directory(os.path.dirname(SELF_LOCK))
+    try:
+        try:
+            fd = os.open(os.path.basename(SELF_LOCK), os.O_RDONLY | os.O_CREAT | os.O_EXCL
+                         | os.O_NOFOLLOW, 0o644, dir_fd=parent)
+            os.fchmod(fd, 0o644)  # The service umask is 0077; change only this new file.
+        except FileExistsError:
+            fd = os.open(os.path.basename(SELF_LOCK), os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+        try:
+            metadata = os.fstat(fd)
+            trusted(metadata)
+            require(stat.S_IMODE(metadata.st_mode) == 0o644 and metadata.st_size == 0, "selfcheck-lock")
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def show(unit):
+    completed = command([SYSTEMCTL, "show", "--no-pager", "--property=" + ",".join(PROPERTIES), unit])
+    require(completed.returncode == 0, "unit-query")
+    values = {}
+    for line in completed.stdout.decode("ascii").splitlines():
+        key, separator, value = line.partition("=")
+        require(separator and key in PROPERTIES and key not in values, "unit-properties")
+        values[key] = value
+    require(set(values) == set(PROPERTIES), "unit-properties")
+    for key in ("InactiveEnterTimestampMonotonic", "ExecMainStartTimestampMonotonic",
+                "ExecMainExitTimestampMonotonic", "StateChangeTimestampMonotonic", "MainPID"):
+        require(re.fullmatch(r"[0-9]{1,20}", values[key]), "unit-counter")
+    require(values["LoadState"] == "loaded" and values["NeedDaemonReload"] == "no"
+            and values["Job"] in ("", "0"), "unit-unready")
+    return values
+
+
+def providers():
+    snapshot = {unit: show(unit) for unit in PROVIDERS}
+    for unit, value in snapshot.items():
+        require(value["ActiveState"] == "active" and value["Result"] == "success"
+                and HEX32.fullmatch(value["InvocationID"]), "provider-unready")
+        require((value["SubState"] == "exited" and value["MainPID"] == "0")
+                if unit in ONESHOT_PROVIDERS else
+                (value["SubState"] == "running" and int(value["MainPID"]) > 0), "provider-unready")
+    return snapshot
+
+
+def admission():
+    check_boot()
+    # Readiness is a verified gate/owner-state protocol, beyond systemd active state.
+    require(command([PYTHON, "-I", "-S", BOOTSTRAP, "check-ready"]).returncode == 0, "readiness-refused")
+
+
+def check_boot():
+    require(command([PYTHON, "-I", "-S", BOOTSTRAP, "check-boot"]).returncode == 0, "boot-refused")
+
+
+def release():
+    data = read(RELEASE)
+    require(data is not None, "release-unconfigured")
+    fields = {}
+    for original in data.decode("ascii").splitlines():
+        line = original.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        require(separator and key in ("AUKORA_RELEASE_DIR", "AUKORA_APPROVAL_ROOT", "AUKORA_RECORD_SHA")
+                and key not in fields, "release-format")
+        fields[key] = value
+    require(set(fields) == {"AUKORA_RELEASE_DIR", "AUKORA_APPROVAL_ROOT", "AUKORA_RECORD_SHA"}, "release-format")
+    require(re.fullmatch(r"/opt/aukora-genesis/release-[0-9a-f]{7}", fields["AUKORA_RELEASE_DIR"])
+            and re.fullmatch(r"/etc/aukora-approvals/(?:[0-9a-f]{40}|[0-9a-f]{64})/state", fields["AUKORA_APPROVAL_ROOT"])
+            and SHA256.fullmatch(fields["AUKORA_RECORD_SHA"]), "release-format")
+    return fields, hashlib.sha256(data).hexdigest()
+
+
+def idle_checks():
+    startup, periodic = show(LATCH), show(PERIODIC)
+    # A successful active (exited) startup latch contains no executing selfcheck.
+    # Its lifetime remains bound to Genesis; it must not disable periodic recovery.
+    require(startup["ActiveState"] not in ("activating", "deactivating", "reloading")
+            and startup["MainPID"] == "0", "selfcheck-busy")
+    require(periodic["ActiveState"] in ("inactive", "failed") and periodic["MainPID"] == "0", "selfcheck-busy")
+
+
+def stop_notice():
+    # systemctl stop waits for ExecStopPost; this path must not take the caller's lock.
+    # A transaction only suppresses invalidation for the exact invocation being stopped.
+    transaction = record("transaction")
+    invocation = os.environ.get("INVOCATION_ID", "")
+    if isinstance(transaction, dict) and transaction == {
+            "version": 1, "boot_id": boot_id(), "genesis_invocation": invocation} \
+            and HEX32.fullmatch(invocation) and os.environ.get("SERVICE_RESULT") == "success":
+        save(STATE + "/stop-witness.json", transaction)
+        return
+    consumed()
+    save(STATE + "/stop-witness.json", {})
+
+
+def failclosed(source):
+    require(source in (LATCH, PERIODIC), "failure-source")
+    # Stop even if failure provenance is missing; missing provenance never arms recovery.
+    consumed()
+    try:
+        previous = show(GENESIS)
+    except Refused:
+        previous = {}
+    monitored_id = os.environ.get("MONITOR_INVOCATION_ID", "")
+    monitored_result = os.environ.get("MONITOR_SERVICE_RESULT", "")
+    proven = os.environ.get("MONITOR_UNIT") == source and HEX32.fullmatch(monitored_id) \
+        and monitored_result in FAILED_RESULTS
+    try:
+        failure = show(source)
+    except Refused:
+        failure = {}
+    proven = proven and failure.get("ActiveState") == "failed" \
+        and failure.get("InvocationID") == monitored_id and failure.get("Result") == monitored_result
+    was_running = previous.get("ActiveState") == "active" and previous.get("SubState") == "running" \
+        and int(previous.get("MainPID", "0")) > 0 and HEX32.fullmatch(previous.get("InvocationID", ""))
+    transaction = {"version": 1, "boot_id": boot_id(),
+                   "genesis_invocation": previous["InvocationID"]} if was_running else {}
+    save(STATE + "/stop-witness.json", {})
+    save(STATE + "/transaction.json", transaction)
+    try:
+        require(command([SYSTEMCTL, "stop", GENESIS], timeout=180).returncode == 0, "stop-refused")
+        stopped = show(GENESIS)
+        require(stopped["ActiveState"] == "inactive" and stopped["MainPID"] == "0", "stop-unconfirmed")
+        if not proven or not was_running or inhibited():
+            return
+        require(record("stop-witness") == transaction and stopped["Result"] == "success", "stop-witness-missing")
+        require(stopped["ExecMainStartTimestampMonotonic"] == previous["ExecMainStartTimestampMonotonic"]
+                and stopped["InvocationID"] in ("", previous["InvocationID"])
+                and int(stopped["InactiveEnterTimestampMonotonic"]) > int(previous["StateChangeTimestampMonotonic"]), "stop-invocation-changed")
+        # A failed gate readiness check may be the cause of this stop. Preserve exact
+        # stop authority while unhealthy; recovery separately requires fresh readiness.
+        check_boot()
+        _, digest = release()
+        require(show(source) == failure and show(GENESIS) == stopped, "failure-stop-changed")
+        save(STATE + "/eligibility.json", {"version": 1, "eligible": True, "boot_id": boot_id(),
+             "failure_unit": source, "failure_invocation": monitored_id,
+             "genesis_invocation": previous["InvocationID"], "stopped": stopped,
+             "release_sha256": digest})
+        print("genesis-recover-probe: proven selfcheck failure-stop recorded")
+    finally:
+        save(STATE + "/transaction.json", {})
+
+
+def recover():
+    if inhibited():
+        return
+    eligible = record("eligibility")
+    if eligible is None or eligible == {"version": 1, "eligible": False}:
+        return
+    require(isinstance(eligible, dict) and set(eligible) == {"version", "eligible", "boot_id",
+            "failure_unit", "failure_invocation", "genesis_invocation", "stopped", "release_sha256"}
+            and eligible["version"] == 1 and eligible["eligible"] is True
+            and eligible["boot_id"] == boot_id() and eligible["failure_unit"] in (LATCH, PERIODIC)
+            and HEX32.fullmatch(eligible["failure_invocation"])
+            and HEX32.fullmatch(eligible["genesis_invocation"])
+            and SHA256.fullmatch(eligible["release_sha256"]), "eligibility")
+    stopped = show(GENESIS)
+    require(stopped == eligible["stopped"] and stopped["ActiveState"] == "inactive"
+            and stopped["MainPID"] == "0", "stopped-invocation-changed")
+    idle_checks()
+    before = providers()
+    admission()
+    configuration, digest = release()
+    require(digest == eligible["release_sha256"], "release-changed")
+    require(command([PYTHON, "-I", "-S", BOOTSTRAP, "floor", "check", "--release-dir",
+                     configuration["AUKORA_RELEASE_DIR"], "--approval-state-root",
+                     configuration["AUKORA_APPROVAL_ROOT"]], timeout=60).returncode == 0, "floor-refused")
+    prepare_selfcheck_lock()
+    require(command([RUNUSER, "-u", "aukora-host", "--", SELFCHECK, "--", *SELF_ARGS],
+                    timeout=300).returncode == 0, "selfcheck-refused")
+    idle_checks()
+    admission()
+    require(providers() == before and show(GENESIS) == stopped
+            and release()[1] == digest and not inhibited()
+            and record("eligibility") == eligible, "recovery-state-changed")
+    # Consume before the start request. A refused or rate-limited start needs operator
+    # reconciliation; automatic recovery must not clear StartLimit counters or rearm itself.
+    consumed()
+    require(command([SYSTEMCTL, "start", GENESIS], timeout=300).returncode == 0, "start-refused")
+    print("genesis-recover-probe: same-release recovery start requested")
+
+
+def operator(action):
+    consumed()
+    if action == "inhibit":
+        save(INHIBITOR, {"version": 1, "inhibited": True})
+        require(command([SYSTEMCTL, "stop", GENESIS], timeout=180).returncode == 0, "stop-refused")
+        return
+    providers()
+    admission()
+    save(INHIBITOR, {"version": 1, "inhibited": False})
+    require(command([SYSTEMCTL, "start", GENESIS], timeout=300).returncode == 0, "start-refused")
+
+
+def main():
+    argv = sys.argv[1:]
+    try:
+        require(os.geteuid() == 0, "root-required")
+        require(argv in ([], ["recover"], ["stop-notice"], ["inhibit"], ["operator-start"], ["prepare-selfcheck-lock"])
+                or len(argv) == 2 and argv[0] == "failclosed" and argv[1] in (LATCH, PERIODIC), "arguments")
+        # Preparation is independent of the protocol mutex: systemctl start below
+        # waits for Genesis prechecks, which must not wait on the recovery caller.
+        if argv == ["prepare-selfcheck-lock"]:
+            prepare_selfcheck_lock()
+            return 0
+        parent = directory(os.path.dirname(STATE))
+        try:
+            try:
+                os.mkdir(os.path.basename(STATE), 0o700, dir_fd=parent)
+            except FileExistsError:
+                pass
+        finally:
+            os.close(parent)
+        state_fd = directory(STATE)
+        try:
+            require(not os.fstat(state_fd).st_mode & 0o077, "state-private")
+            if argv == ["stop-notice"]:
+                stop_notice()
+                return 0
+            lock = os.open("protocol.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=state_fd)
+            try:
+                trusted(os.fstat(lock))
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                if argv and argv[0] == "failclosed":
+                    failclosed(argv[1])
+                elif argv and argv[0] in ("inhibit", "operator-start"):
+                    operator(argv[0])
+                else:
+                    recover()
+            finally:
+                os.close(lock)
+        finally:
+            os.close(state_fd)
+        return 0
+    except (Refused, OSError, ValueError, TypeError, subprocess.SubprocessError) as error:
+        # Bookkeeping/custody failure must never leave a periodically failed runtime
+        # running. This fixed stop attempt needs neither state files nor the lock;
+        # it cannot publish eligibility. StopPost failures may make the job fail,
+        # but systemd must still terminate the runtime before StopPost is evaluated.
+        if os.geteuid() == 0 and len(argv) == 2 and argv[0] == "failclosed" and argv[1] in (LATCH, PERIODIC):
+            try:
+                command([SYSTEMCTL, "stop", GENESIS], timeout=180)
+            except (Refused, OSError, subprocess.SubprocessError):
+                print("genesis-recover-probe: mandatory stop request failed", file=sys.stderr)
+        print("genesis-recover-probe: REFUSED " + (str(error) if isinstance(error, Refused)
+                                                  else type(error).__name__), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
