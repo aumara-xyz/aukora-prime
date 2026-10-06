@@ -17,7 +17,7 @@ for (const key of ['NODE_OPTIONS', 'NODE_TEST_CONTEXT', 'AUKORA_TEST_KIRA_SOURCE
 const footer = (pass = 46, arms = 46, failed = 0, pending = 2, dsh = 'UNPERFORMED') =>
   `  ${pass}/${arms} arms passed, ${failed} failed; ${pending} unperformed checks; DSH source dispatch ${dsh}; installed profile UNPERFORMED.`
 const registrations = text => text.split('\n').filter(line => /^check(?:_tap|_unittest|_darwin|_injection)? '/u.test(line))
-assert.equal(registrations(source).length, 78, 'preserve every existing fixed registration')
+assert.equal(registrations(source).length, 100, 'preserve every existing fixed registration')
 assert.equal(registrations(source).filter(line => line.includes(command)).length, 1)
 
 function fragments(text) {
@@ -140,4 +140,4 @@ if (process.argv.includes('--mutate')) {
     console.log(`KILLED ${name}`)
   }
 }
-console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 78 registrations retained; synthetic child/actual runner only; no fixture deletes`)
+console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 100 registrations retained; synthetic child/actual runner only; no fixture deletes`)
