@@ -2,7 +2,7 @@
  "schema": "aukora-current-evidence/v1",
  "updated_at": "2026-10-05T12:41:00Z",
  "revisions": {
-  "source": "d7de692f98942023485403f9a03be828c01450e9",
+  "source": "6ad539fdd4f5b2b55f995a96289df0df4619dd3c",
   "main_observed": {
    "sha": "03adf90c40225e823b1bf0282aff1be2728e9f69",
    "at": "2026-10-04T16:00:00Z (integration tree before this evidence commit; SOURCE, ahead of the deployment)"
@@ -49,20 +49,24 @@
     }
    ],
    "limit": "Live release 3673b98 is Peter-reported; the installed gate remains the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance.",
-   "evidence_at": "2026-10-05T12:41:00Z"
+   "evidence_at": "2026-10-05T12:41:00Z",
+   "evidence_kind": "OPERATOR_REPORT",
+   "scope": "LIVE"
   },
   {
    "id": "l2",
    "claim": "A theme proposal reached owner review, was approved once and applied with a signed receipt.",
    "status": "RECORDED",
-   "basis": "L2 signed export, 2026-10-04; ledger #1\u2013#24",
+   "basis": "L2 signed export, 2026-10-04; ledger #1–#24",
    "references": [
     {
      "path": "docs/evidence/l2-demo-2026-10-04/README.md",
      "label": "export and verifier"
     }
    ],
-   "limit": "Signatures and matching bytes are checkable offline. Hot reload is operator-recorded; this export does not establish current ledger completeness, human identity or comprehension."
+   "limit": "Signatures and matching bytes are checkable offline. Hot reload is operator-recorded; this export does not establish current ledger completeness, human identity or comprehension.",
+   "evidence_kind": "RETAINED_RECORD",
+   "scope": "HISTORICAL"
   },
   {
    "id": "gate",
@@ -80,7 +84,9 @@
     }
    ],
    "limit": "Live runtime 3673b98 does not imply gate-package parity. This docs task did not verify installed bytes, human attendance, native owner-key enrollment or hardware custody.",
-   "evidence_at": "2026-10-05T12:41:00Z"
+   "evidence_at": "2026-10-05T12:41:00Z",
+   "evidence_kind": "OPERATOR_REPORT",
+   "scope": "LIVE"
   },
   {
    "id": "launch",
@@ -102,7 +108,9 @@
     }
    ],
    "limit": "No current bootstrap, floor or package readback ran here. Historical signer epoch/ledger sequence is not a current installed claim; rollback still needs fresh owner approval.",
-   "evidence_at": "2026-10-05T12:41:00Z"
+   "evidence_at": "2026-10-05T12:41:00Z",
+   "evidence_kind": "OPERATOR_REPORT",
+   "scope": "LIVE"
   },
   {
    "id": "card",
@@ -120,7 +128,9 @@
     }
    ],
    "limit": "Recorded card installation plus source presence does not measure comprehension or attendance, prove native owner-root enrollment, or attest the current rendered window in this docs task.",
-   "evidence_at": "2026-10-04T08:50:33Z"
+   "evidence_at": "2026-10-04T08:50:33Z",
+   "evidence_kind": "OPERATOR_REPORT",
+   "scope": "HISTORICAL"
   },
   {
    "id": "sandbox",
@@ -150,7 +160,9 @@
     }
    ],
    "limit": "ADMISSION-BYPASSED guest results do not qualify the normal route. Observer pass does not clear admission or the host allowed routes. Historical inherited-descriptor finding remains retained; no live check ran in this docs task.",
-   "evidence_at": "2026-10-05T12:41:00Z"
+   "evidence_at": "2026-10-05T12:41:00Z",
+   "evidence_kind": "OPERATOR_REPORT",
+   "scope": "UNQUALIFIED"
   },
   {
    "id": "selfcheck",
@@ -168,7 +180,9 @@
     }
    ],
    "limit": "The transient proof establishes before-start failure handling, not a live sabotage or continuous gate-service loss dependency. The reported BindsTo/RemainAfterExit unit change is pending; source/RPC stubs do not establish current egress policy.",
-   "evidence_at": "2026-10-04T11:39:37Z"
+   "evidence_at": "2026-10-04T11:39:37Z",
+   "evidence_kind": "OPERATOR_REPORT",
+   "scope": "HISTORICAL"
   },
   {
    "id": "aura",
@@ -186,7 +200,9 @@
     }
    ],
    "limit": "INTERIM pilot-generated owner/controller keys are not enrolled native owner custody. Root-recorded anchors are not an independent witness. The replacement collector and actual per-note Kira/Aura association remain separate pending acceptance.",
-   "evidence_at": "2026-10-04T10:44:52Z"
+   "evidence_at": "2026-10-04T10:44:52Z",
+   "evidence_kind": "OPERATOR_REPORT",
+   "scope": "HISTORICAL"
   },
   {
    "id": "next",
@@ -204,7 +220,9 @@
     }
    ],
    "limit": "These packages are not the pilot runtime. Native request production, protected joins, genuine provider reply and complete runtime acceptance remain unfinished.",
-   "source_account_at": "2026-10-04T11:51:21Z"
+   "source_account_at": "2026-10-04T11:51:21Z",
+   "evidence_kind": "SOURCE_RECORD",
+   "scope": "SOURCE"
   },
   {
    "id": "profile",
@@ -221,7 +239,9 @@
      "label": "immutable history"
     }
    ],
-   "limit": "full-owner-recovery failed; PostgreSQL and three unreviewed memory support jobs did not run. This is not current-head execution or GitHub CI evidence."
+   "limit": "full-owner-recovery failed; PostgreSQL and three unreviewed memory support jobs did not run. This is not current-head execution or GitHub CI evidence.",
+   "evidence_kind": "RETAINED_RECORD",
+   "scope": "HISTORICAL"
   },
   {
    "id": "memory-experiment",
@@ -234,7 +254,9 @@
      "label": "sanitized summary"
     }
    ],
-   "limit": "One older synthetic save, cleaned up; not real owner enrollment, indexing/search or current product qualification."
+   "limit": "One older synthetic save, cleaned up; not real owner enrollment, indexing/search or current product qualification.",
+   "evidence_kind": "RETAINED_RECORD",
+   "scope": "HISTORICAL"
   },
   {
    "id": "identity",
@@ -247,8 +269,10 @@
      "label": "known gaps"
     }
    ],
-   "limit": "Owner enrollment is the owner\u2019s action. A passkey with user verification proves a real authenticator, not hardware custody, who the human is or informed consent.",
-   "source_account_at": "2026-10-04T11:51:21Z"
+   "limit": "Owner enrollment is the owner’s action. A passkey with user verification proves a real authenticator, not hardware custody, who the human is or informed consent.",
+   "source_account_at": "2026-10-04T11:51:21Z",
+   "evidence_kind": "UNQUALIFIED",
+   "scope": "UNQUALIFIED"
   },
   {
    "id": "pq",
@@ -262,7 +286,9 @@
     }
    ],
    "limit": "NOT LIVE; grants no authority and does not qualify a deployed identity/receipt migration.",
-   "source_account_at": "2026-10-04T11:51:21Z"
+   "source_account_at": "2026-10-04T11:51:21Z",
+   "evidence_kind": "SOURCE_RECORD",
+   "scope": "SOURCE"
   },
   {
    "id": "vision",
@@ -280,7 +306,9 @@
     }
    ],
    "limit": "Research directions; source fixtures and one pilot do not establish a working global platform.",
-   "source_account_at": "2026-10-04T11:51:21Z"
+   "source_account_at": "2026-10-04T11:51:21Z",
+   "evidence_kind": "UNQUALIFIED",
+   "scope": "UNQUALIFIED"
   },
   {
    "id": "recursion-research",
@@ -297,7 +325,9 @@
      "label": "sanitized digest"
     }
    ],
-   "limit": "Retained report/digest inspection, not complete independent reproduction. No training/GPU evaluation ran in this cleanup; no deployed AUKORA provider or product acceptance follows."
+   "limit": "Retained report/digest inspection, not complete independent reproduction. No training/GPU evaluation ran in this cleanup; no deployed AUKORA provider or product acceptance follows.",
+   "evidence_kind": "RESEARCH_RECORD",
+   "scope": "RESEARCH"
   }
  ],
  "unperformed": [
@@ -656,42 +686,82 @@
    "disposition_path": "evidence/containment/2026-10-04.json",
    "disposition_review_path": "evidence/containment/2026-10-04.md",
    "named_exceptions": {
-    "evidence_at": "2026-10-06T09:00:00Z",
-    "context": "host-as-auma probes on the staging bound workspace via the normal admitted route (44 DENIED / 6 ALLOWED / 6 INFO); guest via the same route: 33 DENIED / 0 ALLOWED",
-    "disposition": "Peter 2026-10-06 (decision 2f): the six do not block the candidate; they are named here for outside reviewers to judge",
+    "evidence_at": "2026-10-06T05:48:59Z",
+    "context": "STAGING retained transcript: guest via auma-ws/sbx-exec 34 DENIED / 0 ALLOWED / 2 INFO; host-as-auma 43 DENIED / 7 ALLOWED / 6 INFO; root control 12 DENIED / 30 ALLOWED / 14 INFO. Supersedes earlier terminal-only 33/0 and 44/6/6 accounts. The transcript does not identify the probed runtime commit; this source-account base is not inferred to be that runtime.",
+    "disposition": "The earlier operator report said six routes were nonblocking for the candidate. It supplies no retained route approval or expiry for the current seven-route result.",
     "routes": [
      {
       "route": "unix /run/user/1001/podman/podman.sock",
       "nature": "auma's own rootless podman socket",
-      "assessment": "post-escape depth; lets host-auma create containers outside the gateway inventory; CLOSURE DESIGN NEXT"
+      "risk": "post-escape depth; lets host-auma create containers outside the gateway inventory; CLOSURE DESIGN NEXT",
+      "status": "DISCLOSED_ONLY",
+      "owner_approval": null,
+      "expires_at": null
      },
      {
       "route": "unix /run/user/1001/bus",
       "nature": "auma's own session D-Bus",
-      "assessment": "self-owned session resource"
+      "risk": "self-owned session resource",
+      "status": "DISCLOSED_ONLY",
+      "owner_approval": null,
+      "expires_at": null
      },
      {
       "route": "unix /run/user/1001/systemd/private",
       "nature": "auma's own systemd user-session socket",
-      "assessment": "self-owned session resource"
+      "risk": "self-owned session resource",
+      "status": "DISCLOSED_ONLY",
+      "owner_approval": null,
+      "expires_at": null
      },
      {
       "route": "tcp 127.0.0.1:17690",
       "nature": "the OpenShell gateway auma herself owns (mTLS)",
-      "assessment": "her own service; the guest route to it stays DENIED"
+      "risk": "her own service; the guest route to it stays DENIED",
+      "status": "DISCLOSED_ONLY",
+      "owner_approval": null,
+      "expires_at": null
      },
      {
-      "route": "abstract @86d0b",
-      "nature": "abstract socket, type 2",
-      "assessment": "session-scoped; origin under review"
+      "route": "abstract ISCSIADM_ABSTRACT_NAMESPACE",
+      "nature": "iSCSI administration abstract socket, type 1",
+      "risk": "Host-as-auma connected; no protocol command or privileged effect established by this connection probe. Guest connection was refused.",
+      "status": "DISCLOSED_ONLY",
+      "owner_approval": null,
+      "expires_at": null
+     },
+     {
+      "route": "abstract SESSION_SOCKET_CLASS",
+      "nature": "per-boot session abstract socket, type 2",
+      "risk": "Host-as-auma connected; session-scoped origin remains under review. The literal per-boot name is not a stable acceptance target.",
+      "status": "DISCLOSED_ONLY",
+      "owner_approval": null,
+      "expires_at": null
      },
      {
       "route": "CLONE_NEWUSER|CLONE_NEWNS",
       "nature": "unprivileged user+mount namespace creation",
-      "assessment": "standard for a subuid login user; lets host-auma build her own sandboxes; CLOSURE DESIGN NEXT"
+      "risk": "standard for a subuid login user; lets host-auma build her own sandboxes; CLOSURE DESIGN NEXT",
+      "status": "DISCLOSED_ONLY",
+      "owner_approval": null,
+      "expires_at": null
      }
     ],
-    "verdict_rule": "ANY ALLOWED = FAIL; naming is disclosure, not acceptance"
+    "verdict_rule": "ANY ALLOWED = FAIL; naming is disclosure, not acceptance. Guest zero ALLOWED does not close seven host routes; the partially denied root control does not prove every target was available.",
+    "schema": "aukora-containment-exceptions/v1",
+    "timestamp_basis": "UTC timestamp from the raw transcript header; M independently read and hashed the retained transcript, not rerun the probes. Earlier unsupported 09:00 UTC timestamp removed.",
+    "scope": "STAGING",
+    "evidence_kind": "RETAINED_RECORD",
+    "raw_transcripts": [
+     {
+      "custody": "REMOTE_REFERENCE",
+      "source_uri": "aukora-staging:/root/evidence/containment-20261006T054859Z/raw.log",
+      "sha256": "b573b86115c807429799b641bb335ffff7d7fb21bfcf78934f99b24b3f6facce",
+      "lines": 176,
+      "bytes": 14420,
+      "inspection": "M independently read exact retained bytes and matched SHA-256; raw bytes remain outside the public repository. No probe execution by M."
+     }
+    ]
    }
   },
   "start_gate": {

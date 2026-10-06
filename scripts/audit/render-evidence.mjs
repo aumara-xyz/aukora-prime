@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { readFileSync, writeFileSync, existsSync, realpathSync } from 'node:fs'
+import { resolve, dirname, relative, isAbsolute } from 'node:path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const e = JSON.parse(readFileSync(resolve(root, 'evidence/current.json'), 'utf8'))
@@ -11,10 +12,61 @@ for (const path of e.boundary_files) if (!existsSync(resolve(root, path))) throw
 const esc = v => String(v).replaceAll('|', '\\|').replaceAll('\n', ' ')
 const labels = new Set(['REPORTED', 'RECORDED', 'SOURCE', 'RESEARCH', 'NOT YET', 'NOT CLAIMED', 'UNPERFORMED', 'PROPOSED', 'DISABLED'])
 for (const row of e.claims) if (!labels.has(row.status) || !row.limit || !row.basis) throw new Error('claim needs status, evidence basis and limit')
+// Invariant: reports, source and installed observations retain distinct types; an
+// exception disclosure supplies no authority. Threat: stale dates or missing
+// custody are rendered as acceptance. Validate before any output is written.
+const kinds = { REPORTED: 'OPERATOR_REPORT', RECORDED: 'RETAINED_RECORD', SOURCE: 'SOURCE_RECORD', RESEARCH: 'RESEARCH_RECORD' }
+const scopes = new Set(['SOURCE', 'STAGING', 'LIVE', 'HISTORICAL', 'RESEARCH', 'UNQUALIFIED'])
+const timestamp = (value, name, futureAllowed = false) => {
+  if (value === null) return
+  const parsed = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) ? Date.parse(value) : NaN
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value.replace('Z', '.000Z') || (!futureAllowed && parsed > Date.now())) throw new Error('invalid/future evidence timestamp: ' + name)
+}
+const evidenceDates = (value, name = 'evidence') => {
+  if (!value || typeof value !== 'object') return
+  for (const [key, item] of Object.entries(value)) {
+    if (['evidence_at', 'reported_at', 'updated_at'].includes(key)) timestamp(item, name + '.' + key)
+    else evidenceDates(item, name + '.' + key)
+  }
+}
+evidenceDates(e)
+for (const row of e.claims) {
+  if (row.evidence_kind !== (kinds[row.status] ?? 'UNQUALIFIED') || !scopes.has(row.scope)) throw new Error('claim needs matching evidence kind and scope: ' + row.id)
+  if (row.status === 'SOURCE' && row.scope !== 'SOURCE') throw new Error('source check cannot claim installed scope: ' + row.id)
+}
+const typedExceptions = e.observations.containment.named_exceptions
+if (typedExceptions) {
+  if (typedExceptions.schema !== 'aukora-containment-exceptions/v1' || typedExceptions.scope !== 'STAGING' || !['OPERATOR_REPORT', 'RETAINED_RECORD'].includes(typedExceptions.evidence_kind) || !Array.isArray(typedExceptions.raw_transcripts)) throw new Error('invalid typed containment exceptions')
+  const seen = new Set()
+  for (const row of typedExceptions.routes) {
+    if (!row.route || !row.nature || !row.risk || seen.has(row.route) || !['DISCLOSED_ONLY', 'APPROVED_EXCEPTION'].includes(row.status) || !Object.hasOwn(row, 'owner_approval') || !Object.hasOwn(row, 'expires_at')) throw new Error('exception needs unique route, risk, status, approval and expiry')
+    seen.add(row.route)
+    if (row.owner_approval !== null) {
+      const approval = row.owner_approval
+      if (!approval || approval.owner !== 'Peter' || !approval.evidence_ref || !approval.approved_at) throw new Error('invalid owner approval evidence')
+      timestamp(approval.approved_at, 'owner approval')
+      const approvalPath = resolve(root, approval.evidence_ref)
+      if (!existsSync(approvalPath) || relative(root, realpathSync(approvalPath)).startsWith('..')) throw new Error('missing/outside owner approval evidence')
+    }
+    if (row.expires_at !== null) timestamp(row.expires_at, 'exception expiry', true)
+    if (row.status === 'APPROVED_EXCEPTION' && (row.owner_approval === null || row.expires_at === null || Date.parse(row.expires_at) <= Date.now())) throw new Error('approved exception needs retained owner approval and unexpired expiry')
+  }
+  for (const record of typedExceptions.raw_transcripts) {
+    if (record.custody === 'REMOTE_REFERENCE') {
+      if (!/^aukora-staging:\/root\/evidence\/containment-\d{8}T\d{6}Z\/raw\.log$/.test(record.source_uri ?? '') || !/^[a-f0-9]{64}$/.test(record.sha256 ?? '') || !Number.isSafeInteger(record.lines) || record.lines < 1 || !Number.isSafeInteger(record.bytes) || record.bytes < 1 || !record.inspection) throw new Error('invalid remote raw transcript reference')
+      continue // Metadata is typed, not a byte/digest verification of remote custody.
+    }
+    const path = typeof record.path === 'string' ? resolve(root, record.path) : root
+    const rel = relative(root, path)
+    if (!rel || rel.startsWith('..') || isAbsolute(rel) || !/^[a-f0-9]{64}$/.test(record.sha256 ?? '') || !existsSync(path)) throw new Error('invalid/missing raw containment transcript')
+    if (relative(root, realpathSync(path)).startsWith('..')) throw new Error('outside raw containment transcript')
+    if (createHash('sha256').update(readFileSync(path)).digest('hex') !== record.sha256) throw new Error('raw containment transcript digest mismatch')
+  }
+}
 const prefix = path => path.startsWith('docs/') ? '../' : ''
 const ref = (r, path) => r.startsWith('https://') ? r : prefix(path) + r
 const references = (rows, path) => rows.map(x => `[${x.label}](${ref(x.path, path)})`).join('; ')
-const basis = row => `${esc(row.basis)}${row.evidence_at ? `; evidence at ${esc(row.evidence_at)}` : ''}`
+const basis = row => `${esc(row.basis)}${row.evidence_kind ? `; ${esc(row.evidence_kind)} / ${esc(row.scope)}` : ''}${row.evidence_at ? `; evidence at ${esc(row.evidence_at)}` : ''}`
 const claims = path => ['| Claim | Status / basis | Code or check | Limit |', '| --- | --- | --- | --- |',
   ...e.claims.map(r => `| ${esc(r.claim)} | **${r.status}** · ${basis(r)} | ${references(r.references, path)} | ${esc(r.limit)} |`)].join('\n')
 const revisions = path => ['| Identity | Revision / observation | Meaning |', '| --- | --- | --- |',
@@ -49,7 +101,7 @@ const containmentStatus = [
   `The original baseline at ${esc(baseline.evidence_at)} had guest **${baseline.guest_denied} DENIED / ${baseline.guest_allowed} ALLOWED** and host-as-auma **${baseline.host_denied} DENIED / ${baseline.host_allowed} ALLOWED**. The observer was ${esc(baseline.observer)}. The disposable control had ${esc(baseline.control)}; that is detection evidence, not containment PASS. Workspace operations were reported working.`,
   `See the [three findings and their disposition](${containment.disposition_review_path}), [command scope](scripts/audit/containment/README.md) and [host-firewall scope](host/auma-local-deny/README.md). The inherited-descriptor finding stays OPEN. Required evidence: ${esc(containment.required)}. This docs task reran no live check; full containment remains unqualified.`,
   ...(exceptions ? [
-    `**Named host-as-auma exceptions · REPORTED at ${esc(exceptions.evidence_at)}:** ${esc(exceptions.context)}. ${esc(exceptions.disposition)}.\n\n${exceptions.routes.map(route => `- \`${esc(route.route)}\` — ${esc(route.nature)}; ${esc(route.assessment)}`).join('\n')}\n\n${esc(exceptions.verdict_rule)}.`
+    `**Named host-as-auma exceptions · ${esc(exceptions.evidence_kind)} / STAGING at ${exceptions.evidence_at === null ? 'timestamp not supplied' : esc(exceptions.evidence_at)}:** ${esc(exceptions.context).replace(/\.+$/, '')}. ${esc(exceptions.disposition).replace(/\.+$/, '')}.\n\n${exceptions.routes.map(route => `- \`${esc(route.route)}\` — ${esc(route.nature)}; ${esc(route.risk)}; ${esc(route.status)}; owner approval: ${route.owner_approval === null ? 'NOT SUPPLIED' : esc(route.owner_approval.evidence_ref)}; expiry: ${route.expires_at === null ? 'NOT SUPPLIED' : esc(route.expires_at)}`).join('\n')}\n\n${esc(exceptions.verdict_rule).replace(/\.+$/, '')}.\n\nRaw containment transcripts: ${exceptions.raw_transcripts.length ? exceptions.raw_transcripts.map(record => record.custody === 'REMOTE_REFERENCE' ? `\`${esc(record.source_uri)}\` (REMOTE_REFERENCE; SHA-256 \`${record.sha256}\`; ${record.lines} lines / ${record.bytes} bytes; ${esc(record.inspection)}; renderer does not verify remote bytes)` : `[${esc(record.path)}](${esc(record.path)}) (SHA-256 \`${record.sha256}\`)`).join('; ') : '**UNPERFORMED** — no raw transcripts supplied; the dated disposition is a summary, not a raw run attachment'}. ${esc(exceptions.timestamp_basis)}`
   ] : [])
 ].join('\n\n')
 const outputs = [['README.md', 'current-revisions', revisions('README.md')], ['README.md', 'current-claims', claims('README.md')],
