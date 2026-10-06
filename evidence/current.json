@@ -1,16 +1,16 @@
 {
  "schema": "aukora-current-evidence/v1",
- "updated_at": "2026-10-05T12:41:00Z",
+ "updated_at": "2026-10-06T10:12:31Z",
  "revisions": {
-  "source": "6ad539fdd4f5b2b55f995a96289df0df4619dd3c",
+  "source": "9815c56e985bca2198342e78344e97a81e19597a",
   "main_observed": {
-   "sha": "03adf90c40225e823b1bf0282aff1be2728e9f69",
-   "at": "2026-10-04T16:00:00Z (integration tree before this evidence commit; SOURCE, ahead of the deployment)"
+   "sha": "9815c56e985bca2198342e78344e97a81e19597a",
+   "at": "2026-10-06T10:12:31Z (r4-candidate-3 labs tip after D/H/E/F/M integration; SOURCE, ahead of the frozen main and the deployment)"
   },
   "deployment": {
    "sha": "3673b98a3e090d122ed0853386ff60913287c3a8",
-   "reported_at": "2026-10-05T12:41:00Z",
-   "basis": "Peter reports live release 3673b98; old gate package 4c24fd0. No runtime readback ran in this docs task",
+   "reported_at": "2026-10-06T10:12:31Z",
+   "basis": "Live release 3673b98 RAN-verified hourly (genesis+relay active, floor epoch 1); old gate package 4c24fd0; r4-candidate-1 b3ce58d frozen on main",
    "limit": "Live release 3673b98 is Peter-reported; the installed gate remains the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance."
   }
  },

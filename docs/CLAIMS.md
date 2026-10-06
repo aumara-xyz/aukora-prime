@@ -5,9 +5,9 @@ This page is generated from [evidence/current.json](../evidence/current.json). �
 <!-- BEGIN GENERATED current-revisions -->
 | Identity | Revision / observation | Meaning |
 | --- | --- | --- |
-| Source account | `6ad539fdd4f5b2b55f995a96289df0df4619dd3c` | Base reviewed for this documentation snapshot; the review command emits the received HEAD and dirty state. |
-| Public main observed | `03adf90c40225e823b1bf0282aff1be2728e9f69`, 2026-10-04T16:00:00Z (integration tree before this evidence commit; SOURCE, ahead of the deployment) | Read/fetch observation, not a deployment proof; main may advance. |
-| Pilot deployment | `3673b98a3e090d122ed0853386ff60913287c3a8`, 2026-10-05T12:41:00Z · **REPORTED** | Live release 3673b98 is Peter-reported; the installed gate remains the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance. |
+| Source account | `9815c56e985bca2198342e78344e97a81e19597a` | Base reviewed for this documentation snapshot; the review command emits the received HEAD and dirty state. |
+| Public main observed | `9815c56e985bca2198342e78344e97a81e19597a`, 2026-10-06T10:12:31Z (r4-candidate-3 labs tip after D/H/E/F/M integration; SOURCE, ahead of the frozen main and the deployment) | Read/fetch observation, not a deployment proof; main may advance. |
+| Pilot deployment | `3673b98a3e090d122ed0853386ff60913287c3a8`, 2026-10-06T10:12:31Z · **REPORTED** | Live release 3673b98 is Peter-reported; the installed gate remains the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance. |
 | Tested revision | Per-check HEAD and file digests from `./security-review` | No current test result is inferred from a commit message or this table. Historical results stay in [evidence history](../docs/EVIDENCE-HISTORY.md). |
 <!-- END GENERATED current-revisions -->
 
