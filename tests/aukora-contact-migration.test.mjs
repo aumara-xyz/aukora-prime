@@ -21,7 +21,10 @@ import * as store from '../plugins/aukora-face/messages/src/contacts-store.ts'
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const scratch = fs.mkdtempSync(path.join(tmpdir(), 'contact-migration-'))
 const source = name => fs.readFileSync(path.join(root, name), 'utf8')
-const prior = name => execFileSync('/usr/bin/git', ['-C', root, 'show', `2e9b855d29f4ecf9148d482497a28ed38757d83b:${name}`], { encoding: 'utf8' })
+// Baseline pin: the squash that carried these files into Prime. The pre-squash private
+// commit this named before is not a public object; the three baseline files are
+// byte-unchanged since the squash, so old-vs-new parser checks are same-version here.
+const prior = name => execFileSync('/usr/bin/git', ['-C', root, 'show', `c358ac71d1dfe97bcd188bc73a135054fb886dc6:${name}`], { encoding: 'utf8' })
 const compiled = process.argv.includes('--compiled')
 const region = (text, name) => {
   const start = text.indexOf(`//#region ${name}`), end = text.indexOf('//#endregion', start)

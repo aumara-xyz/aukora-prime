@@ -14,7 +14,10 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const bridgePath = 'apps/aukora-desktop/aumlok-bridge.mjs'
 const source = readFileSync(join(root, bridgePath), 'utf8')
 const main = readFileSync(join(root, 'apps/aukora-desktop/main.mjs'), 'utf8')
-const original = execFileSync('/usr/bin/git', ['-C', root, 'show', `499dcd8218304ad4df897c8e828342fd467b2805:${bridgePath}`], { encoding: 'utf8' })
+// Baseline pin: the squash that carried the bridge into Prime; the pre-squash private
+// commit this named before is not a public object. The bridge changed after the squash,
+// so the spliced-gate mutant below exercises a genuinely older contract.
+const original = execFileSync('/usr/bin/git', ['-C', root, 'show', `c358ac71d1dfe97bcd188bc73a135054fb886dc6:${bridgePath}`], { encoding: 'utf8' })
 const pinExpression = main.match(/applicationOrigin: ([^,\n]+),/u)?.[1]
 assert.ok(pinExpression, 'caller did not supply an origin contract')
 const ownedOrigin = 'http://127.0.0.1:3187'
