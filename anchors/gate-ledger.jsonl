@@ -255,3 +255,4 @@
 {"seq":560,"head":"3fbbba933ab6f051813e6b232484fc40d918bb5b47241f3b9b7a21cc9420c04c","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-06T01:40:26.871Z","anchored_at":"2026-10-06T01:41:07Z"}
 {"seq":562,"head":"749d584bd7a1b0d18907a2b4f2093e411d45d97ab9408105da9c2c44344a578c","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-06T01:55:26.939Z","anchored_at":"2026-10-06T01:55:59Z"}
 {"seq":564,"head":"0a2fdff39208d0f8a42eb71cd0209a95639c6068070e8eaaae15cc5df3346876","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-06T02:07:08.278Z","anchored_at":"2026-10-06T02:07:44Z"}
+{"seq":566,"head":"f4151ffe765ae81e004bfb67140d7c40b2f712170c00e8114f5b6169ca0f57c6","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-06T02:10:26.999Z","anchored_at":"2026-10-06T02:10:56Z"}
