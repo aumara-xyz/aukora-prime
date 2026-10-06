@@ -3,7 +3,7 @@
  * SOURCE: no live workspace admission, note migration or owner review occurs. */
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { zstdCompressSync } from 'node:zlib'
@@ -17,7 +17,8 @@ const mutations = {
   'workspace-ambiguity': ["if (workspaceMap.has(root)) throw invalid('workspace-alias-ambiguous')", 'if (false) throw invalid(\'workspace-alias-ambiguous\')'],
   'unknown-workspace-fallback': ['if (!root || !workspaceMap.has(root)) return null', 'if (!root) return null; if (!workspaceMap.has(root)) return projects[0]?.project_id ?? null'],
   'missing-child-scope': ["    if (typeof run?.scope !== 'string' || run.scope === '') {\n      logger?.warn?.('aukora-kira: child capture deferred; retained scope unavailable')\n      return\n    }\n", '', 'memory-remembered-hook.mjs', ['scope: run.scope,', "scope: run?.scope ?? 'owner',"]],
-  'unresolved-project-recovery': ["if (scope === 'project:unresolved') return", 'if (false) return', 'memory-remembered-hook.mjs'],
+  'unresolved-project-recovery': ["if (scope === 'project:unresolved') {", 'if (false) {', 'memory-remembered-hook.mjs'],
+  'unresolved-project-recovery-warning': ["      logger?.warn?.('aukora-kira: capture recovery skipped (project-scope-unresolved); no notes recovered')\n", '', 'memory-remembered-hook.mjs'],
 }
 let mutated = 0
 if (mutant !== null) {
@@ -67,8 +68,10 @@ const filtered = (records, context) => {
   const report = { dropped: 0, reasons: {} }
   return { records: filterMemoryRecords(records, context, report), report }
 }
+let retainedScratch = 0
 const hookFixture = () => {
   const home = mkdtempSync(join(tmpdir(), 'kira-project-capture-'))
+  retainedScratch++
   const handlers = new Map(), warnings = [], remembered = [], captured = []
   const parent = agentAt(roots[0])
   let policyReads = 0
@@ -83,7 +86,8 @@ const hookFixture = () => {
       captureTurn: async (input, policy) => { captured.push({ input, policy }); return { remembered: 1 } } },
   })
   return { home, handlers, warnings, remembered, captured, policyReads: () => policyReads,
-    cleanup: () => { dispose(); rmSync(home, { recursive: true, force: true }) } }
+    // Dispose handlers; retain synthetic scratch so this check performs no filesystem deletes.
+    cleanup: () => { dispose(); assert.equal(handlers.size, 0) } }
 }
 const writeSyntheticSession = (home, id, cwd) => {
   const file = join(home, 'sessions', 'synthetic-project', id, 'session.jsonl.zstd')
@@ -238,7 +242,7 @@ await arm('actual child capture defers missing retained scope and preserves a kn
     assert.equal(fixture.remembered.length, 1, 'consumed run cannot capture again using owner fallback')
   } finally { fixture.cleanup() }
 })
-await arm('actual recovery skips unresolved projects while resolved identity still reads its own synthetic history', async () => {
+await arm('actual recovery reports unresolved skips without context while resolved identity still reads its own synthetic history', async () => {
   const fixture = hookFixture()
   try {
     writeSyntheticSession(fixture.home, 'synthetic-unmapped-alpha', '/synthetic/unmapped-alpha')
@@ -251,12 +255,21 @@ await arm('actual recovery skips unresolved projects while resolved identity sti
     await fixture.handlers.get('agent/created')({ agent: agentAt('/synthetic/unmapped-beta') })
     assert.equal(fixture.captured.length, 0, 'unknown projects cannot coalesce into one recovery bucket')
     assert.equal(fixture.policyReads(), 0)
+    const warning = 'aukora-kira: capture recovery skipped (project-scope-unresolved); no notes recovered'
+    assert.deepEqual(fixture.warnings, [warning, warning], 'each skipped recovery reports only the fixed reason')
+    const diagnostic = fixture.warnings.join('\n')
+    for (const canary of [fixture.home, '/synthetic/unmapped-alpha', '/synthetic/unmapped-beta',
+      'synthetic-project-session', 'synthetic-unmapped-alpha', 'synthetic-unmapped-beta', 'Synthetic scope fixture',
+      'The synthetic observatory', 'calibration is intact.']) {
+      assert.equal(diagnostic.includes(canary), false, 'recovery diagnostic cannot include path, session, title or body context')
+    }
     await fixture.handlers.get('agent/created')({ agent: agentAt(roots[1]) })
     assert.equal(fixture.captured.length, 2, 'resolved moved workspace recovers its owner turn and finding')
     assert.ok(fixture.captured.every(one => one.policy.scope === 'project:id:observatory'
       && one.input.sessionId === 'synthetic-known-observatory'))
-    assert.deepEqual(fixture.warnings, [])
+    assert.deepEqual(fixture.warnings, [warning, warning], 'resolved recovery adds no unresolved-scope warning')
   } finally { fixture.cleanup() }
 })
 if (mutant !== null) assert.equal(mutated, 1, 'actual production module was mutated')
 process.stdout.write(`${passed}/${total} project identity SOURCE groups passed${mutant === null ? '' : `; mutant=${mutant}`}\n`)
+process.stdout.write(`Synthetic scratch retained: ${retainedScratch} directories; no filesystem cleanup performed\n`)

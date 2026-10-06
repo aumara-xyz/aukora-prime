@@ -1,7 +1,7 @@
 /** Automatic tracked memory. Historical operator config fields remain readable for migration only. */
 import { KiraConversation, KiraConversationError } from './conversation.mjs'
-import { projectScopeOf, captureScopeOf, projectRecent, rememberedSnippet, visibleRemembered } from './project-memory.mjs'
-import { createProjectIdentityResolver } from './project-identity.mjs'
+import { captureScopeOf, projectRecent, rememberedSnippet, visibleRemembered } from './project-memory.mjs'
+import { createApprovedScopeAliasResolver, createProjectIdentityResolver, createProjectReadContextResolver } from './project-identity.mjs'
 import { registerRecallInjection, recallDiagnostics } from './injection.mjs'
 import { normalizeRecallState } from './recall-state.mjs'
 import { preTurnRecallFilter } from './memory-frame.mjs'
@@ -306,12 +306,13 @@ export function readConfig(config) {
   }
   const record = /** @type {Record<string, unknown>} */ (config)
   for (const key of Object.keys(record)) {
-    if (!['retrieval', 'readOwner', 'memoryOwner', 'projectIdentity', 'maxSessions', 'autoStage'].includes(key)) {
-      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, projectIdentity, maxSessions, autoStage`)
+    if (!['retrieval', 'readOwner', 'memoryOwner', 'projectIdentity', 'approvedScopeAliases', 'maxSessions', 'autoStage'].includes(key)) {
+      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, projectIdentity, approvedScopeAliases, maxSessions, autoStage`)
     }
   }
   if (record.autoStage !== undefined && typeof record.autoStage !== 'boolean') refuse('config-autostage', 'autoStage must be a boolean')
   const projectIdentity = record.projectIdentity === undefined ? undefined : createProjectIdentityResolver(record.projectIdentity)
+  const approvedScopeAliases = record.approvedScopeAliases === undefined ? undefined : createApprovedScopeAliasResolver(record.approvedScopeAliases)
   const retrieval = record.retrieval ?? IMPLEMENTED_RETRIEVAL
   if (typeof retrieval !== 'string' || !RETRIEVAL_OPTIONS.some(option => option.id === retrieval)) {
     refuse(
@@ -364,6 +365,7 @@ export function readConfig(config) {
       retrieval,
       maxSessions,
       ...(projectIdentity === undefined ? {} : { projectIdentity }),
+      ...(approvedScopeAliases === undefined ? {} : { approvedScopeAliases }),
       memoryOwner: Object.freeze({
         stateDir: identity.stateDir,
         subject: identity.subject,
@@ -400,6 +402,7 @@ export function readConfig(config) {
     retrieval,
     maxSessions,
     ...(projectIdentity === undefined ? {} : { projectIdentity }),
+    ...(approvedScopeAliases === undefined ? {} : { approvedScopeAliases }),
     readOwner: Object.freeze({
       module: ownerRecord.module,
       ...(ownerRecord.options === undefined ? {} : { options: ownerRecord.options }),
@@ -412,12 +415,18 @@ export function readConfig(config) {
  *
  * @param {Readonly<Record<string, unknown>>} ctx - Cordis context carrying the tool registry.
  * @param {unknown} config - composition-supplied configuration.
+ * @param {object | undefined} gateCaptureHost - existing trusted completion adapter.
+ * @param {object | undefined} projectReadHost - existing trusted project read context and selection callbacks.
  * @returns {Promise<void>} resolves once both tools are registered.
  */
-export async function apply(ctx, config, gateCaptureHost) {
+export async function apply(ctx, config, gateCaptureHost, projectReadHost) {
   const normalized = readConfig(config)
   const projectIdentity = normalized.projectIdentity ?? createProjectIdentityResolver()
-  const projectScopeFor = agent => projectScopeOf(agent, projectIdentity)
+  // Only a direct trusted host can supply its existing hashed attachment.
+  // The alias config alone cannot create one or change capture identity.
+  const projectRead = createProjectReadContextResolver({ projectIdentity,
+    approvedScopeAliases: normalized.approvedScopeAliases, host: projectReadHost })
+  const projectScopeFor = agent => projectRead.scopeOf(agent)
   const captureScopeFor = agent => captureScopeOf(agent, projectIdentity)
   // ── NOT LINKED YET: MEMORY STAYS OFF, POLITELY, AND SAYS SO ─────────────────────────────────────
   // A fresh install carries the release's placeholder subject until the desktop's first Aumlok link
@@ -494,7 +503,7 @@ export async function apply(ctx, config, gateCaptureHost) {
       }) })
     ctx.effect(() => () => capture.dispose(), 'aukora-kira: gate completion capture')
   }
-  const recallContext = agent => ({ sessionId: sessionIdOfAgent(agent), ...projectIdentity.contextFor(agent) })
+  const recallContext = agent => ({ sessionId: sessionIdOfAgent(agent), ...projectRead.contextFor(agent) })
   // Every Room post joins tracked memory on the same tick, whichever program posted it; a failed pass never blocks the index.
   const roomLog = defaultRoomLog()
   const semanticIndex = () => void Promise.resolve().then(async () => {

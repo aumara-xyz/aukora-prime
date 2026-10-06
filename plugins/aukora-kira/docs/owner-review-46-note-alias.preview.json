@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "status": "owner-reviewed",
+  "review_id": "Sentinel_0f53fd759a488191b666f258b74f89c5",
+  "entries": [
+    {
+      "from_scope": "project:982deb07dba176b9f2b8bccaffec69e2f3f6421e13c993374edf9e226da1e45c",
+      "to_scope": "project:ed9da107b1a136deb7876daa6602e67ade729ad169f5f2c4bbfd79745ce2c74b"
+    }
+  ]
+}

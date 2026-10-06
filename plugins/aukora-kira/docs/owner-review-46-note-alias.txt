@@ -1,0 +1,27 @@
+46-note owner-review packet: read-time alias preview
+
+Owner direction: Peter, 2026-10-06 00:41 UTC.
+Review reference: Sentinel_0f53fd759a488191b666f258b74f89c5.
+
+Old scope: project:982deb07dba176b9f2b8bccaffec69e2f3f6421e13c993374edf9e226da1e45c
+Old note count: 46.
+Capture date range supplied by the export: 2026-10-04 through 2026-10-04.
+Sessions: 39.
+Export attribution counts: 38 agent summaries; 8 owner observations.
+Privacy: local.
+Sensitivity: none.
+Tags: not supplied by the export.
+
+Target scope: project:ed9da107b1a136deb7876daa6602e67ade729ad169f5f2c4bbfd79745ce2c74b
+Target note count: 85, superseding the earlier count of 82.
+Target date range and tags: not supplied.
+
+Approved direction: resolve exactly the old scope to exactly the target scope at read time, only while that target is attached in the trusted host context.
+The reverse direction is not an alias. Other projects retain their existing scope-not-attached refusal. Existing record-specific aliases retain their record-ID restriction.
+Historical scope, IDs and canonical bytes remain unchanged. This is a source preview, not an applied host configuration or note migration.
+
+Provenance: counts and dates are supplied metadata, not a new store measurement. No note bodies or stored note IDs were accessed to prepare this packet. No tags or target date range were inferred.
+
+Composition for Kimi: createApprovedScopeAliasResolver(preview).contextFor(existingHostContext) decorates the current trusted read context. It preserves the current attachment list and existing branded record-specific aliases; conflicting aliases refuse rather than overwrite. The JSON preview beside this packet is inert until Kimi explicitly composes it in allocated staging.
+
+Staged long-note acceptance remains pending Kimi's existing synthetic namespace and runner allocation. No live state changes are part of this packet.

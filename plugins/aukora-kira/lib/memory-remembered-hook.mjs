@@ -107,7 +107,10 @@ export function registerRememberedCapture(ctx, options = {}) {
   const recovered = new Set()
   stops.push(ctx.on('agent/created', async ({ agent }) => {
     const scope = scopeFor(agent)
-    if (scope === 'project:unresolved') return
+    if (scope === 'project:unresolved') {
+      logger?.warn?.('aukora-kira: capture recovery skipped (project-scope-unresolved); no notes recovered')
+      return
+    }
     if (recovered.has(scope)) return
     recovered.add(scope)
     try {

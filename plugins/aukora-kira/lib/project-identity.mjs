@@ -26,9 +26,10 @@ export function stableProjectScope(projectId) {
   return `project:id:${projectId}`
 }
 
-/** Existing owner/agent/direct attachment stays intact. A historical project
- * alias additionally needs the reviewed record ID and its canonical project to
- * be attached. The derived view does not edit the historical note or its ID. */
+/** Existing owner/agent/direct attachment stays intact. Record-specific aliases
+ * still require the reviewed record ID; separately reviewed scope aliases use
+ * an exact source scope. Both require the target to be currently attached.
+ * The derived view does not edit the historical note or its ID. */
 export function isProjectScopeAttached(note, context) {
   const scope = String(note?.scope ?? 'owner')
   if (scope === 'owner' || scope === 'agent' || (context?.attachedProjects ?? []).includes(scope)) return true
@@ -42,8 +43,87 @@ export function resolvedProjectScopeOf(note, context) {
   if (scope === 'owner' || scope === 'agent') return null
   if ((context?.attachedProjects ?? []).includes(scope)) return scope
   const alias = aliasViews.get(context?.projectAliases)?.get(scope)
-  return alias && alias.recordIds.has(String(note?.id ?? note?.recordId))
+  return alias && (alias.scopeWide === true || alias.recordIds.has(String(note?.id ?? note?.recordId)))
     && (context?.attachedProjects ?? []).includes(alias.canonicalScope) ? alias.canonicalScope : null
+}
+
+const aliasViewOf = aliases => {
+  const view = Object.freeze([...aliases].map(([legacyScope, alias]) => Object.freeze({
+    legacy_scope: legacyScope, canonical_scope: alias.canonicalScope,
+    ...(alias.scopeWide === true ? { scope_wide: true } : { record_ids: Object.freeze([...alias.recordIds]) }),
+  })))
+  aliasViews.set(view, aliases)
+  return view
+}
+
+/** An explicitly reviewed, one-way alias between existing hashed project
+ * scopes. This decorates a trusted host read context; it does not attach a
+ * target, read memory, modify records or change project identity configuration.
+ * Review is supplied by the host, as with the record-specific alias table. */
+export function createApprovedScopeAliasResolver(config = { version: 1, status: 'draft', entries: [] }) {
+  if (!plain(config) || config.version !== 1 || !['draft', 'owner-reviewed'].includes(config.status)
+    || Object.keys(config).some(key => !['version', 'status', 'review_id', 'entries'].includes(key))
+    || !Array.isArray(config.entries) || config.entries.length > 128) throw invalid('scope-alias-configuration-invalid')
+  if (config.status === 'owner-reviewed' && (!text(config.review_id) || config.review_id.length > 128))
+    throw invalid('alias-review-missing')
+  const reviewed = new Map(), entries = [], sources = new Set()
+  for (const entry of config.entries) {
+    if (!plain(entry) || Object.keys(entry).length !== 2
+      || !Object.hasOwn(entry, 'from_scope') || !Object.hasOwn(entry, 'to_scope')
+      || typeof entry.from_scope !== 'string' || !LEGACY_SCOPE.test(entry.from_scope)
+      || typeof entry.to_scope !== 'string' || !LEGACY_SCOPE.test(entry.to_scope)
+      || entry.from_scope === entry.to_scope) throw invalid('scope-alias-entry-invalid')
+    if (sources.has(entry.from_scope)) throw invalid('scope-alias-source-ambiguous')
+    sources.add(entry.from_scope)
+    entries.push(Object.freeze({ from_scope: entry.from_scope, to_scope: entry.to_scope }))
+    if (config.status === 'owner-reviewed') reviewed.set(entry.from_scope, {
+      canonicalScope: entry.to_scope, scopeWide: true,
+    })
+  }
+  const description = Object.freeze({ version: 1, status: config.status,
+    review_id: config.status === 'owner-reviewed' ? config.review_id : null,
+    entries: Object.freeze(entries), writes: false, grantsAuthority: false })
+  const contextFor = context => {
+    if (context !== undefined && !plain(context)) throw invalid('scope-alias-context-invalid')
+    const attached = context?.attachedProjects ?? []
+    if (!Array.isArray(attached) || attached.length > 128 || !attached.every(value => typeof value === 'string'))
+      throw invalid('scope-alias-context-invalid')
+    const aliases = new Map(aliasViews.get(context?.projectAliases) ?? [])
+    for (const [from, alias] of reviewed) {
+      if (aliases.has(from)) throw invalid('alias-view-ambiguous')
+      aliases.set(from, alias)
+    }
+    return Object.freeze({ ...context, attachedProjects: Object.freeze([...attached]), projectAliases: aliasViewOf(aliases) })
+  }
+  return Object.freeze({ contextFor, description })
+}
+
+/** A direct trusted-host read adapter supplies existing attachment and project
+ * selection callbacks. Configuration and note/model metadata cannot supply
+ * these callbacks. Project context has no subject/privacy fields, so it cannot
+ * replace the read owner's policy when composed at the recall boundary.
+ * This adapter never changes capture identity or creates an attachment. */
+export function createProjectReadContextResolver({ projectIdentity = createProjectIdentityResolver(),
+  approvedScopeAliases = createApprovedScopeAliasResolver(), host } = {}) {
+  if (host !== undefined && (!plain(host)
+    || Reflect.ownKeys(host).length !== 2 || typeof host.contextFor !== 'function'
+    || typeof host.scopeFor !== 'function')) throw invalid('project-read-host-invalid')
+  const contextFor = host === undefined ? agent => projectIdentity.contextFor(agent) : host.contextFor.bind(host)
+  const scopeFor = host === undefined ? agent => projectIdentity.scopeOf(agent) : host.scopeFor.bind(host)
+  return Object.freeze({
+    scopeOf(agent) {
+      const scope = scopeFor(agent)
+      if (scope !== null && (typeof scope !== 'string' || !scope.startsWith('project:')))
+        throw invalid('project-read-scope-invalid')
+      return scope
+    },
+    contextFor(agent) {
+      const context = contextFor(agent)
+      if (!plain(context) || Reflect.ownKeys(context).some(key => !['attachedProjects', 'projectAliases'].includes(key)))
+        throw invalid('project-read-context-invalid')
+      return approvedScopeAliases.contextFor(context)
+    },
+  })
 }
 
 /** Nonsecret configuration suitable for explicit host review. Missing
@@ -97,10 +177,7 @@ export function createProjectIdentityResolver(config) {
       if (aliasTable.status === 'owner-reviewed') reviewedAliases.set(entry.legacy_scope, alias)
     }
   }
-  const projectAliases = Object.freeze([...reviewedAliases].map(([legacyScope, alias]) => Object.freeze({
-    legacy_scope: legacyScope, canonical_scope: alias.canonicalScope, record_ids: Object.freeze([...alias.recordIds]),
-  })))
-  aliasViews.set(projectAliases, reviewedAliases)
+  const projectAliases = aliasViewOf(reviewedAliases)
   // Snapshot all inputs above. Later caller mutation cannot change attachment.
   const projectIdOf = agent => {
     const root = pathOf(agent?.session?.header?.cwd)
