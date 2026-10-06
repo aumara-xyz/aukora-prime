@@ -217,7 +217,7 @@ test('actual registered kira_remember and renderer preserve the real append rece
     assert.deepEqual(tool.output.render(args, result), [{ type: 'text', text: JSON.stringify(result) }])
     assert.deepEqual(JSON.parse(tool.output.render(args, result)[0].text).receipt, result.receipt)
     assert.deepEqual(tool.output.schema.required, ['receipt'])
-    assert.equal(tool.output.schema.properties.receipt.properties.signed.const, false)
+    assert.equal(tool.output.schema.properties.receipt.oneOf[0].properties.signed.const, false)
     assert.equal(result.notes[0].source.state, 'UNLINKED')
     const repeated = await tool.execute(args, { agent: { sessionId: 'synthetic-tool-session' } })
     assert.equal(repeated.receipt, null)
