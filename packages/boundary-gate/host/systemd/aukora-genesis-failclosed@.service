@@ -1,0 +1,13 @@
+# A distinct handler for each selfcheck preserves systemd >= 251 MONITOR_* provenance.
+# Missing/stale failure provenance still stops Genesis but cannot arm recovery.
+[Unit]
+Description=AUKORA fail closed after %i (record exact invocation for owned recovery)
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=PATH=/usr/bin:/bin
+UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
+TimeoutStartSec=300
+ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/genesis-recover-probe failclosed %i

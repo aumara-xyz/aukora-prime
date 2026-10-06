@@ -9,7 +9,8 @@
 [Unit]
 Description=AUKORA Genesis runtime (foreground, plugin set ENFORCED, release floor) as aukora-host, loopback 127.0.0.1:18735
 After=network-online.target aukora-boundary-gate.service aukora-auma-sandbox.service aukora-selfcheck.service aukora-auma-local-deny.service
-Wants=aukora-boundary-gate.service aukora-auma-sandbox.service
+# Providers must already be running; a Genesis start must not implicitly start the gate.
+Requisite=aukora-boundary-gate.service aukora-auma-sandbox.service
 # Ordering plus a bound active startup check refuses startup and stops Genesis if that check disappears.
 BindsTo=aukora-selfcheck.service aukora-auma-local-deny.service
 # A failing self-check must not loop (each attempt is a ledger entry): three tries in five minutes, then stay down.
@@ -38,13 +39,18 @@ Environment=AUKORA_STATE=/home/aukora-host/genesis/state
 Environment=AUKORA_LAUNCH_STARTUP_TIMEOUT=150
 # Fail closed (1): the boundary self-check (bin/selfcheck.mjs) must pass and be recorded in the gate ledger first.
 # One spaced retry (45s) with the failing leg named, before the unit fails closed (selfcheck-with-retry).
+ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-boot
+ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-ready
 ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-package
 ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-runtime
+ExecStartPre=+/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/genesis-recover-probe prepare-selfcheck-lock
 ExecStartPre=/usr/local/lib/aukora-boundary/selfcheck-with-retry -- --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec --forbid-write /opt/aukora-boundary-gate/bin/plugin-set-approval.mjs --forbid-write /opt/aukora-boundary-gate/bin/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/plugin-set-canon.mjs --forbid-write /opt/aukora-boundary-gate/src/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/operator-data.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/plugin-set-content.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/trusted-verifier-pins.json --forbid-write /opt/aukora-boundary-gate/src/vendor/signer-epochs.mjs --forbid-write /etc/aukora-boundary-gate/signer-epochs.json --forbid-write /etc/aukora-boundary-gate/gate-package-manifest.json --forbid-write /usr/local/lib/aukora-boundary/gate-bootstrap
 # Fail closed (2): the monotonic release floor. Trusted root-owned code verifies the installed gate approval for exactly this
 # release (candidate release read as data) and refuses an approval older than the newest one ever installed.
 ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap floor check --release-dir ${AUKORA_RELEASE_DIR} --approval-state-root ${AUKORA_APPROVAL_ROOT}
 ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release ${AUKORA_RELEASE_DIR} --state-root /home/aukora-host/genesis/state --port 18735 --foreground --node /opt/aukora-node/bin/node --approval-state-root ${AUKORA_APPROVAL_ROOT} --approved-record-sha ${AUKORA_RECORD_SHA} --patch ${AUKORA_RELEASE_DIR}/aukora-composition.patch.yml --patch ${AUKORA_RELEASE_DIR}/linux-openshell.patch.yml
+# Ordinary stop invalidates recovery; only the exact failclosed stop transaction preserves it.
+ExecStopPost=+/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/genesis-recover-probe stop-notice
 KillMode=control-group
 Restart=on-failure
 RestartSec=5
