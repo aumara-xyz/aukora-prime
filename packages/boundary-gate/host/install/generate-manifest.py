@@ -110,6 +110,8 @@ def staging_boot_files(root, checkout, data_root, skgate_gid):
         references[path] = {"source": source, "source_sha256": hashlib.sha256(reviewed).hexdigest(),
                             "sha256": hashlib.sha256(materialized).hexdigest()}
     for path, source in sorted(SOURCE["BOOT_DATA_FILES"].items()):
+        # Includes the public Aura carrier independently of the optional Aura
+        # collector profile. Expected bytes come only from reviewed staging.
         reviewed = staging_named_read(data_root, path.lstrip("/"))
         materialized = staging_named_read(root, path.lstrip("/"))
         require(materialized == reviewed, "staging-boot-data:" + path)

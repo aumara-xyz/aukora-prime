@@ -57,6 +57,11 @@ class BootFixture:
         self.files = {}
         for installed, reference in SOURCE["BOOT_FILE_REFERENCES"].items():
             data = ("reviewed fixture: " + reference + "\n").encode()
+            if installed == SOURCE["AURA_CONFIG"]:
+                # Invented flat public bytes only; no real controller, signer,
+                # enrollment, source database or Nostr verification claim.
+                data = json.dumps({"version": 1, "kind": "synthetic-public-carrier/v1",
+                    "source_id": "synthetic-gate", "key_sha256": "0" * 64}, sort_keys=True).encode()
             self.put(self.path(installed), data)
             digest = hashlib.sha256(data).hexdigest()
             self.files[installed] = {"source": reference, "source_sha256": digest, "sha256": digest}
@@ -190,9 +195,83 @@ class BootIdentityChecks(unittest.TestCase):
                 path = self.world.path(installed)
                 original = path.read_bytes()
                 path.write_bytes(original + b"unreviewed change\n")
-                with self.assertRaisesRegex(Refused, "boot-hash"):
+                with self.assertRaisesRegex(Refused, "boot-carrier-hash" if installed == SOURCE["AURA_CONFIG"] else "boot-hash"):
                     self.check()
                 path.write_bytes(original)
+
+    def gate_actions(self):
+        return (["check-ready"], ["serve", "--home", "/home/aukora-gate", "--run", "/run/aukora-gate",
+            "--target-root", "/var/lib/aukora-boundary/targets", "--gid", "1003"])
+
+    def assert_gate_refused(self, expected, namespace=G):
+        for action in self.gate_actions():
+            with self.world.custody(namespace), patch.object(sys, "argv", ["fixture", *action]), \
+                    patch.dict(os.environ, {}, clear=True), patch.object(os, "execve") as dispatch, \
+                    patch.object(sys, "stdout", new_callable=io.StringIO) as output, \
+                    patch.object(sys, "stderr", new_callable=io.StringIO) as refusal:
+                self.assertEqual(namespace["main"](), 2)
+            self.assertIn(expected, refusal.getvalue())
+            self.assertEqual(output.getvalue(), "")
+            dispatch.assert_not_called()
+
+    def test_gate_and_readiness_require_boot_without_optional_aura_profile(self):
+        self.assertNotIn("aura", self.world.manifest["profiles"])
+        self.world.manifest["profiles"].pop("boot")
+        self.world.write_manifest()
+        self.assert_gate_refused("boot-profile-unconfigured")
+        # Existing nongate runtime preflight keeps its explicitly narrower scope.
+        with self.world.custody(), patch.object(sys, "argv", ["fixture", "check-runtime"]), \
+                patch.dict(os.environ, {}, clear=True), patch.object(os, "execve") as dispatch, \
+                patch.object(sys, "stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(SOURCE["main"](), 0)
+        self.assertEqual(output.getvalue(), "RUNTIME_VERIFIED\n")
+        dispatch.assert_not_called()
+
+    def test_public_carrier_inventory_omission_refuses_before_gate_or_readiness(self):
+        self.world.manifest["profiles"]["boot"]["files"].pop(SOURCE["AURA_CONFIG"])
+        self.world.manifest["profiles"]["boot"]["digest"] = SOURCE["boot_identity_digest"](
+            self.world.manifest, self.world.manifest["profiles"]["boot"]["files"])
+        self.world.write_manifest()
+        self.assert_gate_refused("boot-inventory")
+
+    def test_public_carrier_tamper_missing_links_and_mode_refuse_before_node(self):
+        path = self.world.path(SOURCE["AURA_CONFIG"])
+        reviewed = path.read_bytes()
+        path.write_bytes(reviewed + b"\n ")
+        self.assert_gate_refused("boot-carrier-hash")
+        path.rename(self.world.root / "refused-carrier-changed-bytes")
+        self.assert_gate_refused("protected-io")
+        target = self.world.root / "retained-carrier-alias-target"
+        self.world.put(target, reviewed)
+        path.symlink_to(target)
+        self.assert_gate_refused("protected-type")
+        path.rename(self.world.root / "refused-carrier-symlink")
+        os.link(target, path)
+        self.assert_gate_refused("protected-hardlink")
+        path.rename(self.world.root / "refused-carrier-hardlink")
+        self.world.put(path, reviewed)
+        path.chmod(0o620)
+        self.assert_gate_refused("protected-mode")
+
+    def test_named_public_carrier_hash_guard_detects_actual_dispatch_witness(self):
+        text = (HERE / "gate-bootstrap.py").read_text()
+        guard = 'require(hashlib.sha256(data).hexdigest() == profile["files"][AURA_CONFIG]["sha256"], "boot-carrier-hash")'
+        self.assertEqual(text.count(guard), 1)
+        mutant = {"__name__": "public_carrier_hash_guard_mutant", "__file__": str(HERE / "gate-bootstrap.py")}
+        exec(compile(text.replace(guard, 'require(True, "disabled-fixture-carrier-hash-guard")'),
+            "<public-carrier-single-guard-mutant>", "exec"), mutant)
+        path = self.world.path(SOURCE["AURA_CONFIG"])
+        path.write_bytes(path.read_bytes() + b"\n ")
+        self.assert_gate_refused("boot-carrier-hash")
+        for action in self.gate_actions():
+            with self.world.custody(mutant), patch.object(sys, "argv", ["fixture", *action]), \
+                    patch.dict(os.environ, {}, clear=True), patch.object(os, "execve") as dispatch, \
+                    patch.object(os, "chdir") as chdir:
+                self.assertEqual(mutant["main"](), 2)  # The actual exec seam returns only in this recorder.
+            dispatch.assert_called_once_with(str(self.world.node),
+                [str(self.world.node), str(self.world.package / SOURCE["ENTRY"]), *action], SOURCE["node_environment"]({}))
+            chdir.assert_called_once_with("/")
+        print("SOURCE-ONLY public-carrier-hash guard mutation: 1/1 killed; actual changed carrier bytes reach gate/readiness dispatch only after this exact guard is removed.")
 
     def test_missing_symlink_hardlink_and_writable_actual_helpers_refuse(self):
         installed = "/usr/local/lib/aukora-boundary/openshell/custody/sbx_exec_body.sh"
@@ -335,6 +414,10 @@ class BootIdentityChecks(unittest.TestCase):
         profile = manifest["profiles"]["boot"]
         self.assertEqual(profile["digest"], SOURCE["boot_identity_digest"](manifest, profile["files"]))
         self.assertEqual(set(profile["files"]), set(SOURCE["BOOT_FILE_REFERENCES"]))
+        self.assertEqual(len(profile["files"]), 32)
+        carrier = profile["files"][SOURCE["AURA_CONFIG"]]
+        self.assertEqual(carrier["source"], "operator-data:aura-context/v1")
+        self.assertEqual(carrier["source_sha256"], carrier["sha256"])
         self.assertNotIn(str(self.world.root), outputs[0].read_text())
         gate_unit = profile["files"]["/etc/systemd/system/aukora-boundary-gate.service"]
         self.assertNotEqual(gate_unit["source_sha256"], gate_unit["sha256"])
@@ -345,13 +428,20 @@ class BootIdentityChecks(unittest.TestCase):
             staging(str(staged), str(checkout), str(data_root), "1003")
         extra.rename(self.world.root / "refused-staged-extra-executable")
         for installed, expected in (("/usr/local/lib/aukora-boundary/sbx-exec", "staging-boot-source"),
-                                    ("/etc/aukora-genesis/release.env", "staging-boot-data")):
+                                    ("/etc/aukora-genesis/release.env", "staging-boot-data"),
+                                    (SOURCE["AURA_CONFIG"], "staging-boot-data")):
             path = staged / installed.lstrip("/")
             original = path.read_bytes()
             path.write_bytes(original + b"unreviewed change\n")
             with self.assertRaisesRegex(generator["SOURCE"]["Refused"], expected):
                 staging(str(staged), str(checkout), str(data_root), "1003")
             path.write_bytes(original)
+        reviewed_carrier = data_root / SOURCE["AURA_CONFIG"].lstrip("/")
+        retained = self.world.root / "missing-reviewed-carrier-original.json"
+        reviewed_carrier.rename(retained)
+        with self.assertRaisesRegex(generator["SOURCE"]["Refused"], "staging-boot-data-inventory"):
+            staging(str(staged), str(checkout), str(data_root), "1003")
+        retained.rename(reviewed_carrier)
         for gid in ("0", "01003", "1003;exit", "4294967295", "4294967296", "1" * 4301):
             with self.assertRaisesRegex(generator["SOURCE"]["Refused"], "staging-boot-gid"):
                 staging(str(staged), str(checkout), str(data_root), gid)

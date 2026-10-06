@@ -26,6 +26,11 @@ readiness; no ping, owner registry guess, key creation or alternate module is a
 fallback. The installed gate/API readiness outcome remains a separate runtime
 observation from disk identity.
 
+Ordinary `serve` dispatch also requires this mandatory boot identity and public
+carrier pin. Omitting the optional Aura collector profile cannot bypass either
+gate-startup or readiness verification. The existing nongate `check-runtime`
+interface retains its narrower source-profile contract.
+
 ## Manifest and closure
 
 The fixed root-protected manifest remains
@@ -51,13 +56,25 @@ timer, the failure-handler template, the local firewall unit/rules and the
 restricted sudo rule. The gate package's existing complete inventory covers its
 selfcheck, owner-state reader and other imported gate modules.
 
-The public operator-data references are the strict release environment document,
-owner-state registry, OpenShell deployment inventory and workspace registration.
+The five public operator-data references are the strict release environment
+document, owner-state registry, OpenShell deployment inventory, workspace
+registration and fixed `/etc/aukora-boundary-gate/aura-context.json` carrier.
 They are reviewed as data and pinned from a separate staged mirror. Missing
 deployment documents block `check-boot`; the verifier does not create them,
 derive them from a writable workspace or qualify their runtime claims. Mutable
 approval cache/floor and private key material remain in their existing admission
 and custody interfaces.
+
+The public carrier's literal source reference is `operator-data:aura-context/v1`.
+Its exact expected bytes come from the separately reviewed `--boot-data-root`
+input, and the generator requires the proposed installed copy to match those
+bytes. The complete BootIdentity contains 27 source references and five data
+references, 32 files in total. The carrier remains mandatory when no
+`profiles.aura` collector is configured. This pin join reads public bytes only:
+it does not require or validate full Nostr claims, load a collector, read a
+private signer or learn an expected hash from runtime. D's flat public interface
+owns its separate semantic verification; a matching hash alone proves none of
+those semantics.
 
 Local full-unit, template-instance, dash-prefix and type-wide drop-in directories
 refuse in the fixed systemd search roots. Relevant override/transient/generated
@@ -71,7 +88,7 @@ Keep the existing complete gate, owner-key, six-input launcher and public signer
 staging procedure. Prepare three additional disjoint reviewed staging inputs:
 
 1. `--boot-checkout`: reviewed source containing every named source reference.
-2. `--boot-data-root`: a mirror containing exactly the four fixed public data
+2. `--boot-data-root`: a mirror containing exactly the five fixed public data
    paths, with each absolute path represented below the mirror without its
    initial `/`. Review the actual existing release/owner/provider selections;
    do not invent documents to make a check pass.
@@ -126,6 +143,14 @@ entries; removed digests; whole-profile digest binding; local drop-ins; finite
 arguments; deterministic actual-source staging; and detecting controls after
 individual hash/digest guards are removed in memory. No production override or
 mutation selector is added.
+
+The public-carrier controls additionally exercise omission, changed bytes,
+missing files, symlinks, hardlinks and writable mode before either ordinary
+gate or readiness dispatch. A named single-guard mutation removes only the
+carrier hash comparison: the unchanged production verifier refuses the actual
+tampered fixture bytes, while the mutant reaches the same fixed Node dispatch
+recorder. Invented flat public fixture bytes establish this byte-pin behavior,
+not a valid enrolled controller, Nostr approval or installed semantic context.
 
 Actual root ownership, loaded systemd definitions, the existing release's
 admission, owner enrollment, provider readiness and installed Linux/OpenShell

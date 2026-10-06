@@ -146,6 +146,7 @@ BOOT_DATA_FILES = {
     "/etc/aukora-boundary-gate/openshell-inventory.json": "operator-data:openshell-inventory/v1",
     "/etc/aukora-boundary-gate/openshell-workspace.json": "operator-data:openshell-workspace/v1",
     "/etc/aukora-boundary-gate/owner-state.json": "operator-data:owner-state/v1",
+    AURA_CONFIG: "operator-data:aura-context/v1",
 }
 BOOT_FILE_REFERENCES = {**BOOT_SOURCE_FILES, **BOOT_DATA_FILES}
 BOOT_SYSTEMD_ROOT = "/etc/systemd/system"
@@ -885,7 +886,13 @@ def verify_boot_profile(manifest):
         data = protected_read(path)
         total += len(data)
         require(total <= MAX_TOTAL, "boot-size")
-        require(hashlib.sha256(data).hexdigest() == profile["files"][path]["sha256"], "boot-hash:" + path)
+        if path == AURA_CONFIG:
+            # Public carrier bytes are independently staged and pinned even
+            # when the optional collector profile is absent. No signer read or
+            # runtime-discovered hash can stand in for the reviewed expected pin.
+            require(hashlib.sha256(data).hexdigest() == profile["files"][AURA_CONFIG]["sha256"], "boot-carrier-hash")
+        else:
+            require(hashlib.sha256(data).hexdigest() == profile["files"][path]["sha256"], "boot-hash:" + path)
     return profile["digest"]
 
 
@@ -983,9 +990,9 @@ def main():
                 print("PACKAGE_VERIFIED")
             return 0
         require_node_profile(manifest, entry)
-        if entry == ENTRY and arguments == ["check-ready"]:
-            # The fixed gate entry owns the closed read-only readiness action;
-            # no ping, key creation or alternate module path is a fallback.
+        if entry == ENTRY:
+            # Both ordinary gate startup and the fixed readiness action require
+            # the boot/public-carrier contract independently of an Aura profile.
             verify_boot_profile(manifest)
         if entry == AURA_ROOT + "/" + AURA_ENTRY:
             # Re-pin the fixed public document before the private metadata

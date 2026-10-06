@@ -42,9 +42,31 @@ gate pin and owner subject/root/epoch/registry/activation, including
 safe-integer observation time inside the five-second call bracket, a valid ledger
 count/head and zero unresolved/applying/incomplete/conflict effects. Unknown
 fields, accessors, functions, promises, thenables and coarse `{ok:true}` responses
-refuse. Protected owner or signer-registry drift also refuses. This binds D's
-selected source observation; it does not establish installed custody or future
-database state.
+refuse.
+
+The same bracket also reads only the fixed protected
+`/etc/aukora-boundary-gate/gate-package-manifest.json` (at most 2 MiB) and
+`/etc/aukora-boundary-gate/aura-context.json` (at most 1 MiB). The required v2
+manifest's `profiles.boot.files` carrier record must have exactly `source`,
+`source_sha256` and `sha256`, the literal source `operator-data:aura-context/v1`,
+and equal valid source/installed hashes. The carrier's raw UTF-8 bytes must match
+that independent expected hash. The host never learns the expected pin from the
+carrier or readiness response. It checks the carrier's closed eight-field public
+configuration and seven-field source projection, current owner subject, and a
+public Ed25519 SPKI whose DER hash and declared key hash equal the latest signer
+pin. D retains the actual home/database match and full readiness verification.
+The host follows no path from the carrier and validates no Nostr or BIP340
+semantics.
+
+Mandatory Python bootstrap strict parsing and complete manifest/BootIdentity
+verification must precede every gate entry dispatch, including `serve` and
+`check-ready`; the carrier is mandatory independently of the optional Aura
+collector profile. This Node helper's bounded `JSON.parse` and selected manifest
+record checks are a secondary guard within that path. They replace neither the
+strict parser nor complete boot digest/inventory verification, and do not form a
+standalone enrollment or admission authority. Protected owner, signer registry,
+manifest or carrier byte drift refuses. These checks bind D's selected source
+observation; they do not establish installed custody or future database state.
 
 The fixed readonly CLI is `bin/gate.mjs check-ready` without arguments or options.
 It calls the required core export
@@ -92,5 +114,10 @@ in memory, and no real owner/group changes occur. Removed file-write, pre-start
 verification, startup-result and exact snapshot signature guards admit the
 corresponding prohibited fixture behavior. Removing the readonly readiness
 preflight admits secret loading and mutable gate construction even when the
-readonly verifier is missing or reports failure. Live gate, sockets, systemd, enrolled
-owner data and operational publication remain UNPERFORMED.
+readonly verifier is missing or reports failure. Fixed carrier checks cover
+missing/malformed manifest and carrier, record omission, tampered raw bytes,
+current owner/key mismatch and manifest/carrier bracket drift. Removing only the
+expected carrier SHA comparison admits changed bytes with the same parsed
+projection; removing the bracket admits consistently repinned carrier changes
+during the call. Live gate, sockets, systemd, enrolled owner data and operational
+publication remain UNPERFORMED.

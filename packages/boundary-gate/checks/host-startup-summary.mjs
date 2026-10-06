@@ -30,9 +30,27 @@ const state = { version: 1, kind: 'aukora-owner-state/v1', owner_subject: 'aukor
   owner_root_spki_base64: p256.toString('base64'), owner_root_id: createHash('sha256').update(p256).digest('hex'),
   owner_epoch: 1, registry_sha256: '2'.repeat(64), activation_sha256: '3'.repeat(64) }
 const normalizedState = parseTrustedOwnerState(JSON.stringify(state))
-const gatePin = 'a'.repeat(64)
+const gateKeyPair = generateKeyPairSync('ed25519')
+const gateKey = gateKeyPair.publicKey
+const gatePin = createHash('sha256').update(gateKey.export({ type: 'spki', format: 'der' })).digest('hex')
 const epochsText = JSON.stringify({ version: 1, kind: 'aukora-signer-epochs/v1', epochs: [
   { epoch: 1, gate_pubkey_sha256: 'b'.repeat(64) }, { epoch: 2, gate_pubkey_sha256: gatePin }] })
+const manifestPath = '/etc/aukora-boundary-gate/gate-package-manifest.json'
+const configurationPath = '/etc/aukora-boundary-gate/aura-context.json'
+// Projection-only synthetic bytes; these fixtures do not exercise a complete Aura or BootIdentity profile.
+const configuration = { version: 1, kind: 'aukora-aura-context/v1', owner_subject: state.owner_subject,
+  store_dir: '/fixture/aura', source: { db_path: '/fixture/home/gate.db', source_id: 'fixture-gate',
+    public_key_pem: gateKey.export({ type: 'spki', format: 'pem' }).toString(), key_sha256: gatePin,
+    max_rows: 1000, max_bytes: 1024 * 1024, max_record_bytes: 4096 }, nostr: {}, anchors: {}, python_executable: '/fixture/python' }
+const configurationText = JSON.stringify(configuration)
+function manifestFor(text = configurationText) {
+  const digest = createHash('sha256').update(text).digest('hex')
+  return { version: 2, kind: 'aukora-gate-package/v2', package: '/opt/aukora-boundary-gate', entry: 'bin/gate.mjs',
+    files: {}, external_files: {}, profiles: { boot: { kind: 'aukora-prime-boot-identity/v1',
+      files: { [configurationPath]: { source: 'operator-data:aura-context/v1', source_sha256: digest, sha256: digest } },
+      digest: 'sha256:' + 'f'.repeat(64) } } }
+}
+const manifestText = JSON.stringify(manifestFor())
 function profileFor(owner = normalizedState, over = {}) {
   return { version: 1, kind: 'aukora-boundary-gate-readiness/v1', ready: true, checked_at_ms: Date.now(),
     gate_pubkey_sha256: gatePin, owner_state_sha256: createHash('sha256').update(JSON.stringify(owner)).digest('hex'),
@@ -51,12 +69,14 @@ function readinessSource(ownerModule, publicModule, mutant) {
 }
 async function readinessModule(control = {}, mutant) {
   const key = `__hReadiness${serial++}`; globalThis[key] = control
-  control.ownerReads = 0; control.pinReads = 0
+  control.ownerReads = 0; control.pinReads = 0; control.manifestReads = 0; control.configurationReads = 0
   const ownerModule = url(`import {parseTrustedOwnerState} from '${new URL('../host/owner-state.mjs', import.meta.url).href}';
     export function readOwnerState(){const c=globalThis.${key};const n=++c.ownerReads;return parseTrustedOwnerState(JSON.stringify(c.owner ? c.owner(n) : ${JSON.stringify(state)}));}`)
-  const publicModule = url(`export function readProtectedPublicText(file,maximum){const c=globalThis.${key};const n=++c.pinReads;
-    if(file!=='/etc/aukora-boundary-gate/signer-epochs.json'||maximum!==16384) throw Error('wrong protected pin path');
-    return c.pin ? c.pin(n) : ${JSON.stringify(epochsText)};}`)
+  const publicModule = url(`export function readProtectedPublicText(file,maximum){const c=globalThis.${key};
+    if(file==='/etc/aukora-boundary-gate/signer-epochs.json'&&maximum===16384){const n=++c.pinReads;return c.pin ? c.pin(n) : ${JSON.stringify(epochsText)};}
+    if(file===${JSON.stringify(manifestPath)}&&maximum===2*1024*1024){const n=++c.manifestReads;return c.manifest ? c.manifest(n) : ${JSON.stringify(manifestText)};}
+    if(file===${JSON.stringify(configurationPath)}&&maximum===1024*1024){const n=++c.configurationReads;return c.configuration ? c.configuration(n) : ${JSON.stringify(configurationText)};}
+    throw Error('wrong protected public path/bound');}`)
   return import(url(readinessSource(ownerModule, publicModule, mutant)))
 }
 
@@ -97,21 +117,84 @@ test('full readiness profile rejects coarse success, wrong owner/pin, stale time
   console.log('RED control caught: removing independent current gate pin accepts a mismatched readiness profile')
 })
 
-test('readiness brackets fresh owner/pin reads and refuses owner or registry drift', async () => {
+test('readiness brackets fresh owner/pin/manifest/carrier reads and refuses protected binding drift', async () => {
   const normal = {}, good = await readinessModule(normal)
   assert.equal(good.checkGateReadiness(() => profileFor()).ready, true)
   assert.equal(normal.ownerReads, 2); assert.equal(normal.pinReads, 2)
+  assert.equal(normal.manifestReads, 2); assert.equal(normal.configurationReads, 2)
   const changedOwner = parseTrustedOwnerState(JSON.stringify({ ...state, registry_sha256: '9'.repeat(64) }))
   const ownerDrift = await readinessModule({ owner: n => n === 1 ? state : changedOwner })
   assert.throws(() => ownerDrift.checkGateReadiness(() => profileFor(changedOwner)), /unavailable/u)
   const changedEpochs = epochsText.replace('b'.repeat(64), 'e'.repeat(64))
   const pinDrift = await readinessModule({ pin: n => n === 1 ? epochsText : changedEpochs })
   assert.throws(() => pinDrift.checkGateReadiness(() => profileFor()), /unavailable/u, 'registry drift refuses even if latest key stays the same')
+  const changedManifest = JSON.stringify({ ...manifestFor(), files: { 'bin/gate.mjs': 'e'.repeat(64) } })
+  const manifestDrift = await readinessModule({ manifest: n => n === 1 ? manifestText : changedManifest })
+  assert.throws(() => manifestDrift.checkGateReadiness(() => profileFor()), /unavailable/u, 'manifest drift refuses even when the carrier pin stays the same')
+  const changedConfiguration = configurationText + '\n'
+  const carrierControl = { manifest: n => n === 1 ? manifestText : JSON.stringify(manifestFor(changedConfiguration)),
+    configuration: n => n === 1 ? configurationText : changedConfiguration }
+  const carrierDrift = await readinessModule(carrierControl)
+  assert.throws(() => carrierDrift.checkGateReadiness(() => profileFor()), /unavailable/u, 'carrier byte drift refuses even with consistent updated pins')
   const noDrift = await readinessModule({ owner: n => n === 1 ? state : changedOwner },
     ['if (JSON.stringify(before) !== JSON.stringify(after)) refuse()', 'void 0'])
   assert.equal(noDrift.checkGateReadiness(() => profileFor(changedOwner)).ready, true,
     'RED: removing before/after binding guard accepts owner state changing during verification')
-  console.log('RED control caught: removing owner/pin bracket admits protected binding drift')
+  const noCarrierDrift = await readinessModule(carrierControl,
+    ['if (JSON.stringify(before) !== JSON.stringify(after)) refuse()', 'void 0'])
+  assert.equal(noCarrierDrift.checkGateReadiness(() => profileFor()).ready, true,
+    'RED: removing the bracket accepts carrier/manifest bytes changing during verification')
+  console.log('RED control caught: removing owner/pin/manifest/carrier bracket admits protected binding drift')
+})
+
+test('fixed public carrier requires independent manifest pin and current owner/Ed25519 gate identity', async () => {
+  const invalidManifests = ['{}', 'null', 'not json']
+  for (const change of [m => { delete m.profiles }, m => { delete m.profiles.boot },
+    m => { delete m.profiles.boot.files[configurationPath] }, m => { m.version = 1 }, m => { m.kind = 'wrong' },
+    m => { m.package = '/fixture/package' }, m => { m.entry = 'fixture.mjs' }, m => { m.extra = true },
+    m => { m.profiles.boot.kind = 'wrong' }, m => { m.profiles.boot.digest = 'bad' }, m => { m.profiles.boot.extra = true },
+    m => { m.profiles.boot.files[configurationPath].source = 'operator-data:wrong/v1' },
+    m => { m.profiles.boot.files[configurationPath].source_sha256 = '0'.repeat(64) },
+    m => { m.profiles.boot.files[configurationPath].sha256 = '0'.repeat(64) },
+    m => { m.profiles.boot.files[configurationPath].sha256 = 'A'.repeat(64) },
+    m => { delete m.profiles.boot.files[configurationPath].source_sha256 },
+    m => { m.profiles.boot.files[configurationPath].extra = true }]) {
+    const manifest = manifestFor(); change(manifest); invalidManifests.push(JSON.stringify(manifest))
+  }
+  for (const text of invalidManifests) {
+    const check = await readinessModule({ manifest: () => text })
+    let called = false
+    assert.throws(() => check.checkGateReadiness(() => { called = true; return profileFor() }), /unavailable/u)
+    assert.equal(called, false, 'manifest refusal must precede the core call')
+  }
+  for (const field of ['manifest', 'configuration']) {
+    const check = await readinessModule({ [field]: () => { throw Error('synthetic missing public file') } })
+    assert.throws(() => check.checkGateReadiness(() => profileFor()), /unavailable/u)
+  }
+  const tamperedBytes = configurationText + '\n'
+  const tampered = await readinessModule({ configuration: () => tamperedBytes })
+  assert.throws(() => tampered.checkGateReadiness(() => profileFor()), /unavailable/u, 'equivalent parsed JSON with unpinned bytes refuses')
+  for (const text of ['not json', 'null', '[]', '\ufeff' + configurationText]) {
+    const malformed = await readinessModule({ manifest: () => JSON.stringify(manifestFor(text)), configuration: () => text })
+    assert.throws(() => malformed.checkGateReadiness(() => profileFor()), /unavailable/u, 'pinned malformed carrier still refuses')
+  }
+  const otherKey = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }).toString()
+  for (const change of [c => { delete c.source }, c => { c.extra = true }, c => { c.source.extra = true },
+    c => { delete c.source.max_rows }, c => { c.version = 2 }, c => { c.kind = 'wrong' },
+    c => { c.owner_subject = 'aukora:1:' + '9'.repeat(64) }, c => { c.source.key_sha256 = 'b'.repeat(64) },
+    c => { c.source.public_key_pem = otherKey },
+    c => { c.source.public_key_pem = gateKeyPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() },
+    c => { c.source.public_key_pem = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).publicKey.export({ type: 'spki', format: 'pem' }).toString() },
+    c => { c.source.public_key_pem = 'not a public key' }]) {
+    const candidate = structuredClone(configuration); change(candidate); const text = JSON.stringify(candidate)
+    const check = await readinessModule({ manifest: () => JSON.stringify(manifestFor(text)), configuration: () => text })
+    assert.throws(() => check.checkGateReadiness(() => profileFor()), /unavailable/u, 'reviewed bytes still require current owner and gate identity')
+  }
+  const noBytePin = await readinessModule({ configuration: () => tamperedBytes },
+    ['if (sha256(configurationText) !== reference.sha256) refuse()', 'void 0'])
+  assert.equal(noBytePin.checkGateReadiness(() => profileFor()).ready, true,
+    'RED: removing only the expected manifest SHA guard admits unreviewed carrier bytes')
+  console.log('RED control caught: removing independent expected carrier SHA admits changed public bytes')
 })
 
 test('owner state preserves the existing closed eight-field protocol and rejects ambiguous data', () => {
@@ -183,7 +266,11 @@ test('protected public reads reject missing, writable, wrong-owner, links, size 
 
 const binReadinessUrl = url(readinessSource(
   url(`export function readOwnerState(){return ${JSON.stringify(normalizedState)}}`),
-  url(`export function readProtectedPublicText(){return ${JSON.stringify(epochsText)}}`)))
+  url(`export function readProtectedPublicText(file,maximum){
+    if(file==='/etc/aukora-boundary-gate/signer-epochs.json'&&maximum===16384)return ${JSON.stringify(epochsText)};
+    if(file===${JSON.stringify(manifestPath)}&&maximum===2*1024*1024)return ${JSON.stringify(manifestText)};
+    if(file===${JSON.stringify(configurationPath)}&&maximum===1024*1024)return ${JSON.stringify(configurationText)};
+    throw Error('wrong protected public path/bound');}`)))
 const stub = url(`
 const f = new Proxy({}, {get:(_target,key)=>globalThis.__hBinFixture[key]});
 function profile(ready,over={}){return {...${JSON.stringify(profileFor())},checked_at_ms:Date.now(),ready,...over};}
