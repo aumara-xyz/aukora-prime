@@ -22,7 +22,7 @@ import { lineDiff, cleanNote, noteMeta, cardWarnings, swatchText, noteDisplay } 
 // Concrete G protocol, not a caller-supplied verifier. Installed use requires an independently
 // verified protected owner-key profile and installation; source fixtures do not qualify custody.
 import { ownerRootPin } from '../../owner-key/src/index.mjs'
-import { AUTHORIZATION_FIELDS, ownerAuthorization, ownerAuthorizationText, ownerAuthorizationDigest,
+import { AUTHORIZATION_FIELDS, ownerAuthorization, ownerAuthorizationOwnerState, ownerAuthorizationText, ownerAuthorizationDigest,
   ownerAuthorizationProofText, verifyOwnerAuthorization } from '../../owner-key/src/authorization.mjs'
 
 export const DEFAULT_LIMITS = Object.freeze({
@@ -454,17 +454,101 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     return { applied: true, state: 'applied', entry: TARGETS[p.target]?.entry, receipt, receipt_sig,
       ledger_seq: e.seq, ledger_hash: e.hash, message: 'applied' }
   }
+  // Consumption commits first and remains spent if this process dies. Dispatch
+  // must then win the SAME writer fence as startup reconciliation; a prior
+  // applying snapshot is not permission to write after another gate closes it.
+  function assertRetainedConsumption(p, c, review) {
+    const consumed = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(c.consume_seq, c.consume_hash)
+    const issue = db.prepare('SELECT * FROM ledger WHERE seq=? AND hash=?').get(c.issue_seq, c.issue_hash)
+    if (!p || c.gate !== gateId || !review || review.state !== 'spent' || review.proposal_id !== p.id
+      || review.authorization_id !== c.authorization_id || review.owner_state_text !== c.owner_state_text
+      || review.spend_seq !== c.consume_seq || review.spent_at_ms !== c.accepted_at_ms
+      || review.issue_seq !== c.issue_seq || review.issue_hash !== c.issue_hash
+      || !consumed || consumed.event !== 'owner-authorization-consumed' || !issue || issue.event !== 'review-issued'
+      || [consumed, issue].some(row => row.proposal !== p.id || row.target !== p.target
+        || row.base_sha !== p.base_sha || row.new_sha !== p.new_sha))
+      throw new Error('original consumed-effect binding unavailable')
+    const detail = JSON.parse(consumed.detail), issued = JSON.parse(issue.detail)
+    const state = ownerAuthorizationOwnerState(JSON.parse(c.owner_state_text))
+    const authorization = ownerAuthorization(JSON.parse(review.authorization_text))
+    if (ownerAuthorizationText(authorization) !== review.authorization_text
+      || authorization.gate !== c.gate || authorization.challenge !== c.challenge || authorization.proposal_id !== p.id
+      || authorization.operation !== p.kind || authorization.target !== p.target
+      || authorization.before_sha256 !== p.base_sha || authorization.after_sha256 !== p.new_sha
+      || authorization.issued_at_ms !== review.issued_at_ms || authorization.expires_at_ms !== review.expires_at_ms
+      || authorization.owner_subject !== state.owner_subject || authorization.owner_root_id !== state.owner_root_id
+      || authorization.owner_epoch !== state.owner_epoch
+      || issued.authorization_text !== review.authorization_text || issued.authorization_id !== c.authorization_id
+      || issued.gate_pubkey_sha256 !== c.gate || issued.issued_at_ms !== review.issued_at_ms
+      || issued.expires_at_ms !== review.expires_at_ms || JSON.stringify(issued.owner_state) !== c.owner_state_text
+      || detail.outcome !== 'allowed-once' || detail.operation !== p.kind || detail.spent !== true
+      || detail.accepted_at_ms !== c.accepted_at_ms || detail.proof_text !== c.proof_text
+      || detail.owner_authorization?.authorization_id !== c.authorization_id
+      || detail.owner_authorization?.proof_sha256 !== c.proof_sha256
+      || JSON.stringify(detail.owner_state) !== c.owner_state_text
+      || detail.review_issue?.ledger_seq !== c.issue_seq || detail.review_issue?.ledger_hash !== c.issue_hash)
+      throw new Error('original signed consumption or issuance differs from retained facts')
+    // Historical proof validation uses its original accepted instant/root. A current
+    // epoch change never revives it and must not invalidate factual old outcomes.
+    const verified = verifyOwnerAuthorization(JSON.parse(c.proof_text), {
+      owner_root_spki_base64: state.owner_root_spki_base64, authorization_digest: c.authorization_id,
+      ...Object.fromEntries(AUTHORIZATION_FIELDS.map(field => [field, authorization[field]])) }, c.accepted_at_ms)
+    if (verified.reference.proof_sha256 !== c.proof_sha256 || ownerAuthorizationProofText(verified.proof) !== c.proof_text)
+      throw new Error('original owner proof differs from retained consumption')
+  }
+  function retainedConsumptions() {
+    const rows = db.prepare('SELECT * FROM owner_authorization_consumptions').all()
+    if (db.prepare("SELECT count(*) AS n FROM ledger WHERE event='owner-authorization-consumed'").get().n !== rows.length)
+      throw new Error('original consumption retention unavailable')
+    for (const c of rows) assertRetainedConsumption(
+      db.prepare('SELECT * FROM proposals WHERE id=?').get(c.proposal_id), c,
+      db.prepare('SELECT * FROM owner_authorization_reviews WHERE gate=? AND challenge=?').get(c.gate, c.challenge))
+    return rows
+  }
+  function assertConsumedEffect(p, consumption) {
+    const current = db.prepare('SELECT * FROM proposals WHERE id=?').get(p.id)
+    const retained = db.prepare('SELECT * FROM owner_authorization_consumptions WHERE proposal_id=?').get(p.id)
+    const review = db.prepare('SELECT * FROM owner_authorization_reviews WHERE gate=? AND challenge=?')
+      .get(consumption.gate, consumption.challenge)
+    if (!current || current.state !== 'applying'
+      || ['kind', 'target', 'base_sha', 'new_sha', 'created', 'expires', 'displayable'].some(field => current[field] !== p[field])
+      || !retained || JSON.stringify(retained) !== JSON.stringify(consumption)
+      || !review || review.state !== 'spent' || review.proposal_id !== p.id
+      || review.authorization_id !== consumption.authorization_id || review.owner_state_text !== consumption.owner_state_text
+      || review.spend_seq !== consumption.consume_seq || review.issue_seq !== consumption.issue_seq
+      || review.issue_hash !== consumption.issue_hash || !ledger.verify().ok)
+      throw new Error('owner effect fence unavailable: original applying consumption changed')
+    assertRetainedConsumption(p, consumption, review)
+    const before = readCur(p.target)
+    if ((before ? sha256(before) : 'absent') !== p.base_sha)
+      throw new Error('owner effect fence unavailable: stale base before dispatch')
+    const ownerState = activeOwnerState(), at = currentMs()
+    if (JSON.stringify(ownerState) !== consumption.owner_state_text
+      || at < consumption.accepted_at_ms || at >= review.expires_at_ms || at >= p.expires)
+      throw new Error('owner effect fence unavailable: owner state or expiry changed before dispatch')
+  }
   function applyConsumed(p, consumption) {
     const s = spec(p.target)
     let completed
     try {
-      const bytes = db.prepare('SELECT bytes FROM blobs WHERE sha=?').get(p.new_sha)?.bytes
-      if (!bytes || sha256(Buffer.from(bytes)) !== p.new_sha) throw new Error('approved bytes missing from version store')
-      assertTargetReview(p, consumption)
-      synchronous(store.write(p.target, s, Buffer.from(bytes), p.id), 'target write')
-      const after = readCur(p.target); const got = after ? sha256(after) : 'absent'
-      if (got !== p.new_sha) throw new Error('post-write hash mismatch ' + got)
-      completed = tx(() => { const result = recordApplied(p, consumption, 'applied'); prune(p.target); return result })
+      completed = tx(() => {
+        const bytes = db.prepare('SELECT bytes FROM blobs WHERE sha=?').get(p.new_sha)?.bytes
+        if (!bytes || sha256(Buffer.from(bytes)) !== p.new_sha) throw new Error('approved bytes missing from version store')
+        synchronous(s.validate(Buffer.from(bytes).toString('utf8')), 'target validation')
+        assertTargetReview(p, consumption)
+        assertConsumedEffect(p, consumption)
+        synchronous(store.write(p.target, s, Buffer.from(bytes), p.id), 'target write')
+        const after = readCur(p.target); const got = after ? sha256(after) : 'absent'
+        if (got !== p.new_sha) throw new Error('post-write hash mismatch ' + got)
+        const result = recordApplied(p, consumption, 'applied'); prune(p.target); return result
+      }, () => {
+        const review = db.prepare('SELECT * FROM owner_authorization_reviews WHERE gate=? AND challenge=?')
+          .get(consumption.gate, consumption.challenge)
+        const ownerState = activeOwnerState(), at = currentMs()
+        if (!review || review.state !== 'spent' || JSON.stringify(ownerState) !== consumption.owner_state_text
+          || at < consumption.accepted_at_ms || at >= review.expires_at_ms || at >= p.expires)
+          throw new Error('owner state or expiry changed before effect commit; spent outcome requires reconciliation')
+      })
     } catch (error) {
       // Preserve original proof/spend through every failure. Reconciliation never repeats the effect.
       // If a write happened but receipt finalization failed, leave applying as a durable recovery fence.
@@ -711,23 +795,33 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       }, () => { if (selected) assertLegacyMode() })
       if (legacy) return legacy
     }
+    tx(() => {
+      if (!ledger.verify().ok) throw new Error('startup refused: signed ledger unavailable')
+      activeOwnerState()
+      retainedConsumptions()
+    })
     for (const [t, s] of Object.entries(TARGETS)) {
       // An interrupted effect cannot become a genesis adoption or acquire a fabricated apply time.
-      if (db.prepare(`SELECT 1 FROM proposals p LEFT JOIN owner_authorization_consumptions c ON c.proposal_id=p.id
-        WHERE p.target=? AND (p.state IN ('applying','incomplete','conflict')
-          OR (c.proposal_id IS NOT NULL AND p.state!='applied')) LIMIT 1`).get(t)) continue
-      const cur = readCur(t); let validCur = true
-      try { if (cur) { const txt = cur.toString('utf8'); if (!/^[\x20-\x7e]*$/.test(txt)) throw new Error('non-ASCII'); synchronous(s.validate(txt), 'target validation') } }
-      catch (e) { validCur = false; append('genesis-target-invalid', { target: t, new_sha: sha256(cur), detail: { error: String(e.message).slice(0, 200) } }) }
-      if (cur && validCur && !db.prepare(`SELECT 1 FROM ledger WHERE target=? AND new_sha=? AND event IN ${APPLIED_EVENTS} LIMIT 1`).get(t, sha256(cur)))
-        tx(() => { putBlob(t, cur); append('genesis-target', { target: t, new_sha: sha256(cur), detail: { note: 'current bytes adopted at gate start' } }) })
-    }
-    for (const r of db.prepare("SELECT * FROM proposals WHERE state='applying'").all()) {
-      let cur = null, readable = false
-      try { if (Object.hasOwn(TARGETS, r.target)) {
-        const bytes = readCur(r.target); cur = bytes ? sha256(bytes) : 'absent'; readable = true
-      } } catch {}
       tx(() => {
+        if (db.prepare(`SELECT 1 FROM proposals p LEFT JOIN owner_authorization_consumptions c ON c.proposal_id=p.id
+          WHERE p.target=? AND (p.state IN ('applying','incomplete','conflict')
+            OR (c.proposal_id IS NOT NULL AND p.state!='applied')) LIMIT 1`).get(t)) return
+        const cur = readCur(t); let validCur = true
+        try { if (cur) { const txt = cur.toString('utf8'); if (!/^[\x20-\x7e]*$/.test(txt)) throw new Error('non-ASCII'); synchronous(s.validate(txt), 'target validation') } }
+        catch (e) { validCur = false; append('genesis-target-invalid', { target: t, new_sha: sha256(cur), detail: { error: String(e.message).slice(0, 200) } }) }
+        if (cur && validCur && !db.prepare(`SELECT 1 FROM ledger WHERE target=? AND new_sha=? AND event IN ${APPLIED_EVENTS} LIMIT 1`).get(t, sha256(cur))) {
+          putBlob(t, cur); append('genesis-target', { target: t, new_sha: sha256(cur), detail: { note: 'current bytes adopted at gate start' } })
+        }
+      })
+    }
+    for (const selected of db.prepare("SELECT id FROM proposals WHERE state='applying'").all()) {
+      tx(() => {
+        const r = db.prepare("SELECT * FROM proposals WHERE id=? AND state='applying'").get(selected.id)
+        if (!r) return // Another effect completed while startup waited for the writer.
+        let cur = null, readable = false
+        try { if (Object.hasOwn(TARGETS, r.target)) {
+          const bytes = readCur(r.target); cur = bytes ? sha256(bytes) : 'absent'; readable = true
+        } } catch {}
         const c = db.prepare('SELECT * FROM owner_authorization_consumptions WHERE proposal_id=?').get(r.id)
         const retained = c ? { owner_authorization: retainedReceipt(r, c).owner_authorization,
           consumption_seq: c.consume_seq, consumption_hash: c.consume_hash } : { owner_authorization: null }
@@ -749,10 +843,55 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       })
     }
     for (const r of db.prepare("SELECT id, target FROM proposals WHERE state='pending' AND expires <= ?").all(currentMs()))
-      tx(() => { setState(r.id, 'pending', 'expired', 'expired (gate start)'); append('expire', { proposal: r.id, target: r.target, detail: { reason: 'ttl elapsed' } }) })
-    const v = ledger.verify()
-    append('gate-start', { detail: { pid, ledger_ok_before_start: v.ok, entries: v.entries, pubkey_fp: key.fp, owner_bearer: bearerInfo ? { rotated: true, fp8: bearerInfo.fp, expires: bearerInfo.expires } : null, ...extra } })
-    return v
+      tx(() => { if (setState(r.id, 'pending', 'expired', 'expired (gate start)')) append('expire', { proposal: r.id, target: r.target, detail: { reason: 'ttl elapsed' } }) })
+    return tx(() => {
+      activeOwnerState()
+      const v = ledger.verify()
+      if (!v.ok) throw new Error('startup refused: signed ledger unavailable')
+      retainedConsumptions()
+      append('gate-start', { detail: { pid, ledger_ok_before_start: v.ok, entries: v.entries, pubkey_fp: key.fp, owner_bearer: bearerInfo ? { rotated: true, fp8: bearerInfo.fp, expires: bearerInfo.expires } : null, ...extra } })
+      return v
+    })
+  }
+
+  // Recovery observes the current G authority under the effect writer fence.
+  // This signs/appends nothing and never starts, reconciles or retries an effect;
+  // a live socket or valid ledger alone is insufficient readiness evidence.
+  function readiness() {
+    return tx(() => {
+      const state = activeOwnerState(), checked = ledger.verify()
+      if (!checked.ok) throw new Error('readiness refused: signed ledger unavailable')
+      const consumptions = retainedConsumptions()
+      let unresolvedConsumptions = 0
+      for (const c of consumptions) {
+        const p = db.prepare('SELECT * FROM proposals WHERE id=?').get(c.proposal_id)
+        if (!['applied', 'failed'].includes(p.state)) unresolvedConsumptions++
+        else {
+          const terminal = db.prepare("SELECT * FROM ledger WHERE proposal=? AND seq>? AND event IN ('apply','revert-applied','apply-failed','reconcile') ORDER BY seq DESC LIMIT 1")
+            .get(p.id, c.consume_seq)
+          const outcome = terminal ? JSON.parse(terminal.detail) : null
+          const binding = terminal && terminal.target === p.target && terminal.base_sha === p.base_sha && terminal.new_sha === p.new_sha
+          const applied = p.state === 'applied' && binding && ['apply', 'revert-applied'].includes(terminal.event)
+            && outcome?.receipt?.v === 3 && typeof outcome.receipt.applied_at === 'string'
+            && JSON.stringify(outcome.receipt) === JSON.stringify(retainedReceipt(p, c, outcome.receipt.applied_at))
+            && verify(null, Buffer.from(JSON.stringify(outcome.receipt)), key.pub, Buffer.from(outcome.receipt_sig ?? '', 'base64'))
+          const failed = p.state === 'failed' && binding && outcome?.consumption_seq === c.consume_seq
+            && (terminal.event === 'apply-failed' || terminal.event === 'reconcile' && outcome.result === 'failed: not written, spent, NOT replayed')
+          if (!applied && !failed) throw new Error('readiness refused: original terminal outcome unavailable')
+        }
+      }
+      const counts = Object.fromEntries(['applying', 'incomplete', 'conflict'].map(value =>
+        [value, db.prepare('SELECT count(*) AS n FROM proposals WHERE state=?').get(value).n]))
+      if (JSON.stringify(activeOwnerState()) !== JSON.stringify(state))
+        throw new Error('readiness refused: owner state changed during observation')
+      return { version: 1, kind: 'aukora-boundary-gate-readiness/v1',
+        ready: unresolvedConsumptions === 0 && Object.values(counts).every(n => n === 0),
+        checked_at_ms: currentMs(), gate_pubkey_sha256: gateId, owner_state_sha256: sha256(JSON.stringify(state)),
+        owner_subject: state.owner_subject, owner_root_id: state.owner_root_id, owner_epoch: state.owner_epoch,
+        registry_sha256: state.registry_sha256, activation_sha256: state.activation_sha256,
+        ledger: { entries: checked.entries, head: checked.head },
+        consumed_effects: { retained: consumptions.length, unresolved: unresolvedConsumptions, ...counts } }
+    })
   }
 
   // everything the owner sees about one proposal, computed by the gate (same function as the popup flags)
@@ -853,6 +992,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
           ? { via: 'owner', review: 'pending; owner channel only' } : r.detail ? JSON.parse(r.detail) : null })) }
     },
     verify: () => ledger.verify(),
+    readiness: () => readiness(),
     status: () => ({ pubkey_fp: key.fp, verify: ledger.verify(),
       proposals: db.prepare('SELECT id,kind,target,base_sha,new_sha,state,note,created,expires FROM proposals ORDER BY created DESC LIMIT 20').all().map(r => r.state === 'pending' ? { ...r, id: maskId(r.id) } : r) }),
   }
@@ -874,6 +1014,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       return { verify: checked, pubkey_fp: key.fp, entries: rows.map(r => ({ ...r, detail: r.detail ? JSON.parse(r.detail) : null, signed_entry: signedEntryData(r) })) }
     },
     verify: proposeOps.verify,
+    readiness: proposeOps.readiness,
   }
   // Charge every append-capable propose RPC BEFORE entering its handler. This separate
   // committed transaction survives refusals, multiple gate processes, and restarts.
@@ -899,7 +1040,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   if (['approve', 'decide'].some(op => Object.hasOwn(ownerOps, op))) throw new Error('invariant: the owner channel approves only through review -> decide_review')
 
   return Object.freeze({
-    proposeOps: Object.freeze(proposeOps), ownerOps: Object.freeze(ownerOps), startup, cardView, pendingRows, blobText, spec,
+    proposeOps: Object.freeze(proposeOps), ownerOps: Object.freeze(ownerOps), startup, readiness, cardView, pendingRows, blobText, spec,
     targets: TARGETS, owner, pub: key.pub, pubPem: key.pubPem, fp: key.fp, home, now, db, append, verify: ledger.verify,
     close: () => { try { db.close() } catch {} },
   })
