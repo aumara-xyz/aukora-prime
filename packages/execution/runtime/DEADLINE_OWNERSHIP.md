@@ -72,6 +72,265 @@ After explicit bounded setup authorization, one approved inert foreground call c
 
 This increment performed only source reads and added this document. No tests, builds, Docker/gateway/guest calls, cloud actions, keys, setup, permissions or runtime qualification were performed.
 
+## Dedicated control identity and workspace-data boundary — Proposed
+
+This additional design is reviewed against candidate source
+`6ad539fdd4f5b2b55f995a96289df0df4619dd3c`. It does not select account numbers,
+create an account, change host permissions or settings, install a service, migrate
+storage, mount an executor, or qualify containment. The preceding historical
+source checkpoints remain dated evidence. The frozen operation/request/receipt
+envelopes and C/F digest and settlement semantics remain unchanged.
+
+This proposal covers the pilot Podman/gateway custody problem and a future trusted
+adapter. References to the retained owned SDK executor, C/F joins and guardian
+describe their separate source obligations. They do not assert that the currently
+mounted pilot wrapper has those ledger, dispatch or guardian joins. Joining that
+wrapper to the proposed broker requires its own reviewed implementation and
+actual-path acceptance; moving an account cannot supply the missing join.
+
+The reported staging observations for 2026-10-06 are guest **34 DENIED / 0 ALLOWED /
+2 INFO** and host **43 DENIED / 7 ALLOWED / 6 INFO**. F did not rerun them. The host
+allowances include the ISCSIADM abstract socket on that run. These counts do not
+close containment. The dedicated-runtime proposal addresses named Podman,
+gateway and namespace/control-delegation surfaces; other allowed routes retain
+their separate disposition and acceptance obligations.
+
+### Trust and custody
+
+The threat includes a compromised harness or workload, workspace-controlled
+bytes, and untrusted host processes under the original agent identity. Preserve
+that original identity as a denial target; moving the control service does not
+make the old host-as-agent probe trusted. Kernel, root administration, accepted
+OS/runtime dependencies and protected deployment authority remain explicit trust
+anchors. A malicious root administrator or compromised trusted control service
+is outside this proposed separation; a different UID does not contain either.
+
+| Principal or boundary | Authority and required custody |
+| --- | --- |
+| Owner/C authority | Authorizes the exact operation through the existing reviewed proof, consumption and dispatch path. Its signing material is unavailable to harness, broker, observer, builder and guest. Peer authentication alone grants no effect authority. |
+| Dedicated runtime control identity | A separately reviewed UID/GID, distinct from the agent, `aukora-host`, `aukora-gate`, root and every workload/subordinate identity. It owns Podman API/storage, gateway control credentials, the fixed broker and trusted observer. These services deliberately share a trusted control domain; splitting them further requires a separate reviewed interface. |
+| Harness and guest | Hold no direct runtime API, control credential, service-manager capability or namespace/control FD. Workspace bytes are data for the host. The exact approved Bash bytes may execute only through the existing owned guest lifecycle. No host fallback. |
+| Builder and promoter | The builder is a separate unprivileged execution domain with no runtime/authority sockets, signing material or deployment-write capability. Its output is untrusted until independently checked, exactly approved and promoted by the protected deployment authority. |
+| Deployment and host anchors | Bind immutable generation, complete executable closure, accepted profile, gateway/runtime and ledger identities. Require protected ancestors, authoritative mount/inode identity, approved owner/groups/ACLs and no writable alias. A hash or account name alone establishes none of these. |
+
+The reviewed profile must name actual primary and supplementary groups,
+subordinate UID/GID ranges and non-overlap rules, socket/runtime/storage paths,
+credential custody, manager permissions, mount identities, immutable code/config
+closure and service graph. Control code and state stay outside workspace and
+`skgate` write grants. Group membership, ACLs, shared caches or inherited FDs must
+not restore access. State that legitimately changes remains protected durable
+state bound to its deployment; it is not described as immutable code.
+
+Current [Podman units](../../boundary-gate/host/systemd/aukora-auma-podman.service)
+run as `auma`; [the API script](../../boundary-gate/host/openshell/podman-service.sh)
+uses that identity's `/run/user` socket. The
+[gateway script](../../boundary-gate/host/openshell/gateway.sh) also uses its HOME
+for TLS state and selects port 17690 without itself specifying a bind address.
+Client metadata naming loopback is not listener evidence. The
+[network exception](../../../host/auma-local-deny/auma-local-deny.nft) explicitly
+notes that supervisor and guest share mapped host UID 166535. A UID-based rule
+cannot distinguish those processes by itself. Actual listener, TLS principal,
+network namespace and descriptor custody must distinguish the trusted control
+path from the workload.
+
+### Closed broker and control-service boundary
+
+The broker exposes only reviewed fixed verbs for the registered runtime and
+owned job. This table states required behavior, not new API method names or
+transport fields.
+
+| Capability | Mandatory behavior |
+| --- | --- |
+| Dispatch | Corroborate trusted caller, exact original operation and consumed grant, durable C `DISPATCHED` binding, request digest/fence and accepted deployment/profile before one guest launch. An ambiguous claim or launch remains fenced; no blind retry. |
+| Cancellation | Record the existing cancellation intent, preserve consumption and original deadline, fence further admission, then coordinate owned reconciliation. Abort, CLI death and caller disconnect prove no cleanup or command outcome. |
+| Observation | Derive sandbox/process/container identities from the original trusted registration. Return bounded typed metadata bound to original request/job/runtime and observation generation. No caller-selected PID, generic `/proc` reader, namespace FD or stdout-based outcome proof. |
+| Reconciliation | Preserve exact job/deployment/ledger identity and durable evidence/outbox. Use only reviewed identity-conditioned control actions on confirmed owned resources. Public API absence cannot become complete cleanup or a late-create fence. |
+
+No generic Podman/OpenShell forwarding, host executable path, arbitrary host
+argv, shell program, mount source, loader option, caller environment or credential
+is admitted. Guest command/environment data retain the existing closed operation
+schema and bounds. They travel only as bounded guest payload through the fixed
+transport; they never select or alter a host executable, host interpretation or
+launcher options. Trusted host
+callbacks, resolvers and providers must themselves belong to the approved code
+closure. Authentication of a socket peer supplements the exact authority checks.
+
+The Podman directory/socket and gateway credential/control path must be private
+to the dedicated domain, with no untrusted ACL, group access, inherited descriptor
+or generic proxy. Preserve credential-free default guest mounts. Admission needs
+independent evidence that neither workload nor harness can read credentials,
+access another process's descriptors or memory, signal/inject into the control
+domain, or obtain its capability indirectly.
+
+Service-control custody includes system and user managers, session buses,
+`systemd/private`, transient units, drop-ins, environment files, helper scripts,
+linger and delegated managers, along with privilege rules. Unit/config/helper
+bytes and their complete executable closure are protected. Every route that can
+start an unfiltered sibling or act as the control identity is denied or subject
+to the same reviewed admission boundary. Restricting only the Genesis process
+does not close manager delegation. Filesystem socket permissions do not cover
+abstract sockets such as the separately open ISCSIADM route.
+
+### User-namespace separation and lifecycle ownership
+
+Required rootless namespace capabilities remain with the trusted control domain.
+The fixed metadata observer may use its reviewed `podman unshare` path; this is
+not a capability exposed to the harness. Preserve its exact mapped-root UID/GID
+maps, caller namespace lineage, source/runtime pins, retained pidfd/start-time
+identity, mount/inode observations and original deadline. Arbitrary targets,
+changed lineage, PID reuse, missing evidence and host-root fallback refuse.
+
+Before any untrusted instruction, the selected launcher must enforce the reviewed
+policy on namespace create/join, mapping helpers, setuid/file-capability paths,
+inherited namespace/control FDs and service-manager delegation. A restriction on
+the name `unshare` is insufficient. Review `clone`/`clone3`, `unshare`, `setns`,
+subordinate mapping helpers and alternate launch paths together with ordinary
+fork/thread/Node compatibility. Any selected syscall filter must explain how it
+handles pointed arguments and alternative ABIs. Missing enforcement leaves this
+class unavailable; no global sysctl change is selected by this document.
+
+Replace the current sudo-only bridge with the independently running authenticated
+broker before applying inherited `NoNewPrivileges` and namespace restrictions.
+The [Genesis unit](../../boundary-gate/host/systemd/aukora-genesis.service)
+explicitly omits that restriction because its current sudo bridge needs privilege
+elevation. Retaining that bridge while claiming inherited restriction would be
+inconsistent. Trusted runtime namespace access must still work without returning
+that elevation route to untrusted code.
+
+Graceful Cordis teardown uses one explicitly ordered, awaited owned coordinator:
+stop new admission/observers, join child work, request scoped reconciliation and
+retain unresolved evidence/outbox. Separate effects do not establish that order.
+The independent control owner retains durable deadlines/fences when JavaScript
+cannot execute; no Cordis disposal promise or planned TTL proves crash cleanup.
+Failures preserve uncertainty rather than skipping a remaining ownership step or
+settling from process disappearance. Existing factual C/F outcome rules above
+continue to apply.
+
+### Host never executes workspace bytes
+
+The runtime host harness/control domain may interpret workspace bytes only as
+bounded data under an explicit, command-specific parser. It may execute only
+protected, immutable, digest-pinned deployed code and its complete executable
+dependency closure. Approval names that
+generation and closure; custody prevents writable aliases and substitution. A
+workspace path, revision, matching digest, owner review or `noexec` mount does not
+grant host execution authority.
+
+This rule covers executable selection, interpreter script arguments, `-c`/eval
+strings, stdin programs, generated modules, executable configuration, Node/Python
+imports and dependencies, workers, native addons/libraries, shell-sourced/startup
+files, preloads, plugin/provider selectors and subprocess helpers. Accepted
+OS/runtime dependencies are explicit external anchors; unresolved dynamic
+dependencies do not silently fall outside the closure. Use fixed executable and
+import roots, sanitized startup environment and fixed host working directory;
+missing configuration/custody refuses. Workspace roots identify data and approved
+guest workload scope, not host discovery roots.
+
+At this source base the [launcher](../../../scripts/launch-dsh.py) explicitly
+supplies release `pluginSetRoot` and `grantRoot`. The
+[composition policy](../../../plugins/aukora-composition-gate/src/policy.js)
+still has CWD-derived defaults, but those defaults are not evidence that this
+launcher selects workspace code. Its covered load branch checks the bytes it
+returns; preserve that protection. It explicitly excludes dependencies, workers,
+child processes and later filesystem reads and passes unmatched modules onward,
+so it cannot establish the complete host-execution boundary alone. The launcher
+also imports release Python code, which belongs in the protected closure.
+
+The current [memory identity](../../../plugins/aukora-kira/lib/project-identity.mjs)
+uses trusted configured workspace attachments, and
+[project memory](../../../plugins/aukora-kira/lib/project-memory.mjs) does not
+launch Git. A historical Git finding does not apply to those current modules.
+The registered [self-change tool](../../../plugins/aukora-action-gate/lib/self-change-tool.mjs)
+does launch the configured owner checkout's script as a host child after a source
+marker check. It does not execute the proposed worktree directly, and its Git
+calls disable hooks/fsmonitor, but a marker is not immutable deployment custody.
+Move that execution, source-side materialization/build verification and any
+registered workspace-configured commit workflow into the reviewed builder domain,
+or keep the host route unavailable. Analyze each Git command/config separately;
+no claim is made that every metadata read executes hooks or a pager.
+
+Candidate scripts and build tools may execute inside the separate builder under
+their reviewed resource/data scope. Builder caches, outputs and dependencies
+have no writable route into runtime code. Independent byte/closure verification,
+fresh exact approval and protected immutable promotion precede execution by a
+host control service. Review/rebuild does not itself promote a checkout.
+
+The existing [descriptor search](../../../plugins/aukora-action-gate/lib/descriptor-search.mjs)
+keeps accepted workspace bytes on ripgrep stdin with `--no-config` and host CWD
+`/`. Preserve that qualified data path. Its matcher module, packaged binary and
+subprocess provider still need deployed closure/custody; a provider accepting an
+absolute executable or PATH name is not that proof. No grep implementation or
+previously refused fixture is changed by this design.
+
+### Reviewed rollout and rollback
+
+These are prerequisites for a separately authorized migration, not commands or
+authorization to perform one.
+
+1. Freeze new admission only to the affected owned route. Preserve evidence
+   retrieval and the exact bounded trusted reconciliation path; define its
+   service/job scope without stopping unrelated processes.
+2. Review the dedicated identity, group/subid maps, broker interfaces, service
+   graph, complete code/config closure, credentials, network and descriptor
+   policy as one new profile. The [inventory producer](../../boundary-gate/host/openshell/sandbox-inventory.py)
+   currently fixes `auma`/1001, subordinate range 165536:65536, forbidden owner,
+   workspace ownership and observer mappings. Producer/schema, units, network,
+   workspace/mirror custody and accepted pins must migrate together. No permissive
+   discovery or freshly observed live baseline replaces approved expectations.
+3. Provision a separate deployment, storage and ledger identity through reviewed
+   setup. Do not reinterpret old Podman storage through `chown`, changed mappings
+   or copied credentials. Preserve root-protected workspace ancestors, exact leaf
+   grants, read-only Git/mirror mounts and authoritative mount/inode evidence.
+4. Qualify the actual new installed path, then obtain fresh accepted deployment,
+   image/policy/profile/code/config pins and open only that route. Qualification
+   does not renew an old approval or original deadline.
+5. Retain every original grant, request, job, launch fence, receipt, outbox,
+   reconciliation record and unknown outcome under its original deployment/ledger
+   identity. The [executor](../src/owned-executor.mjs) already refuses changed
+   gateway/runtime/create-profile binding during cleanup. Old reconciliation
+   requires independently established old custody; missing evidence remains
+   `OUTCOME_UNKNOWN`. Never relabel or relaunch an old job through the new runtime.
+
+Rollback is a freshly approved release at the current monotonic floor, preserving
+authority epochs and all effect history. It never restores consumed grants,
+clears unknown jobs, lowers/resets the approval floor or automatically restores
+old credentials, the sudo bridge or a shared runtime identity. If prior code or
+placement cannot satisfy this boundary, rollback means admission remains
+unavailable with reconciliation retained. Reverting bytes is not permission to
+reactivate an insecure control path.
+
+### Acceptance and detecting controls — UNPERFORMED
+
+Qualification must use the actual pinned DSH, installed service/config/closure,
+accepted image/profile and real registered repository tree through normal
+admission. Required observations bind original request/job/deployment and retain
+exact command, typed result, control revision and limits. Source checks and mock
+providers cannot establish these installed properties. Proposed controls below
+use only separately authorized benign disposable state; they do not recreate the
+previously refused race/canary fixture or touch real credentials or unrelated
+processes.
+
+| Required real observation | Meaningful detecting control |
+| --- | --- |
+| Approved foreground Bash works through the sole selected fixed guest carrier with that carrier's exact bounded I/O/exit semantics; owned cleanup is observed separately. | Remove a fixed-target or exact operation/request binding check in isolated source; its altered-binding refusal must fail before any real effect. |
+| If the retained SDK adapter is selected, streaming preserves typed nonzero output and drains RPC completion, separately from cleanup. The pilot wrapper/SSH carrier is not claimed to expose that SDK receipt. | Remove typed-exit retention or RPC-drain checking in the selected adapter's disposable protocol control; its loss/uncertainty assertion must detect it. |
+| Wrong peer, consumed grant, request digest, profile or deployment refuses; ambiguity never launches twice. | Remove each selected check separately; the corresponding mismatch/replay assertion must detect it using generic disposable bindings. |
+| Direct Podman/gateway/credential access and control-process memory/FD/signal injection are denied from every untrusted principal and namespace. | Use a harmless independently accessible disposable counterpart to show the tested denial is enforced rather than caused by an absent dependency. Never expose the real control socket or credentials as a control. |
+| User/system-manager, privilege-helper and namespace create/join delegation paths are denied; required trusted observer namespace path still succeeds. | A separately authorized disposable unprotected counterpart demonstrates that the exact alternate launch path is available; missing service/helper/kernel support is UNPERFORMED, not DENIED. |
+| Observer proves exact source, maps, namespace lineage, PID/start identity, mount/inode and original deadline. | Remove each chosen identity/deadline check separately; the associated stale/different generic metadata assertion must detect it, beyond malformed-JSON rejection. |
+| Approved workspace writes/data reads work; deployed closure, control state, Git and mirror custody remain protected. | Remove selected ancestry/mount/alias validation in an isolated fixture; its specific custody assertion must detect the loss. |
+| Workspace scripts/imports/stdin/eval/config/PATH/preloads/providers/helpers refuse on host while approved deployed helpers and guest workloads work. | Remove custody, closure, fixed selection, environment isolation or promotion checking one at a time; each corresponding benign negative must become distinguishable in the acceptance harness. |
+| Builder executes only in its separate scope and cannot access runtime, authority or protected deployment writes. | An isolated promotion-check removal must be detected; builder output alone must never qualify a host executable. |
+| Restart/death retains original deadlines, exact job scope, late-create fence, complete owned-artifact evidence and no duplicate launch. | Remove the original deployment/request fence in disposable source; the replay/altered-binding assertion must detect it. API absence and process death remain insufficient cleanup evidence. |
+
+Read back actual listeners/TLS principals, groups/ACLs/subids, namespaces and
+descriptor inheritance; do not infer them from script comments or desired unit
+settings. Preserve remaining abstract/session-bus/manager and other allowed routes
+in the containment matrix. Host schema subset, fixture custody, accepted pins,
+DSH drift and repository-tree collisions are a commit qualification gate. Its
+PASS is separate from every installed observation above, which remains
+UNPERFORMED in this design-only increment.
+
 ## Source references
 
 - [F ledger](../src/ledger.mjs), [lifecycle](../src/owned-executor.mjs), [raw SDK transport](../src/sdk-transport.ts), [effective configuration](../src/effective-policy.mjs), [qualification acceptance](../src/qualification.mjs).
