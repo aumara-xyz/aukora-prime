@@ -107,7 +107,7 @@ export function gateStore(){return {};}
 export function createGate(options) { console.log(options.readOwnerState === readOwnerState ? 'TRUSTEDREADER' : 'NOREADER');
  return {targets:{},fp:'fixture',verify:()=>({ok:f.preverify}), startup:()=>{console.log('STARTUP');return {ok:f.startup};},
  ownerAuthorizationReadiness:f.missingReadiness ? undefined : ()=>{console.log('READY');return f.readinessAsync ? Promise.resolve({ok:true}) : {ok:f.ready};},close:()=>console.log('CLOSE')}; }
-export function ownerAuthorizationReadiness(options) {console.log('READY_READONLY');if(options.home !== '/home/aukora-gate') throw Error('wrong fixed home');return f.readinessAsync ? Promise.resolve({ok:true}) : {ok:f.ready};}
+export function ownerAuthorizationReadiness(options) {console.log('READY_READONLY');const expectedHome=process.argv[2]==='check-ready' ? '/home/aukora-gate' : '/fixture/home';if(options.home !== expectedHome || options.readOwnerState !== readOwnerState) throw Error('wrong host readiness binding');return (f.readonlyAsync ?? f.readinessAsync) ? Promise.resolve({ok:true}) : {ok:f.readonlyReady ?? f.ready};}
 export async function serveGate(){console.log('SERVE');return {proposeSocket:'fixture',ownerSocket:'fixture',port:null};}
 export function openDb(){} export function verifyLedger(){} export function loadOrCreateKey(){} export function keyFingerprint(){}
 export function verifyReceipt(){}
@@ -142,9 +142,29 @@ test('ordinary entry passes the trusted reader and refuses before bearer rotatio
   assert.equal(removed.status, 0, removed.stderr); assert.match(removed.stdout, /SERVE/u, 'RED: removing startup verification admits failed startup')
   const noPreverify = runBin({ ...ok, preverify: false }, ["if (gate.verify().ok !== true) throw new Error('boundary-gate:startup-verification-failed')", 'void 0'])
   assert.equal(noPreverify.status, 0, noPreverify.stderr); assert.match(noPreverify.stdout, /ROTATE/u, 'RED: removing preverification rotates after a broken ledger')
-  const noReady = runBin({ ...ok, ready: false }, ["if (typeof gate.ownerAuthorizationReadiness !== 'function'\n      || !ready(gate.ownerAuthorizationReadiness())) throw new Error('boundary-gate:owner-authorization-unavailable')", 'void 0'])
+  const noReady = runBin({ ...ok, readonlyReady: true, ready: false }, ["if (typeof gate.ownerAuthorizationReadiness !== 'function'\n      || !ready(gate.ownerAuthorizationReadiness())) throw new Error('boundary-gate:owner-authorization-unavailable')", 'void 0'])
   assert.notEqual(noReady.status, 0, 'post-start readiness still refuses'); assert.match(noReady.stdout, /ROTATE|STARTUP/u,
     'RED: removing pre-start readiness admits bearer/startup work for failed owner readiness')
+})
+
+test('ordinary entry refuses missing/failed readonly readiness before secret loading or gate construction', () => {
+  const ok = { preverify: true, startup: true, ready: true }
+  for (const [fixture, missingExport] of [[ok, true], [{ ...ok, readonlyReady: false }, false], [{ ...ok, readonlyAsync: true }, false]]) {
+    const refused = runBin(fixture, undefined, 'serve', undefined, missingExport)
+    assert.notEqual(refused.status, 0)
+    assert.match(refused.stdout, /OWNERREAD/u, 'fixed registry preflight runs before readonly core readiness')
+    assert.doesNotMatch(refused.stdout, /OWNERSECRET|TRUSTEDREADER|NOREADER|ROTATE|STARTUP|SERVE|CLOSE/u,
+      'readonly readiness refusal precedes every mutable constructor/secret API')
+  }
+  const removed = ["if (typeof gateCore.ownerAuthorizationReadiness !== 'function'\n      || !ready(gateCore.ownerAuthorizationReadiness({ home, readOwnerState }))) throw new Error('boundary-gate:owner-authorization-unavailable')", 'void 0']
+  for (const [fixture, missingExport] of [[ok, true], [{ ...ok, readonlyReady: false }, false]]) {
+    const admitted = runBin(fixture, removed, 'serve', undefined, missingExport)
+    assert.equal(admitted.status, 0, admitted.stderr)
+    assert.match(admitted.stdout, /OWNERSECRET/u)
+    assert.match(admitted.stdout, /TRUSTEDREADER/u, 'RED: removing readonly preflight reaches constructor writes')
+    assert.match(admitted.stdout, /SERVE/u)
+  }
+  console.log('RED control caught: removing readonly readiness preflight admits mutable secret/constructor APIs')
 })
 
 test('fixed readonly readiness CLI refuses missing core API, false/async readiness and all caller arguments', () => {

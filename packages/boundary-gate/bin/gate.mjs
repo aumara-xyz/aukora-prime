@@ -62,6 +62,10 @@ if (cmd === 'check-ready') {
     // The ordinary entry always requires independent active public registry custody.
     // Refusal precedes state creation; losing registry access cannot select legacy HMAC approval.
     readOwnerState()
+    // The constructor can retain enforcement facts. Verify readiness through the readonly
+    // core seam first so an unavailable verifier cannot reach secret/key creation or ledger writes.
+    if (typeof gateCore.ownerAuthorizationReadiness !== 'function'
+      || !ready(gateCore.ownerAuthorizationReadiness({ home, readOwnerState }))) throw new Error('boundary-gate:owner-authorization-unavailable')
     const owner = loadOwnerSecret(home)
     gate = createGate({ home, owner, readOwnerState, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }),
       ...(o['journal-id'] === undefined ? {} : { journalId: o['journal-id'] }) })

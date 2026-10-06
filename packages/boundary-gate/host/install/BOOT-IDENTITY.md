@@ -112,9 +112,15 @@ nonroot tamper claim.
 /usr/bin/python3 -I -S packages/boundary-gate/host/install/check-bootstrap.py
 ```
 
-The focused boot check runs the production verifier and `main()` against actual
-disposable files and protected fixture modes, with explicitly synthetic UID0
-metadata and simulated protected temporary ancestors. It tests every named file
+The focused boot check creates new retained source fixtures only below
+`~/.aukora-h-boot-fixtures`, validates that root's current-user ownership, exact
+`0700` directory mode and canonical non-symlink path, and refuses an existing
+root with different custody. It does not repair or delete an old root. Each new
+fixture uses `mkdtemp` below that private parent and is retained without teardown;
+missing/link/extra-entry controls move invented entries to retained names where
+possible. The check runs the production verifier and `main()` against actual
+invented files and protected fixture modes, with explicitly synthetic UID0
+metadata and simulated protected fixture ancestors. It tests every named file
 hash; missing, symlinked, hardlinked and writable helpers; extra/missing manifest
 entries; removed digests; whole-profile digest binding; local drop-ins; finite
 arguments; deterministic actual-source staging; and detecting controls after

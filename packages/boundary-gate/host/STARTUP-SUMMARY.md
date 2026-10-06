@@ -20,7 +20,14 @@ stops before sockets and closes the gate. Supplying the reader keeps the core's
 durable owner-authorization requirement active; missing state cannot restore the
 legacy HMAC approval route. The owner secret remains part of bearer handling.
 
-The ordinary entry also requires the core's synchronous
+Immediately after registry validation, the ordinary entry requires the named
+readonly core export `ownerAuthorizationReadiness({ home, readOwnerState })`
+with a synchronous own `ok: true` data field. Missing, asynchronous or failed
+readonly readiness stops before owner-secret loading, key creation or mutable
+gate construction. The constructor's enforcement-latch writes are therefore
+unreachable when the required readonly verifier is absent.
+
+The ordinary entry then also requires the core's synchronous
 `gate.ownerAuthorizationReadiness()` result with an own `ok: true` data field,
 before bearer/startup work and again before sockets. Missing, asynchronous or
 failed readiness refuses. The core owns retained-proof verification; this host
@@ -70,5 +77,7 @@ It creates retained synthetic subruns only under a preexisting user-owned `0700`
 exercise source I/O; root metadata and root publication identity are simulated
 in memory, and no real owner/group changes occur. Removed file-write, pre-start
 verification, startup-result and exact snapshot signature guards admit the
-corresponding prohibited fixture behavior. Live gate, sockets, systemd, enrolled
+corresponding prohibited fixture behavior. Removing the readonly readiness
+preflight admits secret loading and mutable gate construction even when the
+readonly verifier is missing or reports failure. Live gate, sockets, systemd, enrolled
 owner data and operational publication remain UNPERFORMED.

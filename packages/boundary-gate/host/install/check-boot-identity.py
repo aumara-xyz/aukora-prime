@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import stat
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -21,11 +22,30 @@ G = SOURCE["verify_boot_profile"].__globals__
 Refused = SOURCE["Refused"]
 
 
+def private_fixture_parent():
+    """Create only a new private source-fixture root; never repair an old root."""
+    home = Path(os.path.expanduser("~"))
+    parent = home / ".aukora-h-boot-fixtures"
+    if not home.is_absolute() or os.path.realpath(str(parent)) != str(parent):
+        raise RuntimeError("private fixture path alias refused")
+    try:
+        parent.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    metadata = os.lstat(parent)
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid() \
+            or stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise RuntimeError("private fixture root custody refused")
+    return parent
+
+
 class BootFixture:
     def __init__(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="prime-boot-identity-source-")
-        self.root = Path(os.path.realpath(self.temp.name))
-        self.root.chmod(0o700)
+        self.root = Path(tempfile.mkdtemp(prefix="prime-boot-identity-source-", dir=private_fixture_parent()))
+        metadata = os.lstat(self.root)
+        if os.path.realpath(str(self.root)) != str(self.root) or not stat.S_ISDIR(metadata.st_mode) \
+                or metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise RuntimeError("new private fixture custody refused")
         self.mirror = self.root / "installed"
         self.mirror.mkdir(mode=0o700)
         self.package = self.root / "package"
@@ -111,7 +131,7 @@ class BootFixture:
             yield
 
     def close(self):
-        self.temp.cleanup()
+        print("RETAINED_SOURCE_FIXTURE: " + str(self.root))
 
 
 class BootIdentityChecks(unittest.TestCase):
@@ -178,7 +198,7 @@ class BootIdentityChecks(unittest.TestCase):
         installed = "/usr/local/lib/aukora-boundary/openshell/custody/sbx_exec_body.sh"
         path = self.world.path(installed)
         saved = path.read_bytes()
-        path.unlink()
+        path.rename(self.world.root / "missing-body-original")
         with self.assertRaises(FileNotFoundError):
             self.check()
         target = self.world.root / "alias-target"
@@ -186,11 +206,11 @@ class BootIdentityChecks(unittest.TestCase):
         path.symlink_to(target)
         with self.assertRaisesRegex(Refused, "protected-type"):
             self.check()
-        path.unlink()
+        path.rename(self.world.root / "refused-body-symlink")
         os.link(target, path)
         with self.assertRaisesRegex(Refused, "protected-hardlink"):
             self.check()
-        path.unlink()
+        path.rename(self.world.root / "refused-body-hardlink")
         self.world.put(path, saved)
         path.chmod(0o620)
         with self.assertRaisesRegex(Refused, "protected-mode"):
@@ -229,13 +249,13 @@ class BootIdentityChecks(unittest.TestCase):
             path.mkdir(mode=0o700)
             with self.assertRaisesRegex(Refused, "boot-unit-override"):
                 self.check()
-            path.rmdir()
+            path.rename(self.world.root / ("refused-unit-override-" + name))
 
     def test_missing_or_changed_manifest_never_reaches_success_or_dispatch(self):
         original = self.world.manifest_path.read_bytes()
         for data in (None, original.replace(b'"digest": "sha256:', b'"digest": "sha256:0')):
             if data is None:
-                self.world.manifest_path.unlink()
+                self.world.manifest_path.rename(self.world.root / "missing-manifest-original.json")
             else:
                 self.world.put(self.world.manifest_path, data)
             with self.world.custody(), patch.object(sys, "argv", ["fixture", "check-boot"]), \
@@ -323,7 +343,7 @@ class BootIdentityChecks(unittest.TestCase):
         self.world.put(extra, b"unreviewed extra\n")
         with self.assertRaisesRegex(generator["SOURCE"]["Refused"], "staging-boot-inventory"):
             staging(str(staged), str(checkout), str(data_root), "1003")
-        extra.unlink()
+        extra.rename(self.world.root / "refused-staged-extra-executable")
         for installed, expected in (("/usr/local/lib/aukora-boundary/sbx-exec", "staging-boot-source"),
                                     ("/etc/aukora-genesis/release.env", "staging-boot-data")):
             path = staged / installed.lstrip("/")
