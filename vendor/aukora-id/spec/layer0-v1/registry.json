@@ -1,0 +1,480 @@
+{
+  "schema": "aukora.layer0.registry.v1",
+  "contract": "CLASSICAL_LOCAL_V1",
+  "base_commit": "505c42250d6853aba9a314de48b5e4a6b4de05fe",
+  "source_pins": {
+    "PLAN.md": "58b37d03d3d4ee9bf2cff4f2711ad92585c337bef286978991db35e7ae6e9817",
+    "overnight/inputs/LAYER0-BRIEF.md": "2d6e423554c05a1f298737b855d05f904672db05639aceec53156787be4358ae",
+    "spec/pentora-v1/MANIFEST.sha256": "b742af44367e0f50e4df8f0c2aa098923f697e2a18cf8d4881fbec0b5e28f9e9",
+    "spec/pentora-v1/PROVENANCE.txt": "1354422642e54fd19bcf3a437d963f7dee75b141b040c97ae30fa79530f5cfd7"
+  },
+  "standards": {
+    "nip01": "https://github.com/nostr-protocol/nips/blob/c3fd9af17939316bf6d0d83a5759100f8b0a1bdb/01.md",
+    "bip340": "https://github.com/bitcoin/bips/blob/2885f13d3f37890e328683166dbcbc60b488d13a/bip-0340.mediawiki",
+    "jcs": "https://www.rfc-editor.org/rfc/rfc8785.html"
+  },
+  "profile": {
+    "id": "aukora.classical.bip340.v1",
+    "id_ascii_hex": "61756b6f72612e636c6173736963616c2e6269703334302e7631",
+    "security_label": "CLASSICAL",
+    "application_algorithms": [
+      "bip340"
+    ],
+    "public_key_bytes": 32,
+    "signature_bytes": 64,
+    "descriptor_fields": [
+      "profile",
+      "bip340_public_key"
+    ],
+    "unsupported_hybrid_id": "aukora.hybrid.bip340.mldsa65.v1",
+    "trusted_adapter": "Node",
+    "standalone_wasm": false
+  },
+  "nostr": {
+    "kind": 8790,
+    "tags": [
+      [
+        "aukora",
+        "l0-v1"
+      ]
+    ],
+    "public_allocation": "UNKNOWN",
+    "publication_enabled": false
+  },
+  "record_domains": {
+    "identity": "aukora.identity.v1",
+    "key_binding": "aukora.key-binding.v1",
+    "epoch_transition": "aukora.epoch-transition.v1",
+    "policy_commitment": "aukora.policy-commitment.v1",
+    "vouch": "aukora.vouch.v1",
+    "vouch_accept": "aukora.vouch-accept.v1",
+    "agent_card": "aukora.agent-card.v1",
+    "emission_request": "aukora.emission-request.v1",
+    "intent": "aukora.intent.v1",
+    "receipt": "aukora.receipt.v1",
+    "kira_map": "aukora.kira-map.v1",
+    "recovery_policy": "aukora.recovery-policy.v1",
+    "coherence_checkpoint": "aukora.coherence-checkpoint.v1",
+    "revocation": "aukora.revocation.v1"
+  },
+  "hash_domains": {
+    "record": "aukora.record.v1",
+    "key": "aukora.key.v1",
+    "payload": "aukora.payload.v1",
+    "reservation": "aukora.reservation.v1",
+    "consumption": "aukora.consumption-state.v1",
+    "revocation": "aukora.revocation-state.v1",
+    "policy": "aukora.policy.v1",
+    "control": "aukora.control-state.v1"
+  },
+  "projection_order": [
+    "identity",
+    "delegation",
+    "actions",
+    "receipts",
+    "memory"
+  ],
+  "local_scope": {
+    "adapter_profile": "aukora.local.fixed-message.v1",
+    "site": {
+      "scheme": "local",
+      "endpoint": "aukora-test-sink-v1"
+    },
+    "resource": "sink",
+    "operation": "emit",
+    "payload_class": "aukora.local.fixed-message.v1"
+  },
+  "local_payload_hex": "41554b4f5241204c4f43414c20544553540a",
+  "local_budget": [
+    {
+      "unit": "bytes",
+      "maximum": "18",
+      "currency": null
+    },
+    {
+      "unit": "requests",
+      "maximum": "1",
+      "currency": null
+    }
+  ],
+  "accepted_cipher_profiles": [
+    "aukora.kira.aes256gcm.v1"
+  ],
+  "accepted_observation_statement_profiles": [
+    "aukora.local.fixed-message.observation.v1"
+  ],
+  "accepted_provenance_profiles": [
+    "aukora.kira.provenance.claims.v1"
+  ],
+  "product_extensions": {
+    "schema": "aukora.product-extensions.v1",
+    "record_v2": {
+      "schema": "aukora.record.v2",
+      "application_hash_domain": "aukora.record.v2",
+      "record_domains": {
+        "owner_approval": "aukora.owner-approval.v2",
+        "agent_card": "aukora.agent-card.v2",
+        "intent": "aukora.intent.v2"
+      },
+      "base_tag_names": [
+        "aukora",
+        "prev",
+        "seq"
+      ],
+      "base_profile_tag": "l0-v2",
+      "owner_approval_fields": [
+        "operation_id",
+        "nonce",
+        "request_ref",
+        "requester_key_id",
+        "scope",
+        "payload_sha256",
+        "payload_commitment",
+        "journal_head"
+      ],
+      "root_card_tag_fields": [
+        "aukora-delegation-v1",
+        "agent_key_id",
+        "adapter_profile",
+        "scheme",
+        "endpoint",
+        "resource",
+        "operation",
+        "payload_class",
+        "not_before",
+        "expires",
+        "revocation_handle",
+        "onward_delegation"
+      ],
+      "root_card_onward_delegation": "false",
+      "projection_by_kind": {
+        "owner_approval": "actions",
+        "agent_card": "delegation",
+        "intent": "actions"
+      },
+      "application_role_by_kind": {
+        "owner_approval": "root",
+        "agent_card": "root",
+        "intent": "aperture_authority"
+      },
+      "consent_context": null,
+      "expires_required": true,
+      "previous_event_required": true,
+      "intent_requires_immediate_owner_approval": true
+    },
+    "trusted_host_v2": {
+      "schema": "aukora.local-host.v2",
+      "mode": "LOCAL_TEST",
+      "fields": [
+        "schema",
+        "mode",
+        "directory",
+        "anchor",
+        "request_signers",
+        "append",
+        "aperture"
+      ],
+      "owner_approval_required": true,
+      "intent_schema": "aukora.record.v2",
+      "proposal_can_select_mode": false,
+      "legacy_test_schema": "aukora.local-host.v1",
+      "automatic_fallback": false
+    },
+    "kira_aes256gcm_v1": {
+      "cipher_profile": "aukora.kira.aes256gcm.v1",
+      "algorithm": "AES-256-GCM",
+      "key_bytes": 32,
+      "nonce_bytes": 12,
+      "tag_bytes": 16,
+      "tag_placement": "ciphertext_suffix",
+      "max_plaintext_bytes": 6128,
+      "max_ciphertext_bytes": 6144,
+      "max_seals_per_key": 1048576,
+      "nonce_construction": "process_local_monotonic_uint96_be",
+      "nonce_initial_value": "0",
+      "nonce_burn_before_seal": true,
+      "imported_writer_allowed": false,
+      "aad_domain": "aukora.kira.aad.v1",
+      "aad_schema": "aukora.kira.aad-context.v1",
+      "aad_fields": [
+        "schema",
+        "subject_id",
+        "chain_id",
+        "map_id",
+        "revision",
+        "piece_id",
+        "key_ref",
+        "cipher_profile"
+      ],
+      "manifest_piece_id": null,
+      "storage_namespace_binding": "restriction.namespace_id == record.body.map_id",
+      "provenance_profile": "aukora.kira.provenance.claims.v1",
+      "provenance_grants_authority": false,
+      "legacy_decrypt_only_profile": "aukora.kira.chacha20poly1305.v1",
+      "nip44": false
+    },
+    "public_local_observation_v1": {
+      "statement_profile": "aukora.local.fixed-message.observation.v1",
+      "schema": "aukora.local.observation.v1",
+      "adapter_profile": "aukora.local.fixed-message.v1",
+      "fields": [
+        "schema",
+        "statement_profile",
+        "adapter_profile",
+        "subject_id",
+        "chain_id",
+        "epoch",
+        "operation_id",
+        "intent_ref",
+        "intent_record_digest",
+        "actor_key_id",
+        "observer_key_id",
+        "observer_certificate_ref",
+        "observed_at",
+        "received_bytes",
+        "claim"
+      ],
+      "artifact_digest": "sha256_exact_canonical_artifact",
+      "received_bytes": 18,
+      "claim": "completed",
+      "receipt_outcome": "done",
+      "receipt_dispatch_state": "observed",
+      "receipt_evidence_count": 1,
+      "public_metadata_only": true,
+      "payload_or_salt_allowed": false,
+      "cipher_dependency": null
+    }
+  },
+  "policy_documents": {
+    "algorithm": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "algorithm",
+        "policy_version": 1,
+        "parameters": {
+          "profile": "aukora.classical.bip340.v1",
+          "application_algorithms": [
+            "bip340"
+          ],
+          "outer_algorithm": "bip340",
+          "ml_dsa_enabled": false
+        }
+      },
+      "digest": "4d7b2b987d48db5eeaaa5a98450933875dfee5c0fa970a3b088ea45f919bbda5"
+    },
+    "scope": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "scope",
+        "policy_version": 1,
+        "parameters": {
+          "allowed_scopes": [
+            {
+              "adapter_profile": "aukora.local.fixed-message.v1",
+              "site": {
+                "scheme": "local",
+                "endpoint": "aukora-test-sink-v1"
+              },
+              "resource": "sink",
+              "operation": "emit",
+              "payload_class": "aukora.local.fixed-message.v1"
+            }
+          ],
+          "payload_hex": "41554b4f5241204c4f43414c20544553540a",
+          "request_bytes": "18",
+          "request_count": "1",
+          "live_dispatch": false
+        }
+      },
+      "digest": "a8fe61c89e957b1ac9b433795452505a947c9d633317a799416aac113e219acd"
+    },
+    "time": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "time",
+        "policy_version": 1,
+        "parameters": {
+          "source_id": "aukora.local-test-control.v1",
+          "mode": "LOCAL_TEST",
+          "clock": "explicit_monotone_logical_unix_seconds",
+          "skew_grace_seconds": 0,
+          "max_cached_revisions": "0"
+        }
+      },
+      "digest": "43044e7df9bd820b2cb064be90ea92c0bd09d8f79f5fa9565c0432a8168aac44"
+    },
+    "control": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "control",
+        "policy_version": 1,
+        "parameters": {
+          "source_id": "aukora.local-test-control.v1",
+          "mode": "LOCAL_TEST",
+          "currentness": "same_lock_current_boot_revision",
+          "floor": "retained_outside_import",
+          "dispatch_gap_ticks": "0",
+          "automatic_resend": false,
+          "live_dispatch": false
+        }
+      },
+      "digest": "0f997602f4ec67af72bd34e30a633d38e2693aada2ceebb1e71df131632e10d4"
+    },
+    "custody": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "custody",
+        "policy_version": 1,
+        "parameters": {
+          "mode": "LOCAL_TEST",
+          "keys": "disposable_test_only",
+          "signing": "trusted_node",
+          "bridge": "proposal_only",
+          "requester_observer_custody": "separate",
+          "live_dispatch": false
+        }
+      },
+      "digest": "fead2fbc14aa1fbc52e81bfd27dc2153165c1b5f68d71372bd790ba07f16d9ee"
+    },
+    "admission": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "admission",
+        "policy_version": 1,
+        "parameters": {
+          "invites_per_month": 3,
+          "tier_vouches": 10,
+          "tier_independent_paths": 2,
+          "month_basis": "UTC",
+          "path_predicate": "unreviewed",
+          "subtree_predicate": "unreviewed",
+          "visibility": "one_hop"
+        }
+      },
+      "digest": "de34591b35cdd0aba870b281c4c95ef120f7ccf8b5aec2195378f78d5e532272"
+    },
+    "succession": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "succession",
+        "policy_version": 1,
+        "parameters": {
+          "append_rotation": "current_root_and_next_append_possession",
+          "allow_root_replacement": false,
+          "allow_recovery_transition": false
+        }
+      },
+      "digest": "1b0d7fca96fe6de9f1ce84a86191ce61cc74fbd4aecef1fad56469b3fc8a1dec"
+    },
+    "recovery": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "recovery",
+        "policy_version": 1,
+        "parameters": {
+          "status": "unreviewed",
+          "attempt_limit": 5,
+          "behavior": "always_refuse",
+          "bound_devices_exempt_from_lockout": true
+        }
+      },
+      "digest": "6459633cb1b906dc970789dbddb09a7c0291aab0f590fdd46e3d863e2b30f8e0"
+    },
+    "persona": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "persona",
+        "policy_version": 1,
+        "parameters": {
+          "status": "unreviewed",
+          "automatic_cross_linking": false
+        }
+      },
+      "digest": "d2eebce0570eb1c549d9ff7f2d2b7b28e393b86e42b1c989f74ce9b51d92aee1"
+    },
+    "assertion": {
+      "document": {
+        "schema": "aukora.policy.v1",
+        "policy_type": "assertion",
+        "policy_version": 1,
+        "parameters": {
+          "status": "unreviewed",
+          "behavior": "always_refuse"
+        }
+      },
+      "digest": "1ad88cc6b36c3d9edbeb29216c6dcb4e157e885e97594c6fbc55633f2ba7bfb6"
+    }
+  },
+  "limits": {
+    "event_wire_bytes": 262144,
+    "canonical_content_utf8_bytes": 196608,
+    "nesting_depth": 16,
+    "parsed_nodes": 16384,
+    "leaf_utf8_bytes": 8192,
+    "array_elements": 256,
+    "authority_ancestry": 8,
+    "vouch_depth": 16,
+    "vouch_vertices": 256,
+    "vouch_edges": 512,
+    "decoded_evidence_bytes": 4194304,
+    "crypto_verifications": 64
+  },
+  "reason_codes": {
+    "REJECT": [
+      "MALFORMED_BYTES",
+      "DUPLICATE_KEY",
+      "CLOSED_SCHEMA",
+      "LIMIT_EXCEEDED",
+      "BAD_SIGNATURE",
+      "WRONG_DOMAIN",
+      "WRONG_SIGNER",
+      "WRONG_AUTHORITY",
+      "SCOPE_MISMATCH",
+      "EXPIRED",
+      "NOT_YET_VALID",
+      "REVOKED",
+      "REPLAY",
+      "JOURNAL_CONFLICT",
+      "INCONSISTENT_HEAD",
+      "MISSING_REQUIRED_PROOF"
+    ],
+    "UNKNOWN": [
+      "UNSUPPORTED_SCHEMA",
+      "UNSUPPORTED_KIND",
+      "UNSUPPORTED_ALGORITHM",
+      "UNSUPPORTED_PROFILE",
+      "MISSING_EVIDENCE",
+      "STALE_CONTROL",
+      "UNTRUSTED_TIME",
+      "TIME_UNCERTAINTY",
+      "ROLLBACK_UNRESOLVED",
+      "RECOVERY_UNREVIEWED"
+    ],
+    "DRAFT": [
+      "UNSIGNED_DRAFT"
+    ],
+    "valid": [
+      "VERIFIED"
+    ]
+  },
+  "acceptance_obligations": [
+    "L0-A01",
+    "L0-A02",
+    "L0-A03",
+    "L0-A04",
+    "L0-A05",
+    "L0-A06",
+    "L0-A07",
+    "L0-A08",
+    "L0-A09",
+    "L0-A10",
+    "L0-A11",
+    "L0-A12",
+    "L0-A13",
+    "L0-A14",
+    "L0-A15",
+    "L0-A16",
+    "L0-A17",
+    "L0-A18"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "domain": "aukora:id-pin:v1",
+  "package": {
+    "name": "aukora-identity",
+    "version": "0.0.0",
+    "license": "none declared at the source commit",
+    "licenseNote": "The source repository carries no LICENSE or NOTICE file at 1db778d; first-party Aumara source. third_party/cordis carries the Cordis MIT notices."
+  },
+  "source": {
+    "repository": "github.com/aumara-xyz/aumlok-id (private; renamed from aukora-identity, the old URL redirects)",
+    "commit": "1db778d16155f60336e411bc31d3d8ff6d748be7",
+    "taken": "the reproducible source-only vendor packet, built by scripts/build-vendor.mjs (npm run pack:vendor -- --commit 1db778d); packet tar sha256 34273dc085e7594d08c8a8a34d9a22d13fd54f5d8ce8e94bb9062bbf173442d9, manifest sha256 181ecb6e6d144fc32e6032131813365f497c4240e08f359b10a767f45e0da630 (issue #8 audit, closed)",
+    "redTeam": "Kimi rounds 1-3 on 8ac5564/85e1a96/1db778d; open findings are issues #23-#31 on the source repo"
+  },
+  "upstream": [
+    {
+      "path": "VENDOR-MANIFEST.json",
+      "note": "the packet's own per-file hash manifest; every vendored byte is pinned there"
+    }
+  ]
+}

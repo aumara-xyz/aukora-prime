@@ -1,0 +1,8 @@
+{
+  "name": "@aukora/dsh-plugin-id-aperture",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "LAB SEAM (staging): one relay-post-shaped operation through the vendored AUKORA ID aperture; never posts to a relay.",
+  "main": "lib/index.mjs"
+}

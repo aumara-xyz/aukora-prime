@@ -1,0 +1,37 @@
+{
+  "name": "aukora-identity",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
+    "@standard-schema/spec": "1.1.0",
+    "cordis": "4.0.0-rc.10",
+    "cosmokit": "1.8.1"
+  },
+  "exports": {
+    "./bytes": "./src/bytes/index.mjs",
+    "./keys": "./src/keys/index.mjs",
+    "./verifier": "./src/verifier/index.mjs",
+    "./journal": "./src/journal/index.mjs",
+    "./aperture": "./src/aperture/index.mjs",
+    "./bind": "./src/bind/index.mjs",
+    "./vouches": "./src/vouches/index.mjs",
+    "./agents": "./src/agents/index.mjs",
+    "./kira": "./src/kira/index.mjs",
+    "./pentora": "./src/pentora/index.mjs",
+    "./aura": "./src/aura/index.mjs",
+    "./adapters/host": "./src/host/index.mjs",
+    "./adapters/host-client": "./src/host/client.mjs",
+    "./adapters/cordis": "./src/cordis/index.mjs",
+    "./adapters/transport": "./src/transport/index.mjs"
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "pack:vendor": "node --experimental-vm-modules scripts/build-vendor.mjs"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

@@ -1,0 +1,6 @@
+Source: Fable / Astra labs, delivered 2026-10-06. Local lab repo commits 2dc8d22 then 10fa075 (head order corrected to identity, delegation, actions, receipts, memory; data/coherence_vectors_v1.json added: 256 cases). No remote. SPEC AND VECTOR DATA ONLY; no lab code.
+Peter's exemption: spec and known-answer vector data only (Layer 0 decision D01).
+Hashes: see MANIFEST.sha256 (verified here with shasum -a 256 -c: all OK).
+Independent check by Claude (2026-10-06, own Python implementation of the stated rule): 5,360 of 5,360 vectors reproduce exactly.
+Normative: geometry_index_table_v1.json (centre 55). master_index_table_v0.1_TRANSLATION_ONLY.json is an appendix, not normative.
+Confirmed 2026-10-06: head order for the 12-point coherence pattern = identity, delegation, actions, receipts, memory; icosahedron vertex order as proposed. Claude independently recomputed all 256 coherence vectors (D, rejection counter, payload, 12-trit word): 256 of 256 reproduce.

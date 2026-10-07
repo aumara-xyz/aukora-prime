@@ -32,6 +32,9 @@ node_modules/
 dist/
 coverage/
 .DS_Store
+# The vendored aumlok-id pack carries its pinned @noble dependencies IN TREE (bare
+# specifiers resolve through this directory; pinned by hash, see vendor/aukora-id/PROVENANCE.json).
+!vendor/aukora-id/node_modules/
 
 # Tests must generate labelled non-secret key fixtures deterministically;
 # never depend on ignored local files for a clean-clone pass.

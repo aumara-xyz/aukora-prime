@@ -1,0 +1,102 @@
+{
+  "schema": "aukora.local-dependency-review.v1",
+  "reviewed_at_utc": "2026-10-07",
+  "scope": "Exact official npm artifacts, registry signatures, dependency closure, license notices and targeted lifecycle source review; no independent acceptance or protocol/profile approval.",
+  "packages": [
+    {
+      "name": "cordis",
+      "version": "4.0.0-rc.10",
+      "repository": {
+        "url": "git+https://github.com/cordiverse/cordis.git",
+        "type": "git",
+        "directory": "packages/core"
+      },
+      "gitHead": "f8ea3cd50f1a5724e8e715995bcde131c9c12b2c",
+      "registry_metadata_url": "https://registry.npmjs.org/cordis/4.0.0-rc.10",
+      "tarball_url": "https://registry.npmjs.org/cordis/-/cordis-4.0.0-rc.10.tgz",
+      "integrity": "sha512-xG90nPNQxR272cC4lR/m5LHevegIJvdddQBlKdEAdGz3n+zgH5lsgkg8o9fc2P3T/f+pO5D7FN1HZvkNBiABnw==",
+      "artifact_sha256": "8329edb6204fccb248200eeddd750014a2696c752258a386023f8ffd15d9a942",
+      "artifact_bytes": 17215,
+      "license": "MIT",
+      "license_sources": [
+        {
+          "source": "https://raw.githubusercontent.com/cordiverse/cordis/f8ea3cd50f1a5724e8e715995bcde131c9c12b2c/LICENSE",
+          "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7",
+          "note": "published archive omits LICENSE; exact gitHead upstream notice retained for integration"
+        }
+      ],
+      "registry_signatures_verified": 2,
+      "registry_keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+      "runtime_dependencies": {
+        "cosmokit": "^1.8.1",
+        "@standard-schema/spec": "^1.1.0"
+      },
+      "install_lifecycle_scripts": []
+    },
+    {
+      "name": "cosmokit",
+      "version": "1.8.1",
+      "repository": {
+        "url": "git+https://github.com/shigma/cosmokit.git",
+        "type": "git"
+      },
+      "gitHead": "02e691c5aa7f37f6e0b1cee7ee8f4a21c2e34507",
+      "registry_metadata_url": "https://registry.npmjs.org/cosmokit/1.8.1",
+      "tarball_url": "https://registry.npmjs.org/cosmokit/-/cosmokit-1.8.1.tgz",
+      "integrity": "sha512-PDBv4l90xZKrUsZ0vtoycgZpO/j4iFsqJXrAxsyBDsnQRI7ZMJXIjgDJsKNjd5L8jnVnnlrDCdhkFbTncgCVjQ==",
+      "artifact_sha256": "b3aedc76e40b5cebf23e46b46701c101f8e00401562029893d2b2495fe61cc90",
+      "artifact_bytes": 13925,
+      "license": "MIT",
+      "license_sources": [
+        {
+          "source": "package/LICENSE",
+          "sha256": "034fb52b1d57360ecbae6cb1632a88f86fd7c3d3f5631a5f082710203dda0be7"
+        }
+      ],
+      "registry_signatures_verified": 1,
+      "registry_keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+      "runtime_dependencies": {},
+      "install_lifecycle_scripts": []
+    },
+    {
+      "name": "@standard-schema/spec",
+      "version": "1.1.0",
+      "repository": {
+        "url": "git+https://github.com/standard-schema/standard-schema.git",
+        "type": "git"
+      },
+      "gitHead": null,
+      "registry_metadata_url": "https://registry.npmjs.org/@standard-schema%2Fspec/1.1.0",
+      "tarball_url": "https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz",
+      "integrity": "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==",
+      "artifact_sha256": "a7cb7268be280ab518d450f8c3b07c86f23417225c0ab53691ed59b3067cceaf",
+      "artifact_bytes": 4178,
+      "license": "MIT",
+      "license_sources": [
+        {
+          "source": "package/LICENSE",
+          "sha256": "653b779005a3a4d64a7288c940f7b9a0e8f0b1e0375f6aa6af9473caf131e564"
+        }
+      ],
+      "registry_signatures_verified": 1,
+      "registry_keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+      "runtime_dependencies": {},
+      "install_lifecycle_scripts": []
+    }
+  ],
+  "optional_cordis_peers_installed": false,
+  "install_scripts_enabled": false,
+  "shared_original_noble_pins_unchanged": true,
+  "cordis_archive_missing_license": "Exact registry gitHead upstream MIT notice retained as SHIGMA-MIT-LICENSE.txt; same notice also shipped by cosmokit.",
+  "runtime_entry": "cordis library only; CLI and optional loader/include peers unused",
+  "confinement": "UNAVAILABLE; untrusted plugin execution remains refused",
+  "dependency_boundary": {
+    "adapter": "src/cordis",
+    "adapter_only_transitive_pins": {
+      "cosmokit": "1.8.1",
+      "@standard-schema/spec": "1.1.0"
+    },
+    "root_manifest_pins": "The reviewed Cordis transitive closure is explicitly pinned in the root manifest for reproducible installation; these packages are not core dependencies.",
+    "core_imports": "Core may import the reviewed noble packages and permitted Node builtins. scripts/check-core-imports.mjs rejects Cordis and its transitive packages from core."
+  }
+}
