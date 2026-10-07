@@ -410,3 +410,4 @@
 {"seq":892,"head":"a817c8e1365dd4ecbf8af957bb39c28bf524f30daa0e90bbb772e5fb7a45cdbb","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T15:40:35.342Z","anchored_at":"2026-10-07T15:41:28Z"}
 {"seq":894,"head":"e3f2f0e8d5bca797cbc1878ead292a7bc1c1d6832c36ed0f23762b023ca02365","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T15:55:35.406Z","anchored_at":"2026-10-07T15:55:36Z"}
 {"seq":896,"head":"1071a5ae9eaff6ede3e3177b929c3b7ac1840510b520a6ebee5f49dfe2a47a70","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T16:10:35.461Z","anchored_at":"2026-10-07T16:11:37Z"}
+{"seq":898,"head":"13d9bea5c399cbf4dda12f6d29887ae8ee97873cb1e91901bab8e49e9859809f","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T16:25:35.510Z","anchored_at":"2026-10-07T16:26:19Z"}
