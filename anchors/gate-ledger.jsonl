@@ -390,3 +390,4 @@
 {"seq":852,"head":"c1e4515b43dc762eb352b95f05a2e87259e931f1945b86cc0316221398be369e","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T10:40:34.236Z","anchored_at":"2026-10-07T10:41:38Z"}
 {"seq":854,"head":"63338675bff56f8f147d55fbb3ec013145aadcce4f08ded36da9a7a66b7e550b","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T10:55:34.302Z","anchored_at":"2026-10-07T10:56:13Z"}
 {"seq":856,"head":"82e88a0c219d5e1b934216c10f1d067122dfc26324acb2eedfbe1b3a89900b9c","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T11:10:34.354Z","anchored_at":"2026-10-07T11:11:11Z"}
+{"seq":858,"head":"b1cbb7e6a682e6a1a1eddbbd74fd914f7a2d3d6c726c373d9bbf6dc1d345a2a3","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-07T11:25:34.417Z","anchored_at":"2026-10-07T11:25:47Z"}
