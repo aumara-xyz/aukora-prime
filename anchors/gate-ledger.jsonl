@@ -590,3 +590,4 @@
 {"seq":1252,"head":"343c7a3d87a484c3cd3f76a8735b59ffe2f70a1044f930a021786cb19ddffb9d","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-09T12:41:15.350Z","anchored_at":"2026-10-09T12:43:21Z"}
 {"seq":1254,"head":"b6620e9b336ccd6475463e38bf746a9eeb7118dc172c6b7e7a612e424d258d2e","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-09T12:56:15.393Z","anchored_at":"2026-10-09T12:56:22Z"}
 {"seq":1256,"head":"7be18cae6f3546f10e1f1af1c74309cd27be57905e20950873d92adb729bd7ce","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-09T13:11:15.448Z","anchored_at":"2026-10-09T13:11:21Z"}
+{"seq":1258,"head":"070f55828d5804f405551a22c4a93b85d50148946657b6e3ad9da55a6f6856b1","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-09T13:26:15.588Z","anchored_at":"2026-10-09T13:26:27Z"}
