@@ -1,6 +1,6 @@
 {
  "schema": "aukora-current-evidence/v1",
- "updated_at": "2026-10-05T12:41:00Z",
+ "updated_at": "2026-10-10T06:02:11Z",
  "revisions": {
   "source": "d7de692f98942023485403f9a03be828c01450e9",
   "main_observed": {
@@ -10,8 +10,8 @@
   "deployment": {
    "sha": "3673b98a3e090d122ed0853386ff60913287c3a8",
    "reported_at": "2026-10-05T12:41:00Z",
-   "basis": "Peter reports live release 3673b98; old gate package 4c24fd0. No runtime readback ran in this docs task",
-   "limit": "Live release 3673b98 is Peter-reported; the installed gate remains the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance."
+   "basis": "Peter reported live release 3673b98 and old gate package 4c24fd0 on 2026-10-05. A runtime readback on 2026-10-10 found release 3673b98 running; the gate package version was not read back",
+   "limit": "Release 3673b98 was read back running on the pilot at 2026-10-10T06:02Z, an operator-side readback from the owner's machine (evidence/pilot/2026-10-10-readback.md), not an independent attestation. The installed gate package remains Peter-reported as the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance."
   }
  },
  "boundary_files": [
@@ -39,16 +39,38 @@
  "claims": [
   {
    "id": "pilot",
-   "claim": "Separate-user Linux pilot runs the Genesis-derived runtime, action gate and desktop owner route.",
-   "status": "REPORTED",
-   "basis": "Peter reports live release 3673b98; old gate package 4c24fd0. No runtime readback ran in this docs task",
+   "claim": "Separate-user Linux pilot runs the Genesis-derived runtime, the boundary gate, the OpenShell gateway and sandbox, the relay and the desktop owner route.",
+   "status": "RECORDED",
+   "basis": "Runtime readback from the owner's machine, 2026-10-10 05:56 and 06:02 UTC: eight AUKORA service units active on a Nebius VM; Genesis runtime release 3673b98, boundary gate, OpenShell 0.1.2 gateway and sandbox, and relay each under a separate account; only SSH listening off loopback; desktop owner app attached through a loopback forward",
    "references": [
     {
      "path": "ARCHITECTURE.md",
      "label": "component map"
+    },
+    {
+     "path": "evidence/pilot/2026-10-10-readback.md",
+     "label": "readback record"
     }
    ],
-   "limit": "Live release 3673b98 is Peter-reported; the installed gate remains the old package 4c24fd0. No normal admitted shell or accepted bound workspace. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance.",
+   "limit": "Operator-side readback, not an independent attestation. Running processes and services do not establish containment: the 2026-10-04 result remains FAIL and the inherited-descriptor finding is open. Normal shell admission, a bound workspace, installed bytes and the gate package version (Peter-reported 4c24fd0) were not read back. Owner enrollment remains unperformed. Later source commits and observer success do not establish admission, containment closure or whole-product acceptance.",
+   "evidence_at": "2026-10-10T06:02:11Z"
+  },
+  {
+   "id": "pilot-mounted",
+   "claim": "The pilot runtime mounts the action gate and Kira memory.",
+   "status": "REPORTED",
+   "basis": "Peter reports live release 3673b98. The 2026-10-10 readback saw the runtime process and its composition-gate plugin import; it did not exercise the action gate or Kira",
+   "references": [
+    {
+     "path": "ARCHITECTURE.md",
+     "label": "component map"
+    },
+    {
+     "path": "evidence/pilot/2026-10-10-readback.md",
+     "label": "readback record"
+    }
+   ],
+   "limit": "Not read back. A running runtime does not show that every tool request is mediated or that memory is saved, indexed or recalled. Host file fences and a source guard do not establish complete mediation or containment.",
    "evidence_at": "2026-10-05T12:41:00Z"
   },
   {
@@ -426,7 +448,7 @@
     ]
    },
    {
-    "claim_id": "pilot",
+    "claim_id": "pilot-mounted",
     "name": "Action gate",
     "role": "Routes tool requests through configured guard/policy before effects",
     "code": [
@@ -519,7 +541,7 @@
     ]
    },
    {
-    "claim_id": "pilot",
+    "claim_id": "pilot-mounted",
     "name": "Kira",
     "role": "Mounted remembered/signed note and recall source",
     "code": [
@@ -604,7 +626,7 @@
   ]
  },
  "observations": {
-  "scope": "Retained operator results supplied to this docs lane; this refresh ran no live checks. Internal transport identifiers are deliberately omitted.",
+  "scope": "Retained operator results supplied to this docs lane, plus one read-only pilot runtime readback on 2026-10-10 made from the owner's machine. No containment, admission or egress probe ran. Internal transport identifiers are deliberately omitted.",
   "floor": {
    "runtime_revision": "e33739780c09406d875336683053218a8a968051",
    "evidence_at": "2026-10-04T10:44:52Z",
@@ -700,7 +722,7 @@
    "forced_failure": "main process did not start",
    "continuous_service_loss_dependency": "pending reported unit update"
   },
-  "timestamp_basis": "UTC. Floor/package/collector evidence uses the report receipt time, 10:44:52; its operator-stated check time was 10:55, so clock/order is not independently attested. Other run times preserve supplied minute precision; card/status times use report receipt timestamps. The 2026-10-05 admission refresh uses Peter instruction receipt time (12:41 UTC); no exact guest or observer run time was supplied and none is inferred.",
+  "timestamp_basis": "UTC. Floor/package/collector evidence uses the report receipt time, 10:44:52; its operator-stated check time was 10:55, so clock/order is not independently attested. Other run times preserve supplied minute precision; card/status times use report receipt timestamps. The 2026-10-05 admission refresh uses Peter instruction receipt time (12:41 UTC); no exact guest or observer run time was supplied and none is inferred. The 2026-10-10 pilot readback uses the host's own UTC clock at the second read.",
   "previous_deployment": {
    "sha": "cdfb55ff2ed5d3f4ceb8d6734cc4997241a1f2ff",
    "reported_at": "2026-10-04T15:41:11Z",
@@ -714,6 +736,40 @@
    "evidence_at": "2026-10-05T12:41:00Z",
    "basis": "Peter status report: live 3673b98, no normal admitted shell, no accepted bound workspace. Earlier bound guest 33 DENIED / 0 ALLOWED was ADMISSION-BYPASSED; host-as-auma 40 DENIED / 7 ALLOWED. Kimi later reports observer pass, with admission blockers remaining.",
    "limit": "ADMISSION-BYPASSED guest results do not qualify the normal route. Observer pass does not clear admission or the host allowed routes. Historical inherited-descriptor finding remains retained; no live check ran in this docs task."
+  },
+  "pilot_readback": {
+   "evidence_at": "2026-10-10T06:02:11Z",
+   "first_read_at": "2026-10-10T05:56:24Z",
+   "record_path": "evidence/pilot/2026-10-10-readback.md",
+   "reader": "assistant session on the owner's machine over the desktop app's SSH loopback forward; read-only",
+   "host": "Ubuntu 24.04.4 LTS, x86_64, Nebius VM; up since 2026-10-05T07:34:41Z",
+   "runtime_release": "3673b98",
+   "runtime_running_since": "about 2026-10-05T11:18Z",
+   "services_active": 8,
+   "services_running": [
+    "aukora-genesis",
+    "aukora-boundary-gate",
+    "aukora-openshell-gateway",
+    "aukora-auma-podman",
+    "aukora-openviking",
+    "aukora-relay"
+   ],
+   "services_completed_oneshot": [
+    "aukora-auma-sandbox",
+    "aukora-auma-local-deny"
+   ],
+   "separate_accounts": "gate, runtime, auma (OpenShell gateway), relay; sandbox and supervisor under user-namespaced sub-ids",
+   "openshell_version": "0.1.2",
+   "listeners": "SSH only off loopback; all other listeners loopback",
+   "desktop_route": "owner app attached through an SSH loopback forward; unauthenticated request returned HTTP 401",
+   "not_read_back": [
+    "containment or egress probes",
+    "normal shell admission and bound workspace",
+    "installed gate package version",
+    "installed file digests",
+    "owner enrollment"
+   ],
+   "independent": false
   }
  }
 }
