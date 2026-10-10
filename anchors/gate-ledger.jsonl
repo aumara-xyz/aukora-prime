@@ -672,3 +672,4 @@
 {"seq":1413,"head":"bb1ff1dc6f02b0fb5a9304707ef7ec45bd9c253e4ea010ace7835d117c80cb06","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-10T08:56:19.336Z","anchored_at":"2026-10-10T08:56:18Z"}
 {"seq":1414,"head":"582023fd03f37f13f6cae62c1ca3a564c4f318799db94625dcb05791fbf60f5a","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-10T08:56:20.374Z","anchored_at":"2026-10-10T08:57:24Z"}
 {"seq":1416,"head":"07886d4667a24688f3f440e44d26aabe0d3c127adefcec369192242936b74549","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-10T09:11:20.435Z","anchored_at":"2026-10-10T09:12:21Z"}
+{"seq":1417,"head":"037fb89f2751d429e9b5d36aa62c87027557d2787e901a4f688476f1973f73bb","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-10T09:26:19.441Z","anchored_at":"2026-10-10T09:26:19Z"}
