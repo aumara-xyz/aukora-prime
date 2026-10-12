@@ -52,8 +52,9 @@ if (process.argv[2] === '--child') {
   const shim = `import * as fs from 'node:fs'; export * from 'node:fs'; import { join } from 'node:path';
     const fixture = globalThis.projectMapFixture;
     const changed = (stat, fields) => Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, fields);
-    const nominal = path => { const p = String(path), match = /^\\/proc\\/self\\/fd\\/(\\d+)\\/(.*)$/u.exec(p);
-      return match ? join(fixture.descriptors.get(Number(match[1])).path, match[2]) : p; };
+    // On Linux the tool addresses a held directory as /proc/self/fd/<n> and its children as /proc/self/fd/<n>/<name>.
+    const nominal = path => { const p = String(path), match = /^\\/proc\\/self\\/fd\\/(\\d+)(?:\\/(.*))?$/u.exec(p);
+      return match ? (match[2] === undefined ? fixture.descriptors.get(Number(match[1])).path : join(fixture.descriptors.get(Number(match[1])).path, match[2])) : p; };
     const fields = p => p !== fixture.root && !p.startsWith(fixture.root + '/') ? { mode: 0o40755, uid: 0 } : fixture.fields.get(p) ?? {};
     export const openSync = (path, flags, mode) => { const p = nominal(path), directory = (flags & fs.constants.O_DIRECTORY) !== 0;
       fixture.opened.push({ path: p, flags, directory }); fixture.beforeOpen?.(p, directory, flags);
