@@ -420,3 +420,7 @@ Two things an operator must get right, found the hard way and now in `plugins/au
 ### 2026-10-12 night: after a restart the door reopens its own session: RAN in staging
 
 Staging rolled to `0356b04` (gate package upgraded, stand-in owner key, floor OK). Then: a new session and a throwaway owner and channel, harness restarted, **no client opened the session**, a mention posted: `handed_by_door=true turn_started=true`. The turn again stopped at the missing model key. Before this commit the same sequence produced `configured Buzz session unavailable` until a client opened the session. NOT RUN: the live harness; a reply (no model key in staging).
+
+### 2026-10-13 early: the Aura snapshot behind the Pentora page: RAN in staging
+
+Staging on `1fdffae` (rolled, stand-in owner approval, floor OK). The route the Aura Coherence page reads: without sign-in 401; POST 405; signed in 200 with `no-store`, a snapshot naming three sources. The gate ledger has a verified head; Kira's and the code chain's heads are reported **absent** (`kira-head-not-exposed`, `code-head-not-exposed`), not invented. After the door acceptance added three signed ledger entries (240 to 243) the snapshot's head changed. Installed door acceptance passed on this release as well. NOT RUN: the page in a browser (nobody has looked at the picture move); so "Aura is the cohesion of all actions" is today a picture of the gate ledger only. Feeding it Kira's head and the code chain's head is the next step for that page.
