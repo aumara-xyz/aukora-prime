@@ -2,7 +2,7 @@
 
 Two scripts, copies of the ones in `~/aukora-zip` on the pilot. They contain no address, key or token.
 
-1. `mat-live-main.sh <full commit>` (as the admin user): builds `/opt/aukora-genesis/release-<sha7>` beside the live release, with Kira's OpenViking setting on. Nothing is approved, installed or switched. **RAN on the pilot** 2026-10-13 for `b65f39c` and again for `5ad3467`; the live harness stayed on `3673b98`.
+1. `mat-live-main.sh <full commit>` (as the admin user): builds `/opt/aukora-genesis/release-<sha7>` beside the live release, with Kira's OpenViking setting on. Nothing is approved, installed or switched. **RAN on the pilot** 2026-10-13 for `b65f39c`, `5ad3467` and `c8cf03c`; the live harness stayed on `3673b98`.
 2. `sudo bash live-switch-main.sh <full commit>`: backup; gate package upgraded from staged copies; launcher source moved; package check; **one approval card raised; waits up to 15 minutes for the owner's click in his own popup**; approval installed; harness started on the new release. Any stop restores the old gate package, manifest, bootstrap, launcher source and release.
 
 **`live-switch-main.sh` has NOT RUN on the live pilot.** Rehearsed in the staging container on 2026-10-13 with the staging stand-in key:

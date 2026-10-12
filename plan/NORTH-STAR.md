@@ -445,3 +445,13 @@ Staging on `727d9d7`. Two findings on the way:
 NOT RUN: the page in a browser; a model turn; the live harness. The admission service (`727d9d7`) is not installed in staging.
 
 Linux CI on `727d9d7` was red on one check: the new admission unit had no entry in the hardening proposals, and I had pushed without rerunning `scripts/check.sh` after landing it. Fixed in `5ad3467`; on the pilot the hardening test passes 5 of 5 with `systemd-analyze`.
+
+### 2026-10-13 before dawn: second review, nine defects, all fixed; state at hand-over
+
+A second read-only review (`1fdffae..577f9b3`) demonstrated nine defects; all are fixed (`a519217` live switch script, the eye fence, `e2937be` probe and type check, `80567c4` invites, `c8cf03c` two tests that followed). Linux CI green on `c8cf03c`.
+
+RAN in staging on `c8cf03c`, the hand-over state: `ops/pilot/live-switch-main.sh` end to end with a fresh card approved by the stand-in key; installed door acceptance PASS; Aura snapshot with gate, Kira and code heads present; restart with no client, a mention starts a turn (stops at the missing model key).
+
+RAN on the pilot host: release `c8cf03c` built beside the live one with Kira's OpenViking setting on; the memory probe 6 of 6 against the real OpenViking after its second fix. Live harness untouched: `3673b98`, active.
+
+NOT RUN anywhere: the live switch on the pilot; the relay closed with an owner; the admission service installed; a model reply in staging; the Aura page or any face in a browser; any step of node spawn on a real machine.
