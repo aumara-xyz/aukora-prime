@@ -3,7 +3,7 @@
 // Isolated startup mappings attach project recall and name an unmapped workspace.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, constants, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, constants, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,11 +19,14 @@ const mutantAt = process.argv.indexOf('--mutant')
 const mutant = mutantAt < 0 ? undefined : process.argv[mutantAt + 1]
 const mutations = {
   path: ['project-mapping.mjs', "if (typeof file !== 'string' || !isAbsolute(file) || normalize(file) !== file\n    || /[\\u0000-\\u001f\\u007f]/u.test(file)) refuse('path-invalid')", ''],
-  isolation: ['project-mapping.mjs', "if (typeof process.getuid !== 'function' || typeof constants.O_NOFOLLOW !== 'number'\n    || typeof constants.O_NONBLOCK !== 'number') refuse('isolation-unavailable')", ''],
+  isolation: ['project-mapping.mjs', "if (typeof process.getuid !== 'function' || typeof constants.O_NOFOLLOW !== 'number'\n    || typeof constants.O_NONBLOCK !== 'number' || typeof constants.O_DIRECTORY !== 'number') refuse('isolation-unavailable')", ''],
   'parent-kind': ['project-mapping.mjs', "if (!stat.isDirectory() || stat.isSymbolicLink()) refuse('parent-invalid')", ''],
   'parent-owner': ['project-mapping.mjs', "if (!owned(stat)) refuse('parent-owner')", ''],
   'parent-mode': ['project-mapping.mjs', "if ((stat.mode & 0o022) !== 0) refuse('parent-writable')", ''],
-  ancestry: ['project-mapping.mjs', 'if (dirname(parent) === parent) break', 'break'],
+  ancestry: ['project-mapping.mjs', "['/', ...dirname(file).split('/').filter(Boolean)]", "['/']"],
+  'parent-nofollow': ['project-mapping.mjs', 'constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW', 'constants.O_RDONLY | constants.O_DIRECTORY'],
+  'parent-binding': ['project-mapping.mjs', "if (['dev', 'ino', 'uid', 'mode'].some(key => parent.stat[key] !== stat[key] || stat[key] !== current[key]))\n        refuse('parent-changed')", ''],
+  'parent-held-metadata': ['project-mapping.mjs', 'const stat = fstatSync(fd)', "const stat = lstatSync(globalThis.projectMappingFixture.descriptors.get(fd).path)"],
   nofollow: ['project-mapping.mjs', 'constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK', 'constants.O_RDONLY | constants.O_NONBLOCK'],
   nonblock: ['project-mapping.mjs', 'constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK', 'constants.O_RDONLY | constants.O_NOFOLLOW'],
   readonly: ['project-mapping.mjs', 'constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK', 'constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK'],
@@ -53,18 +56,32 @@ if (process.argv[2] === '--child') {
   if (mutation) assert.ok(mutations[mutation], 'known production guard removal')
   // The sandbox's shared /private/tmp ancestry cannot be made host-owned here.
   // Only this loader's outside ancestors are synthetic; fixture metadata stays real.
-  globalThis.projectMappingFixture = { root: scratch, overrides: new Map(), opened: [], fstats: 0 }
-  const shim = `import * as fs from 'node:fs'; export * from 'node:fs';
+  globalThis.projectMappingFixture = { root: scratch, overrides: new Map(), opened: [], descriptors: new Map(), fstats: 0 }
+  const shim = `import * as fs from 'node:fs'; export * from 'node:fs'; import { join } from 'node:path';
     const fixture = globalThis.projectMappingFixture;
     const changed = (stat, fields) => Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, fields);
+    const parentFields = p => p !== fixture.root && !p.startsWith(fixture.root + '/')
+      ? { mode: 0o40755, uid: 0 } : fixture.overrides.get(p) ?? {};
+    const nominal = path => {
+      const p = String(path), match = /^\\/proc\\/self\\/fd\\/(\\d+)\\/(.*)$/u.exec(p);
+      return match ? join(fixture.descriptors.get(Number(match[1])).path, match[2]) : p;
+    };
+    export const existsSync = path => path === '/proc/self/fd' && fixture.fallback ? false : fs.existsSync(path);
     export const lstatSync = path => {
       const stat = fs.lstatSync(path), p = String(path);
-      if (p !== fixture.root && !p.startsWith(fixture.root + '/')) return changed(stat, { mode: 0o40755, uid: 0 });
-      return changed(stat, fixture.overrides.get(p) ?? {});
+      return changed(stat, parentFields(p));
     };
-    export const openSync = (path, flags) => { fixture.opened.push(flags); return fs.openSync(path, flags); };
+    export const openSync = (path, flags) => {
+      const p = nominal(path), directory = (flags & fs.constants.O_DIRECTORY) !== 0;
+      fixture.opened.push(flags); fixture.beforeOpen?.(p, directory, flags);
+      const fd = fs.openSync(path, flags);
+      fixture.descriptors.set(fd, { path: p, directory }); return fd;
+    };
+    export const closeSync = fd => { fixture.descriptors.delete(fd); fs.closeSync(fd); };
     export const fstatSync = fd => {
-      const stat = fs.fstatSync(fd), number = ++fixture.fstats;
+      const stat = fs.fstatSync(fd), descriptor = fixture.descriptors.get(fd);
+      if (descriptor.directory) return changed(stat, fixture.heldFields?.(descriptor.path) ?? parentFields(descriptor.path));
+      const number = ++fixture.fstats;
       return changed(stat, { ...(fixture.fileFields ?? {}), ...(number > 1 ? fixture.afterFields ?? {} : {}) });
     };`
   const shimUrl = `data:text/javascript,${encodeURIComponent(shim)}`
@@ -108,6 +125,11 @@ if (process.argv[2] === '--child') {
       assert.equal(flags & constants.O_NOFOLLOW, constants.O_NOFOLLOW, 'mapping nofollow protection')
       assert.equal(flags & constants.O_NONBLOCK, constants.O_NONBLOCK, 'mapping nonblock protection')
       assert.equal(flags & (constants.O_WRONLY | constants.O_RDWR), 0, 'mapping readonly protection')
+      for (const flags of fixture.opened.slice(0, -1)) {
+        assert.equal(flags & constants.O_DIRECTORY, constants.O_DIRECTORY, 'mapping parent directory protection')
+        assert.equal(flags & constants.O_NOFOLLOW, constants.O_NOFOLLOW, 'mapping parent nofollow protection')
+      }
+      assert.equal(fixture.descriptors.size, 0, 'mapping closes retained ancestors')
       for (const path of [42, 'relative.json', join(parent, 'x') + '/../good.json', good + '\n']) refused(path, 'path-invalid')
       const getuid = process.getuid
       try { process.getuid = undefined; refused(good, 'isolation-unavailable') } finally { process.getuid = getuid }
@@ -119,6 +141,29 @@ if (process.argv[2] === '--child') {
       const linkedParent = join(scratch, 'linked-parent')
       symlinkSync(parent, linkedParent); refused(join(linkedParent, 'good.json'), 'parent-invalid')
       fixture.overrides.set(parent, { mode: 0o100600 }); refused(good, 'parent-invalid'); fixture.overrides.clear()
+      fixture.heldFields = path => path === parent ? { uid: (process.getuid() || 1000) + 1000 } : undefined
+      refused(good, 'parent-owner'); fixture.heldFields = undefined
+      for (const fallback of [false, true]) for (const replacement of ['directory', 'symlink']) for (const level of ['parent', 'ancestor']) {
+        fixture.fallback = fallback
+        const replaced = level === 'parent' ? parent : scratch, moved = replaced + '-retained', alternate = replaced + '-alternate'
+        fixture.beforeOpen = (path, directory) => {
+          if (directory || path !== good) return
+          fixture.beforeOpen = undefined
+          renameSync(replaced, moved)
+          const target = replacement === 'symlink' ? alternate : replaced
+          const targetFile = level === 'parent' ? join(target, 'good.json') : join(target, 'guards/good.json')
+          mkdirSync(dirname(targetFile), { recursive: true, mode: 0o700 })
+          writeFileSync(targetFile, JSON.stringify({ version: 1, projects: [{ project_id: 'different', workspace_roots: [roots.alpha] }] }), { mode: 0o600 })
+          if (replacement === 'symlink') symlinkSync(alternate, replaced)
+        }
+        try { refused(good, 'parent-changed') }
+        finally {
+          fixture.beforeOpen = undefined; rmSync(replaced, { recursive: true }); rmSync(alternate, { recursive: true, force: true })
+          renameSync(moved, replaced)
+        }
+        assert.equal(fixture.descriptors.size, 0, 'mapping closes descriptors after parent replacement')
+      }
+      fixture.fallback = false
       fixture.fileFields = { uid: (process.getuid() || 1000) + 1000 }
       refused(good, 'file-owner'); fixture.fileFields = { uid: 0 }
       assert.equal(load(good).scopeOf(agentAt(roots.beta)), 'project:id:beta', 'root-owned mapping is accepted')
@@ -241,6 +286,6 @@ if (process.argv[2] === '--child') {
     }
     for (const mode of ['tool', 'service']) for (const project of ['alpha', 'beta', 'unmapped']) check(mode, project)
     run('pre-step', 'unmapped')
-    console.log('kira-project-mapping: 9 passed, 0 failed (fresh processes; two mapped projects, unmapped notice, isolated config; SOURCE fixtures, no installed containment)')
+    console.log('kira-project-mapping: 9 passed, 0 failed (fresh processes; two mapped projects, unmapped notice, isolated config, parent replacement refused; SOURCE fixtures, no installed containment)')
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 }

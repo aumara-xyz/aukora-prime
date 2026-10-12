@@ -2,15 +2,22 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { createOpenVikingHttpFixture, loopbackListenUnavailable } from './support/openviking-http.mjs'
+import { loopbackListenUnavailable } from './support/openviking-http.mjs'
+const fixtureSource = readFileSync(new URL('./support/openviking-http.mjs', import.meta.url), 'utf8')
+const uriGuard = "assert.ok(body.uri.startsWith('viking://user/owner/memories/kira/content/'))"
+const targetGuard = "assert.equal(body.target_uri, 'viking://user/owner/memories/kira/content')"
+assert.equal(fixtureSource.split(uriGuard).length, 2); assert.equal(fixtureSource.split(targetGuard).length, 2)
+const { createOpenVikingHttpFixture } = await import('data:text/javascript;base64,' + Buffer.from(fixtureSource
+  .replace(uriGuard, "assert.match(body.uri, /^viking:\\/\\/user\\/owner\\/memories\\/kira-release-probe\\/[0-9a-f-]{36}\\/content\\/[0-9a-f]{64}\\.md$/u)")
+  .replace(targetGuard, "assert.match(body.target_uri, /^viking:\\/\\/user\\/owner\\/memories\\/kira-release-probe\\/[0-9a-f-]{36}\\/content$/u)")).toString('base64'))
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url)), probeFile = join(ROOT, 'scripts/kira/release-recall-probe.mjs')
 const work = mkdtempSync(join(ROOT, 'tests/.release-recall-'))
 const subject = `aukora:1:${'3c'.repeat(32)}`
-let passed = 0, killed = 0, fixture
+let passed = 0, killed = 0, randomName = 0, fixture
 const check = async (name, action) => { await action(); passed++; console.log(`PASS ${name}`) }
 const refuse = async (action, code) => assert.rejects(async () => action(), error => error.code === `kira.release-probe:${code}`, code)
 const empty = name => { const path = join(work, name); mkdirSync(path, { recursive: true, mode: 0o700 }); return path }
@@ -74,12 +81,12 @@ function copyRuntime(harness, release) {
   writeFileSync(join(release, 'package.json'), '{"type":"module"}\n')
 }
 
-function runProbe(release, scratch, { script = probeFile, env = {} } = {}) {
+function runProbe(release, scratch, { script = probeFile, env = {}, cleanup = false } = {}) {
   return new Promise((resolve, reject) => {
     const childEnv = { ...process.env, DSH_HOME: join(work, 'node-home'), AUKORA_STATE: join(work, 'support'),
       AUKORA_ROOM_LOG: join(work, 'absent-room'), AUKORA_OPENVIKING_HOME: join(work, 'wrong-default'), ...env }
     delete childEnv.NODE_OPTIONS; delete childEnv.AUKORA_SUPPORT_ROOT
-    const child = spawn(process.execPath, [script, release, '--scratch-state', scratch], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, [script, ...(cleanup ? ['--cleanup', scratch] : [release, '--scratch-state', scratch])], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = '', stderr = ''
     child.stdout.on('data', chunk => { stdout += chunk }); child.stderr.on('data', chunk => { stderr += chunk })
     child.on('error', reject)
@@ -146,9 +153,212 @@ try {
     } finally { closeSync(held) }
   })
 
+  await check('acquisition keeps the descriptor validated before a replacement directory appears', async () => {
+    const native = createRequire(import.meta.url)('node:fs'), originalOpen = native.openSync
+    const exercise = module => {
+      const path = empty(`acquire-${randomName++}`)
+      native.openSync = (target, ...args) => {
+        const fd = originalOpen(target, ...args)
+        if (target === path) { renameSync(path, `${path}-held`); mkdirSync(path, { mode: 0o700 }) }
+        return fd
+      }
+      syncBuiltinESMExports()
+      try { return module.acquireScratch(path, realState, { cleanup: true }) }
+      finally { native.openSync = originalOpen; syncBuiltinESMExports() }
+    }
+    assert.throws(() => exercise(probe), error => error.code === 'kira.release-probe:scratch-replaced')
+    const mutant = await mutantModule(source, 'validateHeldScratch(path, held)', 'acquire-identity', 'void 0')
+    const accepted = exercise(mutant); closeSync(accepted.held); killed++
+  })
+  const syntheticRelease = empty('synthetic-release'), provider = join(work, 'provider.json')
+  const providerState = value => writeFileSync(provider, JSON.stringify({ files: {}, deletes: 0, ...value }))
+  const providerRead = () => JSON.parse(readFileSync(provider, 'utf8'))
+  const put = (path, source) => { mkdirSync(dirname(path), { recursive: true, mode: 0o700 }); writeFileSync(path, source) }
+  put(join(syntheticRelease, 'node_modules/js-yaml/package.json'), '{"main":"index.cjs"}')
+  put(join(syntheticRelease, 'node_modules/js-yaml/index.cjs'), 'exports.load=JSON.parse')
+  put(join(syntheticRelease, 'vendor/include/lib/index.js'), 'export const entryListSchema={}; export const applyEntryPatches=(_,x)=>x')
+  put(join(syntheticRelease, 'vendor/loader/lib/index.js'), 'export const interpolate=(_,x)=>x')
+  put(join(syntheticRelease, 'packages/util/home-paths/lib/index.js'), 'export const dshHomePath="unused"')
+  put(join(syntheticRelease, 'package.json'), '{"type":"module"}')
+  const syntheticConfig = { openVikingHome: provider, memoryOwner: { subject, stateDir: realState } }
+  put(join(syntheticRelease, 'aukora-composition.patch.yml'), JSON.stringify([{ id: 'aukora-kira', name: './plugins/aukora-kira/lib/gate-capture-host.mjs', config: syntheticConfig }]))
+  put(join(syntheticRelease, 'plugins/aukora-kira/lib/recall-openviking.mjs'), `
+import fs from 'node:fs'
+const file=${JSON.stringify(provider)}
+export const readBridgeConfig=()=>{
+ globalThis.fetch=async(url, options={})=>{
+  const state=JSON.parse(fs.readFileSync(file,'utf8')), parsed=new URL(url), body=options.body?JSON.parse(options.body):{}, uri=parsed.searchParams.get('uri')
+  const reply=(status,result)=>({status,ok:status===200,json:async()=>status===404?{status:'error'}:{status:'ok',result}})
+  if(parsed.pathname==='/health') return {ok:true,status:200,json:async()=>({healthy:true})}
+  const headers=options.headers
+  if(headers['x-api-key']!=='fixture-key' || headers['x-openviking-account']!=='aukora' || headers['x-openviking-user']!=='owner') throw Error('tenant changed')
+  if(parsed.pathname==='/api/v1/content/write') { state.files[body.uri]=body.content; state.writes=(state.writes??0)+1 }
+  if(parsed.pathname==='/api/v1/fs') { state.deletes++; if(state.failDeletes==='always'||(state.failDeletes==='first'&&state.deletes===1)) {fs.writeFileSync(file,JSON.stringify(state));return reply(500,{})}; if(!state.ackWithoutRemoval) delete state.files[uri] }
+  if(parsed.pathname==='/api/v1/content/read') return state.hideRead||state.files[uri]===undefined?reply(404,{}):reply(200,state.files[uri])
+  fs.writeFileSync(file,JSON.stringify(state))
+  if(parsed.pathname==='/api/v1/search/find') { if(state.failRecall&&!body.query) throw Error('recall failed'); if(state.hangRecall&&!body.query) return new Promise(()=>{setInterval(()=>{},1000)}); return reply(200,{memories:Object.entries(state.hideSearch?{}:state.files).filter(([uri])=>uri.startsWith(body.target_uri+'/')).map(([uri,content])=>({uri,content})),resources:[]}) }
+  if(parsed.pathname==='/api/v1/content/write'&&state.hangWrite) return new Promise(()=>{setInterval(()=>{},1000)});return reply(200,{vector_status:'complete'})
+ }
+ return {configured:true,url:'http://127.0.0.1:99',user:'owner',account:'aukora',key:'fixture-key',timeoutMs:1000}
+}
+export const createOpenVikingRecall=()=>({available:async()=>({ok:true})})
+`)
+  put(join(syntheticRelease, 'plugins/aukora-kira/lib/index.js'), `
+import fs from 'node:fs'
+import crypto from 'node:crypto'
+import path from 'node:path'
+import {spawnSync} from 'node:child_process'
+export const readConfig=x=>x
+export const apply=async(ctx,config)=>{
+ const file=path.join(config.memoryOwner.stateDir,'remembered','note.json'), root='viking://user/owner/memories/kira/content'
+ const call=async(method, endpoint,body)=>fetch('http://127.0.0.1:99'+endpoint,{method,headers:{'x-api-key':'fixture-key','x-openviking-account':'aukora','x-openviking-user':'owner'},...(body?{body:JSON.stringify(body)}:{})})
+ ctx.tools.register({name:'kira_remember',execute:async({text})=>{ fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});fs.writeFileSync(file,JSON.stringify({text}));const hash=crypto.createHash('sha256').update(text).digest('hex');await call('POST','/api/v1/content/write',{uri:root+'/'+hash+'.md',content:text,mode:'replace',wait:true});return {remembered:1,ids:['rem:'+hash]} }})
+ ctx.tools.register({name:'kira_recall',execute:async({lexical})=>{ const result=await(await call('POST','/api/v1/search/find',{target_uri:root})).json();return {remembered:{method:lexical?'lexical-bm25-bigram':'openviking-semantic',degraded:false,state:result.result.memories.length?'found':'empty'},snippets:result.result.memories.map(x=>({id:'rem:fixture',text:x.content})),project:{state:'none'}} }})
+ ctx.inject([],web=>web.get('webServer').register({path:'/api/kira/memories/forget',handler:async(req,res)=>{let text='';for await(const x of req)text+=x;const {id}=JSON.parse(text);const deleted=await call('DELETE','/api/v1/fs?uri='+encodeURIComponent(root+'/'+id.slice(4)+'.md'));if(deleted.ok)fs.unlinkSync(file);res.end(JSON.stringify({forgotten:deleted.ok,openviking:{removed:deleted.ok}}))}}))
+}
+`)
+  put(join(syntheticRelease, 'plugins/aukora-kira/lib/gate-capture-host.mjs'), 'export const createGateCaptureHostPlugin=options=>({apply:async(ctx,config)=>(await options.loadKira()).apply(ctx,config)})')
+  providerState({})
+  const mutateScript = (name, target, replacement) => {
+    assert.ok(source.includes(target), `${name}: mutation target missing`)
+    const script = join(work, `${name}.mjs`)
+    writeFileSync(script, source.replaceAll(target, replacement).replace("'../lib/is-main.mjs'", JSON.stringify(pathToFileURL(join(ROOT, 'scripts/lib/is-main.mjs')).href)))
+    return script
+  }
+  // From here the probe's children do real store I/O under the held scratch descriptor, which needs /proc/self/fd.
+  if (process.platform === 'linux') {
+  await check('child refuses rename plus symlink and replacement-directory races before each store open', async () => {
+    const index = join(syntheticRelease, 'plugins/aukora-kira/lib/index.js'), original = readFileSync(index, 'utf8')
+    for (const symlink of [true, false]) {
+      const path = empty(`child-swap-${symlink}`), retained = `${path}-held`, real = empty(`node-real-${symlink}`)
+      const attack = `fs.renameSync(config.memoryOwner.stateDir,config.memoryOwner.stateDir+'-held');${symlink ? `fs.symlinkSync(${JSON.stringify(real)},config.memoryOwner.stateDir,'dir')` : `fs.mkdirSync(config.memoryOwner.stateDir,{mode:0o700})`};`
+      // The raw fixture changes the pathname after child startup; protected store exports are already bound.
+      const swapped = original.replace("ctx.tools.register({name:'kira_remember',execute:async({text})=>{", `ctx.tools.register({name:'kira_remember',execute:async({text})=>{ spawnSync(process.execPath,['--input-type=module','-e',${JSON.stringify("import fs from 'node:fs'; const config="+JSON.stringify({memoryOwner:{stateDir:path}})+";"+attack)}]); `)
+      writeFileSync(index, swapped); providerState({})
+      const result = await runProbe(syntheticRelease, path)
+      assert.equal(result.status, 3, result.stdout + result.stderr)
+      assert.ok(existsSync(retained), 'reviewed rename did not happen')
+      assert.equal(statSync(path).ino === statSync(retained).ino, false, 'scratch replacement did not happen')
+      assert.equal(existsSync(join(real, 'remembered/note.json')), false, 'notes written into node real state = 1')
+      assert.equal(existsSync(join(path, 'remembered/note.json')), false, 'new directory received the note')
+      assert.match(result.stdout, /FAIL remember/u)
+      // Removing both the child binding and parent per-step check reproduces the reviewed write.
+      const mutant = mutateScript(`child-swap-mutant-${symlink}`, 'const restore = bindScratchIO(input.scratch, CHILD_FD)', 'const restore = () => {}')
+      const next = empty(`child-swap-mutant-state-${symlink}`)
+      writeFileSync(index, swapped.replaceAll(JSON.stringify(path).slice(1,-1), JSON.stringify(next).slice(1,-1)))
+      providerState({}); const bad = await runProbe(syntheticRelease, next, { script: mutant })
+      assert.equal(existsSync(join(symlink ? real : next, 'remembered/note.json')), true, `race mutant survived: ${bad.stdout}${bad.stderr}`)
+      killed++
+      rmSync(join(real, 'remembered'), { recursive: true, force: true })
+    }
+    writeFileSync(index, original)
+  })
+  await check('a symlink beneath scratch never redirects child writes, and removing binding reproduces it', async () => {
+    const index = join(syntheticRelease, 'plugins/aukora-kira/lib/index.js'), original = readFileSync(index, 'utf8')
+    const path = empty('beneath-state'), real = empty('beneath-real')
+    const actor = `import fs from 'node:fs';fs.symlinkSync(${JSON.stringify(real)},${JSON.stringify(join(path, 'remembered'))},'dir')`
+    const swapped = original.replace("ctx.tools.register({name:'kira_remember',execute:async({text})=>{", `ctx.tools.register({name:'kira_remember',execute:async({text})=>{spawnSync(process.execPath,['--input-type=module','-e',${JSON.stringify(actor)}]);`)
+    writeFileSync(index, swapped); providerState({})
+    const result = await runProbe(syntheticRelease, path)
+    assert.equal(result.status, 3, result.stdout + result.stderr)
+    assert.equal(existsSync(join(real, 'note.json')), false)
+    const mutant = mutateScript('beneath-mutant', 'const restore = bindScratchIO(input.scratch, CHILD_FD)', 'const restore = () => {}')
+    const next = empty('beneath-mutant-state'); writeFileSync(index, swapped.replaceAll(path, next)); providerState({ failDeletes: 'always' })
+    await runProbe(syntheticRelease, next, { script: mutant })
+    assert.equal(existsSync(join(real, 'note.json')), true, 'beneath symlink mutant survived'); killed++
+    writeFileSync(index, original)
+  })
+  await check('probe namespace keeps the configured tenant and cleanup removes notes after failed forget or recall', async () => {
+    for (const failure of [{ failDeletes: 'first' }, { failRecall: true }]) {
+      providerState(failure)
+      const result = await runProbe(syntheticRelease, empty(`failure-${Object.keys(failure)[0]}`))
+      assert.equal(result.status, 1, result.stdout + result.stderr)
+      const state = providerRead(); assert.equal(Object.keys(state.files).length, 0, 'synthetic index entries after failed deletion = 1')
+      assert.ok(state.deletes >= 1); assert.equal(state.writes, 1)
+    }
+    const isolation = mutateScript('namespace-mutant', 'globalThis.fetch = probeTransport(bridgeConfig, input.run)', 'void 0')
+    providerState({ failDeletes: 'always' })
+    await runProbe(syntheticRelease, empty('namespace-mutant-state'), { script: isolation })
+    assert.ok(Object.keys(providerRead().files).some(uri => uri.startsWith('viking://user/owner/memories/kira/content/')), 'namespace mutant survived')
+    killed++
+    const finallyMutant = mutateScript('finally-cleanup-mutant', 'if (needsCleanup) {', 'if (false) {')
+    providerState({ failDeletes: 'first' })
+    await runProbe(syntheticRelease, empty('finally-mutant-state'), { script: finallyMutant })
+    assert.equal(Object.keys(providerRead().files).length, 1, 'finally cleanup mutant survived'); killed++
+  })
+  await check('incomplete removal is distinct and cleanup resumes from the durable scratch journal', async () => {
+    const path = empty('recoverable-state'); providerState({ failDeletes: 'always' })
+    const failed = await runProbe(syntheticRelease, path)
+    assert.equal(failed.status, 3, failed.stdout + failed.stderr)
+    assert.match(failed.stderr, /^CLEANUP INCOMPLETE: viking:\/\/user\/owner\/memories\/kira-release-probe\/[0-9a-f-]+\/content\/[0-9a-f]{64}\.md$/mu)
+    assert.equal(Object.keys(providerRead().files).length, 1)
+    assert.equal((await runProbe(syntheticRelease, path)).status, 1, 'normal retry must refuse interrupted scratch')
+    const state = providerRead(); state.failDeletes = false; providerState(state)
+    const recovered = await runProbe(null, path, { cleanup: true })
+    assert.equal(recovered.status, 0, recovered.stdout + recovered.stderr)
+    assert.equal(Object.keys(providerRead().files).length, 0)
+    assert.equal((await runProbe(syntheticRelease, path)).status, 0, 'cleaned scratch must be reusable')
+    for (const [name, controls, target, replacement] of [
+      ['content-confirmation', { ackWithoutRemoval: true, hideSearch: true }, 'if (absent.status !== 404) return { cleaned: false }', 'if (false) return { cleaned: false }'],
+      ['vector-confirmation', { ackWithoutRemoval: true, hideRead: true }, 'result.result.memories.length === 0', 'true'],
+    ]) {
+      providerState(controls); const incomplete = await runProbe(syntheticRelease, empty(`${name}-state`))
+      assert.equal(incomplete.status, 3, incomplete.stdout + incomplete.stderr)
+      const confirmation = mutateScript(`${name}-mutant`, target, replacement)
+      providerState(controls); const mutant = await runProbe(syntheticRelease, empty(`${name}-mutant-state`), { script: confirmation })
+      assert.equal(mutant.status, 1, mutant.stdout + mutant.stderr)
+      assert.equal(Object.keys(providerRead().files).length, 1, `${name} mutant survived`); killed++
+    }
+
+  })
+
+  await check('recovery refuses endpoint, account or user drift without deleting another tenant', async () => {
+    for (const [field, replacement, target] of [
+      ['url', 'http://127.0.0.1:100', ' || config.url !== input.url'],
+      ['account', 'another', ' || config.account !== input.account'],
+      ['user', 'another', ' || config.user !== input.user'],
+    ]) {
+      providerState({ failDeletes: 'always' }); const path = empty(`drift-${field}`)
+      assert.equal((await runProbe(syntheticRelease, path)).status, 3)
+      const journal = join(path, 'release-probe.json'), saved = JSON.parse(readFileSync(journal, 'utf8'))
+      saved[field] = replacement
+      if (field === 'user') saved.uri = saved.uri.replace('/user/owner/', '/user/another/')
+      writeFileSync(journal, JSON.stringify(saved))
+      const state = providerRead(); state.failDeletes = false; providerState(state)
+      const refused = await runProbe(null, path, { cleanup: true })
+      assert.equal(refused.status, 3, refused.stdout + refused.stderr)
+      assert.equal(Object.keys(providerRead().files).length, 1)
+      const mutant = mutateScript(`drift-${field}-mutant`, target, '')
+      const accepted = await runProbe(null, path, { cleanup: true, script: mutant })
+      assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr)
+      killed++
+    }
+  })
+  await check('timed-out children stop before cleanup and ambiguous writes retain a recovery target', async () => {
+    const shortTimeout = mutateScript('short-timeout', '120_000', '250')
+    providerState({ hangRecall: true }); const path = empty('timeout-recall-state')
+    const result = await runProbe(syntheticRelease, path, { script: shortTimeout })
+    assert.equal(result.status, 1, result.stdout + result.stderr)
+    assert.match(result.stdout, /child-timeout/u)
+    assert.equal(Object.keys(providerRead().files).length, 0)
+    const withoutCleanup = mutateScript('timeout-cleanup-mutant', 'if (needsCleanup) {', 'if (false) {')
+    writeFileSync(withoutCleanup, readFileSync(withoutCleanup, 'utf8').replaceAll('120_000', '250'))
+    providerState({ hangRecall: true, failDeletes: 'always' })
+    await runProbe(syntheticRelease, empty('timeout-mutant-state'), { script: withoutCleanup })
+    assert.equal(Object.keys(providerRead().files).length, 1, 'timeout cleanup mutant survived'); killed++
+    providerState({ hangWrite: true }); const ambiguous = empty('timeout-write-state')
+    const interrupted = await runProbe(syntheticRelease, ambiguous, { script: shortTimeout })
+    assert.equal(interrupted.status, 3, interrupted.stdout + interrupted.stderr)
+    assert.ok(existsSync(join(ambiguous, 'release-probe.json')), 'ambiguous remote write lost recovery target')
+    providerState({}); assert.equal((await runProbe(null, ambiguous, { cleanup: true })).status, 0)
+  })
+  }
   const harness = [process.env.AUKORA_DSH_BUILD, join(ROOT, 'vendor/dsh')].filter(Boolean)
     .find(path => existsSync(join(path, 'vendor/include/lib/index.js')) && existsSync(join(path, 'vendor/loader/lib/index.js')))
-  if (!harness) {
+  if (process.platform !== 'linux') {
+    console.log('UNPERFORMED: kira-release-recall-probe end-to-end steps run on Linux only (descriptor-anchored scratch needs /proc/self/fd); argument and refusal checks above ran')
+    process.exitCode = 2
+  } else if (!harness) {
     console.log('UNPERFORMED: kira-release-recall-probe built release parser unavailable; no HTTP checks ran')
     process.exitCode = 2
   } else {
@@ -235,10 +445,10 @@ try {
       }
       assert.equal(readFileSync(join(nonempty, 'keep'), 'utf8'), 'synthetic untouched')
       rmSync(join(work, 'node-home'), { recursive: true }); rmSync(nodeAlias)
-      const target = 'const path = validateScratch(scratch, rawState)'
+      const target = 'acquired ??= acquireScratch(scratch, rawState)'
       assert.equal(source.split(target).length, 2, 'scratch validation wiring mutation target')
       const script = join(work, 'scratch-wiring.mjs')
-      writeFileSync(script, source.replace(target, 'const path = realpathSync(scratch)')
+      writeFileSync(script, source.replace(target, "acquired ??= { path: realpathSync(scratch), held: openSync(scratch, constants.O_RDONLY | constants.O_DIRECTORY) }")
         .replace("'../lib/is-main.mjs'", JSON.stringify(pathToFileURL(join(ROOT, 'scripts/lib/is-main.mjs')).href)))
       const mutant = await runProbe(release, nonempty, { script })
       assert.equal(mutant.status, 2, `${mutant.stdout}${mutant.stderr}`)
@@ -271,10 +481,10 @@ try {
           assert.doesNotMatch(`${result.stdout}${result.stderr}`, /synthetic-key/u)
         }
         secretSuppressed(await runProbe(release, empty('noisy-provider-scratch')))
-        const stdio = "stdio: ['ignore', 'ignore', 'ignore', 'ipc']"
+        const stdio = "stdio: ['ignore', 'ignore', 'ignore', 'ipc', held]"
         assert.equal(source.split(stdio).length, 2, 'child output mutation target')
         const script = join(work, 'child-output.mjs')
-        writeFileSync(script, source.replace(stdio, "stdio: ['ignore', 'inherit', 'inherit', 'ipc']")
+        writeFileSync(script, source.replace(stdio, "stdio: ['ignore', 'inherit', 'inherit', 'ipc', held]")
           .replace("'../lib/is-main.mjs'", JSON.stringify(pathToFileURL(join(ROOT, 'scripts/lib/is-main.mjs')).href)))
         const mutant = await runProbe(release, empty('noisy-output-mutant-scratch'), { script })
         assert.throws(() => secretSuppressed(mutant), undefined, 'child-output: survived')
