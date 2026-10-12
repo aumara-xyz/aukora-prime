@@ -1110,9 +1110,20 @@
       document.getElementById('gate-action').hidden = false
       return true
     }
+    // Render only the canonical JSON string spelling, with non-ASCII UTF-16 units escaped.
     function renderGateNote(card) {
+      if (card.note !== null) {
+        try {
+          var text = JSON.parse(card.note)
+          if (typeof text !== 'string') return false
+          var canonical = JSON.stringify(text).replace(/[^\x20-\x7e]/g,
+            function (unit) { return '\\u' + unit.charCodeAt(0).toString(16).padStart(4, '0') })
+          if (canonical !== card.note) return false
+        } catch (_) { return false }
+      }
       document.getElementById('gate-note-text').textContent = card.note
       document.getElementById('gate-note').hidden = card.note === null
+      return true
     }
     /** "Show the exact change" only reveals the stored diff; it never gates Approve. */
     function armGateReveal() {
@@ -1261,7 +1272,7 @@
             document.getElementById('f-words').textContent = card.facts
             document.getElementById('f-words').setAttribute('aria-label', 'Gate facts, written by the gate')
             document.getElementById('gate-diff').textContent = card.diff
-            renderGateNote(card)
+            if (renderGateNote(card) !== true) { say('gate:note-display-unverified', true); return }
             document.getElementById('gate-model-text').textContent = card.model
             document.getElementById('gate-change').hidden = false
             document.getElementById('gate-model').hidden = false

@@ -86,7 +86,7 @@ test('buzz_post_receipt publishes the real gate receipt and the stranger checker
   // The anchor is derived from the historical fixture, not fetched independently from the running gate.
   const anchor = { seq: entries.at(-1).seq, head: entries.at(-1).hash, gate_fp: keyFingerprint(createPublicKey(gatePem)) }
   const pins = { channel, doorPubkey: f.door.pubkey(), gatePublicKey: gatePem, entries, anchors: [anchor] }
-  const expected = { valid: true, reason: 'verified', proposal, ledger_seq: 24, anchored_seq: 24 }
+  const expected = { valid: true, reason: 'valid against the supplied anchor', proposal, ledger_seq: 24, anchored_seq: 24 }
   assert.deepEqual(verifyChannelReceipt(event, pins), expected)
   const files = isolatedFiles(t), eventFile = path.join(files.home, 'event.json'), anchorFile = path.join(files.home, 'anchors.jsonl')
   fs.writeFileSync(eventFile, JSON.stringify(event)); fs.writeFileSync(anchorFile, JSON.stringify(anchor) + '\n')

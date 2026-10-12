@@ -177,8 +177,9 @@ const HELP = `Usage: node ops/buzz-relay/admit.mjs <command> [options]
 Key files use member.mjs isolated-file rules; no inline secret keys. Output contains signed events, never secret keys.
 The root is the relay owner's public key. --chain is the inviter's root-first array of signed pairs;
 use the previous admit output's record.chain. Supply [] for the root. Transfer bearer invites privately.
-Resume: repeat an incomplete admit, or run resume with the same owner, relay and store. A committed spend
-retains its delivery across expiry; uncommitted requests must still be valid. Never reset or restore the store.
+The admissions store holds, unencrypted, every member's public key and who invited whom (the whole invite graph).
+Resume: repeat an incomplete admit, or run resume with the same owner, relay and store. A spend committed before
+expiry is still delivered after expiry; uncommitted requests must still be valid. Never reset or restore the store.
 The append-only admissions.jsonl precedes each send. Recovery completes a torn matching prefix; other damage refuses.
 An uncertain send is retried as an idempotent member add; this is not exactly-once HTTP delivery. A completed invite
 is refused as a replay. The store must have one trusted operator; permissions do not prevent owner tampering.

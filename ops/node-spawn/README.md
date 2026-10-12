@@ -38,6 +38,7 @@ Refusals still enforced:
   approval/resume, release selection and auxiliary service setup remain gaps.
   Offline verification cannot prove authoritative consumption, quotas, historical
   clock accuracy or that one admission was allocated to only one node.
+  One admission record can be used to spawn on two nodes because nothing shared counts its use yet; the other provisioning gaps still block actual spawning.
 - `OWNER_ENROLLMENT_DERIVATION_MISSING`: `ownerRootPin()` derives the P-256 SPKI
   `owner_root_id`; it cannot derive the trusted `owner_subject` binding, active
   `owner_epoch`, `registry_sha256` or `activation_sha256`. The eight-field

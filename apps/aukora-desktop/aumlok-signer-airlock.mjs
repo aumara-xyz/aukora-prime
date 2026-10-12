@@ -195,10 +195,10 @@ export const GATE_CARD = Object.freeze({
   model: 'MODEL-AUTHORED (written by the model, NOT verified by the gate; not a reason to approve or to refuse)',
   modelEnd: 'END OF MODEL-AUTHORED',
 })
-// Quote every character without normalization; invisible controls and formatting cannot draw interface text.
+// Emit the canonical ASCII JSON spelling without normalizing the note's characters.
 function quotedGateNote(text) {
-  return JSON.stringify(text).replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu,
-    character => character.replace(/[\s\S]/g, unit => '\\u' + unit.charCodeAt(0).toString(16).padStart(4, '0')))
+  return JSON.stringify(text).replace(/[^\x20-\x7e]/g,
+    unit => '\\u' + unit.charCodeAt(0).toString(16).padStart(4, '0'))
 }
 export function gateReviewText(review) {
   const note = review.target === 'plugins/owner-note/note.md'

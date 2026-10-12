@@ -305,7 +305,7 @@ function workflowCheck(text) {
 test('workflow requires pinned actions, exact Node, read-only permissions and retained failure output', () => workflowCheck(workflow));
 
 
-function cliCheck(text, args, version = process.version) {
+function cliCheck(text, args, version) {
   const code = `Object.defineProperty(process, 'version', {value: ${JSON.stringify(version)}});
 ` +
     `process.argv = [process.execPath, ${JSON.stringify(helper)}, ...${JSON.stringify(args)}];
@@ -315,10 +315,17 @@ function cliCheck(text, args, version = process.version) {
     {cwd: root, encoding: 'utf8', timeout: 5000, env: {PATH: process.env.PATH}});
 }
 test('CLI refuses wrong Node and invalid arguments before execution; both removal mutants die', () => {
+  // Only this disposable harness injects process.version; the real CLI has no override.
+  const plan = cliCheck(source, ['plan'], 'v24.11.1');
+  assert.equal(plan.status, 0);
+  assert.ok(JSON.parse(plan.stdout).include.length > 0);
+  const bothWrong = cliCheck(source, ['invalid'], 'v24.11.0');
+  assert.equal(bothWrong.status, 1);
+  assert.equal(bothWrong.stderr.trim(), 'CI_NODE_24_11_1_REQUIRED');
   const cases = [
     ['plan', 'v24.11.0', 'CI_NODE_24_11_1_REQUIRED',
       "requireValue(process.version === 'v24.11.1', 'CI_NODE_24_11_1_REQUIRED');"],
-    ['invalid', process.version, 'CI_INVALID_ARGUMENTS',
+    ['invalid', 'v24.11.1', 'CI_INVALID_ARGUMENTS',
       "requireValue(mode === 'run' && process.argv.length === 6, 'CI_INVALID_ARGUMENTS');"],
   ];
   for (const [mode, version, refusal, guard] of cases) {

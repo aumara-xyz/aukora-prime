@@ -32,9 +32,14 @@ dump. Keep the door disabled on failure. The output gives the owner's own-machin
 public-key handoff file travels to that machine, never the owner's private key to the node.
 
 Install from a full checkout to bundle the verifier and its existing imports for installed `check.sh`.
-The full check prints `PASS  closed` only on verified refusals, otherwise `OPEN  closed (not proved)` without
-failing health; an ops-only installation has no verifier and therefore cannot report PASS closed. Health/watch
-modes skip membership probes, which can store a synthetic note on an open relay.
+A successful verified close writes a root-owned `closed` marker beside `relay.env`; a rollback writes
+`close-failed`. Full, health and watch checks fail while `close-failed` exists, or if `closed` exists and
+membership refusals cannot be verified. A successful close clears `close-failed`; `close.sh --acknowledge`
+clears only that alarm. `close.sh --reopen` explicitly reopens the relay and removes only `closed`.
+With neither marker, OPEN remains informational and health/watch skip membership probes, which can store a
+synthetic note on an open relay. These markers record operator intent; the service-owned parent directory
+does not protect them from deletion by the service account. An ops-only installation without the verifier
+cannot report PASS closed.
 
 A changed port needs the pod made again (data is kept): `sudo systemctl stop aukora-buzz`, then as aukora-buzz
 `podman pod rm -f aukora-buzz`, then install and start.
@@ -64,9 +69,8 @@ readable through `podman inspect` and permitted process-environment access by th
 1058); the pinned fork has no file-based alternative for these settings. This reduces incidental exposure;
 it does not isolate credentials from the service account.
 
-`admit.mjs --help` describes issue, redeem, admit and resume with isolated key files. The store operator can see
-who invited whom: network, inviter and member public keys, event ids, signed ancestry and times; no secret keys are
-stored. Spending and pending delivery commit together. Resume with the same owner, relay and store: append the
+`admit.mjs --help` describes issue, redeem, admit and resume with isolated key files. The admissions store holds, unencrypted, every member's public key and who invited whom (the whole invite graph); a spend committed before expiry is still delivered after expiry.
+It also holds event ids, signed ancestry and times; no secret keys are stored. Spending and pending delivery commit together. Resume with the same owner, relay and store: append the
 missing admission bytes, then retry the member add, even if the spent invite has since expired. Completed invites
 refuse replay. A lost relay acknowledgement can repeat the add request; recovery requires idempotent relay membership
 adds, not exactly-once HTTP. Keep this private local store intact; never reset it or restore an older copy.

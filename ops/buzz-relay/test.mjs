@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, chmodSync, symlinkSync, unlinkSync, rmSync, existsSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -27,6 +26,7 @@ if (name === 'stat') { console.log(env.LISTENER_UID || '1001'); process.exit(0);
 if (name === 'find') { if (env.FIND_FAIL === '1') process.exit(1); run(['/usr/bin/find', ...args]); }
 if (name === 'sleep') process.exit(0)
 if (name === 'curl') process.exit(env.CURL_FAIL === '1' ? 1 : 0)
+if (name === 'node') process.exit(env.VERIFY_CLOSED === '1' ? 0 : 1)
 if (name === 'redis-cli') {
   writeFileSync(env.PROBE_INPUT, readFileSync(0))
   writeFileSync(env.PROBE_ENV, JSON.stringify(Object.keys(env).filter((key) => ['REDISCLI_AUTH', 'REDIS_PASSWORD'].includes(key))))
@@ -55,8 +55,8 @@ if (name === 'podman') {
 process.exit(1)
 `
 
-function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'buzz-ops-test-'))
+function fixture(t, mutation) {
+  const root = mkdtempSync(join(here, '.ops-test-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const state = join(root, 'state'), bin = join(root, 'bin')
   mkdirSync(state); mkdirSync(bin)
@@ -64,12 +64,17 @@ function fixture(t) {
   symlinkSync('pipe:[12345]', join(root, 'proc/4321/fd/3'))
   symlinkSync('pipe:[12345]', join(root, 'proc/9876/fd/5'))
   for (const file of ['up.sh', 'down.sh', 'check.sh', 'install.sh', 'read-setting.sh', 'check-port.sh', 'prepare-secrets.sh', 'write-settings.sh']) {
-    writeFileSync(join(root, file), readFileSync(join(here, file), 'utf8')
+    let source = readFileSync(join(here, file), 'utf8')
+    if (file === 'check.sh' && mutation) {
+      assert.ok(source.includes(mutation.from), 'mutation anchor exists')
+      source = source.replace(mutation.from, mutation.to)
+    }
+    writeFileSync(join(root, file), source
       .replaceAll('/var/lib/aukora-buzz', state).replaceAll('/proc/', `${root}/proc/`))
   }
   const mock = join(bin, 'mock.mjs')
   writeFileSync(mock, stub); chmodSync(mock, 0o755)
-  for (const name of ['sudo', 'podman', 'curl', 'systemctl', 'id', 'sleep', 'timeout', 'ss', 'stat', 'find', 'redis-cli']) symlinkSync(mock, join(bin, name))
+  for (const name of ['sudo', 'podman', 'curl', 'systemctl', 'id', 'sleep', 'timeout', 'ss', 'stat', 'find', 'redis-cli', 'node']) symlinkSync(mock, join(bin, name))
   const calls = join(root, 'calls'), redisCount = join(root, 'redis-count')
   writeFileSync(calls, ''); writeFileSync(redisCount, '0')
   writeFileSync(join(state, 'node.env'), 'PORT=3000\n')
@@ -368,7 +373,7 @@ test('watch recovers failed starts and unhealthy services, skipping intentional 
     assert.equal(result.status, restart ? 1 : 0, result.stderr)
     assert.equal(f.calls().some((args) => args.join(' ') === 'systemctl --no-block restart aukora-buzz.service'), restart)
     if (extra.SERVICE_STATE && extra.SERVICE_STATE !== 'failed') {
-      assert.equal(f.calls().some((args) => ['sudo', 'podman', 'curl'].includes(args[0])), false)
+      assert.equal(f.calls().some((args) => ['podman', 'curl'].includes(args[0])), false)
     }
   }
   const unit = readFileSync(join(here, 'aukora-buzz.service'), 'utf8')
@@ -382,4 +387,47 @@ test('watch recovers failed starts and unhealthy services, skipping intentional 
   assert.match(watch, /^ExecStart=\/usr\/local\/lib\/aukora-buzz\/check\.sh --watch$/m)
   const install = readFileSync(join(here, 'install.sh'), 'utf8')
   assert.match(install, /sudo install -m 0644.*aukora-buzz-watch\.service.*aukora-buzz-watch\.timer/)
+})
+
+function checkCloseIntent(t, mutation) {
+  for (const mode of ['--health', '--watch']) {
+    const f = fixture(t, mutation)
+    writeFileSync(join(f.state, 'closed'), 'closed\n')
+    for (const state of mode === '--watch' ? ['active', 'inactive', 'activating', 'deactivating'] : ['active']) {
+      const failed = f.run('check.sh', [mode], { SERVICE_STATE: state })
+      assert.equal(failed.status, 1, failed.stderr)
+      assert.match(failed.stdout, /FAIL  closed intent: verify-closed did not pass/)
+      assert.equal(f.run('check.sh', [mode], { SERVICE_STATE: state, VERIFY_CLOSED: '1' }).status, 0)
+    }
+    assert.equal(f.calls().some(c => c[0] === 'systemctl' && c.includes('restart')), false, 'closure failures do not restart an intentionally stopped service')
+  }
+}
+
+function checkCloseFailure(t, mutation) {
+  for (const state of ['active', 'inactive', 'activating', 'deactivating']) {
+    const f = fixture(t, mutation)
+    writeFileSync(join(f.state, 'close-failed'), 'close-failed\n')
+    for (const mode of ['--health', '--watch']) {
+      const failed = f.run('check.sh', [mode], { SERVICE_STATE: state, VERIFY_CLOSED: '1' })
+      assert.equal(failed.status, 1, failed.stderr)
+      assert.match(failed.stdout, /FAIL  close-failed:.*--acknowledge/)
+      assert.equal(existsSync(join(f.state, 'close-failed')), true)
+    }
+    writeFileSync(join(f.state, 'node.env'), 'PORT=invalid\n')
+    const unreadable = f.run('check.sh', ['--watch'], { SERVICE_STATE: state })
+    assert.equal(unreadable.status, 1)
+    assert.match(unreadable.stdout, /FAIL  close-failed:/)
+  }
+}
+
+test('health and watch enforce verified closure intent, including stopped services', t => checkCloseIntent(t))
+test('health and watch retain a close-failed alarm until an operator clears it', t => checkCloseFailure(t))
+if (process.argv.includes('--mutate')) for (const [name, check, from, to] of [
+  ['closed marker detection', checkCloseIntent, 'sudo test ! -e "$ROOT/closed" || closed_intent=1', ':'],
+  ['failed marker detection', checkCloseFailure, 'sudo test ! -e "$ROOT/close-failed" || close_failed=1', ':'],
+  ['closed intent refusal', checkCloseIntent, "say FAIL 'closed intent: verify-closed did not pass; relay may be OPEN'", "say PASS 'closed intent'"],
+  ['failed close refusal', checkCloseFailure, '[ "$close_failed" = 0 ] || say FAIL', '[ "$close_failed" = 0 ] || say PASS'],
+  ['stopped watch intent', checkCloseIntent, '*) [ "$closed_intent" = 1 ] || [ "$close_failed" = 1 ] || exit 0; watch_stopped=1 ;;', '*) exit 0 ;;'],
+]) test(`mutation: ${name} removal dies`, t => {
+  assert.throws(() => check(t, { from, to }), error => error instanceof assert.AssertionError)
 })

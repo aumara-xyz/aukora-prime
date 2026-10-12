@@ -1,4 +1,4 @@
-// Carries exact v2 gate receipt bytes in bounded kind-9 messages; verification requires independent public pins.
+// Checks signed v2 receipts and the full ledger against supplied pins; anchor independence is not verified here.
 import { createPublicKey } from 'node:crypto'
 import { boundedLedgerJson, keyFingerprint } from '../../../packages/boundary-gate/src/ledger.mjs'
 import { verifyReceipt, verifyReceiptSignature } from '../../../packages/boundary-gate/src/receipts.mjs'
@@ -70,7 +70,8 @@ export function verifyChannelReceipt(event, { doorPubkey, channel, gatePublicKey
     if (!verifyReceiptSignature(receipt, receipt_sig, pub).ok) refuse(RECEIPT_REFUSE.RECEIPT)
     if (!Array.isArray(entries) || !entries.length) refuse(RECEIPT_REFUSE.LEDGER)
     if (Buffer.byteLength(JSON.stringify(entries), 'utf8') > MAX_RECEIPT_LEDGER_BYTES) refuse(RECEIPT_REFUSE.SIZE)
-    // The existing verifier reads these two views. Preserve input order and signed detail TEXT verbatim.
+    // verifyReceipt reuses verifyLedger: GENESIS, consecutive seqs, every hash/link and gate signature.
+    // Preserve input order and signed detail TEXT verbatim; the anchor does not authenticate the export alone.
     const db = { prepare: () => ({
       iterate: () => entries,
       all: proposal => entries.filter(e => e.proposal === proposal && ['apply', 'revert-applied'].includes(e.event)),
@@ -91,7 +92,7 @@ export function verifyChannelReceipt(event, { doorPubkey, channel, gatePublicKey
     }
     // A head before the receipt or beyond this export is not a proof of inclusion. Require the supplied tail.
     if (anchors.at(-1).seq !== entries.at(-1).seq || anchors.at(-1).seq < checked.ledger_seq) refuse(RECEIPT_REFUSE.ANCHOR)
-    return { valid: true, reason: 'verified', proposal: receipt.proposal, ledger_seq: checked.ledger_seq, anchored_seq: anchors.at(-1).seq }
+    return { valid: true, reason: 'valid against the supplied anchor', proposal: receipt.proposal, ledger_seq: checked.ledger_seq, anchored_seq: anchors.at(-1).seq }
   } catch (error) {
     return { valid: false, reason: Object.values(RECEIPT_REFUSE).includes(error?.code) ? error.code : RECEIPT_REFUSE.FORMAT }
   }

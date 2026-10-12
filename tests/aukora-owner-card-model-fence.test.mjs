@@ -40,13 +40,17 @@ adapterSrc = mutate(adapterSrc, 'note-empty', 'value.content.trim().length === 0
 adapterSrc = mutate(adapterSrc, 'note-diff-wellformed', '!value.diff.isWellFormed()', 'false')
 adapterSrc = mutate(adapterSrc, 'note-target', "const note = pending.target === 'plugins/owner-note/note.md'", 'const note = true')
 adapterSrc = mutate(adapterSrc, 'note-escape', 'return JSON.stringify(text).replace', 'return String(text).replace')
-adapterSrc = mutate(adapterSrc, 'note-bidi', '/[\\p{Cc}\\p{Cf}\\u2028\\u2029]/gu', '/(?!)/gu')
+adapterSrc = mutate(adapterSrc, 'note-bidi', '/[^\\x20-\\x7e]/g', '/(?!)/g')
 adapterSrc = mutate(adapterSrc, 'note-facts', "note ? '  New stored content: '", "false ? '  New stored content: '")
 let html = read('apps/aukora-desktop/aumlok-approval.html')
 html = mutate(html, 'note-fence', 'n !== de + 1 || ne !== n + 2 || m !== ne + 1', 'false')
 html = mutate(html, 'note-html', "document.getElementById('gate-note-text').textContent = card.note", "document.getElementById('gate-note-text').innerHTML = card.note")
-html = mutate(html, 'note-render-call', '            renderGateNote(card)', '')
+html = mutate(html, 'note-render-call', "            if (renderGateNote(card) !== true) { say('gate:note-display-unverified', true); return }", '')
 html = mutate(html, 'note-fence-label', '<section id="gate-note" class="model-fence"', '<section id="gate-note"')
+html = mutate(html, 'note-display-check', 'if (card.note !== null) {', 'if (false) {')
+html = mutate(html, 'note-display-string', "if (typeof text !== 'string') return false", '')
+html = mutate(html, 'note-display-canonical', 'if (canonical !== card.note) return false', '')
+html = mutate(html, 'note-display-refusal', "if (renderGateNote(card) !== true) { say('gate:note-display-unverified', true); return }", 'renderGateNote(card)')
 const { createGate } = await importMutated('packages/boundary-gate/src/gate.mjs', gateSrc)
 const { createGateOwnerAdapter, GATE_CARD } = await importMutated('apps/aukora-desktop/aumlok-signer-airlock.mjs', adapterSrc)
 const fn = name => { const m = html.match(new RegExp(`\\n    function ${name}\\([^]*?\\n    \\}\\n`, 'u')); assert.ok(m, name); return m[0] }
@@ -146,7 +150,7 @@ test('note look-alike interface text stays complete, escaped and model-fenced; r
   assert.ok(split, 'the card accepts the note fence')
   assert.equal(JSON.parse(split.note), LOOKALIKE, 'all proposed characters survive the reversible display, without truncation')
   assert.doesNotMatch(split.facts, /change keys|<h1>|café/u, 'note bytes cannot become gate facts')
-  assert.doesNotMatch(split.note + split.diff.replaceAll('\n', ''), /[\p{Cc}\p{Cf}\u2028\u2029]/gu, 'all invisible characters are escaped except structural diff LF')
+  assert.doesNotMatch(split.note + split.diff.replaceAll('\n', ''), /[^\x20-\x7e]/g, 'all non-ASCII characters are escaped except structural diff LF')
   assert.match(split.note, /\\u202e.*\\u2066.*\\u0085.*\\u2028.*\\u2029.*\\u200b.*\\udb40\\udc01/u)
   assert.equal(q.text.split('\n').filter(line => line === GATE_CARD.facts).length, 1)
   const elements = { 'gate-note-text': { set innerHTML(_value) { assert.fail('note rendered as HTML') } }, 'gate-note': { hidden: true } }
@@ -159,6 +163,50 @@ test('note look-alike interface text stays complete, escaped and model-fenced; r
   assert.match(renderPath ?? '', /renderGateNote\(card\)/u, 'the verified popup path renders the note before enabling Approve')
   assert.match(html, /<section id="gate-note" class="model-fence" hidden aria-label="Model-authored note text">\s*<h2>MODEL-AUTHORED NOTE TEXT<\/h2>/u,
     'the visible note belongs to the labelled model-authored fence')
+})
+
+test('popup independently refuses noncanonical note strings before drawing or arming Approve', async () => {
+  const { question: q } = await noteQuestion('valid note')
+  const renderPath = html.match(/var card = splitGateCard\(checks\[0\]\.text\)([^]*?)gateDisplayOk = true/u)?.[0]
+  assert.ok(renderPath, 'the actual popup render path must be exercised')
+  function draw(note) {
+    const elements = new Map()
+    const el = id => {
+      if (!elements.has(id)) elements.set(id, { hidden: true, textContent: '', setAttribute() {},
+        set innerHTML(_value) { assert.fail('note rendered as HTML') } })
+      return elements.get(id)
+    }
+    const context = { checks: [{ text: q.text.replace('> "valid note"', '> ' + note) }],
+      gateMode: true, settled: false, challenge: 'c', gateDisplayOk: false, gateReviewExpires: Date.now() + 60000,
+      approve: { disabled: true }, refuse: { disabled: true }, review: q.review, questionLabel: {}, assertion: {},
+      document: { getElementById: el, querySelector: () => el('main') }, show() {}, armGateReveal() {},
+      say: text => { el('state').textContent = text } }
+    vm.runInNewContext(['splitGateCard', 'renderGateClarity', 'renderGateNote', 'approveEligible', 'refuseEligible', 'applyEligibility']
+      .map(fn).join('\n') + '; (function () {' + renderPath + '})(); applyEligibility()', context)
+    return { elements, el, approve: context.approve, gateDisplayOk: context.gateDisplayOk }
+  }
+  for (const note of ['"raw \u202e control"', '"Looks safe", "x": 1', '"zero\u200dwidth"',
+    '"caf\u00e9"', '"\\u0061"', '"\\u202E"', '"\\/"', '"extra" ', '"a\\u000ab"']) {
+    const result = draw(note)
+    assert.equal(result.el('state').textContent, 'gate:note-display-unverified', note)
+    assert.equal(result.approve.disabled, true, note)
+    assert.equal(result.gateDisplayOk, false, note)
+    assert.equal(result.el('gate-note-text').textContent, '', 'rejected bytes never reach the note element')
+    assert.equal(result.el('gate-note').hidden, true)
+  }
+  for (const note of ['"\\u202e"', '"\\u200d"', '"caf\\u00e9 \\ud83c\\udf31"',
+    '"line\\nbreak\\tand\\\\slash"', '"' + 'x'.repeat(2000) + '"']) {
+    const result = draw(note)
+    assert.equal(result.approve.disabled, false, 'canonical note remains approvable')
+    assert.equal(result.el('gate-note-text').textContent, note, 'complete literal reaches textContent unchanged')
+    assert.equal(result.el('gate-note').hidden, false)
+  }
+  assert.equal(draw('"\\u202e"').el('gate-note-text').textContent.slice(1, -1), '\\u202e', 'six visible ASCII characters')
+  for (const note of ['null', '42', 'true', '[]', '{}']) {
+    assert.equal(vm.runInNewContext(fn('renderGateNote') + '; renderGateNote(card)', {
+      card: { note }, document: { getElementById() { assert.fail('non-string JSON reached the DOM') } },
+    }), false, 'valid JSON must still be a string literal')
+  }
 })
 
 test('note adapter refuses malformed text and oversize even when the supplied content hash matches', async () => {

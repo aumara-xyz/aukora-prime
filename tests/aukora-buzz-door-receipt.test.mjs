@@ -41,7 +41,7 @@ test('fixture receipt round-trips exact signed bytes in bounded kind-9 content a
   assert.deepEqual(parsed.receipt, result.receipt)
   assert.equal(parsed.receipt_sig, result.receipt_sig)
   assert.equal(parsed.channel, channel)
-  assert.deepEqual(verifyChannelReceipt(event, pins), { valid: true, reason: 'verified', proposal: result.receipt.proposal, ledger_seq: 24, anchored_seq: 24 })
+  assert.deepEqual(verifyChannelReceipt(event, pins), { valid: true, reason: 'valid against the supplied anchor', proposal: result.receipt.proposal, ledger_seq: 24, anchored_seq: 24 })
 })
 
 test('one altered receipt byte fails after the door correctly re-signs its event', () => {
@@ -147,7 +147,7 @@ test('ledger must be present, bounded, ordered, complete and preserve signed det
 })
 
 // Re-sign a copy only to test mismatched signed inclusion; this is not pilot evidence.
-function synthetic(mutate = () => {}) {
+function synthetic(mutate = () => {}, beforeSign = () => {}) {
   const key = generateKeyPairSync('ed25519'), gatePublicKey = key.publicKey.export({ format: 'pem', type: 'spki' })
   const copy = structuredClone(entries), receipt = { ...result.receipt, pubkey_fp: keyFingerprint(key.publicKey) }
   const value = { receipt, receipt_sig: sign(null, Buffer.from(JSON.stringify(receipt)), key.privateKey).toString('base64') }
@@ -155,10 +155,75 @@ function synthetic(mutate = () => {}) {
   mutate(copy.at(-1), value, copy)
   let previous = 'GENESIS'
   for (const row of copy) {
-    row.prev = previous; row.hash = sha256(entryBody(row)); row.sig = sign(null, Buffer.from(row.hash, 'hex'), key.privateKey).toString('base64'); previous = row.hash
+    row.prev = previous; beforeSign(row); row.hash = sha256(entryBody(row)); row.sig = sign(null, Buffer.from(row.hash, 'hex'), key.privateKey).toString('base64'); previous = row.hash
   }
   return { event: signed(message(value)), pins: { ...pins, gatePublicKey, entries: copy, anchors: [anchorFor(copy.at(-1), gatePublicKey)] } }
 }
+
+const moduleText = file => fs.readFileSync(new URL(file, import.meta.url), 'utf8')
+const moduleUrl = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
+function replaceOnce(source, from, to) {
+  assert.equal(source.split(from).length, 2, `mutation must replace exactly one guard: ${from}`)
+  return source.replace(from, to)
+}
+async function ledgerMutant(from, to, bypass = false) {
+  let ledger = moduleText('../packages/boundary-gate/src/ledger.mjs')
+  if (!bypass) ledger = replaceOnce(ledger, from, to)
+  let receipt = moduleText('../packages/boundary-gate/src/receipts.mjs').replace("'./ledger.mjs'", JSON.stringify(moduleUrl(ledger)))
+  if (bypass) receipt = replaceOnce(receipt, 'const chain = verifyLedger(db, pub)', 'const chain = { ok: true, entries: 0 }')
+  const source = moduleText('../plugins/aukora-buzz-door/lib/receipt.mjs')
+    .replace("'../../../packages/boundary-gate/src/receipts.mjs'", JSON.stringify(moduleUrl(receipt)))
+    .replace(/from '(\.\.[^']+)'/gu, (_, file) => `from ${JSON.stringify(new URL(file, new URL('../plugins/aukora-buzz-door/lib/receipt.mjs', import.meta.url)).href)}`)
+  return (await import(moduleUrl(source))).verifyChannelReceipt
+}
+
+test('10-04 receipt refuses forged neighbours, missing sequence and another gate signer; chain bypass mutant dies', async t => {
+  const foreign = generateKeyPairSync('ed25519'), forged = structuredClone(entries)
+  let previous = 'GENESIS'
+  // Keep the genuine apply row byte-for-byte; self-consistent attacker-signed neighbours cannot authenticate it.
+  for (const row of forged.slice(0, -1)) {
+    row.detail = '{}'; row.prev = previous; row.hash = sha256(entryBody(row))
+    row.sig = sign(null, Buffer.from(row.hash, 'hex'), foreign.privateKey).toString('base64'); previous = row.hash
+  }
+  const after = { ...forged.at(-1), seq: 25, event: 'start', proposal: null, detail: '{}', prev: forged.at(-1).hash }
+  after.hash = sha256(entryBody(after)); after.sig = sign(null, Buffer.from(after.hash, 'hex'), foreign.privateKey).toString('base64')
+  forged.push(after)
+  assert.deepEqual(forged[23], entries[23])
+  const wrongKey = structuredClone(entries)
+  wrongKey[0].sig = sign(null, Buffer.from(wrongKey[0].hash, 'hex'), foreign.privateKey).toString('base64')
+  const attacks = [
+    { ...pins, entries: forged, anchors: [anchorFor(after)] },
+    { ...pins, entries: entries.filter(row => row.seq !== 6) },
+    { ...pins, entries: wrongKey },
+  ]
+  const check = (verify, candidate) => assert.deepEqual(verify(event, candidate), { valid: false, reason: R.LEDGER })
+  for (const candidate of attacks) check(verifyChannelReceipt, candidate)
+  const mutant = await ledgerMutant(null, null, true)
+  for (const candidate of attacks) assert.throws(() => check(mutant, candidate), assert.AssertionError)
+  t.diagnostic('MUTATION reused verifyLedger bypass: KILLED by all three 10-04 attacks')
+})
+
+test('each ledger guard rejects independently; sequence, link, hash and signature removal mutants die', async t => {
+  const sequence = synthetic((row, value, copy) => { copy[5].seq = 99 })
+  const link = synthetic(() => {}, row => { if (row.seq === 6) row.prev = '0'.repeat(64) })
+  const hash = { event, pins: { ...pins, entries: structuredClone(entries) } }
+  hash.pins.entries[5].detail = '{}'
+  const signature = { event, pins: { ...pins, entries: structuredClone(entries) } }
+  signature.pins.entries[5].sig = Buffer.alloc(64).toString('base64')
+  const cases = [
+    ['sequence', 'if (e.seq !== n)', 'if (false)', sequence],
+    ['link', 'if (e.prev !== prev)', 'if (false)', link],
+    ['hash', 'if (sha256(entryBody(e)) !== e.hash)', 'if (false)', hash],
+    ['signature', 'if (!good) errors.push(`seq ${e.seq}: bad signature`)', 'if (false) errors.push(`seq ${e.seq}: bad signature`)', signature],
+  ]
+  for (const [name, from, to, candidate] of cases) {
+    const check = verify => assert.deepEqual(verify(candidate.event, candidate.pins), { valid: false, reason: R.LEDGER })
+    check(verifyChannelReceipt)
+    const mutant = await ledgerMutant(from, to)
+    assert.throws(() => check(mutant), assert.AssertionError)
+    t.diagnostic(`MUTATION ledger ${name} guard removed: KILLED`)
+  }
+})
 
 test('signed inclusion must match receipt, signature, proposal, target, hashes and event kind', () => {
   const good = synthetic()
@@ -201,12 +266,35 @@ test('CLI validates the fixture and reports invalid signatures with a nonzero ex
   f.check(R.EVENT)
 })
 
+test('CLI qualifies a supplied anchor and requires a named independent source; provenance removal mutant dies', t => {
+  const f = cliFixture(t), source = 'independent witness checkpoint #24 (synthetic test declaration)'
+  const out = f.run(), supplied = JSON.parse(out.stdout)
+  assert.equal(out.status, 0, out.stderr)
+  assert.equal(supplied.reason, 'valid against the supplied anchor')
+  assert.equal(Object.hasOwn(supplied, 'anchor_source'), false)
+  const independent = f.run([...f.args, '--independent-anchor-source', source])
+  assert.equal(independent.status, 0, independent.stderr)
+  assert.deepEqual(JSON.parse(independent.stdout), { ...supplied, reason: 'valid, anchor independently obtained', anchor_source: source, anchor_source_verified: false })
+  for (const flags of [['--independent-anchor-source'], ['--independent-anchor-source', ' '], ['--independent-anchor-source', source, '--independent-anchor-source', source]]) {
+    f.check('buzz-receipt:usage', [...f.args, ...flags])
+  }
+  f.check('buzz-receipt:usage', [...f.args.slice(0, -2), '--independent-anchor-source', source])
+  const changed = replaceOnce(fs.readFileSync(f.bin, 'utf8'), 'result.valid && Object.hasOwn(options, sourceFlag)', 'result.valid')
+    .replace("'../lib/receipt.mjs'", JSON.stringify(new URL('../plugins/aukora-buzz-door/lib/receipt.mjs', import.meta.url).href))
+  const script = `process.argv = ${JSON.stringify([process.execPath, f.bin, ...f.args])}; await import(${JSON.stringify(moduleUrl(changed))})`
+  const mutant = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: root, encoding: 'utf8' })
+  assert.equal(mutant.status, 0, mutant.stderr)
+  assert.throws(() => assert.equal(JSON.parse(mutant.stdout).reason, supplied.reason), assert.AssertionError)
+  t.diagnostic('MUTATION independent-source requirement removed: KILLED')
+})
+
 test('CLI rejects missing, duplicate, unknown and incomplete flags and offers help', t => {
   const f = cliFixture(t)
   for (const args of [[], ['--bogus'], f.args.slice(0, -1), [...f.args, '--extra', 'x'], f.args.map(x => x === '--anchor' ? '--ledger' : x), f.args.map(x => x === '--anchor' ? '--unknown' : x), f.args.map(x => x === channel ? '--no-value' : x)]) f.check('buzz-receipt:usage', args)
   const help = f.run(['--help'])
   assert.equal(help.status, 0)
   assert.match(help.stdout, /EVENT\.json --gate-key GATE\.pub/u)
+  for (const text of ['--independent-anchor-source HOW', 'exporting party does not control', 'ledger-anchor/anchors/gate-ledger.jsonl', 'repository owner controls it', 'not a fact this offline checker can verify']) assert(help.stdout.includes(text), text)
 })
 
 test('CLI bounds every input file before parsing and requires files with valid UTF-8 JSON', t => {

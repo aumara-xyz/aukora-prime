@@ -1,27 +1,33 @@
 #!/usr/bin/env bash
-# The check for North Star step 2 on the node itself. Run as an admin with sudo. Exit 0 only if:
-# the relay answers on loopback, nothing of aukora-buzz listens off loopback, and the harness units are
-# still running. It does not show that an app joined or a message round-tripped; that is checked from the Mac.
+# Check relay health and recorded closure intent; failed close attempts require operator action.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="${1:-full}"
 case "$MODE" in full|--health|--watch) ;; *) echo "usage: check.sh [--health|--watch]" >&2; exit 2 ;; esac
 fail=0
 say() { printf '%s  %s\n' "$1" "$2"; [ "$1" = PASS ] || fail=1; }
+ROOT=/var/lib/aukora-buzz
+closed_intent=0 close_failed=0 watch_stopped=0
+sudo test ! -e "$ROOT/closed" || closed_intent=1
+sudo test ! -e "$ROOT/close-failed" || close_failed=1
+[ "$close_failed" = 0 ] || say FAIL 'close-failed: run a successful close or close.sh --acknowledge'
+intent_fail=$fail
+fail=0
 # Recover failed starts too, without undoing an intentional stop or an ongoing transition.
 if [ "$MODE" = --watch ]; then
   STATE=$(systemctl show --property=ActiveState --value aukora-buzz.service) || exit 1
   case "$STATE" in
     active) ;;
     failed) say FAIL "aukora-buzz.service failed" ;;
-    *) exit 0 ;;
+    *) [ "$closed_intent" = 1 ] || [ "$close_failed" = 1 ] || exit 0; watch_stopped=1 ;;
   esac
 fi
-PORT=$(sudo cat /var/lib/aukora-buzz/node.env | bash "$HERE/read-setting.sh" PORT) || exit 1
+PORT=$(sudo cat "$ROOT/node.env" | bash "$HERE/read-setting.sh" PORT) || exit 1
 
 UID_BUZZ=$(id -u aukora-buzz)
 pod() { (cd /tmp && sudo -u aukora-buzz -H env XDG_RUNTIME_DIR="/run/user/$UID_BUZZ" timeout 10s podman "$@"); }
 
+if [ "$watch_stopped" = 0 ]; then
 for c in buzz-postgres buzz-redis buzz-relay; do
   [ "$(pod inspect "$c" --format '{{.State.Running}}' 2>/dev/null)" = true ] && say PASS "$c running" || say FAIL "$c not running"
 done
@@ -31,18 +37,24 @@ pod exec buzz-postgres pg_isready -U buzz -d buzz >/dev/null 2>&1 && say PASS "P
   && say PASS "Redis ready" || say FAIL "Redis not ready"
 curl --connect-timeout 2 --max-time 5 -sf -o /dev/null "http://127.0.0.1:${PORT}/health" && say PASS "relay /health on 127.0.0.1:${PORT}" \
   || say FAIL "relay /health on 127.0.0.1:${PORT}"
-if [ "$MODE" != full ]; then
-  if [ "$MODE" = --watch ] && [ "$fail" != 0 ]; then systemctl --no-block restart aukora-buzz.service || exit 1; fi
-  exit "$fail"
 fi
+health_fail=$fail
+[ "$intent_fail" = 0 ] || fail=1
 
-# Membership probes are informational; an open relay does not fail the health check.
 MEMBER="$HERE/member/ops/buzz-relay/member.mjs"
 [ -f "$MEMBER" ] || MEMBER="$HERE/member.mjs"
+if [ "$MODE" = full ] || [ "$closed_intent" = 1 ]; then
 if node "$MEMBER" verify-closed --relay "http://localhost:${PORT}" >/dev/null 2>&1; then
-  printf 'PASS  closed\n'
+  say PASS closed
+elif [ "$closed_intent" = 1 ]; then
+  say FAIL 'closed intent: verify-closed did not pass; relay may be OPEN'
 else
   printf 'OPEN  closed (not proved)\n'
+fi
+fi
+if [ "$MODE" != full ]; then
+  if [ "$MODE" = --watch ] && [ "$health_fail" != 0 ]; then systemctl --no-block restart aukora-buzz.service || exit 1; fi
+  exit "$fail"
 fi
 
 # Every listening socket on the machine that belongs to a process of aukora-buzz must be on loopback.

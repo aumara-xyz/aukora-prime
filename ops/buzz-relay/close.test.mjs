@@ -1,6 +1,6 @@
 // Stub commands exercise closing, backup order, rollback and repeated attempts without a node.
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, chmodSync, symlinkSync, rmSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, chmodSync, symlinkSync, rmSync, readdirSync, statSync, existsSync, constants } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -32,6 +32,7 @@ if (name === 'flock') process.exit(env.LOCK_FAIL === '1' ? 1 : 0)
 if (name === 'sleep') process.exit(0)
 if (name === 'timeout') run(args.slice(1))
 if (name === 'node') {
+  if (['closed', 'close-failed'].includes(args.at(-1))) run([env.REAL_NODE, '--import', env.MARKER_STUB, ...args])
   if (args.includes('verify-closed')) {
     if (env.VERIFY_ERROR === '1') process.exit(1)
     // Exercise the real member.mjs CLI with either route accepted in a subprocess.
@@ -41,6 +42,7 @@ if (name === 'node') {
 }
 if (name === 'curl') process.exit(env.HEALTH_FAIL === '1' ? 1 : 0)
 if (name === 'systemctl') {
+  if (args[0] === 'show') { console.log(env.SERVICE_STATE || 'active'); process.exit(0) }
   if (args[0] === 'is-active') { console.log('active'); process.exit(0) }
   const n = Number(readFileSync(env.RESTARTS, 'utf8')) + 1
   writeFileSync(env.RESTARTS, String(n))
@@ -80,11 +82,28 @@ function fixture(t, mutation) {
   const mock = join(bin, 'mock.mjs'); writeFileSync(mock, stub); chmodSync(mock, 0o755)
   for (const cmd of ['sudo', 'id', 'stat', 'flock', 'sleep', 'timeout', 'node', 'curl', 'systemctl', 'podman', 'ss']) symlinkSync(mock, join(bin, cmd))
   const calls = join(root, 'calls'), restarts = join(root, 'restarts'), keyFile = join(home, 'door.key'), fetchStub = join(root, 'fetch.mjs')
-  writeFileSync(fetchStub, `globalThis.fetch = async url => {
+  writeFileSync(fetchStub, `import { readFileSync } from 'node:fs'
+  globalThis.fetch = async url => {
     const route = new URL(url).pathname
-    const open = process.env.ACCEPT_ROUTE === route
+    const open = process.env.ACCEPT_ROUTE === route || (process.env.STATE && !readFileSync(process.env.STATE + '/relay.env', 'utf8').includes('BUZZ_REQUIRE_RELAY_MEMBERSHIP=true'))
     return new Response(JSON.stringify(open ? { accepted: true } : { error: 'relay_membership_required' }), { status: open ? 200 : 403 })
   }`)
+  const markerStub = join(root, 'marker.mjs')
+  writeFileSync(markerStub, `import fs from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
+const log = fs.openSync(process.env.CALLS, 'a')
+const record = (...args) => fs.writeSync(log, JSON.stringify(['marker', ...args]) + '\\n')
+for (const name of ['openSync', 'writeFileSync', 'fchmodSync', 'fsyncSync', 'renameSync']) {
+  const original = fs[name]
+  fs[name] = (...args) => {
+    record(name, ...args, name === 'fsyncSync' ? fs.fstatSync(args[0]).isDirectory() : null)
+    return original(...args)
+  }
+}
+// Only root ownership is simulated; descriptor writes, permissions, sync and rename use the real filesystem.
+fs.fchownSync = (...args) => record('fchownSync', ...args)
+syncBuiltinESMExports()
+`)
   writeFileSync(calls, ''); writeFileSync(restarts, '0')
   writeFileSync(keyFile, secret, { mode: 0o600 })
   writeFileSync(join(state, 'relay.env'), open); writeFileSync(join(state, 'node.env'), 'PORT=3000\n')
@@ -94,7 +113,7 @@ function fixture(t, mutation) {
     run(extra = {}, args = ['--owner-pubkey', owner, '--key-file', keyFile], file = 'close.sh') {
       return spawnSync('bash', [join(scripts, file), ...args], { encoding: 'utf8', timeout: 30000,
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, STATE: state, RESTARTS: restarts,
-          DOOR_HOME: home, REAL_NODE: process.execPath, FETCH_STUB: fetchStub, WRITER: join(scripts, 'write-settings.sh'), ...extra } })
+          DOOR_HOME: home, REAL_NODE: process.execPath, FETCH_STUB: fetchStub, MARKER_STUB: markerStub, WRITER: join(scripts, 'write-settings.sh'), ...extra } })
     },
     calls() { return readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) },
     backups() { return readdirSync(state).filter(n => n.startsWith('close-backup.')).map(n => join(state, n)) },
@@ -167,8 +186,12 @@ const checks = {
       const f = fixture(t, m), r = f.run(extra)
       assert.notEqual(r.status, 0); assert.equal(f.settings(), open); assert.equal(f.restarts(), extra.WRITER_FAIL ? 1 : 2)
       assert.match(r.stderr, /settings-restored/); assert.ok(!r.stdout.includes('PASS closed')); noKeys(r)
+      assert.equal(existsSync(join(f.state, 'closed')), false)
+      assert.equal(existsSync(join(f.state, 'close-failed')), true)
+      assert.equal(readFileSync(join(f.state, 'close-failed'), 'utf8'), 'close-failed\n')
+      assert.match(r.stderr.trim().split('\n').at(-1), extra.VERIFY_ERROR ? /relay state UNKNOWN/ : /relay is OPEN/)
       assert.equal(readFileSync(join(f.state, 'data/rows'), 'utf8'), 'channels and messages')
-      if (extra.HEALTH_FAIL) assert.equal(f.calls().some(c => c.includes('verify-closed')), false)
+      assert.ok(f.calls().some(c => c.includes('verify-closed')))
     }
   },
   rollbackFailure(t, m) {
@@ -209,12 +232,78 @@ const checks = {
   },
   check(t, m) {
     for (const extra of [{}, { ACCEPT_ROUTE: '/query' }, { ACCEPT_ROUTE: '/events' }, { VERIFY_ERROR: '1' }]) {
-      const f = fixture(t, m), r = f.run(extra, [], 'check.sh')
+      const f = fixture(t, m)
+      writeFileSync(join(f.state, 'relay.env'), open + 'BUZZ_REQUIRE_RELAY_MEMBERSHIP=true\n')
+      const r = f.run(extra, [], 'check.sh')
       assert.equal(r.status, 0, r.stderr + r.stdout)
       assert.match(r.stdout, Object.keys(extra).length ? /OPEN  closed/ : /PASS  closed/)
       const health = f.run(extra, ['--health'], 'check.sh'); assert.equal(health.status, 0)
       assert.ok(!health.stdout.includes('closed'))
     }
+  },
+  markers(t, m) {
+    const f = fixture(t, m)
+    writeFileSync(join(f.state, 'close-failed'), 'close-failed\n')
+    const r = f.run(); assert.equal(r.status, 0, r.stderr)
+    assert.equal(existsSync(join(f.state, 'closed')), true)
+    assert.equal(readFileSync(join(f.state, 'closed'), 'utf8'), 'closed\n')
+    assert.equal(statSync(join(f.state, 'closed')).mode & 0o777, 0o600)
+    assert.equal(existsSync(join(f.state, 'close-failed')), false)
+    const calls = f.calls(), verify = calls.findIndex(c => c.includes('verify-closed'))
+    const marker = calls.findIndex(c => c[0] === 'marker' && c[1] === 'fchownSync' && c[3] === 0 && c[4] === 0)
+    assert.ok(marker > verify && verify >= 0, 'root ownership is set only after closure passes')
+    const writes = calls.filter(c => c[0] === 'marker')
+    const created = writes.find(c => c[1] === 'openSync')
+    assert.equal(created[3] & (constants.O_EXCL | constants.O_NOFOLLOW), constants.O_EXCL | constants.O_NOFOLLOW)
+    assert.equal(created[4], 0o600)
+    assert.equal(typeof writes.find(c => c[1] === 'writeFileSync')[2], 'number', 'writes retain the opened descriptor')
+    assert.deepEqual(writes.filter(c => c[1] === 'fsyncSync').map(c => c.at(-1)), [false, true])
+    assert.ok(writes.findIndex(c => c[1] === 'fsyncSync') < writes.findIndex(c => c[1] === 'renameSync'))
+    const failed = f.run({ VERIFY_ERROR: '1' }); assert.notEqual(failed.status, 0)
+    assert.equal(readFileSync(join(f.state, 'closed'), 'utf8'), 'closed\n')
+    assert.equal(statSync(join(f.state, 'close-failed')).mode & 0o777, 0o600)
+    assert.equal(f.calls().filter(c => c[0] === 'marker' && c[1] === 'fchownSync').length, 2)
+  },
+  commands(t, m) {
+    const f = fixture(t, m)
+    assert.equal(f.run().status, 0)
+    writeFileSync(join(f.state, 'close-failed'), 'close-failed\n')
+    const before = f.settings(), restarts = f.restarts()
+    const ack = f.run({}, ['--acknowledge']); assert.equal(ack.status, 0, ack.stderr)
+    assert.equal(existsSync(join(f.state, 'close-failed')), false)
+    assert.equal(existsSync(join(f.state, 'closed')), true)
+    assert.equal(f.settings(), before); assert.equal(f.restarts(), restarts)
+    writeFileSync(join(f.state, 'close-failed'), 'close-failed\n')
+    const reopen = f.run({}, ['--reopen']); assert.equal(reopen.status, 0, reopen.stderr)
+    assert.equal(f.settings(), open); assert.equal(f.restarts(), restarts + 1)
+    assert.equal(existsSync(join(f.state, 'closed')), false)
+    assert.equal(existsSync(join(f.state, 'close-failed')), true)
+    for (const args of [['--acknowledge', 'extra'], ['--reopen', '--owner-pubkey', owner]]) {
+      assert.notEqual(f.run({}, args).status, 0)
+    }
+    const pending = fixture(t, m)
+    writeFileSync(join(pending.state, 'close-pending'), 'close-backup.pending\n')
+    assert.notEqual(pending.run({}, ['--reopen']).status, 0)
+    assert.equal(pending.restarts(), 0)
+    const failed = fixture(t, m)
+    assert.equal(failed.run().status, 0)
+    assert.notEqual(failed.run({ RESTART_FAIL: 'all' }, ['--reopen']).status, 0)
+    assert.equal(existsSync(join(failed.state, 'closed')), true)
+  },
+  markerSymlink(t, m) {
+    const f = fixture(t, m), target = join(f.root, 'unrelated')
+    mkdirSync(target)
+    writeFileSync(join(target, 'keep'), 'unchanged')
+    symlinkSync(target, join(f.state, 'closed'))
+    symlinkSync(join(target, 'keep'), join(f.state, 'close-failed'))
+    const r = f.run({ ACCEPT_ROUTE: '/query' })
+    assert.notEqual(r.status, 0)
+    assert.equal(readFileSync(join(target, 'keep'), 'utf8'), 'unchanged')
+    assert.equal(readFileSync(join(f.state, 'close-failed'), 'utf8'), 'close-failed\n')
+    const success = f.run(); assert.equal(success.status, 0, success.stderr)
+    assert.equal(statSync(join(f.state, 'closed')).isFile(), true)
+    assert.equal(readFileSync(join(f.state, 'closed'), 'utf8'), 'closed\n')
+    assert.deepEqual(readdirSync(target), ['keep'])
   },
   writer(t, m) {
     const f = fixture(t, m), run = (args, env = {}) => spawnSync('bash', [join(f.scripts, 'write-settings.sh'), f.state, ...args], { encoding: 'utf8', env: { ...process.env, ...env } })
@@ -246,13 +335,28 @@ const mutations = [
   ['success', 'close.sh', 'sudo systemctl restart aukora-buzz.service >/dev/null 2>&1 || refuse restart-failed', ':'],
   ['rollback', 'close.sh', '[ "$healthy" = 1 ] || refuse health-timeout', ':'],
   ['rollback', 'close.sh', '"$NODE" "$HERE/member.mjs" verify-closed --relay "http://localhost:$PORT" >/dev/null 2>&1 || refuse closed-not-proved', ':'],
-  ['rollback', 'close.sh', 'mv -f "$NEXT" "$1/relay.env"', ':'],
+  ['rollback', 'close.sh', 'cp "$2/relay.env" "$NEXT"\nchmod 0600 "$NEXT"\nmv -f "$NEXT" "$1/relay.env"', 'cp "$2/relay.env" "$NEXT"\nchmod 0600 "$NEXT"'],
   ['rollback', 'close.sh', 'if sudo systemctl restart aukora-buzz.service >/dev/null 2>&1; then', 'if true; then'],
   ['success', 'write-settings.sh', "echo 'BUZZ_REQUIRE_RELAY_MEMBERSHIP=true'", ':'],
   ['success', 'write-settings.sh', 'echo "RELAY_OWNER_PUBKEY=$OWNER"', ':'],
   ['success', 'close.sh', "trap - EXIT HUP INT TERM\nprintf 'PASS", "trap - EXIT HUP INT TERM\necho \"$AGENT\"\nprintf 'PASS"],
   ['writer', 'write-settings.sh', 'if [ -z "$OWNER" ] && [ -f relay.env ]; then OWNER=$(sed -n \'s/^RELAY_OWNER_PUBKEY=//p\' relay.env); fi', ':'],
   ['check', 'check.sh', 'if node "$MEMBER" verify-closed --relay "http://localhost:${PORT}" >/dev/null 2>&1; then', 'if true; then'],
+  ['markers', 'close.sh', 'write_marker closed || refuse closed-marker-failed', ':'],
+  ['markers', 'close.sh', 'fchownSync(fd, 0, 0)', ';'],
+  ['markers', 'close.sh', 'fchmodSync(fd, 0o600)', 'fchmodSync(fd, 0o644)'],
+  ['markers', 'close.sh', 'constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW', 'constants.O_CREAT | constants.O_WRONLY'],
+  ['markers', 'close.sh', "writeFileSync(fd, marker + '\\n')", "writeFileSync(next, marker + '\\n')"],
+  ['markers', 'close.sh', 'fsyncSync(fd)\n  closeSync(fd)', 'closeSync(fd)'],
+  ['markers', 'close.sh', 'fd = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY)\n  fsyncSync(fd)', 'fd = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY)'],
+  ['markers', 'close.sh', 'rm -f "$ROOT/close-failed" || refuse failure-marker-cleanup-failed', ':'],
+  ['rollback', 'close.sh', "write_marker close-failed || echo 'buzz-close:close-failed-marker-failed' >&2", ':'],
+  ['rollback', 'close.sh', 'if RESULT=$("$NODE" "$HERE/member.mjs" verify-closed --relay "http://localhost:$PORT" 2>/dev/null); then', 'if RESULT=; then'],
+  ['commands', 'close.sh', 'rm -f "$ROOT/closed" || refuse reopen-marker-failed', ':'],
+  ['commands', 'close.sh', 'rm -f "$ROOT/close-failed" || refuse acknowledgement-failed', ':'],
+  ['commands', 'close.sh', 'sudo -u "$U" test ! -e "$ROOT/close-pending" || refuse close-pending', ':'],
+  ['commands', 'close.sh', 'sudo systemctl restart aukora-buzz.service >/dev/null 2>&1 || refuse reopen-restart-failed', ':'],
+  ['markerSymlink', 'close.sh', 'renameSync(next, `${root}/${marker}`)', 'writeFileSync(`${root}/${marker}`, marker)'],
 ]
 if (process.argv.includes('--mutate')) for (const [index, [name, file, from, to]] of mutations.entries()) {
   test(`mutation ${index + 1}: ${name} protection weakened`, t => {
