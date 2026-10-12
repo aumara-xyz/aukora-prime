@@ -1,5 +1,7 @@
 # Working in AUKORA Prime
 
+**Start here:** [plan/NORTH-STAR.md](plan/NORTH-STAR.md) (the plan) and [plan/HANDOFF-2026-10-12.md](plan/HANDOFF-2026-10-12.md) (how to work, where things are, what is next).
+
 ## The owner's standing rule: work lands on main, on GitHub, every time
 
 Peter's rule, added 2026-10-12 after 72 commits were found on one Mac and nowhere else. It overrides any habit of
