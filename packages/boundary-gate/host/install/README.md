@@ -20,11 +20,17 @@ Aura launch is unavailable: the explicit `aura` action and every Aura context re
 
 ## Operator staging recipe
 
-Review and materialize the complete package plus the exact public epoch registry in a staging directory. Run the generator from the reviewed source with an isolated interpreter; replace these placeholder staging paths with that materialization:
+When the harness patch set or owner-key package changes, review the diff since each pin last matched, then deliberately move affected `LAUNCHER_SOURCE_PINS`, `OWNER_KEY_SOURCE_PINS`, `AURA_SOURCE_PINS` and `OWNER_KEY_FILES` in `gate-bootstrap.py`. Record the reviewed commits beside the inventories. Run `check-bootstrap.py`, `./security-review` and affected checks; existing security-review/check.sh registrations include the real-file regression. No tracked dependent bootstrap hash exists at this revision; the generated external manifest hashes its package copy.
+
+On the node, stage one reviewed revision's complete gate package, owner-key package, launcher checkout and existing public signer registry separately. Generate from **STAGED copies** with the command below; installed inputs refuse `staging-installed-path`. Preserve any configured Aura profile with paired staged `--aura-source`/`--aura-context` inputs. Review the manifest, back up the installed set, stop the release and quiesce the gate. Install the gate at `/opt/aukora-boundary-gate`, owner-key at `/opt/owner-key`, launcher checkout at `/opt/aukora-genesis/src`, bootstrap at `/usr/local/lib/aukora-boundary/gate-bootstrap`, and registry/manifest at their fixed protected paths above. If configured, install staged Aura source at `/opt/aukora-aura` and context at `/etc/aukora-boundary-gate/aura-context.json`. In the clean environment below, run `/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-package`; require `PACKAGE_VERIFIED`. Restart and verify `aukora-boundary-gate.service`, then obtain/install the release's owner approval, check its floor, and restart/verify `aukora-genesis.service` with launcher and release at the same revision. Preserve keys, database and monotonic floor.
+
+Run the generator from the reviewed source with an isolated interpreter; replace these placeholder staging paths with the materialization:
 
 ```sh
 /usr/bin/python3 -I -S packages/boundary-gate/host/install/generate-manifest.py \
   --package /operator-staging/gate-package \
+  --owner-key /operator-staging/owner-key \
+  --launcher-checkout /operator-staging/checkout \
   --signer-epochs /operator-staging/signer-epochs.json \
   --output /operator-staging/gate-package-manifest.json
 ```

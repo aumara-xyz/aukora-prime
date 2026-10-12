@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import stat
 import subprocess
 import sys
@@ -17,9 +18,110 @@ import unittest
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
+REPOSITORY = HERE.parents[3]
 SOURCE = runpy.run_path(str(HERE / "gate-bootstrap.py"), run_name="gate_bootstrap_source")
 G = SOURCE["verify_package"].__globals__
 Refused = SOURCE["Refused"]
+SOURCE_PIN_ROOTS = {"LAUNCHER_SOURCE_PINS": "", "AURA_SOURCE_PINS": "",
+                    "OWNER_KEY_SOURCE_PINS": "packages/owner-key"}
+
+
+def check_repository_source_pins(root, source):
+    """Every reviewed source pin must match the corresponding checkout bytes."""
+    drift = []
+    for group, prefix in SOURCE_PIN_ROOTS.items():
+        for name, expected in source[group].items():
+            relative = Path(prefix) / name
+            actual = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+            if actual != expected:
+                drift.append(f"{group} {relative}: pinned={expected} actual={actual}")
+    if drift:
+        raise AssertionError("repository-source-pin: " + "\n".join(drift)
+                             + "\nReview the diff since the pin last matched, then move the pin deliberately.")
+
+
+class RepositorySourcePinChecks(unittest.TestCase):
+    def test_every_pin_matches_the_real_repository(self):
+        check_repository_source_pins(REPOSITORY, SOURCE)
+
+    def test_owner_key_inventory_matches_the_real_package(self):
+        root = REPOSITORY / "packages/owner-key"
+        actual = {str(path.relative_to(root)) for path in root.rglob("*") if path.is_file()}
+        self.assertEqual(SOURCE["OWNER_KEY_FILES"], actual,
+                         "owner-key-inventory: review the package diff, then move the inventory deliberately")
+
+    def test_real_staged_packages_generate_a_v2_manifest(self):
+        with tempfile.TemporaryDirectory(prefix=".bootstrap-stage-", dir=REPOSITORY) as temporary:
+            root = Path(temporary)
+            gate, owner, launcher = root / "gate", root / "owner-key", root / "launcher"
+            shutil.copytree(REPOSITORY / "packages/boundary-gate", gate)
+            shutil.copytree(REPOSITORY / "packages/owner-key", owner)
+            for name in SOURCE["LAUNCHER_SOURCE_PINS"]:
+                target = launcher / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(REPOSITORY / name, target)
+            epochs, output = root / "epochs.json", root / "manifest.json"
+            epochs.write_text(json.dumps({"version": 1, "kind": "aukora-signer-epochs/v1",
+                                          "epochs": [{"epoch": 1, "gate_pubkey_sha256": "0" * 64}]}))
+            result = subprocess.run([sys.executable, "-I", "-S", str(gate / "host/install/generate-manifest.py"),
+                                     "--package", str(gate), "--owner-key", str(owner),
+                                     "--launcher-checkout", str(launcher), "--signer-epochs", str(epochs),
+                                     "--output", str(output)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = json.loads(output.read_bytes())
+            self.assertEqual(manifest["version"], 2)
+            self.assertEqual(set(manifest["profiles"]["owner_key"]["files"]), SOURCE["OWNER_KEY_FILES"])
+            self.assertEqual(manifest["profiles"]["launcher"]["files"], SOURCE["LAUNCHER_SOURCE_PINS"])
+            print(result.stdout.strip(), flush=True)
+
+    def test_changed_source_byte_and_changed_pin_refuse_in_every_group(self):
+        with tempfile.TemporaryDirectory(prefix=".bootstrap-pins-", dir=REPOSITORY) as temporary:
+            root = Path(temporary)
+            pins = {}
+            for group, prefix in SOURCE_PIN_ROOTS.items():
+                name = next(iter(SOURCE[group]))
+                relative = Path(prefix) / name
+                data = (REPOSITORY / relative).read_bytes()
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                pins[group] = {name: hashlib.sha256(data).hexdigest()}
+            check_repository_source_pins(root, pins)
+            for group, prefix in SOURCE_PIN_ROOTS.items():
+                name, expected = next(iter(pins[group].items()))
+                relative = Path(prefix) / name
+                path = root / relative
+                original = path.read_bytes()
+                for mutation in ("source-byte", "pin"):
+                    with self.subTest(group=group, mutation=mutation):
+                        if mutation == "source-byte":
+                            path.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+                        else:
+                            pins[group][name] = "0" * 64
+                        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+                        try:
+                            with self.assertRaisesRegex(AssertionError, "repository-source-pin") as refused:
+                                check_repository_source_pins(root, pins)
+                            self.assertIn(f"{group} {relative}: pinned={pins[group][name]} actual={actual}", str(refused.exception))
+                            self.assertIn("Review the diff since the pin last matched, then move the pin deliberately.", str(refused.exception))
+                        finally:
+                            path.write_bytes(original)
+                            pins[group][name] = expected
+            print("SOURCE-ONLY repository source-pin mutations: 6/6 refused; changed byte and changed pin in launcher, Aura and owner-key groups", flush=True)
+
+    def test_source_pin_comparison_removal_fails_the_mutation_regressions(self):
+        source = Path(__file__).read_text()
+        guard = "if actual " + "!= expected:"
+        self.assertEqual(source.count(guard), 1)
+        mutant = {"__name__": "repository_pin_comparison_mutant", "__file__": __file__}
+        exec(compile(source.replace(guard, "if False:"), "<repository-pin-comparison-mutant>", "exec"), mutant)
+        result = unittest.TestResult()
+        regression = mutant["RepositorySourcePinChecks"]("test_changed_source_byte_and_changed_pin_refuse_in_every_group")
+        with patch.object(sys, "stdout", new_callable=io.StringIO):
+            regression.run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(len(result.failures), 6)
+        print("SOURCE-ONLY repository source-pin guard mutation: 1/1 killed; removing the comparison fails all six drift regressions", flush=True)
 
 
 def root_metadata(metadata, directory=False):

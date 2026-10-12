@@ -26,13 +26,16 @@ EXTERNAL_FILES = (SIGNER_EPOCHS,)
 LAUNCHER_ROOT = "/opt/aukora-genesis/src"
 # Six approved checkout inputs only. Selected-release admission and all other
 # checkout/release bytes are outside this named pre-Node profile.
+# Exact launcher source inventory: upstream-dsh.json matched at 7ae564b..c707bb8;
+# reviewed 87f71c4 adds the pinned subprocess environment scrub patch. A harness
+# patch-set change requires this review; explicit host env overrides remain.
 LAUNCHER_SOURCE_PINS = {
     "scripts/launch-dsh.py": "5501bdc1a57dfe11799e94c3194ae3c1844fe1968060fe5229be86553e0d3d1b",
     "scripts/genesis-check.mjs": "238ad43612280b79d0d0303480cb1a999bcf3b413fe18c97ebd9e0aedae3b303",
     "scripts/lib/artifact-integrity.mjs": "39e2f64643ceb2e0d93fabd14467ebaf5efd6de0e0a70f76cf19ce69825b5a41",
     "scripts/lib/release-strip.mjs": "1a687a82424b84420497edbdc5e6c13cb14e065fe4d262f0e859e9e85264b641",
     "scripts/artifacts-coverage.json": "4b652f8963fe5ed4ebe9436621c709d217cd08e97ff7986f14900efba6f9c592",
-    "upstream-dsh.json": "4e328cc246b4c3f0e05172e5a806812e2767eb320f1c30a4811c09f085d24c7c",
+    "upstream-dsh.json": "2efb1979a844b435bc0de888beb345983497cb193aa173394de04c38ddabe88a",
 }
 AURA_ROOT = "/opt/aukora-aura"
 AURA_ENTRY = "packages/boundary-gate/host/aura/entry.mjs"
@@ -93,14 +96,21 @@ AURA_SOURCE_PINS = {
     "scripts/aura/verify-collected.mjs": "4030920a8e2b653c4623b59e3ce27c3a3ef137a4e8e6b7ff33a7aa297e7580bc",
 }
 OWNER_KEY_ROOT = "/opt/owner-key"
+# Exact package inventory: f5da7bb adds two reviewed software-signer check files;
+# only tests import the helper, and package verification never executes checks.
 OWNER_KEY_FILES = frozenset({
     "PROVENANCE.json", "README.md", "TRUSTED-PATH.json", "package.json",
     "checks/authorization.test.mjs", "checks/gate-caller.test.mjs", "checks/mutant-loader.mjs",
     "checks/mutants.mjs", "checks/owner-key.test.mjs",
+    "checks/software-signer.mjs", "checks/software-signer.test.mjs",
     "src/authorization.mjs", "src/index.mjs",
 })
 OWNER_KEY_SOURCE_PINS = {
-    "src/authorization.mjs": "6f463e6aa0ac41c2ed68d7c8a863b33b3129a7f431317f6660f8accc7f93ae28",
+    # Exact owner-key source inventory: authorization.mjs matched at 0e1a2b0..e6ea06e;
+    # reviewed f5da7bb adds a closed public enrollment-record helper through the
+    # existing state validator. Trusted authorization source requires this review;
+    # registry/activation evidence and signing authority are not supplied here.
+    "src/authorization.mjs": "39cbe12e0edcd8f27754d3916dfef253e1f03417798cce2e9d9974a00876d82a",
     "src/index.mjs": "5416ff95400109c65ed8e8d3fb9c94ec218c46c1039e6cc703a781781ccb467d",
 }
 MAX_FILE = 8 * 1024 * 1024
