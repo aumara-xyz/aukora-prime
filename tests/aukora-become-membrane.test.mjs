@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Exercise the real --plan entry point using copied synthetic state, never installed state.
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -10,7 +10,8 @@ import { codeChain } from '../scripts/aukora/aura-code.mjs'
 import { root } from '../scripts/aukora/aura-merkle.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const commit = spawnSync('/usr/bin/git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+const git = (...args) => execFileSync('/usr/bin/git', ['-C', repo, ...args], { encoding: 'utf8' }).trim()
+const commit = git('rev-parse', 'HEAD')
 const scratch = mkdtempSync(join(tmpdir(), 'become-membrane-'))
 const seed = join(scratch, 'seed')
 const retainedRel = 'state/home/become/membrane-retained.json'
@@ -23,7 +24,11 @@ try {
   mkdirSync(join(seed, 'state/home/become'), { recursive: true })
   json(join(seed, 'config.json'), { release })
   const chain = codeChain(join(seed, 'state'))
-  for (let i = 0; i < 6; i += 1) chain.append({ operation: 'scratch.fixture', index: i })
+  for (let i = 0; i < 5; i += 1) chain.append({ operation: 'scratch.fixture', index: i })
+  // Plan mode audits approval metadata too; this synthetic record exists only in scratch.
+  chain.append({ operation: 'main.advance', verdict: 'approved', to: commit, tree: git('rev-parse', `${commit}^{tree}`),
+    remote: git('config', '--get', 'remote.origin.url'), approverDid: 'did:key:zFixture',
+    approvalDigest: 'a'.repeat(64), operationDigest: 'b'.repeat(64) })
   const leaves = readFileSync(chain.log, 'utf8').trimEnd().split('\n').map(line => Buffer.from(line))
   const retained = { treeSize: 3, root: root(leaves.slice(0, 3)) }
   json(join(seed, retainedRel), retained)
@@ -36,7 +41,7 @@ try {
   }
   const unavailable = shim('unavailable', 'exit 1')
   const noVerdict = shim('no-verdict', "printf 'REASON : POWER_OF_TWO_PREFIX_NOT_INDEPENDENTLY_DERIVABLE\\n'")
-  const finalFailure = shim('final-failure', 'if [ -f "$P2_PROBE_SEEN" ]; then exit 1; fi\n: > "$P2_PROBE_SEEN"\nexec "$P2_REAL_PYTHON" "$@"')
+  const finalFailure = shim('final-failure', 'if [ "$7" = code ]; then\n  if [ -f "$P2_PROBE_SEEN" ]; then exit 1; fi\n  : > "$P2_PROBE_SEEN"\nfi\nexec "$P2_REAL_PYTHON" "$@"')
   const run = (name, expected, reason, options = {}) => {
     const support = join(scratch, name)
     cpSync(seed, support, { recursive: true })
@@ -53,7 +58,7 @@ try {
     console.log(`CASE ${name}: node scripts/aukora/become.mjs --commit ${commit} --plan`)
     process.stdout.write(out.stdout + out.stderr)
     const last = JSON.parse(readFileSync(join(support, 'state/home/become/last.json'), 'utf8'))
-    const membrane = last.body.membrane
+    const membrane = last.body.membrane.chains.code
     console.log(`RECORDED ${membrane.verdict} ${membrane.reason ?? ''} retained=${membrane.retainedSize ?? 'none'} presented=${membrane.presentedSize ?? 'none'}`)
     assert.equal(out.status, expected === 'planned' ? 0 : 1)
     assert.equal(last.outcome, expected)
@@ -63,16 +68,16 @@ try {
     assert.deepEqual(readFileSync(join(support, chainRel)), before)
     if (kept) assert.deepEqual(readFileSync(join(support, retainedRel)), kept)
   }
-  run('verifier-unavailable', 'refused', 'verifier_unavailable', { path: unavailable, started: false })
+  run('verifier-unavailable', 'refused', 'verifier_exit_1', { path: unavailable, started: false })
   run('honest-append', 'planned', 'valid_append_only_extension')
   const otherRoot = root([Buffer.from('a different retained observation')])
-  run('power-of-two', 'planned', 'POWER_OF_TWO_PREFIX_NOT_INDEPENDENTLY_DERIVABLE', {
-    retained: { treeSize: 4, root: otherRoot },
+  run('power-of-two', 'refused', 'POWER_OF_TWO_PREFIX_NOT_INDEPENDENTLY_DERIVABLE', {
+    retained: { treeSize: 4, root: otherRoot }, started: false,
   })
-  run('no-verdict', 'refused', 'verifier_unavailable', { path: noVerdict, started: false })
+  run('no-verdict', 'refused', 'verifier_unknown_output', { path: noVerdict, started: false })
   run('invalid-sizes', 'refused', 'invalid_tree_sizes', { retained: { ...retained, treeSize: 7 } })
   run('conflict', 'refused', 'consistency:prefix-mismatch', { retained: { ...retained, root: otherRoot } })
-  run('first-retention', 'planned', undefined, { retained: null })
-  run('final-verifier-unavailable', 'refused', 'verifier_unavailable', { path: finalFailure, started: true })
+  run('first-retention', 'planned', 'missing_prior_observation', { retained: null })
+  run('final-verifier-unavailable', 'refused', 'verifier_exit_1', { path: finalFailure, started: true })
   console.log('PASS: 8 scratch membrane cases; copied chain and retained heads unchanged')
 } finally { rmSync(scratch, { recursive: true, force: true }) }

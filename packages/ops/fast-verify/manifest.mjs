@@ -452,7 +452,7 @@ export const CASES = freeze([
     "id": "full-owner-recovery",
     "property": "Full source owner-memory suite: owner-recovery",
     "entry": "packages/runtime-bridge/test/owner-recovery.test.mjs",
-    "expectedSha256": "7c7b1c90c46572f423ed04e80fa95b5e792af4d744a4b1a9ad4958bcaf40d854",
+    "expectedSha256": "ebc1013943e61139aeb123f32c1cbfaf9843b68c194ae8e8f7858088addcc5d0",
     "protocol": "tap",
     "timeoutMs": 120000,
     "nodeArgs": [
@@ -463,7 +463,7 @@ export const CASES = freeze([
     ],
     "requiredTitles": [
       "remount after a lost actual save reply recovers its genuine completed receipt without another effect",
-      "a reviewed proposal with no save recovers as known unsent and permits a fresh idempotency key",
+      "recovery preserves a reviewed unsent proposal and permits a fresh idempotency key",
       "recovery with restored C settlement delivery resends only the actual committed receipt",
       "a durable dispatched intent without an effect remains unknown after remount and blocks a fresh proposal"
     ],
