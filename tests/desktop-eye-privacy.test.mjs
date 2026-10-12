@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Captures discard private pixels across draw consumption, body I/O, capture and encoding.
+// Eye routes discard private pixels, AX text and refs, and stop subsequent input across every await.
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -9,10 +9,13 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { Script } from 'node:vm'
-import test, { after } from 'node:test'
+import nodeTest, { after } from 'node:test'
 import * as eye from '../apps/aukora-desktop/eye.mjs'
 import { installApprovalBridge } from '../apps/aukora-desktop/aumlok-bridge.mjs'
 import { APPROVAL_CHANNELS } from '../apps/aukora-desktop/aumlok-bridge-state.mjs'
+
+const test = (name, fn) => nodeTest(name, { timeout: 5000 }, fn)
+const bodyFor = value => Readable.from([Buffer.from(JSON.stringify(value))])
 
 const previousUmask = process.umask(0o002)
 after(() => process.umask(previousUmask))
@@ -23,6 +26,9 @@ const eyeSource = readFileSync(join(desktop, 'eye.mjs'), 'utf8')
 const bridgeSource = readFileSync(join(desktop, 'aumlok-bridge.mjs'), 'utf8')
 const mainSource = readFileSync(join(desktop, 'main.mjs'), 'utf8')
 const pixels = Buffer.from('synthetic private pixels')
+const privateText = 'synthetic private AX phrase'
+const publicRef = 'button:synthetic public button:0'
+const publicTree = { nodes: [{ role: { value: 'button' }, name: { value: 'synthetic public button' }, backendDOMNodeId: 7 }] }
 const changedModule = async (name, source, before, after) => {
   const changed = source.replace(before, after)
   assert.notEqual(changed, source, `mutation target: ${name}`)
@@ -47,19 +53,33 @@ async function receiver(t, module = eye, state = module.getPrivateSurfaceState) 
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
   const window = new Window()
   let captures = 0, encodings = 0
-  let duringCapture = () => {}, duringEncoding = () => {}
+  let duringCapture = () => {}, duringEncoding = () => {}, duringCommand = () => {}, duringWindow = () => {}, duringAttach = () => {}
+  const commands = []
+  let attached = false, attachments = 0
+  window.webContents.debugger = {
+    isAttached: () => attached,
+    attach() { attached = true; attachments++; duringAttach() },
+    async sendCommand(name, args) {
+      commands.push({ name, args })
+      const result = await duringCommand(name, args)
+      return result ?? (name === 'Accessibility.getFullAXTree' ? publicTree
+        : name === 'DOM.getBoxModel' ? { model: { content: [0, 0, 2, 0, 2, 2, 0, 2] } } : {})
+    },
+  }
   window.webContents.capturePage = async () => {
     captures++; await duringCapture()
     return { getSize: () => ({ width: 1, height: 1 }), toPNG() { encodings++; duringEncoding(); return pixels } }
   }
   const logs = []
-  const door = await module.installEyeDoor({ getWindow: () => window, getPrivateSurfaceState: state, log: line => logs.push(line) })
+  const door = await module.installEyeDoor({ getWindow: () => { duringWindow(); return window }, getPrivateSurfaceState: state,
+    log: line => logs.push(line) })
   t.after(() => door.dispose())
   return {
-    window, logs, counts: () => ({ captures, encodings }),
+    window, logs, commands, counts: () => ({ captures, encodings, attachments }),
     duringCapture: fn => { duringCapture = fn }, duringEncoding: fn => { duringEncoding = fn },
-    request(body = Readable.from([Buffer.from('{}')]), authorization = `Bearer ${door.token}`) {
-      Object.assign(body, { method: 'POST', url: '/eye/capture', headers: { host: '127.0.0.1:12345', authorization } })
+    duringCommand: fn => { duringCommand = fn }, duringWindow: fn => { duringWindow = fn }, duringAttach: fn => { duringAttach = fn },
+    request(body = Readable.from([Buffer.from('{}')]), authorization = `Bearer ${door.token}`, path = '/eye/capture') {
+      Object.assign(body, { method: 'POST', url: path, headers: { host: '127.0.0.1:12345', authorization } })
       return new Promise(resolve => {
         let status, headers
         handler(body, { headersSent: false, writeHead: (code, fields) => { status = code; headers = fields }, end: data => resolve({ status, headers, data }) })
@@ -86,6 +106,7 @@ function refused(reply, code) {
   assert.equal(reply.headers['content-type'], 'application/json')
   assert.equal(JSON.parse(reply.data).code, code)
   assert.ok(!String(reply.data).includes(pixels.toString()))
+  assert.ok(!String(reply.data).includes(privateText), 'contains_private_text=false')
 }
 
 async function drawnFixture(t, bridge = installApprovalBridge) {
@@ -147,6 +168,7 @@ async function transient(t, module = eye, phase = 'capture') {
   if (phase === 'capture') f.duringCapture(flash)
   if (phase === 'encoding') f.duringEncoding(flash)
   refused(await f.request(body), 'eye.approval-open')
+  if (phase === 'body') assert.equal(f.counts().captures, 0, 'body race refuses before capture starts')
   if (phase !== 'encoding') assert.equal(f.counts().encodings, 0, 'private pixels discarded before encoding')
   assert.ok(f.logs.every(line => !line.includes(pixels.toString())))
 }
@@ -154,6 +176,236 @@ async function transient(t, module = eye, phase = 'capture') {
 for (const phase of ['body', 'capture', 'encoding']) {
   test(`private surface opens and closes during ${phase}: generation refuses`, t => transient(t, eye, phase))
 }
+
+function openPrivate(fence, kind = 'approval', transient = false) {
+  const sheet = new Window()
+  fence.privateSurface(kind, () => sheet, sheet)
+  if (transient) sheet.destroy()
+  return sheet
+}
+
+async function accessibilityRace(t, module = eye, transient = false, kind = 'approval', rejects = false, observe = () => {}) {
+  const fence = module.createPrivateSurfaceFence()
+  const f = await receiver(t, module, fence.getPrivateSurfaceState)
+  let entered, finish
+  const waiting = new Promise(resolve => { entered = resolve })
+  const pending = new Promise(resolve => { finish = resolve })
+  let processed = 0
+  f.duringCommand(async name => {
+    if (name !== 'Accessibility.getFullAXTree') return
+    entered()
+    await pending
+    if (rejects) throw new Error(privateText)
+    return { get nodes() { processed++; return [{ role: { value: 'textbox' }, name: { value: privateText }, backendDOMNodeId: 9 }] } }
+  })
+  const reply = f.request(undefined, undefined, '/eye/snapshot')
+  await waiting
+  const sheet = openPrivate(fence, kind, transient)
+  finish()
+  const result = await reply
+  observe(result)
+  refused(result, kind === 'bind' ? 'eye.bind-surface-open' : 'eye.approval-open')
+  assert.equal(processed, 0, 'private AX text is discarded before reading nodes')
+  assert.ok(f.logs.every(line => !line.includes(privateText)))
+  sheet.destroy()
+  f.duringCommand(() => {})
+  const stale = await f.request(bodyFor({ action: 'type', ref: `textbox:${privateText}:0`, text: 'synthetic input' }),
+    undefined, '/eye/act')
+  assert.equal(JSON.parse(stale.data).code, 'eye.unknown-ref', 'ref from refused AX tree cannot survive')
+  assert.ok(!f.commands.some(command => command.name.startsWith('Input.')))
+}
+
+for (const kind of ['approval', 'bind', 'dialog']) for (const transient of [false, true]) {
+  test(`${kind} ${transient ? 'opens and closes' : 'opens'} during the pending AX read: no private text`,
+    t => accessibilityRace(t, eye, transient, kind))
+}
+test('a rejected AX await also discards private error text', t => accessibilityRace(t, eye, true, 'approval', true))
+
+async function actionRace(t, module = eye, phase = 'DOM.getBoxModel', transient = true) {
+  const fence = module.createPrivateSurfaceFence()
+  const f = await receiver(t, module, fence.getPrivateSurfaceState)
+  assert.equal((await f.request(undefined, undefined, '/eye/snapshot')).status, 200)
+  const type = phase === 'DOM.focus' || phase === 'Input.insertText'
+  const action = type ? 'type' : 'click'
+  let entered, finish
+  const waiting = new Promise(resolve => { entered = resolve })
+  const pending = new Promise(resolve => { finish = resolve })
+  f.duringCommand(async (name, args) => {
+    if (name !== phase || (phase === 'Input.dispatchMouseEvent' && args.type !== 'mousePressed')) return
+    entered(); await pending
+  })
+  const reply = f.request(bodyFor({ action, ref: publicRef, text: 'synthetic input' }), undefined, '/eye/act')
+  await waiting
+  const sheet = openPrivate(fence, 'approval', transient)
+  finish()
+  refused(await reply, 'eye.approval-open')
+  const input = f.commands.filter(command => command.name.startsWith('Input.'))
+  assert.equal(input.length, phase.startsWith('Input.') ? 1 : 0, 'no input is dispatched after the trip')
+  assert.ok(!input.some(command => command.args?.type === 'mouseReleased'), 'a trip during press prevents release')
+  sheet.destroy()
+  f.duringCommand(() => {})
+  const stale = await f.request(bodyFor({ action, ref: publicRef, text: 'synthetic input' }), undefined, '/eye/act')
+  assert.equal(JSON.parse(stale.data).code, 'eye.unknown-ref', 'a trip also discards previously published refs')
+}
+for (const phase of ['DOM.getBoxModel', 'DOM.focus', 'Input.dispatchMouseEvent', 'Input.insertText']) {
+  for (const transient of [false, true]) test(`private surface races ${phase} (${transient ? 'transient' : 'visible'}): stop input`,
+    t => actionRace(t, eye, phase, transient))
+}
+
+async function beforeAction(t, module = eye) {
+  const fence = module.createPrivateSurfaceFence()
+  const f = await receiver(t, module, fence.getPrivateSurfaceState)
+  await f.request(undefined, undefined, '/eye/snapshot')
+  f.duringCommand(name => name === 'DOM.getBoxModel' ? { model: { get content() {
+    openPrivate(fence, 'approval', true)
+    return [0, 0, 2, 0, 2, 2, 0, 2]
+  } } } : undefined)
+  refused(await f.request(bodyFor({ action: 'click', ref: publicRef }), undefined, '/eye/act'), 'eye.approval-open')
+  assert.ok(!f.commands.some(command => command.name.startsWith('Input.')), 'precheck runs before dispatch, not after')
+}
+test('a private callback during box processing prevents dispatch', beforeAction)
+
+test('public snapshot refs still permit click and type', async t => {
+  const fence = eye.createPrivateSurfaceFence()
+  const f = await receiver(t, eye, fence.getPrivateSurfaceState)
+  const snapshot = await f.request(undefined, undefined, '/eye/snapshot')
+  assert.deepEqual(JSON.parse(snapshot.data), { ok: true, nodes: [{ role: 'button', name: 'synthetic public button', ref: publicRef }], count: 1 })
+  for (const action of ['click', 'type']) {
+    const reply = await f.request(bodyFor({ action, ref: publicRef, text: 'synthetic input' }), undefined, '/eye/act')
+    assert.equal(reply.status, 200)
+    assert.equal(JSON.parse(reply.data).action, action)
+  }
+  assert.deepEqual(f.commands.filter(command => command.name.startsWith('Input.')).map(command => command.name),
+    ['Input.dispatchMouseEvent', 'Input.dispatchMouseEvent', 'Input.insertText'])
+})
+
+for (const route of ['/eye/snapshot', '/eye/act']) for (const phase of ['debugger', 'body-or-enable']) {
+  test(`${route} checks its ${phase} await before further window work`, async t => {
+    const fence = eye.createPrivateSurfaceFence()
+    const f = await receiver(t, eye, fence.getPrivateSurfaceState)
+    if (route === '/eye/act') await f.request(undefined, undefined, '/eye/snapshot')
+    f.commands.length = 0
+    const flash = () => openPrivate(fence, 'approval', true)
+    let body
+    if (phase === 'debugger') {
+      f.window.webContents.debugger.isAttached = () => false
+      f.duringAttach(flash)
+    } else if (route === '/eye/snapshot') {
+      f.duringCommand(name => { if (name === 'Accessibility.enable') flash() })
+    } else {
+      body = Readable.from((async function* () { flash(); yield Buffer.from(JSON.stringify({ action: 'type', ref: publicRef, text: 'synthetic input' })) })())
+    }
+    body ??= bodyFor({ action: 'type', ref: publicRef, text: 'synthetic input' })
+    refused(await f.request(body, undefined, route), 'eye.approval-open')
+    assert.deepEqual(f.commands.map(command => command.name),
+      route === '/eye/snapshot' && phase === 'body-or-enable' ? ['Accessibility.enable'] : [])
+  })
+}
+
+// All route registrations and awaits are inventoried, including helpers outside the route bodies.
+function routeInventory(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gmu, '')
+  const names = [...code.matchAll(/export const (EYE_\w*ROUTE) = /gu)].map(match => match[1]).sort()
+  const table = code.match(/const routes = new Map\(\[([\s\S]*?)\n  \]\)/u)?.[1]
+  assert.ok(table, 'one explicit route table')
+  const registrations = table.split('\n').filter(line => line.trim() !== '').map(line => {
+    const entry = /^\s*\[(EYE_\w*ROUTE), withPrivacyFence\((\w+)\)\],$/u.exec(line)
+    assert.ok(entry, 'every table entry must register through withPrivacyFence')
+    return entry
+  })
+  assert.equal([...code.matchAll(/\broutes\b/gu)].length, 2, 'route table is only constructed and dispatched, never mutated or aliased')
+  assert.deepEqual(registrations.map(match => match[1]).sort(), names, 'every route registers through withPrivacyFence')
+  assert.deepEqual(registrations.map(match => match[2]).sort(), ['act', 'capture', 'snapshot'])
+  assert.match(code, /const route = routes\.get\(path\)/u)
+  assert.match(code, /return route\(req, res\)/u)
+  assert.doesNotMatch(code, /\b(?:capture|snapshot|act)\s*\(/u, 'route invocation bypasses the dispatcher')
+  const calls = text => [...text.matchAll(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/gu)]
+    .map(match => match[1]).filter(name => !['async', 'if'].includes(name)).sort()
+  const dispatcher = code.slice(code.indexOf('  const handler = '), code.indexOf('  const server = '))
+  assert.doesNotMatch(dispatcher, /\b(?:deps|window|refs|res|privacy)\s*\./u, 'dispatcher cannot read a window or send route results')
+  assert.deepEqual(calls(dispatcher), [
+    'drain', 'refuse', 'deny', 'split', 'routes.get', 'deny', 'address', 'namesThisListener', 'say', 'deny',
+    'namesThisListener', 'say', 'deny', 'tokenMatches', 'presentedToken', 'say', 'deny', 'route',
+  ].sort(), 'dispatcher only authenticates, drains, refuses and invokes a wrapped route')
+  const server = code.slice(code.indexOf('  const server = '), code.indexOf('  await new Promise('))
+  assert.deepEqual(calls(server), ['createServer', 'handler', 'catch', 'refuse', 'res.end'].sort(),
+    'server dispatches only through the inventoried handler')
+  assert.equal([...code.matchAll(/\bcreateServer\s*\(/gu)].length, 1, 'no second unfenced receiver')
+  const snapshot = code.slice(code.indexOf('  const snapshot = '), code.indexOf('  const act = '))
+  assert.match(snapshot, /const snapshotRefs = new Map\(\)/u, 'AX refs are staged until the final fence')
+  assert.doesNotMatch(snapshot, /\brefs\.(?:set|clear)\(/u, 'AX route cannot publish refs itself')
+  const transport = [
+    'for await (const chunk of req) {',
+    'try { return await operation() } finally { check() }',
+    'await drain(req)',
+    'await drain(req)',
+    'const result = await route(req, window, privacy)',
+    'const deny = async (status, code, detail) => { await drain(req); return refuse(res, status, code, detail) }',
+    'await new Promise((resolve, reject) => {',
+  ].sort()
+  const actual = []
+  for (const match of code.matchAll(/\bawait\b/gu)) {
+    const tail = code.slice(match.index)
+    if (tail.startsWith('await privacy.step(() => ')) continue
+    const start = code.lastIndexOf('\n', match.index) + 1
+    const end = code.indexOf('\n', match.index)
+    actual.push(code.slice(start, end < 0 ? undefined : end).trim())
+  }
+  assert.deepEqual(actual.sort(), transport, 'awaited screen/window work must use privacy.step with a thunk')
+  // A fire-and-forget command or capture would escape both post-await checks.
+  assert.equal([...code.matchAll(/\.sendCommand\(/gu)].length,
+    [...code.matchAll(/await privacy\.step\(\(\) => dbg\.sendCommand\(/gu)].length)
+  assert.equal([...code.matchAll(/\.capturePage\(/gu)].length,
+    [...code.matchAll(/await privacy\.step\(\(\) => window\.webContents\.capturePage\(/gu)].length)
+}
+
+test('route and awaited-call inventory rejects bypasses and new unfenced reads', t => {
+  routeInventory(eyeSource)
+  const steps = eyeSource.split('\n').filter(line => line.includes('await privacy.step(() => '))
+  assert.equal(steps.length, 12)
+  for (const line of steps) {
+    const raw = line.replace('await privacy.step(() => ', 'await ').slice(0, -1)
+    assert.throws(() => routeInventory(eyeSource.replace(line, raw)), assert.AssertionError)
+  }
+  for (const route of ['capture', 'snapshot', 'act']) {
+    assert.throws(() => routeInventory(eyeSource.replace(`withPrivacyFence(${route})`, route)), assert.AssertionError)
+  }
+  for (const addition of [
+    "export const EYE_TITLE_ROUTE = '/eye/title'",
+    "const title = async window => await window.webContents.executeJavaScript('document.title')",
+    "const elements = async dbg => await dbg.sendCommand('DOM.getDocument')",
+    "const eager = async privacy => await privacy.step(readWindow())",
+    "const unfenced = window => window.webContents.capturePage()",
+    "routes.set('/eye/title', title)",
+    'const extraRoutes = routes',
+  ]) assert.throws(() => routeInventory(`${eyeSource}\n${addition}`), assert.AssertionError)
+  assert.throws(() => routeInventory(eyeSource.replace('const routes = new Map([', "const routes = new Map([\n    ['/eye/title', title],")), assert.AssertionError)
+  for (const addition of [
+    "if (path === '/eye/title') return res.end(deps.getWindow().getTitle())",
+    "if (path === '/eye/title') title(req, res)",
+  ]) assert.throws(() => routeInventory(eyeSource.replace('    const route = routes.get(path)', `${addition}\n    const route = routes.get(path)`)), assert.AssertionError)
+  assert.throws(() => routeInventory(eyeSource.replace('return route(req, res)', 'return snapshot(req, res)')), assert.AssertionError)
+  assert.throws(() => routeInventory(eyeSource.replace('const snapshotRefs = new Map()', 'const snapshotRefs = refs')), assert.AssertionError)
+  assert.throws(() => routeInventory(eyeSource.replace('snapshotRefs.set(ref,', 'refs.set(ref,')), assert.AssertionError)
+  t.diagnostic('PASS eye route inventory: 12/12 await bypasses, 3/3 route bypasses, 13/13 additions/dispatch/ref bypasses rejected')
+})
+
+test('removing shared checks reproduces AX disclosure or input after a privacy trip', async t => {
+  let disclosed = false
+  for (const [name, before, after, court] of [
+    ['AX post-await discard', 'finally { check() }', 'finally {}', mod => accessibilityRace(t, mod, true)],
+    ['input precheck', '        check()\n        try { return await operation()', '        try { return await operation()', mod => beforeAction(t, mod)],
+    ['AX fence disabled', "if (code !== null) throw Object.assign(new Error('Private surface changed'), { eyePrivacyCode: code })", '',
+      mod => accessibilityRace(t, mod, true, 'approval', false, reply => { disclosed = String(reply.data).includes(privateText) })],
+    ['discard prior refs', '    } catch (error) {\n      refs.clear()', '    } catch (error) {', mod => actionRace(t, mod)],
+  ]) {
+    const mod = await changedModule('eye.mjs', eyeSource, before, after)
+    await assert.rejects(() => court(mod), assert.AssertionError, name)
+    t.diagnostic(`MUTATION CAUGHT ${name}`)
+  }
+  assert.equal(disclosed, true, 'disabled fence reproduces reviewer contains_private_text=true')
+  t.diagnostic('PASS eye shared fence mutations: 4/4 killed by the same AX/input sequences')
+})
 
 function sticky(module = eye) {
   const fence = module.createPrivateSurfaceFence()
@@ -265,13 +517,15 @@ test('removing each privacy protection makes its regression fail', async t => {
     ['approval latch', 'aumlok-bridge.mjs', bridgeSource,
       "privateSurface('approval', () => new WebContentsView(options), win)", 'new WebContentsView(options)', mod => closedApproval(t, mod.installApprovalBridge)],
     ['generation', 'eye.mjs', eyeSource, 'generation += 1n', '', mod => transient(t, mod)],
-    ['request arrival', 'eye.mjs', eyeSource, '    const rect = parseRect(read.body.rect)', '    started = privateState()\n    const rect = parseRect(read.body.rect)', mod => transient(t, mod, 'body')],
-    ['final fence', 'eye.mjs', eyeSource, 'if (finalCode !== null) return refuse(res, 423, finalCode)', '', mod => transient(t, mod, 'encoding')],
-    ['discard before encode', 'eye.mjs', eyeSource, 'if (privateCode !== null) return refuse(res, 423, privateCode)', '', mod => transient(t, mod)],
+    ['request arrival', 'eye.mjs', eyeSource, 'try { return await operation() }',
+      'try { const result = await operation(); started = privateState(); return result }', mod => transient(t, mod, 'body')],
+    ['final fence', 'eye.mjs', eyeSource, 'const result = await route(req, window, privacy)\n      check()',
+      'const result = await route(req, window, privacy)', mod => transient(t, mod, 'encoding')],
+    ['discard before encode', 'eye.mjs', eyeSource, 'finally { check() }', 'finally {}', mod => transient(t, mod)],
     ['destruction witness', 'eye.mjs', eyeSource, 'if (owner.isDestroyed?.() === true) visible.delete(id)', 'visible.delete(id)', mod => sticky(mod)],
     ['unknown surface refusal', 'eye.mjs', eyeSource, 'if (!Object.hasOwn(codes, kind))', 'if (false)', mod => sticky(mod)],
-    ['capture error redaction', 'eye.mjs', eyeSource, 'return refuse(res, 500, EYE_REFUSE.CAPTURE_FAILED)\n    }\n  }',
-      'return refuse(res, 500, EYE_REFUSE.CAPTURE_FAILED, String(error?.message ?? error))\n    }\n  }', mod => failedCapture(t, mod)],
+    ['capture error redaction', 'eye.mjs', eyeSource, 'return refusal(500, EYE_REFUSE.CAPTURE_FAILED)\n    }\n  }',
+      'return refusal(500, EYE_REFUSE.CAPTURE_FAILED, String(error?.message ?? error))\n    }\n  }', mod => failedCapture(t, mod)],
   ]
   for (const [name, file, source, before, after, court] of mutations) {
     // A single shifted arrival read, rather than throwing on the frozen snapshot.

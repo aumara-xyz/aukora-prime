@@ -1,31 +1,5 @@
-/**
- * THE EYE: an on-demand photograph of the window this shell is already showing.
- *
- * WHAT WAS MISSING. An agent could read every file of this app and still not see it. The
- * screenshot paths that exist are the owner's: he photographs his screen and hands the picture
- * over, and the loop waits for him. macOS refuses a screen capture from the backend's process
- * (`screencapture` answers `could not create image from display`), so the agent has no picture of
- * the thing it is changing.
- *
- * THE DOOR THAT NEEDS NO PERMISSION. An application may always photograph its own window, and
- * Electron exposes exactly that as `webContents.capturePage()`. The shell already used it once per
- * launch for `AUKORA_DESKTOP_CAPTURE`; this makes it a request. **The window is the one that is
- * already open** — this does not create, show, focus or close anything, which is why a capture
- * cannot flash on the owner's screen or change the window count.
- *
- * WHO MAY ASK. A loopback HTTP server on a random port, reachable only from this machine, gated by
- * (1) a bearer token minted per launch and handed to the backend child in its environment — never
- * on a command line, never in a file, never logged; (2) a Host header that names this listener on
- * loopback, which is the DNS-rebinding fence; and (3) an Origin header that, when a browser sends
- * one, names loopback too. The fence is phi's (`surface/door.ts`'s `localPost`/`sensitivePost`):
- * a same-origin gesture check, not an identity, and it is not called authentication.
- *
- * THE ONE WINDOW THAT IS NEVER PHOTOGRAPHED. The one-bit approval window puts an operation in front
- * of a person. Captures refuse by name while that window is open, and this module only ever touches
- * the window `getWindow()` named — it holds no other window handle and never looks one up.
- *
- * @module aukora-desktop/eye
- */
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Loopback window reads and input discard results when private visibility changes.
 
 import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
@@ -381,12 +355,53 @@ export async function installEyeDoor(deps) {
     res.end(body)
   }
 
-  /** One JSON answer, used by the two self-sight routes. Never carries the token. */
-  const answer = (res, status, value) => {
+  /** Route responses remain local until the privacy fence permits sending them. */
+  const answer = (status, value) => {
     const body = JSON.stringify(value)
-    res.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) })
-    res.end(body)
-    return undefined
+    return { status, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) }, body }
+  }
+  const refusal = (status, code, detail) => answer(status,
+    detail === undefined ? { ok: false, code } : { ok: false, code, detail })
+
+  // Every route discards results and refs if private visibility changed, including during a rejected await.
+  const withPrivacyFence = (route) => async (req, res) => {
+    const started = privateState()
+    const check = () => {
+      const current = privateState()
+      const code = started.code ?? current.code ?? (current.generation !== started.generation
+        ? current.lastCode ?? EYE_REFUSE.APPROVAL_OPEN : null)
+        ?? (isApprovalOpen() ? EYE_REFUSE.APPROVAL_OPEN : null)
+        ?? (isDrawPending() ? EYE_REFUSE.BIND_SURFACE_OPEN : null)
+      if (code !== null) throw Object.assign(new Error('Private surface changed'), { eyePrivacyCode: code })
+    }
+    const privacy = Object.freeze({
+      step: async (operation) => {
+        check()
+        try { return await operation() } finally { check() }
+      },
+    })
+    try {
+      check()
+      const window = deps.getWindow()
+      if (window === null || window === undefined || window.isDestroyed?.() === true) {
+        await drain(req)
+        check()
+        return refuse(res, 409, EYE_REFUSE.NO_WINDOW)
+      }
+      const result = await route(req, window, privacy)
+      check()
+      if (result.snapshotRefs !== undefined) {
+        refs.clear()
+        for (const [ref, node] of result.snapshotRefs) refs.set(ref, node)
+      }
+      res.writeHead(result.status, result.headers)
+      res.end(result.body)
+    } catch (error) {
+      refs.clear()
+      await drain(req)
+      return refuse(res, error.eyePrivacyCode === undefined ? 500 : 423,
+        error.eyePrivacyCode ?? EYE_REFUSE.CAPTURE_FAILED)
+    }
   }
 
   /**
@@ -424,24 +439,26 @@ export async function installEyeDoor(deps) {
    * snapshot, decide, and then act on what it saw. A tree whose shape changes can still move a ref, and
    * that limit is stated here rather than implied: the ref is a name for a control, not a handle on it.
    */
-  const snapshot = async (res, window, req) => {
+  const snapshot = async (req, window, privacy) => {
     req.resume()
     let dbg
     try {
-      dbg = await debuggerFor(window)
+      dbg = await privacy.step(() => debuggerFor(window))
     } catch (error) {
-      return refuse(res, 503, error.eyeCode ?? EYE_REFUSE.DEBUGGER_UNAVAILABLE, String(error.message))
+      if (error.eyePrivacyCode !== undefined) throw error
+      return refusal(503, error.eyeCode ?? EYE_REFUSE.DEBUGGER_UNAVAILABLE)
     }
     let tree
     try {
-      await dbg.sendCommand('Accessibility.enable')
-      tree = await dbg.sendCommand('Accessibility.getFullAXTree')
+      await privacy.step(() => dbg.sendCommand('Accessibility.enable'))
+      tree = await privacy.step(() => dbg.sendCommand('Accessibility.getFullAXTree'))
     } catch (error) {
-      return refuse(res, 503, EYE_REFUSE.DEBUGGER_UNAVAILABLE, String(error?.message ?? error))
+      if (error.eyePrivacyCode !== undefined) throw error
+      return refusal(503, EYE_REFUSE.DEBUGGER_UNAVAILABLE)
     }
     const seen = new Map()
     const nodes = []
-    refs.clear()
+    const snapshotRefs = new Map()
     for (const node of tree?.nodes ?? []) {
       const role = String(node?.role?.value ?? '')
       if (role === '') continue
@@ -450,10 +467,10 @@ export async function installEyeDoor(deps) {
       const ordinal = seen.get(key) ?? 0
       seen.set(key, ordinal + 1)
       const ref = `${role}:${name}:${ordinal}`
-      refs.set(ref, { backendDOMNodeId: node?.backendDOMNodeId ?? null, role, name })
+      snapshotRefs.set(ref, { backendDOMNodeId: node?.backendDOMNodeId ?? null, role, name })
       nodes.push({ ref, role, name })
     }
-    return answer(res, 200, { ok: true, nodes, count: nodes.length })
+    return { ...answer(200, { ok: true, nodes, count: nodes.length }), snapshotRefs }
   }
 
   /**
@@ -463,98 +480,128 @@ export async function installEyeDoor(deps) {
    * protocol's own input path, so the page receives what a person's click and typing look like rather
    * than an untrusted event a listener could tell apart. What comes back is a record of what was done.
    */
-  const act = async (res, window, req) => {
-    const read = await readJsonBody(req)
-    if (!read.ok) return refuse(res, read.code === EYE_REFUSE.BODY_TOO_LARGE ? 413 : 400, read.code)
+  const act = async (req, window, privacy) => {
+    const read = await privacy.step(() => readJsonBody(req))
+    if (!read.ok) return refusal(read.code === EYE_REFUSE.BODY_TOO_LARGE ? 413 : 400, read.code)
     const ref = typeof read.body?.ref === 'string' ? read.body.ref : ''
     const action = typeof read.body?.action === 'string' ? read.body.action : ''
     const target = ref === '' ? undefined : refs.get(ref)
     if (target === undefined) {
-      return refuse(res, 409, EYE_REFUSE.UNKNOWN_REF, 'no snapshot ref matches that name; take a snapshot first')
+      return refusal(409, EYE_REFUSE.UNKNOWN_REF, 'no snapshot ref matches that name; take a snapshot first')
     }
     let dbg
     try {
-      dbg = await debuggerFor(window)
+      dbg = await privacy.step(() => debuggerFor(window))
     } catch (error) {
-      return refuse(res, 503, error.eyeCode ?? EYE_REFUSE.DEBUGGER_UNAVAILABLE, String(error.message))
+      if (error.eyePrivacyCode !== undefined) throw error
+      return refusal(503, error.eyeCode ?? EYE_REFUSE.DEBUGGER_UNAVAILABLE)
     }
     if (action === 'click') {
-      if (target.backendDOMNodeId === null) return refuse(res, 409, EYE_REFUSE.UNKNOWN_REF, 'that node has no box to click')
+      if (target.backendDOMNodeId === null) return refusal(409, EYE_REFUSE.UNKNOWN_REF, 'that node has no box to click')
       let box
       try {
-        box = await dbg.sendCommand('DOM.getBoxModel', { backendNodeId: target.backendDOMNodeId })
+        box = await privacy.step(() => dbg.sendCommand('DOM.getBoxModel', { backendNodeId: target.backendDOMNodeId }))
       } catch (error) {
-        return refuse(res, 503, EYE_REFUSE.DEBUGGER_UNAVAILABLE, String(error?.message ?? error))
+        if (error.eyePrivacyCode !== undefined) throw error
+        return refusal(503, EYE_REFUSE.DEBUGGER_UNAVAILABLE)
       }
       const quad = box?.model?.content
-      if (!Array.isArray(quad) || quad.length < 8) return refuse(res, 409, EYE_REFUSE.UNKNOWN_REF, 'that node has no box to click')
+      if (!Array.isArray(quad) || quad.length < 8) return refusal(409, EYE_REFUSE.UNKNOWN_REF, 'that node has no box to click')
       const xs = [quad[0], quad[2], quad[4], quad[6]]
       const ys = [quad[1], quad[3], quad[5], quad[7]]
       const x = (Math.min(...xs) + Math.max(...xs)) / 2
       const y = (Math.min(...ys) + Math.max(...ys)) / 2
       try {
-        await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
-        await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+        await privacy.step(() => dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }))
+        await privacy.step(() => dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }))
       } catch (error) {
-        return refuse(res, 503, EYE_REFUSE.CAPTURE_FAILED, String(error?.message ?? error))
+        if (error.eyePrivacyCode !== undefined) throw error
+        return refusal(503, EYE_REFUSE.CAPTURE_FAILED)
       }
-      return answer(res, 200, { ok: true, action, ref, at: { x, y } })
+      return answer(200, { ok: true, action, ref, at: { x, y } })
     }
     if (action === 'type') {
       const text = read.body?.text
       if (typeof text !== 'string' || text === '') {
-        return refuse(res, 400, EYE_REFUSE.BAD_ACTION, 'typing needs a non-empty text field')
+        return refusal(400, EYE_REFUSE.BAD_ACTION, 'typing needs a non-empty text field')
       }
       try {
-        if (target.backendDOMNodeId !== null) await dbg.sendCommand('DOM.focus', { backendNodeId: target.backendDOMNodeId })
-        await dbg.sendCommand('Input.insertText', { text })
+        if (target.backendDOMNodeId !== null) await privacy.step(() => dbg.sendCommand('DOM.focus', { backendNodeId: target.backendDOMNodeId }))
+        await privacy.step(() => dbg.sendCommand('Input.insertText', { text }))
       } catch (error) {
-        return refuse(res, 503, EYE_REFUSE.CAPTURE_FAILED, String(error?.message ?? error))
+        if (error.eyePrivacyCode !== undefined) throw error
+        return refusal(503, EYE_REFUSE.CAPTURE_FAILED)
       }
-      return answer(res, 200, { ok: true, action, ref, typed: text.length })
+      return answer(200, { ok: true, action, ref, typed: text.length })
     }
-    return refuse(res, 400, EYE_REFUSE.BAD_ACTION, `action '${action}' is not click or type`)
+    return refusal(400, EYE_REFUSE.BAD_ACTION, `action '${action}' is not click or type`)
   }
 
-  const handler = async (req, res) => {
-    // Read on arrival, before body I/O: a surface that opens and closes during either await still refuses.
-    const started = privateState()
-    // A REFUSAL MUST NOT OUTRUN THE REQUEST BODY. Answering before the caller has finished writing closes
-    // the socket underneath the reply, and the caller sees an aborted response instead of the named
-    // refusal — measured on /eye/act, where an unauthorised POST came back with no body at all. Only the
-    // paths that refuse BEFORE reading a body drain it; the capture and act paths still read their own.
-    // DRAIN, THEN REFUSE — not refuse and hope. A refusal that answers before the caller's body has been
-    // read leaves those bytes sitting in a kept-alive socket, and the NEXT request on that connection is
-    // parsed starting from the middle of the previous one: measured here as /eye/act coming back with no
-    // body at all while /eye/snapshot on the same connection behaved, because the desync lands on
-    // whichever request follows the unread one. Bounded, so a refusal cannot be turned into a way to make
-    // the door read an unbounded body.
-    const drain = (request) => new Promise(resolve => {
-      let seen = 0
-      let settled = false
-      const done = () => { if (!settled) { settled = true; clearTimeout(timer); resolve() } }
-      // TIME-BOXED: a caller that declares a body and then stops writing must not be able to wedge the
-      // refusal it is being given. A second is far longer than any honest JSON body needs here.
-      const timer = setTimeout(() => { request.destroy(); done() }, 1000)
-      request.on('data', chunk => {
-        seen += chunk.length
-        // NOT AT THE PARSE LIMIT. Destroying the socket the moment a body passes `BODY_LIMIT_BYTES`
-        // closes the connection underneath the refusal that is being written, which is the very failure
-        // this drain exists to prevent — measured on `/eye/act`, where an unauthorised POST with an
-        // oversized body came back with no body at all. The ceiling is where politeness ends.
-        if (seen > DRAIN_CEILING_BYTES) { request.destroy(); done() }
-      })
-      request.on('end', done)
-      request.on('error', done)
-      request.resume()
+  const capture = async (req, window, privacy) => {
+    const read = await privacy.step(() => readJsonBody(req))
+    if (!read.ok) return refusal(read.code === EYE_REFUSE.BODY_TOO_LARGE ? 413 : 400, read.code)
+    const rect = parseRect(read.body.rect)
+    if (rect === undefined) return refusal(400, EYE_REFUSE.BAD_RECT)
+    const scale = parseScale(read.body.scale)
+    if (scale === undefined) return refusal(400, EYE_REFUSE.BAD_RECT)
+
+    try {
+      const captured = await privacy.step(() => window.webContents.capturePage(rect ?? undefined))
+      const fitted = fitToCeiling(captured, Math.max(1, Math.round(maxWidth * scale)))
+      const png = fitted.image.toPNG()
+      const source = captured.getSize()
+      return { status: 200, headers: {
+        'content-type': 'image/png',
+        'content-length': png.length,
+        'x-eye-width': String(fitted.size.width),
+        'x-eye-height': String(fitted.size.height),
+        'x-eye-source-width': String(source.width),
+        'x-eye-source-height': String(source.height),
+      }, body: png }
+    } catch (error) {
+      if (error.eyePrivacyCode !== undefined) throw error
+      say(`eye: refused ${EYE_REFUSE.CAPTURE_FAILED}`)
+      return refusal(500, EYE_REFUSE.CAPTURE_FAILED)
+    }
+  }
+
+  const routes = new Map([
+    [EYE_ROUTE, withPrivacyFence(capture)],
+    [EYE_SNAPSHOT_ROUTE, withPrivacyFence(snapshot)],
+    [EYE_ACT_ROUTE, withPrivacyFence(act)],
+  ])
+
+  // Refusals drain bounded request bodies before replying, including an early privacy refusal.
+  const drain = (request) => new Promise(resolve => {
+    if (request.readableEnded || request.destroyed) return resolve()
+    let seen = 0
+    let settled = false
+    const done = () => { if (!settled) { settled = true; clearTimeout(timer); resolve() } }
+    // TIME-BOXED: a caller that declares a body and then stops writing must not be able to wedge the
+    // refusal it is being given. A second is far longer than any honest JSON body needs here.
+    const timer = setTimeout(() => { request.destroy(); done() }, 1000)
+    request.on('data', chunk => {
+      seen += chunk.length
+      // NOT AT THE PARSE LIMIT. Destroying the socket the moment a body passes `BODY_LIMIT_BYTES`
+      // closes the connection underneath the refusal that is being written, which is the very failure
+      // this drain exists to prevent — measured on `/eye/act`, where an unauthorised POST with an
+      // oversized body came back with no body at all. The ceiling is where politeness ends.
+      if (seen > DRAIN_CEILING_BYTES) { request.destroy(); done() }
     })
+    request.on('end', done)
+    request.on('error', done)
+    request.resume()
+  })
+
+  const handler = async (req, res) => {
     const deny = async (status, code, detail) => { await drain(req); return refuse(res, status, code, detail) }
     // THE FENCES RUN BEFORE THE TOKEN IS EVEN COMPARED, and every refusal is logged as a code.
     // Nothing in this function logs a header value: a rejected request is the one most likely to
     // carry a token somebody guessed, and a log is the wrong place to keep it.
     if (req.method !== 'POST') return deny(405, EYE_REFUSE.METHOD)
     const path = (req.url ?? '').split('?')[0]
-    if (path !== EYE_ROUTE && path !== EYE_SNAPSHOT_ROUTE && path !== EYE_ACT_ROUTE) {
+    const route = routes.get(path)
+    if (route === undefined) {
       return deny(404, EYE_REFUSE.NOT_FOUND)
     }
 
@@ -572,82 +619,7 @@ export async function installEyeDoor(deps) {
       say(`eye: refused ${EYE_REFUSE.UNAUTHORIZED}`)
       return deny(401, EYE_REFUSE.UNAUTHORIZED)
     }
-    if (started.code !== null) return deny(423, started.code)
-    const privateRefusal = () => {
-      const current = privateState()
-      return started.code ?? current.code ?? (current.generation !== started.generation ? current.lastCode : null)
-    }
-    // THE APPROVAL WINDOW IS OUT OF BOUNDS WHILE IT IS OPEN. It is the one window whose answer is a
-    // secret about to become a signature, so the door closes for as long as it exists rather than
-    // trusting a caller not to aim at it.
-    if (isApprovalOpen()) {
-      say(`eye: refused ${EYE_REFUSE.APPROVAL_OPEN}`)
-      return deny(423, EYE_REFUSE.APPROVAL_OPEN)
-    }
-
-    // E1: THE BIND SURFACE IS OUT OF BOUNDS FOR EVERY ROUTE, and it is refused after the approval
-    // window for the same reason: both surfaces show a secret, and the accessibility tree is the more
-    // readable of the two forms.
-    if (isDrawPending()) {
-      say(`eye: refused ${EYE_REFUSE.BIND_SURFACE_OPEN}`)
-      return deny(423, EYE_REFUSE.BIND_SURFACE_OPEN)
-    }
-
-    const window = deps.getWindow()
-    if (window === null || window === undefined || window.isDestroyed?.() === true) {
-      return deny(409, EYE_REFUSE.NO_WINDOW)
-    }
-
-    if (path === EYE_SNAPSHOT_ROUTE) return snapshot(res, window, req)
-    if (path === EYE_ACT_ROUTE) return act(res, window, req)
-
-    const read = await readJsonBody(req)
-    if (!read.ok) return refuse(res, read.code === EYE_REFUSE.BODY_TOO_LARGE ? 413 : 400, read.code)
-    const rect = parseRect(read.body.rect)
-    if (rect === undefined) return refuse(res, 400, EYE_REFUSE.BAD_RECT)
-    const scale = parseScale(read.body.scale)
-    if (scale === undefined) return refuse(res, 400, EYE_REFUSE.BAD_RECT)
-
-    try {
-      const captured = await window.webContents.capturePage(rect ?? undefined)
-      const privateCode = privateRefusal()
-      if (privateCode !== null) return refuse(res, 423, privateCode)
-      // THE FENCE IS READ AGAIN HERE, AND THAT IS THE POINT OF THIS LINE. The check at the top of the
-      // handler is separated from these pixels by two awaits — the body read and the capture itself — so
-      // a window that was closed when the request was judged can be open by the time the picture exists.
-      // A fence read once, before the work, does not hold during the work; the pixels are dropped rather
-      // than sent, and the refusal is the same one the early check gives.
-      if (isApprovalOpen()) {
-        say(`eye: refused ${EYE_REFUSE.APPROVAL_OPEN}`)
-        return refuse(res, 423, EYE_REFUSE.APPROVAL_OPEN)
-      }
-      // A bind phrase opened during the capture must not leave as pixels either.
-      if (isDrawPending()) {
-        say(`eye: refused ${EYE_REFUSE.BIND_SURFACE_OPEN}`)
-        return refuse(res, 423, EYE_REFUSE.BIND_SURFACE_OPEN)
-      }
-      const fitted = fitToCeiling(captured, Math.max(1, Math.round(maxWidth * scale)))
-      const png = fitted.image.toPNG()
-      const source = captured.getSize()
-      // Encoding can also run callbacks; the last fence and response write have no asynchronous gap.
-      const finalCode = privateRefusal()
-      if (finalCode !== null) return refuse(res, 423, finalCode)
-      res.writeHead(200, {
-        'content-type': 'image/png',
-        'content-length': png.length,
-        'x-eye-width': String(fitted.size.width),
-        'x-eye-height': String(fitted.size.height),
-        'x-eye-source-width': String(source.width),
-        'x-eye-source-height': String(source.height),
-      })
-      res.end(png)
-      return undefined
-    } catch (error) {
-      // A capture failure is the window's, not the caller's; the message is safe (it names a
-      // window state, never a header) but the code is what a caller branches on.
-      say(`eye: refused ${EYE_REFUSE.CAPTURE_FAILED}`)
-      return refuse(res, 500, EYE_REFUSE.CAPTURE_FAILED)
-    }
+    return route(req, res)
   }
 
   const server = createServer((req, res) => {
