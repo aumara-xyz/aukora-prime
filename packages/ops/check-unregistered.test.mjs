@@ -2,10 +2,10 @@
 // Missing prerequisites cannot report PASS or hide a failed child.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs'
+import {readFileSync,mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
-import {join} from 'node:path'
+import {join,dirname} from 'node:path'
 import {main,childStatus} from './check-unregistered.mjs'
 
 const root=fileURLToPath(new URL('../../',import.meta.url))
@@ -80,14 +80,28 @@ test('type fixture compiler absence is a named gap; removing it fails the contro
   console.log('PASS missing-compiler guard mutation killed')
 })
 
+// Real files beside a copied check, so ESM resolution from the copy finds a compiler and the workspace packages.
+function standInPackages(directory) {
+  for(const [name,files] of [['typescript',{'package.json':'{"name":"typescript"}','bin/tsc':''}],
+    ['@types/node',{'package.json':'{"name":"@types/node"}'}],
+    ['@aukora-prime/contracts',{'package.json':'{"name":"@aukora-prime/contracts","type":"module","exports":"./index.js"}','index.js':''}],
+    ['@aukora-prime/inference',{'package.json':'{"name":"@aukora-prime/inference","type":"module","exports":"./index.js"}','index.js':''}]])
+    for(const [file,text] of Object.entries(files)) {
+      const target=join(directory,'node_modules',name,file)
+      mkdirSync(dirname(target),{recursive:true}); writeFileSync(target,text)
+    }
+}
+
 test('type compiler interruption and failure cannot report success',()=>{
   const temporary=mkdtempSync(join(root,'.check-type-child-'))
   try {
     const source=readFileSync(join(root,'packages/inference/check-types.mjs'),'utf8')
     const path=join(temporary,'types.mjs')
+    // The check resolves its compiler and packages as ESM from its own location, so the stand-ins are real files
+    // beside the copied check; only the child process result is synthetic.
+    standInPackages(temporary)
     const invoke=result=>spawnSync(process.execPath,['--input-type=module','-e',
       "const modules=await import('node:module');const child=await import('node:child_process');"+
-      "modules.default.createRequire=()=>({resolve:()=>'/unused/synthetic-compiler'});"+
       "child.default.spawnSync=()=> ("+JSON.stringify(result)+");modules.syncBuiltinESMExports();await import("+
       JSON.stringify(new URL('file://'+path).href)+");"],{cwd:root,encoding:'utf8',timeout:10000})
     for(const [result,guard,replacement] of [
@@ -136,10 +150,17 @@ test('unexpected compiler or workspace lookup errors cannot become named gaps',(
   try {
     for(const file of ['packages/inference/check-types.mjs','packages/ops/check-unregistered.mjs']) {
       const source=readFileSync(join(root,file),'utf8')
-      const guard="if(error.code!=='MODULE_NOT_FOUND')throw error"
+      // The type check resolves as ESM and probes files; the sweep still uses require-style lookup. Each gets the
+      // unexpected error through the call it actually makes.
+      const types=file.includes('/inference/')
+      const guard=types?"if(error.code!=='ERR_MODULE_NOT_FOUND'&&error.code!=='ENOENT')throw error":"if(error.code!=='MODULE_NOT_FOUND')throw error"
       assert.equal(source.split(guard).length,2)
       const path=join(temporary,'lookup.mjs')
-      const invoke="const builtin=await import('node:module');builtin.default.createRequire=()=>({resolve(){throw Object.assign(Error('synthetic lookup failure'),{code:'EACCES'})}});builtin.syncBuiltinESMExports();const m=await import("+
+      if(types)standInPackages(temporary)
+      const fail="{throw Object.assign(Error('synthetic lookup failure'),{code:'EACCES'})}"
+      const invoke="const builtin=await import('node:module');"+(types
+        ?"const files=await import('node:fs');files.default.accessSync=()=>"+fail+";"
+        :"builtin.default.createRequire=()=>({resolve()"+fail+"});")+"builtin.syncBuiltinESMExports();const m=await import("+
         JSON.stringify(new URL('file://'+path).href)+");"+
         (file.includes('/ops/')?"process.exitCode=await m.main(['packages/runtime-bridge/checks/inference-real-authority.test.mjs'])":"")
       const runLookup=()=>spawnSync(process.execPath,['--input-type=module','-e',invoke],
