@@ -26,7 +26,8 @@ for c in buzz-postgres buzz-redis buzz-relay; do
   [ "$(pod inspect "$c" --format '{{.State.Running}}' 2>/dev/null)" = true ] && say PASS "$c running" || say FAIL "$c not running"
 done
 pod exec buzz-postgres pg_isready -U buzz -d buzz >/dev/null 2>&1 && say PASS "Postgres ready" || say FAIL "Postgres not ready"
-[ "$(pod exec buzz-redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' 2>/dev/null)" = PONG ] \
+# A reinstall does not restart old containers: retain their env-backed health probe until explicit restart.
+[ "$(pod exec buzz-redis sh -c '{ printf "AUTH "; if [ -r /run/secrets/redis.conf ]; then sed -n "s/^requirepass //p" /run/secrets/redis.conf; else printf "%s\n" "$REDIS_PASSWORD"; fi; printf "PING\n"; } | redis-cli --raw | tail -n 1' 2>/dev/null)" = PONG ] \
   && say PASS "Redis ready" || say FAIL "Redis not ready"
 curl --connect-timeout 2 --max-time 5 -sf -o /dev/null "http://127.0.0.1:${PORT}/health" && say PASS "relay /health on 127.0.0.1:${PORT}" \
   || say FAIL "relay /health on 127.0.0.1:${PORT}"

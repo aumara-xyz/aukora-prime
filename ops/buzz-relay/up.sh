@@ -15,6 +15,11 @@ PORT=$(bash "$HERE/read-setting.sh" PORT < "$ROOT/node.env")
 IMAGE=$(bash "$HERE/read-setting.sh" IMAGE < "$ROOT/image.env")
 MEMORY_LIMITS="${AUKORA_BUZZ_MEMORY_LIMITS:-0}"
 [[ "$MEMORY_LIMITS" =~ ^[01]$ ]] || { echo "AUKORA_BUZZ_MEMORY_LIMITS must be 0 or 1" >&2; exit 2; }
+for secret in postgres-password redis.conf; do
+  [ -f "$ROOT/secrets/$secret" ] && [ -r "$ROOT/secrets/$secret" ] || {
+    echo "database credential mounts are missing; run install.sh before starting" >&2; exit 1;
+  }
+done
 
 podman pod exists "$POD" || podman pod create --name "$POD" -p "127.0.0.1:${PORT}:3000" >/dev/null
 # A pod left from an earlier setting must publish exactly this loopback port, or we do not start in it.
@@ -29,12 +34,13 @@ run() {
   podman run -d --pod "$POD" --name "$name" --restart=always "$@" >/dev/null
 }
 
-run buzz-postgres 1g --env-file "$ROOT/postgres.env" \
+run buzz-postgres 1g --env POSTGRES_DB=buzz --env POSTGRES_USER=buzz \
+  --env PGDATA=/var/lib/postgresql/data/pgdata --env POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password \
+  -v "$ROOT/secrets/postgres-password:/run/secrets/postgres-password:ro" \
   -v "$ROOT/data/postgres:/var/lib/postgresql/data" docker.io/library/postgres:17-alpine
-# Redis reads its settings from stdin so the password is never in a process's arguments; the image's own
-# entrypoint still drops to its redis user.
-run buzz-redis 256m --env-file "$ROOT/redis.env" -v "$ROOT/data/redis:/data" docker.io/library/redis:7-alpine \
-  sh -c 'printf "appendonly yes\nrequirepass %s\n" "$REDIS_PASSWORD" | exec docker-entrypoint.sh redis-server -'
+# Redis reads a read-only config; neither its configured environment nor its argv contains the password.
+run buzz-redis 256m -v "$ROOT/secrets/redis.conf:/run/secrets/redis.conf:ro" \
+  -v "$ROOT/data/redis:/data" docker.io/library/redis:7-alpine redis-server /run/secrets/redis.conf
 
 for _ in $(seq 1 60); do
   timeout 10s podman exec buzz-postgres pg_isready -U buzz -d buzz >/dev/null 2>&1 && break
@@ -42,7 +48,7 @@ for _ in $(seq 1 60); do
 done
 timeout 10s podman exec buzz-postgres pg_isready -U buzz -d buzz >/dev/null
 redis_ready() {
-  [ "$(timeout 10s podman exec buzz-redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' 2>/dev/null)" = PONG ]
+  [ "$(timeout 10s podman exec buzz-redis sh -c '{ printf "AUTH "; sed -n "s/^requirepass //p" /run/secrets/redis.conf; printf "PING\n"; } | redis-cli --raw | tail -n 1' 2>/dev/null)" = PONG ]
 }
 for _ in $(seq 1 60); do
   redis_ready && break

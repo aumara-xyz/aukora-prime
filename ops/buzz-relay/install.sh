@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Buzz relay beside the harness (North Star step 2). Run on the node as an admin with sudo.
-# Creates the `aukora-buzz` user, its state under /var/lib/aukora-buzz, generated secrets (0600, never
-# printed) and the aukora-buzz service and health-watch units. Touches no unrelated user, unit or port.
+# Creates the `aukora-buzz` user, its state under /var/lib/aukora-buzz, private credentials (0600 originals,
+# 0444 container files under a 0700 directory, never printed) and service/health-watch units.
+# Touches no unrelated user, unit or port.
+# Safe to run again with the same port: preserves data and credentials, rewrites settings/scripts/units,
+# and never starts or restarts the service. Refuses an occupied port unless its listener is verified as
+# this pod's; stop the service first when changing ports or when listener ownership cannot be verified.
 # Usage: install.sh [--owner-pubkey <64 hex>]   (closed relay owned by that Nostr key; without it, open)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,9 +29,7 @@ done
 if [ -n "$OWNER" ] && ! printf %s "$OWNER" | grep -qE '^[0-9a-f]{64}$'; then
   echo "--owner-pubkey must be 64 hex characters" >&2; exit 2
 fi
-if ! id "$U" >/dev/null 2>&1 && sudo ss -ltnH | awk '{print $4}' | grep -qE ":${PORT}\$"; then
-  echo "port ${PORT} is already in use on this machine" >&2; exit 1
-fi
+bash "$HERE/check-port.sh" "$PORT"
 
 # An account of this name that this script did not make is someone else's: leave it alone.
 if id "$U" >/dev/null 2>&1 && { [ "$(getent passwd "$U" | cut -d: -f6)" != "$ROOT" ] || ! sudo test -f "$ROOT/node.env"; } \
@@ -45,25 +47,12 @@ sudo loginctl enable-linger "$U"
 sudo chmod 0750 "$ROOT"
 sudo -u "$U" mkdir -p "$ROOT/data/postgres" "$ROOT/data/redis" "$ROOT/data/git" "$ROOT/src"
 
-# Secrets are made here, on the node, and stay in files only aukora-buzz can read.
+# The images consume derived files; legacy credentials remain authoritative for existing database data.
+sudo -u "$U" bash "$HERE/prepare-secrets.sh" "$ROOT"
 sudo -u "$U" env ROOT="$ROOT" OWNER="$OWNER" PORT="$PORT" bash -s <<'EOS'
 set -euo pipefail
 umask 077
 cd "$ROOT"
-# All three secret files are made together; a partial set is refused rather than regenerated over live data.
-have=0; for f in postgres.env redis.env relay-secrets.env; do [ -s "$f" ] && have=$((have + 1)); done
-if [ "$have" != 0 ] && [ "$have" != 3 ]; then echo "incomplete secret files in $ROOT; not regenerating" >&2; exit 1; fi
-if [ "$have" = 0 ]; then
-  PG=$(openssl rand -hex 24); RD=$(openssl rand -hex 24)
-  printf 'POSTGRES_DB=buzz\nPOSTGRES_USER=buzz\nPOSTGRES_PASSWORD=%s\nPGDATA=/var/lib/postgresql/data/pgdata\n' "$PG" > postgres.env
-  printf 'REDIS_PASSWORD=%s\n' "$RD" > redis.env
-  {
-    printf 'DATABASE_URL=postgres://buzz:%s@127.0.0.1:5432/buzz\n' "$PG"
-    printf 'REDIS_URL=redis://:%s@127.0.0.1:6379\n' "$RD"
-    printf 'BUZZ_RELAY_PRIVATE_KEY=%s\n' "$(openssl rand -hex 32)"
-    printf 'BUZZ_GIT_HOOK_HMAC_SECRET=%s\n' "$(openssl rand -hex 32)"
-  } > relay-secrets.env
-fi
 # Settings that are not secret; rewritten on every install so the repository stays the source.
 # A relay that was closed stays closed with the same owner unless a new owner is named.
 if [ -z "$OWNER" ] && [ -f relay.env ]; then OWNER=$(sed -n 's/^RELAY_OWNER_PUBKEY=//p' relay.env); fi

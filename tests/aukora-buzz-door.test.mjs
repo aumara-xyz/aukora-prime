@@ -5,12 +5,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { EventEmitter } from 'node:events'
 import { registerHooks } from 'node:module'
 import { createHash, randomUUID } from 'node:crypto'
 import { isValidEvent, publicKeyOf, randomSecretKey, signEvent, eventId } from '../plugins/aukora-nostr/lib/event.mjs'
-import { createDoor, createDoorTools, createWaker, createRateLimiter, httpAuthHeader, loadKey, pickAgent, wakeText,
+import { createDoor, createDoorTools, createWaker, createRateLimiter, gateCall, httpAuthHeader, loadKey, pickAgent, wakeText,
+  POST_GAP_MS, POSTS_PER_HOUR, WAKE_GAP_MS, WAKES_PER_HOUR, MAX_RESPONSE_BYTES, MAX_EVENT_TAGS,
   MAX_TEXT_BYTES, MAX_READ_OUTPUT_CHARS, READ_BODY_CHARS, MAX_CONFIG_BYTES, POST_TOOL, READ_TOOL, RELAY_HTTP, apply, loadConfig, wakeMessage } from '../plugins/aukora-buzz-door/lib/index.mjs'
 
 import { schnorr } from '../plugins/aukora-nostr/lib/vendor/noble-curves/curves/secp256k1.js'
@@ -58,6 +61,140 @@ async function fixture(t, { gateFails = false, postLimiter } = {}) {
   return { ...b, auma, owner, stranger, gateCalls, door, tools, post: args => tools.post.execute(args, CALLER), me: publicKeyOf(auma) }
 }
 const parse = s => { assert.equal(typeof s, 'string'); return JSON.parse(s) }
+
+test('gateCall: a disallowed operation is refused before opening any socket', async t => {
+  let connections = 0
+  t.mock.method(net, 'createConnection', () => { connections++; throw new Error('socket must not open') })
+  for (const op of ['approve', 'relay_record_extra', '', undefined]) {
+    await assert.rejects(gateCall('/unused', op, {}), /is not allowed/u)
+  }
+  assert.equal(connections, 0)
+})
+
+// Prefer real Unix sockets below HOME. Restricted runners inject only the net transport; gateCall's framing,
+// parsing, limits and timer remain real. Both transports answer only after receiving the request's newline.
+async function gateTransport(t, answer) {
+  const requests = [], sockets = new Set(), timers = new Set()
+  let server, dir
+  const receive = (socket, request) => {
+    requests.push(JSON.parse(request))
+    const timer = setTimeout(() => { timers.delete(timer); socket.end(answer.body) }, answer.delay ?? 0)
+    timers.add(timer)
+  }
+  t.after(async () => {
+    for (const timer of timers) clearTimeout(timer)
+    for (const socket of sockets) socket.destroy()
+    if (server?.listening) await new Promise(resolve => server.close(resolve))
+    if (dir) fs.rmSync(dir, { recursive: true, force: true })
+  })
+  try {
+    dir = fs.mkdtempSync(path.join(os.homedir(), '.buzz-gate-test-'))
+    const socketPath = path.join(dir, 'gate.sock')
+    server = net.createServer(socket => {
+      sockets.add(socket); socket.on('close', () => sockets.delete(socket))
+      socket.on('error', () => {}) // the expected oversize/timeout refusal closes the peer
+      let request = ''
+      socket.on('data', data => { request += data; if (request.endsWith('\n')) receive(socket, request) })
+    })
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve) })
+    t.diagnostic('gate transport: real Unix socket')
+    return { socketPath, requests }
+  } catch (error) {
+    if (!['EPERM', 'EACCES'].includes(error.code)) throw error
+    t.diagnostic('gate transport: injected net stub (sandbox denied HOME/socket access)')
+    t.mock.method(net, 'createConnection', () => {
+      const client = new EventEmitter(); let destroyed = false
+      client.destroy = () => { destroyed = true; sockets.delete(client) }
+      client.write = request => receive({ end(body) {
+        if (!destroyed) { client.emit('data', Buffer.from(body)); if (!destroyed) client.emit('end') }
+      } }, request)
+      sockets.add(client)
+      queueMicrotask(() => client.emit('connect'))
+      return client
+    })
+    return { socketPath: '/injected/gate.sock', requests }
+  }
+}
+
+test('gateCall: reply size, JSON, refusal and timeout each fail closed', async t => {
+  const success = JSON.stringify({ ok: true, result: { recorded: true } })
+  for (const [label, answer, error] of [
+    ['success control', { body: success }, null],
+    ['oversized valid JSON', { body: success.padEnd((1 << 16) + 1, ' ') }, /gate reply too large/u],
+    ['non-JSON', { body: 'not JSON' }, /bad reply.*fail closed/u],
+    ['ok:false', { body: JSON.stringify({ ok: false, error: 'synthetic refusal', result: { recorded: true } }) }, /synthetic refusal/u],
+    ['timeout', { body: success, delay: 250 }, /gate timeout.*fail closed/u],
+  ]) await t.test(label, async t => {
+    const transport = await gateTransport(t, answer)
+    let watchdog
+    try {
+      const result = Promise.race([
+        gateCall(transport.socketPath, 'relay_record', { phase: 'intent' }, label === 'timeout' ? 75 : 1000),
+        new Promise((_resolve, reject) => { watchdog = setTimeout(() => reject(new Error('test watchdog: gate never settled')), 2000) }),
+      ])
+      if (error) await assert.rejects(result, error)
+      else assert.deepEqual(await result, { recorded: true })
+      assert.deepEqual(transport.requests, [{ op: 'relay_record', args: { phase: 'intent' } }])
+    } finally { clearTimeout(watchdog) }
+  })
+})
+
+test('default rates: finite conservative constants; uninjected post and wake limiters enforce their gaps', async t => {
+  const clock = Date.now(); t.mock.method(Date, 'now', () => clock)
+  for (const gap of [POST_GAP_MS, WAKE_GAP_MS]) assert(Number.isSafeInteger(gap) && gap >= 1000 && gap <= 60_000)
+  for (const count of [POSTS_PER_HOUR, WAKES_PER_HOUR]) assert(Number.isSafeInteger(count) && count >= 1 && count <= 120)
+  const f = await fixture(t), delivered = []
+  // fixture supplies neither limiter: these exercise the defaults actually wired into the door and waker.
+  assert.equal(parse(await f.post({ text: 'first' })).state, 'POSTED')
+  const refused = parse(await f.post({ text: 'too soon' }))
+  assert.equal(refused.state, 'REFUSED'); assert.match(refused.reason, /rate limit/u)
+  assert.equal(f.events.length, 1); assert.equal(f.gateCalls.length, 2, 'the refused post opens no second intent')
+  const tick = createWaker({ door: f.door, deliver: async (_text, message) => delivered.push(message.id) })
+  f.events.push(chat(f.owner, 'first wake', { mention: f.me }))
+  assert.deepEqual(await tick(), { delivered: 1, dropped: 0 })
+  const waiting = chat(f.owner, 'wait for wake gap', { mention: f.me }); f.events.push(waiting)
+  assert.deepEqual(await tick(), { delivered: 0, dropped: 1 })
+  assert.equal(delivered.length, 1)
+  assert.deepEqual((await f.door.poll()).map(message => message.id), [waiting.id], 'backoff retains the fresh message')
+})
+
+test('relay response cap: an oversized valid JSON answer is refused whole, including a valid signed prefix', async () => {
+  const key = randomSecretKey(), owner = randomSecretKey(), event = chat(owner, 'valid message', { mention: publicKeyOf(key) })
+  const json = JSON.stringify([event]); let size = MAX_RESPONSE_BYTES
+  const door = createDoor({ getKey: () => key, channel: CHANNEL, ownerPubkey: publicKeyOf(owner), fetchImpl: async () => {
+    const bytes = Buffer.from(json.padEnd(size, ' '))
+    return { ok: true, body: { async *[Symbol.asyncIterator]() {
+      yield bytes.subarray(0, json.length); yield bytes.subarray(json.length)
+    } } }
+  } })
+  const tools = createDoorTools(door)
+  assert.equal(parse(await tools.read.execute({})).messages[0].id, event.id, 'exactly the cap is accepted')
+  size++
+  const refused = parse(await tools.read.execute({}))
+  assert.equal(refused.state, 'REFUSED'); assert.match(refused.reason, /answer too large/u)
+  assert.equal(refused.messages, undefined, 'no partial channel history escapes')
+  await assert.rejects(door.poll(), /answer too large/u)
+})
+
+test('event shape: hostile relay cannot admit another signed kind, excess tags or an unsafe integer timestamp', async t => {
+  const key = randomSecretKey(), owner = randomSecretKey(), mention = publicKeyOf(key), clock = Date.now(), at = Math.floor(clock / 1000)
+  const valid = chat(owner, 'valid control', { mention, at })
+  const tags = [['h', CHANNEL], ['p', mention], ...Array.from({ length: MAX_EVENT_TAGS - 2 }, () => ['x', 'value'])]
+  const atLimit = signEvent({ pubkey: publicKeyOf(owner), created_at: at, kind: 9, content: 'tag limit control', tags }, owner)
+  const excess = signEvent({ pubkey: publicKeyOf(owner), created_at: at, kind: 9, content: 'too many tags', tags: [...tags, ['x', 'extra']] }, owner)
+  for (const [label, rejected] of [
+    ['CHAT_KIND', chat(owner, 'another kind', { mention, kind: 1, at })],
+    ['MAX_EVENT_TAGS', excess],
+    ['created_at safe integer', chat(owner, 'unsafe timestamp', { mention, at: Number.MAX_SAFE_INTEGER + 1 })],
+  ]) await t.test(label, async () => {
+    assert(isValidEvent(rejected), 'valid signature ensures no other signature/shape guard masks this check')
+    const door = createDoor({ getKey: () => key, channel: CHANNEL, ownerPubkey: publicKeyOf(owner), now: () => clock,
+      fetchImpl: async () => new Response(JSON.stringify([valid, atLimit, rejected])) })
+    const read = parse(await createDoorTools(door).read.execute({}))
+    assert.deepEqual(read.messages.map(message => message.id).sort(), [valid.id, atLimit.id].sort())
+    assert.deepEqual((await door.poll()).map(message => message.id).sort(), [valid.id, atLimit.id].sort())
+  })
+})
 
 test('poll: only a well-signed chat message in her channel that mentions her key, once, and never her own', async t => {
   const f = await fixture(t)
@@ -504,6 +641,49 @@ test('apply: an admitted mention reaches only the named session with actual plug
   assert.equal(delivered.length, 1)
   assert.deepEqual(delivered[0].source, { kind: 'plugin', plugin: 'aukora-buzz-door', form: 'relay' })
   assert.match(delivered[0].content[0].text, /external words/u)
+})
+
+test('apply: an unavailable configured session logs once and retries the original mention when that session appears', async t => {
+  const clock = Date.now(); t.mock.method(Date, 'now', () => clock)
+  const f = isolatedFiles(t), owner = randomSecretKey(), platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  const event = chat(owner, 'retry this mention', { mention: publicKeyOf(f.key) }), delivered = [], logs = []
+  let available = false, poll, queries = 0, lookups = 0, finish
+  const received = new Promise(resolve => { finish = resolve })
+  fs.writeFileSync(f.configFile, JSON.stringify({ channel: CHANNEL, ownerPubkey: publicKeyOf(owner), sessionId: SESSION }))
+  Object.defineProperty(process, 'platform', { value: 'linux' }); t.after(() => Object.defineProperty(process, 'platform', platform))
+  t.mock.method(os, 'homedir', () => f.home)
+  t.mock.method(console, 'info', (...args) => logs.push(args.join(' ')))
+  t.mock.method(globalThis, 'fetch', async () => { queries++; return new Response(JSON.stringify([event])) })
+  t.mock.method(globalThis, 'setInterval', fn => { poll = fn; return { unref() {} } })
+  const hooks = registerHooks({ resolve(specifier, context, next) {
+    return specifier === '@deepseek-ai/dsh-llm'
+      ? { url: 'data:text/javascript,export const createUserMessage = input => ({id:"fixture",...input})', shortCircuit: true }
+      : next(specifier, context)
+  } })
+  t.after(() => hooks.deregister())
+  const ctx = { tools: { register() {} }, effect: fn => fn(), agents: {
+    roots: () => { throw new Error('must never deliver to a different root session') },
+    get: id => {
+      lookups++; assert.equal(id, SESSION)
+      return available ? { followup: async message => { delivered.push(message); finish() } } : undefined
+    },
+  } }
+  apply(ctx, { keyFile: f.keyFile, configFile: f.configFile })
+  logs.length = 0 // startup registration is separate from repeated delivery failures
+  const tick = async () => { poll(); await new Promise(resolve => setImmediate(resolve)) }
+  await tick(); await tick()
+  assert.equal(queries, 2); assert.equal(lookups, 2, 'an unavailable session must not acknowledge the message')
+  assert.deepEqual(delivered, [])
+  assert.deepEqual(logs, ['AUKORA_BUZZ_DOOR_FAILED configured Buzz session unavailable'])
+  available = true
+  poll()
+  let watchdog
+  try { await Promise.race([received, new Promise((_r, reject) => { watchdog = setTimeout(() => reject(new Error('no retried followup')), 2000) })]) }
+  finally { clearTimeout(watchdog) }
+  await tick()
+  assert.equal(delivered.length, 1, 'the original mention is retried, then acknowledged exactly once')
+  assert.match(delivered[0].content[0].text, new RegExp(event.id, 'u'))
+  assert.deepEqual(logs, ['AUKORA_BUZZ_DOOR_FAILED configured Buzz session unavailable', 'AUKORA_BUZZ_DOOR_RECOVERED'])
 })
 
 test('LIVE (AUKORA_BUZZ_LIVE=1): against a real Buzz relay, a mention reaches the door and her reply is read back by the sender', { skip: process.env.AUKORA_BUZZ_LIVE !== '1' }, async () => {
