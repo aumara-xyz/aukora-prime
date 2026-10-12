@@ -173,3 +173,24 @@ which model runs the builder agent.
 SAY PLAINLY TO ANYONE SHOWN THIS: an approval proves a key signed exact bytes after a biometric match on one device,
 not a unique person. "Used once" is kept by the gate that counted, not provable offline. A co-presence receipt is
 evidence and grants nothing. Buzz is Block's; this is built on a fork and has not been sent to them.
+
+STEP 2, 2026-10-12 (written by the builder session in this repository; nothing above is changed):
+- OWNER GO: Peter wrote "nebius go" to the builder on 2026-10-12, first-hand. It covers step 2: a new user and a new
+  service beside the harness. Bringing the pilot's harness up to main is a separate go, not given.
+- [RAN on the pilot] ops/buzz-relay: user `aukora-buzz` (its own subordinate id range, no sudo), one rootless Podman
+  pod with the relay, Postgres 17 and Redis 7, state under /var/lib/aukora-buzz, secrets made on the node and never
+  printed. The relay image was built on the pilot from aukora-buzz 9def3e9 (has the gift-wrap time fix).
+  `aukora-buzz.service` started; ops/buzz-relay/check.sh 10 of 10 PASS: the three containers run, /health answers on
+  127.0.0.1:18740, aukora-buzz listens nowhere else, and aukora-genesis, the gate, the OpenShell gateway, OpenViking
+  and aukora-relay were still active. Nothing of the harness, its plugin set, mounts or release floor was changed.
+- [RAN, Mac -> SSH tunnel -> pilot, disposable keys, plugin code unchanged] plugins/aukora-nostr against that relay:
+  signs in, a private message is accepted, the recipient fetches and opens it and the sender is proved; a stranger
+  asking for the recipient's messages is refused; a wrap 47 hours old is accepted, one 3 days old or in the future is
+  refused.
+- [NOT RUN] the step's own done-check: Buzz's desktop app on the Mac joining this relay and a message round-tripping.
+  That needs Peter at the app. Media upload (no S3 store installed). A reboot of the pilot. Closed mode: the relay
+  is OPEN to any login on the node and anyone on the tunnel; it has no owner key yet.
+- The pilot's firewall rule refuses Auma's sandbox the relay's port. Step 3 needs that one port allowed for her, which
+  is a change to the boundary and is Peter's to approve.
+- The install scripts had one independent read-only review (Codex) before the first start; its nine findings were
+  fixed. First build attempt failed at its first step (no registry for short image names); recorded in the history.
