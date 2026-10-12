@@ -7,6 +7,7 @@ import { embeddingParts } from './memory-input-bounds.mjs'
 
 /** The method name every semantic answer carries. */
 export const SEMANTIC_METHOD = 'openviking-semantic'
+export const OPERATOR_SYNC_VERSION = 1
 
 /** IDs accepted by the two semantic ledgers. Anything else is never indexed or shown. */
 const NOTE_ID = /^rem:[0-9a-f]{64}$/u
@@ -277,7 +278,7 @@ export function createOpenVikingRecall(input) {
   }
   const auditAcknowledged = async (grouped, budget = config.syncBatch) => {
     const uris = Object.keys(acknowledgements).filter(uri => grouped.has(uri) && acknowledged(acknowledgements[uri]))
-    const unreadable = [], tampered = [], failed = [], failures = []
+    const unreadable = [], tampered = [], failed = [], failures = [], failedIds = new Set()
     const count = Math.min(uris.length, syncBudget(budget))
     let requests = 0
     for (let i = 0; i < count; i++) {
@@ -291,11 +292,15 @@ export function createOpenVikingRecall(input) {
           [...new Set([...idsOf(acknowledgements[uri]), ...grouped.get(uri).map(note => note.id)])], hashOf(grouped.get(uri)[0]))
       } catch (error) {
         if (error.code === 'kira.semantic:not-found') { ack(uri, null); unreadable.push(uri) }
-        else { failed.push('index-audit-failed'); failures.push(failureOf(error)); break }
+        else {
+          failed.push('index-audit-failed'); failures.push(failureOf(error))
+          for (const note of grouped.get(uri) ?? []) failedIds.add(note.id)
+          break
+        }
       }
     }
     auditOffset = uris.length ? (auditOffset + requests) % uris.length : 0
-    return { unreadable, tampered, failed, failures, requests }
+    return { unreadable, tampered, failed, failures, failedIds: [...failedIds], requests }
   }
   const groupLedger = live => {
     const grouped = new Map()
@@ -322,13 +327,13 @@ export function createOpenVikingRecall(input) {
     const live = await ledgerNow(options.snapshot ?? source), grouped = groupLedger(live), retained = retainedOf(live)
     const budget = syncBudget(options.budget ?? config.syncBatch)
     let added = 0, removed = 0, requests = 0
-    const failed = [], failures = [], written = []
+    const failed = [], failures = [], written = [], failedIds = new Set()
     const remove = async uri => {
       requests++
       try { await removeUri(uri); ack(uri, null); removed++ }
       catch (error) { failed.push('remove-failed'); failures.push(failureOf(error)) }
     }
-    if (live.complete) for (const uri of Object.keys(acknowledgements)) if (uri.startsWith(`${root}/`) && !grouped.has(uri) && !retained.has(uri)) {
+    if (options.removeStale !== false && live.complete) for (const uri of Object.keys(acknowledgements)) if (uri.startsWith(`${root}/`) && !grouped.has(uri) && !retained.has(uri)) {
       if (requests >= budget || failed.length) break
       await remove(uri)
     }
@@ -339,10 +344,13 @@ export function createOpenVikingRecall(input) {
     const older = missing.filter(([, notes]) => !priority.has(hashOf(notes[0])))
     // New captures get the first bounded batch; a large old outbox cannot starve this turn.
     // One request budget covers deletes, writes, audits and forget-race cleanup together.
-    const selected = failed.length ? [] : [...current, ...older].slice(0, Math.max(0, budget - requests))
+    const skipped = new Set(options.skipIds ?? [])
+    const selected = failed.length ? [] : [...current, ...older].filter(([, notes]) => !notes.every(note => skipped.has(note.id)))
+      .slice(0, Math.max(0, budget - requests))
     for (const [uri, notes] of selected) {
       if (requests >= budget) break
       try {
+        if (options.preserveQuarantined === true && acknowledgements[uri]?.status === 'quarantined') throw new OpenVikingError('content-mismatch', 'index acknowledgement quarantined')
         const document = documentFor(notes[0], uri)
         // Old acknowledgements proved a write, not a vector. Verify their bytes
         // before retrying; an index repair must never overwrite changed content.
@@ -372,6 +380,7 @@ export function createOpenVikingRecall(input) {
         // Keep a durable deletion target even if a forget races this write and the budget is spent.
         ack(uri, notes.map(note => note.id), undefined, null, true); written.push(uri)
       } catch (error) {
+        for (const note of notes) failedIds.add(note.id)
         failed.push(error.code === 'kira.semantic:auth-refused' ? 'openviking-auth-refused'
           : error.code === 'kira.semantic:content-mismatch' ? 'index-content-mismatch' : 'index-write-failed')
         failures.push(failureOf(error))
@@ -394,7 +403,7 @@ export function createOpenVikingRecall(input) {
     for (const uri of written) {
       const alive = latestGroups.get(uri) ?? []
       if (!alive.length) {
-        if (latest.complete && requests < budget && !failed.length) await remove(uri)
+        if (options.removeStale !== false && latest.complete && requests < budget && !failed.length) await remove(uri)
         continue
       }
       const ids = alive.map(note => note.id)
@@ -403,13 +412,19 @@ export function createOpenVikingRecall(input) {
     const audit = options.verifyAcknowledged && !failed.length
       ? await auditAcknowledged(latestGroups, budget - requests) : { unreadable: [], tampered: [], failed: [], requests: 0 }
     requests += audit.requests; failed.push(...audit.failed); failures.push(...(audit.failures ?? []))
-    if (audit.tampered.length) failed.push('index-content-mismatch')
+    for (const id of audit.failedIds ?? []) failedIds.add(id)
+    if (audit.tampered.length) {
+      failed.push('index-content-mismatch')
+      for (const uri of audit.tampered) for (const note of latestGroups.get(uri) ?? []) failedIds.add(note.id)
+    }
     if (audit.requests) { latest = await ledgerNow(source); latestGroups = groupLedger(latest) }
     const latestRetained = latest.complete ? retainedOf(latest) : null
-    return { added, removed, pending: [...latestGroups.keys()].filter(uri => !indexed(acknowledgements[uri])).length,
+    const pendingGroups = [...latestGroups].filter(([uri]) => !indexed(acknowledgements[uri]))
+    return { added, removed, pending: pendingGroups.length,
+      pendingIds: [...new Set(pendingGroups.flatMap(([, notes]) => notes.map(note => note.id)))], failedIds: [...failedIds],
       removalPending: latestRetained ? Object.keys(acknowledgements).filter(uri => uri.startsWith(`${root}/`) && !latestGroups.has(uri)
         && !latestRetained.has(uri)).length : null,
-      indexed: Object.values(acknowledgements).filter(indexed).length, failed, failures, audit, requests, budget }
+      indexed: [...latestGroups.keys()].filter(uri => indexed(acknowledgements[uri])).length, failed, failures, audit, requests, budget }
   })
   const forget = id => inTurn(async () => {
     readAcknowledgements()
@@ -510,7 +525,8 @@ export function createOpenVikingRecall(input) {
       }
     }
     if (candidateNotes.length) govern(candidateNotes, live)
-    const filtered = new Map(govern(raw.map(hit => hit.note), live).map(note => [note.id, note]))
+    const filtered = new Map(govern([...live.entries.values()].filter(note => verifyContentHash(note.statement, hashOf(note)).ok), live)
+      .map(note => [note.id, note]))
     // A rebuilt index may return no hits at all. Probe a bounded rotating acknowledgement batch;
     // missing documents become durable retries, while changed bytes stay withheld, never overwritten.
     if (reads.length === 0) {
@@ -526,10 +542,15 @@ export function createOpenVikingRecall(input) {
     }
     verified.sort((a, b) => b.score - a.score || String(b.note.observedAt ?? '').localeCompare(String(a.note.observedAt ?? '')) || (Number.isSafeInteger(b.note.aura?.index) ? b.note.aura.index : -1) - (Number.isSafeInteger(a.note.aura?.index) ? a.note.aura.index : -1) || a.id.localeCompare(b.id))
     const hits = verified.slice(0, Math.max(1, Math.min(50, limit)))
-    if (!hits.length && (synced.failed?.length || synced.pending > 0 || dropped.unreadable.length)) {
+    const eligible = [...filtered.values()].filter(note => memoryQuality(note.statement).keep)
+    const indexedNotes = eligible.filter(note => contentDocuments(config.user, note).every(document => indexed(acknowledgements[document.uri]))).length
+    const searchableNotes = eligible.filter(note => contentDocuments(config.user, note).some(document => indexed(acknowledgements[document.uri]))).length
+    const coverage = { indexed: indexedNotes, total: eligible.length, partial: synced.pending > 0 || dropped.unreadable.length > 0
+      || indexedNotes < eligible.length, ...(searchableNotes > indexedNotes ? { partialSpans: searchableNotes - indexedNotes } : {}) }
+    if (!hits.length && searchableNotes === 0 && (synced.failed?.length || synced.pending > 0 || dropped.unreadable.length)) {
       return { available: false, reason: 'openviking-index-pending', hits, dropped, diagnostics, failures, sync: synced, ledgerComplete: live.complete }
     }
-    return { available: true, hits, dropped, diagnostics, failures, threshold: config.scoreThreshold, sync: synced, ledgerComplete: live.complete }
+    return { available: true, hits, dropped, diagnostics, failures, coverage, threshold: config.scoreThreshold, sync: synced, ledgerComplete: live.complete }
   }
   const listLegacy = async () => {
     const found = []
@@ -560,7 +581,8 @@ export function createOpenVikingRecall(input) {
 }
 
 export function semanticNotes(answer, chars = 600) {
-  return { state: answer.hits.length ? 'found' : 'empty', method: SEMANTIC_METHOD, grantsAuthority: false,
+  return { state: answer.hits.length ? 'found' : answer.coverage?.partial ? 'undetermined' : 'empty', method: SEMANTIC_METHOD, grantsAuthority: false,
+    ...(answer.coverage ? { coverage: answer.coverage, degraded: answer.coverage.partial } : {}),
     notes: answer.hits.map(({ id, score, note, relevance, uri, semanticSpan }) => {
       // A short display of a long note should show the verified matching part,
       // not always its first characters. Offsets are UTF-8 bytes, never slice's
@@ -579,5 +601,8 @@ export function semanticNotes(answer, chars = 600) {
     droppedUnreadable: answer.dropped.unreadable.length, droppedBelowThreshold: answer.dropped.belowThreshold,
     hashMismatches: answer.dropped.tampered.length, droppedQuality: answer.dropped.quality ?? 0,
     ...(answer.diagnostics === undefined ? {} : { diagnostics: answer.diagnostics }), threshold: answer.threshold,
-    ...(answer.sync === undefined ? {} : { index: answer.sync }), ceiling: SEMANTIC_CEILING }
+    ...(answer.sync === undefined ? {} : { index: answer.sync }), ceiling: answer.coverage?.partial
+      ? [...SEMANTIC_CEILING, `semantic over ${answer.coverage.indexed} of ${answer.coverage.total} notes${answer.coverage.partialSpans
+        ? `; ${answer.coverage.partialSpans} additional notes have only some indexed spans` : ''}; unindexed content was not searched, absence is undetermined`]
+      : SEMANTIC_CEILING }
 }

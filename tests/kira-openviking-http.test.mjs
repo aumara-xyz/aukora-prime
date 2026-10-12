@@ -150,7 +150,12 @@ if (child) {
         const saved = await run('remember', `The cobalt telescope is beside orchard number ${passed}-${status}.`)
         assert.equal(saved.remembered, 1); assert.ok(saved.index.pending > 0); assert.ok(saved.index.failed.includes('index-write-failed'))
         const recalled = await run('recall', 'cobalt telescope')
-        assert.equal(recalled.retrieval.degraded, true); assert.equal(recalled.remembered.semantic.reason, 'openviking-index-pending')
+        assert.equal(recalled.retrieval.degraded, true)
+        // While something is unindexed, recall by meaning either has nothing indexed to search (named reason) or
+        // searches what is indexed and says the coverage is partial. It never claims a complete search.
+        const semantic = recalled.remembered.semantic
+        const coverage = recalled.remembered.coverage
+        assert.ok(semantic.reason === 'openviking-index-pending' || (coverage?.partial === true && coverage.indexed < coverage.total), JSON.stringify({ reason: semantic.reason, coverage }))
         assert.ok(recalled.snippets.length > 0)
       }
       controls.vectorStatus = 'complete'

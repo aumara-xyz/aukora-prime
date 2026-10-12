@@ -406,6 +406,57 @@ aliases require `alias_table` with `version: 1`, `status: "owner-reviewed"`,
 reviewed `record_ids`; see `lib/project-identity.mjs`. That review is an operator
 input, not cryptographically verified. No historical bytes or IDs are rewritten.
 
+For existing node memory, run this operator sequence as the harness user with
+the backend environment (`DSH_HOME`, `AUKORA_SUPPORT_ROOT`, no `AUKORA_STATE`):
+
+1. Create a private operator configuration directory (mode `0700`) under the
+   harness user's home. Build a draft with `node scripts/kira/build-project-map.mjs "$DSH_HOME/kira-memory" --project observatory=/srv/projects/observatory --out "$HOME/kira-operator/projects-draft.json"`.
+   Repeat `--project` for other roots. The builder matches both historical root
+   and root `/.git` hashes, lists every matched record ID in the file, and reports
+   unmatched scope counts, including `project:unresolved`. It never overwrites.
+   Review those bindings and IDs; rebuild to a new file with
+   `--owner-reviewed <review-id>` only after review. The flag records an operator
+   assertion; it neither performs nor verifies an owner ceremony. Keep every map
+   ancestor non-writable by group/others; the output is `0644` even under umask `002`.
+2. Compose a candidate release with `--kira-project-map <reviewed-map>` and the
+   normal release arguments. Create an empty scratch directory with mode `0700`,
+   then run `node scripts/kira/attach-check.mjs <candidate-release> --scratch-copy <scratch>`.
+   It copies the store, mounts the candidate's Kira, and compares lexical recall
+   before/after its configured mapping from every declared root. Exit zero means
+   no records belonging to that root's mapped project were dropped for scope;
+   counts are unique records; drops for other projects remain reported. It
+   disables network access and writes only the scratch copy. The descriptor-anchored check requires Linux;
+   macOS reports `UNPERFORMED` and exits `2`. Remove the private copy after review.
+3. Switch to that release through the normal owner-approved activation route,
+   retaining `--kira-project-map` in its composition. A draft cannot attach old
+   notes. Neither the builder nor attachment check changes the running resolver.
+4. Run `node scripts/kira/viking-sync.mjs <release> --max-minutes 10` on the node.
+   It uses the release's own bridge and configuration, advances durable index
+   acknowledgements in bounded batches, reports counts and failed IDs, and does
+   not delete index objects or overwrite quarantined index content. It refuses
+   releases without the operator-sync interface. Indexed/pending count index
+   documents (including spans); failed counts distinct note IDs. Interrupt and
+   rerun to continue. Ordinary capture,
+   recall and retry cap each sync at eight requests; retry leases/backoff and
+   failed writes can leave a large backlog despite a healthy search service.
+   Partial semantic recall searches the indexed portion, retains fresh store,
+   policy and content checks, and reports `semantic over N of M notes`; a partial
+   no-hit result is undetermined. Forgotten/hidden notes cannot become hits merely
+   because their old vectors remain.
+5. Read `node scripts/kira/integrity-report.mjs "$DSH_HOME/kira-memory"`.
+   It lists refused IDs and fixed reasons, never content, and repairs nothing.
+   `capture-envelope-changed` means the stored envelope no longer recomputes its
+   captured ID; `content-commitment-invalid` means the envelope still matches but
+   a recorded content commitment does not. The cause remains undetermined.
+   Read-only Genesis history (`1e983dd3a`, `16adc91b9`, `f6f7bcdee`) and current
+   code hash exact UTF-8 statements; normalization used for quality assessment
+   does not change that hash. No supported older canonical content form was
+   found that would justify accepting the mismatches.
+
+These tools print counts, scope digests or record IDs, never note text, subjects
+or credentials. Synthetic checks establish local behavior, not attachment of
+the owner's actual records, search quality, installed activation or containment.
+
 Agent notes remain available through explicit recall as advisory data. Automatic
 context excludes them even with approval/receipt metadata: Prime `7d85aa9e`
 records “model-authored notes never inject pre-turn (Honey Pot item 5)”, enforced
