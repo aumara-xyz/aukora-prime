@@ -49,35 +49,24 @@ sudo -u "$U" mkdir -p "$ROOT/data/postgres" "$ROOT/data/redis" "$ROOT/data/git" 
 
 # The images consume derived files; legacy credentials remain authoritative for existing database data.
 sudo -u "$U" bash "$HERE/prepare-secrets.sh" "$ROOT"
-sudo -u "$U" env ROOT="$ROOT" OWNER="$OWNER" PORT="$PORT" bash -s <<'EOS'
-set -euo pipefail
-umask 077
-cd "$ROOT"
-# Settings that are not secret; rewritten on every install so the repository stays the source.
-# A relay that was closed stays closed with the same owner unless a new owner is named.
-if [ -z "$OWNER" ] && [ -f relay.env ]; then OWNER=$(sed -n 's/^RELAY_OWNER_PUBKEY=//p' relay.env); fi
-{
-  echo 'BUZZ_BIND_ADDR=0.0.0.0:3000'
-  echo 'BUZZ_HEALTH_PORT=8080'
-  echo 'BUZZ_METRICS_PORT=9102'
-  echo "RELAY_URL=${AUKORA_BUZZ_RELAY_URL:-ws://localhost:3000}"
-  echo 'BUZZ_AUTO_MIGRATE=true'
-  echo 'BUZZ_GIT_REPO_PATH=/data/git'
-  echo 'BUZZ_PUSH_ENABLED=false'
-  echo 'BUZZ_GIT_CONFORMANCE_PROBE=false'
-  echo 'RUST_LOG=info'
-  if [ -n "$OWNER" ]; then
-    echo "RELAY_OWNER_PUBKEY=$OWNER"
-    echo 'BUZZ_REQUIRE_RELAY_MEMBERSHIP=true'
-  fi
-} > relay.env
-printf 'PORT=%s\n' "$PORT" > node.env
-EOS
+sudo -u "$U" bash "$HERE/write-settings.sh" "$ROOT" "$OWNER" "$PORT"
 
 # Buzz's Dockerfile names its base images without a registry; resolve those to Docker Hub for this user only.
 sudo -u "$U" sh -c 'mkdir -p ~/.config/containers && printf "unqualified-search-registries = [\"docker.io\"]\nshort-name-mode = \"permissive\"\n" > ~/.config/containers/registries.conf'
 
 sudo install -d -m 0755 "$LIB"
+# Keep the verifier's relative imports and notices when installing from a full checkout.
+if [ -f "$HERE/../../plugins/aukora-buzz-door/lib/index.mjs" ]; then
+  sudo install -d -m 0755 "$LIB/member/ops/buzz-relay" "$LIB/member/plugins/aukora-buzz-door/lib" "$LIB/member/plugins/aukora-nostr/lib/vendor"
+  sudo install -m 0644 "$HERE/member.mjs" "$LIB/member/ops/buzz-relay/"
+  # The member tool imports the door for its request signing, and the door imports its receipt code and two gate
+  # files: everything in that closure is copied, or the installed tool cannot load (close.test.mjs checks it).
+  sudo install -m 0644 "$HERE/../../plugins/aukora-buzz-door/lib/index.mjs" "$HERE/../../plugins/aukora-buzz-door/lib/receipt.mjs" "$LIB/member/plugins/aukora-buzz-door/lib/"
+  sudo install -d -m 0755 "$LIB/member/packages/boundary-gate/src"
+  sudo install -m 0644 "$HERE/../../packages/boundary-gate/src/receipts.mjs" "$HERE/../../packages/boundary-gate/src/ledger.mjs" "$LIB/member/packages/boundary-gate/src/"
+  sudo install -m 0644 "$HERE/../../plugins/aukora-nostr/lib/event.mjs" "$LIB/member/plugins/aukora-nostr/lib/"
+  sudo cp -R "$HERE/../../plugins/aukora-nostr/lib/vendor/noble-curves" "$LIB/member/plugins/aukora-nostr/lib/vendor/"
+fi
 sudo install -m 0755 "$HERE/up.sh" "$HERE/down.sh" "$HERE/build.sh" "$HERE/check.sh" "$HERE/read-setting.sh" "$LIB/"
 sed -e "s/@UID@/$(id -u "$U")/g" -e "s/@MEMORY_LIMITS@/$MEMORY_LIMITS/g" "$HERE/aukora-buzz.service" \
   | sudo install -m 0644 /dev/stdin /etc/systemd/system/aukora-buzz.service

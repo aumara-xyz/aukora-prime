@@ -61,7 +61,7 @@ function fixture(t) {
   for (const pid of ['4321', '9876']) mkdirSync(join(root, 'proc', pid, 'fd'), { recursive: true })
   symlinkSync('pipe:[12345]', join(root, 'proc/4321/fd/3'))
   symlinkSync('pipe:[12345]', join(root, 'proc/9876/fd/5'))
-  for (const file of ['up.sh', 'check.sh', 'install.sh', 'read-setting.sh', 'check-port.sh', 'prepare-secrets.sh']) {
+  for (const file of ['up.sh', 'check.sh', 'install.sh', 'read-setting.sh', 'check-port.sh', 'prepare-secrets.sh', 'write-settings.sh']) {
     writeFileSync(join(root, file), readFileSync(join(here, file), 'utf8')
       .replaceAll('/var/lib/aukora-buzz', state).replaceAll('/proc/', `${root}/proc/`))
   }

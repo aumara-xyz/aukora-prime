@@ -36,6 +36,15 @@ if [ "$MODE" != full ]; then
   exit "$fail"
 fi
 
+# Membership probes are informational; an open relay does not fail the health check.
+MEMBER="$HERE/member/ops/buzz-relay/member.mjs"
+[ -f "$MEMBER" ] || MEMBER="$HERE/member.mjs"
+if node "$MEMBER" verify-closed --relay "http://localhost:${PORT}" >/dev/null 2>&1; then
+  printf 'PASS  closed\n'
+else
+  printf 'OPEN  closed (not proved)\n'
+fi
+
 # Every listening socket on the machine that belongs to a process of aukora-buzz must be on loopback.
 if LISTEN=$(sudo ss -ltnpH) && [ -n "$LISTEN" ]; then
   OFF=$(printf '%s\n' "$LISTEN" | awk '$4 !~ /^(127\.|\[::1\])/' | while read -r line; do

@@ -16,6 +16,26 @@ ssh NODE 'sudo systemctl enable --now aukora-buzz && bash /usr/local/lib/aukora-
 ssh -N -L 127.0.0.1:3000:127.0.0.1:3000 NODE                                 # then Buzz's app on the Mac sees it as its local relay
 ```
 
+To close an existing relay, run from a **full Prime checkout** on the node with Node 24.11.1 available
+(the ops-only copy above cannot load the door/member JavaScript imports):
+
+```
+export PATH=$HOME/.local/node-v24.11.1/bin:$PATH
+bash ops/buzz-relay/close.sh --owner-pubkey "$OWNER_PUBKEY" --key-file /absolute/path/to/door.key
+```
+
+This preserves other relay settings and database rows, saves 0600 environment/logical-dump backups beneath the
+service account's directory, restarts through the unit, and requires both HTTP membership refusals. Re-run the
+same command after interruption; a pending completed backup is reused even if Postgres was stopped. Failures
+restore the environment and restart; they do not revert membership rows bootstrapped by startup or restore the
+dump. Keep the door disabled on failure. The output gives the owner's own-machine commands; only the agent's
+public-key handoff file travels to that machine, never the owner's private key to the node.
+
+Install from a full checkout to bundle the verifier and its existing imports for installed `check.sh`.
+The full check prints `PASS  closed` only on verified refusals, otherwise `OPEN  closed (not proved)` without
+failing health; an ops-only installation has no verifier and therefore cannot report PASS closed. Health/watch
+modes skip membership probes, which can store a synthetic note on an open relay.
+
 A changed port needs the pod made again (data is kept): `sudo systemctl stop aukora-buzz`, then as aukora-buzz
 `podman pod rm -f aukora-buzz`, then install and start.
 
