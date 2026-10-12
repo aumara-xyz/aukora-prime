@@ -395,3 +395,14 @@ Linux CI on 8727a39 failed three checks. Every run between 17b5ce0 (green) and 8
 3. **Gate bootstrap check, Linux only, intermittent**: its fixture lived in the shared temporary directory; the bootstrap compares each ancestor directory before and after opening, and parallel checks creating files there made it refuse. The fixture now lives under a parent only that check writes to (`~/.cache/aukora-prime-checks/gate-bootstrap`). Passed on the pilot (Linux) before the change as well, which is why it is called intermittent and not fixed-and-proven.
 
 Staging: the roll of 8727a39 was refused at `launcher-hash:upstream-dsh.json` and restored itself. Cause is the script's order (the package was checked before the launcher checkout was moved to the new commit), not the source.
+
+### 2026-10-12 night: tonight's `main` runs in staging; a Buzz mention starts a turn in a real session there
+
+RAN in the staging container on the pilot, release `dcb2141`, approved with the staging stand-in owner key (not Peter's), gate package upgraded from staged copies, release floor OK:
+
+- **Installed door acceptance: 11 of 11**, with the signed ledger holding the intent and the completion. The scratch home must be inside the harness user's home: the door refuses a key or configuration under a directory others can write (it refused `/var/tmp`, correctly).
+- **A mention from the configured owner key started a turn in a real harness session through the door** (`handed_by_door=true turn_started=true`). The message arrived with the plugin's provenance, not the owner's. The turn then stopped at `MISSING_CREDENTIAL`: **staging has no model key**, so there is no reply yet. I did not copy the pilot's model key into staging; that is Peter's to do or allow.
+- **Found: after a harness restart the configured session is not live**, and the door logs `configured Buzz session unavailable` until a client opens that session again (`session/create` with its id). The mention that arrived meanwhile was held and delivered once the session was open; nothing was lost. Until this is fixed, a node that restarts does not answer Buzz until someone opens the session.
+- NOT RUN: the relay closed with an owner (the one relay is the one Peter's app uses; closing it with a throwaway owner would lock his app out); admission by invite against the real relay; Kira recall through this release with OpenViking; anything on the live harness, which still runs `3673b98`.
+
+Outside view from the Honey Pot session, same night, kept because it is right: the demo's gaps are not belt rows. The Buzz app's Touch ID approval and the pilot gate's approval are two paths with two keys, and "which key signs on the pilot" is still open; showing one approval flow before they are joined would make the system look safer than it is. It also advised parking belt rows 11, 14, 43, 44, 54, 63, 66, 69 and 21; the belt worker on the next PORT rows was stopped on that advice.
