@@ -297,3 +297,20 @@ STEP 3 STATE, evening of 2026-10-12:
   cannot resolve in a release, so no turn could start (fixed in a9a597b).
   What this does not show: a model. The session was a recorder; what Auma does with what she is handed is NOT RUN.
   The relay was still open; the keys and the channel were throwaway. Nothing on the live harness was changed.
+- THE BELT AND THE DEMO PIECES, evening of 2026-10-12. Fifteen Codex workers (Astra, ultra), each in its own
+  throwaway clone, each leaving one change that was brought onto main one at a time with its tests rerun, then
+  the clone deleted. Landed, all [SOURCE; RAN on the Mac under Node 24.11.1 only]:
+  the co-presence receiving end and device binding (34 tests), the portal page with its gates (135 pass, 3 skip
+  for want of outside reference data), the relay member tool (11 pass, 2 gated on a live closed relay), a test
+  pinning that a plugin-started turn is never the owner's words (no code needed changing), node-spawn groundwork
+  (plan mode only; it refuses at the three steps that have no script: admission by invite, fresh owner-key
+  enrollment, sandbox provisioning), and belt rows 5, 7, 8, 19, 35, 38 and the courts for 61.
+  Corrections to two of those commit messages, which left the result blank or short: belt 35's check
+  (`node labs/time-anchors/checks/drand.mjs`) passes, 10 checks and 16 mutants killed; belt 19's test passes 1
+  and leaves 1 UNPERFORMED on the Mac (it needs the pinned harness archive in vendor/), so the new harness patch
+  has not been applied in a real build yet: the next release build in staging is its first real test.
+  Row 61's courts found six gaps in this repository's own conversation rails; they are kept as twelve
+  known-failing cases, not hidden: organism state missing from trust classification and from honesty
+  capabilities, claims-delimiter spoofing, malformed lens responses missing from unread evidence, current
+  claims-table rows ignored, current "Not claimed" prose omitted.
+  Still running when this was written: invites, the receipt-in-the-channel pieces, the documentation pass.
