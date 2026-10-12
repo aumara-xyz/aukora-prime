@@ -455,3 +455,13 @@ RAN in staging on `c8cf03c`, the hand-over state: `ops/pilot/live-switch-main.sh
 RAN on the pilot host: release `c8cf03c` built beside the live one with Kira's OpenViking setting on; the memory probe 6 of 6 against the real OpenViking after its second fix. Live harness untouched: `3673b98`, active.
 
 NOT RUN anywhere: the live switch on the pilot; the relay closed with an owner; the admission service installed; a model reply in staging; the Aura page or any face in a browser; any step of node spawn on a real machine.
+
+### 2026-10-13 morning: the live pilot runs tonight's `main` (`c8cf03c`), by Peter's click
+
+RAN on the live pilot with Peter's real touch (he approved the plugin-set card in his app): `3673b98` -> `c8cf03c`, gate package upgraded. After the switch: selfcheck PASSED, plugin set ENFORCED, harness, gate, relay, Buzz relay and OpenViking active; `scripts/kira/release-recall-probe.mjs` against the LIVE release 6 of 6 (scratch state, real OpenViking); one real model turn through the new release answered.
+
+It took three runs. Two failures were mine and only showed on the live machine (the popup cannot appear while the harness is down; the launcher will not start until its port drains). The harness was down for roughly two minutes in total beyond the planned stop. Both are written up in `ops/pilot/README.md`; the drain is fixed in the script, the order (click before stop) is not yet.
+
+Also found: Peter's desktop shortcut starts the app WITHOUT the pilot attach settings, so it silently falls back to the old Genesis release installed on the Mac (`~/au91-root/aukora-release-9572138ef`) and shows that. Only `~/.aukora-nebius/launch-aukora.sh` attaches to the pilot. That is why he saw "the old app".
+
+NOT yet on live: the Buzz door answers `AUKORA_BUZZ_DOOR_UNAVAILABLE` because the live node has no relay key or door configuration for Auma (never created there); the relay is still open; the admission service is not installed.

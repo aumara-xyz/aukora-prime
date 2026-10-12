@@ -15,6 +15,11 @@ L=/usr/local/lib/aukora-boundary; M=/etc/aukora-boundary-gate/gate-package-manif
 CLEAN="env -i PATH=/usr/bin:/bin HOME=/root LANG=C LC_ALL=C"; BOOT="$CLEAN /usr/bin/python3 -I -S $L/gate-bootstrap"
 G="git -c safe.directory=* -C $SRC"; O="sudo -u aukora-gate /opt/aukora-node/bin/node --no-warnings /opt/aukora-boundary-gate/bin/owner-cli.mjs"
 step() { echo; echo "== $*"; }
+# The launcher refuses to start while any connection on its port lingers (an attached app keeps some for seconds
+# after a stop). Found on the first live run, 2026-10-13: both the new release and the restored one failed with
+# port-unavailable. Wait for the port to drain before every start.
+PORT=18735
+drain() { local n=1; for i in $(seq 1 60); do n=$(ss -tan 2>/dev/null | grep -c ":$PORT " || true); [ "$n" = 0 ] && break; sleep 2; done; echo "port $PORT drained (remaining $n)"; }
 step "1 preflight"
 [ -d "$REL" ] || { echo "release $REL is not built (run mat-live-main.sh first)"; exit 1; }
 [ -z "$($G status --porcelain)" ] || { echo "launcher source checkout is not clean"; exit 1; }
@@ -61,7 +66,8 @@ restore() {
   try cp -a $B/manifest.old $M; try cp -a $B/gate-bootstrap.old $L/gate-bootstrap; try cp -a $B/release.env.old /etc/aukora-genesis/release.env
   [ ! -f $B/release-floor.json ] || try cp -a $B/release-floor.json /etc/aukora-approvals/release-floor.json
   try $G -c advice.detachedHead=false checkout -q --detach $(cat $B/src.old)
-  try systemctl start aukora-boundary-gate; sleep 3; systemctl reset-failed aukora-genesis 2>/dev/null || true; try systemctl start aukora-genesis; sleep 8
+  try systemctl start aukora-boundary-gate; sleep 3; drain; systemctl reset-failed aukora-genesis 2>/dev/null || true; try systemctl start aukora-genesis; sleep 8
+  [ "$(systemctl is-active aukora-genesis)" = active ] || { drain; systemctl reset-failed aukora-genesis 2>/dev/null || true; try systemctl start aukora-genesis; sleep 8; }
   echo "RESTORED: gate $(systemctl is-active aukora-boundary-gate), harness $(systemctl is-active aukora-genesis), on $(grep -o 'release-[0-9a-f]*' /etc/aukora-genesis/release.env | head -1). Backup kept in $B"
   [ $bad = 0 ] || echo "!! SOME RESTORE STEPS FAILED. Follow $B/RECOVERY.txt by hand."
   exit 1
@@ -107,7 +113,7 @@ echo "   The card must show PLUGIN SET $(echo "$SHOW" | awk '/^PLUGIN SET/{print
 step "7 point at the new release and start the harness"
 printf 'AUKORA_RELEASE_DIR=%s\nAUKORA_APPROVAL_ROOT=%s\nAUKORA_RECORD_SHA=%s\n' $REL $A $REC > /etc/aukora-genesis/release.env.new && chmod 0644 /etc/aukora-genesis/release.env.new && mv /etc/aukora-genesis/release.env.new /etc/aukora-genesis/release.env
 sudo -u aukora-host $CLEAN /usr/bin/python3 -I -S $L/gate-bootstrap floor check --release-dir $REL --approval-state-root $A 2>&1 | grep -viE "experimental|trace-warn" | cut -c1-200 || true
-systemctl reset-failed aukora-genesis 2>/dev/null || true; T0=$(date -u +"%Y-%m-%d %H:%M:%S"); systemctl start aukora-genesis || true
+drain; systemctl reset-failed aukora-genesis 2>/dev/null || true; T0=$(date -u +"%Y-%m-%d %H:%M:%S"); systemctl start aukora-genesis || true
 for i in $(seq 1 40); do curl -s -m 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:18735/ | grep -qE "200|30[0-9]|401|403" && break; [ "$(systemctl is-failed aukora-genesis)" = failed ] && break; sleep 5; done
 journalctl -u aukora-genesis --since "$T0" --no-pager -o cat | grep -E "REFUSED|release-floor|selfcheck|plugin set ENFORCE|AUKORA_BUZZ|AUKORA_RELAY|rror" | tail -10 | cut -c1-200
 [ "$(systemctl is-active aukora-genesis)" = active ] || restore
