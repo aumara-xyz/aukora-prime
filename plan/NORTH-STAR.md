@@ -316,3 +316,29 @@ STEP 3 STATE, evening of 2026-10-12:
   capabilities, claims-delimiter spoofing, malformed lens responses missing from unread evidence, current
   claims-table rows ignored, current "Not claimed" prose omitted.
   Still running when this was written: invites, the receipt-in-the-channel pieces, the documentation pass.
+- LINUX IS THE DEFINITION OF DONE (from 2026-10-12, night). Two outside reviews (Mistral GLM, round two on ee40825;
+  a second reader on 70d180f) showed the day's checks had been passing on a Mac while the code is for Linux, and
+  that claims lived in commit messages. Since 9c2d175 a second CI workflow runs ./security-review, the gate's
+  checks, scripts/check.sh and every top-level test on Linux on every push.
+  [RAN on GitHub's Linux runner] first run, at b085413: tests 82 PASS / 9 FAIL / 4 UNPERFORMED; check.sh 86 of 97
+  with 4 failed. At 17b5ce0, after the fixes: tests 88 PASS / 0 FAIL / 9 UNPERFORMED; check.sh 96 of 103 passed,
+  0 failed, 3 unperformed, 4 skipped (3 are macOS-only by design); the gate's checks and ./security-review with
+  no FAIL. What is UNPERFORMED there and why: tests that need the pinned harness built (kira-injection,
+  kira-memory-live-path, kira-aura-association, kira-recall-output-seam, filetool-search-race), the pinned
+  harness archive (subprocess-env-scrub), donor history (contact-migration), outside reference data (three
+  portal cases), a scratch base the daemon boundary accepts (owner-protocol), Linux host fixtures (host.mjs),
+  and the door suite's one live-relay case. A file with any skipped case is counted UNPERFORMED, not PASS.
+  The first run's failures included the door's own tests failing on Linux, a mutation check in check.sh that had
+  never run, and an acceptance driver that would have overwritten a live node's door settings: all found by the
+  outside red-team, all fixed in 17b5ce0.
+- ERRATA for commit messages (they cannot be changed): 70d180f says the red-team's gaps "are closed"; two of its
+  six (the content-blind post channel and unbounded cost per turn) were reduced, not closed, as the door's
+  header says. 9cf9a91 says "a new member binding a device": the code verifies a binding statement; it creates
+  none. b46018e was reverted (810bf6c) and returned reconciled (02260b9).
+- ALSO LANDED that night, all [SOURCE; Mac and the Linux runner; no node]: the gate's entry point takes an owner
+  key when one is enrolled (none is); a third approval target, a short owner note; buzz_post_receipt in the door;
+  admission by invite for a closed relay and a procedure to close an open one; node-spawn checks the invite
+  first; the six gaps in the conversation rails fixed in source (bundles not rebuilt); per-unit systemd
+  hardening proposals; the file fence's check-then-open race reproduced and kept as four failing cases.
+- OWED: ./prime verify on a quiet machine (it timed out in places under load: 58 PASS where it had been 62);
+  one gate check that fails intermittently under load; the face bundles; a wake with a real model.
