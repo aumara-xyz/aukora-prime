@@ -16,6 +16,7 @@
  */
 import { createHash } from 'node:crypto'
 import { TextDecoder } from 'node:util'
+import { runInNewContext } from 'node:vm'
 import { KEY_SHAPE, isExactMemoryPutArgs } from '../broker/memory-put-args.mjs'
 import { canonicalJSON } from '../kernel-seed/canonical-json.mjs'
 
@@ -53,6 +54,17 @@ export function proposeMemoryPutInWasm(args) {
     throw new RangeError('wasm-cell: proposal-too-large')
   }
 
+  // Interrupt module execution and its callback; input serialization stays outside this deadline.
+  try {
+    return runInNewContext('run()', { run: () => runCell(keyBytes, valueBytes) }, { timeout: 100 })
+  } catch (error) {
+    if (error?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') throw new Error('wasm-cell: execution-timeout')
+    throw error
+  }
+}
+
+/** Compile, instantiate and invoke only the pinned proposal module. */
+function runCell(keyBytes, valueBytes) {
   const module = compilePinnedModule()
   let proposal = null
   let memory = null

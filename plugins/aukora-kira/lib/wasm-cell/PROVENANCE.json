@@ -9,10 +9,10 @@
   "license": "AGPL-3.0-or-later",
   "licenseSource": "aukora-deep LICENSING.md: files under aukora/ and courts/ are AGPL-3.0-or-later",
   "layout": "paths are preserved verbatim below plugins/aukora-kira/lib/wasm-cell/ so the vendored court resolves ROOT = resolve(run.mjs, ../../..) to the wasm-cell directory and nothing else",
-  "provenance": "git -C ~/aukora-deep archive c417f7c5 <paths> | tar -x -C plugins/aukora-kira/lib/wasm-cell; no byte was edited after extraction",
+  "provenance": "Original extraction: git -C ~/aukora-deep archive c417f7c5 <paths> | tar -x -C plugins/aukora-kira/lib/wasm-cell. runtimeFiles and pinnedArtifacts retain the original upstream identities; local changes are recorded in localAdaptations.",
   "embeddedModule": {
     "note": "TWO DIFFERENT THINGS. The module is a 101-byte binary embedded as base64 in the wrapper. Its .wat source is separate text. Neither is derivable from the other here.",
-    "base64ConstantIn": "aukora/guest/wasm-proposal-cell.mjs:22",
+    "base64ConstantIn": "aukora/guest/wasm-proposal-cell.mjs:MODULE_BASE64",
     "binarySha256": "34ce6cab618b626243e876befb49ccf8a6780dc836e757484886b34ae977a438",
     "binaryBytes": 101,
     "watSourcePath": "aukora/guest/wasm/memory-put-proposal.wat",
@@ -38,7 +38,7 @@
       "courts/harness/wasm-proposal-cell/run.mjs"
     ]
   },
-  "pinnedArtifactsNote": "PINNED ARTIFACTS are the files the composition never imports and never runs: the .wat court mutation targets (7), the .d.mts type surface, and courts/harness/.../run.mjs, which is the upstream court itself. None is loaded on the runtime path; each is checked by sha256 and byte count against this manifest, and no runtime module may name one. The court writes only under the operating system temporary directory.",
+  "pinnedArtifactsNote": "The listed artifacts are never imported on the runtime path. Their hashes and byte counts record the upstream extraction, with any locally adapted files identified below. The court uses the operating system temporary directory.",
   "runtimeFiles": [
     {
       "path": "aukora/broker/memory-put-args.mjs",
@@ -150,5 +150,22 @@
       "bytes": 20314,
       "license": "AGPL-3.0-or-later"
     }
-  ]
+  ],
+  "localAdaptations": {
+    "date": "2026-10-12",
+    "change": "Apply a 100-ms node:vm execution deadline around compilation, instantiation and invocation, including the synchronous host callback. Extend the existing court with memory-growth, module-digest, import-inventory and timeout probes and guard-removal mutations. Embedded WASM and WAT bytes are unchanged.",
+    "limits": "The VM supplies a deadline, not a security boundary or instruction fuel. Input serialization and Node heap allocations are not bounded here. This does not sandbox agent tools or add a mounted caller.",
+    "files": [
+      {
+        "path": "aukora/guest/wasm-proposal-cell.mjs",
+        "sha256": "03e86e64a5a1253c3387e31aabcfd1f71cfe137244195f6aed8d66e5c43d2f19",
+        "bytes": 5993
+      },
+      {
+        "path": "courts/harness/wasm-proposal-cell/run.mjs",
+        "sha256": "9a5cf46a4e613e65fe1f340f126a17e1a86c1161e721ca6f30163f56fcdbaa24",
+        "bytes": 26741
+      }
+    ]
+  }
 }

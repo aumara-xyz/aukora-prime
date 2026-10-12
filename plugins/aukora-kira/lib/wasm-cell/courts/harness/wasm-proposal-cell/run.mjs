@@ -14,6 +14,7 @@
  *   node courts/harness/wasm-proposal-cell/run.mjs --mutate
  */
 import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -79,6 +80,12 @@ const EXPECTED_ROWS = [
   'W10.utf8',
   'W11.json',
   'W12.canonical',
+  'W13.inventory',
+  'W14.memory-maximum',
+  'W15.digest',
+  'W16.deadline',
+  'W17.start-deadline',
+  'W18.callback-deadline',
 ]
 const rows = []
 
@@ -221,6 +228,56 @@ row('W12.canonical', 'a same-inventory module cannot propose noncanonical JSON',
   reason: noncanonicalJson.reason,
 }, { sourceApplied: true, reason: 'wasm-cell: value-json-not-canonical' })
 
+const cellSource = readFileSync(CELL_SOURCE, 'utf8')
+const cellBytes = Buffer.from(cellSource.match(/const MODULE_BASE64 = '([^']+)'/u)[1], 'base64')
+const cellModule = new WebAssembly.Module(cellBytes)
+row('W13.inventory', 'only the allowed callback; no filesystem/network imports', {
+  imports: WebAssembly.Module.imports(cellModule),
+}, { imports: [{ module: 'aukora', name: 'propose_memory_put', kind: 'function' }] })
+
+row('W14.memory-maximum', 'the engine refuses growth beyond one 64-KiB page',
+  memoryLimit(cellBytes), { before: 65_536, growthRefused: true, after: 65_536 })
+
+// The probe replaces only the function body with (loop (br 0)); the ABI stays fixed.
+const spinBytes = replaceBytes(cellBytes,
+  '0a0e010c00200020012002200310000b', '0a0b01090003400c000b41010b')
+const spinProbe = {
+  base64: spinBytes.toString('base64'),
+  sha256: createHash('sha256').update(spinBytes).digest('hex'),
+}
+const unpinned = await invokeCellCopy(null, { key: 'digest', value: true }, [[
+  /const MODULE_BASE64 = '[^']+'/u, `const MODULE_BASE64 = '${spinProbe.base64}'`,
+]], true)
+row('W15.digest', 'changed module bytes refuse before entering a loop', {
+  sourceApplied: unpinned.sourceApplied, reason: unpinned.reason,
+}, { sourceApplied: true, reason: 'wasm-cell: module-digest-mismatch' })
+
+const deadline = await invokeCellCopy(spinProbe, { key: 'deadline', value: true }, [], true)
+row('W16.deadline', 'a repinned infinite WASM loop is interrupted; host survives', {
+  sourceApplied: deadline.sourceApplied, reason: deadline.reason, survived: deadline.survived,
+}, { sourceApplied: true, reason: 'wasm-cell: execution-timeout', survived: true })
+console.log(`  WASM loop elapsedMs=${deadline.elapsedMs}; configured deadline=100ms (not instruction fuel)`)
+
+// Add a void function (loop (br 0)) and make it the module's start function.
+let startBytes = replaceBytes(cellBytes, '01090160047f7f7f7f017f', '010c0260047f7f7f7f017f600000')
+startBytes = replaceBytes(startBytes, '03020100', '0303020001')
+startBytes = replaceBytes(startBytes, '0a0e010c00200020012002200310000b',
+  '0801020a16020c00200020012002200310000b070003400c000b0b')
+const startDeadline = await invokeCellCopy({
+  base64: startBytes.toString('base64'), sha256: createHash('sha256').update(startBytes).digest('hex'),
+}, { key: 'start', value: true }, [], true)
+row('W17.start-deadline', 'instantiation cannot evade the deadline through a start loop', {
+  sourceApplied: startDeadline.sourceApplied, reason: startDeadline.reason, survived: startDeadline.survived,
+}, { sourceApplied: true, reason: 'wasm-cell: execution-timeout', survived: true })
+
+const callbackDeadline = await invokeCellCopy(null, { key: 'callback', value: true }, [[
+  '      propose_memory_put(keyOffset, keyLength, valueOffset, valueLength) {',
+  '      propose_memory_put(keyOffset, keyLength, valueOffset, valueLength) {\n        while (true) {}',
+]], true)
+row('W18.callback-deadline', 'the synchronous allowed callback shares the deadline', {
+  sourceApplied: callbackDeadline.sourceApplied, reason: callbackDeadline.reason, survived: callbackDeadline.survived,
+}, { sourceApplied: true, reason: 'wasm-cell: execution-timeout', survived: true })
+
 console.log('\n  courts/harness/wasm-proposal-cell — import-pinned WebAssembly guest\n  ' + '-'.repeat(72))
 for (const result of rows) {
   console.log(`  ${result.n}  ${result.label.padEnd(58)} ${held(result) ? 'held' : '*** BREACH ***'}`
@@ -231,7 +288,23 @@ if (MUTATE) {
   const inventory = await runImportInventoryMutation()
   const validation = await runHostValidationMutations()
   const allowedEffect = await runAllowedImportEffectMutation()
+  const unboundedMemory = memoryLimit(replaceBytes(cellBytes, '050401010101', '0503010001'))
+  const unboundedTime = await invokeCellCopy(spinProbe, { key: 'deadline', value: true }, [[
+    '{ timeout: 100 }', '{}',
+  ]], true)
+  const digestRemoved = await invokeCellCopy(null, { key: 'digest', value: true }, [
+    [/const MODULE_BASE64 = '[^']+'/u, `const MODULE_BASE64 = '${spinProbe.base64}'`],
+    ["  if (digest !== MEMORY_PUT_PROPOSAL_WASM_SHA256) throw new Error('wasm-cell: module-digest-mismatch')", '  void digest'],
+  ], true)
+  const limitsDetected = !unboundedMemory.growthRefused && unboundedMemory.after === 131_072
+    && unboundedTime.sourceApplied && unboundedTime.childTimedOut
+    && digestRemoved.sourceApplied && digestRemoved.reason === 'wasm-cell: execution-timeout'
+  console.log(`  MUTATION resource guards: memoryMaximumRemoved=${!unboundedMemory.growthRefused}`
+    + ` deadlineRemovedChildKilled=${unboundedTime.childTimedOut === true}`
+    + ` digestRemovedReachedLoop=${digestRemoved.reason === 'wasm-cell: execution-timeout'}`
+    + ` ${limitsDetected ? 'DETECTED' : 'NOT DETECTED'}`)
   const mutationConfirmed = rowsHeld
+    && limitsDetected
     && inventory.sourceApplied
     && inventory.controlRefused
     && inventory.widenedModuleAdmitted
@@ -372,7 +445,7 @@ async function runAllowedImportEffectMutation() {
 }
 
 /** Invoke one temporary cell source copy with optional module and source mutations. */
-async function invokeCellCopy(probe, callArgs, sourceMutations = []) {
+async function invokeCellCopy(probe, callArgs, sourceMutations = [], childProcess = false) {
   const directory = mkdtempSync(join(tmpdir(), 'aukora-wasm-cell-copy-'))
   try {
     const brokerUrl = pathToFileURL(join(ROOT, 'aukora', 'broker', 'memory-put-args.mjs')).href
@@ -396,6 +469,26 @@ async function invokeCellCopy(probe, callArgs, sourceMutations = []) {
     }
     const cellPath = join(directory, 'cell.mjs')
     writeFileSync(cellPath, source, 'utf8')
+    // A separate process lets the court kill a mutant with its deadline removed.
+    if (childProcess) {
+      const script = `
+        const cell = await import(${JSON.stringify(pathToFileURL(cellPath).href)})
+        const start = performance.now()
+        let reason = null
+        try { cell.proposeMemoryPutInWasm(${JSON.stringify(callArgs)}) }
+        catch (error) { reason = error.message }
+        const elapsedMs = Math.round(performance.now() - start)
+        const original = await import(${JSON.stringify(pathToFileURL(CELL_SOURCE).href)})
+        const survived = original.proposeMemoryPutInWasm({ key: 'after', value: true }).toolName === 'memory.put'
+        console.log(JSON.stringify({ reason, elapsedMs, survived }))
+      `
+      const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        encoding: 'utf8', timeout: 3000,
+      })
+      if (child.error?.code === 'ETIMEDOUT') return { sourceApplied, childTimedOut: true }
+      if (child.status !== 0) throw new Error(`cell-probe-failed: ${child.stderr}`)
+      return { sourceApplied, ...JSON.parse(child.stdout) }
+    }
     let proposal = null
     let reason = null
     let errorName = null
@@ -410,6 +503,25 @@ async function invokeCellCopy(probe, callArgs, sourceMutations = []) {
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+}
+
+/** Measure the module's engine-enforced memory maximum. */
+function memoryLimit(bytes) {
+  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes), {
+    aukora: { propose_memory_put: () => 1 },
+  })
+  const memory = instance.exports.memory
+  const before = memory.buffer.byteLength
+  let growthRefused = false
+  try { memory.grow(1) } catch (error) { growthRefused = error instanceof RangeError }
+  return { before, growthRefused, after: memory.buffer.byteLength }
+}
+
+/** Replace one binary section without adding a compiler dependency. */
+function replaceBytes(bytes, from, to) {
+  const hex = bytes.toString('hex')
+  if (hex.split(from).length !== 2) throw new Error('cell-probe-section-not-unique')
+  return Buffer.from(hex.replace(from, to), 'hex')
 }
 
 /** Replace one exact source occurrence. */
