@@ -245,8 +245,10 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // openVikingHome to all three Kira configs; default rows and socket are unchanged.
   // Reviewed wiring diff: goal-resume gains its deployment stateDir and the
   // optional Aumlok row targets service.mjs; both Kira rows/config and socket are unchanged.
+  // Reviewed project map opt-in: a validated --kira-project-map adds a quoted
+  // projectIdentityFile to the three Kira rows; no map is read or provisioned.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '992022c55c6c9dcc9c1212afe917f767194d67ba31a16c38b079b00fb989118d')
+    '0c71aa3b423eba98b07bf6ccc1c74f742aba4d2332aea29ffc5cd9511dcf6aa6')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
@@ -307,7 +309,10 @@ async function createAcceptedEFixture() {
   // capture and association paths are unchanged. node:path stays the actual builtin below.
   // Reviewed: lexical selection is forced only when the composition names no OpenViking home;
   // naming one is the opt-in to recall by meaning (the forwarded flag had disabled it in every release).
-  assert.equal(sha(indexSource), '1a2560d2ebaacef0468f96baf5e02265d2821e3ea7ed8a1728136fbb8becdb90',
+  // Reviewed startup projectIdentityFile loading, exclusive identity sources,
+  // and project status in tool/service recall and automatic diagnostics. Existing
+  // capture/association authority and project attachment predicates stay intact.
+  assert.equal(sha(indexSource), 'b5c239b877944b0e971f8e24cb2e98f7e97ff39f94ae7b92fda71ca5dd3d6d9b',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')
@@ -380,6 +385,8 @@ async function createAcceptedEFixture() {
     createTrackedMemory: options => { observations.memoryConstructions.push(options); memoryOptions = options; return memory },
     readTrackedMemory: liveRead,
     projectScopeOf: agent => agent?.fixtureProject ?? null, sessionIdOfAgent: agent => agent?.session?.id,
+    projectRecallState: agent => agent?.fixtureProject
+      ? { state: 'mapped', scope: agent.fixtureProject } : { state: 'none' },
     captureScopeOf: agent => {
       const scope = agent?.fixtureProject ?? null
       if (scope !== null) return scope

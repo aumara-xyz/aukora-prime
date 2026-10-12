@@ -318,6 +318,72 @@ and `verifyStore` re-derives every citation digest from those bytes. The plugin
 never imports it.
 # Linux deployment source (L3)
 
+## Declare projects on a node
+
+Project identity comes from host configuration. At startup, `projectIdentityFile`
+loads a JSON mapping owned by root or the harness UID. The file and every parent
+must be real, without group/world write permission; symlinks, hard links,
+nonregular files, oversized files and changes during reading refuse by name.
+Keep it outside guest-writable workspaces. This is an OS configuration check,
+not a verified owner signature or protection against a compromised harness UID.
+
+The operator chooses stable IDs and reviews the workspace bindings. For example,
+create `/etc/aukora` as root with mode `0755`, then use
+`sudoedit /etc/aukora/kira-projects.json` to write this nonsecret mapping with mode
+`0644` (or `0600` if root is the reader):
+
+```json
+{
+  "version": 1,
+  "projects": [
+    { "project_id": "observatory", "workspace_roots": ["/srv/projects/observatory"] },
+    { "project_id": "garden", "workspace_roots": ["/srv/projects/garden"] }
+  ]
+}
+```
+
+Add a project by adding another entry to `projects` with a distinct `project_id`
+and absolute `workspace_roots`. Moving a project or using a worktree means adding
+its new root to the same entry. Roots match the normalized session cwd exactly;
+nested directories need explicit entries. Kira does not inspect Git or project
+files. The host session's cwd remains the attachment selector, not authenticated
+workspace admission. A model that can select another configured cwd is not
+contained by this mapping.
+
+Pass `--kira-project-map /etc/aukora/kira-projects.json` to
+`scripts/materialize-aukora-release.py` along with the normal build arguments.
+It writes `projectIdentityFile` in all three release Kira configurations, without
+copying or provisioning the map. A manually reviewed Kira row can name the same
+`projectIdentityFile`; naming it together with inline `projectIdentity` refuses.
+Use the normal owner-approved release activation route. Mapping changes take
+effect at the next plugin start; the running resolver retains its snapshot.
+
+Unmapped workspaces return `project.state: "unmapped"`, reason
+`no-project-mapped` and message `no project mapped`. Owner memory remains eligible.
+Project capture stays `project:unresolved`; it is never converted to owner memory.
+
+Genesis `e44359acd` derived `project:<sha256>` from the resolved Git common
+directory (or resolved cwd outside Git). Prime `a0474ebd` replaced that with
+explicit host bindings; the commit has no explanatory body. The resolver's
+header and tests require host identity and forbid path hashing or model-ID
+fallback. Moving a Git directory changed the old identity. Historical scope
+aliases require `alias_table` with `version: 1`, `status: "owner-reviewed"`,
+`review_id`, and entries containing `legacy_scope`, `project_id` and individually
+reviewed `record_ids`; see `lib/project-identity.mjs`. That review is an operator
+input, not cryptographically verified. No historical bytes or IDs are rewritten.
+
+Agent notes remain available through explicit recall as advisory data. Automatic
+context excludes them even with approval/receipt metadata: Prime `7d85aa9e`
+records “model-authored notes never inject pre-turn (Honey Pot item 5)”, enforced
+by `preTurnRecallFilter` in `lib/memory-frame.mjs` and `preTurnReply` in
+`lib/injection.mjs`. An owner edit creates a new `owner-edit` note; it does not
+relabel the agent's historical note.
+
+`node tests/kira-project-mapping.test.mjs` checks startup loading, fresh-process
+project isolation and refusal mutations with disposable state and synthetic
+host ancestry. It does not prove installed recall, owner review, workspace
+admission or Linux containment.
+
 The Linux adapter retains Genesis Kira's tracked remembered chain, index ACKs
 and retry outbox. Ordinary capture uses no per-memory approval. OpenViking is a
 retrieval index; recalled notes are still verified against the durable Kira

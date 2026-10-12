@@ -611,6 +611,10 @@ export function recallTool(dispatch) {
           returnedRecords: { type: 'integer' },
           eligibleRecords: { type: 'integer' },
           policyWithheldCount: { type: 'integer' },
+          project: { type: 'object', additionalProperties: false, properties: {
+            state: { type: 'string', enum: ['mapped', 'unmapped', 'none'] },
+            scope: { type: 'string' }, reason: { type: 'string', enum: ['no-project-mapped'] }, message: { type: 'string' },
+          }, required: ['state'] },
           grantsAuthority: { type: 'boolean' },
           reason: { type: 'string' },
           subject: { type: 'string' },

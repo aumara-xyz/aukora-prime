@@ -19,7 +19,7 @@ source = sys.stdin.read(); path = sys.argv[1]
 ns = dict(__file__=path, __name__='materializer_test')
 exec(compile(source, path, 'exec'), ns)
 main = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'main')
-ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(kira_openviking_home=None), hmr_row=ns['hmr_disable_row'](False))
+ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(kira_openviking_home=None, kira_project_map=None), hmr_row=ns['hmr_disable_row'](False))
 for variable in ('patch', 'default_patch'):
     call = next(n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                 and isinstance(n.func.value, ast.Name) and n.func.value.id == variable and n.func.attr == 'write_text')

@@ -29,7 +29,7 @@ ns['RELEASE_IMPORT_FILES'] = tuple(name for name in m.RELEASE_IMPORT_FILES if na
 exec(compile(ast.Module(body=[imports], type_ignores=[]), m.__file__, 'exec'), ns)
 patch = target / 'aukora-composition.patch.yml'; patch.write_text('')
 write = next(n for n in ast.walk(main) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name) and n.func.value.id == 'default_patch' and n.func.attr == 'write_text')
-patch.write_text(eval(compile(ast.Expression(write.args[0]), m.__file__, 'eval'), dict(vars(m), target=target, default_patch=patch, args=SimpleNamespace(kira_openviking_home=None))))
+patch.write_text(eval(compile(ast.Expression(write.args[0]), m.__file__, 'eval'), dict(vars(m), target=target, default_patch=patch, args=SimpleNamespace(kira_openviking_home=None, kira_project_map=None))))
 print(json.dumps({'lanes': m.LANE_PLUGINS, 'gaps': m.release_import_gaps(target)}))
 `, dir], { cwd: root, encoding: 'utf8' }))
   for (const id of ['aukora-buzz-door', 'aukora-nostr']) assert.ok(result.lanes.includes(id))

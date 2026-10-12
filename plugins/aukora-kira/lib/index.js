@@ -1,7 +1,8 @@
 /** Automatic tracked memory. Historical operator config fields remain readable for migration only. */
 import { KiraConversation, KiraConversationError } from './conversation.mjs'
-import { projectScopeOf, captureScopeOf, projectRecent, rememberedSnippet, visibleRemembered } from './project-memory.mjs'
+import { projectScopeOf, captureScopeOf, projectRecent, projectRecallState, rememberedSnippet, visibleRemembered } from './project-memory.mjs'
 import { createProjectIdentityResolver } from './project-identity.mjs'
+import { loadProjectIdentityFile } from './project-mapping.mjs'
 import { registerRecallInjection, recallDiagnostics } from './injection.mjs'
 import { normalizeRecallState } from './recall-state.mjs'
 import { preTurnRecallFilter } from './memory-frame.mjs'
@@ -307,8 +308,8 @@ export function readConfig(config) {
   }
   const record = /** @type {Record<string, unknown>} */ (config)
   for (const key of Object.keys(record)) {
-    if (!['retrieval', 'readOwner', 'memoryOwner', 'openVikingHome', 'projectIdentity', 'maxSessions', 'autoStage'].includes(key)) {
-      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, openVikingHome, projectIdentity, maxSessions, autoStage`)
+    if (!['retrieval', 'readOwner', 'memoryOwner', 'openVikingHome', 'projectIdentity', 'projectIdentityFile', 'maxSessions', 'autoStage'].includes(key)) {
+      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, openVikingHome, projectIdentity, projectIdentityFile, maxSessions, autoStage`)
     }
   }
   // An explicit bridge home binds the mounted plugin to the service's existing configuration.
@@ -318,7 +319,10 @@ export function readConfig(config) {
     refuse('openviking-home-invalid', 'openVikingHome requires memoryOwner and an absolute path')
   }
   if (record.autoStage !== undefined && typeof record.autoStage !== 'boolean') refuse('config-autostage', 'autoStage must be a boolean')
-  const projectIdentity = record.projectIdentity === undefined ? undefined : createProjectIdentityResolver(record.projectIdentity)
+  if (record.projectIdentity !== undefined && record.projectIdentityFile !== undefined)
+    refuse('project-identity-ambiguous', 'name exactly one project identity source')
+  const projectIdentity = record.projectIdentityFile !== undefined ? loadProjectIdentityFile(record.projectIdentityFile)
+    : record.projectIdentity === undefined ? undefined : createProjectIdentityResolver(record.projectIdentity)
   const retrieval = record.retrieval ?? IMPLEMENTED_RETRIEVAL
   if (typeof retrieval !== 'string' || !RETRIEVAL_OPTIONS.some(option => option.id === retrieval)) {
     refuse(
@@ -657,7 +661,8 @@ export async function apply(ctx, config, gateCaptureHost) {
               ...(changed && notes.length === 0 ? { reason: 'aura-recall:recall-changed' } : {}),
               notes, records: notes, auraCitations: currentCitations },
               { readable: finalRead.readable, eligibleRecords: current.size, policyWithheldCount: finalRead.policyWithheldCount })
-            return { ...final, state: final.availability }
+            const currentSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
+            return { ...final, state: final.availability, project: projectRecallState({ session: currentSession }, projectIdentity) }
           },
           citeRemembered: async (recordId, session) => {
             const unverified = reason => ({ verdict: 'UNVERIFIED', namespace: 'kira.remembered', reason })
@@ -809,6 +814,8 @@ export async function apply(ctx, config, gateCaptureHost) {
       const live = deps.liveRemembered()
       const notes = visibleRemembered(live.notes, policy, scope, recallContext(event?.agent))
       const diagnostics = recallDiagnostics(reply)
+      const project = projectRecallState(event?.agent, projectIdentity)
+      if (project.state === 'unmapped') diagnostics.diagnostics.push({ reason: project.reason })
       const context = { ...recallContext(event?.agent), now: new Date().toISOString(), states: live.states }
       const byId = new Map(notes.filter(note => {
         const verdict = preTurnRecallFilter(note, context)
@@ -847,7 +854,7 @@ export async function apply(ctx, config, gateCaptureHost) {
     onTurnStart: agent => partialFailureState.failure(agent),
     onFailure: (_error, event) => partialFailureState.failure(event?.agent),
     onRecalled: (reply, recent, event) => partialFailureState.record(event?.agent, {
-      outer: reply?.partialFailure || (recent?.availability === 'undetermined' && recent.reason !== 'host-project-scope-unavailable') ? 'undetermined' : reply?.availability,
+      outer: reply?.partialFailure || (recent?.availability === 'undetermined' && recent.reason !== 'no-project-mapped') ? 'undetermined' : reply?.availability,
       remembered: 'not-asked',
     }),
   })
@@ -985,7 +992,7 @@ export async function apply(ctx, config, gateCaptureHost) {
       const decision = partialFailureState.record(exec?.agent, {
         outer: final.partialFailure === true ? 'undetermined' : final.availability, remembered: remembered.state,
       })
-      return { ...final, status: final.recallState === 'returned' ? 'match' : 'insufficient',
+      return { ...final, project: projectRecallState(exec?.agent, projectIdentity), status: final.recallState === 'returned' ? 'match' : 'insufficient',
         partialFailure: { ...decision, reconciledAvailability: final.availability } }
     }
     const kind = typeof request.kind === 'string' ? request.kind : ''
@@ -1003,9 +1010,9 @@ export async function apply(ctx, config, gateCaptureHost) {
       ;[answer] = await publishRecall([{ ...answer, ...(remembered === undefined ? {} : { remembered }) }], exec?.agent, governed)
       // PHASE 9: reconcile remembered.state with outer availability — never attach an
       // undetermined ambient picture beside a found governed answer without downgrading.
-      const result = typeof request.text !== 'string' || request.text === ''
+      const result = { ...(typeof request.text !== 'string' || request.text === ''
         ? answer
-        : reconcileRecallAvailability(answer, answer.remembered)
+        : reconcileRecallAvailability(answer, answer.remembered)), project: projectRecallState(exec?.agent, projectIdentity) }
       partialFailureState.record(exec?.agent, result?.partialFailure ?? {
         outer: result?.availability,
         remembered: 'not-asked',

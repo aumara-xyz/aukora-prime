@@ -431,6 +431,19 @@ def kira_openviking_config(home: 'Path | None', indent: int) -> str:
     return ' ' * indent + 'openVikingHome: ' + json.dumps(str(home)) + '\n'
 
 
+def kira_project_mapping_config(file: 'Path | None', indent: int) -> str:
+    """An optional absolute project mapping path travels with every Kira row."""
+    if file is None:
+        return ''
+    if not file.is_absolute():
+        fail('kira-project-map-not-absolute')
+    if any(ord(char) < 32 or ord(char) == 127 for char in str(file)):
+        fail('kira-project-map-invalid')
+    if str(file) != os.path.normpath(str(file)) or str(file).startswith('//'):
+        fail('kira-project-map-not-normalized')
+    return ' ' * indent + 'projectIdentityFile: ' + json.dumps(str(file)) + '\n'
+
+
 def note(message: str) -> None:
     """A named statement about what this cut PRODUCED, which is not a reason to refuse it.
 
@@ -964,6 +977,9 @@ def main() -> int:
                         help='existing OpenViking home containing aukora-bridge.json, ov.conf and root.key; '
                              'for the Linux service use /var/lib/aukora-host/openviking. '
                              'Does not provision credentials or change the memory subject.')
+    parser.add_argument('--kira-project-map', type=Path,
+                        help='absolute normalized path to an existing protected host project mapping file; '
+                             'read by Kira at start. Does not read or provision the mapping during this build.')
     parser.add_argument('--development', action='store_true',
                         help='keep the hot-reload channel mounted and mark the release writable '
                              'by scripts/face-dev-push.py. NOT for a release an application runs: '
@@ -978,6 +994,7 @@ def main() -> int:
                              'measures the guard without cutting a release.')
     args = parser.parse_args()
     kira_openviking_config(args.kira_openviking_home, 8)
+    kira_project_mapping_config(args.kira_project_map, 8)
     assert_harness_clean(args.source.resolve())
     face_builds = assert_face_bundles_current()
 
@@ -1611,6 +1628,7 @@ def main() -> int:
         + '      config:\n'
         + '        retrieval: lexical\n'
         + kira_openviking_config(args.kira_openviking_home, 8)
+        + kira_project_mapping_config(args.kira_project_map, 8)
         + '        memoryOwner:\n'
         + "          stateDir: !!js dshHomePath('kira-memory')\n"
         + '          subject: aumlok:subject:owner\n'
@@ -1712,6 +1730,7 @@ def main() -> int:
         '      config:\n'
         '        retrieval: lexical\n'
         + kira_openviking_config(args.kira_openviking_home, 8)
+        + kira_project_mapping_config(args.kira_project_map, 8)
         + '        memoryOwner:\n'
         "          stateDir: !!js dshHomePath('kira-memory')\n"
         '          subject: aumlok:subject:owner\n'
@@ -1776,6 +1795,7 @@ def main() -> int:
         '  config:\n'
         '    retrieval: lexical\n'
         + kira_openviking_config(args.kira_openviking_home, 4)
+        + kira_project_mapping_config(args.kira_project_map, 4)
         + '    memoryOwner:\n'
         '      stateDir: ${KIRA_STATE_DIR}\n'
         '      subject: ${SUBJECT}\n'

@@ -35,7 +35,7 @@ patches = {}
 class Patch:
     def __init__(self, name): self.name = name
     def read_text(self, **kwargs): return patches.get(self.name, '')
-ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(development=False, kira_openviking_home=None),
+ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(development=False, kira_openviking_home=None, kira_project_map=None),
           patch=Patch('aukora-composition.patch.yml'), default_patch=Patch('aukora-composition.patch.yml'),
           hmr_row=ns['hmr_disable_row'](False))
 for node in main.body:

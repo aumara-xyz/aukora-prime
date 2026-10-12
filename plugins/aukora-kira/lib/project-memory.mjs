@@ -20,6 +20,15 @@ export function captureScopeOf(agent, identity = unattachedProjectIdentity) {
   return typeof cwd === 'string' && isAbsolute(cwd) ? 'project:unresolved' : 'owner'
 }
 
+/** Missing project attachment is visible without withholding owner memory. */
+export function projectRecallState(agent, identity = unattachedProjectIdentity) {
+  const scope = projectScopeOf(agent, identity)
+  if (scope !== null) return { state: 'mapped', scope }
+  return captureScopeOf(agent, identity) === 'project:unresolved'
+    ? { state: 'unmapped', reason: 'no-project-mapped', message: 'no project mapped' }
+    : { state: 'none' }
+}
+
 /** The policy is acquired by the composition's read owner. This function only filters. */
 export function visibleRemembered(notes, policy, scope, projectContext = { attachedProjects: scope === null ? [] : [scope] }) {
   return (Array.isArray(notes) ? notes : []).filter(note => note?.subject === policy?.subject
@@ -42,7 +51,7 @@ export function rememberedSnippet(note) {
  * timestamp is observation time; a receipt proves a report existed, not its truth. */
 export function projectRecent(notes, policy, scope, states, { unreadable = 0, unchained = 0,
   projectContext = { attachedProjects: scope === null ? [] : [scope] } } = {}) {
-  if (scope === null) return { snippets: [], projectState: true, availability: 'undetermined', reason: 'host-project-scope-unavailable' }
+  if (scope === null) return { snippets: [], projectState: true, availability: 'undetermined', reason: 'no-project-mapped', message: 'no project mapped' }
   const diagnostics = []
   const complete = unreadable === 0 && unchained === 0
   for (const [reason, count] of [['unreadable', unreadable], ['unchained', unchained]]) if (count > 0) diagnostics.push({ reason, count })

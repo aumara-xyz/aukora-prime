@@ -1370,7 +1370,7 @@ await arm('fresh project capture remains DATA without automatic report reinjecti
   }
   assert.equal(projectRecent([{ ...finding, category: 'instruction' }], policy, projectScopeOf(run.agent, run.projectIdentity)).snippets.length, 0)
   const empty = { availability: 'empty', snippets: [] }
-  assert.match(injection.recalledContextLine(empty, projectRecent([], policy, null)), /host project scope unavailable/u)
+  assert.match(injection.recalledContextLine(empty, projectRecent([], policy, null)), /no project mapped/u)
   assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent, run.projectIdentity))), /no eligible captured findings/u)
   assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent, run.projectIdentity), new Map(), { unreadable: 1 })), /PROJECT STATE: unavailable/u)
 })

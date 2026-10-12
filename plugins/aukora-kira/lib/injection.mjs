@@ -95,7 +95,7 @@ const DIAGNOSTIC_REASONS = new Set([
   'hidden-not-recallable', 'expired-not-recallable', 'archived-not-recallable', 'migrated-never-pre-turn',
   'derived-record-never-pre-turn', 'model-authored-never-pre-turn', 'scope-not-attached', 'validTo-in-the-past', 'just-heard-it',
   'invalid-score', 'below-threshold', 'capacity', 'lexical-corroboration', 'semantic-threshold', 'window-backfill',
-  'content-hash-mismatch', 'unmapped', 'unreadable', 'unchained', 'query-read-failed', 'remembered-read-failed', 'newest-read-failed',
+  'content-hash-mismatch', 'unmapped', 'no-project-mapped', 'unreadable', 'unchained', 'query-read-failed', 'remembered-read-failed', 'newest-read-failed',
 ])
 const SEMANTIC_FAILURES = new Set([
   'no-openviking-home', 'openviking-not-installed', 'openviking-url-not-on-this-machine',
@@ -170,8 +170,8 @@ function retrievalStatus(reply, recent) {
         ? 'Query: no eligible result from this read; successful records are shown separately.'
         : 'Query: unavailable; an empty store is NOT established.')
   if (recent?.projectState) {
-    lines.push(recent.reason === 'host-project-scope-unavailable'
-      ? 'PROJECT STATE: host project scope unavailable; captured findings could not be checked.'
+    lines.push(recent.reason === 'no-project-mapped'
+      ? 'PROJECT STATE: no project mapped; captured findings could not be checked.'
       : !['found', 'empty'].includes(recent.availability)
         ? 'PROJECT STATE: unavailable; captured findings could not be verified.'
         : recent.snippets?.length > 0
@@ -193,6 +193,8 @@ function retrievalStatus(reply, recent) {
     }
   }
   const diagnostics = recallDiagnostics({ diagnostics: [...reads.flatMap(one => one.diagnostics), ...recallDiagnostics(recent).diagnostics] }).diagnostics
+  if (diagnostics.some(item => item.reason === 'no-project-mapped'))
+    lines.push('PROJECT STATE: no project mapped; project history is unattached.')
   if (diagnostics.length) {
     const shown = []
     let omitted = 0
