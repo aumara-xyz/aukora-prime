@@ -38,11 +38,31 @@ print(json.dumps({'lanes': m.LANE_PLUGINS, 'gaps': m.release_import_gaps(target)
   assert.ok(patch.includes('      name: ./plugins/aukora-buzz-door/lib/index.mjs\n'))
   assert.match(patch, /id: aukora-relay-auma[\s\S]*id: aukora-buzz-door[\s\S]*id: aukora-kira/u)
   const buzz = patch.split('    - id: aukora-buzz-door\n')[1].split('    - id:')[0]
-  assert.match(buzz, /keyFile: !!js process.env.HOME \+ '\/\.config\/aukora-buzz\/auma.key'/u)
-  assert.match(buzz, /gateSocket: \/run\/aukora-gate\/gate.sock/u)
-  assert.match(buzz, /workspaceRoots:\n          - !!js process.env.HOME \+ '\/workspaces'/u)
-  for (const [key, env] of [['channel', 'CHANNEL'], ['ownerPubkey', 'OWNER_PUBKEY'], ['sessionId', 'SESSION']]) {
-    assert.ok(buzz.includes(`${key}: !!js process.env.AUKORA_BUZZ_${env}`))
+  for (const env of [
+    { HOME: '/home/harness' },
+    { HOME: '/home/harness', AUKORA_BUZZ_CHANNEL: 'attacker-channel', AUKORA_BUZZ_OWNER_PUBKEY: 'f'.repeat(64), AUKORA_BUZZ_SESSION: 'attacker-session' },
+  ]) {
+    const config = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', `
+import assert from 'node:assert/strict'
+import { runInNewContext } from 'node:vm'
+const config = {}
+const scalar = value => value.startsWith('!!js ') ? runInNewContext(value.slice(5), { process: { env: process.env } }) : value
+let key
+for (const line of process.argv[1].split('      config:\\n')[1].trimEnd().split('\\n')) {
+  const field = /^        ([A-Za-z]+):(?: (.*))?$/.exec(line)
+  if (field) { key = field[1]; config[key] = field[2] === undefined ? [] : scalar(field[2]); continue }
+  const item = /^          - (.+)$/.exec(line)
+  assert.ok(item && Array.isArray(config[key]), 'unsupported composition row')
+  config[key].push(scalar(item[1]))
+}
+console.log(JSON.stringify(config))
+`, buzz], { env, encoding: 'utf8' }))
+    assert.deepEqual(config, {
+      keyFile: '/home/harness/.config/aukora-buzz/auma.key',
+      gateSocket: '/run/aukora-gate/gate.sock',
+      workspaceRoots: ['/home/harness/workspaces'],
+      configFile: '/home/harness/.config/aukora-buzz/door.json',
+    })
   }
   const policy = JSON.parse(readFileSync(new URL('plugins/aukora-composition-gate/policy.json', root)))
   assert.ok(policy.pluginSet.includes(row.id))

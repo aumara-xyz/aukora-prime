@@ -1543,7 +1543,7 @@ def main() -> int:
         + '        gateSocket: /run/aukora-gate/gate.sock\n'
         + '        workspaceRoots:\n'
         + "          - !!js process.env.HOME + '/workspaces'\n"
-        # Buzz configuration uses the loader's existing process.env expression surface.
+        # The door reads its protected configuration file inside the harness.
         + '    - id: aukora-buzz-door\n'
         + '      name: ./plugins/aukora-buzz-door/lib/index.mjs\n'
         + '      config:\n'
@@ -1551,9 +1551,7 @@ def main() -> int:
         + '        gateSocket: /run/aukora-gate/gate.sock\n'
         + '        workspaceRoots:\n'
         + "          - !!js process.env.HOME + '/workspaces'\n"
-        + '        channel: !!js process.env.AUKORA_BUZZ_CHANNEL\n'
-        + '        ownerPubkey: !!js process.env.AUKORA_BUZZ_OWNER_PUBKEY\n'
-        + '        sessionId: !!js process.env.AUKORA_BUZZ_SESSION\n'
+        + "        configFile: !!js process.env.HOME + '/.config/aukora-buzz/door.json'\n"
         + '    - id: aukora-kira\n'
         + '      name: ./plugins/aukora-kira/lib/gate-capture-host.mjs\n'
         + '      config:\n'

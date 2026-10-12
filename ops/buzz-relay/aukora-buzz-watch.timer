@@ -1,0 +1,8 @@
+[Unit]
+Description=Check the AUKORA Buzz relay every five minutes
+PartOf=aukora-buzz.service
+
+[Timer]
+OnActiveSec=5min
+OnUnitActiveSec=5min
+Unit=aukora-buzz-watch.service

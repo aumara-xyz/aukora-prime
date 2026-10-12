@@ -49,7 +49,7 @@ licence is unstated or proprietary, the code is the owner's own and the licence 
 | 58 | cross-node-federation | SUPERSEDED |  | Prime has the evolved relay; dirty author migration needs separate review. | no action |
 | 59 | drift-sentinels/immune | PARK | S | Lexical model-drift research tied to a forge, not a portable integrity gate. | parked |
 | 60 | ops-and-tooling | PORT | S | Useful pure planner; adapter conflicts with Prime process ownership. | open |
-| 61 | conversation-safety-rails | SUPERSEDED |  | Prime already binds canonical proposals to reviewed/executed bytes. | no action |
+| 61 | conversation-safety-rails | SUPERSEDED |  | The Genesis honesty and turn-trust rails are here since `c358ac7` (Honey Pot's byte check). The lab's fuzz court and injection court are in no repository: a PORT of those as tests is open. | open (courts only) |
 | 63 | self-knowledge/proprioception | PORT | S | Cited tests pass; replace Phi-specific readers and assertions. | open |
 | 66 | agent-swarm | PORT | S | Rebuild task/status slice atop existing licensed non-authority evidence. | open |
 | 67 | browse-web-hands | DROP-CANDIDATE |  | Unauthenticated browser control with sandbox disabled and admin bridge. | for Peter |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Buzz relay beside the harness (North Star step 2). Run on the node as an admin with sudo.
 # Creates the `aukora-buzz` user, its state under /var/lib/aukora-buzz, generated secrets (0600, never
-# printed) and the aukora-buzz.service unit. Touches no other user, unit or port. Safe to run again.
+# printed) and the aukora-buzz service and health-watch units. Touches no unrelated user, unit or port.
 # Usage: install.sh [--owner-pubkey <64 hex>]   (closed relay owned by that Nostr key; without it, open)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +11,10 @@ LIB=/usr/local/lib/aukora-buzz
 # Buzz binds a community to the host name a client asks for, so every client must dial the same name the relay
 # was told it has (RELAY_URL). On the node and through a tunnel alike that is localhost:3000.
 PORT="${AUKORA_BUZZ_PORT:-3000}"
+PORT=$(printf 'PORT=%s\n' "$PORT" | bash "$HERE/read-setting.sh" PORT)
+# Opt in only after checking that the rootless user's cgroup v2 memory controller is delegated.
+MEMORY_LIMITS="${AUKORA_BUZZ_MEMORY_LIMITS:-0}"
+[[ "$MEMORY_LIMITS" =~ ^[01]$ ]] || { echo "AUKORA_BUZZ_MEMORY_LIMITS must be 0 or 1" >&2; exit 2; }
 OWNER=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -85,7 +89,9 @@ EOS
 sudo -u "$U" sh -c 'mkdir -p ~/.config/containers && printf "unqualified-search-registries = [\"docker.io\"]\nshort-name-mode = \"permissive\"\n" > ~/.config/containers/registries.conf'
 
 sudo install -d -m 0755 "$LIB"
-sudo install -m 0755 "$HERE/up.sh" "$HERE/down.sh" "$HERE/build.sh" "$HERE/check.sh" "$LIB/"
-sed "s/@UID@/$(id -u "$U")/g" "$HERE/aukora-buzz.service" | sudo install -m 0644 /dev/stdin /etc/systemd/system/aukora-buzz.service
+sudo install -m 0755 "$HERE/up.sh" "$HERE/down.sh" "$HERE/build.sh" "$HERE/check.sh" "$HERE/read-setting.sh" "$LIB/"
+sed -e "s/@UID@/$(id -u "$U")/g" -e "s/@MEMORY_LIMITS@/$MEMORY_LIMITS/g" "$HERE/aukora-buzz.service" \
+  | sudo install -m 0644 /dev/stdin /etc/systemd/system/aukora-buzz.service
+sudo install -m 0644 "$HERE/aukora-buzz-watch.service" "$HERE/aukora-buzz-watch.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 echo "installed: user $U, state $ROOT, unit aukora-buzz.service (not started), port 127.0.0.1:${PORT}"

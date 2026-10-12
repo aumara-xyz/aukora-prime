@@ -1,0 +1,8 @@
+[Unit]
+Description=Check the AUKORA Buzz relay and restart its pod on failure
+After=aukora-buzz.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/aukora-buzz/check.sh --watch
+TimeoutStartSec=360
