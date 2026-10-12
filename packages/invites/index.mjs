@@ -231,6 +231,8 @@ function store(database) {
 
 export function createMemoryStore() { return store(new DatabaseSync(':memory:')) }
 
+export { store as createDatabaseStore }
+
 export function createFileStore(path) {
   if (typeof path !== 'string' || path.length === 0 || path === ':memory:') refuse(REFUSE.STATE)
   try {

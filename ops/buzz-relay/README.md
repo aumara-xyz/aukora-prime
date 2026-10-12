@@ -43,3 +43,15 @@ readable through `podman inspect` and permitted process-environment access by th
 `BUZZ_RELAY_PRIVATE_KEY` and `BUZZ_GIT_HOOK_HMAC_SECRET` directly with `std::env::var` (lines 619, 668, 899,
 1058); the pinned fork has no file-based alternative for these settings. This reduces incidental exposure;
 it does not isolate credentials from the service account.
+
+`admit.mjs --help` describes issue, redeem, admit and resume with isolated key files. The store operator can see
+who invited whom: network, inviter and member public keys, event ids, signed ancestry and times; no secret keys are
+stored. Spending and pending delivery commit together. Resume with the same owner, relay and store: append the
+missing admission bytes, then retry the member add, even if the spent invite has since expired. Completed invites
+refuse replay. A lost relay acknowledgement can repeat the add request; recovery requires idempotent relay membership
+adds, not exactly-once HTTP. Keep this private local store intact; never reset it or restore an older copy.
+
+On a CLOSED relay owned by the signing key, this keeps out keys nobody vouched for; it does not prove a unique human.
+Invites are bearer codes: another valid key can redeem first. The append-only file contains compact admissions;
+the database retains signed chains for recovery. Local tests use a bridge stand-in; they do not establish live relay
+closure, idempotence, owner custody, store rollback resistance or enforcement in the installed application.

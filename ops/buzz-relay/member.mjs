@@ -73,6 +73,7 @@ export function createMemberClient({ keyFile, baseUrl = RELAY_HTTP } = {}, {
   let key
   try { key = loadKey(keyFile, keyOptions); publicKeyOf(key) } catch { throw fail(REFUSE.KEY) }
   return {
+    pubkey: publicKeyOf(key),
     build(options) { return commandEvent(options, key, now) },
     async send(options) {
       const event = commandEvent(options, key, now)
