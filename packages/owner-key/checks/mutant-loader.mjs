@@ -10,6 +10,11 @@ const mutations = {
   consume: ["if (await consumeOnce(claim) !== true) fail('replay-or-consumption-unknown')", 'await consumeOnce(claim)'],
 }
 const authorizationMutations = {
+  'enrollment-shape': ["const fields = closed(supplied, ['owner_subject', 'owner_root_spki_base64', 'owner_epoch',\n    'registry_sha256', 'activation_sha256'])", 'const fields = { ...supplied }'],
+  'enrollment-state': ["return ownerAuthorizationOwnerState({ version: 1, kind: 'aukora-owner-state/v1', ...fields,", "return Object.freeze({ version: 1, kind: 'aukora-owner-state/v1', ...fields,"],
+  'enrollment-root': ['owner_root_id: pin.owner_root_id })', "owner_root_id: '0'.repeat(64) })"],
+  'signing-domain': ['Buffer.from(OWNER_AUTHORIZATION_DOMAIN + ownerAuthorizationText(authorization),', 'Buffer.from(ownerAuthorizationText(authorization),'],
+  'canonical-order': ['for (const key of preserveOrder ? keys : fields)', 'for (const key of preserveOrder ? keys : [...fields].reverse())'],
   signature: ["if (!verify('sha256', ownerAuthorizationSigningBytes(a), key, Buffer.from(proof.signature_base64, 'base64'))) fail('signature')", 'void 0'],
   expiry: ["if (!integer(nowMs) || a.issued_at_ms > nowMs || nowMs >= a.expires_at_ms) fail('expired')", 'void 0'],
   challenge: ["if (e.authorization_digest !== ownerAuthorizationDigest(a)) fail('challenge-mismatch')", 'void 0'],

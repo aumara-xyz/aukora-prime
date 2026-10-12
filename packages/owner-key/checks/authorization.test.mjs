@@ -2,13 +2,13 @@
 // Published RFC6979 A.2.5 fixture only, in memory; no real authorization, seed or key generation.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createPrivateKey, createPublicKey, sign } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto'
 import { ownerRootPin } from '../src/index.mjs'
 import { AUTHORIZATION_FIELDS, ownerAuthorization, ownerAuthorizationText,
   ownerAuthorizationSigningBytes, ownerAuthorizationDigest, parseOwnerAuthorization,
   ownerAuthorizationProofDigest, verifyOwnerAuthorization, consumeOwnerAuthorization,
   verifyOwnerAuthorizationReference, ownerAuthorizationOwnerState,
-  ownerAuthorizationGatePin } from '../src/authorization.mjs'
+  ownerAuthorizationGatePin, ownerAuthorizationEnrollment, OWNER_STATE_FIELDS } from '../src/authorization.mjs'
 import { createOwnerAuthorizationBridge } from '../../../apps/aukora-desktop/owner-key-bridge.mjs'
 
 const b64url = hex => Buffer.from(hex, 'hex').toString('base64url')
@@ -41,6 +41,29 @@ test('separate signed authorization verifies and exact gate receipt reference re
     owner_root_spki_base64: spki, owner_root_id: a.owner_root_id, owner_epoch: 1,
     registry_sha256: 'e'.repeat(64), activation_sha256: 'f'.repeat(64) }
   assert(Object.isFrozen(ownerAuthorizationOwnerState(state)))
+  const enrollment = { owner_subject: a.owner_subject, owner_root_spki_base64: spki,
+    owner_epoch: 1, registry_sha256: state.registry_sha256, activation_sha256: state.activation_sha256 }
+  const enrolled = ownerAuthorizationEnrollment(enrollment)
+  assert.deepEqual({ ...enrolled }, state)
+  assert.deepEqual(Object.keys(enrolled), OWNER_STATE_FIELDS)
+  assert.equal(enrolled.owner_root_id, createHash('sha256').update(Buffer.from(spki, 'base64')).digest('hex'))
+  assert(Object.isFrozen(enrolled))
+  enrollment.owner_epoch = 2
+  assert.equal(enrolled.owner_epoch, 1)
+  for (const change of [{ owner_root_id: a.owner_root_id }, { approved: true }, { version: 1 },
+    { owner_epoch: 0 }, { owner_epoch: -0 }, { owner_subject: 'fixture-owner' },
+    { registry_sha256: '' }, { activation_sha256: null }, { owner_root_spki_base64: spki + '\n' }])
+    assert.throws(() => ownerAuthorizationEnrollment({ ...enrollment, ...change }))
+  for (const field of Object.keys(enrollment)) {
+    const incomplete = { ...enrollment }; delete incomplete[field]
+    assert.throws(() => ownerAuthorizationEnrollment(incomplete), field)
+  }
+  let enrollmentReads = 0
+  const accessorEnrollment = { ...enrollment }
+  Object.defineProperty(accessorEnrollment, 'owner_root_spki_base64', {
+    enumerable: true, get() { enrollmentReads++; return spki } })
+  assert.throws(() => ownerAuthorizationEnrollment(accessorEnrollment))
+  assert.equal(enrollmentReads, 0)
   for (const change of [{ qualified: true }, { owner_epoch: 0 }, { owner_root_id: '0'.repeat(64) },
     { registry_sha256: state.registry_sha256 + '\n' }, { owner_subject: state.owner_subject + '\n' }])
     assert.throws(() => ownerAuthorizationOwnerState({ ...state, ...change }))
@@ -53,10 +76,26 @@ test('separate signed authorization verifies and exact gate receipt reference re
   assert.equal(gatePin.gate.length, 64); assert.equal(gatePin.pubkey_fp, gatePin.gate.slice(0, 16))
   assert.throws(() => ownerAuthorizationGatePin(spki))
   assert.throws(() => ownerAuthorizationGatePin(gateSpki + '\n'))
+  assert.throws(() => ownerAuthorizationEnrollment({ ...enrollment, owner_root_spki_base64: gateSpki }))
+  // SEC2 secp256k1 generator PUBLIC point: the fork's Schnorr curve is not an owner root.
+  const schnorrSpki = createPublicKey({ format: 'jwk', key: { kty: 'EC', crv: 'secp256k1',
+    x: b64url('79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798'),
+    y: b64url('483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8') } })
+    .export({ format: 'der', type: 'spki' }).toString('base64')
+  assert.throws(() => ownerAuthorizationEnrollment({ ...enrollment, owner_root_spki_base64: schnorrSpki }))
 })
 
 test('canonical closed authorization refuses ambiguous wire, accessors and approval/seed fields', () => {
   const a = draft(), text = ownerAuthorizationText(a)
+  const vector = { ...a, owner_root_id: 'e'.repeat(64) }
+  const canonical = '{"after_sha256":"' + 'b'.repeat(64) + '","before_sha256":"' + 'a'.repeat(64)
+    + '","challenge":"' + 'd'.repeat(64) + '","expires_at_ms":200000,"gate":"' + 'c'.repeat(64)
+    + '","issued_at_ms":100000,"kind":"aukora-owner-authorization/v1","operation":"change","owner_epoch":1,"owner_root_id":"'
+    + 'e'.repeat(64) + '","owner_subject":"aukora:1:' + '1'.repeat(64)
+    + '","proposal_id":"01234567-89ab-4cde-8123-456789abcdef","target":"plugins/auma-theme/theme.json","version":1}'
+  assert.equal(ownerAuthorizationText(vector), canonical)
+  assert.deepEqual(ownerAuthorizationSigningBytes(vector), Buffer.from('aukora:owner-authorization:v1\0' + canonical, 'utf8'))
+  assert.equal(ownerAuthorizationDigest(vector), '26c07dbfd9ad02ca04ec236c1554bd2756e71dc40661d7b9125efc53650586c3')
   assert.equal(ownerAuthorizationText(parseOwnerAuthorization(text)), text)
   assert.throws(() => parseOwnerAuthorization(text.replace('"version":1', '"version":1,"version":1')))
   assert.throws(() => parseOwnerAuthorization(' ' + text))

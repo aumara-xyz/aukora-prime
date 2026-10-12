@@ -44,6 +44,15 @@ export function ownerAuthorizationOwnerState(supplied) {
   return Object.freeze(state)
 }
 
+/** Public enrollment record only; registry/activation digests require independent evidence. */
+export function ownerAuthorizationEnrollment(supplied) {
+  const fields = closed(supplied, ['owner_subject', 'owner_root_spki_base64', 'owner_epoch',
+    'registry_sha256', 'activation_sha256'])
+  const pin = ownerRootPin(fields.owner_root_spki_base64)
+  return ownerAuthorizationOwnerState({ version: 1, kind: 'aukora-owner-state/v1', ...fields,
+    owner_root_id: pin.owner_root_id })
+}
+
 /** Current gate receipts use Ed25519; this public deployment pin never comes from the receipt itself. */
 export function ownerAuthorizationGatePin(spkiBase64) {
   try {
