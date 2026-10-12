@@ -49,7 +49,11 @@ for node in main.body:
     if name and name.endswith('.patch.yml'):
         patches[name] = eval(compile(ast.Expression(call.args[0]), path, 'eval'), ns)
 archive = ns['ROOT'] / 'vendor/dsh-source.tar.gz'
-if not archive.is_file(): raise SystemExit('overlay-mount:harness-archive-unavailable')
+if not archive.is_file():
+    # A checkout without the pinned harness archive (CI, a node) still checks every row that names this
+    # repository's own files; rows naming harness packages are reported as not inspected.
+    print(json.dumps(dict(patches=patches, upstream=None)))
+    raise SystemExit(0)
 pin = json.loads((ns['ROOT'] / 'upstream-dsh.json').read_text())
 if hashlib.sha256(archive.read_bytes()).hexdigest() != pin['archiveSha256']:
     raise SystemExit('overlay-mount:harness-archive-pin')
@@ -104,7 +108,9 @@ async function mountable(path, upstream, replacement) {
     const upstreamPath = relative(root, file).replace('/lib/', '/src/').replace(/\.js$/u, '.ts')
     const code = replacement?.path === file ? replacement.code
       : existsSync(file) ? readFileSync(file, 'utf8')
-        : upstream[upstreamPath] === undefined ? null : stripTypeScriptTypes(upstream[upstreamPath], { mode: 'transform' })
+        : upstream === null && file === path && upstreamPath.startsWith('packages/') ? undefined
+          : upstream?.[upstreamPath] === undefined ? null : stripTypeScriptTypes(upstream[upstreamPath], { mode: 'transform' })
+    if (code === undefined) return undefined
     assert.notEqual(code, null, `overlay-mount:entry-absent: ${relative(root, file)}`)
     const reexports = new Set([...code.matchAll(/\bexport\s+(?:\*|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/gu)].map(match => match[1]))
     const names = [...new Set(['default', ...code.matchAll(/\b[A-Za-z_$][\w$]*\b/gu)].map(value => typeof value === 'string' ? value : value[0]))]
@@ -116,6 +122,7 @@ async function mountable(path, upstream, replacement) {
     return module
   }
   const module = load(path)
+  if (module === undefined) return 'harness-row-not-inspected'
   await module.link((specifier, parent) => parent.dependencies(specifier))
   const accepted = () => {
     let plugin = module.namespace.default ?? module.namespace
@@ -141,11 +148,25 @@ async function check(input = source, overlayChanges = {}, replacement) {
   const mounts = Object.entries(patches).flatMap(([name, text]) => rows(text, name)).filter(row => row.name)
   assert.ok(mounts.some(row => row.label === 'aukora-composition.patch.yml' && row.id === 'aukora-goal-resume'))
   assert.ok(mounts.some(row => row.label === 'aukora-composition.patch.yml' && row.id === 'aukora-eye'))
-  for (const row of mounts) assert.equal(await mountable(sourcePath(row.name), fixture.upstream, replacement), true,
-    `overlay-mount:entry-not-plugin: ${row.label}:${row.id}:${row.name}`)
+  let uninspected = 0
+  for (const row of mounts) {
+    const result = await mountable(sourcePath(row.name), fixture.upstream, replacement)
+    if (result === 'harness-row-not-inspected') { uninspected++; continue }
+    assert.equal(result, true, `overlay-mount:entry-not-plugin: ${row.label}:${row.id}:${row.name}`)
+  }
+  assert.ok(uninspected < mounts.length / 2, 'overlay-mount:most-rows-uninspected')
+  return { inspected: mounts.length - uninspected, uninspected }
 }
+const archivePresent = existsSync(join(root, 'vendor/dsh-source.tar.gz'))
 
-test('every emitted overlay and default composition mount names a plugin; id-only patches remain overrides', () => check())
+test('every emitted overlay and default composition mount names a plugin; id-only patches remain overrides', async t => {
+  const counted = await check()
+  t.diagnostic(`${counted.inspected} mount rows inspected, ${counted.uninspected} harness package rows not inspected`)
+  assert.equal(counted.uninspected === 0, archivePresent)
+})
+test('rows naming harness packages are inspected against the pinned harness archive',
+  { skip: archivePresent ? false : 'UNPERFORMED: the pinned harness archive (vendor/dsh-source.tar.gz) is not in this checkout' },
+  async () => assert.equal((await check()).uninspected, 0))
 
 test('mount export inspection accepts namespace apply and loader default function/object/class forms', async () => {
   const path = join(root, 'synthetic.mjs')
