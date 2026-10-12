@@ -1,0 +1,82 @@
+name: Pilot source checks (runtime UNPERFORMED)
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: '24.11.1'
+          package-manager-cache: false
+      - name: Test reporting and exception policy
+        run: node --test scripts/ci/checks.test.mjs > "$RUNNER_TEMP/checks-policy.log" 2>&1
+      - name: Read exact dated exceptions
+        id: plan
+        run: |
+          matrix=$(node scripts/ci/checks.mjs plan)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+      - name: Retain policy test output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checks-policy-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/checks-policy.log
+          if-no-files-found: error
+          retention-days: 7
+
+  checks:
+    name: ${{ matrix.group }} (${{ matrix.partition }})
+    needs: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.policy.outputs.matrix) }}
+    # Only commands in scripts/ci/known-red.txt enter a tolerated job.
+    continue-on-error: ${{ matrix.continue_on_error }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: '24.11.1'
+          package-manager-cache: false
+      - name: Run every command and retain raw output
+        env:
+          CHECK_GROUP: ${{ matrix.group }}
+          CHECK_PARTITION: ${{ matrix.partition }}
+        run: node scripts/ci/checks.mjs run "$CHECK_GROUP" "$CHECK_PARTITION" "$RUNNER_TEMP/checks-output"
+      - name: Publish PASS / FAIL / UNPERFORMED counts
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/checks-output/summary.md"; then
+            cat "$RUNNER_TEMP/checks-output/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'PASS 0 / FAIL 0 / UNPERFORMED 1 — setup or execution did not produce evidence.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain raw stdout, stderr and command outcomes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checks-${{ matrix.group }}-${{ matrix.partition }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/checks-output/
+          if-no-files-found: error
+          retention-days: 7
