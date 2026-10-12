@@ -14,7 +14,7 @@
     "documents",
     "settings"
   ],
-  "source_asset_policy": "Historical donor inventory with reviewed current source pins and rebuilt face bundles. All nine faces were compiled offline from canonical source against the seven-patch pinned harness; lib/.build-inputs.json binds current source and output bytes. The organism comment-only privacy adaptation and historical donor build observations are retained; adapters live outside faces/.",
+  "source_asset_policy": "Historical donor inventory with reviewed current source pins and rebuilt face bundles. All nine faces were compiled offline from canonical source against the seven-patch pinned harness; lib/.build-inputs.json binds current source and output bytes. The organism comment-only privacy adaptation and historical donor build observations are retained; adapters live outside faces/. Aura settings uses byte-identical copies of the maintained desktop Pentora derivation, with separate snapshot and motion helpers. Removed helper identities remain under excluded; rebuilt settings source/output pins include the authenticated snapshot route.",
   "public_main_observed": "645d3213b8aede3b544269b4224ae09df06b0a42",
   "pending_items": [
     {
@@ -2331,22 +2331,22 @@
     {
       "source": "plugins/aukora-face/settings/lib/.build-inputs.json",
       "path": "faces/settings/lib/.build-inputs.json",
-      "bytes": 1689,
-      "sha256": "22a9110217c1982ab4bb4e777f4bdfbdcc8a7f1b40a126ab30e7da87514eed6e",
+      "bytes": 1770,
+      "sha256": "d41114ad172197b927a636302ef42f8e50e8b4c8234980b841d2af8f2857160a",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/client.js",
       "path": "faces/settings/lib/client.js",
-      "bytes": 128206,
-      "sha256": "6d20bf52dc03583c372bdd5d7354c2f8c5061fce68f43054e9f1c05e92f25f6e",
+      "bytes": 58854,
+      "sha256": "6365cfb3540c98c046117fcd0e2cb8add1e8810ff31bbea229686cb63562d523",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/index.js",
       "path": "faces/settings/lib/index.js",
-      "bytes": 17148,
-      "sha256": "88ffc9928357ac7bc9d8379ce5f9769b221a6447037abf67e3722c05552b07b6",
+      "bytes": 23351,
+      "sha256": "c8c1981d606ff93c901adfd30d9ea86a06dc8286c187e93ccf73a67b05f19fc8",
       "role": "bundle"
     },
     {
@@ -2364,38 +2364,59 @@
       "role": "build-metadata"
     },
     {
-      "source": "plugins/aukora-face/settings/src/aura/activity.ts",
-      "path": "faces/settings/src/aura/activity.ts",
-      "bytes": 3890,
-      "sha256": "44bd2c6794ee17431cc3d985f929db2856e0892b40ee86dee45c90bcf5c71618",
+      "source": "plugins/aukora-face/settings/src/aura/pentora-cells.d.mts",
+      "path": "faces/settings/src/aura/pentora-cells.d.mts",
+      "bytes": 189,
+      "sha256": "7c403632480df55b5849676e4b528b5c993f01756c4552b628c86fee6639c8b4",
       "role": "source"
     },
     {
-      "source": "plugins/aukora-face/settings/src/aura/aggregate.ts",
-      "path": "faces/settings/src/aura/aggregate.ts",
-      "bytes": 7571,
-      "sha256": "61570311df1ab0d66b32f132eae90d676228a212deb1acb25628283451168d74",
+      "source": "plugins/aukora-face/settings/src/aura/pentora-cells.mjs",
+      "path": "faces/settings/src/aura/pentora-cells.mjs",
+      "bytes": 522,
+      "sha256": "3fe9df6dce8f4152b39aa8a17b990b72f6780c09d86a4cfe7235f669b8bf5467",
       "role": "source"
     },
     {
-      "source": "plugins/aukora-face/settings/src/aura/deformation.ts",
-      "path": "faces/settings/src/aura/deformation.ts",
-      "bytes": 1713,
-      "sha256": "712bc3f7a196fee5f7dd8dc9580ee7c57425a276840371fe4fc883cf1ac41dc1",
+      "source": "plugins/aukora-face/settings/src/aura/pentora-motion.d.mts",
+      "path": "faces/settings/src/aura/pentora-motion.d.mts",
+      "bytes": 719,
+      "sha256": "f2870f54530cca5d4c99445c0428336aa859dee90281fd00002ce54df6bb8f51",
       "role": "source"
     },
     {
-      "source": "plugins/aukora-face/settings/src/aura/figure.ts",
-      "path": "faces/settings/src/aura/figure.ts",
-      "bytes": 7130,
-      "sha256": "404fe2eae0817d18b6a8a4d3d7733f12566305e39e6fb1903cf49a098d73f518",
+      "source": "plugins/aukora-face/settings/src/aura/pentora-motion.mjs",
+      "path": "faces/settings/src/aura/pentora-motion.mjs",
+      "bytes": 1863,
+      "sha256": "16b4e4b1c9cf630851f1143ac8e6c3a56ab0407a2f1b32d8ba568260a433e033",
       "role": "source"
     },
     {
-      "source": "plugins/aukora-face/settings/src/aura/motion.ts",
-      "path": "faces/settings/src/aura/motion.ts",
-      "bytes": 7231,
-      "sha256": "9f073b829e9120d8542ec6bc9f9c91c689f4b5d1b93e82221c079bcbbcf4baf3",
+      "source": "plugins/aukora-face/settings/src/aura/pentora.d.mts",
+      "path": "faces/settings/src/aura/pentora.d.mts",
+      "bytes": 511,
+      "sha256": "e98158efc1893464d7cdde4481ee8e9f883beaa477fdebb0abd76501d8289b1c",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/pentora.mjs",
+      "path": "faces/settings/src/aura/pentora.mjs",
+      "bytes": 5937,
+      "sha256": "e1f7dc87f0025e0c04ca99d1debadecda9ec42958553bbad38e5986be050ba14",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/snapshot-reader.ts",
+      "path": "faces/settings/src/aura/snapshot-reader.ts",
+      "bytes": 4744,
+      "sha256": "f13a11a3db78444e59d85e011fcd236248a790511d44361f75fa271a0965535f",
+      "role": "source"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/snapshot.ts",
+      "path": "faces/settings/src/aura/snapshot.ts",
+      "bytes": 2508,
+      "sha256": "ba016cfaba2e441f294d88221c627808dd09c959679cd1d4068acf17ae7ff1fe",
       "role": "source"
     },
     {
@@ -2406,31 +2427,10 @@
       "role": "source"
     },
     {
-      "source": "plugins/aukora-face/settings/src/aura/rotor.ts",
-      "path": "faces/settings/src/aura/rotor.ts",
-      "bytes": 8006,
-      "sha256": "03313d3ed19e70269134f71f88518b1ba8779747144ee50b44d65a1283a4bc1e",
-      "role": "source"
-    },
-    {
-      "source": "plugins/aukora-face/settings/src/aura/ternary.ts",
-      "path": "faces/settings/src/aura/ternary.ts",
-      "bytes": 2798,
-      "sha256": "22205f4866391bee46332ada8637997283681af8b1bf66917ec1f9d16840ca74",
-      "role": "source"
-    },
-    {
       "source": "plugins/aukora-face/settings/src/aura/types.ts",
       "path": "faces/settings/src/aura/types.ts",
       "bytes": 4586,
       "sha256": "886a9ede6ff0729f0e03b28c534549b2c0bd2b1f3cc78d3d67db3b06f97052fa",
-      "role": "source"
-    },
-    {
-      "source": "plugins/aukora-face/settings/src/aura/walsh.ts",
-      "path": "faces/settings/src/aura/walsh.ts",
-      "bytes": 3932,
-      "sha256": "f1a52c354a0f8ac418bb7cb53d73edb3fbede40d9ed73c053500de184f407a89",
       "role": "source"
     },
     {
@@ -2443,15 +2443,15 @@
     {
       "source": "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.module.css",
       "path": "faces/settings/src/client/AuraCoherenceSurface.module.css",
-      "bytes": 18090,
-      "sha256": "c3aead8116818fc437f3675713640d705102c489b3fbe1a1c92580762b0e97c1",
+      "bytes": 1686,
+      "sha256": "7a343e829a023378016280ff2019a07b48b2b32d412a4c7076bc72835aed0ff9",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx",
       "path": "faces/settings/src/client/AuraCoherenceSurface.tsx",
-      "bytes": 35909,
-      "sha256": "067076d31636f83e095d359557c13ed5cf276be3f6c65184b12fae0fd783add0",
+      "bytes": 9196,
+      "sha256": "3903cb7209b368284dc39c6ba1a0b3d200e1e2950016893429530dcc07f79c19",
       "role": "source"
     },
     {
@@ -2511,6 +2511,13 @@
       "role": "source"
     },
     {
+      "source": "plugins/aukora-face/settings/src/client/aura-snapshot.ts",
+      "path": "faces/settings/src/client/aura-snapshot.ts",
+      "bytes": 2405,
+      "sha256": "b3b831c0d4ce22a2d49d4721875c9258e1a14ab81b7c36fa601f13f2bedb15ce",
+      "role": "source"
+    },
+    {
       "source": "plugins/aukora-face/settings/src/client/chrome.tsx",
       "path": "faces/settings/src/client/chrome.tsx",
       "bytes": 890,
@@ -2534,8 +2541,8 @@
     {
       "source": "plugins/aukora-face/settings/src/client/locales.ts",
       "path": "faces/settings/src/client/locales.ts",
-      "bytes": 13314,
-      "sha256": "5638689b45c6f1ca33b37c9f5c8d9a3586b88e648403d1980af0f943b5eeb61a",
+      "bytes": 3725,
+      "sha256": "2d9209ad9ccaaac32aa9066f859ef37a82266280e55e2535cf88d1d53b946a75",
       "role": "source"
     },
     {
@@ -2562,8 +2569,8 @@
     {
       "source": "plugins/aukora-face/settings/src/index.ts",
       "path": "faces/settings/src/index.ts",
-      "bytes": 10903,
-      "sha256": "39a1562f64781d7a292f3b68f2a5132d8445d84f3998df1a9df2ebd00a64841c",
+      "bytes": 11454,
+      "sha256": "3c6e0a0270021ead5447bef9456f8c5d78bf30e91f4f677df7c6def3b311be2e",
       "role": "source"
     },
     {
@@ -2576,15 +2583,15 @@
     {
       "source": "plugins/aukora-face/settings/tsconfig.client.json",
       "path": "faces/settings/tsconfig.client.json",
-      "bytes": 1413,
-      "sha256": "9073824bd326db8f46ff468e1e378cfc4deeb2ad166ef959278c72a35e3265b9",
+      "bytes": 1444,
+      "sha256": "296f0d1084abac651c6ce22397c7e120c3c1b501a849a052e4bf3bd7c3f6efe8",
       "role": "build-metadata"
     },
     {
       "source": "plugins/aukora-face/settings/tsconfig.host.json",
       "path": "faces/settings/tsconfig.host.json",
-      "bytes": 821,
-      "sha256": "6f9c14ac6fe4028ccac343d43174d8e5e0bca81edca8dc3bd3f571b0a7d22568",
+      "bytes": 853,
+      "sha256": "f143bdf457713ba79935d0a21e38ca4c29e107d6a8e258e9393dad80432896b9",
       "role": "build-metadata"
     },
     {
@@ -3295,6 +3302,46 @@
       "source": "plugins/aukora-face/settings/evidence/aura-evidence.py",
       "sha256": "0d0335ab6e1e3159dab225c8ff90157d77e9cf84ab8c11749fafc4165011079e",
       "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/activity.ts",
+      "sha256": "44bd2c6794ee17431cc3d985f929db2856e0892b40ee86dee45c90bcf5c71618",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/aggregate.ts",
+      "sha256": "61570311df1ab0d66b32f132eae90d676228a212deb1acb25628283451168d74",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/deformation.ts",
+      "sha256": "712bc3f7a196fee5f7dd8dc9580ee7c57425a276840371fe4fc883cf1ac41dc1",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/figure.ts",
+      "sha256": "404fe2eae0817d18b6a8a4d3d7733f12566305e39e6fb1903cf49a098d73f518",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/motion.ts",
+      "sha256": "9f073b829e9120d8542ec6bc9f9c91c689f4b5d1b93e82221c079bcbbcf4baf3",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/rotor.ts",
+      "sha256": "03313d3ed19e70269134f71f88518b1ba8779747144ee50b44d65a1283a4bc1e",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/ternary.ts",
+      "sha256": "22205f4866391bee46332ada8637997283681af8b1bf66917ec1f9d16840ca74",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
+    },
+    {
+      "source": "plugins/aukora-face/settings/src/aura/walsh.ts",
+      "sha256": "f1a52c354a0f8ac418bb7cb53d73edb3fbede40d9ed73c053500de184f407a89",
+      "reason": "Aura Pentora replaces the obsolete coefficient/geometry helper; historical source identity retained."
     }
   ],
   "donor_bundle_source_freshness": {

@@ -1,9 +1,10 @@
 import z from "@deepseek-ai/schemastery";
 import { z as z$1 } from "zod";
+import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 //#region lib/types/aura/projection.js
 /**
 * Pure Aura Coherence projection over durable session records.
@@ -298,6 +299,145 @@ const auraCoherenceProjectionDefinition = {
 	}
 };
 //#endregion
+//#region lib/types/aura/snapshot.js
+const AURA_SNAPSHOT_SCHEMA = "aukora-face/aura-snapshot:v1";
+const AURA_SNAPSHOT_SOURCES = [
+	"gate-ledger",
+	"kira-chain",
+	"code-chain"
+];
+const DOMAIN = "aukora.aura.snapshot.v1\0";
+const HEX64$1 = /^[0-9a-f]{64}$/u;
+function refuse(code) {
+	throw Object.assign(new TypeError(code), { code });
+}
+function lengthPrefixed(bytes) {
+	const length = Buffer.alloc(4);
+	length.writeUInt32BE(bytes.length);
+	return Buffer.concat([length, bytes]);
+}
+/** Absence has a zero-length head; diagnostic counts and reasons do not change record identity. */
+function makeAuraSnapshot(input) {
+	if (!Array.isArray(input) || input.length !== AURA_SNAPSHOT_SOURCES.length || AURA_SNAPSHOT_SOURCES.some((name) => input.filter((source) => source?.name === name).length !== 1)) refuse("aura-snapshot:source-set-invalid");
+	const sources = AURA_SNAPSHOT_SOURCES.map((name) => {
+		const source = input.find((candidate) => candidate.name === name);
+		if (source.head !== null && (typeof source.head !== "string" || !HEX64$1.test(source.head))) refuse("aura-snapshot:head-invalid");
+		if (source.entries !== null && (!Number.isSafeInteger(source.entries) || source.entries < 0)) refuse("aura-snapshot:entries-invalid");
+		if (source.head === null ? source.entries !== null && source.entries !== 0 || typeof source.absence !== "string" || source.absence.length === 0 : source.absence !== null || source.entries === null || source.entries < 1) refuse("aura-snapshot:availability-invalid");
+		return {
+			name,
+			head: source.head,
+			entries: source.entries,
+			absence: source.absence
+		};
+	});
+	const hash = createHash("sha256").update(DOMAIN, "utf8");
+	for (const source of sources) {
+		hash.update(lengthPrefixed(Buffer.from(source.name, "utf8")));
+		hash.update(lengthPrefixed(source.head === null ? Buffer.alloc(0) : Buffer.from(source.head, "hex")));
+	}
+	return {
+		schema: AURA_SNAPSHOT_SCHEMA,
+		head: hash.digest("hex"),
+		sources
+	};
+}
+//#endregion
+//#region lib/types/aura/snapshot-reader.js
+var __rewriteRelativeImportExtension$1 = function(path, preserveJsx) {
+	if (typeof path === "string" && /^\.\.?\//.test(path)) return path.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
+		return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : d + ext + "." + cm.toLowerCase() + "js";
+	});
+	return path;
+};
+const AURA_SNAPSHOT_ENDPOINT = "/api/aukora/aura-snapshot";
+const CACHE_MS = 1500;
+const SOCKET_TIMEOUT_MS = 3e3;
+const HEX64 = /^[0-9a-f]{64}$/u;
+const DEFAULT_GATE_SOCKET = "/run/aukora-gate/gate.sock";
+function absent(name, absence, entries = null) {
+	return {
+		name,
+		head: null,
+		entries,
+		absence
+	};
+}
+/** A failed verification never contributes a head to the snapshot. */
+function gateLedgerSource(value) {
+	const verified = value;
+	if (verified?.ok !== true) return absent("gate-ledger", "gate-ledger-unverified");
+	if (verified.entries === 0 && verified.head === "GENESIS") return absent("gate-ledger", "gate-ledger-empty", 0);
+	if (!Number.isSafeInteger(verified.entries) || verified.entries < 1 || typeof verified.head !== "string" || !HEX64.test(verified.head)) return absent("gate-ledger", "gate-ledger-invalid");
+	return {
+		name: "gate-ledger",
+		head: verified.head,
+		entries: verified.entries,
+		absence: null
+	};
+}
+/** Match the composition's gateSocket option; an invalid explicit socket is never replaced with the default. */
+function snapshotGateSocket(config, env = process.env) {
+	const socket = config.gateSocket === void 0 ? env["AUKORA_GATE_SOCKET"] ?? DEFAULT_GATE_SOCKET : config.gateSocket;
+	return typeof socket === "string" && socket.length <= 1024 && isAbsolute(socket) && normalize(socket) === socket && !/[\u0000-\u001f\u007f]/u.test(socket) ? socket : null;
+}
+/** The carried Buzz transport allows log; only its verify result leaves this reader. */
+async function readAuraSnapshot(releaseRoot, socket) {
+	let gate = absent("gate-ledger", socket === null ? "gate-socket-invalid" : "gate-ledger-unavailable");
+	if (socket !== null) try {
+		const client = await import(__rewriteRelativeImportExtension$1(join(releaseRoot, "plugins/aukora-buzz-door/lib/index.mjs")));
+		if (typeof client.gateCall !== "function") gate = absent("gate-ledger", "gate-client-not-carried");
+		else gate = gateLedgerSource((await client.gateCall(socket, "log", { limit: 1 }, SOCKET_TIMEOUT_MS))?.verify);
+	} catch {}
+	return makeAuraSnapshot([
+		gate,
+		absent("kira-chain", "kira-head-not-exposed"),
+		absent("code-chain", "code-head-not-exposed")
+	]);
+}
+/** Concurrent windows share one in-flight read and at most one verification per cache interval. */
+function createAuraSnapshotReader(read, now = Date.now) {
+	let cached;
+	let expires = 0;
+	let reading = false;
+	return () => {
+		if (cached !== void 0 && (reading || now() < expires)) return cached;
+		reading = true;
+		cached = read().finally(() => {
+			reading = false;
+			expires = now() + CACHE_MS;
+		});
+		return cached;
+	};
+}
+/** Authenticate before reading; the route accepts only GET and caches no response. */
+function auraSnapshotHandler(connection, read) {
+	return async (req, res) => {
+		const gate = connection();
+		const rejection = typeof gate?.requestRejection === "function" ? gate.requestRejection(req) : 403;
+		if (rejection !== void 0) {
+			res.writeHead(rejection, { "cache-control": "no-store" });
+			res.end();
+			return;
+		}
+		if (req.method !== "GET") {
+			res.writeHead(405, {
+				allow: "GET",
+				"cache-control": "no-store"
+			});
+			res.end();
+			return;
+		}
+		const snapshot = await read();
+		res.writeHead(200, {
+			"cache-control": "no-store",
+			"content-type": "application/json; charset=utf-8",
+			"x-content-type-options": "nosniff"
+		});
+		res.end(JSON.stringify(snapshot));
+	};
+}
+//#endregion
 //#region lib/types/index.js
 /**
 * Host loader entry: the Aura session projection, the onboarding settings namespace, and
@@ -449,7 +589,7 @@ async function readAuraEvidence(releaseRoot) {
 	});
 }
 /** Register the projection, the settings namespace, and the evidence route. */
-function apply(ctx) {
+function apply(ctx, config = {}) {
 	ctx.inject(["sessionProjections"], (projectionCtx) => {
 		projectionCtx.sessionProjections.register(auraCoherenceProjectionDefinition);
 	});
@@ -459,6 +599,13 @@ function apply(ctx) {
 	ctx.inject(["webServer", "connection"], (webCtx) => {
 		const releaseRoot = resolve(HERE, "..", "..", "..");
 		const gate = () => Reflect.get(webCtx, "connection");
+		const socket = snapshotGateSocket(config);
+		const readSnapshot = createAuraSnapshotReader(() => readAuraSnapshot(releaseRoot, socket));
+		webCtx.effect(() => webCtx.webServer.register({
+			kind: "exact",
+			path: AURA_SNAPSHOT_ENDPOINT,
+			handler: auraSnapshotHandler(gate, readSnapshot)
+		}), "ui-settings-general: aura snapshot route");
 		webCtx.effect(() => webCtx.webServer.register({
 			kind: "exact",
 			path: AURA_EVIDENCE_ENDPOINT,

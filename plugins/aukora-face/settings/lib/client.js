@@ -73,731 +73,1006 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region src/aura/aggregate.ts
-		const RECENT_LIMIT = 18;
-		const FNV_OFFSET = 2166136261;
-		const FNV_PRIME = 16777619;
-		function emptyCounts() {
-			return {
-				records: 0,
-				interactions: 0,
-				turns: 0,
-				humanMessages: 0,
-				contextMessages: 0,
-				assistantMessages: 0,
-				toolCalls: 0,
-				toolResults: 0,
-				toolErrors: 0
-			};
-		}
-		function emptyApprovals() {
-			return {
-				asked: 0,
-				allowed: 0,
-				rejected: 0,
-				cancelled: 0,
-				unavailable: 0
-			};
-		}
-		/**
-		* Name the durable session-log totals available to Aura's coefficient map.
-		*
-		* Identity, cryptographic receipts, and external anchoring are deliberately
-		* absent: this adapter reports those capabilities as unmounted and never
-		* converts its checksum or timestamps into evidence coefficients.
-		*
-		* @param projection - one session or system summary with folded counts and approvals.
-		* @returns the exact monotonic totals used by the persistent and transient maps.
-		*/
-		function auraChannelSourcesOf(projection) {
-			return {
-				persistent: {
-					historyInteractions: projection.counts.interactions,
-					toolCalls: projection.counts.toolCalls,
-					toolResults: projection.counts.toolResults,
-					toolErrors: projection.counts.toolErrors,
-					approvalsAsked: projection.approvals.asked,
-					approvalsAllowed: projection.approvals.allowed,
-					approvalsRejected: projection.approvals.rejected,
-					approvalsUnavailable: projection.approvals.unavailable,
-					approvalsCancelled: projection.approvals.cancelled
-				},
-				activity: {
-					humanMessages: projection.counts.humanMessages,
-					assistantMessages: projection.counts.assistantMessages,
-					toolEvents: projection.counts.toolCalls + projection.counts.toolResults
-				}
-			};
-		}
-		function extendFingerprint(hash, value) {
-			let next = hash >>> 0;
-			for (let index = 0; index < value.length; index += 1) {
-				next ^= value.charCodeAt(index);
-				next = Math.imul(next, FNV_PRIME) >>> 0;
-			}
-			return next;
-		}
-		/**
-		* Combine per-session durable projections without inventing cross-session order.
-		*
-		* Totals are commutative. Recent records use their durable timestamps for display,
-		* with session id and sequence as deterministic tie-breakers; that ordering is not
-		* presented as a global receipt chain.
-		*
-		* @param entries - Host-listed sessions and any available Aura projections.
-		* @returns one content-free system life-state summary.
-		*/
-		function aggregateAuraCoherence(entries) {
-			const counts = emptyCounts();
-			const approvals = emptyApprovals();
-			const projected = entries.filter((entry) => entry.projection !== void 0).sort((left, right) => left.id.localeCompare(right.id));
-			const recent = [];
-			let fingerprint = FNV_OFFSET;
-			let lastTime = null;
-			for (const entry of projected) {
-				const projection = entry.projection;
-				for (const key of Object.keys(counts)) counts[key] += projection.counts[key];
-				for (const key of Object.keys(approvals)) approvals[key] += projection.approvals[key];
-				fingerprint = extendFingerprint(fingerprint, `${entry.id}|${projection.recordFingerprint}|${projection.lastSeq};`);
-				if (projection.lastTime !== null) lastTime = lastTime === null ? projection.lastTime : Math.max(lastTime, projection.lastTime);
-				recent.push(...projection.recent.map((record) => ({
-					...record,
-					sessionId: entry.id,
-					sessionTitle: entry.title
-				})));
-			}
-			recent.sort((left, right) => right.time - left.time || left.sessionId.localeCompare(right.sessionId) || right.seq - left.seq);
-			return {
-				sessions: entries.length,
-				projectedSessions: projected.length,
-				counts,
-				approvals,
-				channelSources: auraChannelSourcesOf({
-					counts,
-					approvals
-				}),
-				recordFingerprint: fingerprint.toString(16).padStart(8, "0"),
-				lastTime,
-				recent: recent.slice(0, RECENT_LIMIT)
-			};
-		}
-		//#endregion
-		//#region src/aura/figure.ts
-		/** One full rotation in radians. */
-		const TAU = Math.PI * 2;
-		/** Immutable exact rest position of the breath triad. */
-		const REST = Object.freeze([
-			0,
-			0,
-			0
-		]);
-		/** Golden-ratio conjugate used as the non-repeating interaction phase step. */
-		const HISTORY_PHASE_STEP = (Math.sqrt(5) - 1) / 2;
-		/**
-		* Ordered, attributable source of every coefficient emitted by the local
-		* adapter. `signed` marks channels spanning `[-1, 1]`, whose readout needs a
-		* bipolar center-origin meter; unsigned channels stay in `[0, 1)`.
-		*/
-		const AURA_COEFFICIENT_PROVENANCE = Object.freeze([
-			Object.freeze({
-				plane: "xy",
-				channel: "historyPhase",
-				lifetime: "persistent",
-				signed: true,
-				source: "counts.interactions"
-			}),
-			Object.freeze({
-				plane: "xz",
-				channel: "toolHealth",
-				lifetime: "persistent",
-				signed: false,
-				source: "counts.toolCalls, counts.toolResults, counts.toolErrors"
-			}),
-			Object.freeze({
-				plane: "yz",
-				channel: "approvalPosture",
-				lifetime: "persistent",
-				signed: true,
-				source: "approvals.asked, approvals.allowed, approvals.rejected, approvals.unavailable, approvals.cancelled"
-			}),
-			Object.freeze({
-				plane: "xw",
-				channel: "humanActivity",
-				lifetime: "transient",
-				signed: false,
-				source: "positive delta of counts.humanMessages"
-			}),
-			Object.freeze({
-				plane: "yw",
-				channel: "assistantActivity",
-				lifetime: "transient",
-				signed: false,
-				source: "positive delta of counts.assistantMessages"
-			}),
-			Object.freeze({
-				plane: "zw",
-				channel: "toolActivity",
-				lifetime: "transient",
-				signed: false,
-				source: "positive delta of counts.toolCalls + counts.toolResults"
-			})
-		]);
-		function countOrZero(value) {
-			return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-		}
-		function clamp(value, minimum, maximum) {
-			return Math.min(maximum, Math.max(minimum, value));
-		}
-		function boundedCount(value) {
-			const count = countOrZero(value);
-			return count / (1 + count);
-		}
-		function positiveDelta(previous, current) {
-			return Math.max(0, countOrZero(current) - countOrZero(previous));
-		}
-		function fractionalPart(value) {
-			return value - Math.floor(value);
-		}
-		/**
-		* Map a committed interaction count to a bounded, visibly advancing phase.
-		*
-		* The Kronecker sequence `2 × frac(n × φ⁻¹) - 1` never saturates, so each
-		* representable positive count moves the persistent `xy` coefficient. Zero
-		* remains the neutral initial state.
-		*
-		* @param value - committed high-level interaction count.
-		* @returns deterministic phase in `[-1, 1)` or zero for an invalid/empty count.
-		*/
-		function historyPhaseOf(value) {
-			const count = countOrZero(value);
-			return count === 0 ? 0 : 2 * fractionalPart(count * HISTORY_PHASE_STEP) - 1;
-		}
-		/**
-		* Normalize the local adapter's three durable channels into persistent coefficients.
-		*
-		* History phase uses the non-saturating Kronecker sequence
-		* `2 × frac(interactions × φ⁻¹) - 1`. Tool health is the fraction of requested
-		* calls with a committed non-error result. Approval posture is the signed
-		* allowed-minus-refused share of the larger of asks or recorded outcomes;
-		* cancellations and unanswered asks remain neutral mass in the denominator.
-		* Every coefficient is finite and bounded to `[-1, 1]`.
-		*
-		* @param sources - named durable count sources from the session-log adapter.
-		* @returns `xy` history phase, `xz` tool health, and `yz` approval posture.
-		*/
-		function persistentChannelsOf(sources) {
-			const toolCalls = countOrZero(sources.toolCalls);
-			const toolResults = countOrZero(sources.toolResults);
-			const toolErrors = Math.min(toolResults, countOrZero(sources.toolErrors));
-			const successfulToolResults = Math.max(0, toolResults - toolErrors);
-			const toolHealth = toolCalls === 0 ? 0 : clamp(successfulToolResults / toolCalls, 0, 1);
-			const approvalsAsked = countOrZero(sources.approvalsAsked);
-			const approvalsAllowed = countOrZero(sources.approvalsAllowed);
-			const approvalsRefused = countOrZero(sources.approvalsRejected) + countOrZero(sources.approvalsUnavailable);
-			const approvalOutcomes = approvalsAllowed + approvalsRefused + countOrZero(sources.approvalsCancelled);
-			const approvalCoverage = Math.max(approvalsAsked, approvalOutcomes);
-			const approvalPosture = approvalCoverage === 0 ? 0 : clamp((approvalsAllowed - approvalsRefused) / approvalCoverage, -1, 1);
-			return [
-				historyPhaseOf(sources.historyInteractions),
-				toolHealth,
-				approvalPosture
-			];
-		}
-		/**
-		* Normalize new durable activity into three independent transient drives.
-		*
-		* An absent previous snapshot represents initial hydration and produces exact
-		* rest, so historical records never masquerade as live activity. Positive
-		* deltas use `n / (1 + n)` and removals or projection resets produce zero.
-		*
-		* @param previous - preceding monotonic activity totals, absent during initial hydration.
-		* @param current - current monotonic activity totals.
-		* @returns `xw` human, `yw` assistant, and `zw` tool activity in `[0, 1)`.
-		*/
-		function transientChannelsOf(previous, current) {
-			if (previous === null || previous === void 0) return [
-				0,
-				0,
-				0
-			];
-			return [
-				boundedCount(positiveDelta(previous.humanMessages, current.humanMessages)),
-				boundedCount(positiveDelta(previous.assistantMessages, current.assistantMessages)),
-				boundedCount(positiveDelta(previous.toolEvents, current.toolEvents))
-			];
-		}
-		//#endregion
-		//#region src/aura/activity.ts
-		/** Session-continuity tracking for Aura's transient activity coefficients. */
-		function emptyActivity() {
-			return {
-				humanMessages: 0,
-				assistantMessages: 0,
-				toolEvents: 0
-			};
-		}
-		function addActivity(target, source) {
-			target.humanMessages += source.humanMessages;
-			target.assistantMessages += source.assistantMessages;
-			target.toolEvents += source.toolEvents;
-		}
-		function isMonotonic(previous, current) {
-			return current.humanMessages >= previous.humanMessages && current.assistantMessages >= previous.assistantMessages && current.toolEvents >= previous.toolEvents;
-		}
-		/**
-		* Extract per-Session activity heads from the currently available projections.
-		* @param entries - Host-listed Sessions and their optional Aura projections.
-		* @returns current projected heads in Host-list order.
-		*/
-		function auraActivityHeadsOf(entries) {
-			return entries.flatMap((entry) => {
-				if (entry.projection === void 0) return [];
-				return [{
-					sessionId: entry.id,
-					lastSeq: entry.projection.lastSeq,
-					activity: auraChannelSourcesOf(entry.projection).activity
-				}];
-			});
-		}
-		/**
-		* Advance activity continuity without treating hydration, removal, or replay as live input.
-		*
-		* A Session contributes an impulse only when it existed in the preceding baseline,
-		* its durable sequence advanced, and all three totals remained monotonic. New,
-		* reappearing, rewound, and reset projections establish a new baseline at exact rest.
-		*
-		* @param previous - preceding heads keyed by opaque Session id.
-		* @param current - currently projected Session heads.
-		* @returns replacement baselines and the independently normalized activity impulse.
-		*/
-		function advanceAuraActivity(previous, current) {
-			const baselines = /* @__PURE__ */ new Map();
-			const comparablePrevious = emptyActivity();
-			const comparableCurrent = emptyActivity();
-			for (const head of current) {
-				baselines.set(head.sessionId, {
-					lastSeq: head.lastSeq,
-					activity: { ...head.activity }
-				});
-				const baseline = previous.get(head.sessionId);
-				if (baseline === void 0 || head.lastSeq <= baseline.lastSeq || !isMonotonic(baseline.activity, head.activity)) continue;
-				addActivity(comparablePrevious, baseline.activity);
-				addActivity(comparableCurrent, head.activity);
-			}
-			return {
-				baselines,
-				impulse: transientChannelsOf(comparablePrevious, comparableCurrent)
-			};
-		}
-		//#endregion
-		//#region src/aura/rotor.ts
-		/** Frozen Givens-rotation order: standing `xy, xz, yz`, then breath `xw, yw, zw`. */
-		const PLANES = Object.freeze([
-			Object.freeze([0, 1]),
-			Object.freeze([0, 2]),
-			Object.freeze([1, 2]),
-			Object.freeze([0, 3]),
-			Object.freeze([1, 3]),
-			Object.freeze([2, 3])
-		]);
-		/** Fixed six-plane orientation used to make the projected cage readable. */
-		const FIGURE_ORIENTATION = Object.freeze([
-			.38,
-			-.32,
-			.2,
-			0,
-			0,
-			0
-		]);
-		/** Frozen bit-order enumeration of the sixteen vertices in `{−1,+1}^4`. */
-		const TESSERACT_VERTICES = Object.freeze(Array.from({ length: 16 }, (_, index) => Object.freeze([
-			(index & 1) === 0 ? -1 : 1,
-			(index & 2) === 0 ? -1 : 1,
-			(index & 4) === 0 ? -1 : 1,
-			(index & 8) === 0 ? -1 : 1
-		])));
-		/** Thirty-two unique edges joining vertices that differ in exactly one axis. */
-		const TESSERACT_EDGES = Object.freeze((() => {
-			const edges = [];
-			for (let vertex = 0; vertex < 16; vertex += 1) for (let axis = 0; axis < 4; axis += 1) {
-				const neighbor = vertex ^ 1 << axis;
-				if (neighbor > vertex) edges.push(Object.freeze([vertex, neighbor]));
-			}
-			return edges;
-		})());
-		/** Twenty-four square faces: four fixed-coordinate faces for each rotation plane. */
-		const TESSERACT_FACES = Object.freeze((() => {
-			const axes = [
+		//#region src/aura/pentora.mjs
+		const PENTORA = {
+			centre: 55,
+			mutable: [
 				0,
 				1,
 				2,
-				3
-			];
-			const faces = [];
-			for (const [planeIndex, plane] of PLANES.entries()) {
-				const [leftAxis, rightAxis] = plane;
-				const fixedAxes = axes.filter((axis) => axis !== leftAxis && axis !== rightAxis);
-				for (let fixedPattern = 0; fixedPattern < 4; fixedPattern += 1) {
-					let base = 0;
-					for (const [offset, axis] of fixedAxes.entries()) if ((fixedPattern & 1 << offset) !== 0) base |= 1 << axis;
-					const left = 1 << leftAxis;
-					const right = 1 << rightAxis;
-					faces.push(Object.freeze({
-						planeIndex,
-						plane,
-						vertices: Object.freeze([
-							base,
-							base ^ left,
-							base ^ left ^ right,
-							base ^ right
-						])
-					}));
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24,
+				25,
+				26,
+				27,
+				28,
+				29,
+				30,
+				31,
+				32,
+				33,
+				34,
+				35,
+				36,
+				37,
+				38,
+				39,
+				40,
+				41,
+				42,
+				43,
+				44,
+				45,
+				46,
+				47,
+				48,
+				49,
+				50,
+				51,
+				52,
+				53,
+				54,
+				56,
+				57,
+				58,
+				59,
+				60,
+				61,
+				62,
+				63,
+				64,
+				65,
+				66,
+				67,
+				68,
+				69,
+				70,
+				71,
+				72,
+				73,
+				74,
+				75,
+				76,
+				77,
+				78,
+				79,
+				80,
+				81,
+				82,
+				83,
+				84,
+				85,
+				86,
+				87,
+				88,
+				89,
+				90,
+				91,
+				92,
+				93,
+				94,
+				95,
+				96,
+				97,
+				98,
+				99,
+				100,
+				101,
+				102,
+				103,
+				104,
+				105,
+				106,
+				107,
+				108,
+				109,
+				110
+			],
+			points: [
+				[
+					-.934172,
+					0,
+					-.356822
+				],
+				[
+					-.934172,
+					0,
+					.356822
+				],
+				[
+					-.755761,
+					-.288675,
+					-.110264
+				],
+				[
+					-.755761,
+					-.288675,
+					.110264
+				],
+				[
+					-.755761,
+					.288675,
+					-.110264
+				],
+				[
+					-.755761,
+					.288675,
+					.110264
+				],
+				[
+					-.645497,
+					-.467086,
+					-.178411
+				],
+				[
+					-.645497,
+					-.467086,
+					.178411
+				],
+				[
+					-.645497,
+					.467086,
+					-.178411
+				],
+				[
+					-.645497,
+					.467086,
+					.178411
+				],
+				[
+					-.57735,
+					-.57735,
+					-.57735
+				],
+				[
+					-.57735,
+					-.57735,
+					0
+				],
+				[
+					-.57735,
+					-.57735,
+					.57735
+				],
+				[
+					-.57735,
+					0,
+					-.57735
+				],
+				[
+					-.57735,
+					0,
+					0
+				],
+				[
+					-.57735,
+					0,
+					.57735
+				],
+				[
+					-.57735,
+					.57735,
+					-.57735
+				],
+				[
+					-.57735,
+					.57735,
+					0
+				],
+				[
+					-.57735,
+					.57735,
+					.57735
+				],
+				[
+					-.467086,
+					-.178411,
+					-.645497
+				],
+				[
+					-.467086,
+					-.178411,
+					-.288675
+				],
+				[
+					-.467086,
+					-.178411,
+					.288675
+				],
+				[
+					-.467086,
+					-.178411,
+					.645497
+				],
+				[
+					-.467086,
+					.178411,
+					-.645497
+				],
+				[
+					-.467086,
+					.178411,
+					-.288675
+				],
+				[
+					-.467086,
+					.178411,
+					.288675
+				],
+				[
+					-.467086,
+					.178411,
+					.645497
+				],
+				[
+					-.356822,
+					-.934172,
+					0
+				],
+				[
+					-.356822,
+					.934172,
+					0
+				],
+				[
+					-.288675,
+					-.467086,
+					-.178411
+				],
+				[
+					-.288675,
+					-.467086,
+					.178411
+				],
+				[
+					-.288675,
+					-.110264,
+					-.755761
+				],
+				[
+					-.288675,
+					-.110264,
+					.755761
+				],
+				[
+					-.288675,
+					.110264,
+					-.755761
+				],
+				[
+					-.288675,
+					.110264,
+					.755761
+				],
+				[
+					-.288675,
+					.467086,
+					-.178411
+				],
+				[
+					-.288675,
+					.467086,
+					.178411
+				],
+				[
+					-.178411,
+					-.645497,
+					-.467086
+				],
+				[
+					-.178411,
+					-.645497,
+					.467086
+				],
+				[
+					-.178411,
+					-.288675,
+					-.467086
+				],
+				[
+					-.178411,
+					-.288675,
+					.467086
+				],
+				[
+					-.178411,
+					.288675,
+					-.467086
+				],
+				[
+					-.178411,
+					.288675,
+					.467086
+				],
+				[
+					-.178411,
+					.645497,
+					-.467086
+				],
+				[
+					-.178411,
+					.645497,
+					.467086
+				],
+				[
+					-.110264,
+					-.755761,
+					-.288675
+				],
+				[
+					-.110264,
+					-.755761,
+					.288675
+				],
+				[
+					-.110264,
+					.755761,
+					-.288675
+				],
+				[
+					-.110264,
+					.755761,
+					.288675
+				],
+				[
+					0,
+					-.57735,
+					-.57735
+				],
+				[
+					0,
+					-.57735,
+					0
+				],
+				[
+					0,
+					-.57735,
+					.57735
+				],
+				[
+					0,
+					-.356822,
+					-.934172
+				],
+				[
+					0,
+					-.356822,
+					.934172
+				],
+				[
+					0,
+					0,
+					-.57735
+				],
+				[
+					0,
+					0,
+					0
+				],
+				[
+					0,
+					0,
+					.57735
+				],
+				[
+					0,
+					.356822,
+					-.934172
+				],
+				[
+					0,
+					.356822,
+					.934172
+				],
+				[
+					0,
+					.57735,
+					-.57735
+				],
+				[
+					0,
+					.57735,
+					0
+				],
+				[
+					0,
+					.57735,
+					.57735
+				],
+				[
+					.110264,
+					-.755761,
+					-.288675
+				],
+				[
+					.110264,
+					-.755761,
+					.288675
+				],
+				[
+					.110264,
+					.755761,
+					-.288675
+				],
+				[
+					.110264,
+					.755761,
+					.288675
+				],
+				[
+					.178411,
+					-.645497,
+					-.467086
+				],
+				[
+					.178411,
+					-.645497,
+					.467086
+				],
+				[
+					.178411,
+					-.288675,
+					-.467086
+				],
+				[
+					.178411,
+					-.288675,
+					.467086
+				],
+				[
+					.178411,
+					.288675,
+					-.467086
+				],
+				[
+					.178411,
+					.288675,
+					.467086
+				],
+				[
+					.178411,
+					.645497,
+					-.467086
+				],
+				[
+					.178411,
+					.645497,
+					.467086
+				],
+				[
+					.288675,
+					-.467086,
+					-.178411
+				],
+				[
+					.288675,
+					-.467086,
+					.178411
+				],
+				[
+					.288675,
+					-.110264,
+					-.755761
+				],
+				[
+					.288675,
+					-.110264,
+					.755761
+				],
+				[
+					.288675,
+					.110264,
+					-.755761
+				],
+				[
+					.288675,
+					.110264,
+					.755761
+				],
+				[
+					.288675,
+					.467086,
+					-.178411
+				],
+				[
+					.288675,
+					.467086,
+					.178411
+				],
+				[
+					.356822,
+					-.934172,
+					0
+				],
+				[
+					.356822,
+					.934172,
+					0
+				],
+				[
+					.467086,
+					-.178411,
+					-.645497
+				],
+				[
+					.467086,
+					-.178411,
+					-.288675
+				],
+				[
+					.467086,
+					-.178411,
+					.288675
+				],
+				[
+					.467086,
+					-.178411,
+					.645497
+				],
+				[
+					.467086,
+					.178411,
+					-.645497
+				],
+				[
+					.467086,
+					.178411,
+					-.288675
+				],
+				[
+					.467086,
+					.178411,
+					.288675
+				],
+				[
+					.467086,
+					.178411,
+					.645497
+				],
+				[
+					.57735,
+					-.57735,
+					-.57735
+				],
+				[
+					.57735,
+					-.57735,
+					0
+				],
+				[
+					.57735,
+					-.57735,
+					.57735
+				],
+				[
+					.57735,
+					0,
+					-.57735
+				],
+				[
+					.57735,
+					0,
+					0
+				],
+				[
+					.57735,
+					0,
+					.57735
+				],
+				[
+					.57735,
+					.57735,
+					-.57735
+				],
+				[
+					.57735,
+					.57735,
+					0
+				],
+				[
+					.57735,
+					.57735,
+					.57735
+				],
+				[
+					.645497,
+					-.467086,
+					-.178411
+				],
+				[
+					.645497,
+					-.467086,
+					.178411
+				],
+				[
+					.645497,
+					.467086,
+					-.178411
+				],
+				[
+					.645497,
+					.467086,
+					.178411
+				],
+				[
+					.755761,
+					-.288675,
+					-.110264
+				],
+				[
+					.755761,
+					-.288675,
+					.110264
+				],
+				[
+					.755761,
+					.288675,
+					-.110264
+				],
+				[
+					.755761,
+					.288675,
+					.110264
+				],
+				[
+					.934172,
+					0,
+					-.356822
+				],
+				[
+					.934172,
+					0,
+					.356822
+				]
+			],
+			edges: [
+				[10, 12],
+				[10, 16],
+				[10, 92],
+				[12, 18],
+				[12, 94],
+				[16, 18],
+				[16, 98],
+				[18, 100],
+				[92, 94],
+				[92, 98],
+				[94, 100],
+				[98, 100],
+				[10, 57],
+				[1, 10],
+				[10, 82],
+				[53, 100],
+				[100, 109],
+				[28, 100],
+				[1, 53],
+				[53, 82],
+				[57, 109],
+				[28, 57],
+				[82, 109],
+				[1, 28],
+				[12, 58],
+				[0, 12],
+				[12, 82],
+				[52, 98],
+				[98, 110],
+				[28, 98],
+				[0, 52],
+				[52, 82],
+				[58, 110],
+				[28, 58],
+				[0, 28],
+				[82, 110],
+				[16, 52],
+				[1, 16],
+				[16, 83],
+				[58, 94],
+				[94, 109],
+				[27, 94],
+				[52, 109],
+				[27, 52],
+				[1, 58],
+				[58, 83],
+				[83, 109],
+				[1, 27],
+				[18, 53],
+				[0, 18],
+				[18, 83],
+				[57, 92],
+				[92, 110],
+				[27, 92],
+				[53, 110],
+				[27, 53],
+				[0, 57],
+				[57, 83],
+				[0, 27],
+				[83, 110]
+			],
+			cubes: [
+				[
+					10,
+					49,
+					92,
+					13,
+					54,
+					95,
+					16,
+					59,
+					98,
+					11,
+					50,
+					93,
+					14,
+					55,
+					96,
+					17,
+					60,
+					99,
+					12,
+					51,
+					94,
+					15,
+					56,
+					97,
+					18,
+					61,
+					100
+				],
+				[
+					10,
+					45,
+					82,
+					2,
+					30,
+					67,
+					1,
+					22,
+					53,
+					31,
+					68,
+					101,
+					24,
+					55,
+					86,
+					9,
+					42,
+					79,
+					57,
+					88,
+					109,
+					43,
+					80,
+					108,
+					28,
+					65,
+					100
+				],
+				[
+					12,
+					46,
+					82,
+					3,
+					29,
+					66,
+					0,
+					19,
+					52,
+					32,
+					69,
+					102,
+					25,
+					55,
+					85,
+					8,
+					41,
+					78,
+					58,
+					91,
+					110,
+					44,
+					81,
+					107,
+					28,
+					64,
+					98
+				],
+				[
+					16,
+					47,
+					83,
+					4,
+					36,
+					73,
+					1,
+					26,
+					58,
+					33,
+					70,
+					103,
+					20,
+					55,
+					90,
+					7,
+					40,
+					77,
+					52,
+					84,
+					109,
+					37,
+					74,
+					106,
+					27,
+					63,
+					94
+				],
+				[
+					18,
+					48,
+					83,
+					5,
+					35,
+					72,
+					0,
+					23,
+					57,
+					34,
+					71,
+					104,
+					21,
+					55,
+					89,
+					6,
+					39,
+					76,
+					53,
+					87,
+					110,
+					38,
+					75,
+					105,
+					27,
+					62,
+					92
+				]
+			]
+		};
+		async function pentoraDigest(head32, sha256) {
+			if (!(head32 instanceof Uint8Array) || head32.length !== 32) throw new RangeError("pentora:head-invalid");
+			const msg = new Uint8Array(51);
+			for (let i = 0; i < 18; i++) msg[i] = "pentora.display.v1".charCodeAt(i);
+			msg.set(head32, 19);
+			const out = await sha256(msg), digest = out instanceof ArrayBuffer ? new Uint8Array(out) : out;
+			if (!(digest instanceof Uint8Array) || digest.length !== 32) throw new TypeError("pentora:hash-invalid");
+			return digest;
+		}
+		async function pentoraDigits(head32, sha256) {
+			const n = Array.from(await pentoraDigest(head32, sha256)), digits = new Uint8Array(110);
+			for (let i = 0; i < 110; i++) {
+				let r = 0;
+				for (let k = 0; k < 32; k++) {
+					const v = r * 256 + n[k];
+					n[k] = (v - v % 3) / 3;
+					r = v % 3;
 				}
+				digits[i] = r;
 			}
-			return faces;
-		})());
-		function finiteOrZero$1(value) {
-			return typeof value === "number" && Number.isFinite(value) ? value : 0;
-		}
-		/**
-		* Rotate a four-dimensional point through all six planes in `PLANES` order.
-		* @param point - Four coordinates; absent or non-finite entries are zero.
-		* @param angles - Six plane angles; absent or non-finite entries are zero.
-		* @returns Length-preserving ordered Givens rotation of the normalized input point.
-		*/
-		function rotate4(point, angles) {
-			const rotated = [
-				finiteOrZero$1(point?.[0]),
-				finiteOrZero$1(point?.[1]),
-				finiteOrZero$1(point?.[2]),
-				finiteOrZero$1(point?.[3])
-			];
-			for (const [planeIndex, [leftAxis, rightAxis]] of PLANES.entries()) {
-				const angle = finiteOrZero$1(angles?.[planeIndex]);
-				if (angle === 0) continue;
-				const cosine = Math.cos(angle);
-				const sine = Math.sin(angle);
-				const left = rotated[leftAxis];
-				const right = rotated[rightAxis];
-				rotated[leftAxis] = left * cosine - right * sine;
-				rotated[rightAxis] = left * sine + right * cosine;
-			}
-			return rotated;
-		}
-		/**
-		* Project a four-dimensional point into three dimensions along the fourth axis.
-		* @param point - Four coordinates; absent or non-finite entries are zero.
-		* @param distance - Eye distance; zero and non-finite values use `W_DISTANCE`.
-		* @returns Three finite coordinates with the perspective denominator clamped to `0.25`.
-		*/
-		function project(point, distance = 3) {
-			const resolvedDistance = finiteOrZero$1(distance) || 3;
-			const scale = resolvedDistance / Math.max(.25, resolvedDistance - finiteOrZero$1(point?.[3]));
-			return [
-				finiteOrZero$1(point?.[0]) * scale,
-				finiteOrZero$1(point?.[1]) * scale,
-				finiteOrZero$1(point?.[2]) * scale
-			];
-		}
-		/**
-		* Produce the sixteen projected points of one deterministic Aura frame.
-		*
-		* The supplied vertices carry system state. The orientation is fixed display
-		* geometry and does not change with time or session activity.
-		*
-		* @param input - Canonical-order vertices plus an optional fixed orientation.
-		* @returns Sixteen finite projected points in canonical vertex order.
-		*/
-		function figureFrame(input) {
-			const normalized = input !== null && typeof input === "object" ? input : {};
-			const vertices = normalized.vertices ?? TESSERACT_VERTICES;
-			const orientation = normalized.orientation ?? FIGURE_ORIENTATION;
-			const distance = normalized.distance ?? 3;
-			return vertices.map((vertex) => project(rotate4(vertex, orientation), distance));
-		}
-		/**
-		* Compute the canonical non-cryptographic digest of a projected frame.
-		* @param frame - Projected points; absent or non-finite coordinates are zero.
-		* @returns Lowercase FNV-1a digest after coordinate quantization to `1e-9`.
-		*/
-		function frameDigest(frame) {
-			let hash = 2166136261;
-			const consume = (value) => {
-				for (let index = 0; index < value.length; index += 1) {
-					hash ^= value.charCodeAt(index);
-					hash = Math.imul(hash, 16777619) >>> 0;
-				}
-			};
-			for (const point of frame ?? []) {
-				for (let axis = 0; axis < 3; axis += 1) consume(`${Math.round(finiteOrZero$1(point?.[axis]) * 1e9) + 0};`);
-				consume("|");
-			}
-			return (hash >>> 0).toString(16).padStart(8, "0");
+			return digits;
 		}
 		//#endregion
-		//#region src/aura/walsh.ts
-		/** Frozen plane order: standing `xy, xz, yz`, then breath `xw, yw, zw`. */
-		const PLANE_ORDER = Object.freeze([
-			Object.freeze([0, 1]),
-			Object.freeze([0, 2]),
-			Object.freeze([1, 2]),
-			Object.freeze([0, 3]),
-			Object.freeze([1, 3]),
-			Object.freeze([2, 3])
-		]);
-		Object.freeze([
-			"xy",
-			"xz",
-			"yz",
-			"xw",
-			"yw",
-			"zw"
-		]);
-		/** Frozen bit-order enumeration of the sixteen vertices in `{−1,+1}^4`. */
-		const VERTICES = Object.freeze(Array.from({ length: 16 }, (_, index) => Object.freeze([
-			(index & 1) === 0 ? -1 : 1,
-			(index & 2) === 0 ? -1 : 1,
-			(index & 4) === 0 ? -1 : 1,
-			(index & 8) === 0 ? -1 : 1
-		])));
-		function finiteOrZero(value) {
-			return typeof value === "number" && Number.isFinite(value) ? value : 0;
+		//#region src/aura/pentora-cells.mjs
+		async function browserSha256(bytes) {
+			if (!globalThis.crypto?.subtle) throw Object.assign(/* @__PURE__ */ new TypeError("pentora:hash-unavailable"), { code: "pentora:hash-unavailable" });
+			return globalThis.crypto.subtle.digest("SHA-256", bytes);
 		}
-		/**
-		* Synthesize a 16-vertex field from six degree-two Walsh coefficients.
-		* @param coefficients - Values in `PLANE_ORDER`; absent or non-finite entries are zero.
-		* @returns Sixteen finite vertex amplitudes in `VERTICES` order.
-		*/
-		function synth6(coefficients) {
-			const field = new Array(16).fill(0);
-			for (const [vertexIndex, vertex] of VERTICES.entries()) {
-				let amplitude = 0;
-				for (const [mode, [leftAxis, rightAxis]] of PLANE_ORDER.entries()) amplitude += finiteOrZero(coefficients?.[mode]) * vertex[leftAxis] * vertex[rightAxis];
-				field[vertexIndex] = amplitude;
-			}
-			return field;
+		async function pentoraCells(head32, sha256 = browserSha256) {
+			return pentoraDigits(head32, sha256);
 		}
-		//#endregion
-		//#region src/aura/deformation.ts
-		/** Pure field-driven deformation of the canonical Aura tesseract vertices. */
-		/** Maximum fractional radial displacement from a canonical vertex. */
-		const AURA_DEFORMATION_LIMIT = .34;
-		function responseOf(amplitude) {
-			return Number.isNaN(amplitude) ? 0 : Math.tanh(amplitude / 1);
+		const prepared = /* @__PURE__ */ new WeakMap();
+		function refuse$1(code) {
+			throw Object.assign(new TypeError(code), { code });
 		}
-		/**
-		* Deform the canonical tesseract through its six ordered Aura coefficients.
-		*
-		* The existing Walsh synthesis assigns one amplitude `f(v)` to every vertex.
-		* Each vertex moves only along its radial line by
-		* `1 + AURA_DEFORMATION_LIMIT * tanh(f(v) / AURA_DEFORMATION_RESPONSE)`.
-		* Antipodal vertices share one Walsh amplitude, so they remain exact opposites
-		* and preserve the origin-centered figure. Positive scale bounds retain the
-		* canonical vertex order and edge topology.
-		*
-		* @param coefficients - `xy, xz, yz, xw, yw, zw`; missing or non-finite values are zero.
-		* @returns sixteen finite four-dimensional points in canonical vertex order.
-		*/
-		function deformTesseract(coefficients) {
-			const field = synth6(coefficients);
-			return TESSERACT_VERTICES.map((vertex, index) => {
-				const scale = 1 + AURA_DEFORMATION_LIMIT * responseOf(field[index] ?? 0);
-				return [
-					vertex[0] * scale,
-					vertex[1] * scale,
-					vertex[2] * scale,
-					vertex[3] * scale
-				];
+		function headBytes(head) {
+			if (typeof head !== "string" || !/^[a-f0-9]{64}$/.test(head)) refuse$1("aura:pentora-head");
+			return Uint8Array.from(head.match(/../g), (pair) => Number.parseInt(pair, 16));
+		}
+		async function createPentoraMotion(previousHead, nextHead, sha256) {
+			const previousBytes = headBytes(previousHead);
+			const nextBytes = headBytes(nextHead);
+			const previousCells = Array.from(await pentoraCells(previousBytes, sha256));
+			const nextCells = previousHead === nextHead ? previousCells : Array.from(await pentoraCells(nextBytes, sha256));
+			const motion = Object.freeze({
+				previousHead,
+				nextHead
+			});
+			prepared.set(motion, {
+				previousCells,
+				nextCells
+			});
+			return motion;
+		}
+		function pentoraMotionFrame(motion, elapsedMs, reducedMotion = false) {
+			const cells = prepared.get(motion);
+			if (cells === void 0) refuse$1("aura:pentora-motion");
+			if (!Number.isFinite(elapsedMs) || elapsedMs < 0) refuse$1("aura:pentora-time");
+			const changed = motion.previousHead !== motion.nextHead;
+			const progress = reducedMotion || !changed ? 1 : Math.min(1, elapsedMs / 400);
+			const solid = reducedMotion || !changed || elapsedMs >= 1200;
+			const moved = Math.floor(cells.nextCells.length * progress);
+			return Object.freeze({
+				cells: Object.freeze(cells.nextCells.map((value, index) => index < moved ? value : cells.previousCells[index])),
+				status: solid ? "solid" : "in-motion",
+				head: solid ? motion.nextHead : null,
+				progress
 			});
 		}
 		//#endregion
-		//#region src/aura/ternary.ts
-		/** Ascending balanced digits used to enumerate the three cube axes. */
-		const AURA_TRITS = [
-			-1,
-			0,
-			1
+		//#region src/client/aura-snapshot.ts
+		const NAMES = [
+			"gate-ledger",
+			"kira-chain",
+			"code-chain"
 		];
-		/**
-		* Encode three balanced digits as one base-27 digit's zero-based index.
-		* @param trits - history, tool, and approval digits.
-		* @returns the unique cell index in 0 through 26.
-		*/
-		function auraCellIndex(trits) {
-			return (trits[0] + 1) * 9 + (trits[1] + 1) * 3 + trits[2] + 1;
+		const HEAD = /^[0-9a-f]{64}$/u;
+		function refuse(code) {
+			throw Object.assign(new TypeError(code), { code });
 		}
-		/**
-		* Partition a normalized coefficient into equal-width thirds, with ties central.
-		* @param value - finite coefficient in [-1, 1].
-		* @returns lower, middle, or upper interval as a balanced digit.
-		*/
-		function auraTritOf(value) {
-			return value < -1 / 3 ? -1 : value > 1 / 3 ? 1 : 0;
+		function object(value) {
+			if (value === null || typeof value !== "object" || Array.isArray(value)) refuse("aura-snapshot:format");
+			return value;
 		}
-		/**
-		* Quantize the same persistent inputs used by the tesseract.
-		* Tool health is rescaled from [0, 1] to [-1, 1] before equal-third binning.
-		* @param sources - committed session-log totals, not verified effect receipts.
-		* @returns source coefficients and an observed or partial 27-cell coordinate.
-		*/
-		function auraTernaryOf(sources) {
-			const values = persistentChannelsOf(sources);
-			const coverage = Math.max(sources.approvalsAsked, sources.approvalsAllowed + sources.approvalsRejected + sources.approvalsUnavailable + sources.approvalsCancelled);
-			const history = sources.historyInteractions > 0 ? auraTritOf(values[0]) : null;
-			const tool = sources.toolCalls > 0 ? values[1] < 1 / 3 ? -1 : values[1] > 2 / 3 ? 1 : 0 : null;
-			const approval = coverage > 0 ? auraTritOf(values[2]) : null;
+		function parseAuraSnapshot(value) {
+			const row = object(value);
+			if (row.schema !== "aukora-face/aura-snapshot:v1" || typeof row.head !== "string" || !HEAD.test(row.head) || !Array.isArray(row.sources) || row.sources.length !== NAMES.length) refuse("aura-snapshot:format");
+			const sources = row.sources.map((value, index) => {
+				const source = object(value);
+				if (source.name !== NAMES[index]) refuse("aura-snapshot:source-order");
+				if (source.head === null) {
+					if (source.entries !== null && source.entries !== 0 || typeof source.absence !== "string" || !source.absence) refuse("aura-snapshot:absence");
+				} else if (typeof source.head !== "string" || !HEAD.test(source.head) || source.absence !== null || !Number.isSafeInteger(source.entries) || source.entries < 1) refuse("aura-snapshot:source-head");
+				return {
+					name: source.name,
+					head: source.head,
+					entries: source.entries,
+					absence: source.absence
+				};
+			});
 			return {
-				values,
-				trits: [
-					history,
-					tool,
-					approval
-				],
-				index: history === null || tool === null || approval === null ? null : auraCellIndex([
-					history,
-					tool,
-					approval
-				])
+				schema: "aukora-face/aura-snapshot:v1",
+				head: row.head,
+				sources
 			};
 		}
-		//#endregion
-		//#region src/aura/motion.ts
-		/** Pure presentation motion and real-activity breath envelopes for Aura. */
-		/** Duration of one complete visible rotation around Aura's primary spatial plane. */
-		const AURA_ROTATION_PERIOD_MS = 72e3;
-		/** Fraction by which the transient activity drive relaxes on each coefficient frame. */
-		const AURA_BREATH_DRIVE_DECAY = .04;
-		/** Fraction by which visible breath follows its transient drive on each coefficient frame. */
-		const AURA_BREATH_RESPONSE = .16;
-		function finiteTime(value) {
-			return Number.isFinite(value) && value > 0 ? value : 0;
-		}
-		function bounded(value, minimum, maximum) {
-			return Math.min(maximum, Math.max(minimum, value));
-		}
-		/**
-		* Whether two exact triads describe the same rendered coefficient state.
-		* @param left - first coefficient triad.
-		* @param right - second coefficient triad.
-		* @returns whether all three coefficients are exactly equal.
-		*/
-		function sameAuraTriad(left, right) {
-			return left.every((value, index) => value === right[index]);
-		}
-		/**
-		* Move one triad toward a target and snap close values to the exact target.
-		* @param previous - currently rendered coefficients.
-		* @param target - coefficient target.
-		* @param rate - fraction of remaining distance applied by this step.
-		* @returns the next bounded transition step.
-		*/
-		function approachAuraTriad(previous, target, rate = .18) {
-			const resolvedRate = Number.isFinite(rate) && rate > 0 && rate <= 1 ? rate : .18;
-			const approach = (value, targetValue) => {
-				const next = value + (targetValue - value) * resolvedRate;
-				return Math.abs(targetValue - next) <= .002 ? targetValue : next;
-			};
-			return [
-				approach(previous[0], target[0]),
-				approach(previous[1], target[1]),
-				approach(previous[2], target[2])
-			];
-		}
-		/**
-		* Add real logged activity to the breath drive without exceeding one per plane.
-		* @param motion - current two-stage breath state.
-		* @param impulse - human, assistant, and tool activity deltas.
-		* @returns excited breath state; the visible value is unchanged until its attack step.
-		*/
-		function exciteAuraBreath(motion, impulse) {
+		function advanceSourceEntries(previous, sources) {
+			const counters = new Map(previous);
+			let entries = 0;
+			for (const source of sources) {
+				if (source.entries === null) continue;
+				const before = counters.get(source.name);
+				if (before !== void 0) entries += Math.max(0, source.entries - before);
+				counters.set(source.name, Math.max(before ?? source.entries, source.entries));
+			}
 			return {
-				drive: [
-					Math.min(1, motion.drive[0] + Math.max(0, impulse[0])),
-					Math.min(1, motion.drive[1] + Math.max(0, impulse[1])),
-					Math.min(1, motion.drive[2] + Math.max(0, impulse[2]))
-				],
-				value: [...motion.value]
-			};
-		}
-		/**
-		* Advance one organic attack-and-release step for the transient Aura coefficients.
-		* @param motion - current drive and visible breath values.
-		* @returns the next state, eventually snapping both triads to exact rest.
-		*/
-		function stepAuraBreath(motion) {
-			const drive = approachAuraTriad(motion.drive, [...REST], AURA_BREATH_DRIVE_DECAY);
-			return {
-				drive,
-				value: approachAuraTriad(motion.value, drive, AURA_BREATH_RESPONSE)
-			};
-		}
-		/**
-		* Whether both stages of the transient breath have returned to exact rest.
-		* @param motion - current drive and visible breath values.
-		* @returns whether the drive and visible values are all exactly zero.
-		*/
-		function auraBreathAtRest(motion) {
-			return sameAuraTriad(motion.drive, [...REST]) && sameAuraTriad(motion.value, [...REST]);
-		}
-		/**
-		* Reduce three transient coefficients to a bounded presentation strength.
-		* @param breath - current human, assistant, and tool breath coefficients.
-		* @returns root-mean-square activity in `[0, 1]`.
-		*/
-		function auraActivityEnergy(breath) {
-			return bounded(Math.hypot(...breath) / Math.sqrt(3), 0, 1);
-		}
-		/**
-		* Compute the shared slow viewing rotation.
-		* @param elapsedMs - active, visible presentation time.
-		* @returns six-plane viewing orientation; fourth-axis planes remain fixed.
-		*/
-		function auraOrientationAt(elapsedMs) {
-			const phase = TAU * (finiteTime(elapsedMs) % AURA_ROTATION_PERIOD_MS) / AURA_ROTATION_PERIOD_MS;
-			return [
-				(FIGURE_ORIENTATION[0] ?? 0) + .09 * Math.sin(phase),
-				(FIGURE_ORIENTATION[1] ?? 0) + .12 * Math.sin(phase * 2 + .8),
-				(FIGURE_ORIENTATION[2] ?? 0) + phase,
-				FIGURE_ORIENTATION[3] ?? 0,
-				FIGURE_ORIENTATION[4] ?? 0,
-				FIGURE_ORIENTATION[5] ?? 0
-			];
-		}
-		/**
-		* Compute a zero-mean, presentation-only idle presence carrier.
-		* @param elapsedMs - active, visible presentation time.
-		* @returns shared display scale within `1 ± AURA_REST_SCALE_LIMIT`.
-		*/
-		function auraRestScaleAt(elapsedMs) {
-			const time = finiteTime(elapsedMs);
-			return 1 + .006 * Math.sin(TAU * time / 6800) + .002 * Math.sin(TAU * time / 4100);
-		}
-		/**
-		* Compose the presentation frame without changing data coefficients or their digest.
-		* @param elapsedMs - active, visible presentation time.
-		* @param breath - real-activity transient coefficients.
-		* @param reducedMotion - whether all continuous presentation motion is disabled.
-		* @returns shared view orientation, scale, and attributable activity strength.
-		*/
-		function auraPresentationAt(elapsedMs, breath, reducedMotion = false) {
-			const activity = auraActivityEnergy(breath);
-			if (reducedMotion) return {
-				activity,
-				orientation: [
-					FIGURE_ORIENTATION[0] ?? 0,
-					FIGURE_ORIENTATION[1] ?? 0,
-					FIGURE_ORIENTATION[2] ?? 0,
-					FIGURE_ORIENTATION[3] ?? 0,
-					FIGURE_ORIENTATION[4] ?? 0,
-					FIGURE_ORIENTATION[5] ?? 0
-				],
-				scale: 1
-			};
-			const activityWave = .036 + .01 * Math.sin(TAU * finiteTime(elapsedMs) / 1240);
-			return {
-				activity,
-				orientation: auraOrientationAt(elapsedMs),
-				scale: auraRestScaleAt(elapsedMs) + activity * activityWave
+				counters,
+				entries
 			};
 		}
 		//#endregion
@@ -818,7 +1093,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:AuraCoherenceSurface.module.css.mjs
-		const css$2 = ".T5FNaa_surface{box-sizing:border-box;background:radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--dsw-static-spatial-mint) 7%, transparent), transparent 28%), radial-gradient(circle at 94% 6%, color-mix(in srgb, var(--dsw-static-spatial-violet) 8%, transparent), transparent 30%), var(--dsw-alias-bg-layer-1);width:100%;min-width:0;height:100%;min-height:0;color:var(--dsw-alias-label-primary);--aura-green:var(--dsw-static-spatial-mint);--aura-blue:var(--dsw-static-spatial-blue);--aura-purple:var(--dsw-static-spatial-violet);--aura-gold:var(--dsw-static-spatial-gold);--aura-green-bright:color-mix(in srgb, var(--aura-green) 76%, white);--aura-blue-bright:color-mix(in srgb, var(--aura-blue) 76%, white);--aura-purple-bright:color-mix(in srgb, var(--aura-purple) 78%, white);--aura-gold-bright:color-mix(in srgb, var(--aura-gold) 82%, white);padding:clamp(18px,3%,40px);overflow:auto}.T5FNaa_surface[hidden]{display:none}.T5FNaa_ternarySlices{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:16px;display:grid}.T5FNaa_ternaryGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:0;list-style:none;display:grid}.T5FNaa_ternaryGrid li{text-align:center;border:1px solid var(--dsw-alias-label-tertiary);color:var(--dsw-alias-label-secondary);border-radius:6px;gap:4px;padding:8px 4px;display:grid}.T5FNaa_ternaryGrid li[aria-current=true]{outline:2px solid var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:700}.T5FNaa_ternaryGrid small{font-size:11px;line-height:1.4}.T5FNaa_section{box-sizing:border-box;width:min(100%,1180px);min-height:100%;margin:0 auto;container-type:inline-size}.T5FNaa_heading{justify-content:space-between;align-items:flex-start;gap:clamp(12px,3cqi,28px);display:flex}.T5FNaa_titleBlock{flex:1;min-width:0}.T5FNaa_heading h2,.T5FNaa_heading p,.T5FNaa_figureStage,.T5FNaa_truthLine p,.T5FNaa_portal p{margin:0}.T5FNaa_heading h2{letter-spacing:-.035em;text-overflow:ellipsis;white-space:nowrap;font-size:clamp(26px,4.2cqi,38px);font-weight:500;line-height:1.08;overflow:hidden}.T5FNaa_heading p,.T5FNaa_liveState,.T5FNaa_portal summary strong,.T5FNaa_values dt,.T5FNaa_values dd,.T5FNaa_recent{font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)}.T5FNaa_heading p{color:var(--aura-blue);letter-spacing:.13em;white-space:nowrap;margin-top:8px;font-size:11px;font-weight:700;line-height:16px}.T5FNaa_liveState{color:var(--aura-green);letter-spacing:.1em;white-space:nowrap;flex:none;align-items:center;gap:8px;margin-top:4px;font-size:11px;font-weight:700;line-height:16px;display:flex}.T5FNaa_liveState span{background:currentColor;border-radius:50%;width:7px;height:7px;box-shadow:0 0 12px}.T5FNaa_liveState[data-state=moving] span{animation:1.1s ease-in-out infinite T5FNaa_aura-live-pulse}.T5FNaa_liveState[data-state=absent]{color:var(--dsw-alias-label-tertiary)}.T5FNaa_liveState[data-state=waiting]{color:var(--aura-gold)}.T5FNaa_figureStage{--aura-activity:0;--aura-presence-scale:1;place-items:center;min-height:clamp(360px,76cqi,640px);margin-top:clamp(8px,2cqi,20px);display:grid;position:relative}.T5FNaa_figureStage:before{content:\"\";background:radial-gradient(circle at 42% 48%, color-mix(in srgb, var(--aura-purple) 16%, transparent), transparent 54%), radial-gradient(circle at 60% 54%, color-mix(in srgb, var(--aura-blue) 10%, transparent), transparent 64%);filter:blur(28px);pointer-events:none;border-radius:50%;position:absolute;inset:10% 12%}.T5FNaa_presenceHalo{z-index:0;aspect-ratio:1;width:min(76%,540px);opacity:calc(.22 + var(--aura-activity) * .5);background:radial-gradient(circle at 38% 42%, color-mix(in srgb, var(--aura-green) 30%, transparent), transparent 44%), radial-gradient(circle at 63% 38%, color-mix(in srgb, var(--aura-blue) 34%, transparent), transparent 48%), radial-gradient(circle at 52% 64%, color-mix(in srgb, var(--aura-purple) 36%, transparent), transparent 52%), radial-gradient(circle at 68% 68%, color-mix(in srgb, var(--aura-gold) 18%, transparent), transparent 44%);filter:blur(calc(34px + var(--aura-activity) * 18px));transform:scale(calc(.94 + var(--aura-activity) * .12));transform-origin:50%;pointer-events:none;border-radius:50%;position:absolute}.T5FNaa_tesseract{z-index:1;aspect-ratio:1;width:min(100%,680px);height:auto;filter:saturate(calc(1.5 + var(--aura-activity) * .7)) contrast(1.04) drop-shadow(0 0 calc(24px + var(--aura-activity) * 12px) color-mix(in srgb, var(--aura-purple) 28%, transparent));position:relative;overflow:visible}.T5FNaa_tesseract polygon{stroke-width:.9px;stroke-linejoin:round;vector-effect:non-scaling-stroke}.T5FNaa_tesseract line{stroke-linecap:round;vector-effect:non-scaling-stroke}.T5FNaa_tesseract circle{fill:color-mix(in srgb, var(--aura-green) 64%, var(--aura-blue-bright))}.T5FNaa_tesseract circle[data-polarity=negative]{fill:color-mix(in srgb, var(--aura-purple-bright) 72%, var(--aura-gold-bright))}.T5FNaa_referenceLayer line{stroke:color-mix(in srgb, var(--dsw-alias-label-secondary) 46%, transparent);stroke-width:.75px;stroke-dasharray:4 8;stroke-linecap:round;vector-effect:non-scaling-stroke}.T5FNaa_currentLayer polygon{mix-blend-mode:normal}.T5FNaa_currentLayer polygon[data-plane-tone=history]{stroke:var(--aura-green-bright)}.T5FNaa_currentLayer polygon[data-plane-tone=tool-health]{stroke:color-mix(in srgb, var(--aura-blue) 78%, white)}.T5FNaa_currentLayer polygon[data-plane-tone=approval]{stroke:color-mix(in srgb, var(--aura-gold) 82%, white)}.T5FNaa_currentLayer polygon[data-plane-tone=human]{stroke:color-mix(in srgb, var(--aura-purple) 82%, white)}.T5FNaa_currentLayer polygon[data-plane-tone=assistant]{stroke:color-mix(in srgb, var(--aura-blue) 48%, var(--aura-purple))}.T5FNaa_currentLayer polygon[data-plane-tone=tool-activity]{stroke:color-mix(in srgb, var(--aura-green) 52%, var(--aura-blue))}.T5FNaa_figureKey{z-index:2;color:var(--dsw-alias-label-secondary);align-items:center;gap:16px;font-size:12.5px;line-height:18px;display:flex;position:absolute;bottom:12px;right:0}.T5FNaa_figureKey span{align-items:center;gap:7px;display:inline-flex}.T5FNaa_figureKey span:before{content:\"\";border-top:2px solid var(--aura-purple);width:18px}.T5FNaa_figureKey span[data-layer=reference]:before{border-top:1px dashed var(--dsw-alias-label-tertiary)}.T5FNaa_channels{border-top:1px solid var(--dsw-alias-border-l1);padding:20px 0 24px}.T5FNaa_channels>header{justify-content:space-between;align-items:baseline;gap:24px;margin-bottom:14px;display:flex}.T5FNaa_channels h3,.T5FNaa_channels p{margin:0}.T5FNaa_channels h3{color:var(--aura-blue);letter-spacing:.1em;text-transform:uppercase;flex:none;font-size:12px;font-weight:700;line-height:18px}.T5FNaa_channels>header p{max-width:620px;color:var(--dsw-alias-label-secondary);text-align:right;font-size:13px;line-height:19px}.T5FNaa_channelGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;display:grid}.T5FNaa_channel{border:1px solid color-mix(in srgb, var(--aura-blue) 18%, var(--dsw-alias-border-l1));background:color-mix(in srgb, var(--dsw-alias-bg-layer-1) 82%, transparent);border-radius:13px;min-width:0;padding:14px}.T5FNaa_channel[data-lifetime=transient]{border-color:color-mix(in srgb, var(--aura-purple) 25%, var(--dsw-alias-border-l1))}.T5FNaa_channelHeading{grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;display:grid}.T5FNaa_channelHeading strong{-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:14px;font-weight:560;line-height:18px;display:-webkit-box;overflow:hidden}.T5FNaa_channelHeading output,.T5FNaa_plane,.T5FNaa_channel>p{font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)}.T5FNaa_channelHeading output{color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums;font-size:13px}.T5FNaa_plane{min-width:24px;color:var(--aura-green);text-transform:uppercase;font-size:11px;font-weight:700;line-height:18px}.T5FNaa_channel[data-lifetime=transient] .T5FNaa_plane{color:var(--aura-purple)}.T5FNaa_channel[data-aura-channel=toolHealth] .T5FNaa_plane{color:var(--aura-blue)}.T5FNaa_channel[data-aura-channel=approvalPosture] .T5FNaa_plane{color:var(--aura-gold)}.T5FNaa_channel[data-aura-channel=humanActivity] .T5FNaa_plane{color:var(--aura-purple)}.T5FNaa_channel[data-aura-channel=assistantActivity] .T5FNaa_plane{color:color-mix(in srgb, var(--aura-blue) 48%, var(--aura-purple))}.T5FNaa_channel[data-aura-channel=toolActivity] .T5FNaa_plane{color:color-mix(in srgb, var(--aura-green) 52%, var(--aura-blue))}.T5FNaa_channel progress{appearance:none;background:var(--dsw-alias-border-l1);border:0;border-radius:999px;width:100%;height:3px;margin:11px 0 9px;display:block;overflow:hidden}.T5FNaa_bipolarMeter{background:var(--dsw-alias-border-l1);border-radius:999px;width:100%;height:3px;margin:11px 0 9px;display:block;position:relative}.T5FNaa_bipolarMeter:before{content:\"\";background:var(--dsw-alias-border-l2);width:1px;position:absolute;top:-2px;bottom:-2px;left:50%}.T5FNaa_bipolarFill{border-radius:inherit;background:linear-gradient(90deg, var(--aura-green), var(--aura-green-bright));position:absolute;top:0;bottom:0}.T5FNaa_bipolarFill[data-direction=positive]{left:50%}.T5FNaa_bipolarFill[data-direction=negative]{right:50%}.T5FNaa_channel[data-aura-channel=approvalPosture] .T5FNaa_bipolarFill{background:linear-gradient(90deg, var(--aura-gold), var(--aura-gold-bright))}.T5FNaa_channel progress::-webkit-progress-bar{border-radius:inherit;background:var(--dsw-alias-border-l1)}.T5FNaa_channel progress::-webkit-progress-value{border-radius:inherit;background:linear-gradient(90deg, var(--aura-green), var(--aura-green-bright))}.T5FNaa_channel[data-lifetime=transient] progress::-webkit-progress-value{background:linear-gradient(90deg, var(--aura-purple), var(--aura-gold))}.T5FNaa_channel[data-aura-channel=toolHealth] progress::-webkit-progress-value{background:linear-gradient(90deg, var(--aura-blue), var(--aura-blue-bright))}.T5FNaa_channel[data-aura-channel=approvalPosture] progress::-webkit-progress-value{background:linear-gradient(90deg, var(--aura-gold), var(--aura-gold-bright))}.T5FNaa_channel[data-aura-channel=humanActivity] progress::-webkit-progress-value{background:linear-gradient(90deg, var(--aura-purple), var(--aura-purple-bright))}.T5FNaa_channel[data-aura-channel=assistantActivity] progress::-webkit-progress-value{background:linear-gradient(90deg, var(--aura-blue), var(--aura-purple))}.T5FNaa_channel[data-aura-channel=toolActivity] progress::-webkit-progress-value{background:linear-gradient(90deg, var(--aura-green), var(--aura-blue))}.T5FNaa_channel progress::-moz-progress-bar{border-radius:inherit;background:linear-gradient(90deg, var(--aura-green), var(--aura-green-bright))}.T5FNaa_channel[data-lifetime=transient] progress::-moz-progress-bar{background:linear-gradient(90deg, var(--aura-purple), var(--aura-gold))}.T5FNaa_channel[data-aura-channel=toolHealth] progress::-moz-progress-bar{background:linear-gradient(90deg, var(--aura-blue), var(--aura-blue-bright))}.T5FNaa_channel[data-aura-channel=approvalPosture] progress::-moz-progress-bar{background:linear-gradient(90deg, var(--aura-gold), var(--aura-gold-bright))}.T5FNaa_channel[data-aura-channel=humanActivity] progress::-moz-progress-bar{background:linear-gradient(90deg, var(--aura-purple), var(--aura-purple-bright))}.T5FNaa_channel[data-aura-channel=assistantActivity] progress::-moz-progress-bar{background:linear-gradient(90deg, var(--aura-blue), var(--aura-purple))}.T5FNaa_channel[data-aura-channel=toolActivity] progress::-moz-progress-bar{background:linear-gradient(90deg, var(--aura-green), var(--aura-blue))}.T5FNaa_channel>p{color:var(--dsw-alias-label-tertiary);text-wrap:pretty;font-size:11px;line-height:16px}.T5FNaa_truthLine{border-top:1px solid var(--dsw-alias-border-l1);border-bottom:1px solid var(--dsw-alias-border-l1);grid-template-columns:minmax(180px,.7fr) minmax(240px,1.2fr) minmax(180px,.9fr);align-items:end;gap:clamp(20px,5cqi,52px);padding:22px 0;display:grid}.T5FNaa_truthLine div{flex-direction:column;gap:5px;display:flex}.T5FNaa_truthLine div>span{color:var(--aura-blue);letter-spacing:.08em;text-transform:uppercase;font-size:11px;font-weight:650;line-height:16px}.T5FNaa_truthLine strong{font-size:clamp(17px,2.2cqi,22px);font-weight:570;line-height:1.2}.T5FNaa_truthLine p{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}.T5FNaa_portals{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:20px;display:grid}.T5FNaa_portal{border:1px solid color-mix(in srgb, var(--aura-purple) 26%, transparent);background:color-mix(in srgb, var(--dsw-alias-bg-layer-1) 74%, transparent);border-radius:14px;align-self:start;overflow:hidden}.T5FNaa_portal[open]{border-color:color-mix(in srgb, var(--aura-green) 38%, transparent);background:color-mix(in srgb, var(--dsw-alias-bg-layer-1) 88%, transparent)}.T5FNaa_portal summary{box-sizing:border-box;cursor:pointer;justify-content:space-between;align-items:center;gap:14px;min-height:64px;padding:15px 18px;list-style:none;display:flex;position:relative}.T5FNaa_portal summary::-webkit-details-marker{display:none}.T5FNaa_portal summary:after{content:\"＋\";color:var(--aura-purple);flex:none;font-size:16px}.T5FNaa_portal[open] summary:after{content:\"−\";color:var(--aura-green)}.T5FNaa_portal summary>span{flex:1;min-width:0;font-size:15px;font-weight:560;line-height:20px}.T5FNaa_portal summary strong{color:var(--dsw-alias-label-secondary);letter-spacing:.02em;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:500;line-height:16px;overflow:hidden}.T5FNaa_portalBody{border-top:1px solid var(--dsw-alias-border-l1);padding:0 18px 18px}.T5FNaa_portalBody>p{color:var(--dsw-alias-label-secondary);margin-top:14px;font-size:13px;line-height:20px}.T5FNaa_values{grid-template-columns:1fr;gap:10px;margin:16px 0 0;display:grid}.T5FNaa_values div{justify-content:space-between;align-items:baseline;gap:14px;display:flex}.T5FNaa_values dt,.T5FNaa_values dd{margin:0;font-size:11px;line-height:17px}.T5FNaa_values dt{color:var(--dsw-alias-label-tertiary)}.T5FNaa_values dd{overflow-wrap:anywhere;max-width:62%;color:var(--aura-blue);text-align:right}.T5FNaa_values .T5FNaa_unavailable{color:var(--aura-gold)}.T5FNaa_recent{flex-direction:column;gap:8px;max-height:240px;margin:16px 0 0;padding:0;list-style:none;display:flex;overflow-y:auto}.T5FNaa_recent li{border-left:2px solid var(--aura-purple);color:var(--dsw-alias-label-secondary);justify-content:space-between;align-items:baseline;gap:12px;padding-left:11px;font-size:11px;line-height:17px;display:flex}.T5FNaa_recent li[data-kind=approval]{border-left-color:var(--aura-gold)}.T5FNaa_recent li[data-kind=action]{border-left-color:var(--aura-green)}.T5FNaa_recent li[data-kind=message]{border-left-color:var(--aura-blue)}.T5FNaa_recent time{color:var(--dsw-alias-label-tertiary);flex:none}@keyframes T5FNaa_aura-live-pulse{0%,to{opacity:.45;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}@container (width<=680px){.T5FNaa_truthLine{grid-template-columns:1fr;gap:10px}}@container (width<=620px){.T5FNaa_heading h2{font-size:clamp(22px,7cqi,28px)}.T5FNaa_heading p{letter-spacing:.1em;font-size:11px}.T5FNaa_liveState{letter-spacing:.06em;gap:6px;font-size:11px}.T5FNaa_figureStage{min-height:clamp(350px,92cqi,500px)}.T5FNaa_tesseract{width:min(100%,520px)}.T5FNaa_figureKey{grid-column:1;justify-self:center;margin-top:-18px;position:static}.T5FNaa_channels>header{display:block}.T5FNaa_channels>header p{text-align:left;margin-top:5px}.T5FNaa_channelGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.T5FNaa_portals{grid-template-columns:1fr}}@container (width<=390px){.T5FNaa_heading{gap:10px}.T5FNaa_heading h2{font-size:21px}.T5FNaa_heading p,.T5FNaa_liveState{font-size:11px}.T5FNaa_liveState span{width:6px;height:6px}.T5FNaa_figureStage{min-height:330px}.T5FNaa_figureKey{flex-direction:column;justify-self:start;align-items:flex-start;gap:4px;margin-top:-10px}.T5FNaa_channelGrid{grid-template-columns:1fr}.T5FNaa_channel>p{white-space:normal}.T5FNaa_portal summary strong{display:none}}@media (prefers-reduced-motion:reduce){.T5FNaa_presenceHalo{transform:none}.T5FNaa_liveState span{animation:none}}";
+		const css$2 = ".T5FNaa_root{height:100%;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);overflow:auto}.T5FNaa_root[hidden]{display:none}.T5FNaa_content{max-width:840px;margin:auto;padding:28px}.T5FNaa_heading{justify-content:space-between;align-items:center;gap:16px;display:flex}.T5FNaa_heading h2{margin:0;font-size:28px;font-weight:550}.T5FNaa_heading p,.T5FNaa_note{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.6}.T5FNaa_heading button{color:inherit;border:1px solid var(--dsw-alias-border-l1);cursor:pointer;background:0 0;border-radius:8px;padding:8px 14px}.T5FNaa_figureStage{text-align:center}.T5FNaa_pentora{width:min(100%,480px);margin:auto;display:block}.T5FNaa_edges{stroke:var(--dsw-alias-label-secondary);opacity:.32;stroke-width:.9px}.T5FNaa_cell[data-trit=\"0\"]{fill:#596475}.T5FNaa_cell[data-trit=\"1\"]{fill:#57bfff}.T5FNaa_cell[data-trit=\"2\"]{fill:#f3cd68}.T5FNaa_figureStage[data-pentora-state=in-motion] .T5FNaa_cell{fill-opacity:.38;stroke:#9faaba;stroke-width:1px}.T5FNaa_state{margin:0 0 16px;font-size:13px}.T5FNaa_readout,.T5FNaa_sources{border-top:1px solid var(--dsw-alias-border-l1);padding-top:14px}.T5FNaa_readout p{font-size:13px}.T5FNaa_sources div{flex-wrap:wrap;justify-content:space-between;gap:8px;padding:10px 0;display:flex}.T5FNaa_sources dt{font-weight:550}.T5FNaa_sources dd{margin:0;font-size:13px}.T5FNaa_absent,.T5FNaa_problem{color:#f3cd68}.T5FNaa_details{margin:20px 0}.T5FNaa_details summary{cursor:pointer}.T5FNaa_details pre{font-size:11px;line-height:1.5;overflow:auto}.T5FNaa_note{margin:12px 0}";
 		const tagId$2 = "@aukora/face-settings/AuraCoherenceSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
 			const tag = document.createElement("style");
@@ -828,166 +1103,45 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var AuraCoherenceSurface_module_css_default = {
-			"aura-live-pulse": "T5FNaa_aura-live-pulse",
-			"bipolarFill": "T5FNaa_bipolarFill",
-			"bipolarMeter": "T5FNaa_bipolarMeter",
-			"channel": "T5FNaa_channel",
-			"channelGrid": "T5FNaa_channelGrid",
-			"channelHeading": "T5FNaa_channelHeading",
-			"channels": "T5FNaa_channels",
-			"currentLayer": "T5FNaa_currentLayer",
-			"figureKey": "T5FNaa_figureKey",
+			"absent": "T5FNaa_absent",
+			"cell": "T5FNaa_cell",
+			"content": "T5FNaa_content",
+			"details": "T5FNaa_details",
+			"edges": "T5FNaa_edges",
 			"figureStage": "T5FNaa_figureStage",
 			"heading": "T5FNaa_heading",
-			"liveState": "T5FNaa_liveState",
-			"plane": "T5FNaa_plane",
-			"portal": "T5FNaa_portal",
-			"portalBody": "T5FNaa_portalBody",
-			"portals": "T5FNaa_portals",
-			"presenceHalo": "T5FNaa_presenceHalo",
-			"recent": "T5FNaa_recent",
-			"referenceLayer": "T5FNaa_referenceLayer",
-			"section": "T5FNaa_section",
-			"surface": "T5FNaa_surface",
-			"ternaryGrid": "T5FNaa_ternaryGrid",
-			"ternarySlices": "T5FNaa_ternarySlices",
-			"tesseract": "T5FNaa_tesseract",
-			"titleBlock": "T5FNaa_titleBlock",
-			"truthLine": "T5FNaa_truthLine",
-			"unavailable": "T5FNaa_unavailable",
-			"values": "T5FNaa_values"
+			"note": "T5FNaa_note",
+			"pentora": "T5FNaa_pentora",
+			"problem": "T5FNaa_problem",
+			"readout": "T5FNaa_readout",
+			"root": "T5FNaa_root",
+			"sources": "T5FNaa_sources",
+			"state": "T5FNaa_state"
 		};
 		//#endregion
 		//#region src/client/AuraCoherenceSurface.tsx
-		/** Live Aura Coherence system surface. */
-		const COEFFICIENT_FRAME_INTERVAL_MS = 1e3 / 30;
-		const PRESENTATION_FRAME_INTERVAL_MS = 1e3 / 45;
-		const PRESENTATION_PROJECTION_DISTANCE = 4.2;
-		const ZERO_COEFFICIENTS = Object.freeze([
-			0,
-			0,
-			0,
-			0,
-			0,
-			0
-		]);
-		const FACE_TONES = [
-			{
-				from: "var(--aura-green)",
-				to: "var(--aura-green-bright)",
-				tone: "history"
-			},
-			{
-				from: "var(--aura-blue)",
-				to: "var(--aura-blue-bright)",
-				tone: "tool-health"
-			},
-			{
-				from: "var(--aura-gold)",
-				to: "var(--aura-gold-bright)",
-				tone: "approval"
-			},
-			{
-				from: "var(--aura-purple)",
-				to: "var(--aura-purple-bright)",
-				tone: "human"
-			},
-			{
-				from: "var(--aura-blue)",
-				to: "var(--aura-purple)",
-				tone: "assistant"
-			},
-			{
-				from: "var(--aura-green)",
-				to: "var(--aura-blue)",
-				tone: "tool-activity"
-			}
-		];
-		const CHANNEL_TEXT = {
-			historyPhase: {
-				label: "aura.channel.historyPhase.label",
-				source: "aura.channel.historyPhase.source"
-			},
-			toolHealth: {
-				label: "aura.channel.toolHealth.label",
-				source: "aura.channel.toolHealth.source"
-			},
-			approvalPosture: {
-				label: "aura.channel.approvalPosture.label",
-				source: "aura.channel.approvalPosture.source"
-			},
-			humanActivity: {
-				label: "aura.channel.humanActivity.label",
-				source: "aura.channel.humanActivity.source"
-			},
-			assistantActivity: {
-				label: "aura.channel.assistantActivity.label",
-				source: "aura.channel.assistantActivity.source"
-			},
-			toolActivity: {
-				label: "aura.channel.toolActivity.label",
-				source: "aura.channel.toolActivity.source"
-			}
-		};
-		/**
-		* Map the available durable system adapter into Aura's standing triad.
-		*
-		* @param projection - commutative aggregate of Host-folded session projections.
-		* @returns persistent history-phase, tool-health, and approval-posture coefficients.
-		*/
-		function systemStandingOf(projection) {
-			return persistentChannelsOf(projection.channelSources.persistent);
-		}
-		/**
-		* Project an Aura frame through the final display camera and shared presence scale.
-		* @param frame - projected 4D figure points.
-		* @param scale - presentation-only scale applied around the SVG center.
-		* @returns screen points and depth values.
-		*/
-		function cameraFrame(frame, scale = 1) {
-			const yaw = -.48;
-			const pitch = .34;
-			const cy = Math.cos(yaw);
-			const sy = Math.sin(yaw);
-			const cp = Math.cos(pitch);
-			const sp = Math.sin(pitch);
-			return frame.map(([x, y, z]) => {
-				const yawX = x * cy - z * sy;
-				const yawZ = x * sy + z * cy;
-				const pitchY = y * cp - yawZ * sp;
-				const pitchZ = y * sp + yawZ * cp;
-				const perspective = 1 / Math.max(.72, 1.18 - pitchZ * .055);
-				return [
-					220 + yawX * 66 * perspective * scale,
-					220 + pitchY * 66 * perspective * scale,
-					pitchZ
-				];
-			});
-		}
-		/** Read one canonical tesseract point and fail if the renderer tables diverge. */
-		function screenPointAt(frame, vertex) {
-			const point = frame[vertex];
-			if (point === void 0) throw new RangeError(`Aura vertex ${vertex} is absent from the display frame`);
-			return point;
-		}
-		/** Compact numeric rendering for disclosed Aura coefficients. */
-		function coefficient(value) {
-			return value.toFixed(4);
-		}
-		/** Human-readable local time for a recent content-free record. */
-		function recordTime(value) {
-			return new Date(value).toLocaleTimeString([], {
-				hour: "2-digit",
-				minute: "2-digit",
-				second: "2-digit"
-			});
-		}
-		/** Resolve the reduced-motion media query when the host implements it. */
+		/** Render recorded heads; only head changes drive a marked transition. */
+		const POLL_MS = 2e3;
+		const READ_TIMEOUT_MS = 5e3;
+		/** Fixed camera: identical heads have identical orientation on every screen. */
+		const POINTS = PENTORA.points.map(([x, y, z]) => {
+			const yaw = .52, pitch = .38;
+			const xx = x * Math.cos(yaw) + z * Math.sin(yaw);
+			const zz = -x * Math.sin(yaw) + z * Math.cos(yaw);
+			const yy = y * Math.cos(pitch) - zz * Math.sin(pitch);
+			const depth = y * Math.sin(pitch) + zz * Math.cos(pitch);
+			const scale = 1 / (1 - .18 * depth);
+			return [
+				220 + xx * 168 * scale,
+				220 + yy * 168 * scale,
+				depth
+			];
+		});
+		const CELL_INDEX = new Map(PENTORA.mutable.map((point, cell) => [point, cell]));
+		const DRAW_ORDER = POINTS.map((_, index) => index).sort((a, b) => POINTS[a][2] - POINTS[b][2] || a - b);
 		function reducedMotionMedia() {
-			if (typeof window === "undefined") return void 0;
-			return window.matchMedia?.call(window, "(prefers-reduced-motion: reduce)");
+			return typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : void 0;
 		}
-		/** Track the operating-system motion preference for both coefficient and view animation. */
 		function useReducedMotion() {
 			const [reduced, setReduced] = (0, react.useState)(() => reducedMotionMedia()?.matches ?? false);
 			(0, react.useEffect)(() => {
@@ -1004,7 +1158,6 @@ window.__ModuleLoader__.load({
 			}, []);
 			return reduced;
 		}
-		/** Track whether the document may present continuous coefficient motion. */
 		function useDocumentVisible() {
 			const [visible, setVisible] = (0, react.useState)(() => document.visibilityState !== "hidden");
 			(0, react.useEffect)(() => {
@@ -1018,696 +1171,237 @@ window.__ModuleLoader__.load({
 			}, []);
 			return visible;
 		}
-		/** Advance only active, visible presentation time and stop cleanly on stagnant test clocks. */
-		function usePresentationTime(active, reducedMotion) {
-			const [elapsed, setElapsed] = (0, react.useState)(0);
-			const elapsedRef = (0, react.useRef)(0);
-			(0, react.useEffect)(() => {
-				if (!active || reducedMotion || typeof window.requestAnimationFrame !== "function") return;
-				let frame = 0;
-				let previousTimestamp = null;
-				let publishedAt = 0;
-				const resetTimestamp = () => {
-					previousTimestamp = null;
-				};
-				const draw = (timestamp) => {
-					if (previousTimestamp === null) {
-						previousTimestamp = timestamp;
-						publishedAt = timestamp;
-						frame = window.requestAnimationFrame(draw);
-						return;
-					}
-					if (timestamp <= previousTimestamp) {
-						frame = window.requestAnimationFrame(draw);
-						return;
-					}
-					const delta = Math.min(100, timestamp - previousTimestamp);
-					previousTimestamp = timestamp;
-					if (document.visibilityState !== "hidden") elapsedRef.current += delta;
-					if (timestamp - publishedAt >= PRESENTATION_FRAME_INTERVAL_MS) {
-						publishedAt = timestamp;
-						setElapsed(elapsedRef.current);
-					}
-					frame = window.requestAnimationFrame(draw);
-				};
-				document.addEventListener("visibilitychange", resetTimestamp);
-				frame = window.requestAnimationFrame(draw);
-				return () => {
-					document.removeEventListener("visibilitychange", resetTimestamp);
-					window.cancelAnimationFrame(frame);
-				};
-			}, [active, reducedMotion]);
-			return reducedMotion ? 0 : elapsed;
-		}
-		/** Animated viewing layer shared by the current geometry and its zero-state reference. */
-		function AuraFigure({ active, angles, field, reducedMotion, svgPrefix, t }) {
-			const elapsed = usePresentationTime(active, reducedMotion);
-			const presentation = (0, react.useMemo)(() => auraPresentationAt(elapsed, [
-				angles[3],
-				angles[4],
-				angles[5]
-			], reducedMotion), [
-				angles,
-				elapsed,
-				reducedMotion
-			]);
-			const displayFrame = (0, react.useMemo)(() => cameraFrame(figureFrame({
-				vertices: deformTesseract(angles),
-				orientation: presentation.orientation,
-				distance: PRESENTATION_PROJECTION_DISTANCE
-			}), presentation.scale), [
-				angles,
-				presentation.orientation,
-				presentation.scale
-			]);
-			const referenceFrame = (0, react.useMemo)(() => cameraFrame(figureFrame({
-				vertices: deformTesseract(ZERO_COEFFICIENTS),
-				orientation: presentation.orientation,
-				distance: PRESENTATION_PROJECTION_DISTANCE
-			}), presentation.scale), [presentation.orientation, presentation.scale]);
-			const displayFaces = (0, react.useMemo)(() => TESSERACT_FACES.map((face, faceIndex) => {
-				const points = face.vertices.map((vertex) => screenPointAt(displayFrame, vertex));
-				return {
-					depth: points.reduce((sum, point) => sum + point[2], 0) / points.length,
-					faceIndex,
-					planeIndex: face.planeIndex,
-					points: points.map((point) => `${point[0]},${point[1]}`).join(" ")
-				};
-			}).sort((left, right) => left.depth - right.depth || left.faceIndex - right.faceIndex), [displayFrame]);
-			const visualStyle = {
-				"--aura-activity": presentation.activity.toFixed(4),
-				"--aura-presence-scale": presentation.scale.toFixed(5)
-			};
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: AuraCoherenceSurface_module_css_default.figureStage,
-				"data-aura-breathing": presentation.activity > .01 ? "true" : "false",
-				"data-aura-presentation-scale": presentation.scale.toFixed(5),
-				style: visualStyle,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: AuraCoherenceSurface_module_css_default.presenceHalo,
-						"aria-hidden": "true"
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
-						className: AuraCoherenceSurface_module_css_default.tesseract,
-						viewBox: "0 0 440 440",
-						role: "img",
-						"aria-labelledby": `${svgPrefix}-title ${svgPrefix}-description`,
-						focusable: "false",
-						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("title", {
-								id: `${svgPrefix}-title`,
-								children: t("aura.figure.title")
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("desc", {
-								id: `${svgPrefix}-description`,
-								children: t("aura.figure.description")
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("defs", { children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("linearGradient", {
-									id: `${svgPrefix}-edge`,
-									x1: "0",
-									y1: "0",
-									x2: "1",
-									y2: "1",
-									children: [
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("stop", {
-											offset: "0",
-											stopColor: "var(--aura-green)"
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("stop", {
-											offset: "0.34",
-											stopColor: "var(--aura-blue-bright)"
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("stop", {
-											offset: "0.68",
-											stopColor: "var(--aura-purple-bright)"
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("stop", {
-											offset: "1",
-											stopColor: "var(--aura-gold-bright)"
-										})
-									]
-								}),
-								FACE_TONES.map(({ from, to }, planeIndex) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("linearGradient", {
-									id: `${svgPrefix}-face-${planeIndex}`,
-									x1: "0",
-									y1: "0",
-									x2: "1",
-									y2: "1",
-									"data-aura-plane-gradient": planeIndex,
-									children: [
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("stop", {
-											offset: "0",
-											stopColor: from,
-											stopOpacity: "0.98"
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("stop", {
-											offset: "0.52",
-											stopColor: to,
-											stopOpacity: "0.9"
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("stop", {
-											offset: "1",
-											stopColor: from,
-											stopOpacity: "0.78"
-										})
-									]
-								}, planeIndex)),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("filter", {
-									id: `${svgPrefix}-glow`,
-									x: "-50%",
-									y: "-50%",
-									width: "200%",
-									height: "200%",
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("feGaussianBlur", {
-										stdDeviation: "3.4",
-										result: "blur"
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("feMerge", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("feMergeNode", { in: "blur" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("feMergeNode", { in: "SourceGraphic" })] })]
-								})
-							] }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("g", {
-								className: AuraCoherenceSurface_module_css_default.referenceLayer,
-								"aria-hidden": "true",
-								children: TESSERACT_EDGES.map(([from, to], index) => {
-									const a = referenceFrame[from];
-									const b = referenceFrame[to];
-									if (a === void 0 || b === void 0) return null;
-									return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("line", {
-										x1: a[0],
-										y1: a[1],
-										x2: b[0],
-										y2: b[1],
-										"data-aura-reference-edge": index
-									}, `${from}-${to}`);
-								})
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("g", {
-								className: AuraCoherenceSurface_module_css_default.currentLayer,
-								children: [
-									displayFaces.map((face) => {
-										const amplitude = Math.abs(angles[face.planeIndex] ?? 0);
-										const depthLight = Math.max(0, Math.min(1, (face.depth + 2.4) / 4.8));
-										const tone = FACE_TONES[face.planeIndex]?.tone ?? "unknown";
-										const faceOpacity = Math.min(.42, .12 + amplitude * .16 + depthLight * .14);
-										return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("polygon", {
-											points: face.points,
-											fill: `url(#${svgPrefix}-face-${face.planeIndex})`,
-											fillOpacity: faceOpacity,
-											strokeOpacity: Math.min(.72, .34 + amplitude * .2 + depthLight * .18),
-											"data-aura-face": face.faceIndex,
-											"data-plane": face.planeIndex,
-											"data-plane-tone": tone,
-											"data-polarity": (angles[face.planeIndex] ?? 0) < 0 ? "negative" : "positive"
-										}, face.faceIndex);
-									}),
-									TESSERACT_EDGES.map(([from, to], index) => {
-										const a = displayFrame[from];
-										const b = displayFrame[to];
-										if (a === void 0 || b === void 0) return null;
-										const depth = (a[2] + b[2]) / 2;
-										return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("line", {
-											x1: a[0],
-											y1: a[1],
-											x2: b[0],
-											y2: b[1],
-											opacity: Math.max(.52, Math.min(.94, .72 + depth * .08)),
-											stroke: `url(#${svgPrefix}-edge)`,
-											strokeWidth: Math.max(1.2, Math.min(2, 1.5 + depth * .13)),
-											"data-aura-edge": index
-										}, `${from}-${to}`);
-									}),
-									displayFrame.map(([x, y, z], index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
-										cx: x,
-										cy: y,
-										r: Math.max(2.8, Math.min(5.2, 3.8 + z * .2)),
-										opacity: Math.max(.68, Math.min(1, .84 + z * .06)),
-										filter: `url(#${svgPrefix}-glow)`,
-										"data-aura-vertex": index,
-										"data-polarity": (field[index] ?? 0) < 0 ? "negative" : "positive"
-									}, index))
-								]
-							})
-						]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: AuraCoherenceSurface_module_css_default.figureKey,
-						"aria-label": t("aura.figure.key.label"),
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							"data-layer": "current",
-							children: t("aura.figure.key.current")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							"data-layer": "reference",
-							children: t("aura.figure.key.reference")
-						})]
-					})
-				]
-			});
-		}
-		/** One portal-style disclosure row. */
-		function Portal({ title, summary, children }) {
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
-				className: AuraCoherenceSurface_module_css_default.portal,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("summary", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: title }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: summary })] }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: AuraCoherenceSurface_module_css_default.portalBody,
-					children
-				})]
-			});
-		}
-		/**
-		* Render Aura's life-state projection and its underlying record portals.
-		* @param props - shell visibility, close action, and global session feed.
-		* @returns the always-mounted Aura Coherence surface.
-		*/
-		function AuraCoherenceSurface(props) {
-			const { activeSurface, closeSurface, t, useSessions, useSessionPendingInteraction } = props;
+		function AuraCoherenceSurface({ activeSurface, closeSurface, t }) {
 			const active = activeSurface === "aura-coherence";
-			const sessions = useSessions((state) => state);
-			const currentSessionId = sessions.current;
-			const currentSession = currentSessionId === void 0 ? void 0 : sessions.byId[currentSessionId];
-			const currentTitle = currentSession?.displayTitle;
-			const currentProjection = currentSession?.projectionValues?.auraCoherence;
-			const entries = (0, react.useMemo)(() => sessions.ids.map((id) => {
-				const session = sessions.byId[id];
-				const sessionProjection = session?.projectionValues?.auraCoherence;
-				return {
-					id,
-					title: session?.displayTitle ?? id,
-					...sessionProjection === void 0 ? {} : { projection: sessionProjection }
-				};
-			}), [sessions.byId, sessions.ids]);
-			const lastProjectionRef = (0, react.useRef)(null);
-			const projection = (0, react.useMemo)(() => {
-				if (!active && lastProjectionRef.current !== null) return lastProjectionRef.current;
-				const next = aggregateAuraCoherence(entries);
-				lastProjectionRef.current = next;
-				return next;
-			}, [active, entries]);
-			const activityHeads = (0, react.useMemo)(() => auraActivityHeadsOf(entries), [entries]);
-			const pendingInteractions = useSessionPendingInteraction((state) => state);
-			const pending = sessions.ids.some((id) => pendingInteractions.get(id) !== void 0);
-			const svgPrefix = (0, react.useId)().replace(/:/g, "");
-			const standing = (0, react.useMemo)(() => systemStandingOf(projection), [projection]);
-			const ternary = (0, react.useMemo)(() => auraTernaryOf(projection.channelSources.persistent), [projection]);
+			const visible = useDocumentVisible();
 			const reducedMotion = useReducedMotion();
-			const documentVisible = useDocumentVisible();
-			const [motion, setMotion] = (0, react.useState)(() => ({
-				standing: [...standing],
-				breath: [...REST]
-			}));
-			const motionRef = (0, react.useRef)(motion);
-			const breathMotionRef = (0, react.useRef)({
-				drive: [...REST],
-				value: [...REST]
-			});
-			const activityBaselinesRef = (0, react.useRef)(/* @__PURE__ */ new Map());
-			const coefficientTimeRef = (0, react.useRef)(null);
-			(0, react.useEffect)(() => {
-				const activityAdvance = advanceAuraActivity(activityBaselinesRef.current, activityHeads);
-				activityBaselinesRef.current = activityAdvance.baselines;
-				const targetStanding = [...standing];
-				const publish = (next) => {
-					motionRef.current = next;
-					setMotion(next);
-				};
-				let breathMotion = {
-					drive: [...breathMotionRef.current.drive],
-					value: [...motionRef.current.breath]
-				};
-				let current = {
-					standing: [...motionRef.current.standing],
-					breath: [...breathMotion.value]
-				};
-				const advanceSteps = (steps) => {
-					for (let step = 0; step < steps; step += 1) {
-						breathMotion = stepAuraBreath(breathMotion);
-						current = {
-							standing: approachAuraTriad(current.standing, targetStanding),
-							breath: [...breathMotion.value]
-						};
-						if (sameAuraTriad(current.standing, targetStanding) && auraBreathAtRest(breathMotion)) break;
-					}
-				};
-				const now = performance.now();
-				const previousTime = coefficientTimeRef.current ?? now;
-				const elapsedBeforeEffect = Math.max(0, now - previousTime);
-				const catchupSteps = Math.min(500, Math.floor(elapsedBeforeEffect / COEFFICIENT_FRAME_INTERVAL_MS));
-				advanceSteps(catchupSteps);
-				coefficientTimeRef.current = catchupSteps === 500 ? now : previousTime + catchupSteps * COEFFICIENT_FRAME_INTERVAL_MS;
-				breathMotion = exciteAuraBreath(breathMotion, activityAdvance.impulse);
-				breathMotionRef.current = breathMotion;
-				current = {
-					...current,
-					breath: [...breathMotion.value]
-				};
-				if (!(active && documentVisible && !reducedMotion)) {
-					current = {
-						...current,
-						standing: targetStanding
-					};
-					if (!sameAuraTriad(motionRef.current.standing, current.standing) || !sameAuraTriad(motionRef.current.breath, current.breath)) publish(current);
-					return;
-				}
-				if (sameAuraTriad(current.standing, targetStanding) && auraBreathAtRest(breathMotion)) {
-					if (!sameAuraTriad(motionRef.current.standing, current.standing) || !sameAuraTriad(motionRef.current.breath, current.breath)) publish(current);
-					return;
-				}
-				let animationFrame = null;
-				let timeout = null;
-				const hasAnimationFrame = typeof window.requestAnimationFrame === "function";
-				function schedule() {
-					if (hasAnimationFrame) animationFrame = window.requestAnimationFrame(draw);
-					else timeout = window.setTimeout(() => {
-						draw(performance.now());
-					}, COEFFICIENT_FRAME_INTERVAL_MS);
-				}
-				function draw(timestamp) {
-					const lastTime = coefficientTimeRef.current ?? timestamp;
-					if (timestamp <= lastTime) {
-						schedule();
-						return;
-					}
-					const steps = Math.min(500, Math.floor((timestamp - lastTime) / COEFFICIENT_FRAME_INTERVAL_MS));
-					if (steps > 0) {
-						advanceSteps(steps);
-						coefficientTimeRef.current = steps === 500 ? timestamp : lastTime + steps * COEFFICIENT_FRAME_INTERVAL_MS;
-						breathMotionRef.current = breathMotion;
-						publish(current);
-						if (sameAuraTriad(current.standing, targetStanding) && auraBreathAtRest(breathMotion)) return;
-					}
-					schedule();
-				}
-				schedule();
-				return () => {
-					if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
-					if (timeout !== null) window.clearTimeout(timeout);
-				};
-			}, [
-				active,
-				activityHeads,
-				documentVisible,
-				reducedMotion,
-				standing[0],
-				standing[1],
-				standing[2]
-			]);
-			const close = (0, react.useCallback)(() => {
-				closeSurface();
-			}, [closeSurface]);
+			const svgPrefix = (0, react.useId)().replace(/:/g, "");
+			const [observation, setObservation] = (0, react.useState)(null);
+			const observed = (0, react.useRef)(null);
+			const [clock, setClock] = (0, react.useState)(null);
+			const [problem, setProblem] = (0, react.useState)(null);
+			const [entriesMoved, setEntriesMoved] = (0, react.useState)(0);
+			const counters = (0, react.useRef)(/* @__PURE__ */ new Map());
 			(0, react.useEffect)(() => {
 				if (!active) return;
-				const onKeyDown = (event) => {
-					if (event.key !== "Escape" || event.defaultPrevented) return;
-					if (isEditableTarget(event.target)) return;
-					event.preventDefault();
-					close();
+				observed.current = null;
+				counters.current = /* @__PURE__ */ new Map();
+				setObservation(null);
+				setEntriesMoved(0);
+				setProblem(null);
+			}, [active]);
+			(0, react.useEffect)(() => {
+				if (!active || !visible) return;
+				let disposed = false;
+				let timer;
+				let controller;
+				const read = async () => {
+					controller = new AbortController();
+					const timeout = setTimeout(() => {
+						controller?.abort();
+					}, READ_TIMEOUT_MS);
+					try {
+						const response = await fetch("/api/aukora/aura-snapshot", {
+							credentials: "same-origin",
+							cache: "no-store",
+							signal: controller.signal
+						});
+						if (!response.ok) throw new Error(`aura-snapshot:http-${response.status}`);
+						const snapshot = parseAuraSnapshot(await response.json());
+						const prior = observed.current;
+						const motion = prior?.snapshot.head === snapshot.head ? prior.motion : await createPentoraMotion(prior?.snapshot.head ?? snapshot.head, snapshot.head);
+						if (disposed) return;
+						const advance = advanceSourceEntries(counters.current, snapshot.sources);
+						counters.current = advance.counters;
+						setEntriesMoved((value) => value + advance.entries);
+						const next = {
+							snapshot,
+							motion,
+							since: prior?.snapshot.head === snapshot.head ? prior.since : performance.now()
+						};
+						observed.current = next;
+						setObservation(next);
+						if (prior?.snapshot.head !== snapshot.head) setClock({
+							motion,
+							elapsed: 0
+						});
+						setProblem(null);
+					} catch (error) {
+						if (!disposed) setProblem(error instanceof Error ? error.message : "aura-snapshot:read-failed");
+					} finally {
+						clearTimeout(timeout);
+						if (!disposed) timer = setTimeout(() => {
+							read();
+						}, POLL_MS);
+					}
 				};
-				document.addEventListener("keydown", onKeyDown);
+				read();
 				return () => {
-					document.removeEventListener("keydown", onKeyDown);
+					disposed = true;
+					clearTimeout(timer);
+					controller?.abort();
 				};
-			}, [active, close]);
-			const angles = (0, react.useMemo)(() => [...motion.standing, ...motion.breath], [motion.breath, motion.standing]);
-			const auraFrame = (0, react.useMemo)(() => figureFrame({ vertices: deformTesseract(angles) }), [angles]);
-			const digest = (0, react.useMemo)(() => frameDigest(auraFrame), [auraFrame]);
-			const field = (0, react.useMemo)(() => synth6(angles), [angles]);
-			const approvals = projection.approvals;
-			const counts = projection.counts;
-			const refusalTotal = approvals.rejected + approvals.unavailable;
-			const changing = !sameAuraTriad(motion.standing, standing) || !sameAuraTriad(motion.breath, [...REST]);
+			}, [active, visible]);
+			(0, react.useEffect)(() => {
+				if (observation === null || !active || !visible) return;
+				let request = 0;
+				const draw = () => {
+					const age = Math.max(0, performance.now() - observation.since);
+					setClock({
+						motion: observation.motion,
+						elapsed: age
+					});
+					if (pentoraMotionFrame(observation.motion, age, reducedMotion).status === "in-motion") request = window.requestAnimationFrame(draw);
+				};
+				draw();
+				return () => {
+					window.cancelAnimationFrame(request);
+				};
+			}, [
+				observation?.motion,
+				active,
+				visible,
+				reducedMotion
+			]);
+			(0, react.useEffect)(() => {
+				if (!active) return;
+				const onKey = (event) => {
+					if (event.key === "Escape" && !event.defaultPrevented && !isEditableTarget(event.target)) {
+						event.preventDefault();
+						closeSurface();
+					}
+				};
+				window.addEventListener("keydown", onKey);
+				return () => {
+					window.removeEventListener("keydown", onKey);
+				};
+			}, [active, closeSurface]);
+			const frame = observation === null ? null : pentoraMotionFrame(observation.motion, clock?.motion === observation.motion ? clock.elapsed : 0, reducedMotion);
+			const snapshot = observation?.snapshot;
+			const present = snapshot?.sources.filter((source) => source.head !== null).length ?? 0;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("section", {
-				className: AuraCoherenceSurface_module_css_default.surface,
+				className: AuraCoherenceSurface_module_css_default.root,
 				hidden: !active,
-				"data-aura-coherence-surface": true,
+				"aria-label": t("aura.trigger"),
 				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: AuraCoherenceSurface_module_css_default.section,
-					"aria-labelledby": "aura-coherence-title",
+					className: AuraCoherenceSurface_module_css_default.content,
 					children: [
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
 							className: AuraCoherenceSurface_module_css_default.heading,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: AuraCoherenceSurface_module_css_default.titleBlock,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
-									id: "aura-coherence-title",
-									children: t("aura.trigger")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.subtitle") })]
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-								className: AuraCoherenceSurface_module_css_default.liveState,
-								"data-state": projection.projectedSessions === 0 ? "absent" : pending ? "waiting" : changing ? "moving" : "rest",
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {}), projection.projectedSessions === 0 ? t("aura.status.noRecord") : pending ? t("aura.status.awaiting") : changing ? t("aura.status.moving") : t("aura.status.rest")]
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", { children: t("aura.trigger") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.subtitle") })] }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: closeSurface,
+								children: t("aura.close")
 							})]
 						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(AuraFigure, {
-							active,
-							angles,
-							field,
-							reducedMotion,
-							svgPrefix,
-							t
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-							className: AuraCoherenceSurface_module_css_default.channels,
-							"aria-labelledby": `${svgPrefix}-channels`,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-								id: `${svgPrefix}-channels`,
-								children: t("aura.channels.title")
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.channels.note") })] }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-								className: AuraCoherenceSurface_module_css_default.channelGrid,
-								children: AURA_COEFFICIENT_PROVENANCE.map((channel, index) => {
-									const value = angles[index] ?? 0;
-									const formattedValue = `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
-									const text = CHANNEL_TEXT[channel.channel];
-									const lifetime = t(channel.lifetime === "persistent" ? "aura.channel.lifetime.persistent" : "aura.channel.lifetime.transient");
-									const meterText = t("aura.channel.value", {
-										label: t(text.label),
-										lifetime,
-										value: formattedValue
-									});
-									return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-										className: AuraCoherenceSurface_module_css_default.channel,
-										"data-aura-channel": channel.channel,
-										"data-lifetime": channel.lifetime,
-										children: [
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-												className: AuraCoherenceSurface_module_css_default.channelHeading,
-												children: [
-													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-														className: AuraCoherenceSurface_module_css_default.plane,
-														children: channel.plane
-													}),
-													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t(text.label) }),
-													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("output", { children: formattedValue })
-												]
-											}),
-											channel.signed ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-												className: AuraCoherenceSurface_module_css_default.bipolarMeter,
-												role: "meter",
-												"aria-valuemin": -1,
-												"aria-valuemax": 1,
-												"aria-valuenow": value,
-												"aria-label": t(text.label),
-												"aria-valuetext": meterText,
-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-													className: AuraCoherenceSurface_module_css_default.bipolarFill,
-													"data-direction": value < 0 ? "negative" : "positive",
-													style: { width: `${Math.abs(value) * 50}%` },
-													"aria-hidden": "true"
-												})
-											}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("progress", {
-												max: "1",
-												value: Math.abs(value),
-												"aria-label": t(text.label),
-												"aria-valuetext": meterText
-											}),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t(text.source) })
-										]
-									}, channel.plane);
-								})
-							})]
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-							className: AuraCoherenceSurface_module_css_default.channels,
-							"aria-labelledby": `${svgPrefix}-ternary`,
-							"data-aura-ternary": true,
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-									id: `${svgPrefix}-ternary`,
-									children: t("aura.ternary.title")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.ternary.note") })] }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-									"data-aura-ternary-readout": true,
-									children: t("aura.ternary.readout", {
-										coordinate: ternary.trits.map((value) => value === null ? "?" : String(value)).join(", "),
-										index: ternary.index === null ? t("aura.ternary.unknown") : String(ternary.index)
-									})
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.ternary.values", { values: ternary.values.map((value) => value.toFixed(4)).join(", ") }) }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: AuraCoherenceSurface_module_css_default.ternarySlices,
-									children: AURA_TRITS.map((history) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t("aura.ternary.slice", { value: history }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ol", {
-										className: AuraCoherenceSurface_module_css_default.ternaryGrid,
-										children: AURA_TRITS.flatMap((tool) => AURA_TRITS.map((approval) => {
-											const index = auraCellIndex([
-												history,
-												tool,
-												approval
-											]);
-											return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-												"data-aura-cell": index,
-												"aria-current": ternary.index === index ? "true" : void 0,
-												children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: index }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("small", { children: [
-													history,
-													", ",
-													tool,
-													", ",
-													approval
-												] })]
+						frame !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: AuraCoherenceSurface_module_css_default.figureStage,
+							"data-pentora-state": frame.status,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+								className: AuraCoherenceSurface_module_css_default.pentora,
+								viewBox: "0 0 440 440",
+								role: "img",
+								"aria-labelledby": `${svgPrefix}-title ${svgPrefix}-description`,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("title", {
+										id: `${svgPrefix}-title`,
+										children: t("aura.figure.title")
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("desc", {
+										id: `${svgPrefix}-description`,
+										children: t("aura.figure.description")
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("g", {
+										className: AuraCoherenceSurface_module_css_default.edges,
+										children: PENTORA.edges.map(([from, to], index) => {
+											const a = POINTS[from], b = POINTS[to];
+											return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("line", {
+												x1: a[0],
+												y1: a[1],
+												x2: b[0],
+												y2: b[1]
 											}, index);
-										}))
-									})] }, history))
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.ternary.bins") })
+										})
+									}),
+									DRAW_ORDER.map((point) => {
+										const cell = CELL_INDEX.get(point), position = POINTS[point];
+										const trit = cell === void 0 ? 1 : frame.cells[cell];
+										return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
+											cx: position[0],
+											cy: position[1],
+											r: cell === void 0 ? 6 : 3.8,
+											className: AuraCoherenceSurface_module_css_default.cell,
+											"data-pentora-cell": cell,
+											"data-trit": trit
+										}, point);
+									})
+								]
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: AuraCoherenceSurface_module_css_default.state,
+								role: "status",
+								children: t(frame.status === "solid" ? "aura.status.rest" : "aura.status.moving")
+							})]
+						}),
+						problem !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+							className: AuraCoherenceSurface_module_css_default.problem,
+							role: "status",
+							children: [
+								t("aura.snapshot.stale"),
+								" · ",
+								problem
 							]
 						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: AuraCoherenceSurface_module_css_default.truthLine,
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("aura.coverage.label") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t("aura.coverage.summary", {
-									projected: projection.projectedSessions,
-									sessions: projection.sessions
-								}) })] }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: projection.projectedSessions === 0 ? t("aura.coverage.waiting") : approvals.asked === 0 ? t("aura.coverage.none", { interactions: counts.interactions }) : approvals.asked === 1 ? t("aura.coverage.one", { interactions: counts.interactions }) : t("aura.coverage.many", {
-									approvals: approvals.asked,
-									interactions: counts.interactions
-								}) }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("aura.provenance.label") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: projection.lastTime === null ? t("aura.provenance.none") : t("aura.provenance.value", {
-									fingerprint: projection.recordFingerprint,
-									time: recordTime(projection.lastTime)
-								}) })] })
-							]
+						snapshot === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.snapshot.waiting") }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: AuraCoherenceSurface_module_css_default.readout,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", { children: [
+										t("aura.snapshot.head"),
+										" ",
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
+											title: snapshot.head,
+											children: snapshot.head.slice(0, 16)
+										})
+									] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.snapshot.entries", { count: entriesMoved }) }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.snapshot.present", { count: present }) })
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dl", {
+								className: AuraCoherenceSurface_module_css_default.sources,
+								children: snapshot.sources.map((source) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: source.name }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: source.head === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: AuraCoherenceSurface_module_css_default.absent,
+									children: [
+										t("aura.snapshot.absent"),
+										" · ",
+										source.absence
+									]
+								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
+									title: source.head,
+									children: source.head.slice(0, 16)
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+									" · ",
+									source.entries,
+									" ",
+									t("aura.snapshot.records")
+								] })] }) })] }, source.name))
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
+								className: AuraCoherenceSurface_module_css_default.details,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", { children: t("aura.snapshot.details") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", { children: JSON.stringify(snapshot, null, 2) })]
+							})
+						] }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: AuraCoherenceSurface_module_css_default.note,
+							children: t("aura.snapshot.meaning")
 						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: AuraCoherenceSurface_module_css_default.portals,
-							"aria-label": t("aura.portals.label"),
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Portal, {
-									title: t("aura.interaction.title"),
-									summary: t("aura.interaction.summary", { records: counts.records }),
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-										className: AuraCoherenceSurface_module_css_default.values,
-										children: [
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.interaction.observed") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.interactions })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.interaction.fingerprint") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: projection.recordFingerprint })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.interaction.adapter") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: t("aura.interaction.adapterValue") })] })
-										]
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ol", {
-										className: AuraCoherenceSurface_module_css_default.recent,
-										children: projection.recent.map((record) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-											"data-kind": record.kind,
-											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
-												record.sessionTitle,
-												" · ",
-												record.label
-											] }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
-												dateTime: new Date(record.time).toISOString(),
-												children: recordTime(record.time)
-											})]
-										}, `${record.sessionId}:${record.seq}`))
-									})]
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Portal, {
-									title: t("aura.message.title"),
-									summary: t("aura.message.summary", {
-										assistant: counts.assistantMessages,
-										human: counts.humanMessages
-									}),
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-										className: AuraCoherenceSurface_module_css_default.values,
-										children: [
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.message.human") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.humanMessages })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.message.assistant") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.assistantMessages })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.message.context") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.contextMessages })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.message.turns") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.turns })] })
-										]
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.message.note") })]
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Portal, {
-									title: t("aura.action.title"),
-									summary: t("aura.action.summary", {
-										failed: counts.toolErrors,
-										requested: counts.toolCalls
-									}),
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-										className: AuraCoherenceSurface_module_css_default.values,
-										children: [
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.action.requests") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.toolCalls })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.action.results") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.toolResults })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.action.failures") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: counts.toolErrors })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.action.standing") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: coefficient(motion.standing[1]) })] })
-										]
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.action.note") })]
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Portal, {
-									title: t("aura.approval.title"),
-									summary: t("aura.approval.summary", {
-										allowed: approvals.allowed,
-										refused: refusalTotal
-									}),
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-										className: AuraCoherenceSurface_module_css_default.values,
-										children: [
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.approval.asked") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: approvals.asked })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.approval.allowed") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: approvals.allowed })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.approval.rejected") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: approvals.rejected })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.approval.unavailable") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: approvals.unavailable })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.approval.cancelled") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: approvals.cancelled })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.approval.standing") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: coefficient(motion.standing[2]) })] })
-										]
-									})
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Portal, {
-									title: t("aura.confinement.title"),
-									summary: currentProjection?.confinement.preset ?? t("aura.confinement.default"),
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-										className: AuraCoherenceSurface_module_css_default.values,
-										children: [
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.confinement.thread") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: currentTitle ?? t("aura.confinement.none") })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.confinement.permission") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: currentProjection?.confinement.preset ?? t("aura.confinement.notOverridden") })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.confinement.sandbox") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: currentProjection?.confinement.sandbox ?? t("aura.confinement.notOverridden") })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.confinement.approval") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: currentProjection?.confinement.approval ?? t("aura.confinement.notOverridden") })] })
-										]
-									})
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Portal, {
-									title: t("aura.field.title"),
-									summary: t("aura.field.summary"),
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-										className: AuraCoherenceSurface_module_css_default.values,
-										children: [
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.standing") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: motion.standing.map(coefficient).join(" · ") })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.breath") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: motion.breath.map(coefficient).join(" · ") })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.digest") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: digest })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.walsh") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: field.map((value) => value.toFixed(3)).join(" ") })] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.identity") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-												className: AuraCoherenceSurface_module_css_default.unavailable,
-												children: t("aura.field.notMounted")
-											})] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.receipts") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-												className: AuraCoherenceSurface_module_css_default.unavailable,
-												children: t("aura.field.notMounted")
-											})] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.anchor") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-												className: AuraCoherenceSurface_module_css_default.unavailable,
-												children: t("aura.field.notMounted")
-											})] }),
-											/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("aura.field.order") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-												className: AuraCoherenceSurface_module_css_default.unavailable,
-												children: t("aura.field.notClaimed")
-											})] })
-										]
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.field.note") })]
-								})
-							]
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: AuraCoherenceSurface_module_css_default.note,
+							children: t("aura.snapshot.limit")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: AuraCoherenceSurface_module_css_default.note,
+							children: t("aura.snapshot.polling")
 						})
 					]
 				})
@@ -2074,100 +1768,24 @@ window.__ModuleLoader__.load({
 			"general.nav": "通用设置",
 			"general.menuDescription": "语言、外观与默认选项",
 			"aura.trigger": "Aura Coherence",
-			"aura.menu": "系统生命状态",
-			"aura.subtitle": "系统生命状态",
-			"aura.status.noRecord": "无记录",
-			"aura.status.awaiting": "等待决定",
-			"aura.status.moving": "形变中",
-			"aura.status.rest": "静止",
-			"aura.figure.title": "Aura 六平面超立方体生命状态投影",
-			"aura.figure.description": "六个日志系数通过 Walsh 场确定性地移动十六个四维顶点。当前形态与零系数基准共享缓慢旋转；静止微动仅用于呈现，新增日志活动则驱动瞬态呼吸。",
-			"aura.figure.key.label": "Aura 几何图例",
-			"aura.figure.key.current": "当前数据形态",
-			"aura.figure.key.reference": "零系数基准",
-			"aura.channels.title": "形变输入",
-			"aura.ternary.title": "27 状态 · 持久系数的三进制视图",
-			"aura.ternary.note": "三个轴各分三档，共 27 个坐标。此只读、有损视图与十六顶点超立方体使用相同日志输入；它不是身份、信任评分或三进制推理引擎。",
-			"aura.ternary.readout": "历史、工具、审批：({coordinate}) · 索引 {index} / 0–26",
-			"aura.ternary.unknown": "未知",
-			"aura.ternary.values": "原始持久系数：({values})",
-			"aura.ternary.slice": "历史 = {value}；行 = 工具，列 = 审批",
-			"aura.ternary.bins": "历史和审批：低于 −1/3 → −1，−1/3 至 +1/3（含边界）→ 0，高于 +1/3 → +1。工具先按 2x−1 归一化。缺少交互、工具请求或审批覆盖时显示 ?，不选择坐标。索引 = 9(h+1)+3(t+1)+(a+1)。",
-			"aura.channels.note": "每个系数都来自明确的持久化日志计数；即时活动随后衰减为零。",
-			"aura.channel.historyPhase.label": "历史相位",
-			"aura.channel.historyPhase.source": "交互计数 × 黄金相位 · 持久",
-			"aura.channel.toolHealth.label": "工具健康度",
-			"aura.channel.toolHealth.source": "成功结果 / 工具请求 · 持久",
-			"aura.channel.approvalPosture.label": "审批姿态",
-			"aura.channel.approvalPosture.source": "允许减拒绝 / 覆盖决定 · 持久",
-			"aura.channel.humanActivity.label": "用户活动",
-			"aura.channel.humanActivity.source": "新增用户消息 · 衰减",
-			"aura.channel.assistantActivity.label": "助手活动",
-			"aura.channel.assistantActivity.source": "新增助手消息 · 衰减",
-			"aura.channel.toolActivity.label": "工具活动",
-			"aura.channel.toolActivity.source": "新增工具调用与结果 · 衰减",
-			"aura.channel.lifetime.persistent": "持久",
-			"aura.channel.lifetime.transient": "衰减中",
-			"aura.channel.value": "{label}：{value}；{lifetime}",
-			"aura.coverage.label": "投影覆盖范围",
-			"aura.coverage.summary": "{projected} / {sessions} 个会话",
-			"aura.coverage.waiting": "正在等待持久化会话投影。",
-			"aura.coverage.none": "{interactions} 次日志交互驱动持久历史相位；尚无审批活动。",
-			"aura.coverage.one": "{interactions} 次日志交互；一条审批请求参与审批姿态。",
-			"aura.coverage.many": "{interactions} 次日志交互；{approvals} 条审批请求参与审批姿态。",
-			"aura.provenance.label": "当前来源",
-			"aura.provenance.none": "没有持久化投影",
-			"aura.provenance.value": "{time} · {fingerprint} · 非加密",
-			"aura.portals.label": "Aura 记录披露",
-			"aura.interaction.title": "交互记录",
-			"aura.interaction.summary": "{records} 条记录",
-			"aura.interaction.observed": "已观察交互",
-			"aura.interaction.fingerprint": "投影头指纹",
-			"aura.interaction.adapter": "适配器",
-			"aura.interaction.adapterValue": "持久化会话日志",
-			"aura.message.title": "消息流",
-			"aura.message.summary": "{human} 条用户消息 · {assistant} 条助手消息",
-			"aura.message.human": "用户消息",
-			"aura.message.assistant": "助手消息",
-			"aura.message.context": "上下文输入",
-			"aura.message.turns": "已进入轮次",
-			"aura.message.note": "消息正文不会进入投影。持久计数推进历史相位；新增用户或助手消息分别触发短暂形变。",
-			"aura.action.title": "操作记录",
-			"aura.action.summary": "{requested} 次请求 · {failed} 次失败",
-			"aura.action.requests": "工具请求",
-			"aura.action.results": "工具结果",
-			"aura.action.failures": "结果失败",
-			"aura.action.standing": "工具健康系数",
-			"aura.action.note": "已提交的成功结果决定持久工具健康度；新增调用与结果只触发短暂工具形变。",
-			"aura.approval.title": "审批姿态",
-			"aura.approval.summary": "{allowed} 次允许 · {refused} 次拒绝",
-			"aura.approval.asked": "请求",
-			"aura.approval.allowed": "单次允许",
-			"aura.approval.rejected": "拒绝",
-			"aura.approval.unavailable": "无法回答",
-			"aura.approval.cancelled": "取消",
-			"aura.approval.standing": "审批姿态系数",
-			"aura.confinement.title": "当前会话限制",
-			"aura.confinement.default": "组合默认值",
-			"aura.confinement.thread": "会话",
-			"aura.confinement.none": "未选择",
-			"aura.confinement.permission": "权限预设",
-			"aura.confinement.sandbox": "沙箱模式",
-			"aura.confinement.approval": "审批策略",
-			"aura.confinement.notOverridden": "未覆盖",
-			"aura.field.title": "场与限制",
-			"aura.field.summary": "24 个面 · 6 个模式",
-			"aura.field.standing": "持久系数",
-			"aura.field.breath": "瞬态系数",
-			"aura.field.digest": "当前几何摘要",
-			"aura.field.walsh": "Walsh 场",
-			"aura.field.identity": "身份绑定",
-			"aura.field.receipts": "加密回执",
-			"aura.field.anchor": "外部锚点",
-			"aura.field.order": "跨会话顺序",
-			"aura.field.notMounted": "未挂载",
-			"aura.field.notClaimed": "不作声明",
-			"aura.field.note": "只有顶点携带数据，拓扑保持固定。相同系数必得相同的标准几何；共享旋转与静止微动仅用于呈现，不会进入几何摘要。该视图不授予权限，也不声称语义真相。"
+			"aura.subtitle": "记录的当前快照",
+			"aura.close": "关闭",
+			"aura.status.rest": "实态 · 记录头的精确图形",
+			"aura.status.moving": "运动中 · 过渡帧，不是记录状态",
+			"aura.figure.title": "Aura 快照的 Pentora",
+			"aura.figure.description": "固定五立方体与 110 个三进制格，来自显示域和快照头的 SHA-256。",
+			"aura.snapshot.head": "快照头",
+			"aura.snapshot.entries": "打开后观察到 {count} 个源记录前进",
+			"aura.snapshot.present": "{count} / 3 个源提供了头",
+			"aura.snapshot.absent": "缺失",
+			"aura.snapshot.records": "条记录",
+			"aura.snapshot.details": "完整头与快照输入",
+			"aura.snapshot.waiting": "等待记录头；尚无图形。",
+			"aura.snapshot.stale": "读取失败；图形仅表示上次观察到的快照",
+			"aura.snapshot.meaning": "两个人或两台设备看到相同 Pentora，即持有相同记录快照的显示指纹。可在详情比较完整头。",
+			"aura.snapshot.limit": "图形不证明记录完整、身份、谁在观看或审批。未暴露的头不是空链。",
+			"aura.snapshot.polling": "可见时每两秒读取一次，可能跳过中间头。当前仅提供门账本；只记录在会话或 Kira 中的操作不会使图形变化。",
+			"aura.menu": "记录快照"
 		};
 		/** English dictionary, checked complete against the zh key set. */
 		const en = {
@@ -2178,100 +1796,24 @@ window.__ModuleLoader__.load({
 			"general.nav": "General",
 			"general.menuDescription": "language, appearance, and defaults",
 			"aura.trigger": "Aura Coherence",
-			"aura.menu": "living system state",
-			"aura.subtitle": "SYSTEM LIFE STATE",
-			"aura.status.noRecord": "NO RECORD",
-			"aura.status.awaiting": "AWAITING DECISION",
-			"aura.status.moving": "RESHAPING",
-			"aura.status.rest": "AT REST",
-			"aura.figure.title": "Aura six-plane tesseract life-state projection",
-			"aura.figure.description": "Six logged coefficients deterministically move sixteen four-dimensional vertices through a Walsh field. The current form and zero reference share a slow rotation; idle vibration is presentation only, while new logged activity drives transient breath.",
-			"aura.figure.key.label": "Aura geometry key",
-			"aura.figure.key.current": "current data form",
-			"aura.figure.key.reference": "zero-coefficient reference",
-			"aura.channels.title": "Deformation inputs",
-			"aura.ternary.title": "27 states · ternary view of persistent coefficients",
-			"aura.ternary.note": "Three bins on each of three axes give 27 coordinates. This read-only, lossy view uses the same logged inputs as the sixteen-vertex tesseract; it is not identity, a trust score, or a ternary inference engine.",
-			"aura.ternary.readout": "History, tool, approval: ({coordinate}) · index {index} / 0–26",
-			"aura.ternary.unknown": "unknown",
-			"aura.ternary.values": "Raw persistent coefficients: ({values})",
-			"aura.ternary.slice": "History = {value}; rows = tool, columns = approval",
-			"aura.ternary.bins": "History and approval: below −1/3 → −1, −1/3 through +1/3 inclusive → 0, above +1/3 → +1. Tool health is first normalized as 2x−1. Missing interactions, tool calls, or approval coverage show ? and select no cell. Index = 9(h+1)+3(t+1)+(a+1).",
-			"aura.channels.note": "Every coefficient comes from a named durable-log count; live activity then decays to zero.",
-			"aura.channel.historyPhase.label": "History phase",
-			"aura.channel.historyPhase.source": "interaction count × golden phase · persistent",
-			"aura.channel.toolHealth.label": "Tool health",
-			"aura.channel.toolHealth.source": "successful results / tool calls · persistent",
-			"aura.channel.approvalPosture.label": "Approval posture",
-			"aura.channel.approvalPosture.source": "allowed minus refused / covered decisions · persistent",
-			"aura.channel.humanActivity.label": "Human activity",
-			"aura.channel.humanActivity.source": "new human-message delta · decays",
-			"aura.channel.assistantActivity.label": "Assistant activity",
-			"aura.channel.assistantActivity.source": "new assistant-message delta · decays",
-			"aura.channel.toolActivity.label": "Tool activity",
-			"aura.channel.toolActivity.source": "new tool calls and results · decays",
-			"aura.channel.lifetime.persistent": "persistent",
-			"aura.channel.lifetime.transient": "decaying",
-			"aura.channel.value": "{label}: {value}; {lifetime}",
-			"aura.coverage.label": "Projection coverage",
-			"aura.coverage.summary": "{projected} of {sessions} sessions",
-			"aura.coverage.waiting": "Waiting for a durable session projection.",
-			"aura.coverage.none": "{interactions} logged interactions drive the persistent history phase. No approval activity is recorded.",
-			"aura.coverage.one": "{interactions} logged interactions. One approval request contributes to approval posture.",
-			"aura.coverage.many": "{interactions} logged interactions. {approvals} approval requests contribute to approval posture.",
-			"aura.provenance.label": "Current source",
-			"aura.provenance.none": "no durable projection",
-			"aura.provenance.value": "{time} · {fingerprint} · non-cryptographic",
-			"aura.portals.label": "Aura record portals",
-			"aura.interaction.title": "Interaction record",
-			"aura.interaction.summary": "{records} records",
-			"aura.interaction.observed": "Observed interactions",
-			"aura.interaction.fingerprint": "Projection-head fingerprint",
-			"aura.interaction.adapter": "Adapter",
-			"aura.interaction.adapterValue": "durable session logs",
-			"aura.message.title": "Message flow",
-			"aura.message.summary": "{human} human · {assistant} assistant",
-			"aura.message.human": "Human messages",
-			"aura.message.assistant": "Assistant messages",
-			"aura.message.context": "Context entries",
-			"aura.message.turns": "Turns entered",
-			"aura.message.note": "Message bodies never enter the projection. Durable counts advance history phase; new human and assistant messages trigger separate transient deformations.",
-			"aura.action.title": "Action record",
-			"aura.action.summary": "{requested} requested · {failed} failed",
-			"aura.action.requests": "Tool requests",
-			"aura.action.results": "Tool results",
-			"aura.action.failures": "Result failures",
-			"aura.action.standing": "Tool-health coefficient",
-			"aura.action.note": "Committed successful results set persistent tool health; new calls and results trigger only the transient tool deformation.",
-			"aura.approval.title": "Approval posture",
-			"aura.approval.summary": "{allowed} allowed · {refused} refused",
-			"aura.approval.asked": "Asked",
-			"aura.approval.allowed": "Allowed once",
-			"aura.approval.rejected": "Rejected",
-			"aura.approval.unavailable": "Unavailable",
-			"aura.approval.cancelled": "Cancelled",
-			"aura.approval.standing": "Approval-posture coefficient",
-			"aura.confinement.title": "Selected-session confinement",
-			"aura.confinement.default": "composition default",
-			"aura.confinement.thread": "Thread",
-			"aura.confinement.none": "none selected",
-			"aura.confinement.permission": "Permission preset",
-			"aura.confinement.sandbox": "Sandbox mode",
-			"aura.confinement.approval": "Approval policy",
-			"aura.confinement.notOverridden": "not overridden",
-			"aura.field.title": "Field and limits",
-			"aura.field.summary": "24 faces · 6 modes",
-			"aura.field.standing": "Persistent coefficients",
-			"aura.field.breath": "Transient coefficients",
-			"aura.field.digest": "Current-geometry digest",
-			"aura.field.walsh": "Walsh field",
-			"aura.field.identity": "Identity binding",
-			"aura.field.receipts": "Cryptographic receipts",
-			"aura.field.anchor": "External anchor",
-			"aura.field.order": "Cross-session order",
-			"aura.field.notMounted": "not mounted",
-			"aura.field.notClaimed": "not claimed",
-			"aura.field.note": "Only vertices carry data while topology stays fixed. Identical coefficients reproduce identical canonical geometry; shared rotation and idle vibration are presentation only and never enter the geometry digest. This view grants no authority and makes no claim about semantic truth."
+			"aura.subtitle": "Current snapshot of the record",
+			"aura.close": "Close",
+			"aura.status.rest": "Solid · exact snapshot-head picture",
+			"aura.status.moving": "In motion · transition, not a recorded state",
+			"aura.figure.title": "Pentora of the Aura snapshot",
+			"aura.figure.description": "Five fixed cubes and 110 ternary cells from SHA-256 of the display domain and snapshot head.",
+			"aura.snapshot.head": "Snapshot head",
+			"aura.snapshot.entries": "{count} observed source entries advanced since opening",
+			"aura.snapshot.present": "{count} / 3 sources supplied a head",
+			"aura.snapshot.absent": "Absent",
+			"aura.snapshot.records": "entries",
+			"aura.snapshot.details": "Full heads and snapshot inputs",
+			"aura.snapshot.waiting": "Waiting for recorded heads; no picture yet.",
+			"aura.snapshot.stale": "Read failed; the picture shows only the last observed snapshot",
+			"aura.snapshot.meaning": "Two people or devices seeing the same Pentora hold the same displayed snapshot fingerprint of the record. Compare full heads under Details.",
+			"aura.snapshot.limit": "The picture does not prove completeness, identity, who is looking, or approval. A head not exposed is not an empty chain.",
+			"aura.snapshot.polling": "Reads every two seconds while visible; intermediate heads may be missed. Only gate-ledger advances are available today; actions recorded only in sessions or Kira do not move this picture.",
+			"aura.menu": "record snapshot"
 		};
 		//#endregion
 		//#region src/client/index.ts

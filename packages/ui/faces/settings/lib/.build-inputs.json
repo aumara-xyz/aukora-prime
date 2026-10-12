@@ -1,23 +1,23 @@
 {
   "formatVersion": 2,
   "face": "settings",
-  "srcDigest": "fc266412e81cc9b816f4effa5b2542675c248466de1f1dfae534ff80fde552a2",
+  "srcDigest": "12bbeded34a9adb5a603c94be8643fc274875f63a09642194e9e0b7723c3afac",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",
     "../../../upstream-dsh.json",
     "../tsdown.client.ts",
     "package.json",
-    "src/aura/activity.ts",
-    "src/aura/aggregate.ts",
-    "src/aura/deformation.ts",
-    "src/aura/figure.ts",
-    "src/aura/motion.ts",
+    "src/aura/pentora-cells.d.mts",
+    "src/aura/pentora-cells.mjs",
+    "src/aura/pentora-motion.d.mts",
+    "src/aura/pentora-motion.mjs",
+    "src/aura/pentora.d.mts",
+    "src/aura/pentora.mjs",
     "src/aura/projection.ts",
-    "src/aura/rotor.ts",
-    "src/aura/ternary.ts",
+    "src/aura/snapshot-reader.ts",
+    "src/aura/snapshot.ts",
     "src/aura/types.ts",
-    "src/aura/walsh.ts",
     "src/client/AuraCoherenceMenu.tsx",
     "src/client/AuraCoherenceSurface.module.css",
     "src/client/AuraCoherenceSurface.tsx",
@@ -29,6 +29,7 @@
     "src/client/SettingsOnboarding.tsx",
     "src/client/SettingsRoot.module.css",
     "src/client/SettingsRoot.tsx",
+    "src/client/aura-snapshot.ts",
     "src/client/chrome.tsx",
     "src/client/escape.ts",
     "src/client/index.ts",
@@ -44,8 +45,8 @@
     "tsdown.config.ts"
   ],
   "outputs": {
-    "client.js": "6d20bf52dc03583c372bdd5d7354c2f8c5061fce68f43054e9f1c05e92f25f6e",
-    "index.js": "88ffc9928357ac7bc9d8379ce5f9769b221a6447037abf67e3722c05552b07b6",
+    "client.js": "6365cfb3540c98c046117fcd0e2cb8add1e8810ff31bbea229686cb63562d523",
+    "index.js": "c8c1981d606ff93c901adfd30d9ea86a06dc8286c187e93ccf73a67b05f19fc8",
     "invariant.js": "ac97a8f17a8b9ea4cc74bb74faaebfb613ec92a958882b19673a6597ca88c225"
   }
 }

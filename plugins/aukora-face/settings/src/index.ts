@@ -16,6 +16,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { auraCoherenceProjectionDefinition } from './aura/projection.ts'
+import { AURA_SNAPSHOT_ENDPOINT, auraSnapshotHandler, createAuraSnapshotReader,
+  readAuraSnapshot, snapshotGateSocket } from './aura/snapshot-reader.ts'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -182,7 +184,7 @@ export async function readAuraEvidence(releaseRoot: string): Promise<object> {
 }
 
 /** Register the projection, the settings namespace, and the evidence route. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: { gateSocket?: unknown } = {}): void {
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(auraCoherenceProjectionDefinition)
   })
@@ -197,6 +199,13 @@ export function apply(ctx: Context): void {
   ctx.inject(['webServer', 'connection'], (webCtx) => {
     const releaseRoot = resolve(HERE, '..', '..', '..')
     const gate = (): RouteGate => Reflect.get(webCtx, 'connection') as RouteGate
+    const socket = snapshotGateSocket(config)
+    const readSnapshot = createAuraSnapshotReader(() => readAuraSnapshot(releaseRoot, socket))
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: AURA_SNAPSHOT_ENDPOINT,
+      handler: auraSnapshotHandler(gate, readSnapshot),
+    }), 'ui-settings-general: aura snapshot route')
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
       path: AURA_EVIDENCE_ENDPOINT,
