@@ -1,0 +1,2501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-Cx8PqJVlgNHz+d2N0kRZPuJ6iJ4vrXjaFMkzTkTK6ZU=' 'sha256-3Zh7tL82Mmd3MiaecKrta5SxrcvqTdXhg3CGq5IN9eo=' 'sha256-gwGz5Eh5Gb2Nb8JR+wPvPyBXrZptvDCaXBRQIp6Zd20='; style-src 'sha256-oOXabCvEJvlquHFiCAwMbluLFQbDlRA2D4A0GgjDhbc='; img-src data: blob:; media-src blob: mediastream:; connect-src 'self' wss://relay.damus.io wss://nos.lol wss://relay.primal.net; worker-src blob:; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#05060a">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<title>Pentora</title>
+<style>
+html,body{margin:0;height:100%;background:#05060a;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+#dot{position:fixed;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:3px;height:3px;border-radius:50%;background:#334155;transition:background .25s;pointer-events:none}
+#dot.search{background:#f59e0b}
+#dot.locked{background:#38bdf8}
+#dot.bloom{background:#10b981}
+#say{position:fixed;left:0;right:0;bottom:calc(11% + env(safe-area-inset-bottom));padding:0 20px;text-align:center;pointer-events:none;opacity:0;transition:opacity .9s ease}
+#say.on{opacity:1}
+#say.dim{opacity:.6}
+#code{font:600 clamp(26px,7vw,42px)/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.14em;color:#38bdf8}
+#line{margin-top:.7em;font:400 clamp(12px,3.2vw,15px)/1.4 -apple-system,system-ui,sans-serif;color:#8b93a7;letter-spacing:.02em}
+#ask{position:fixed;left:0;right:0;top:calc(26px + env(safe-area-inset-top));padding:0 28px;text-align:center;pointer-events:none;font:400 13px/1.45 -apple-system,system-ui,sans-serif;letter-spacing:.02em;color:#9aa2b6;opacity:0;transition:opacity .6s}
+#ask.on{opacity:1}
+#hint{position:fixed;left:0;right:0;bottom:calc(52px + env(safe-area-inset-bottom));text-align:center;pointer-events:none;font:400 12px/1.4 -apple-system,system-ui,sans-serif;letter-spacing:.04em;color:#5b6377;opacity:0;transition:opacity .6s}
+#hint.on{opacity:1}
+#consent{position:fixed;left:0;right:0;top:calc(18px + env(safe-area-inset-top));margin:0 auto;width:min(86vw,420px);box-sizing:border-box;padding:16px 18px 12px;border-radius:14px;background:rgba(8,10,18,.94);border:1px solid #27304a;color:#e7e5ee;font:400 14px/1.45 -apple-system,system-ui,sans-serif;z-index:5}
+#consent .k{font:600 10px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#6b7387}
+#consent .t{margin:8px 0 6px;max-height:34vh;overflow:auto;font-size:16px;line-height:1.4;overflow-wrap:anywhere;white-space:pre-wrap}
+#consent .t .x{font:400 10px/1.3 ui-monospace,Menlo,monospace;color:#7d869c;word-break:break-all}
+#consent .w{color:#6b7387;font-size:11px;overflow-wrap:anywhere}
+#consent .b{display:flex;justify-content:space-between;margin-top:8px}
+#consent button{all:unset;cursor:pointer;padding:12px 4px;font:600 15px/1 -apple-system,system-ui,sans-serif;color:#38bdf8}
+#consent button.no{color:#8a91a5;font-weight:400}
+#consent button:focus-visible{outline:1px solid #38bdf8;outline-offset:3px}
+#strip{position:fixed;left:0;right:0;bottom:calc(4px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:2px;opacity:.6}
+#strip button{all:unset;display:block;padding:7px;cursor:pointer}
+#strip canvas{display:block;width:26px;height:26px}
+#sheet{position:fixed;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;background:rgba(3,4,8,.9);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);color:#c4cada;font:14px/1.5 -apple-system,system-ui,sans-serif;-webkit-user-select:text;user-select:text}
+#sheet .in{box-sizing:border-box;max-width:34rem;margin:0 auto;padding:calc(30px + env(safe-area-inset-top)) 22px calc(48px + env(safe-area-inset-bottom))}
+#sheet .big{font:600 30px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.14em;color:#38bdf8;margin-bottom:18px}
+#sheet h2{margin:26px 0 8px;font:600 11px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#6b7387}
+#sheet .row{display:flex;gap:14px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+#sheet .k{flex:0 0 7.5rem;color:#6b7387}
+#sheet .v{flex:1;min-width:0;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+#sheet .good{color:#34d399}
+#sheet .warn{color:#fbbf24}
+#sheet .note{margin:8px 0;color:#9aa2b6}
+#sheet .dnp{margin:6px 0 10px;padding-left:1.4em;color:#dfe3ee}
+#sheet .dnp li{margin:3px 0}
+#sheet .opts{display:grid;gap:4px;margin:10px 0}
+#sheet .opt{display:flex;gap:10px;align-items:center;padding:8px 0;cursor:pointer}
+#sheet .opt input{accent-color:#38bdf8;margin:0}
+#sheet .acts{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:26px}
+#sheet .act{all:unset;cursor:pointer;padding:8px 0;color:#38bdf8;font:500 14px/1 -apple-system,system-ui,sans-serif}
+#sheet .act:disabled{opacity:.4;cursor:default}
+#sheet .act:focus-visible,#strip button:focus-visible{outline:1px solid #38bdf8;outline-offset:3px}
+#sheet .status{margin-top:14px}
+</style>
+<script id="portal-guard">
+/* portal-guard: network is denied by default. It opens only for one publish, armed by a real tap. */
+(function () {
+  'use strict';
+  const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+  const NativeWS = window.WebSocket;
+  const VENDOR = 'vendor/jsQR.min.js';
+  const VENDOR_SRI = 'sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o';
+  const denied = [];
+  let armed = false, armTimer = 0, vendorUsed = false;
+  function deny(kind, target) {
+    denied.push({ kind: kind, target: String(target || '').slice(0, 96), t: Math.round(performance.now()) });
+    console.warn('[PORTAL_NET] DENIED ' + kind);
+    return new Error('NETWORK_DISARMED');
+  }
+  function disarm() { armed = false; clearTimeout(armTimer); }
+  const trustedGet = (Object.getOwnPropertyDescriptor(new Event('x'), 'isTrusted') || {}).get;
+  const typeOf = Object.getOwnPropertyDescriptor(Event.prototype, 'type').get;
+  const trustedOf = trustedGet
+    ? function (ev) { return trustedGet.call(ev); }
+    : function (ev) { return ev instanceof Event && ev.isTrusted === true && !!navigator.userActivation && navigator.userActivation.isActive === true; };
+  window.fetch = function (u) { return Promise.reject(deny('fetch', u)); };
+  window.XMLHttpRequest = function () { throw deny('xhr'); };
+  window.WebSocket = function (u) { throw deny('websocket', u); };
+  window.EventSource = function (u) { throw deny('eventsource', u); };
+  window.RTCPeerConnection = window.webkitRTCPeerConnection = function () { throw deny('webrtc'); };
+  try { navigator.sendBeacon = function (u) { deny('beacon', u); return false; }; } catch (e) { /* read-only in some engines; CSP still applies */ }
+  window.PortalNet = Object.freeze({
+    // The one pre-ceremony load: the pinned decoder source for the worker, integrity-checked by the browser.
+    vendorText: function () {
+      if (vendorUsed || !nativeFetch) return Promise.reject(deny('vendor-refetch', VENDOR));
+      vendorUsed = true;
+      return nativeFetch(VENDOR, { integrity: VENDOR_SRI, credentials: 'omit' }).then(function (r) {
+        if (!r.ok) throw new Error('VENDOR_LOAD');
+        return r.text();
+      });
+    },
+    arm: function (ev) {
+      // isTrusted is read through the engine's own getter, so a look-alike object cannot pass.
+      let ok = false;
+      try { ok = trustedOf(ev) === true && typeOf.call(ev) === 'click'; } catch (e) { ok = false; }
+      if (!ok) { deny('arm-untrusted'); return false; }
+      armed = true;
+      clearTimeout(armTimer);
+      armTimer = setTimeout(disarm, 12000);
+      return true;
+    },
+    openSocket: function (url) {
+      if (!armed || !/^wss:\/\//.test(url)) throw deny('websocket', url);
+      return new NativeWS(url);
+    },
+    disarm: disarm,
+    isArmed: function () { return armed; },
+    denied: function () { return denied.slice(); },
+  });
+})();
+</script>
+<script src="vendor/qrcode.min.js" integrity="sha384-lQXOAyZwHXE55JFyrOMB7nY2Wv+m5ZWNtJcHrd1rceRQXAYNLak8ukN5TjBTcIwz"></script>
+<script src="vendor/jsQR.min.js" integrity="sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o"></script>
+<script id="portal-core">
+/* portal-core: pure logic. No DOM, no network. The Node gates evaluate these exact bytes. */
+(function () {
+  'use strict';
+  const VERSION = 'portal-v1.5.0';
+  const G = globalThis;
+  const subtle = G.crypto.subtle;
+  const te = new TextEncoder();
+
+  // ---------------------------------------------------------------- bytes
+  function hexToBytes(hex) {
+    if (typeof hex !== 'string' || hex.length % 2 || /[^0-9a-fA-F]/.test(hex)) throw new Error('bad hex');
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return out;
+  }
+  function bytesToHex(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i++) s += (u8[i] < 16 ? '0' : '') + u8[i].toString(16);
+    return s;
+  }
+  const utf8 = (s) => te.encode(s);
+  function concat() {
+    let n = 0;
+    for (let i = 0; i < arguments.length; i++) n += arguments[i].length;
+    const out = new Uint8Array(n);
+    let o = 0;
+    for (let i = 0; i < arguments.length; i++) { out.set(arguments[i], o); o += arguments[i].length; }
+    return out;
+  }
+  async function sha256(u8) { return new Uint8Array(await subtle.digest('SHA-256', u8)); }
+  // label || 0x00 || bytes — the same domain-separation rule as the frozen core C.
+  function hashDomain(label, bytes) { return sha256(concat(utf8(label), new Uint8Array([0]), bytes)); }
+
+  const isInt = (n) => typeof n === 'number' && Number.isSafeInteger(n);
+  const isHex = (s, len) => typeof s === 'string' && s.length === len && /^[0-9a-f]+$/.test(s);
+  const isPk = (s) => isHex(s, 130) && s.startsWith('04');
+  const isNonce = (s) => isHex(s, 16);
+
+  // Sorted keys, no whitespace, ASCII-only output: byte-identical to sim.py canonical_json.
+  function canonicalJson(v) {
+    if (v === null || typeof v !== 'object') {
+      const s = JSON.stringify(v);
+      return typeof v === 'string'
+        ? s.replace(/[\u007f-\uffff]/g, (c) => '\\u' + ('000' + c.charCodeAt(0).toString(16)).slice(-4))
+        : s;
+    }
+    if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
+    return '{' + Object.keys(v).sort().map((k) => canonicalJson(k) + ':' + canonicalJson(v[k])).join(',') + '}';
+  }
+
+  // RFC 9285 Base45: exactly the QR alphanumeric charset, so both decoders return it intact.
+  const B45 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+  function b45encode(u8) {
+    let s = '';
+    let i = 0;
+    for (; i + 1 < u8.length; i += 2) {
+      let x = u8[i] * 256 + u8[i + 1];
+      const c = x % 45; x = (x - c) / 45;
+      const d = x % 45;
+      s += B45[c] + B45[d] + B45[(x - d) / 45];
+    }
+    if (i < u8.length) { const x = u8[i]; s += B45[x % 45] + B45[(x - (x % 45)) / 45]; }
+    return s;
+  }
+  function b45decode(str) {
+    if (typeof str !== 'string' || str.length % 3 === 1) throw new Error('bad base45');
+    const out = new Uint8Array(Math.floor(str.length / 3) * 2 + (str.length % 3 === 2 ? 1 : 0));
+    let o = 0;
+    for (let i = 0; i < str.length; i += 3) {
+      const c = B45.indexOf(str[i]), d = B45.indexOf(str[i + 1]);
+      if (c < 0 || d < 0) throw new Error('bad base45');
+      if (i + 2 < str.length) {
+        const e = B45.indexOf(str[i + 2]);
+        if (e < 0) throw new Error('bad base45');
+        const x = c + d * 45 + e * 2025;
+        if (x > 65535) throw new Error('bad base45');
+        out[o++] = x >> 8; out[o++] = x & 255;
+      } else {
+        const x = c + d * 45;
+        if (x > 255) throw new Error('bad base45');
+        out[o++] = x;
+      }
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------- keys and signatures
+  const ECDSA = { name: 'ECDSA', namedCurve: 'P-256' };
+  const SIGN = { name: 'ECDSA', hash: 'SHA-256' };
+
+  async function generateKeyPair() {
+    const kp = await subtle.generateKey(ECDSA, false, ['sign', 'verify']); // private key non-extractable
+    const raw = new Uint8Array(await subtle.exportKey('raw', kp.publicKey));
+    return { privateKey: kp.privateKey, publicKey: kp.publicKey, pk: bytesToHex(raw) };
+  }
+  async function signBytes(privateKey, u8) {
+    return bytesToHex(new Uint8Array(await subtle.sign(SIGN, privateKey, u8))); // raw IEEE P1363 r||s
+  }
+  const keyCache = new Map();
+  async function importPk(pk) {
+    let k = keyCache.get(pk);
+    if (!k) {
+      k = await subtle.importKey('raw', hexToBytes(pk), ECDSA, true, ['verify']);
+      if (keyCache.size > 64) keyCache.clear();
+      keyCache.set(pk, k);
+    }
+    return k;
+  }
+  async function verifyBytes(pk, u8, sigHex) {
+    try {
+      if (!isPk(pk) || !isHex(sigHex, 128)) return false;
+      return await subtle.verify(SIGN, await importPk(pk), hexToBytes(sigHex), u8);
+    } catch (e) { return false; }
+  }
+
+  // P-256 point compression keeps every frame one or two QR versions smaller.
+  const P256_P = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
+  const P256_B = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn;
+  function modpow(b, e, m) {
+    let r = 1n; b %= m;
+    while (e > 0n) { if (e & 1n) r = (r * b) % m; b = (b * b) % m; e >>= 1n; }
+    return r;
+  }
+  function compressPk(pk) {
+    if (!isPk(pk)) throw new Error('bad pk');
+    const b = hexToBytes(pk), out = new Uint8Array(33);
+    out[0] = 2 + (b[64] & 1);
+    out.set(b.subarray(1, 33), 1);
+    return out;
+  }
+  const pkCache = new Map();
+  function decompressPk(c) {
+    if (!c || c.length !== 33 || (c[0] !== 2 && c[0] !== 3)) throw new Error('bad compressed pk');
+    const key = bytesToHex(c);
+    const hit = pkCache.get(key);
+    if (hit) return hit;
+    const x = BigInt('0x' + key.slice(2));
+    if (x >= P256_P) throw new Error('bad compressed pk');
+    const rhs = (((x * x) % P256_P) * x + P256_P * 3n - 3n * x + P256_B) % P256_P;
+    let y = modpow(rhs, (P256_P + 1n) / 4n, P256_P);
+    if ((y * y) % P256_P !== rhs) throw new Error('not on curve');
+    if (Number(y & 1n) !== (c[0] & 1)) y = P256_P - y;
+    const pk = '04' + key.slice(2) + ('0'.repeat(64) + y.toString(16)).slice(-64);
+    if (pkCache.size > 64) pkCache.clear();
+    pkCache.set(key, pk);
+    return pk;
+  }
+
+  // C = SHA-256("copresence.v0" || 0x00 || pk_A || pk_B || nonce_A || nonce_B || BE64(t_B))  — frozen.
+  function be64(n) {
+    const out = new Uint8Array(8);
+    let v = BigInt(n);
+    for (let i = 7; i >= 0; i--) { out[i] = Number(v & 255n); v >>= 8n; }
+    return out;
+  }
+  function computeCore(pkA, pkB, nonceA, nonceB, tB) {
+    return hashDomain('copresence.v0', concat(hexToBytes(pkA), hexToBytes(pkB), hexToBytes(nonceA), hexToBytes(nonceB), be64(tB)));
+  }
+
+  // ---------------------------------------------------------------- frame wire codec
+  // The signed object F is exactly the frozen JSON frame. Only its transport is compact:
+  // fixed binary layout -> Base45 -> QR alphanumeric mode. The receiver rebuilds F and checks
+  // sig_F over canonicalJson(F), so nothing about what is signed changes.
+  const TYPES = ['FACE', 'SEENYOU', 'HANDSHAKE', 'BLOOM'];
+  const BODY_LEN = [114, 130, 202, 170];
+  function u32(v) { return new Uint8Array([(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]); }
+  function rdU32(a, o) { return ((a[o] << 24) | (a[o + 1] << 16) | (a[o + 2] << 8) | a[o + 3]) >>> 0; }
+  const pkPrefix = (pk) => hexToBytes(pk).subarray(1, 9);
+
+  function quantGeo(g) {
+    if (!g || typeof g !== 'object') return null;
+    const lat = Number(g.lat), lon = Number(g.lon), acc = Number(g.acc);
+    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    const a = isFinite(acc) ? Math.min(65535, Math.max(0, Math.floor(acc * 10 + 1e-9))) : 0; // floored: 0.95 m must not round up past the 1.0 m spoof rule
+    return { lat: Math.round(lat * 1e6) / 1e6, lon: Math.round(lon * 1e6) / 1e6, acc: a / 10 };
+  }
+  function geoBytes(g) {
+    const la = Math.round(g.lat * 1e6), lo = Math.round(g.lon * 1e6), ac = Math.round(g.acc * 10);
+    return concat(u32(la >>> 0), u32(lo >>> 0), new Uint8Array([(ac >> 8) & 255, ac & 255]));
+  }
+
+  // Senses ride in the signed frame as three optional fields: cap (bit 0 emits sound, bit 1 hears sound,
+  // bit 2 has a motion sensor), snd (the 4-byte code this device last heard) and mov (4 quarter-second motion bits).
+  // An approval adds two more: ask (one piece of the text an asking page wants approved: 4 bytes of the text's
+  // digest, piece index, piece count, up to 64 bytes of UTF-8) and ack (the approver's signature over that text).
+  const ASK_CHUNK = 64, ASK_MAX_CHUNKS = 16;
+  const validAsk = (s) => typeof s === 'string' && /^[0-9a-f]+$/.test(s) && s.length % 2 === 0 && s.length >= 14 && s.length <= 12 + 2 * ASK_CHUNK
+    && parseInt(s.slice(10, 12), 16) >= 1 && parseInt(s.slice(10, 12), 16) <= ASK_MAX_CHUNKS && parseInt(s.slice(8, 10), 16) < parseInt(s.slice(10, 12), 16);
+  const validSense = (f) => (f.cap === undefined || (isInt(f.cap) && f.cap >= 0 && f.cap <= 7))
+    && (f.snd === undefined || isHex(f.snd, 8)) && (f.mov === undefined || (isInt(f.mov) && f.mov >= 0 && f.mov <= 15))
+    && (f.ask === undefined || validAsk(f.ask)) && (f.ack === undefined || isHex(f.ack, 128))
+    && (f.cap !== undefined || (f.snd === undefined && f.mov === undefined && f.ask === undefined && f.ack === undefined));
+  function extBytes(f) {
+    if (f.cap === undefined) return null;
+    if (!validSense(f)) throw new Error('bad frame');
+    const out = [(f.cap << 4) | (f.snd !== undefined ? 1 : 0) | (f.mov !== undefined ? 2 : 0) | (f.ask !== undefined ? 4 : 0) | (f.ack !== undefined ? 8 : 0)];
+    if (f.snd !== undefined) for (const b of hexToBytes(f.snd)) out.push(b);
+    if (f.mov !== undefined) out.push(f.mov);
+    if (f.ask !== undefined) { out.push(f.ask.length / 2 - 6); for (const b of hexToBytes(f.ask)) out.push(b); }
+    if (f.ack !== undefined) for (const b of hexToBytes(f.ack)) out.push(b);
+    return new Uint8Array(out);
+  }
+
+  function encodeFrame(packet) {
+    const f = packet.F, type = TYPES.indexOf(f.type);
+    if (type < 0 || f.v !== 1) throw new Error('bad frame');
+    const g = type !== 3 && f.geo ? f.geo : null;
+    const x = extBytes(f);
+    const parts = [new Uint8Array([0x10 | type | (g ? 8 : 0) | (x ? 4 : 0)])];
+    if (type === 0) parts.push(compressPk(f.pk), hexToBytes(f.nonce));
+    else if (type === 1) parts.push(compressPk(f.my_pk), pkPrefix(f.target_pk), hexToBytes(f.my_nonce), hexToBytes(f.peer_nonce));
+    else if (type === 2) parts.push(pkPrefix(f.pk_A), compressPk(f.pk_B), hexToBytes(f.nonce_A), hexToBytes(f.nonce_B), u32(f.t_A), u32(f.t_B), hexToBytes(f.sig_B));
+    else parts.push(compressPk(f.pk), hexToBytes(f.sig_A));
+    if (!isInt(f.i) || f.i < 0 || f.i > 0xffffffff || !isInt(f.t) || f.t < 0 || f.t > 0xffffffff) throw new Error('bad frame');
+    parts.push(u32(f.t), u32(f.i));
+    if (g) parts.push(geoBytes(g));
+    if (x) parts.push(x);
+    parts.push(hexToBytes(packet.sig_F));
+    const bytes = concat.apply(null, parts);
+    if (bytes.length !== BODY_LEN[type] + (g ? 10 : 0) + (x ? x.length : 0)) throw new Error('bad frame');
+    return b45encode(bytes);
+  }
+
+  function decodeFrame(text, self) {
+    const bad = (code) => ({ ok: false, code: code });
+    try {
+      const a = b45decode(text);
+      if (a.length < 1 || (a[0] & 0xf0) !== 0x10) return bad('MALFORMED');
+      const type = a[0] & 3, hasGeo = !!(a[0] & 8), hasExt = !!(a[0] & 4);
+      if ((hasGeo && type === 3) || a.length < BODY_LEN[type] + (hasGeo ? 10 : 0) + (hasExt ? 1 : 0)) return bad('MALFORMED');
+      let o = 1;
+      const take = (n) => { const s = a.subarray(o, o + n); o += n; return s; };
+      const mine = self && isPk(self.pk) ? self.pk : null;
+      const addressed = (prefix) => !!mine && bytesToHex(pkPrefix(mine)) === bytesToHex(prefix);
+      const F = { v: 1, type: TYPES[type] };
+      if (type === 0) {
+        F.pk = decompressPk(take(33)); F.nonce = bytesToHex(take(8));
+      } else if (type === 1) {
+        F.my_pk = decompressPk(take(33));
+        if (!addressed(take(8))) return bad('NOT_ADDRESSED');
+        F.target_pk = mine; F.my_nonce = bytesToHex(take(8)); F.peer_nonce = bytesToHex(take(8));
+      } else if (type === 2) {
+        if (!addressed(take(8))) return bad('NOT_ADDRESSED');
+        F.pk_A = mine; F.pk_B = decompressPk(take(33));
+        F.nonce_A = bytesToHex(take(8)); F.nonce_B = bytesToHex(take(8));
+        F.t_A = rdU32(a, o); o += 4; F.t_B = rdU32(a, o); o += 4;
+        F.sig_B = bytesToHex(take(64));
+      } else {
+        F.pk = decompressPk(take(33)); F.sig_A = bytesToHex(take(64));
+      }
+      F.t = rdU32(a, o); o += 4;
+      F.i = rdU32(a, o); o += 4;
+      if (hasGeo) {
+        const la = rdU32(a, o) | 0, lo = rdU32(a, o + 4) | 0, ac = (a[o + 8] << 8) | a[o + 9]; o += 10;
+        if (Math.abs(la) > 90e6 || Math.abs(lo) > 180e6) return bad('MALFORMED');
+        F.geo = { lat: la / 1e6, lon: lo / 1e6, acc: ac / 10 };
+      }
+      if (hasExt) {
+        const fl = a[o++];
+        if (fl & 0x80) return bad('MALFORMED');
+        F.cap = (fl >> 4) & 7;
+        if (fl & 1) F.snd = bytesToHex(take(4));
+        if (fl & 2) { F.mov = a[o++]; if (F.mov > 15) return bad('MALFORMED'); }
+        if (fl & 4) { const n = a[o++]; if (!(n >= 1 && n <= ASK_CHUNK)) return bad('MALFORMED'); F.ask = bytesToHex(take(6 + n)); if (!validAsk(F.ask) || F.ask.length !== 12 + 2 * n) return bad('MALFORMED'); }
+        if (fl & 8) { F.ack = bytesToHex(take(64)); if (F.ack.length !== 128) return bad('MALFORMED'); }
+      }
+      if (o + 64 !== a.length) return bad('MALFORMED');
+      return { ok: true, packet: { F: F, sig_F: bytesToHex(take(64)) } };
+    } catch (e) { return bad('MALFORMED'); }
+  }
+
+  // ---------------------------------------------------------------- honesty constants
+  const DOES_NOT_PROVE_LEAD = 'A valid receipt R proves only that whoever controlled each ephemeral key completed the optical exchange within the time window. It does NOT prove:';
+  const DOES_NOT_PROVE = [
+    'That two different humans were present;',
+    'That any human was present;',
+    'That the devices belong to anyone in particular;',
+    'That the pairing was not relayed by a determined attacker with a fast video link;',
+    'Anything about location beyond line-of-sight between screen and camera;',
+    'Anything after the moment of the ceremony.',
+  ];
+  const SIGNED_FIELDS = ['pk_A', 'pk_B', 'nonce_A', 'nonce_B', 't_B'];
+
+  // ---------------------------------------------------------------- sentinel
+  // Frozen vocabulary and thresholds (runtime/spacetime_sentinel.py). Self-reported inputs only
+  // ever earn CONSISTENT_CLAIMED; there is no confidence number, by design.
+  function haversineM(a, b) {
+    const R = 6371000, rad = (x) => (x * Math.PI) / 180;
+    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  }
+  function sentinel(x) {
+    const anomalies = [];
+    const gA = x.geo_A || null, gB = x.geo_B || null;
+    const spoofed = [gA, gB].filter((g) => g && !(g.acc >= 1.0));
+    if (spoofed.length) anomalies.push('SPOOFED_ACCURACY: accuracy below 1.0 m claimed; zero or sub-meter accuracy from browser positioning indicates synthesis.');
+    let distance = null;
+    if (gA && gB) {
+      distance = haversineM(gA, gB);
+      const allowed = (gA.acc || 0) + (gB.acc || 0) + 50;
+      if (distance > allowed) anomalies.push('DISTANCE_CONTRADICTION: claimed positions are ' + Math.round(distance) + ' m apart (max allowed ' + Math.round(allowed) + ' m).');
+    }
+    if (typeof x.optical_latency_ms === 'number') {
+      if (x.optical_latency_ms > 380) anomalies.push('OPTICAL_LATENCY_RELAY: optical transit latency ' + Math.round(x.optical_latency_ms) + ' ms matches video-relay characteristics (threshold 380 ms).');
+      else if (x.optical_latency_ms < 25) anomalies.push('OPTICAL_LATENCY_IMPOSSIBLE: optical transit latency ' + Math.round(x.optical_latency_ms) + ' ms is too fast for a physical camera scan.');
+    }
+    const dt = x.t_B - x.t_A;
+    if (dt < 0) anomalies.push('NEGATIVE_TIME_SKEW: t_B is earlier than t_A.');
+    else if (dt > 7.5) anomalies.push('CEREMONY_WINDOW: ceremony took ' + dt + ' s (expected at most 7.5 s).');
+    if (x.clock && x.clock.skew_s > 2) anomalies.push('CLOCK_SKEW: the peer frame time and this device clock differ by ' + x.clock.skew_s + ' s.');
+    let acoustic = 'NOT_PERFORMED';
+    const au = x.audio;
+    if (au) {
+      if (au.matched === false) { anomalies.push('ACOUSTIC_NONCE_MISMATCH: microphone did not decode the expected chirp.'); acoustic = 'SUSPICIOUS'; }
+      if (typeof au.delay_ms === 'number') {
+        if (au.delay_ms > 150) { anomalies.push('SUSPICIOUS_ACOUSTIC_RELAY_DELAY: acoustic delay ' + au.delay_ms + ' ms exceeds 150 ms.'); acoustic = 'SUSPICIOUS'; }
+        else if (au.delay_ms < 5) { anomalies.push('SUSPICIOUS_ACOUSTIC_DELAY_IMPOSSIBLE: acoustic delay ' + au.delay_ms + ' ms is below 5 ms.'); acoustic = 'SUSPICIOUS'; }
+        else if (au.matched === true) acoustic = 'VERIFIED_LOCAL';
+      } else if (au.matched === true) {
+        acoustic = 'HEARD_UNTIMED'; // heard, not timed: weaker than VERIFIED_LOCAL and says nothing about relay
+      }
+    }
+    return {
+      verdict: anomalies.length ? 'SUSPICIOUS' : 'CONSISTENT_CLAIMED',
+      anomalies: anomalies,
+      acoustic_channel: acoustic,
+      position_source: 'SELF_REPORTED_UNVERIFIABLE',
+      distance_m: distance === null ? null : Math.round(distance * 10) / 10,
+    };
+  }
+
+  function finalizeReceipt(receipt, extras) {
+    const x = extras || {};
+    const r = Object.assign({}, receipt);
+    if (x.audio) r.audio = x.audio;
+    if (typeof x.optical_latency_ms === 'number') r.claimed_optical_latency_ms = Math.round(x.optical_latency_ms);
+    if (x.senses) r.senses = x.senses;
+    if (x.sound_echo) r.sound_echo = x.sound_echo;
+    if (x.motion) r.motion = x.motion;
+    if (x.intent) r.intent = x.intent;
+    if (x.approved) r.approved = x.approved;
+    if (typeof x.peer_bloom_seen === 'boolean') r.peer_bloom_seen = x.peer_bloom_seen;
+    const s = sentinel({ geo_A: r.geo_A, geo_B: r.geo_B, t_A: r.t_A, t_B: r.t_B, optical_latency_ms: r.claimed_optical_latency_ms, audio: r.audio, clock: r.clocks });
+    r.sentinel_verdict = s.verdict;
+    r.position_source = s.position_source;
+    r.anomalies = s.anomalies;
+    // ECHO_CONFIRMED: the peer returned, in a signed frame, a random code this device only ever sent as sound.
+    r.acoustic_channel = (x.acoustic_channel === 'ECHO_CONFIRMED' && s.acoustic_channel === 'NOT_PERFORMED') ? 'ECHO_CONFIRMED' : s.acoustic_channel;
+    r.signed_fields = SIGNED_FIELDS.slice();
+    r.does_not_prove = DOES_NOT_PROVE.slice();
+    return r;
+  }
+
+  // ---------------------------------------------------------------- in-page verifier (port of verify.mjs)
+  async function verifyReceipt(r) {
+    const fail = (reason) => ({ valid: false, reason: reason });
+    try {
+      if (!r || typeof r !== 'object') return fail('json_parse_error: not an object');
+      if (r.v !== 0) return fail('unsupported_version: expected 0, got ' + r.v);
+      for (const k of ['v', 'pk_A', 'pk_B', 'nonce_A', 'nonce_B', 't_A', 't_B', 'sig_A', 'sig_B']) {
+        if (r[k] === undefined || r[k] === null) return fail('missing_field: ' + k);
+      }
+      if (typeof r.t_A !== 'number' || typeof r.t_B !== 'number') return fail('timestamps_must_be_numbers');
+      const dt = r.t_B - r.t_A;
+      if (dt < 0) return fail('negative_time_skew: t_B (' + r.t_B + ') < t_A (' + r.t_A + ')');
+      if (dt > 10) return fail('ceremony_window_exceeded: t_B - t_A = ' + dt + 's > 10s');
+      const keys = {};
+      for (const side of ['A', 'B']) {
+        const hex = r['pk_' + side];
+        if (typeof hex !== 'string' || hex.length !== 130 || !hex.startsWith('04') || !/^[0-9a-fA-F]+$/.test(hex)) {
+          return fail('malformed_public_key_' + side + ': expected 65-byte uncompressed hex');
+        }
+        try { keys[side] = await subtle.importKey('raw', hexToBytes(hex), ECDSA, true, ['verify']); }
+        catch (e) { return fail('invalid_public_key_' + side + ': not a valid P-256 point'); }
+      }
+      for (const side of ['A', 'B']) {
+        const n = r['nonce_' + side];
+        if (typeof n !== 'string' || n.length !== 16 || !/^[0-9a-fA-F]+$/.test(n)) return fail('malformed_nonce_' + side + ': expected 16 hex chars');
+      }
+      if (!Number.isSafeInteger(r.t_B) || r.t_B < 0) return fail('timestamps_must_be_integers');
+      const C = await computeCore(r.pk_A, r.pk_B, r.nonce_A, r.nonce_B, r.t_B);
+      for (const side of ['A', 'B']) {
+        const s = r['sig_' + side];
+        if (typeof s !== 'string' || s.length !== 128 || !/^[0-9a-fA-F]+$/.test(s)) return fail('malformed_signature_' + side + ': expected 64-byte raw hex (128 chars)');
+      }
+      for (const side of ['A', 'B']) {
+        let ok = false;
+        try { ok = await subtle.verify(SIGN, keys[side], hexToBytes(r['sig_' + side]), C); }
+        catch (e) { return fail('sig_' + side + '_verification_error: ' + e.message); }
+        if (!ok) return fail('sig_' + side + '_invalid');
+      }
+      if (r.geo_A && r.geo_B) {
+        const a = r.geo_A, b = r.geo_B;
+        const accA = a.acc === undefined ? 15 : a.acc, accB = b.acc === undefined ? 15 : b.acc;
+        if (typeof a.lat !== 'number' || typeof a.lon !== 'number' || typeof b.lat !== 'number' || typeof b.lon !== 'number') {
+          return fail('invalid_geo_coordinates: lat/lon must be numbers');
+        }
+        if (accA <= 0 || accB <= 0 || accA < 1.0 || accB < 1.0) {
+          return fail('suspicious_spoofed_accuracy: acc_A=' + accA + 'm, acc_B=' + accB + 'm; sub-meter perfection indicates client position synthesis');
+        }
+        const dist = haversineM(a, b), max = accA + accB + 50;
+        const claimed = r.sentinel_verdict === 'CONSISTENT_CLAIMED' || r.sentinel_verdict === 'GENUINE_LOCAL_PROXIMITY';
+        if (claimed && dist > max) return fail('suspicious_spacetime_contradiction: claimed ' + r.sentinel_verdict + ' but distance is ' + Math.round(dist) + 'm > ' + Math.round(max) + 'm');
+      }
+      if (r.audio) {
+        const au = r.audio;
+        if (au.nonce !== undefined && (typeof au.nonce !== 'string' || au.nonce.length !== 32 || !/^[0-9a-fA-F]+$/.test(au.nonce))) {
+          return fail('malformed_audio_nonce: expected 16-byte hex (32 chars)');
+        }
+        if (au.matched !== undefined && typeof au.matched !== 'boolean') return fail('invalid_audio_matched: must be boolean');
+        if (au.matched === false) return fail('suspicious_audio_nonce_mismatch: receiver failed to decode acoustic nonce');
+        if (au.delay_ms !== undefined) {
+          if (typeof au.delay_ms !== 'number') return fail('invalid_audio_delay: must be number');
+          if (au.delay_ms < 5.0) return fail('suspicious_audio_delay_impossible: ' + au.delay_ms + 'ms < 5ms lower physical buffer floor');
+          if (au.delay_ms > 150.0) return fail('suspicious_audio_relay_detected: acoustic transit delay ' + au.delay_ms + 'ms > 150ms indicates remote audio relay link');
+        }
+      }
+      return { valid: true, reason: 'valid' };
+    } catch (e) { return fail('verifier_error: ' + (e && e.message)); }
+  }
+
+  // ---------------------------------------------------------------- pentora (display only; carries no security claim)
+  // Normative pentora.display.v1 expansion (aukora-identity spec/pentora-v1): 110 base-3 digits of
+  // SHA-256("pentora.display.v1" || 0x00 || head), low digit first. The head here is the signed core C
+  // (shared bloom) or SHA-256("copresence.face.v0" || 0x00 || pk) (a device's own face).
+  const PENTORA_POINTS=[-0.93417,0,-0.35682,-0.93417,0,0.35682,-0.75576,-0.28868,-0.11026,-0.75576,-0.28868,0.11026,-0.75576,0.28868,-0.11026,-0.75576,0.28868,0.11026,-0.6455,-0.46709,-0.17841,-0.6455,-0.46709,0.17841,-0.6455,0.46709,-0.17841,-0.6455,0.46709,0.17841,-0.57735,-0.57735,-0.57735,-0.57735,-0.57735,0,-0.57735,-0.57735,0.57735,-0.57735,0,-0.57735,-0.57735,0,0,-0.57735,0,0.57735,-0.57735,0.57735,-0.57735,-0.57735,0.57735,0,-0.57735,0.57735,0.57735,-0.46709,-0.17841,-0.6455,-0.46709,-0.17841,-0.28868,-0.46709,-0.17841,0.28868,-0.46709,-0.17841,0.6455,-0.46709,0.17841,-0.6455,-0.46709,0.17841,-0.28868,-0.46709,0.17841,0.28868,-0.46709,0.17841,0.6455,-0.35682,-0.93417,0,-0.35682,0.93417,0,-0.28868,-0.46709,-0.17841,-0.28868,-0.46709,0.17841,-0.28868,-0.11026,-0.75576,-0.28868,-0.11026,0.75576,-0.28868,0.11026,-0.75576,-0.28868,0.11026,0.75576,-0.28868,0.46709,-0.17841,-0.28868,0.46709,0.17841,-0.17841,-0.6455,-0.46709,-0.17841,-0.6455,0.46709,-0.17841,-0.28868,-0.46709,-0.17841,-0.28868,0.46709,-0.17841,0.28868,-0.46709,-0.17841,0.28868,0.46709,-0.17841,0.6455,-0.46709,-0.17841,0.6455,0.46709,-0.11026,-0.75576,-0.28868,-0.11026,-0.75576,0.28868,-0.11026,0.75576,-0.28868,-0.11026,0.75576,0.28868,0,-0.57735,-0.57735,0,-0.57735,0,0,-0.57735,0.57735,0,-0.35682,-0.93417,0,-0.35682,0.93417,0,0,-0.57735,0,0,0,0,0,0.57735,0,0.35682,-0.93417,0,0.35682,0.93417,0,0.57735,-0.57735,0,0.57735,0,0,0.57735,0.57735,0.11026,-0.75576,-0.28868,0.11026,-0.75576,0.28868,0.11026,0.75576,-0.28868,0.11026,0.75576,0.28868,0.17841,-0.6455,-0.46709,0.17841,-0.6455,0.46709,0.17841,-0.28868,-0.46709,0.17841,-0.28868,0.46709,0.17841,0.28868,-0.46709,0.17841,0.28868,0.46709,0.17841,0.6455,-0.46709,0.17841,0.6455,0.46709,0.28868,-0.46709,-0.17841,0.28868,-0.46709,0.17841,0.28868,-0.11026,-0.75576,0.28868,-0.11026,0.75576,0.28868,0.11026,-0.75576,0.28868,0.11026,0.75576,0.28868,0.46709,-0.17841,0.28868,0.46709,0.17841,0.35682,-0.93417,0,0.35682,0.93417,0,0.46709,-0.17841,-0.6455,0.46709,-0.17841,-0.28868,0.46709,-0.17841,0.28868,0.46709,-0.17841,0.6455,0.46709,0.17841,-0.6455,0.46709,0.17841,-0.28868,0.46709,0.17841,0.28868,0.46709,0.17841,0.6455,0.57735,-0.57735,-0.57735,0.57735,-0.57735,0,0.57735,-0.57735,0.57735,0.57735,0,-0.57735,0.57735,0,0,0.57735,0,0.57735,0.57735,0.57735,-0.57735,0.57735,0.57735,0,0.57735,0.57735,0.57735,0.6455,-0.46709,-0.17841,0.6455,-0.46709,0.17841,0.6455,0.46709,-0.17841,0.6455,0.46709,0.17841,0.75576,-0.28868,-0.11026,0.75576,-0.28868,0.11026,0.75576,0.28868,-0.11026,0.75576,0.28868,0.11026,0.93417,0,-0.35682,0.93417,0,0.35682];
+  const PENTORA_EDGES=[10,12,10,16,10,92,12,18,12,94,16,18,16,98,18,100,92,94,92,98,94,100,98,100,10,57,1,10,10,82,53,100,100,109,28,100,1,53,53,82,57,109,28,57,82,109,1,28,12,58,0,12,12,82,52,98,98,110,28,98,0,52,52,82,58,110,28,58,0,28,82,110,16,52,1,16,16,83,58,94,94,109,27,94,52,109,27,52,1,58,58,83,83,109,1,27,18,53,0,18,18,83,57,92,92,110,27,92,53,110,27,53,0,57,57,83,0,27,83,110];
+  const PENTORA = (function () {
+    const points = [];
+    for (let i = 0; i < PENTORA_POINTS.length; i += 3) points.push([PENTORA_POINTS[i], PENTORA_POINTS[i + 1], PENTORA_POINTS[i + 2]]);
+    const edges = [];
+    for (let i = 0; i < PENTORA_EDGES.length; i += 2) edges.push([PENTORA_EDGES[i], PENTORA_EDGES[i + 1]]);
+    const mutable = [];
+    for (let i = 0; i < 111; i++) if (i !== 55) mutable.push(i);
+    return { centre: 55, points: points, edges: edges, mutable: mutable };
+  })();
+  function pentoraDigest(head32) {
+    if (!head32 || head32.length !== 32) throw new Error('head must be 32 bytes');
+    return hashDomain('pentora.display.v1', head32);
+  }
+  async function pentoraDigits(head32) {
+    let n = BigInt('0x' + bytesToHex(await pentoraDigest(head32)));
+    const out = new Uint8Array(110);
+    for (let i = 0; i < 110; i++) { out[i] = Number(n % 3n); n /= 3n; }
+    return out;
+  }
+  async function shortDigest(core32) { return bytesToHex((await pentoraDigest(core32)).subarray(0, 4)).toUpperCase(); }
+  function faceHead(pk) { return hashDomain('copresence.face.v0', hexToBytes(pk)); }
+
+  // ---------------------------------------------------------------- state machine (port of toy/sim.py SimulatedDevice)
+  const CEREMONY_TIMEOUT_S = 10;
+  const FRESH_S = 5;
+  function randomNonce() { return bytesToHex(G.crypto.getRandomValues(new Uint8Array(8))); }
+  // An approval bloom: the approving page's session nonce is a commitment to the thing being approved.
+  //   digest = SHA-256("copresence.intent.v1" || 0x00 || utf8(text))
+  //   nonce  = first 8 bytes of SHA-256("copresence.intent-nonce.v1" || 0x00 || digest || salt)
+  // Both keys sign the core, the core contains the nonce, so the receipt is tied to that one text.
+  async function intentDigest(text) { return bytesToHex(await hashDomain('copresence.intent.v1', utf8(String(text)))); }
+  async function intentNonce(digestHex, saltHex) {
+    return bytesToHex((await hashDomain('copresence.intent-nonce.v1', concat(hexToBytes(digestHex), hexToBytes(saltHex)))).subarray(0, 8));
+  }
+
+  // The approver's own signature over the words. The asking page sends its text in `ask` pieces; the approving
+  // device shows it and, after a deliberate tap, signs
+  //   SHA-256("copresence.intent-ack.v1" || 0x00 || digest || asker_pk || approver_nonce)
+  // and carries the signature in its frames as `ack`. The approver's nonce is inside the core both keys sign,
+  // so the signature belongs to one session with one asker.
+  function ackMessage(digestHex, askerPk, nonceHex) {
+    return hashDomain('copresence.intent-ack.v1', concat(hexToBytes(digestHex), hexToBytes(askerPk), hexToBytes(nonceHex)));
+  }
+  async function signAck(privateKey, digestHex, askerPk, nonceHex) { return signBytes(privateKey, await ackMessage(digestHex, askerPk, nonceHex)); }
+  async function verifyAck(approverPk, digestHex, askerPk, nonceHex, sigHex) {
+    try {
+      if (!isPk(approverPk) || !isPk(askerPk) || !isHex(digestHex, 64) || !isNonce(nonceHex) || !isHex(sigHex, 128)) return false;
+      return await verifyBytes(approverPk, await ackMessage(digestHex, askerPk, nonceHex), sigHex);
+    } catch (e) { return false; }
+  }
+  // The text as frame pieces, or null when it does not fit (ASK_MAX_CHUNKS pieces of ASK_CHUNK bytes).
+  function askChunks(text, digestHex) {
+    const b = utf8(String(text)), total = Math.ceil(b.length / ASK_CHUNK);
+    if (!b.length || total > ASK_MAX_CHUNKS || !isHex(digestHex, 64)) return null;
+    const out = [];
+    for (let i = 0; i < total; i++) out.push(digestHex.slice(0, 8) + bytesToHex(new Uint8Array([i, total])) + bytesToHex(b.subarray(i * ASK_CHUNK, (i + 1) * ASK_CHUNK)));
+    return out;
+  }
+  // Collects pieces; returns { text, digest } once every piece is in and the text hashes to the digest the pieces name.
+  function createAskReader() {
+    let key = '', parts = new Map();
+    return {
+      push: async function (askHex) {
+        if (!validAsk(askHex)) return null;
+        const k = askHex.slice(0, 8) + askHex.slice(10, 12), idx = parseInt(askHex.slice(8, 10), 16), total = parseInt(askHex.slice(10, 12), 16);
+        if (k !== key) { key = k; parts = new Map(); }
+        parts.set(idx, askHex.slice(12));
+        if (parts.size !== total) return null;
+        let hex = '';
+        for (let i = 0; i < total; i++) hex += parts.get(i);
+        parts = new Map(); key = '';
+        let text;
+        try { text = new TextDecoder('utf-8', { fatal: true }).decode(hexToBytes(hex)); } catch (e) { return null; }
+        // only text that reads the same as it hashes: no control characters, no edge whitespace
+        if (!text || text !== text.trim() || /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/.test(text)) return null;
+        const digest = await intentDigest(text);
+        return digest.slice(0, 8) === askHex.slice(0, 8) ? { text: text, digest: digest } : null;
+      },
+    };
+  }
+
+  function createDevice(opts) {
+    const privateKey = opts.privateKey;
+    const now = opts.now || (() => Math.floor(Date.now() / 1000));
+    const readGeo = () => quantGeo(opts.geo ? opts.geo() : null);
+    const emit = (code, detail) => { if (opts.onEvent) { try { opts.onEvent(code, detail); } catch (e) { /* observer only */ } } };
+
+    const freshNonce = () => {
+      try { const n = opts.nonce ? opts.nonce() : null; if (isNonce(n)) return n; } catch (e) { /* fall back to a random nonce */ }
+      return randomNonce();
+    };
+    const dev = {
+      pk: opts.pk, state: 'FACE', role: null, sessionNonce: freshNonce(),
+      targetPk: null, peerNonce: null, peerGeo: null, myGeo: null,
+      tA: null, tB: null, core: null, sigA: null, sigB: null,
+      receipt: null, lockedAt: null, clock: null, peerBloomSeen: false, i: 0,
+    };
+    let queue = Promise.resolve(), busy = 0, ackKey = '', ackSig = '';
+
+    dev.reset = function () {
+      dev.state = 'FACE'; dev.role = null; dev.sessionNonce = freshNonce();
+      dev.targetPk = null; dev.peerNonce = null; dev.peerGeo = null; dev.myGeo = null;
+      dev.tA = null; dev.tB = null; dev.core = null; dev.sigA = null; dev.sigB = null;
+      dev.receipt = null; dev.lockedAt = null; dev.clock = null; dev.peerBloomSeen = false; dev.i = 0;
+    };
+
+    // sim.py rotate_frame
+    dev.frame = async function () {
+      dev.i += 1;
+      const t = now(), st = dev.state;
+      let F;
+      if (st === 'FACE') {
+        F = { v: 1, type: 'FACE', pk: dev.pk, nonce: dev.sessionNonce, t: t, i: dev.i };
+      } else if (st === 'SEENYOU') {
+        F = { v: 1, type: 'SEENYOU', my_pk: dev.pk, target_pk: dev.targetPk, my_nonce: dev.sessionNonce, peer_nonce: dev.peerNonce, t: t, i: dev.i };
+      } else if (st === 'HANDSHAKE') {
+        F = { v: 1, type: 'HANDSHAKE', pk_A: dev.targetPk, pk_B: dev.pk, nonce_A: dev.peerNonce, nonce_B: dev.sessionNonce, t_A: dev.tA, t_B: dev.tB, sig_B: dev.sigB, t: t, i: dev.i };
+      } else {
+        F = { v: 1, type: 'BLOOM', pk: dev.pk, sig_A: dev.sigA, t: t, i: dev.i };
+      }
+      if (st !== 'BLOOM') {
+        const g = st === 'HANDSHAKE' ? dev.myGeo : readGeo();
+        if (g) F.geo = g;
+      }
+      const sn = opts.senses ? opts.senses() : null;
+      if (sn && isInt(sn.cap)) {
+        F.cap = sn.cap & 7;
+        if (isHex(sn.snd, 8)) F.snd = sn.snd;
+        if (isInt(sn.mov)) F.mov = sn.mov & 15;
+      }
+      // approval: an asking page cycles the pieces of its text while it waits; an approver carries its signature
+      const pieces = st === 'FACE' && opts.ask ? opts.ask() : null;
+      if (Array.isArray(pieces) && pieces.length && validAsk(pieces[dev.i % pieces.length])) F.ask = pieces[dev.i % pieces.length];
+      const ak = (st === 'FACE' || st === 'SEENYOU') && opts.ack ? opts.ack() : null;
+      if (ak && isHex(ak.digest, 64) && isPk(ak.asker) && ak.asker !== dev.pk) {
+        const k = ak.digest + ak.asker + dev.sessionNonce;
+        if (ackKey !== k) { ackSig = await signAck(privateKey, ak.digest, ak.asker, dev.sessionNonce); ackKey = k; }
+        F.ack = ackSig;
+      }
+      if ((F.ask || F.ack) && F.cap === undefined) F.cap = 0;
+      return { F: F, sig_F: await signBytes(privateKey, utf8(canonicalJson(F))) };
+    };
+
+    async function mint(m) {
+      const r = {
+        v: 0, schema: 'aukora.copresence.receipt.v1', alg: 'ECDSA-P256-SHA256-P1363',
+        pk_A: m.pk_A, pk_B: m.pk_B, nonce_A: m.nonce_A, nonce_B: m.nonce_B,
+        t_A: m.t_A, t_B: m.t_B, sig_A: m.sig_A, sig_B: m.sig_B,
+      };
+      if (m.geo_A) r.geo_A = m.geo_A;
+      if (m.geo_B) r.geo_B = m.geo_B;
+      r.core = bytesToHex(dev.core);
+      r.digest = await shortDigest(dev.core);
+      r.minted_by = m.by;
+      r.clocks = m.clocks;
+      return finalizeReceipt(r, {});
+    }
+
+    // sim.py process_incoming_frame
+    async function doProcess(packet) {
+      const refuse = (code, detail) => { emit(code, detail); return { accepted: false, code: code }; };
+      const accept = (code, detail) => { emit(code, detail); return { accepted: true, code: code }; };
+      if (!packet || typeof packet !== 'object' || !packet.F || typeof packet.F !== 'object') return refuse('MALFORMED');
+      const f = packet.F, type = f.type;
+      const sender = f.pk || f.my_pk || f.pk_B;
+      if (!isPk(sender) || !isInt(f.t) || TYPES.indexOf(type) < 0) return refuse('MALFORMED');
+      if (sender === dev.pk) return refuse('SELF');
+      if (!validSense(f)) return refuse('MALFORMED');
+
+      // 1. optical frame signature
+      if (!(await verifyBytes(sender, utf8(canonicalJson(f)), packet.sig_F))) return refuse('BAD_SIG_F');
+      // 2. five-second freshness
+      const nowS = now();
+      if (Math.abs(nowS - f.t) > FRESH_S) return refuse('STALE', { delta_s: nowS - f.t });
+      // 3. bystander DROP rule: once locked, only the target (or frames addressed to us) get through
+      if (dev.targetPk && sender !== dev.targetPk && f.target_pk !== dev.pk) return refuse('BYSTANDER');
+
+      if (dev.state === 'FACE') {
+        let peerNonce = null;
+        if (type === 'FACE') peerNonce = f.nonce;
+        else if (type === 'SEENYOU' && f.target_pk === dev.pk) peerNonce = f.my_nonce;
+        else return refuse('IGNORED');
+        if (!isNonce(peerNonce)) return refuse('MALFORMED');
+        dev.targetPk = sender; dev.peerNonce = peerNonce; dev.peerGeo = quantGeo(f.geo); dev.tA = f.t;
+        dev.state = 'SEENYOU'; dev.lockedAt = nowS;
+        return accept('LOCKED', { target: sender.slice(2, 14) });
+      }
+
+      if (dev.state === 'SEENYOU') {
+        if (type === 'SEENYOU') {
+          if (f.target_pk !== dev.pk) return refuse('NOT_ADDRESSED');
+          if (sender !== dev.targetPk) return refuse('BYSTANDER'); // pairwise only: never tiebreak with a third key
+          if (!isNonce(f.my_nonce)) return refuse('MALFORMED');
+          // Lexicographic tiebreak: lower pk is Initiator A and waits; higher pk is Responder B and signs.
+          if (dev.pk < sender) {
+            if (dev.role !== 'INITIATOR_A') dev.lockedAt = nowS; // timeout runs from the mutual lock
+            dev.role = 'INITIATOR_A';
+            return accept('TIEBREAK_INITIATOR');
+          }
+          const tA = f.t;
+          const tB = Math.max(nowS, tA); // owner decision: ordinary clock skew must not mint t_B < t_A
+          const core = await computeCore(sender, dev.pk, f.my_nonce, dev.sessionNonce, tB);
+          const sigB = await signBytes(privateKey, core);
+          dev.role = 'RESPONDER_B'; dev.peerNonce = f.my_nonce; dev.tA = tA; dev.tB = tB;
+          dev.peerGeo = quantGeo(f.geo); dev.myGeo = readGeo();
+          dev.clock = { t_B_local: nowS, clamped: nowS < tA, skew_s: Math.abs(nowS - tA) };
+          dev.core = core; dev.sigB = sigB; dev.state = 'HANDSHAKE'; dev.lockedAt = nowS;
+          return accept('HANDSHAKE_SIGNED');
+        }
+        if (type === 'HANDSHAKE') {
+          if (f.pk_A !== dev.pk) return refuse('NOT_ADDRESSED');
+          if (f.pk_B !== dev.targetPk) return refuse('BYSTANDER');
+          if (!isNonce(f.nonce_B) || !isInt(f.t_B) || !isHex(f.sig_B, 128)) return refuse('MALFORMED');
+          const tB = f.t_B;
+          const tA = isInt(f.t_A) ? f.t_A : (dev.tA !== null ? dev.tA : tB - 1);
+          if (tB - tA < 0 || tB - tA > 10) return refuse('WINDOW', { dt_s: tB - tA });
+          // t_B is the only signed time: refuse to co-sign one that is not near this device's own clock
+          if (Math.abs(nowS - tB) > CEREMONY_TIMEOUT_S + 2 * FRESH_S) return refuse('STALE_T_B', { delta_s: nowS - tB });
+          const core = await computeCore(dev.pk, f.pk_B, dev.sessionNonce, f.nonce_B, tB);
+          if (!(await verifyBytes(f.pk_B, core, f.sig_B))) return refuse('BAD_SIG_B');
+          const sigA = await signBytes(privateKey, core);
+          dev.core = core; dev.sigA = sigA; dev.sigB = f.sig_B; dev.role = 'INITIATOR_A';
+          dev.tA = tA; dev.tB = tB; dev.peerNonce = f.nonce_B;
+          dev.receipt = await mint({
+            by: 'A', pk_A: dev.pk, pk_B: f.pk_B, nonce_A: dev.sessionNonce, nonce_B: f.nonce_B,
+            t_A: tA, t_B: tB, sig_A: sigA, sig_B: f.sig_B, geo_A: readGeo(), geo_B: quantGeo(f.geo),
+            clocks: { minted_at_local: nowS, peer_frame_t: f.t, clamped: f.t < tB, skew_s: Math.abs(nowS - f.t) },
+          });
+          dev.state = 'BLOOM';
+          return accept('BLOOM_MINTED');
+        }
+        return refuse('IGNORED');
+      }
+
+      if (dev.state === 'HANDSHAKE') {
+        if (type === 'BLOOM' && f.pk === dev.targetPk) {
+          if (!dev.core || !(await verifyBytes(dev.targetPk, dev.core, f.sig_A))) return refuse('BAD_SIG_A');
+          dev.sigA = f.sig_A;
+          dev.receipt = await mint({
+            by: 'B', pk_A: dev.targetPk, pk_B: dev.pk, nonce_A: dev.peerNonce, nonce_B: dev.sessionNonce,
+            t_A: dev.tA, t_B: dev.tB, sig_A: f.sig_A, sig_B: dev.sigB, geo_A: dev.peerGeo, geo_B: dev.myGeo,
+            clocks: Object.assign({ minted_at_local: nowS }, dev.clock),
+          });
+          dev.state = 'BLOOM';
+          return accept('BLOOM_CONFIRMED');
+        }
+        return refuse('IGNORED');
+      }
+
+      // BLOOM: the peer's own BLOOM frame carrying our sig_A tells the initiator the responder minted too.
+      if (type === 'BLOOM' && sender === dev.targetPk && dev.sigA && f.sig_A === dev.sigA) {
+        dev.peerBloomSeen = true;
+        return accept('PEER_BLOOM_SEEN');
+      }
+      return refuse('IGNORED');
+    }
+
+    // Check a frame (signature, freshness, sender) without changing state, so senses can be read from the
+    // peer's frames while the handshake is deliberately held open for them.
+    dev.inspect = async function (packet) {
+      const no = (code) => ({ ok: false, code: code });
+      if (!packet || typeof packet !== 'object' || !packet.F || typeof packet.F !== 'object') return no('MALFORMED');
+      const f = packet.F, sender = f.pk || f.my_pk || f.pk_B;
+      if (!isPk(sender) || !isInt(f.t) || !validSense(f)) return no('MALFORMED');
+      if (sender === dev.pk) return no('SELF');
+      if (dev.targetPk && sender !== dev.targetPk) return no('BYSTANDER');
+      if (!(await verifyBytes(sender, utf8(canonicalJson(f)), packet.sig_F))) return no('BAD_SIG_F');
+      if (Math.abs(now() - f.t) > FRESH_S) return no('STALE');
+      return { ok: true, code: 'OK', sender: sender };
+    };
+
+    dev.process = function (packet) {
+      const run = queue.then(() => { busy++; return doProcess(packet).finally(() => { busy--; }); });
+      queue = run.then(() => undefined, () => undefined);
+      return run;
+    };
+
+    // Liveness (not in sim.py): a lock that does not complete inside the ceremony window is abandoned.
+    dev.tick = function () {
+      if (busy) return { reset: false }; // never reset under a frame that is mid-verification
+      if ((dev.state === 'SEENYOU' || dev.state === 'HANDSHAKE') && dev.lockedAt !== null && now() - dev.lockedAt > CEREMONY_TIMEOUT_S) {
+        const was = dev.state;
+        dev.reset();
+        emit('TIMEOUT_RESET', { from: was });
+        return { reset: true, from: was };
+      }
+      return { reset: false };
+    };
+    return dev;
+  }
+
+  // ---------------------------------------------------------------- acoustic sense (pure parts)
+  // The nonce is derived from what the peer shows optically, so "heard" binds sound to light.
+  // It is not secret and is not timed: it cannot show the peer is local. Labelled accordingly.
+  // Band 0 (18.0-20.8 kHz) is the default. Band 1 (14.8-17.6 kHz) is the fallback for speakers and
+  // microphones that do not pass the higher one; more people can hear it.
+  const AUDIO = { tones: [18000, 18400, 18800, 19200, 19600, 20000, 20400, 20800], low: [14800, 15200, 15600, 16000, 16400, 16800, 17200, 17600], symbolSeconds: 0.045, symbols: 43 };
+  async function audioNonce(pk, sessionNonce) {
+    return (await hashDomain('copresence.audio.v0', concat(hexToBytes(pk), hexToBytes(sessionNonce)))).slice(0, 16);
+  }
+  function audioSymbols(nonce16) {
+    const out = [];
+    let acc = 0, bits = 0;
+    for (let i = 0; i < nonce16.length; i++) {
+      acc = (acc << 8) | nonce16[i]; bits += 8;
+      while (bits >= 3) { out.push((acc >> (bits - 3)) & 7); bits -= 3; acc &= (1 << bits) - 1; }
+    }
+    if (bits) out.push((acc << (3 - bits)) & 7);
+    return out;
+  }
+  const SOUND = { pre: [0, 7, 2, 5, 1, 6], data: 11, check: 2, symbols: 19 };
+  function soundCheck(b) { const x = b[0] ^ b[1] ^ b[2] ^ b[3]; return (x ^ (x >> 6) ^ 0x2a) & 63; }
+  function soundSymbols(code4) {
+    if (!code4 || code4.length !== 4) throw new Error('code must be 4 bytes');
+    const out = SOUND.pre.slice();
+    const n = (((code4[0] << 24) | (code4[1] << 16) | (code4[2] << 8) | code4[3]) >>> 0) * 2;
+    for (let k = 0; k < SOUND.data; k++) out.push(Math.floor(n / Math.pow(8, SOUND.data - 1 - k)) % 8);
+    const c = soundCheck(code4);
+    out.push(c >> 3, c & 7);
+    return out;
+  }
+  function audioSynth(symbols, sampleRate, gain, band) {
+    const g = gain === undefined ? 0.1 : gain, tones = band === 1 ? AUDIO.low : AUDIO.tones;
+    const n = Math.round(AUDIO.symbolSeconds * sampleRate), ramp = Math.max(1, Math.round(0.012 * sampleRate));
+    const total = n * symbols.length, out = new Float32Array(total);
+    let phase = 0;
+    // Constant level and unbroken phase from note to note; the level only rises and falls at the two ends of the burst.
+    for (let k = 0; k < symbols.length; k++) {
+      const w = (2 * Math.PI * tones[symbols[k] & 7]) / sampleRate;
+      for (let i = 0; i < n; i++) {
+        const j = k * n + i, edge = Math.min(1, j / ramp, (total - 1 - j) / ramp);
+        out[j] = g * (0.5 - 0.5 * Math.cos(Math.PI * edge)) * Math.sin(phase);
+        phase += w;
+      }
+    }
+    return out;
+  }
+  function createAudioDetector(sampleRate) {
+    const WIN = 1024, HOP = 512, MAX = Math.ceil((6 * sampleRate) / HOP);
+    const hann = new Float32Array(WIN);
+    for (let i = 0; i < WIN; i++) hann[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (WIN - 1));
+    const coef = AUDIO.tones.concat(AUDIO.low).map((f) => 2 * Math.cos((2 * Math.PI * f) / sampleRate));
+    let carry = new Float32Array(0), dropped = 0;
+    const frames = [];
+    function analyse(buf, off) {
+      const e = new Float32Array(16); // 0-7 band 0, 8-15 band 1
+      for (let k = 0; k < 16; k++) {
+        const c = coef[k];
+        let s1 = 0, s2 = 0;
+        for (let n = 0; n < WIN; n++) { const s0 = buf[off + n] * hann[n] + c * s1 - s2; s2 = s1; s1 = s0; }
+        e[k] = s1 * s1 + s2 * s2 - c * s1 * s2;
+      }
+      return e;
+    }
+    return {
+      push: function (samples) {
+        if (!samples || !samples.length) return;
+        const all = new Float32Array(carry.length + samples.length);
+        all.set(carry, 0); all.set(samples, carry.length);
+        let off = 0;
+        while (off + WIN <= all.length) { frames.push(analyse(all, off)); off += HOP; }
+        carry = all.slice(off);
+        if (frames.length > MAX) { dropped += frames.length - MAX; frames.splice(0, frames.length - MAX); }
+      },
+      // Find the most recent complete burst and read its code without knowing it in advance.
+      clear: function () { dropped += frames.length; frames.length = 0; carry = new Float32Array(0); },
+      decode: function (skipHex) {
+        const n = frames.length, Ts = AUDIO.symbolSeconds * sampleRate;
+        let o = 0;
+        const read = (j0, k) => {
+          const j = Math.round(j0 + ((k + 0.5) * Ts - WIN / 2) / HOP);
+          if (j < 0 || j >= n) return -1;
+          const e = frames[j];
+          let bi = 0, sum = 0;
+          for (let i = 0; i < 8; i++) { sum += e[o + i]; if (e[o + i] > e[o + bi]) bi = i; }
+          return e[o + bi] > 1e-10 && e[o + bi] > (6 * (sum - e[o + bi])) / 7 ? bi : -1;
+        };
+        for (let j0 = n - Math.ceil((SOUND.symbols * Ts) / HOP); j0 >= 0; j0--) {
+          for (let band = 0; band < 2; band++) {
+            o = band * 8;
+            let ok = true;
+            for (let k = 0; k < SOUND.pre.length && ok; k++) ok = read(j0, k) === SOUND.pre[k];
+            if (!ok) continue;
+            let val = 0;
+            for (let k = 0; k < SOUND.data && ok; k++) { const sym = read(j0, SOUND.pre.length + k); ok = sym >= 0; val = val * 8 + sym; }
+            if (!ok || val % 2 || val / 2 > 0xffffffff) continue;
+            const v = val / 2;
+            const code = new Uint8Array([Math.floor(v / 16777216) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]);
+            const c = soundCheck(code);
+            if (read(j0, 17) !== (c >> 3) || read(j0, 18) !== (c & 7)) continue;
+            if (skipHex && bytesToHex(code) === skipHex) continue; // someone replaying this device's own code must not mask the peer
+            return { code: code, hex: bytesToHex(code), at: dropped + j0, band: band };
+          }
+        }
+        return null;
+      },
+      // How clearly any single tone stood out of each band in the last few seconds, in dB. Diagnosis only.
+      peak: function () {
+        const out = [0, 0];
+        for (const e of frames) for (let band = 0; band < 2; band++) {
+          let bi = 0, sum = 0;
+          for (let i = 0; i < 8; i++) { const v = e[band * 8 + i]; sum += v; if (v > e[band * 8 + bi]) bi = i; }
+          const top = e[band * 8 + bi], rest = (sum - top) / 7;
+          if (top > 1e-10 && rest > 0) out[band] = Math.max(out[band], 10 * Math.log10(top / rest));
+        }
+        return [Math.round(out[0]), Math.round(out[1])];
+      },
+      match: function (expected) {
+        const none = { matched: false, hits: 0, total: 0 };
+        const n = frames.length;
+        if (!n || !expected || !expected.length) return none;
+        const Ts = AUDIO.symbolSeconds * sampleRate;
+        const span = Math.ceil((expected.length * Ts) / HOP);
+        let best = none;
+        for (let j0 = -span; j0 < n; j0++) {
+          let hits = 0, total = 0;
+          for (let k = 0; k < expected.length; k++) {
+            const j = Math.round(j0 + ((k + 0.5) * Ts - WIN / 2) / HOP);
+            if (j < 0 || j >= n) continue;
+            const e = frames[j];
+            let bi = 0, sum = 0;
+            for (let i = 0; i < 8; i++) { sum += e[i]; if (e[i] > e[bi]) bi = i; }
+            if (e[bi] > 1e-10 && e[bi] > (6 * (sum - e[bi])) / 7) { total++; if (bi === expected[k]) hits++; }
+          }
+          if (hits > best.hits) best = { matched: false, hits: hits, total: total };
+        }
+        return { matched: best.hits >= 16 && best.hits >= 0.8 * best.total, hits: best.hits, total: best.total };
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------- nostr (manual, post-ceremony, per receipt)
+  // BIP-340 Schnorr (secp256k1) for the one-time publish key. Ported in tests/bip340-port.js and checked there
+  // against the official BIP-340 vectors and runtime/schnorr.py. BigInt, not constant-time: throwaway keys only.
+  const b340 = (() => {
+    const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn; // field prime
+    const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n; // group order
+    // Generator in Jacobian coordinates [X, Y, Z] (affine x = X/Z^2, y = Y/Z^3). Infinity is null.
+    const G = [
+      0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n,
+      0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n,
+      1n,
+    ];
+
+    const mod = (a, m = P) => { const r = a % m; return r < 0n ? r + m : r; };
+    const pow = (b, e, m = P) => {
+      let r = 1n;
+      for (b = mod(b, m); e > 0n; e >>= 1n) { if (e & 1n) r = (r * b) % m; b = (b * b) % m; }
+      return r;
+    };
+
+    // Jacobian doubling / addition on y^2 = x^3 + 7 (curve coefficient a = 0).
+    // A non-null result always has Z != 0: both functions return null for the infinite cases.
+    const dbl = (p) => {
+      if (!p || p[1] === 0n) return null;
+      const [X, Y, Z] = p;
+      const YY = mod(Y * Y), S = mod(4n * X * YY), M = mod(3n * X * X);
+      const X3 = mod(M * M - 2n * S);
+      return [X3, mod(M * (S - X3) - 8n * YY * YY), mod(2n * Y * Z)];
+    };
+    const add = (p, q) => {
+      if (!p) return q;
+      if (!q) return p;
+      const [X1, Y1, Z1] = p, [X2, Y2, Z2] = q;
+      const Z1Z1 = mod(Z1 * Z1), Z2Z2 = mod(Z2 * Z2);
+      const U1 = mod(X1 * Z2Z2), U2 = mod(X2 * Z1Z1);
+      const S1 = mod(Y1 * Z2 * Z2Z2), S2 = mod(Y2 * Z1 * Z1Z1);
+      if (U1 === U2) return S1 === S2 ? dbl(p) : null; // same x: P + P, or P + (-P)
+      const H = mod(U2 - U1), R = mod(S2 - S1);
+      const HH = mod(H * H), HHH = mod(H * HH), V = mod(U1 * HH);
+      const X3 = mod(R * R - HHH - 2n * V);
+      return [X3, mod(R * (V - X3) - S1 * HHH), mod(H * Z1 * Z2)];
+    };
+    const mul = (p, k) => { // double-and-add, least significant bit first; k >= 0
+      let r = null;
+      for (; k > 0n; k >>= 1n) { if (k & 1n) r = add(r, p); p = dbl(p); }
+      return r;
+    };
+    const affine = (p) => { // -> [x, y] or null
+      if (!p) return null;
+      const zi = pow(p[2], P - 2n), zi2 = mod(zi * zi);
+      return [mod(p[0] * zi2), mod(p[1] * zi2 * zi)];
+    };
+    const liftX = (x) => { // the curve point with this x and even y, or null
+      if (x >= P) return null;
+      const c = mod(x * x * x + 7n), y = pow(c, (P + 1n) / 4n);
+      if (mod(y * y) !== c) return null;
+      return [x, y & 1n ? P - y : y, 1n];
+    };
+
+    const need = (b, len, name) => { // Uint8Array check; len === null accepts any length
+      if (Object.prototype.toString.call(b) !== "[object Uint8Array]" || (len !== null && b.length !== len))
+        throw new TypeError(name + " must be a Uint8Array" + (len === null ? "" : " of " + len + " bytes"));
+      return b;
+    };
+    const toInt = (b) => { let v = 0n; for (const x of b) v = (v << 8n) | BigInt(x); return v; };
+    const to32 = (v) => {
+      const out = new Uint8Array(32);
+      for (let i = 31; i >= 0; i--, v >>= 8n) out[i] = Number(v & 0xffn);
+      return out;
+    };
+    const cat = (...parts) => {
+      const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+      let o = 0;
+      for (const p of parts) { out.set(p, o); o += p.length; }
+      return out;
+    };
+    const hash = async (sha256, data) => { // a bare crypto.subtle.digest (ArrayBuffer) is accepted too
+      const out = await sha256(data);
+      return need(out instanceof ArrayBuffer ? new Uint8Array(out) : out, 32, "sha256 output");
+    };
+    const tagged = async (sha256, tag, ...parts) => { // BIP-340 tagged hash (tags are ASCII)
+      const t = await hash(sha256, Uint8Array.from(tag, (c) => c.charCodeAt(0)));
+      return hash(sha256, cat(t, t, ...parts));
+    };
+    const secret = (sk) => {
+      const d = toInt(need(sk, 32, "secret key"));
+      if (d === 0n || d >= N) throw new RangeError("secret key must be in 1..n-1");
+      return d;
+    };
+
+    return { P, N, G, mod, pow, dbl, add, mul, affine, liftX, need, toInt, to32, cat, tagged, secret };
+  })();
+
+  // -> Uint8Array(32) x-only public key. Rejects if sk32 is not 32 bytes encoding 1..n-1.
+  async function schnorrPubkey(sk32, sha256) {
+    return b340.to32(b340.affine(b340.mul(b340.G, b340.secret(sk32)))[0]);
+  }
+
+  // -> Uint8Array(64) signature (BIP-340 default signing). aux32 must be 32 fresh random bytes.
+  // msg32 is the 32-byte Nostr event id; any length is accepted, as BIP-340 allows.
+  // The signature is verified before it is returned; a failure rejects instead of returning it.
+  async function schnorrSign(msg32, sk32, aux32, sha256) {
+    const { N, G, mod, mul, affine, need, toInt, to32, tagged } = b340;
+    const m = need(msg32, null, "message"), a = need(aux32, 32, "aux_rand");
+    const d0 = b340.secret(sk32);
+    const [px, py] = affine(mul(G, d0));
+    const d = py & 1n ? N - d0 : d0; // secret for the even-y public key
+    const pk = to32(px);
+    const mask = await tagged(sha256, "BIP0340/aux", a);
+    const t = to32(d).map((v, i) => v ^ mask[i]);
+    const k0 = mod(toInt(await tagged(sha256, "BIP0340/nonce", t, pk, m)), N);
+    if (k0 === 0n) throw new Error("BIP-340 nonce derivation produced zero");
+    const [rx, ry] = affine(mul(G, k0));
+    const k = ry & 1n ? N - k0 : k0;
+    const r = to32(rx);
+    const e = mod(toInt(await tagged(sha256, "BIP0340/challenge", r, pk, m)), N);
+    const sig = b340.cat(r, to32(mod(k + e * d, N)));
+    if (!(await schnorrVerify(m, pk, sig, sha256))) throw new Error("BIP-340 signature failed self-verification");
+    return sig;
+  }
+
+  // -> boolean. Never throws or rejects: malformed input (or a failing sha256) is simply false.
+  async function schnorrVerify(msg32, pk32, sig64, sha256) {
+    try {
+      const { P, N, G, mod, mul, add, affine, liftX, need, toInt, tagged } = b340;
+      const m = need(msg32, null, "message"), pk = need(pk32, 32, "public key"), sig = need(sig64, 64, "signature");
+      const rBytes = sig.subarray(0, 32);
+      const pt = liftX(toInt(pk)), r = toInt(rBytes), s = toInt(sig.subarray(32));
+      if (!pt || r >= P || s >= N) return false;
+      const e = mod(toInt(await tagged(sha256, "BIP0340/challenge", rBytes, pk, m)), N);
+      const R = affine(add(mul(G, s), mul(pt, mod(-e, N)))); // s*G - e*P
+      return R !== null && (R[1] & 1n) === 0n && R[0] === r;
+    } catch (_) {
+      return false;
+    }
+  }
+  const schnorr = (typeof schnorrSign === 'function')
+    ? { sign: (m, sk, aux) => schnorrSign(m, sk, aux, sha256), pubkey: (sk) => schnorrPubkey(sk, sha256), verify: (m, pk, sig) => schnorrVerify(m, pk, sig, sha256) }
+    : null;
+
+  // The published copy never carries more location than the chosen class. Coarse is the default.
+  function receiptForPublish(receipt, geoClass) {
+    const r = JSON.parse(JSON.stringify(receipt));
+    const cls = geoClass === 'exact' || geoClass === 'redacted' ? geoClass : 'coarse';
+    for (const k of ['geo_A', 'geo_B']) {
+      if (!r[k]) continue;
+      if (cls === 'redacted') delete r[k];
+      else if (cls === 'coarse') {
+        r[k] = { lat: Math.round(r[k].lat * 1000) / 1000, lon: Math.round(r[k].lon * 1000) / 1000, acc: r[k].acc >= 1 ? Math.max(r[k].acc + 80, 100) : r[k].acc }; // +80 m covers the worst rounding displacement
+      }
+    }
+    delete r.approved;
+    delete r.intent; // what a bloom approved is the two parties' business, never part of a published copy
+    // the peer's signed echo frame carries the peer's exact position: it leaves the device only with the exact class
+    if (cls !== 'exact' && r.sound_echo && r.sound_echo.peer_frame) delete r.sound_echo.peer_frame;
+    // anomaly text can quote exact distances; a non-exact copy keeps only the anomaly codes
+    if (cls !== 'exact' && Array.isArray(r.anomalies)) r.anomalies = r.anomalies.map((a) => String(a).split(':')[0]);
+    r.geo_privacy = cls === 'coarse' ? 'coarse_100m' : cls === 'exact' ? 'exact_explicit_opt_in' : 'redacted';
+    return r;
+  }
+  function buildNostrEvent(receipt, geoClass, pubkeyHex, createdAt) {
+    const r = receiptForPublish(receipt, geoClass);
+    const tags = [
+      ['d', 'copresence-' + String(r.digest || '').toLowerCase()],
+      ['t', 'copresence-v1'],
+      ['verdict', r.sentinel_verdict],
+      ['position_source', 'SELF_REPORTED_UNVERIFIABLE'],
+      ['geo_privacy', r.geo_privacy],
+    ];
+    const g = r.geo_A || r.geo_B;
+    if (g && r.geo_privacy === 'coarse_100m') tags.push(['geo_coarse', g.lat.toFixed(3) + ',' + g.lon.toFixed(3)]);
+    if (g && r.geo_privacy === 'exact_explicit_opt_in') tags.push(['geo_exact', g.lat.toFixed(6) + ',' + g.lon.toFixed(6)]);
+    return { pubkey: pubkeyHex, created_at: createdAt, kind: 30078, tags: tags, content: JSON.stringify(r) };
+  }
+  function nostrSerializeEvent(e) { return JSON.stringify([0, e.pubkey, e.created_at, e.kind, e.tags, e.content]); }
+  async function nostrEventId(e) { return bytesToHex(await sha256(utf8(nostrSerializeEvent(e)))); }
+  async function signNostrEvent(e, sk32) {
+    if (!schnorr) throw new Error('NO_SIGNER');
+    const out = Object.assign({}, e);
+    out.pubkey = bytesToHex(await schnorr.pubkey(sk32));
+    out.id = await nostrEventId(out);
+    out.sig = bytesToHex(await schnorr.sign(hexToBytes(out.id), sk32, G.crypto.getRandomValues(new Uint8Array(32))));
+    return out;
+  }
+
+  G.PortalCore = {
+    VERSION: VERSION,
+    hexToBytes: hexToBytes, bytesToHex: bytesToHex, utf8: utf8, concat: concat, sha256: sha256, hashDomain: hashDomain,
+    canonicalJson: canonicalJson, b45encode: b45encode, b45decode: b45decode,
+    generateKeyPair: generateKeyPair, signBytes: signBytes, verifyBytes: verifyBytes,
+    compressPk: compressPk, decompressPk: decompressPk, computeCore: computeCore,
+    encodeFrame: encodeFrame, decodeFrame: decodeFrame, quantGeo: quantGeo,
+    createDevice: createDevice, CEREMONY_TIMEOUT_S: CEREMONY_TIMEOUT_S, intentDigest: intentDigest, intentNonce: intentNonce, signAck: signAck, verifyAck: verifyAck, askChunks: askChunks, createAskReader: createAskReader, ASK_CHUNK: ASK_CHUNK,
+    sentinel: sentinel, finalizeReceipt: finalizeReceipt, verifyReceipt: verifyReceipt,
+    DOES_NOT_PROVE: DOES_NOT_PROVE, DOES_NOT_PROVE_LEAD: DOES_NOT_PROVE_LEAD, SIGNED_FIELDS: SIGNED_FIELDS,
+    PENTORA: PENTORA, pentoraDigest: pentoraDigest, pentoraDigits: pentoraDigits, shortDigest: shortDigest, faceHead: faceHead,
+    SOUND: SOUND, soundSymbols: soundSymbols, AUDIO: AUDIO, audioNonce: audioNonce, audioSymbols: audioSymbols, audioSynth: audioSynth, createAudioDetector: createAudioDetector,
+    hasSigner: !!schnorr, receiptForPublish: receiptForPublish, buildNostrEvent: buildNostrEvent,
+    nostrSerializeEvent: nostrSerializeEvent, nostrEventId: nostrEventId, signNostrEvent: signNostrEvent,
+  };
+})();
+</script>
+</head>
+<body>
+<canvas id="stage" role="img" aria-label="Pentora"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="dot" class="init"></div>
+<div id="say" aria-live="polite"><div id="code"></div><div id="line"></div></div>
+<div id="ask"></div>
+<div id="hint"></div>
+<div id="consent" hidden></div>
+<div id="strip"></div>
+<div id="sheet" hidden></div>
+<script id="portal-app">
+/* portal-app: the experience layer. Senses, rendering and storage; all protocol decisions live in portal-core. */
+(function () {
+  'use strict';
+  const P = window.PortalCore, NET = window.PortalNet;
+  const T0 = performance.now();
+  const RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net'];
+  const BG = '#05060a', PLATE = '#d8d4ca', INK = '#0b0e18'; // a soft plate: a bright white one washes out in the peer's auto-exposure
+  const CELL = [[86, 190, 255], [236, 232, 245], [255, 184, 92]], DIM = [64, 72, 92];
+  const QZ = 4;                 // quiet-zone modules inside the plate
+  const HOLD_MS = 2500;         // initiator waits this long for the responder's BLOOM frame before blooming alone
+  const ACK_SHOW_MS = 900;      // responder keeps its BLOOM frame visible this long so the initiator gets several reads
+  const SETTLE_MS = 4000, STILL_MS = 10000;
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('stage'), ctx = canvas.getContext('2d');
+  const dot = $('dot'), video = $('cam'), say = $('say'), codeEl = $('code'), lineEl = $('line'), strip = $('strip'), sheet = $('sheet');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  // ------------------------------------------------------------ telemetry (console only; the dot is the whole UI)
+  const trace = [];
+  function tele(code, detail) {
+    const line = '[PORTAL_PHASE] t=' + Math.round(performance.now() - T0) + 'ms ' + code + (detail ? ' ' + detail : '');
+    console.log(line);
+    trace.push(line);
+    if (trace.length > 600) trace.shift();
+  }
+  let phase = 'init';
+  function setPhase(p) { if (phase !== p) { phase = p; dot.className = p; } }
+
+  // ------------------------------------------------------------ storage (IndexedDB; memory if unavailable)
+  let db = null;
+  const mem = { keys: {}, receipts: {}, attempts: {} };
+  function idbOpen() {
+    return new Promise((resolve) => {
+      try {
+        const rq = indexedDB.open('copresence-portal-v1', 1);
+        rq.onupgradeneeded = () => { for (const s of ['keys', 'receipts', 'attempts']) rq.result.createObjectStore(s); };
+        rq.onsuccess = () => resolve(rq.result);
+        rq.onerror = () => resolve(null);
+        rq.onblocked = () => resolve(null);
+      } catch (e) { resolve(null); }
+    });
+  }
+  function idbReq(store, mode, fn) {
+    return new Promise((resolve, reject) => {
+      if (!db) return reject(new Error('NO_IDB'));
+      try {
+        const tx = db.transaction(store, mode);
+        const rq = fn(tx.objectStore(store));
+        tx.oncomplete = () => resolve(rq ? rq.result : undefined);
+        tx.onerror = tx.onabort = () => reject(tx.error || new Error('IDB_TX'));
+      } catch (e) { reject(e); }
+    });
+  }
+  async function dbGet(store, key) { try { return await idbReq(store, 'readonly', (s) => s.get(key)); } catch (e) { return mem[store][key]; } }
+  async function dbPut(store, key, val) {
+    mem[store][key] = val;
+    try { await idbReq(store, 'readwrite', (s) => s.put(val, key)); return true; } catch (e) { return false; }
+  }
+  async function dbAll(store) {
+    try { return (await idbReq(store, 'readonly', (s) => s.getAll())) || []; } catch (e) { return Object.keys(mem[store]).map((k) => mem[store][k]); }
+  }
+
+  // ------------------------------------------------------------ approval mode
+  // Opened as  <page>#approve=<text>  this page asks for one bloom that approves exactly that text.
+  // The text never leaves the browser (a URL fragment is not sent to any server).
+  const intent = (function () {
+    let text = '';
+    try { const m = location.hash.match(/^#approve=(.+)$/); if (m) text = decodeURIComponent(m[1]).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ').slice(0, 280).trim(); } catch (e) { text = ''; }
+    if (!text) return null;
+    const it = { text: text, digest: null, pieces: null, pool: [], salts: {} };
+    it.fill = async function () {
+      if (!it.digest) { it.digest = await P.intentDigest(it.text); it.pieces = P.askChunks(it.text, it.digest); }
+      while (it.pool.length < 3) {
+        const salt = P.bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+        it.pool.push({ salt: salt, nonce: await P.intentNonce(it.digest, salt) });
+      }
+    };
+    it.next = function () { // the next session nonce, already committed to the text
+      const x = it.pool.shift();
+      it.fill();
+      if (!x) return null; // not ready yet: that session is simply not an approval
+      it.salts[x.nonce] = x.salt;
+      return x.nonce;
+    };
+    return it;
+  })();
+
+  // ------------------------------------------------------------ state
+  let dev = null, keys = null, geo = null;
+  let consent = null;  // asking page: the peer signature over this page's text  { pk, nonce, sig }
+  let approval = null; // approving device: what a peer asked for  { pk, d4, text, digest, state, at }
+  let faceDigits = null, sharedDigits = null, receipt = null, receiptSaved = false;
+  let visual = 'FACE';          // FACE | BLOOMING | SETTLED | RETURNING
+  let marks = {}, holdTimer = 0, settleTimer = 0, returnTimer = 0;
+  const bloom = { start: 0 }, pulse = { start: -1e9 }, wave = { start: -1e9 }, ret = { start: 0 }, faceIn = { start: 0 };
+  const history = [];
+  const session = { scans: 0, hits: 0, refusals: {}, decoder: 'none', camera: '', bursts: 0 };
+  let readyAt = performance.now(), firstFrameAt = 0, lastHitAt = -1e9;
+  let attempt = null, attemptN = 0;
+  const attempts = [];
+  const senses = { haptic: 'UNAVAILABLE' };
+
+  // ------------------------------------------------------------ layout
+  let W = 0, H = 0, DPR = 1, plate = { size: 0, cx: 0, cy: 0 }, pent = { rFace: 0, rBloom: 0, bx: 0, by: 0 };
+  function layout() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    const portrait = H >= W;
+    const phoneLandscape = !portrait && H < 500;
+    const size = portrait ? Math.min(W * 0.94, H * 0.6) : phoneLandscape ? Math.min(H * 0.76, W * 0.5) : Math.min(H * 0.56, W * 0.4);
+    // Laptops: lift the plate toward the webcam so a phone held at the camera still sees it.
+    plate = { size: size, cx: W / 2, cy: portrait ? H * 0.5 : phoneLandscape ? H * 0.44 : H * 0.42 };
+    pent = {
+      rFace: portrait ? Math.min(H * 0.47, size * 1.15) : size * 0.98,
+      rBloom: Math.min(W, H) * (portrait ? 0.42 : 0.34),
+      bx: W / 2, by: portrait ? H * 0.42 : H * 0.42,
+    };
+    say.style.bottom = 'auto';
+    say.style.top = Math.round(Math.min(pent.by + pent.rBloom * 1.3, H - 150)) + 'px'; // just under the pattern, perspective included
+    if (qr) qr = buildQr(qr.text, qr.type, qr.shown);
+  }
+
+  // ------------------------------------------------------------ rotating frame -> QR
+  let qr = null, frameBusy = false, frameDirty = false, lastFrameAt = -1e9;
+  function buildQr(text, type, shown) {
+    const q = window.qrcode(0, 'L');
+    q.addData(text, 'Alphanumeric');
+    q.make();
+    const n = q.getModuleCount(), N = n + 2 * QZ;
+    const px = Math.max(1, Math.floor((plate.size * DPR) / N));
+    const c = document.createElement('canvas');
+    c.width = c.height = N * px;
+    const g = c.getContext('2d');
+    g.fillStyle = PLATE; g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = INK;
+    const dark = new Uint8Array(n * n);
+    for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) {
+      if (q.isDark(r, k)) { dark[r * n + k] = 1; g.fillRect((k + QZ) * px, (r + QZ) * px, px, px); }
+    }
+    return { text: text, type: type, n: n, N: N, px: px, dark: dark, canvas: c, shown: !!shown };
+  }
+  async function refreshFrame() {
+    if (!dev || visual !== 'FACE') return;
+    if (frameBusy) { frameDirty = true; return; }
+    frameBusy = true;
+    try {
+      do {
+        frameDirty = false;
+        const packet = await dev.frame();
+        qr = buildQr(P.encodeFrame(packet), packet.F.type, false);
+        lastFrameAt = performance.now();
+        wave.start = lastFrameAt;
+      } while (frameDirty);
+    } catch (e) { tele('FRAME_ERROR', String(e && e.message)); }
+    frameBusy = false;
+  }
+
+  // ------------------------------------------------------------ drawing
+  let breathPhase = 0, lastDraw = performance.now(), lastTick = 0, hintOn = false;
+  const hintEl = $('hint'), askEl = $('ask');
+  const proj = new Float32Array(111 * 4);
+  const order = Array.from({ length: 111 }, (_, i) => i);
+  const cellIndex = new Int16Array(111).fill(-1);
+  P.PENTORA.mutable.forEach((gi, i) => { cellIndex[gi] = i; });
+  const cellDelay = P.PENTORA.points.map((p) => Math.hypot(p[0], p[1], p[2]));
+
+  function cellColor(gi, k) {
+    const i = cellIndex[gi];
+    const from = faceDigits ? (i < 0 ? CELL[1] : CELL[faceDigits[i]]) : DIM;
+    if (!sharedDigits || k <= 0) return from;
+    const to = i < 0 ? CELL[1] : CELL[sharedDigits[i]];
+    const t = clamp((k * 1.9 - cellDelay[gi]) / 0.6, 0, 1); // radial cascade: centre first
+    return [lerp(from[0], to[0], t), lerp(from[1], to[1], t), lerp(from[2], to[2], t)];
+  }
+
+  function drawPentora(now, lum, geomK, colorK, alpha, cx, cy, R) {
+    const yaw = now * 0.00011, pitch = 0.46 + 0.09 * Math.sin(now * 0.00006);
+    const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const pts = P.PENTORA.points;
+    for (let i = 0; i < 111; i++) {
+      const p = pts[i];
+      const x = p[0] * cyw + p[2] * syw, z1 = -p[0] * syw + p[2] * cyw;
+      const y = p[1] * cp - z1 * sp, z = p[1] * sp + z1 * cp;
+      const s = 1 / (1 - 0.22 * z);
+      proj[i * 4] = cx + x * R * s; proj[i * 4 + 1] = cy + y * R * s; proj[i * 4 + 2] = z; proj[i * 4 + 3] = s;
+    }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(150,170,220,' + (0.05 + 0.05 * lum) * alpha + ')';
+    ctx.beginPath();
+    for (const e of P.PENTORA.edges) {
+      ctx.moveTo(proj[e[0] * 4], proj[e[0] * 4 + 1]);
+      ctx.lineTo(proj[e[1] * 4], proj[e[1] * 4 + 1]);
+    }
+    ctx.stroke();
+    order.sort((a, b) => proj[a * 4 + 2] - proj[b * 4 + 2]);
+    const base = Math.max(1.5, R * 0.017);
+    for (const i of order) {
+      const c = cellColor(i, colorK), z = proj[i * 4 + 2], s = proj[i * 4 + 3];
+      const a = alpha * (0.34 + 0.33 * (z + 1)) * (0.66 + 0.34 * lum);
+      const rgb = (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0);
+      const r = base * s * (i === 55 ? 1.5 : 1);
+      ctx.fillStyle = 'rgba(' + rgb + ',' + a * 0.16 + ')';
+      ctx.beginPath(); ctx.arc(proj[i * 4], proj[i * 4 + 1], r * 2.6, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = 'rgba(' + rgb + ',' + a + ')';
+      ctx.beginPath(); ctx.arc(proj[i * 4], proj[i * 4 + 1], r, 0, 6.2832); ctx.fill();
+    }
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  function drawPlate(now, lum, dissolve) {
+    if (!qr) return;
+    const s = (qr.N * qr.px) / DPR, x = plate.cx - s / 2, y = plate.cy - s / 2, m = qr.px / DPR;
+    if (dissolve <= 0) {
+      ctx.save();
+      roundRect(x, y, s, s, m * 1.5); ctx.clip();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(qr.canvas, x, y, s, s);
+      // breathing and the per-frame luminance wave: small enough to leave the code fully decodable
+      ctx.fillStyle = 'rgba(5,6,10,' + 0.07 * (1 - lum) + ')'; ctx.fillRect(x, y, s, s);
+      const w = (now - wave.start) / 380;
+      if (w >= 0 && w < 1) {
+        const gx = x - s * 0.4 + w * s * 1.8;
+        const g = ctx.createLinearGradient(gx - s * 0.35, y, gx + s * 0.35, y + s * 0.2);
+        g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.13)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g; ctx.fillRect(x, y, s, s);
+      }
+      ctx.restore();
+      if (!qr.shown) {
+        qr.shown = true;
+        if (qr.type === 'HANDSHAKE' && !marks.handshakeShownAt) marks.handshakeShownAt = now;
+        if (qr.type === 'BLOOM' && !marks.bloomShownAt) marks.bloomShownAt = now;
+      }
+      return;
+    }
+    // bloom: the plate lets go cell by cell, centre outward
+    const pa = Math.pow(1 - clamp(dissolve * 1.25, 0, 1), 2);
+    if (pa > 0.003) { ctx.fillStyle = 'rgba(216,212,202,' + pa + ')'; roundRect(x, y, s, s, m * 1.5); ctx.fill(); }
+    const n = qr.n, half = n / 2;
+    for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) {
+      if (!qr.dark[r * n + k]) continue;
+      const d = Math.hypot(r + 0.5 - half, k + 0.5 - half) / (half * 1.42);
+      const t = clamp((dissolve * 1.7 - d) * 3.2, 0, 1);
+      if (t >= 1) continue;
+      const sz = m * (1 - 0.6 * t), o = (m - sz) / 2;
+      ctx.fillStyle = t > 0 ? 'rgba(' + (lerp(11, 150, t) | 0) + ',' + (lerp(14, 200, t) | 0) + ',' + (lerp(24, 255, t) | 0) + ',' + (1 - t) + ')' : INK;
+      ctx.fillRect(x + (k + QZ) * m + o, y + (r + QZ) * m + o, sz, sz);
+    }
+  }
+
+  function draw() {
+    requestAnimationFrame(draw);
+    const now = performance.now(), dt = Math.min(100, now - lastDraw);
+    lastDraw = now;
+    if (dev && visual === 'FACE') {
+      if (now - lastFrameAt >= (intent && dev && dev.state === 'FACE' ? 350 : 1000)) refreshFrame(); // an asking page turns its pieces quickly
+      if (now - lastTick > 400) {
+        lastTick = now;
+        const r = dev.tick();
+        if (r.reset) onTimeoutReset(r.from);
+        // Browsers hold back sound, and iPhones hold back motion data, until a first touch. Say so, quietly, only then.
+        const need = audio.blocked() || motion.needsTap();
+        if (need !== hintOn) { hintOn = need; hintEl.textContent = need ? 'tap once for sound and motion' : ''; hintEl.className = need ? 'on' : ''; }
+      }
+    }
+    const quick = dev && visual === 'FACE' && dev.state !== 'FACE';
+    breathPhase += (dt * 6.2832) / (quick ? 2000 : 4000);
+    const lum = 0.5 + 0.5 * Math.sin(breathPhase);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+
+    let gk = 0, ck = 0, alpha = 1, cx = plate.cx, cy = plate.cy, R = pent.rFace, dissolve = 0;
+    if (visual === 'BLOOMING' || visual === 'SETTLED') {
+      const t = now - bloom.start;
+      gk = ease(clamp(t / 900, 0, 1)); ck = clamp(t / 800, 0, 1); dissolve = clamp(t / 600, 0, 1.4);
+      cx = lerp(plate.cx, pent.bx, gk); cy = lerp(plate.cy, pent.by, gk); R = lerp(pent.rFace, pent.rBloom, gk);
+    } else if (visual === 'RETURNING') {
+      const k = ease(clamp((now - ret.start) / 700, 0, 1));
+      gk = 1; ck = 1; dissolve = 2;
+      cx = lerp(pent.bx, W / 2, k); cy = lerp(pent.by, H - 22, k); R = lerp(pent.rBloom, 12, k); alpha = 1 - k * 0.6;
+    } else {
+      alpha = clamp((now - faceIn.start) / 600, 0, 1);
+    }
+    drawPentora(now, lum, gk, ck, alpha, cx, cy, R);
+    if (visual === 'FACE') drawPlate(now, lum, 0);
+    else if (dissolve < 1.4) drawPlate(now, lum, dissolve);
+
+    const pt = (now - pulse.start) / 400; // recognition pulse: one ring, outside the plate
+    if (pt >= 0 && pt < 1) {
+      ctx.strokeStyle = 'rgba(180,225,255,' + 0.75 * (1 - pt) + ')';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(plate.cx, plate.cy, lerp(plate.size * 0.72, pent.rFace * 1.25, ease(pt)), 0, 6.2832); ctx.stroke();
+    }
+  }
+
+  // ------------------------------------------------------------ senses: geolocation (never awaited)
+  function startGeo() {
+    try {
+      if (!navigator.geolocation) { tele('GEO_UNAVAILABLE'); return; }
+      navigator.geolocation.watchPosition((p) => {
+        const first = !geo;
+        geo = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy };
+        if (first) tele('GEO_READY', 'acc=' + Math.round(p.coords.accuracy) + 'm');
+      }, (e) => { if (!geo) tele('GEO_ABSENT', 'code=' + e.code); }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 });
+    } catch (e) { tele('GEO_UNAVAILABLE'); }
+  }
+
+  // ------------------------------------------------------------ senses: haptics
+  function haptic(pattern) {
+    try { if (navigator.vibrate) { senses.haptic = navigator.vibrate(pattern) ? 'REQUESTED' : 'BLOCKED'; return; } } catch (e) { /* optional sense */ }
+    senses.haptic = 'UNAVAILABLE';
+  }
+
+  // ------------------------------------------------------------ senses: sound (ambient, fail-open)
+  const audio = (function () {
+    let ac = null, micNode = null, proc = null, mute = null, detector = null;
+    let mode = 'idle', txTimer = 0, txUntil = 0, lockTimers = [], poll = 0;
+    let myHex = null, mySymbols = null, myBuf = [null, null], heardHex = null, heardBand = 0, echoBand = -1, heardAt = -1, answeredAt = 0, answers = 0, caller = false, sent = 0, micState = 'MIC_UNAVAILABLE';
+    const zeros = new Float32Array(1024);
+    let lastBand = 0;
+    const running = () => !!ac && ac.state === 'running';
+    const ultrasonic = () => running() && ac.sampleRate >= 44100;
+
+    function init() {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        ac = new AC({ latencyHint: 'interactive' });
+        unlock();
+      } catch (e) { ac = null; }
+    }
+    function unlock() {
+      // 'suspended' before a first touch; iOS also reports 'interrupted' after the audio session changes
+      if (ac && ac.state !== 'running' && ac.state !== 'closed') ac.resume().then(() => {}, () => {});
+    }
+    // A fresh random code for every session. It leaves this device only as sound; if the peer's signed
+    // frames carry it back, the peer's microphone was within earshot of this speaker.
+    async function prepare() {
+      const code = crypto.getRandomValues(new Uint8Array(4));
+      myHex = P.bytesToHex(code); mySymbols = P.soundSymbols(code);
+      myBuf = [null, null]; heardHex = null; heardBand = 0; echoBand = -1; heardAt = -1; answeredAt = 0; answers = 0; sent = 0;
+    }
+    function burst(band) {
+      const bd = band === 1 ? 1 : 0;
+      if (!ultrasonic() || !mySymbols) return 0;
+      try {
+        if (!myBuf[bd]) {
+          const data = P.audioSynth(mySymbols, ac.sampleRate, 0.3, bd);
+          myBuf[bd] = ac.createBuffer(1, data.length, ac.sampleRate);
+          myBuf[bd].getChannelData(0).set(data);
+        }
+        const src = ac.createBufferSource();
+        src.buffer = myBuf[bd]; src.connect(ac.destination); src.start();
+        txUntil = performance.now() + myBuf[bd].duration * 1000 + 80;
+        sent++; session.bursts++; lastBand = bd;
+        return myBuf[bd].duration * 1000;
+      } catch (e) { return 0; }
+    }
+    function schedule() {
+      clearTimeout(txTimer); txTimer = 0;
+      if (mode !== 'beacon') return;
+      const d = burst() || 900;
+      // half-duplex: a device cannot hear the peer over its own speaker, so beacons leave silence between them
+      txTimer = setTimeout(schedule, d + 1300 + Math.random() * 900);
+    }
+    function setMode(m) {
+      mode = m;
+      for (const t of lockTimers) clearTimeout(t);
+      lockTimers = [];
+      schedule();
+    }
+    function listen() {
+      if (!detector) return;
+      if (mode !== 'locked') return; // a code only means something once a peer is locked
+      const d = detector.decode(myHex);
+      if (!d) return;
+      const again = d.hex === heardHex && Math.abs(d.at - heardAt) > 20; // the same code, played a second time
+      if (d.hex !== heardHex) { heardHex = d.hex; heardBand = d.band; tele('SOUND_HEARD', d.hex + (d.band ? ' low-band' : '')); refreshFrame(); }
+      else if (!again) return;
+      heardAt = d.at;
+      // the answering side speaks right after it hears the caller, while the caller is silent and listening
+      if (!caller && answers < 2 && performance.now() - answeredAt > 1500) { answers++; answeredAt = performance.now(); const bd = d.band; lockTimers.push(setTimeout(() => burst(bd), 150)); }
+    }
+    function attachMic(stream) {
+      if (!ac) return;
+      try {
+        micNode = ac.createMediaStreamSource(stream);
+        proc = ac.createScriptProcessor(1024, 1, 1);
+        mute = ac.createGain(); mute.gain.value = 0;
+        detector = P.createAudioDetector(ac.sampleRate);
+        proc.onaudioprocess = (e) => { detector.push(performance.now() < txUntil ? zeros : e.inputBuffer.getChannelData(0)); };
+        micNode.connect(proc); proc.connect(mute); mute.connect(ac.destination);
+        micState = 'LISTENING';
+        clearInterval(poll);
+        poll = setInterval(listen, 200);
+      } catch (e) { micState = 'MIC_ERROR'; }
+    }
+    function detachMic() {
+      clearInterval(poll); poll = 0;
+      try { if (proc) { proc.onaudioprocess = null; proc.disconnect(); } if (micNode) micNode.disconnect(); if (mute) mute.disconnect(); } catch (e) { /* already gone */ }
+      proc = micNode = mute = null; detector = null;
+      if (micState === 'LISTENING') micState = 'MIC_OFF';
+    }
+    // Once locked: the lower key calls (high band, then the lower band if its code has not come back);
+    // the higher key answers only after it hears a call, so the two never talk over each other.
+    function onLock() {
+      setMode('locked');
+      caller = dev.pk < dev.targetPk;
+      heardHex = null; heardAt = -1; answeredAt = 0; answers = 0;
+      if (detector) detector.clear(); // only sound from this lock onward counts
+      const wait = Math.max(0, txUntil - performance.now());
+      if (caller) {
+        lockTimers = [setTimeout(() => burst(0), wait), setTimeout(() => { if (!(gather && gather.peerEchoed)) burst(1); }, wait + 1900)];
+      } else {
+        // if no call is ever heard, speak once anyway after both of the caller's turns have passed
+        lockTimers = [setTimeout(() => { if (!answeredAt) { answers++; answeredAt = performance.now(); burst(0); } }, wait + 3000)];
+      }
+    }
+    function finish() {
+      const pk = detector ? detector.peak() : [0, 0];
+      const out = {
+        sent_code: sent ? myHex : null, heard_code: heardHex, status: !ac ? 'AUDIO_UNAVAILABLE' : !running() ? 'AUDIO_BLOCKED' : micState,
+        // plain measurements, so one screenshot says why a sound check did or did not complete
+        diag: { bursts_sent: sent, last_band_sent: lastBand ? 'low' : 'high', heard_band: heardHex ? (heardBand ? 'low' : 'high') : null, tone_peak_db_high: pk[0], tone_peak_db_low: pk[1], sample_rate: ac ? ac.sampleRate : 0, mic: micState, audio: ac ? ac.state : 'none' },
+      };
+      setMode('idle');
+      return out;
+    }
+    const caps = () => (ultrasonic() ? 1 : 0) | (micState === 'LISTENING' && running() ? 2 : 0);
+    // Two notes, one from each key, resolving into a unison chosen by the shared core.
+    function chord(r) {
+      if (!ac) return 'UNAVAILABLE';
+      if (!running()) return 'BLOCKED';
+      try {
+        const core = P.hexToBytes(r.core), a = P.hexToBytes(r.pk_A)[1], b = P.hexToBytes(r.pk_B)[1];
+        const u = 293.66 * Math.pow(2, [0, 2, 4, 7, 9][core[0] % 5] / 12);
+        const t = ac.currentTime + 0.03;
+        const out = ac.createGain(), lp = ac.createBiquadFilter();
+        lp.type = 'lowpass'; lp.frequency.value = 2400;
+        out.gain.setValueAtTime(0.0001, t);
+        out.gain.exponentialRampToValueAtTime(0.13, t + 0.05);
+        out.gain.setValueAtTime(0.13, t + 0.62);
+        out.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+        out.connect(lp); lp.connect(ac.destination);
+        const voice = (start, type, level) => {
+          const o = ac.createOscillator(), g = ac.createGain();
+          o.type = type; g.gain.value = level;
+          o.frequency.setValueAtTime(start, t);
+          o.frequency.exponentialRampToValueAtTime(u, t + 0.6);
+          o.connect(g); g.connect(out); o.start(t); o.stop(t + 1.25);
+        };
+        voice(u * [2 / 3, 3 / 4, 4 / 5][a % 3], 'sine', 0.55);
+        voice(u * [5 / 6, 8 / 9, 9 / 10][b % 3], 'triangle', 0.45);
+        const sh = ac.createOscillator(), sg = ac.createGain();
+        sh.type = 'sine'; sh.frequency.value = u * 2;
+        sg.gain.setValueAtTime(0.0001, t + 0.45); sg.gain.exponentialRampToValueAtTime(0.16, t + 0.7);
+        sh.connect(sg); sg.connect(out); sh.start(t + 0.45); sh.stop(t + 1.25);
+        return 'SCHEDULED'; // sent to the speaker; the page cannot know it was audible
+      } catch (e) { return 'BLOCKED'; }
+    }
+    return { init: init, unlock: unlock, prepare: prepare, setMode: setMode, attachMic: attachMic, detachMic: detachMic, onLock: onLock, finish: finish, chord: chord, caps: caps, myHex: () => myHex, heardHex: () => heardHex, state: () => (ac ? ac.state : 'none'), blocked: () => !!ac && ac.state !== 'running' };
+  })();
+
+  // ------------------------------------------------------------ senses: motion
+  // Any movement counts, no pattern. This device's motion sensor says "I was moving in these quarter-seconds"
+  // (signed into its frames); the peer's camera says "the code I was reading moved in those quarter-seconds".
+  const motion = (function () {
+    let state = 'UNAVAILABLE', pending = false, on = false;
+    const slots = new Set();
+    function onMotion(e) {
+      const r = e.rotationRate, a = e.acceleration;
+      if ((!r || r.alpha === null) && (!a || a.x === null)) return;
+      state = 'SENSING';
+      const rot = r ? Math.hypot(r.alpha || 0, r.beta || 0, r.gamma || 0) : 0, lin = a ? Math.hypot(a.x || 0, a.y || 0, a.z || 0) : 0;
+      if (rot > 8 || lin > 0.3) {
+        const k = Math.floor(performance.now() / 250);
+        slots.add(k);
+        if (slots.size > 80) for (const old of slots) { if (old < k - 40) slots.delete(old); }
+      }
+    }
+    function start() { if (!on) { on = true; try { window.addEventListener('devicemotion', onMotion); } catch (e) { /* optional sense */ } } }
+    function request() { // iOS hands out motion data only after a tap; called from touchend / click
+      try {
+        const D = window.DeviceMotionEvent;
+        if (!D || pending || state === 'SENSING' || typeof D.requestPermission !== 'function') return;
+        pending = true;
+        D.requestPermission().then((r) => { pending = false; if (r !== 'granted' && state !== 'NOT_GRANTED') { state = 'NOT_GRANTED'; tele('MOTION_PERMISSION', r); } }, () => { pending = false; });
+      } catch (e) { pending = false; }
+    }
+    // did this device itself move around time t? then what its camera saw proves nothing about the peer
+    function movedNear(t) { const k = Math.floor(t / 250); return slots.has(k) || slots.has(k - 1) || slots.has(k + 1); }
+    const needsTap = () => state !== 'SENSING' && state !== 'NOT_GRANTED' && navigator.maxTouchPoints > 0 && !!window.DeviceMotionEvent && typeof window.DeviceMotionEvent.requestPermission === 'function';
+    function bits() {
+      if (state !== 'SENSING') return undefined;
+      const k = Math.floor(performance.now() / 250);
+      let b = 0;
+      for (let i = 0; i < 4; i++) if (slots.has(k - 1 - i)) b |= 1 << i;
+      return b;
+    }
+    start(); // engines that need no permission deliver events at once; iPhone delivers them after the tap above
+    return { request: request, bits: bits, movedNear: movedNear, needsTap: needsTap, sensing: () => state === 'SENSING', state: () => state };
+  })();
+
+  // Where the peer's code sits in this camera's view, over the last few seconds.
+  const track = [];
+  let sightText = ''; // the last frame text verified as the locked peer's; only its sightings are tracked
+  function sawCode(t, loc) {
+    track.push({ t: t, x: loc[0], y: loc[1], w: loc[2] });
+    while (track.length && t - track[0].t > 6000) track.shift();
+  }
+  function seenMoving(t0, t1) {
+    let path = 0, n = 0, w = 0, prev = null;
+    for (const p of track) {
+      if (p.t < t0 || p.t > t1) continue;
+      if (prev) path += Math.hypot(p.x - prev.x, p.y - prev.y);
+      prev = p; n++; w += p.w;
+    }
+    if (n < 2 || !(w > 0)) return null; // not enough sightings to say either way
+    return path / (w / n) >= 0.05;
+  }
+
+  // After the lock the handshake is held open briefly so the senses can answer. It never waits for a sense
+  // the two devices cannot perform, and never longer than GATHER_MS.
+  const GATHER_MS = 4400;
+  let gather = null;
+  function newGather(now) { track.length = 0; sightText = ''; return { at: now, peerCap: null, peerEchoed: false, echoFrame: null, lastI: -1, slots: new Set(), peerMoving: false, compared: 0, claimed: 0, seen: 0, both: 0, mismatch: 0 }; }
+  function harvest(packet, now) {
+    const g = gather, F = packet.F;
+    if (!g) return;
+    // only frames of this session, and never one older than already seen (a replayed frame changes nothing)
+    const nonce = F.type === 'FACE' ? F.nonce : F.type === 'SEENYOU' ? F.my_nonce : F.type === 'HANDSHAKE' ? F.nonce_B : null;
+    if ((nonce !== null && nonce !== dev.peerNonce) || F.i < g.lastI) return;
+    const fresh = F.i > g.lastI;
+    g.lastI = F.i;
+    g.peerCap = typeof F.cap === 'number' ? F.cap : 0;
+    // an echo counts only in a frame that is bound to this session (not the peer's idle FACE frame)
+    if (F.type !== 'FACE' && F.snd && F.snd === audio.myHex() && !g.peerEchoed) { g.peerEchoed = true; g.echoFrame = packet; tele('SOUND_ECHO_CONFIRMED', F.snd); }
+    if (fresh && typeof F.mov === 'number') {
+      g.peerMoving = F.mov !== 0;
+      for (let i = 0; i < 4; i++) {
+        const t1 = now - 400 - i * 250, key = Math.floor((t1 - 125) / 250);
+        if (g.slots.has(key)) continue;               // each quarter-second is judged once
+        if (motion.movedNear(t1 - 125)) continue;     // this device was moving: its camera view proves nothing
+        const saw = seenMoving(t1 - 375, t1 + 125);
+        if (saw === null) continue;
+        g.slots.add(key);
+        const said = !!((F.mov >> i) & 1);
+        g.compared++; if (said) g.claimed++; if (saw) g.seen++; if (said && saw) g.both++; if (said !== saw) g.mismatch++;
+      }
+    }
+  }
+  function gatherDone(now) {
+    const g = gather;
+    if (!g) return true;
+    const el = now - g.at;
+    if (el >= GATHER_MS) return true;
+    if (g.peerCap === null || el < 350) return false;
+    const my = audio.caps();
+    if ((my & 1) && (g.peerCap & 2) && !g.peerEchoed) return false;      // my code has not come back yet
+    if ((g.peerCap & 1) && (my & 2) && !audio.heardHex()) return false;  // I have not heard a code to return yet
+    if ((g.peerCap & 4) && g.peerMoving && g.compared < 8) return false; // the peer is moving: watch a little longer
+    return true;
+  }
+  function motionResult(g) {
+    if (!g || !g.compared || !g.claimed) return 'NOT_PERFORMED';
+    return g.both >= 4 && g.mismatch <= 0.4 * g.compared ? 'SEEN_AND_CLAIMED' : 'NOT_MATCHED';
+  }
+
+  // ------------------------------------------------------------ camera and decode loop
+  const cam = { live: false, starting: false, gen: 0, stream: null, mic: null, wantMic: true, everLive: false, retries: 0 };
+  let detector = null, detectorErrors = 0, worker = null, workerSeq = 0, workerBusy = false;
+  const workerWait = new Map();
+  const cap = document.createElement('canvas');
+  const capCtx = cap.getContext('2d', { willReadFrequently: true });
+  const FRAME_TEXT = /^[0-9A-Z $%*+\-./:]{150,400}$/;
+
+  async function initDecoders() {
+    try {
+      if ('BarcodeDetector' in window) {
+        const fmts = await window.BarcodeDetector.getSupportedFormats();
+        if (fmts.indexOf('qr_code') >= 0) { detector = new window.BarcodeDetector({ formats: ['qr_code'] }); session.decoder = 'BarcodeDetector'; }
+      }
+    } catch (e) { detector = null; }
+    try {
+      // jsQR runs off the render thread. Its source is the pinned vendor file, integrity-checked by the browser.
+      const src = await NET.vendorText();
+      // Each frame is tried at half size first (2x2 averaged: faster, and it cancels sensor noise), then at full size.
+      const glue = '\n;self.onmessage=function(e){var d=e.data,w=d.w,h=d.h,s=new Uint8ClampedArray(d.buf),t=null,l=null,o={inversionAttempts:"dontInvert"};try{' +
+        'var hw=w>>1,hh=h>>1,q=new Uint8ClampedArray(hw*hh*4),x,y,i,k,p;' +
+        'for(y=0;y<hh;y++)for(x=0;x<hw;x++){i=(y*2*w+x*2)*4;k=i+w*4;p=(y*hw+x)*4;q[p]=(s[i]+s[i+4]+s[k]+s[k+4])>>2;q[p+1]=(s[i+1]+s[i+5]+s[k+1]+s[k+5])>>2;q[p+2]=(s[i+2]+s[i+6]+s[k+2]+s[k+6])>>2;q[p+3]=255}' +
+        'var c=self.jsQR(q,hw,hh,o),m=2;if(!c){c=self.jsQR(s,w,h,o);m=1}' +
+        'if(c&&c.data){t=c.data;var L=c.location,a=L.topLeftCorner,b=L.topRightCorner,z=L.bottomRightCorner;l=[(a.x+z.x)*m/2/w,(a.y+z.y)*m/2/w,Math.hypot(b.x-a.x,b.y-a.y)*m/w]}' +
+        '}catch(x){}self.postMessage({id:d.id,text:t,loc:l})};';
+      const w = new Worker(URL.createObjectURL(new Blob([src, glue], { type: 'text/javascript' })));
+      w.onmessage = (e) => { const f = workerWait.get(e.data.id); if (f) { workerWait.delete(e.data.id); f(e.data.text ? { text: e.data.text, loc: e.data.loc || null } : null); } };
+      w.onerror = () => { worker = null; tele('DECODER_WORKER_FAILED'); };
+      worker = w;
+      session.decoder += '+jsQR-worker';
+    } catch (e) { session.decoder += '+jsQR-main'; }
+    tele('DECODER_READY', session.decoder);
+  }
+  function workerDecode(img) {
+    return new Promise((resolve) => {
+      const id = ++workerSeq;
+      workerBusy = true;
+      // A slow frame is abandoned, but the worker stays "busy" until it answers, so frames are dropped rather than queued.
+      const timer = setTimeout(() => { if (workerWait.has(id)) { workerWait.set(id, () => { workerBusy = false; }); resolve(null); } }, 1500);
+      workerWait.set(id, (t) => { clearTimeout(timer); workerBusy = false; resolve(t); });
+      worker.postMessage({ id: id, buf: img.data.buffer, w: img.width, h: img.height }, [img.data.buffer]);
+    });
+  }
+  async function scan() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || video.readyState < 2) return null;
+    if (detector) {
+      try {
+        const codes = await detector.detect(video);
+        for (const c of codes) {
+          if (!FRAME_TEXT.test(c.rawValue)) continue;
+          const q = c.cornerPoints;
+          const loc = q && q.length === 4 ? [(q[0].x + q[2].x) / 2 / vw, (q[0].y + q[2].y) / 2 / vw, Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y) / vw] : null;
+          return { text: c.rawValue, loc: loc };
+        }
+      } catch (e) { if (++detectorErrors > 8) detector = null; }
+    }
+    if ((!worker && !window.jsQR) || (worker && workerBusy)) return null;
+    // Without a worker jsQR shares the render thread, so that fallback reads a smaller image.
+    const k = worker ? 1 : Math.min(1, 960 / vw), w = Math.round(vw * k), h = Math.round(vh * k);
+    if (cap.width !== w || cap.height !== h) { cap.width = w; cap.height = h; }
+    capCtx.drawImage(video, 0, 0, w, h);
+    const img = capCtx.getImageData(0, 0, w, h);
+    if (worker) return workerDecode(img);
+    const c = window.jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+    return c && c.data ? { text: c.data, loc: null } : null;
+  }
+  async function decodeLoop(gen) {
+    while (cam.live && gen === cam.gen) {
+      const t = performance.now();
+      session.scans++;
+      let hit = null;
+      try { hit = await scan(); } catch (e) { /* a missed frame is not an error */ }
+      if (hit && hit.text && gen === cam.gen) {
+        session.hits++;
+        try { await onText(hit.text, hit.loc, t); } catch (e) { tele('PROCESS_ERROR', String(e && e.message)); }
+      }
+      const fast = (dev && dev.state !== 'FACE') || performance.now() - lastHitAt < 2000; // 10 fps with a peer in view, 2 fps idle
+      await sleep(Math.max(0, (fast ? 100 : 500) - (performance.now() - t)));
+    }
+  }
+  async function startCamera() {
+    if (cam.live || cam.starting || visual !== 'FACE' || document.hidden) return;
+    cam.starting = true;
+    const gen = ++cam.gen;
+    try {
+      const md = navigator.mediaDevices;
+      if (!md || !md.getUserMedia) { tele('CAMERA_UNAVAILABLE', window.isSecureContext ? '' : 'insecure-context'); return; }
+      const v = { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
+      const a = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
+      let stream = null;
+      // The microphone is opened once and kept while the page is visible: re-opening it at every attempt makes
+      // phones re-route their audio. Only the camera is released at bloom.
+      const haveMic = !!cam.mic && cam.mic.getAudioTracks().some((t) => t.readyState === 'live');
+      if (cam.wantMic && !haveMic) {
+        try { stream = await md.getUserMedia({ video: v, audio: a }); }
+        catch (e) { if (!cam.everLive) cam.wantMic = false; tele('MIC_ABSENT', e && e.name); }
+      }
+      if (!stream) stream = await md.getUserMedia({ video: v, audio: false });
+      if (gen !== cam.gen || visual !== 'FACE' || document.hidden) { stream.getTracks().forEach((t) => t.stop()); return; }
+      cam.stream = stream;
+      video.srcObject = stream;
+      try { await video.play(); } catch (e) { /* autoplay of a muted inline stream */ }
+      if (gen !== cam.gen || visual !== 'FACE' || document.hidden) {
+        stream.getTracks().forEach((t) => t.stop());
+        if (cam.stream === stream) { cam.stream = null; video.srcObject = null; }
+        return;
+      }
+      cam.live = true; cam.everLive = true; cam.retries = 0;
+      audio.unlock(); // engines that allow sound while capturing only do so from here on
+      const st = stream.getVideoTracks()[0].getSettings();
+      session.camera = (st.width || 0) + 'x' + (st.height || 0);
+      setPhase(dev && dev.state !== 'FACE' ? 'locked' : 'search');
+      tele('CAMERA_READY', session.camera + (stream.getAudioTracks().length || haveMic ? ' +mic' : ''));
+      if (stream.getAudioTracks().length && !haveMic) { cam.mic = new MediaStream(stream.getAudioTracks()); audio.attachMic(cam.mic); }
+      audio.setMode('idle'); // no sound until a peer is locked
+      decodeLoop(gen);
+    } catch (e) {
+      tele('CAMERA_DENIED', e && e.name);
+      // Reacquiring a camera that worked a moment ago can fail transiently; a first-time refusal is left alone.
+      if (cam.everLive && cam.retries < 3) setTimeout(startCamera, 1000 * Math.pow(2, cam.retries++));
+    } finally {
+      cam.starting = false;
+      // a start that was cancelled by a visibility change is tried again once the page is back
+      if (gen !== cam.gen && !cam.live && visual === 'FACE' && !document.hidden) startCamera();
+    }
+  }
+  function stopCamera(all) {
+    cam.gen++;
+    if (all && cam.mic) {
+      audio.detachMic();
+      try { cam.mic.getTracks().forEach((t) => t.stop()); } catch (e) { /* already stopped */ }
+      cam.mic = null;
+    }
+    if (!cam.live && !cam.stream) return;
+    cam.live = false;
+    try { if (cam.stream) cam.stream.getVideoTracks().forEach((t) => t.stop()); } catch (e) { /* already stopped */ }
+    if (all) { try { if (cam.stream) cam.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* already stopped */ } }
+    cam.stream = null;
+    video.srcObject = null;
+    tele('CAMERA_STOPPED');
+  }
+
+  // ------------------------------------------------------------ ceremony glue
+  let lastText = '', lastTextState = '';
+  function refusal(code) {
+    session.refusals[code] = (session.refusals[code] || 0) + 1;
+    if (attempt) attempt.refusals[code] = (attempt.refusals[code] || 0) + 1;
+    if (session.refusals[code] === 1 || session.refusals[code] % 50 === 0) tele('REFUSED', code + ' x' + session.refusals[code]);
+  }
+  async function onText(text, loc, seenAt) {
+    if (!dev || visual !== 'FACE') return;
+    if (loc && text === sightText) sawCode(seenAt, loc); // another sighting of a frame already verified as the peer's
+    const verified = (packet, now) => { if (text !== sightText) { sightText = text; if (loc) sawCode(seenAt, loc); } harvest(packet, now); };
+    if (text === lastText && dev.state === lastTextState) return; // same frame, same state: nothing new to learn
+    lastText = text; lastTextState = dev.state;
+    const d = P.decodeFrame(text, { pk: dev.pk });
+    if (!d.ok) { refusal(d.code); return; }
+    const now = performance.now();
+    lastHitAt = now;
+    if (!firstFrameAt) firstFrameAt = now;
+    const F = d.packet.F, sender = F.pk || F.my_pk || F.pk_B;
+    if (intent) {
+      // An asking page moves only for a device whose key has signed these exact words for this session.
+      const n = F.type === 'FACE' ? F.nonce : F.type === 'SEENYOU' ? F.my_nonce : F.type === 'HANDSHAKE' ? F.nonce_B : dev.peerNonce;
+      if (F.ack && n && !(consent && consent.pk === sender && consent.nonce === n) && await P.verifyAck(sender, intent.digest, dev.pk, n, F.ack)) {
+        consent = { pk: sender, nonce: n, sig: F.ack };
+        tele('OWNER_SIGNED_TEXT', sender.slice(2, 14));
+      }
+      if (visual !== 'FACE') return;
+      if (!consent || consent.pk !== sender || consent.nonce !== n) { refusal('NOT_APPROVED'); lastText = ''; return; }
+    } else if (F.ask || (approval && approval.pk === sender && approval.state !== 'approved')) {
+      // An approving device does not move for an asking page until its person has read the words and tapped.
+      if (!(await onAsk(sender, d.packet))) { lastText = ''; return; }
+      if (visual !== 'FACE') return;
+    }
+    if (dev.state === 'SEENYOU' && sender === dev.targetPk && (F.type === 'SEENYOU' || F.type === 'HANDSHAKE') && !gatherDone(now)) {
+      const seen = await dev.inspect(d.packet);
+      if (visual !== 'FACE') return;
+      if (seen.ok) verified(d.packet, now);
+      if (!gatherDone(performance.now())) { lastText = ''; return; } // keep sensing; this frame is offered again on the next scan
+    }
+    const res = await dev.process(d.packet);
+    if (visual !== 'FACE') return;
+    switch (res.code) {
+      case 'LOCKED':
+        attempt = { n: ++attemptN, at: new Date().toISOString(), ready: readyAt, first_frame: firstFrameAt, locked: now, refusals: {} };
+        marks = {};
+        gather = newGather(now);
+        setPhase('locked'); tele('PEER_LOCKED', dev.targetPk.slice(2, 14));
+        pulse.start = now;
+        audio.unlock();
+        audio.onLock();
+        refreshFrame();
+        break;
+      case 'TIEBREAK_INITIATOR':
+        if (!marks.tiebreak) { marks.tiebreak = now; tele('TIEBREAK', 'INITIATOR_A'); haptic([30, 50, 30]); }
+        break;
+      case 'HANDSHAKE_SIGNED':
+        marks.tiebreak = now; tele('HANDSHAKE', 'RESPONDER_B signed'); haptic([30, 50, 30]);
+        refreshFrame();
+        break;
+      case 'BLOOM_MINTED':
+        marks.minted = now; tele('BLOOM_MINTED', 'A ' + dev.receipt.digest);
+        refreshFrame();
+        holdTimer = setTimeout(() => startBloom(false, undefined), HOLD_MS);
+        break;
+      case 'BLOOM_CONFIRMED': {
+        marks.minted = now; tele('BLOOM_MINTED', 'B ' + dev.receipt.digest);
+        const lat = marks.handshakeShownAt ? (now - marks.handshakeShownAt) / 2 : undefined;
+        refreshFrame();
+        stopCamera(); // nothing further to read
+        setTimeout(() => startBloom(true, lat), ACK_SHOW_MS);
+        break;
+      }
+      case 'PEER_BLOOM_SEEN': {
+        if (marks.peerSeen) break;
+        marks.peerSeen = true;
+        clearTimeout(holdTimer);
+        tele('PEER_BLOOM_SEEN');
+        const lat = marks.bloomShownAt ? (now - marks.bloomShownAt) / 2 : undefined;
+        // the responder is still showing its BLOOM frame; wait it out so both screens let go together
+        holdTimer = setTimeout(() => startBloom(true, lat), ACK_SHOW_MS - 150);
+        break;
+      }
+      default:
+        if (!res.accepted) refusal(res.code);
+    }
+    // every verified frame from the locked peer can carry sense answers, including its last one
+    if (gather && sender === dev.targetPk && (res.accepted || res.code === 'IGNORED')) verified(d.packet, now);
+  }
+  // ---- approving device: collect the asked text, show it, and wait for a real tap
+  const askReader = P.createAskReader(), consentEl = $('consent');
+  const APPROVAL_TTL_MS = 60000;
+  function dropApproval(why) {
+    if (!approval) return;
+    tele('APPROVAL_DROPPED', why);
+    approval = null; consentEl.hidden = true; consentEl.textContent = '';
+    if (dev && visual === 'FACE') refreshFrame();
+  }
+  function showConsent() {
+    const a = approval;
+    consentEl.textContent = '';
+    consentEl.appendChild(h('div', 'k', 'the other screen asks you to approve'));
+    // every character that is signed is shown; a long hash is set small so the sentence around it stays readable
+    const body = h('div', 't');
+    for (const part of a.text.split(/([0-9a-f]{32,})/)) if (part) body.appendChild(/^[0-9a-f]{32,}$/.test(part) ? h('span', 'x', part) : document.createTextNode(part));
+    consentEl.appendChild(body);
+    consentEl.appendChild(h('div', 'w', 'asked by key ' + a.pk.slice(2, 14) + ' \u00b7 words ' + a.digest.slice(0, 12)));
+    const yes = h('button', '', 'approve'), no = h('button', 'no', 'not now'), bar = h('div', 'b');
+    // only a real tap counts: a scripted click is not a person
+    yes.addEventListener('click', (e) => {
+      if (!e.isTrusted || approval !== a || a.state !== 'shown') return;
+      a.state = 'approved'; a.at = performance.now();
+      consentEl.hidden = true; lastText = '';
+      tele('APPROVED_TEXT', a.digest.slice(0, 12));
+      haptic([40]);
+      refreshFrame();
+    });
+    no.addEventListener('click', (e) => { if (e.isTrusted && approval === a) { a.state = 'declined'; a.at = performance.now(); consentEl.hidden = true; tele('DECLINED_TEXT', a.digest.slice(0, 12)); } });
+    bar.appendChild(no); bar.appendChild(yes);
+    consentEl.appendChild(bar);
+    consentEl.hidden = false;
+  }
+  // true once the person has approved this sender's words; until then the sender's frames go no further
+  async function onAsk(sender, packet) {
+    const a = packet.F.ask, now = performance.now();
+    if (approval && now - approval.at > APPROVAL_TTL_MS && approval.state !== 'shown') dropApproval('expired');
+    if (approval) {
+      if (approval.pk !== sender) return false;                 // one question at a time
+      if (a && a.slice(0, 8) !== approval.d4) { if (approval.state === 'shown') return false; dropApproval('text-changed'); }
+      else return approval.state === 'approved';
+    }
+    if (!a || dev.state !== 'FACE') return false;
+    const seen = await dev.inspect(packet);
+    if (!seen.ok) { refusal(seen.code); return false; }
+    const got = await askReader.push(a);
+    if (!got || approval || visual !== 'FACE') return false;
+    approval = { pk: sender, d4: a.slice(0, 8), text: got.text, digest: got.digest, state: 'shown', at: performance.now() };
+    tele('ASKED_TO_APPROVE', got.digest.slice(0, 12));
+    showConsent();
+    return false;
+  }
+
+  function endAttempt(outcome, extra) {
+    if (!attempt) return;
+    const now = performance.now();
+    const rec = Object.assign({
+      n: attempt.n, at: attempt.at, outcome: outcome,
+      ready_to_end_ms: Math.round(now - attempt.ready),
+      first_frame_to_end_ms: Math.round(now - attempt.first_frame),
+      lock_to_end_ms: Math.round(now - attempt.locked),
+      lock_to_mint_ms: marks.minted ? Math.round(marks.minted - attempt.locked) : null,
+      refusals: attempt.refusals, camera: session.camera, decoder: session.decoder,
+    }, extra || {});
+    attempts.push(rec);
+    dbPut('attempts', rec.at + '#' + rec.n, rec);
+    attempt = null;
+  }
+  function onTimeoutReset(from) {
+    tele('TIMEOUT_RESET', 'from=' + from + ' dot=' + phase);
+    endAttempt('TIMEOUT', { state_at_failure: from, dot_at_failure: phase });
+    marks = {}; gather = null; lastText = ''; firstFrameAt = 0; readyAt = performance.now();
+    setPhase(cam.live ? 'search' : 'init');
+    audio.prepare().then(() => audio.setMode('idle'));
+    refreshFrame();
+  }
+
+  async function startBloom(peerSeen, latencyMs) {
+    if (visual !== 'FACE' || !dev || !dev.receipt) return;
+    visual = 'BLOOMING';
+    clearTimeout(holdTimer);
+    const chord = audio.chord(dev.receipt); // before the camera is released, so the audio route is still settled
+    stopCamera(); // video tracks end at bloom
+    bloom.start = performance.now();
+    setPhase('bloom');
+    hintOn = false; hintEl.className = '';
+    tele('BLOOM_VISUAL', peerSeen ? 'peer-seen' : 'peer-not-seen');
+    haptic([80]);
+    const base = dev.receipt;
+    sharedDigits = await P.pentoraDigits(dev.core);
+    const snd = audio.finish(), g = gather;
+    const echoed = !!(g && g.peerEchoed);
+    const mres = motionResult(g);
+    // In approval mode, show how this page's nonce commits to the text, so anyone can re-derive it.
+    const mySalt = intent ? intent.salts[base['nonce_' + base.minted_by]] : null;
+    const peerSide = base.minted_by === 'A' ? 'B' : 'A';
+    // the peer's own signature over these words, kept only if it belongs to exactly this session
+    const signed = consent && consent.pk === base['pk_' + peerSide] && consent.nonce === base['nonce_' + peerSide] ? { sig: consent.sig, by: peerSide } : undefined;
+    const gave = approval && approval.state === 'approved' && approval.pk === base['pk_' + peerSide] ? { text: approval.text, digest: approval.digest, asker: approval.pk } : undefined;
+    consent = null; approval = null; consentEl.hidden = true;
+    receipt = P.finalizeReceipt(base, {
+      peer_bloom_seen: peerSeen,
+      intent: mySalt ? { text: intent.text, digest: intent.digest, salt: mySalt, side: base.minted_by, ack: signed } : undefined,
+      approved: gave,
+      acoustic_channel: echoed ? 'ECHO_CONFIRMED' : undefined,
+      sound_echo: {
+        sent_code: snd.sent_code, peer_returned_it: echoed, heard_code: snd.heard_code, diag: snd.diag,
+        peer_frame: echoed ? g.echoFrame : undefined, // the peer's signed frame carrying this device's code back
+      },
+      motion: {
+        result: mres, own_sensor: motion.state(), peer_sensor: !g || g.peerCap === null ? 'UNKNOWN' : (g.peerCap & 4 ? 'SENSING' : 'NONE'),
+        quarter_seconds_compared: g ? g.compared : 0, peer_said_moving: g ? g.claimed : 0, camera_saw_moving: g ? g.seen : 0, both: g ? g.both : 0,
+      },
+      senses: {
+        optical: 'PERFORMED', acoustic: echoed ? 'ECHO_CONFIRMED' : snd.heard_code ? 'HEARD_A_CODE_OWN_NOT_RETURNED' : snd.sent_code ? 'SENT_NOT_RETURNED' : snd.status, motion: mres, chord: chord, haptic: senses.haptic, location: base['geo_' + base.minted_by] ? 'CLAIMED' : 'ABSENT',
+        // show -> peer reply round trip (two cameras, two decode waits, signing): telemetry, not a transit time
+        ack_round_trip_ms: typeof latencyMs === 'number' ? Math.round(latencyMs * 2) : undefined,
+      },
+    });
+    receipt.id = receipt.t_B + '-' + receipt.digest + '-' + receipt.minted_by;
+    receiptSaved = await dbPut('receipts', receipt.id, receipt);
+    const check = await P.verifyReceipt(receipt);
+    tele('BLOOM', receipt.digest + ' ' + receipt.sentinel_verdict + ' acoustic_channel=' + receipt.acoustic_channel + ' motion=' + mres + ' chord=' + chord + ' verify=' + check.reason);
+    console.log('[PORTAL_RECEIPT] ' + JSON.stringify(receipt));
+    if (receipt.intent) { // hand the approval to whoever asked for it: a file, written on this device only
+      saveFile('copresence-approval-' + receipt.intent.digest.slice(0, 12) + '-' + receipt.digest + '.json', JSON.stringify(receipt, null, 1));
+      tele('APPROVAL_SAVED', receipt.intent.digest.slice(0, 12));
+    }
+    endAttempt('BLOOM', { digest: receipt.digest, role: receipt.minted_by, verify: check.reason, verdict: receipt.sentinel_verdict, acoustic_channel: receipt.acoustic_channel, chord: chord, peer_bloom_seen: peerSeen, sound_echo: { sent: !!snd.sent_code, returned: echoed, heard: !!snd.heard_code }, motion: receipt.motion });
+    codeEl.textContent = receipt.digest.slice(0, 4) + ' ' + receipt.digest.slice(4);
+    lineEl.textContent = (receiptSaved ? 'Receipt saved' : 'Receipt held in memory') + ' — say the code out loud to confirm.';
+    setTimeout(() => { if (visual === 'BLOOMING') say.className = 'on'; }, 650);
+    settleTimer = setTimeout(() => {
+      if (visual !== 'BLOOMING') return;
+      visual = 'SETTLED'; say.className = 'on dim';
+      tele('SETTLED');
+      armReturn();
+    }, SETTLE_MS);
+  }
+  function armReturn() {
+    clearTimeout(returnTimer);
+    returnTimer = setTimeout(() => { if (sheet.hidden) returnToFace(); else armReturn(); }, STILL_MS);
+  }
+  function returnToFace() {
+    if (visual !== 'SETTLED') return;
+    visual = 'RETURNING';
+    ret.start = performance.now();
+    tele('RETURNING');
+    say.className = '';
+    setTimeout(async () => {
+      if (receipt) addHistory(receipt, true);
+      dev.reset();
+      receipt = null; sharedDigits = null; marks = {}; gather = null; qr = null; lastText = ''; firstFrameAt = 0;
+      visual = 'FACE'; faceIn.start = performance.now(); readyAt = faceIn.start;
+      setPhase('init');
+      tele('RETURN_FACE');
+      await audio.prepare();
+      refreshFrame();
+      startCamera();
+    }, 720);
+  }
+
+  // ------------------------------------------------------------ history strip (local only)
+  function glyph(digits) {
+    const c = document.createElement('canvas');
+    const px = 52; c.width = c.height = px;
+    const g = c.getContext('2d'), pts = P.PENTORA.points;
+    for (let i = 0; i < 111; i++) {
+      const p = pts[i], ci = cellIndex[i], col = ci < 0 ? CELL[1] : CELL[digits[ci]];
+      const y = p[1] * 0.9 - p[2] * 0.42, s = 1 / (1 - 0.2 * (p[1] * 0.42 + p[2] * 0.9));
+      g.fillStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0.9)';
+      g.beginPath(); g.arc(px / 2 + p[0] * 22 * s, px / 2 + y * 22 * s, 1.5, 0, 6.2832); g.fill();
+    }
+    return c;
+  }
+  async function addHistory(r, front) {
+    try {
+      const b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('aria-label', 'Receipt ' + r.digest);
+      b.appendChild(glyph(await P.pentoraDigits(P.hexToBytes(r.core))));
+      bindPress(b, () => r);
+      if (front) { history.unshift(r); strip.insertBefore(b, strip.firstChild); } else { history.push(r); strip.appendChild(b); }
+      while (strip.children.length > 9) strip.removeChild(strip.lastChild);
+    } catch (e) { /* a strip entry is decoration; the receipt itself is already stored */ }
+  }
+  async function loadHistory() {
+    const all = (await dbAll('receipts')).filter((r) => r && r.core && r.digest).sort((a, b) => b.t_B - a.t_B);
+    for (const r of all.slice(0, 9)) await addHistory(r, false);
+  }
+
+  // ------------------------------------------------------------ the two quiet affordances: tap and long-press
+  function bindPress(el, getReceipt) {
+    let p = null;
+    el.addEventListener('pointerdown', (e) => {
+      audio.unlock();
+      const r = getReceipt();
+      if (!r) return;
+      p = { x: e.clientX, y: e.clientY, long: false, timer: setTimeout(() => { if (p) { p.long = true; openPublish(r); } }, 600) };
+    });
+    const cancel = () => { if (p) { clearTimeout(p.timer); p = null; } };
+    el.addEventListener('pointermove', (e) => { if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) cancel(); });
+    el.addEventListener('pointercancel', cancel);
+    el.addEventListener('pointerleave', cancel);
+    el.addEventListener('pointerup', () => {
+      if (!p) return;
+      const wasLong = p.long, r = getReceipt();
+      cancel();
+      if (!wasLong && r) openDetails(r);
+    });
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  function h(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function action(label, fn) {
+    const b = h('button', 'act', label);
+    b.type = 'button';
+    b.addEventListener('click', fn);
+    return b;
+  }
+  function row(k, v, cls) {
+    const r = h('div', 'row');
+    r.appendChild(h('span', 'k', k));
+    r.appendChild(h('span', 'v' + (cls ? ' ' + cls : ''), v));
+    return r;
+  }
+  // A sheet that appears under a finger must not receive that finger's release: it stays inert until the
+  // press that opened it has ended, plus a moment for any synthesized click.
+  let sheetGuard = 0;
+  const sheetLive = () => { clearTimeout(sheetGuard); sheetGuard = setTimeout(() => { sheet.style.pointerEvents = ''; }, 350); };
+  window.addEventListener('pointerup', sheetLive, true);
+  window.addEventListener('pointercancel', sheetLive, true);
+  function openSheet(build, held) {
+    while (sheet.firstChild) sheet.removeChild(sheet.firstChild);
+    const inner = h('div', 'in');
+    build(inner);
+    sheet.appendChild(inner);
+    sheet.hidden = false;
+    sheet.scrollTop = 0;
+    sheet.style.pointerEvents = 'none';
+    if (!held) sheetLive();
+  }
+  function closeSheet() {
+    sheet.hidden = true;
+    NET.disarm();
+    if (visual === 'SETTLED') armReturn();
+  }
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
+
+  function fmtGeo(g) { return g ? g.lat.toFixed(3) + ', ' + g.lon.toFixed(3) + ' ±' + Math.round(g.acc) + ' m' : 'ABSENT'; }
+  function median(xs) { const s = xs.slice().sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; }
+
+  async function exportAll() {
+    const stored = await dbAll('attempts');
+    return {
+      schema: 'aukora.copresence.export.v1', version: P.VERSION, exported_at: new Date().toISOString(),
+      user_agent: navigator.userAgent, secure_context: window.isSecureContext,
+      camera: session.camera, decoder: session.decoder, audio_context: audio.state(),
+      session: { scans: session.scans, hits: session.hits, refusals: session.refusals, chirp_bursts: session.bursts, network_denied: NET.denied() },
+      attempts: stored.length ? stored : attempts,
+      receipts: await dbAll('receipts'),
+      trace: trace.slice(),
+    };
+  }
+  function saveFile(name, text) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+  async function copyText(text, btn) {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { ok = false; }
+    const was = btn.textContent;
+    btn.textContent = ok ? 'copied' : 'copy not allowed here';
+    setTimeout(() => { btn.textContent = was; }, 1400);
+  }
+
+  async function openDetails(r) {
+    const res = await P.verifyReceipt(r);
+    openSheet((el) => {
+      el.appendChild(h('div', 'big', r.digest.slice(0, 4) + ' ' + r.digest.slice(4)));
+      el.appendChild(row('verify', res.reason + (res.valid ? ' — same checks as verify.mjs, run on this device' : ''), res.valid ? 'good' : 'warn'));
+      el.appendChild(row('sentinel', r.sentinel_verdict, r.sentinel_verdict === 'SUSPICIOUS' ? 'warn' : 'good'));
+      el.appendChild(row('position source', r.position_source));
+      for (const a of r.anomalies || []) el.appendChild(h('div', 'note warn', a));
+
+      el.appendChild(h('h2', '', 'What was sensed'));
+      const s = r.senses || {};
+      el.appendChild(row('light', s.optical || 'PERFORMED'));
+      el.appendChild(row('sound', 'acoustic_channel: ' + r.acoustic_channel + (s.acoustic && s.acoustic !== r.acoustic_channel ? ' (' + s.acoustic + ')' : ''), r.acoustic_channel === 'ECHO_CONFIRMED' ? 'good' : ''));
+      if (r.acoustic_channel === 'ECHO_CONFIRMED') el.appendChild(h('div', 'note', 'This device played a random code as sound only. The other device sent that code back inside a signed frame, so its microphone heard this speaker. It was not timed.'));
+      const dg = (r.sound_echo || {}).diag;
+      if (dg) el.appendChild(row('sound detail', 'sent ' + dg.bursts_sent + ' (' + dg.last_band_sent + ') · heard ' + (dg.heard_band || 'nothing') + ' · tone peak ' + dg.tone_peak_db_high + ' / ' + dg.tone_peak_db_low + ' dB · ' + dg.mic + ' · audio ' + dg.audio + ' @' + dg.sample_rate));
+      const mo = r.motion || {};
+      el.appendChild(row('motion', (mo.result || 'NOT_PERFORMED') + (mo.quarter_seconds_compared ? ' (' + mo.both + ' of ' + mo.quarter_seconds_compared + ' quarter-seconds)' : ''), mo.result === 'SEEN_AND_CLAIMED' ? 'good' : ''));
+      if (mo.result === 'SEEN_AND_CLAIMED') el.appendChild(h('div', 'note', 'The other device said, in its signed frames, that it was moving. In those same moments this camera saw its code move, while this device was not moving itself. The first part is the other device’s own claim.'));
+      el.appendChild(row('chord', s.chord || 'UNKNOWN'));
+      el.appendChild(row('vibration', s.haptic || 'UNKNOWN'));
+      el.appendChild(row('place A', fmtGeo(r.geo_A) + (r.geo_A ? ' · claimed, unsigned' : '')));
+      el.appendChild(row('place B', fmtGeo(r.geo_B) + (r.geo_B ? ' · claimed, unsigned' : '')));
+      el.appendChild(row('time', new Date(r.t_B * 1000).toISOString().replace('.000Z', 'Z') + ' · window ' + (r.t_B - r.t_A) + ' s'));
+      if (typeof s.ack_round_trip_ms === 'number') el.appendChild(row('reply round trip', s.ack_round_trip_ms + ' ms · claimed'));
+      el.appendChild(row('peer confirmed', r.peer_bloom_seen === false ? 'NOT SEEN — the other device may not hold this receipt' : 'seen'));
+
+      el.appendChild(h('h2', '', 'What is signed'));
+      el.appendChild(h('div', 'note', 'Both keys signed one hash of: ' + (r.signed_fields || P.SIGNED_FIELDS).join(', ') + '. Every other field on this receipt is an unsigned claim made by this device.'));
+      el.appendChild(row('key A', r.pk_A.slice(2, 18) + '…'));
+      el.appendChild(row('key B', r.pk_B.slice(2, 18) + '…'));
+      el.appendChild(row('this copy', 'minted by ' + (r.minted_by || '?')));
+      if (r.intent) {
+        el.appendChild(row('approves', r.intent.text));
+        el.appendChild(row('other device signed the words', r.intent.ack ? 'yes' : 'no', r.intent.ack ? 'good' : 'warn'));
+        el.appendChild(h('div', 'note', 'This page\u2019s session nonce is a commitment to that text, and the nonce is inside the hash both keys signed. ' + (r.intent.ack ? 'The other device showed the same text, its person tapped approve, and its key signed the text for this session.' : 'The other device signed the moment, not the words.')));
+      }
+      if (r.approved) {
+        el.appendChild(row('you approved', r.approved.text));
+        el.appendChild(h('div', 'note', 'Asked by key ' + r.approved.asker.slice(2, 14) + '. This device showed the text, you tapped approve, and this device\u2019s key signed it for this one session.'));
+      }
+
+      el.appendChild(h('h2', '', 'What this does not prove'));
+      el.appendChild(h('div', 'note', P.DOES_NOT_PROVE_LEAD));
+      const ol = h('ol', 'dnp');
+      for (const line of P.DOES_NOT_PROVE) ol.appendChild(h('li', '', line));
+      el.appendChild(ol);
+      el.appendChild(h('div', 'note', 'The pattern is a picture of the signed hash. It carries no security claim of its own.'));
+
+      const done = attempts.filter((a) => a.outcome === 'BLOOM');
+      const med = median(done.map((a) => a.lock_to_end_ms));
+      el.appendChild(h('h2', '', 'This session'));
+      el.appendChild(row('page', P.VERSION));
+      el.appendChild(row('attempts', attempts.length + ' · bloomed ' + done.length + (med === null ? '' : ' · median lock→bloom ' + med + ' ms')));
+
+      const acts = h('div', 'acts');
+      const cp = action('copy receipt', () => copyText(JSON.stringify(r, null, 2), cp));
+      acts.appendChild(cp);
+      acts.appendChild(action('save receipt', () => saveFile('copresence-receipt-' + r.digest + '.json', JSON.stringify(r, null, 2))));
+      acts.appendChild(action('save test log', async () => saveFile('copresence-export-' + Date.now() + '.json', JSON.stringify(await exportAll(), null, 2))));
+      acts.appendChild(action('close', closeSheet));
+      el.appendChild(acts);
+    });
+  }
+
+  function openPublish(r) {
+    openSheet((el) => {
+      let cls = 'coarse', signed = null;
+      el.appendChild(h('div', 'big', r.digest.slice(0, 4) + ' ' + r.digest.slice(4)));
+      el.appendChild(h('h2', '', 'Publish this receipt'));
+      el.appendChild(h('div', 'note', 'Nothing leaves this device unless you tap publish. Publishing sends this one receipt to public Nostr relays, once. It cannot be withdrawn.'));
+      const sent = h('div', 'note warn');
+      const showSent = () => { sent.textContent = r.published_at && r.published_at.length ? 'This device already sent this receipt to relays: ' + r.published_at.join(', ') + '.' : ''; };
+      el.appendChild(sent); showSent();
+      const opts = h('div', 'opts');
+      const preview = h('div', 'note');
+      const show = () => {
+        const p = P.receiptForPublish(r, cls);
+        preview.textContent = 'Location sent: ' + (p.geo_A || p.geo_B ? [p.geo_A, p.geo_B].filter(Boolean).map((g) => g.lat + ', ' + g.lon).join(' | ') : 'none');
+      };
+      for (const [val, label] of [['coarse', 'Coarse location, about 100 m (default)'], ['redacted', 'No location'], ['exact', 'Exact location']]) {
+        const lab = h('label', 'opt');
+        const inp = document.createElement('input');
+        inp.type = 'radio'; inp.name = 'geo'; inp.value = val; inp.checked = val === cls;
+        inp.addEventListener('change', () => { cls = val; signed = null; show(); });
+        lab.appendChild(inp); lab.appendChild(h('span', '', label));
+        opts.appendChild(lab);
+      }
+      el.appendChild(opts); el.appendChild(preview); show();
+      const signer = window.nostr && window.nostr.signEvent ? 'nip07' : P.hasSigner ? 'onetime' : 'none';
+      el.appendChild(h('div', 'note', signer === 'nip07' ? 'It will be signed by your Nostr signer.'
+        : signer === 'onetime' ? 'It will be signed with a one-time Nostr key made for this publish and then discarded. The two device signatures are inside the receipt.'
+          : 'This build has no Nostr signer, so it can only copy the unsigned event.'));
+      const status = h('div', 'status');
+      const build = async () => {
+        let ev = P.buildNostrEvent(r, cls, '', Math.floor(Date.now() / 1000));
+        if (signer === 'nip07') { ev.pubkey = await window.nostr.getPublicKey(); ev = await window.nostr.signEvent(ev); }
+        else if (signer === 'onetime') { const sk = crypto.getRandomValues(new Uint8Array(32)); ev = await P.signNostrEvent(ev, sk); sk.fill(0); }
+        return ev;
+      };
+      const acts = h('div', 'acts');
+      if (signer !== 'none') {
+        const pub = action('publish', async (e) => {
+          if (!NET.arm(e)) return; // only a real tap opens the network, and only for this publish
+          pub.disabled = true;
+          while (status.firstChild) status.removeChild(status.firstChild);
+          let ev = signed;
+          signed = null;
+          if (!ev) {
+            try { ev = await build(); } catch (x) { status.appendChild(h('div', 'warn', 'not signed: ' + (x && x.message))); NET.disarm(); pub.disabled = false; return; }
+          }
+          if (!NET.isArmed()) { // an external signer took longer than the tap stays armed: keep the signed event, ask for a fresh tap
+            signed = ev;
+            status.appendChild(h('div', 'note', 'Signed. Nothing was sent. Tap publish again to send it.'));
+            pub.disabled = false;
+            return;
+          }
+          tele('PUBLISH_START', cls + ' ' + ev.id.slice(0, 12));
+          let pending = RELAYS.length, accepted = 0;
+          const settle = () => {
+            if (--pending > 0) return;
+            NET.disarm(); pub.disabled = false; tele('PUBLISH_END', 'accepted=' + accepted);
+            if (accepted) { r.published_at = (r.published_at || []).concat(new Date().toISOString()); dbPut('receipts', r.id, r); showSent(); }
+          };
+          for (const url of RELAYS) {
+            const line = row(url.replace('wss://', ''), '');
+            status.appendChild(line);
+            let closed = false, ws = null, timer = 0;
+            const end = (text, good) => {
+              if (closed) return;
+              closed = true; clearTimeout(timer);
+              if (good) accepted++;
+              line.lastChild.textContent = text; line.lastChild.className = 'v ' + (good ? 'good' : 'warn');
+              try { if (ws) ws.close(); } catch (x) { /* closed */ }
+              settle();
+            };
+            try { ws = NET.openSocket(url); } catch (x) { end('not opened', false); continue; }
+            timer = setTimeout(() => end('no answer', false), 7000);
+            ws.onopen = () => { try { ws.send(JSON.stringify(['EVENT', ev])); } catch (x) { end('send failed', false); } };
+            ws.onmessage = (m) => {
+              try {
+                const d = JSON.parse(m.data);
+                if (Array.isArray(d) && d[0] === 'OK' && d[1] === ev.id) end(d[2] === true ? 'accepted' : 'rejected: ' + String(d[3] || '').slice(0, 120), d[2] === true);
+              } catch (x) { /* not ours */ }
+            };
+            ws.onerror = () => end('connection failed', false);
+            ws.onclose = () => end('closed without an answer', false);
+          }
+        });
+        acts.appendChild(pub);
+      }
+      const cp = action('copy event', async () => { try { copyText(JSON.stringify(await build(), null, 2), cp); } catch (x) { cp.textContent = 'not signed'; } });
+      acts.appendChild(cp);
+      acts.appendChild(action('close', closeSheet));
+      el.appendChild(acts);
+      el.appendChild(status);
+    }, true);
+  }
+
+  // ------------------------------------------------------------ boot: FACE first, everything else arrives when it arrives
+  async function wakeLock() { try { if (navigator.wakeLock && !document.hidden) await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ } }
+
+  async function boot() {
+    tele('BOOT', P.VERSION + (window.isSecureContext ? '' : ' INSECURE_CONTEXT'));
+    layout();
+    requestAnimationFrame(draw);
+    startGeo();
+    audio.init();
+    initDecoders();
+    db = await idbOpen();
+    if (!db) tele('IDB_UNAVAILABLE');
+    try {
+      keys = await dbGet('keys', 'device');
+      // A stored key that reads back but cannot sign is replaced; the face changes, nothing else is lost.
+      if (keys && keys.privateKey && keys.pk) {
+        let works = false;
+        try { const m = P.utf8('copresence.selftest'); works = await P.verifyBytes(keys.pk, m, await P.signBytes(keys.privateKey, m)); } catch (e) { works = false; }
+        if (!works) { tele('KEY_UNREADABLE'); keys = null; }
+      }
+      if (!keys || !keys.privateKey || !keys.pk) {
+        const kp = await P.generateKeyPair();
+        keys = { privateKey: kp.privateKey, pk: kp.pk };
+        await dbPut('keys', 'device', keys);
+      }
+    } catch (e) { tele('CRYPTO_UNAVAILABLE', String(e && e.message)); return; }
+    tele('IDB_KEY_READY', keys.pk.slice(2, 14));
+    if (intent) { await intent.fill(); askEl.textContent = intent.pieces ? 'approve: ' + intent.text : 'this text is too long to approve'; askEl.className = 'on'; tele('APPROVAL_MODE', intent.digest.slice(0, 12)); }
+    dev = P.createDevice({ privateKey: keys.privateKey, pk: keys.pk, now: () => Math.floor(Date.now() / 1000), geo: () => (geo && geo.acc <= 6553.5 ? geo : null),
+      senses: () => ({ cap: audio.caps() | (motion.sensing() ? 4 : 0), snd: audio.heardHex() || undefined, mov: motion.bits() }),
+      nonce: intent ? intent.next : undefined,
+      ask: intent ? () => intent.pieces : undefined,
+      ack: () => (approval && approval.state === 'approved' && performance.now() - approval.at <= APPROVAL_TTL_MS ? { digest: approval.digest, asker: approval.pk } : null),
+    });
+    faceDigits = await P.pentoraDigits(await P.faceHead(keys.pk));
+    await audio.prepare();
+    await refreshFrame();
+    loadHistory();
+    wakeLock();
+    startCamera();
+  }
+
+  bindPress(canvas, () => ((visual === 'BLOOMING' || visual === 'SETTLED') ? receipt : null));
+  document.addEventListener('pointerup', () => { audio.unlock(); }, true);
+  for (const type of ['touchend', 'click']) document.addEventListener(type, () => { audio.unlock(); motion.request(); }, true);
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', layout);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { stopCamera(true); if (visual === 'FACE') setPhase('init'); }
+    else { wakeLock(); startCamera(); }
+  });
+  boot().catch((e) => tele('BOOT_ERROR', String(e && e.message)));
+})();
+</script>
+</body>
+</html>

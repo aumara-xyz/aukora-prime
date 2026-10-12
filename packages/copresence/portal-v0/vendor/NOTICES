@@ -1,0 +1,34 @@
+jsQR 1.4.0 (npm: jsqr)
+Upstream: https://github.com/cozmo/jsQR
+Licence: Apache-2.0; full text in jsQR.LICENSE.
+Licence source: https://cdn.jsdelivr.net/npm/jsqr@1.4.0/LICENSE
+The upstream package lists Cosmo Wolfe and Jefff Nelson as contributors.
+Package source: https://github.com/cozmo/jsQR/blob/master/package.json
+
+qrcode-generator 1.4.4
+Upstream: https://github.com/kazuhikoarase/qrcode-generator/tree/js1.4.4
+Licence: MIT; full text in qrcode.LICENSE.
+Licence source: https://raw.githubusercontent.com/kazuhikoarase/qrcode-generator/js1.4.4/LICENSE
+The following upstream source header is retained from:
+https://raw.githubusercontent.com/kazuhikoarase/qrcode-generator/js1.4.4/js/qrcode.js
+
+//---------------------------------------------------------------------
+//
+// QR Code Generator for JavaScript
+//
+// Copyright (c) 2009 Kazuhiko Arase
+//
+// URL: http://www.d-project.com/
+//
+// Licensed under the MIT license:
+//  http://www.opensource.org/licenses/mit-license.php
+//
+// The word 'QR Code' is registered trademark of
+// DENSO WAVE INCORPORATED
+//  http://www.denso-wave.com/qrcode/faqpatent-e.html
+//
+//---------------------------------------------------------------------
+
+The minified JavaScript files retain their jsDelivr provenance headers.
+The licence texts were retrieved from the URLs above; web-rendered line
+wrapping and whitespace may differ from the upstream raw files.
