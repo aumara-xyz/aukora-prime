@@ -4333,7 +4333,8 @@ var AumaLiveHttp = class {
 					events: session.snapshotEvents()
 				})), { cap: 24 })
 			}),
-			providerSetup: providerSetupOf(this.dependencies.providerSendConsent, setupPolicy)
+			providerSetup: providerSetupOf(this.dependencies.providerSendConsent, setupPolicy),
+			voice: this.dependencies.voiceStatus?.()
 		});
 		res.writeHead(200, {
 			"content-type": "application/json; charset=utf-8",
@@ -4364,11 +4365,14 @@ var AumaLiveHttp = class {
 			return;
 		}
 		const raw = this.dependencies.statusFacts?.() ?? {};
-		const body = JSON.stringify(statusPayloadOf({
-			...raw,
-			coreExists: this.dependencies.coreExists?.() ?? null,
-			spend: this.dependencies.spendToday?.() ?? null
-		}));
+		const body = JSON.stringify({
+			...statusPayloadOf({
+				...raw,
+				coreExists: this.dependencies.coreExists?.() ?? null,
+				spend: this.dependencies.spendToday?.() ?? null
+			}),
+			voice: this.dependencies.voiceStatus?.()
+		});
 		res.writeHead(200, {
 			"content-type": "application/json; charset=utf-8",
 			"cache-control": "no-store"
@@ -6959,6 +6963,14 @@ var VoiceSidecarSupervisor = class {
 	dependencies;
 	exists;
 	handle;
+	availability = {
+		available: null,
+		code: null,
+		message: "voice sidecar has not started"
+	};
+	refusal = "voice-start-failed";
+	missing = "sidecar startup";
+	warned = false;
 	/**
 	* @param config - Private port and launch policy.
 	* @param dependencies - Subprocess capability, logger, and environment probe.
@@ -6971,20 +6983,61 @@ var VoiceSidecarSupervisor = class {
 		this.config = config;
 		this.dependencies = dependencies;
 		this.exists = dependencies.exists ?? existsSync;
+		if (!config.autoStart) this.availability.message = "voice sidecar managed externally";
 	}
-	/** Start the current sidecar source using the selected installed Python environment. */
+	/** Read availability without inspecting or starting the optional installation. */
+	status() {
+		return { ...this.availability };
+	}
+	/** A refused optional installation cannot reject the plugin's mount. */
 	start() {
 		if (!this.config.autoStart || this.handle !== void 0) return;
+		try {
+			this.startVerified();
+		} catch {
+			const handle = this.handle;
+			this.handle = void 0;
+			try {
+				handle?.done.catch(() => {});
+				handle?.terminate();
+			} catch {}
+			this.unavailable(this.refusal, this.missing);
+		}
+	}
+	unavailable(code, missing) {
+		this.availability = {
+			available: false,
+			code,
+			message: "voice not installed on this node"
+		};
+		if (this.warned) return;
+		this.warned = true;
+		this.dependencies.logger.warn(`${this.availability.message}: ${missing} missing or invalid (${code})`);
+	}
+	/** Verify the selected installation before any sidecar process is executed. */
+	startVerified() {
 		const runtimeDirectory = this.config.runtimeDirectory === void 0 || this.config.runtimeDirectory === "" ? AUMA_LIVE_VOICE_ROOT : this.config.runtimeDirectory;
 		let argv;
 		if (process.platform === "linux") {
-			if (createHash("sha256").update(readFileSync("/usr/bin/python3")).digest("hex") !== "e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7") throw new Error("voice OS interpreter pin mismatch; no interpreter was executed");
 			const pinPath = "/etc/aukora/auma-live-voice/environment.sha256";
-			const launcher = join(AUMA_LIVE_VOICE_ROOT, "..", "source", "voice", "launch.py");
-			const launcherMetadata = lstatSync(launcher);
-			const root = lstatSync(runtimeDirectory);
+			this.refusal = "voice-pin-unavailable";
+			this.missing = pinPath;
 			const pin = lstatSync(pinPath);
+			this.refusal = "voice-interpreter-invalid";
+			this.missing = "/usr/bin/python3 interpreter pin";
+			if (createHash("sha256").update(readFileSync("/usr/bin/python3")).digest("hex") !== "e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7") throw new Error("voice OS interpreter pin mismatch; no interpreter was executed");
+			const launcher = join(AUMA_LIVE_VOICE_ROOT, "..", "source", "voice", "launch.py");
+			this.refusal = "voice-launcher-unavailable";
+			this.missing = "operator-owned voice launcher";
+			const launcherMetadata = lstatSync(launcher);
+			this.refusal = "voice-runtime-unavailable";
+			this.missing = "private voice runtime directory";
+			const root = lstatSync(runtimeDirectory);
+			this.refusal = "voice-ownership-invalid";
+			this.missing = "runtime/launcher/pin ownership or mode";
 			if (!root.isDirectory() || (root.mode & 63) !== 0 || !launcherMetadata.isFile() || launcherMetadata.uid !== 0 || (launcherMetadata.mode & 18) !== 0 || !pin.isFile() || pin.uid !== 0 || (pin.mode & 18) !== 0) throw new Error("voice runtime/pin must be operator-owned and immutable to the service user");
+			this.refusal = "voice-pin-invalid";
+			this.missing = pinPath;
 			const expected = readFileSync(pinPath, "utf8").trim();
 			if (!/^[a-f0-9]{64}$/.test(expected)) throw new Error("voice environment pin unavailable");
 			argv = [
@@ -6995,15 +7048,21 @@ var VoiceSidecarSupervisor = class {
 				runtimeDirectory,
 				expected
 			];
-		} else {
-			const executable = join(runtimeDirectory, ".venv", "bin", "python");
-			const script = join(AUMA_LIVE_VOICE_ROOT, "sidecar.py");
-			if (!this.exists(executable)) {
-				this.dependencies.logger.warn("Auma Live voice environment unavailable");
-				return;
-			}
-			argv = [executable, script];
+		} else argv = [join(runtimeDirectory, ".venv", "bin", "python"), join(AUMA_LIVE_VOICE_ROOT, "sidecar.py")];
+		for (const [code, relative] of [
+			["voice-runtime-unavailable", ""],
+			["voice-venv-unavailable", ".venv/bin/python"],
+			["voice-models-unavailable", "models"]
+		]) {
+			this.refusal = code;
+			this.missing = relative === "" ? "voice runtime directory" : `voice runtime ${relative}`;
+			if (!this.exists(join(runtimeDirectory, relative))) throw new Error(this.refusal);
 		}
+		this.refusal = "voice-source-unavailable";
+		this.missing = "voice sidecar.py";
+		if (!this.exists(process.platform === "linux" ? join(runtimeDirectory, "sidecar.py") : argv[1])) throw new Error(this.refusal);
+		this.refusal = "voice-spawn-failed";
+		this.missing = "voice subprocess capability";
 		const { logger } = this.dependencies;
 		const handle = this.dependencies.subprocess.spawn({
 			argv,
@@ -7017,6 +7076,11 @@ var VoiceSidecarSupervisor = class {
 			env: voiceEnvironment(this.config.port, runtimeDirectory)
 		});
 		this.handle = handle;
+		this.availability = {
+			available: true,
+			code: null,
+			message: "voice sidecar starting"
+		};
 		handle.stdout?.setEncoding("utf8");
 		handle.stderr?.setEncoding("utf8");
 		handle.stdout?.on("data", (text) => {
@@ -7026,11 +7090,13 @@ var VoiceSidecarSupervisor = class {
 			logger.warn(text.trimEnd());
 		});
 		handle.done.then((outcome) => {
-			if (this.handle === handle) this.handle = void 0;
-			logger.info(`Auma Live voice sidecar exited (${String(outcome.exitCode ?? outcome.signal ?? "unknown")})`);
-		}, (error) => {
-			if (this.handle === handle) this.handle = void 0;
-			logger.warn(error);
+			if (this.handle !== handle) return;
+			this.handle = void 0;
+			this.unavailable("voice-sidecar-exited", `voice sidecar exit ${String(outcome.exitCode ?? outcome.signal ?? "unknown")}`);
+		}, () => {
+			if (this.handle !== handle) return;
+			this.handle = void 0;
+			this.unavailable("voice-sidecar-failed", "voice subprocess completion");
 		});
 	}
 	/**
@@ -7428,12 +7494,16 @@ async function apply(ctx, config) {
 	let repoLens;
 	if (config.repoLensRoot.length > 0 && config.repoLensLookups > 0) {
 		const root = path.resolve(config.repoLensRoot);
-		if (!existsSync(root)) throw new Error(`ui-stock-apps: repoLensRoot does not exist: ${root}`);
-		if (await isGitWorkTree(root)) repoLens = new RepoLens({
-			root,
-			maxFileBytes: config.repoLensFileBytes
-		});
-		else ctx.logger.warn(`ui-stock-apps: repoLensRoot ${root} is not inside a git work tree, so the Auma Live repo lens is OFF (no repository block, no repo lookups). Point repoLensRoot at a git checkout to turn it on.`);
+		try {
+			if (!existsSync(root)) throw new Error("repo-lens-unavailable");
+			if (await isGitWorkTree(root)) repoLens = new RepoLens({
+				root,
+				maxFileBytes: config.repoLensFileBytes
+			});
+			else throw new Error("repo-lens-unavailable");
+		} catch {
+			ctx.logger.warn("ui-stock-apps: repo-lens-unavailable: repoLensRoot is missing, unreadable or not inside a git work tree; Auma Live repo lens is OFF.");
+		}
 	}
 	const policyText = () => readOwnerPolicyText({ release: path.join(import.meta.dirname, "..", "disclosure-policy.json") });
 	const policyAtStartup = policyText();
@@ -7510,7 +7580,21 @@ async function apply(ctx, config) {
 			}
 		}
 	});
+	const voiceSupervisor = config.voiceEnabled ? new VoiceSidecarSupervisor({
+		port: config.voicePort,
+		autoStart: config.voiceAutoStart,
+		runtimeDirectory: config.voiceRuntimeDirectory.length === 0 ? "" : path.resolve(config.voiceRuntimeDirectory)
+	}, {
+		subprocess: ctx.subprocess,
+		logger: voiceLogger(ctx.logger)
+	}) : void 0;
+	const voiceStatus = () => voiceSupervisor?.status() ?? {
+		available: false,
+		code: "voice-disabled",
+		message: "voice disabled on this node"
+	};
 	const liveHttp = new AumaLiveHttp({
+		voiceStatus,
 		providerSendConsent: config.providerSendConsent,
 		credentials: ctx.credentials,
 		apiKeyEnv: config.apiKeyEnv,
@@ -7762,14 +7846,6 @@ async function apply(ctx, config) {
 	});
 	if (config.voiceEnabled) {
 		const voiceProxy = new VoiceWebSocketProxy(config.voicePort);
-		const voiceSupervisor = new VoiceSidecarSupervisor({
-			port: config.voicePort,
-			autoStart: config.voiceAutoStart,
-			runtimeDirectory: config.voiceRuntimeDirectory.length === 0 ? "" : path.resolve(config.voiceRuntimeDirectory)
-		}, {
-			subprocess: ctx.subprocess,
-			logger: voiceLogger(ctx.logger)
-		});
 		ctx.effect(() => ctx.webServer.registerUpgrade({
 			path: "/stock-apps/auma-live/voice",
 			handler: (req, socket, head) => {
@@ -7779,13 +7855,17 @@ async function apply(ctx, config) {
 					socket.destroy();
 					return;
 				}
+				if (voiceStatus().available === false) {
+					socket.end("HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\nvoice not installed on this node");
+					return;
+				}
 				voiceProxy.handle(req, socket, head);
 			}
 		}), "ui-stock-apps: Auma Live voice WebSocket");
 		ctx.effect(() => () => voiceProxy.close(), "ui-stock-apps: Auma Live voice proxy");
 		ctx.effect(() => {
-			voiceSupervisor.start();
-			return () => voiceSupervisor.stop();
+			voiceSupervisor?.start();
+			return () => voiceSupervisor?.stop();
 		}, "ui-stock-apps: Auma Live voice sidecar");
 	}
 	ctx.on("session/event", (session, event) => {

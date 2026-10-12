@@ -46,6 +46,13 @@ export interface VoiceSidecarConfig {
   runtimeDirectory?: string
 }
 
+/** Availability of the optional local voice installation. */
+export interface VoiceSidecarStatus {
+  available: boolean | null
+  code: string | null
+  message: string
+}
+
 /** Injectable operations used by the sidecar supervisor. */
 export interface VoiceSupervisorDependencies {
   /** Subprocess capability owning spawn, environment scrub, and tree-scoped termination. */
@@ -90,6 +97,10 @@ export class VoiceSidecarSupervisor {
   private readonly dependencies: VoiceSupervisorDependencies
   private readonly exists: (path: string) => boolean
   private handle: SubprocessHandle | undefined
+  private availability: VoiceSidecarStatus = { available: null, code: null, message: 'voice sidecar has not started' }
+  private refusal = 'voice-start-failed'
+  private missing = 'sidecar startup'
+  private warned = false
 
   /**
    * @param config - Private port and launch policy.
@@ -103,43 +114,96 @@ export class VoiceSidecarSupervisor {
     this.config = config
     this.dependencies = dependencies
     this.exists = dependencies.exists ?? existsSync
+    if (!config.autoStart) this.availability.message = 'voice sidecar managed externally'
   }
 
-  /** Start the current sidecar source using the selected installed Python environment. */
+  /** Read availability without inspecting or starting the optional installation. */
+  status(): VoiceSidecarStatus {
+    return { ...this.availability }
+  }
+
+  /** A refused optional installation cannot reject the plugin's mount. */
   start(): void {
     if (!this.config.autoStart || this.handle !== undefined) return
+    try {
+      this.startVerified()
+    } catch {
+      const handle = this.handle as SubprocessHandle | undefined
+      this.handle = undefined
+      try {
+        void handle?.done.catch(() => {})
+        handle?.terminate()
+      } catch { /* Mount still survives a failed optional process. */ }
+      this.unavailable(this.refusal, this.missing)
+    }
+  }
+
+  private unavailable(code: string, missing: string): void {
+    this.availability = { available: false, code, message: 'voice not installed on this node' }
+    if (this.warned) return
+    this.warned = true
+    this.dependencies.logger.warn(`${this.availability.message}: ${missing} missing or invalid (${code})`)
+  }
+
+  /** Verify the selected installation before any sidecar process is executed. */
+  private startVerified(): void {
     const runtimeDirectory = this.config.runtimeDirectory === undefined || this.config.runtimeDirectory === ''
       ? AUMA_LIVE_VOICE_ROOT
       : this.config.runtimeDirectory
     let argv: string[]
     if (process.platform === 'linux') {
+      const pinPath = '/etc/aukora/auma-live-voice/environment.sha256'
+      this.refusal = 'voice-pin-unavailable'
+      this.missing = pinPath
+      const pin = lstatSync(pinPath)
+      this.refusal = 'voice-interpreter-invalid'
+      this.missing = '/usr/bin/python3 interpreter pin'
       const baselineHash = createHash('sha256').update(readFileSync('/usr/bin/python3')).digest('hex')
       if (baselineHash !== 'e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7') {
         throw new Error('voice OS interpreter pin mismatch; no interpreter was executed')
       }
       // The OS interpreter verifies pinned runtime bytes BEFORE executing its venv interpreter.
-      const pinPath = '/etc/aukora/auma-live-voice/environment.sha256'
       const launcher = join(AUMA_LIVE_VOICE_ROOT, '..', 'source', 'voice', 'launch.py')
+      this.refusal = 'voice-launcher-unavailable'
+      this.missing = 'operator-owned voice launcher'
       const launcherMetadata = lstatSync(launcher)
+      this.refusal = 'voice-runtime-unavailable'
+      this.missing = 'private voice runtime directory'
       const root = lstatSync(runtimeDirectory)
-      const pin = lstatSync(pinPath)
+      this.refusal = 'voice-ownership-invalid'
+      this.missing = 'runtime/launcher/pin ownership or mode'
       if (!root.isDirectory() || (root.mode & 0o077) !== 0
         || !launcherMetadata.isFile() || launcherMetadata.uid !== 0 || (launcherMetadata.mode & 0o022) !== 0
         || !pin.isFile() || pin.uid !== 0 || (pin.mode & 0o022) !== 0) {
         throw new Error('voice runtime/pin must be operator-owned and immutable to the service user')
       }
+      this.refusal = 'voice-pin-invalid'
+      this.missing = pinPath
       const expected = readFileSync(pinPath, 'utf8').trim()
       if (!/^[a-f0-9]{64}$/.test(expected)) throw new Error('voice environment pin unavailable')
       argv = ['/usr/bin/python3', '-I', '-B', launcher, runtimeDirectory, expected]
     } else {
       const executable = join(runtimeDirectory, '.venv', 'bin', 'python')
       const script = join(AUMA_LIVE_VOICE_ROOT, 'sidecar.py')
-      if (!this.exists(executable)) {
-        this.dependencies.logger.warn('Auma Live voice environment unavailable')
-        return
-      }
       argv = [executable, script]
     }
+    // These probes never replace the Linux launcher's pinned runtime verification.
+    for (const [code, relative] of [
+      ['voice-runtime-unavailable', ''],
+      ['voice-venv-unavailable', '.venv/bin/python'],
+      ['voice-models-unavailable', 'models'],
+    ] as const) {
+      this.refusal = code
+      this.missing = relative === '' ? 'voice runtime directory' : `voice runtime ${relative}`
+      if (!this.exists(join(runtimeDirectory, relative))) throw new Error(this.refusal)
+    }
+    this.refusal = 'voice-source-unavailable'
+    this.missing = 'voice sidecar.py'
+    if (!this.exists(process.platform === 'linux' ? join(runtimeDirectory, 'sidecar.py') : argv[1]!)) {
+      throw new Error(this.refusal)
+    }
+    this.refusal = 'voice-spawn-failed'
+    this.missing = 'voice subprocess capability'
     const { logger } = this.dependencies
     const handle = this.dependencies.subprocess.spawn({
       argv,
@@ -149,16 +213,19 @@ export class VoiceSidecarSupervisor {
       env: voiceEnvironment(this.config.port, runtimeDirectory),
     })
     this.handle = handle
+    this.availability = { available: true, code: null, message: 'voice sidecar starting' }
     handle.stdout?.setEncoding('utf8')
     handle.stderr?.setEncoding('utf8')
     handle.stdout?.on('data', (text: string) => { logger.info(text.trimEnd()) })
     handle.stderr?.on('data', (text: string) => { logger.warn(text.trimEnd()) })
     handle.done.then((outcome) => {
-      if (this.handle === handle) this.handle = undefined
-      logger.info(`Auma Live voice sidecar exited (${String(outcome.exitCode ?? outcome.signal ?? 'unknown')})`)
-    }, (error: unknown) => {
-      if (this.handle === handle) this.handle = undefined
-      logger.warn(error)
+      if (this.handle !== handle) return
+      this.handle = undefined
+      this.unavailable('voice-sidecar-exited', `voice sidecar exit ${String(outcome.exitCode ?? outcome.signal ?? 'unknown')}`)
+    }, () => {
+      if (this.handle !== handle) return
+      this.handle = undefined
+      this.unavailable('voice-sidecar-failed', 'voice subprocess completion')
     })
   }
 

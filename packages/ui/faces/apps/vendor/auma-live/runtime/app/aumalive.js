@@ -648,6 +648,7 @@ const voice = {
       if (this.ws !== ws) return;
       const was = this.ready;
       this.ready = false; this.ws = null;
+      this.emit('status');
       if (event.code === 4001) {
         this.enabled = false;
         this.owner = '';
@@ -762,7 +763,9 @@ export function mountAumaLive(root, options = {}) {
   const mindNote = el('div', 'alv-note'); mindGroup.append(mindNote);
   const voiceGroup = el('div', 'alv-group');
   const voiceList = el('div', 'alv-vlist');
-  voiceGroup.append(Object.assign(el('div', 'alv-group-k'), { textContent: 'her voice' }), voiceList);
+  const voiceAvailability = el('div', 'alv-note');
+  voiceAvailability.setAttribute('role', 'status');
+  voiceGroup.append(Object.assign(el('div', 'alv-group-k'), { textContent: 'her voice' }), voiceAvailability, voiceList);
   if (!canvasMode) panel.append(mindGroup);
   panel.append(voiceGroup);
   const providerGroup = el('div', 'alv-group');
@@ -1153,6 +1156,7 @@ export function mountAumaLive(root, options = {}) {
   // reject is never offered — including on a Host with no roster, where the four stay.
   let offeredMinds = ['deep', 'balanced', 'quick', 'muse'];
   let mindLabels = {};
+  let voiceStatusAbort = null;
   function renderProviderSetup(setup) {
     if (voiceSession !== null && voiceSession.expiresAt <= Date.now()) expireVoiceSession(voiceSession.voiceSessionToken);
     const voiceState = voiceSession !== null
@@ -1179,12 +1183,32 @@ export function mountAumaLive(root, options = {}) {
   }
   function applyRoster(data) {
     renderProviderSetup(data?.providerSetup);
+    renderVoiceAvailability(data?.voice);
     // AN EMPTY ROSTER IS NOT A REASON TO IGNORE THE ANSWER: her home was already adopted before this runs.
     if (!Array.isArray(data.minds) || data.minds.length === 0) return;
     offeredMinds = data.minds;
     mindLabels = (data.labels && typeof data.labels === 'object') ? data.labels : {};
     if (!offeredMinds.includes(chosenMind)) chosenMind = offeredMinds[0];
     buildMinds();
+  }
+  function renderVoiceAvailability(status) {
+    voiceAvailability.textContent = status?.available === false ? 'voice not installed on this node' : '';
+    if (status?.available === false) toast('voice not installed on this node', 7000);
+  }
+  // A launcher can refuse after the initial roster response.
+  async function refreshVoiceAvailability() {
+    if (closed || voiceStatusAbort) return;
+    const controller = new AbortController(); voiceStatusAbort = controller;
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    try {
+      const response = await fetch('/api/auma-live/status', {
+        cache: 'no-store', credentials: 'same-origin', signal: controller.signal,
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!closed && !controller.signal.aborted) renderVoiceAvailability(data.voice);
+    } catch { /* Retain the last observed availability when the status read fails. */ }
+    finally { clearTimeout(timeout); voiceStatusAbort = null; }
   }
   function buildMinds() {
     mindSeg.innerHTML = '';
@@ -1573,7 +1597,9 @@ export function mountAumaLive(root, options = {}) {
 
   // ---- sidecar events ----
   voice.on = {
+    status() { void refreshVoiceAvailability(); },
     ready() {
+      renderVoiceAvailability({ available: true });
       duplex = true;
       playerNode?.port.postMessage({ cmd: 'clear' });
       if (!voicePicked) chosenVoice = voice.defaultVoice;   // follow the sidecar's fast default
@@ -1685,6 +1711,7 @@ export function mountAumaLive(root, options = {}) {
   function togglePanel(force) {
     panelOpen = force === undefined ? !panelOpen : force;
     if (panelOpen) home.start();   // a no-op once the host has answered; otherwise ask now, not at the next backoff
+    if (panelOpen) void refreshVoiceAvailability();
     panel.classList.toggle('show', panelOpen);
     gear.classList.toggle('on', panelOpen);
   }
@@ -2522,6 +2549,7 @@ export function mountAumaLive(root, options = {}) {
   document.addEventListener('visibilitychange', onVis);
   activeCleanup = () => {
     closed = true;
+    voiceStatusAbort?.abort();
     home.stop();
     canvasSceneDisposed = true;
     for (const timer of canvasSceneTimers) clearTimeout(timer);

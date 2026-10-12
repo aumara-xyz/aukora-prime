@@ -771,7 +771,7 @@
       "source": "plugins/aukora-face/apps/lib/.build-inputs.json",
       "path": "faces/apps/lib/.build-inputs.json",
       "bytes": 13599,
-      "sha256": "d615bceebe08ff75df8e53e1c5730b81800b7fdf3556b6b938fb7b988a1f24a2",
+      "sha256": "c55de1f5ac1feaf00f615fddf6c3d956edf75e0bab0f429c9e74397cbc7f99e2",
       "role": "bundle"
     },
     {
@@ -791,8 +791,8 @@
     {
       "source": "plugins/aukora-face/apps/lib/index.js",
       "path": "faces/apps/lib/index.js",
-      "bytes": 343282,
-      "sha256": "eb2d4e5486334b082b6871bf627d5ac9a30ef494da1654005cd9885b39ebdede",
+      "bytes": 345965,
+      "sha256": "057b4bb0f6c15ac9c9af00dba7bf6c33c98e63d737f207308426e21178d3ca35",
       "role": "bundle"
     },
     {
@@ -896,8 +896,8 @@
     {
       "source": "plugins/aukora-face/apps/src/auma-live/http.ts",
       "path": "faces/apps/src/auma-live/http.ts",
-      "bytes": 54640,
-      "sha256": "77fc4a1c9e956ae8360c9f87ed0d62073b15e39eed0558caad9a10c802bbb3c8",
+      "bytes": 54912,
+      "sha256": "54d19115cc4ca16b50cf0ee4dfb91e66891fd1f1f20d31bb85d7b2dfad1b6d48",
       "role": "source"
     },
     {
@@ -1071,8 +1071,8 @@
     {
       "source": "plugins/aukora-face/apps/src/auma-live/voice-sidecar.ts",
       "path": "faces/apps/src/auma-live/voice-sidecar.ts",
-      "bytes": 9199,
-      "sha256": "f479e06495504340a525803cdc1a825b11f3572ea63eed40d0ae6bcc38ee93bf",
+      "bytes": 12032,
+      "sha256": "9cb9e5138bfbf36709c82b1b675043576fb1035302b1a117fa3854ba8397e9af",
       "role": "source"
     },
     {
@@ -1225,8 +1225,8 @@
     {
       "source": "plugins/aukora-face/apps/src/index.ts",
       "path": "faces/apps/src/index.ts",
-      "bytes": 70777,
-      "sha256": "6ffe22e9bdeb8b919b2615b9ba51c61cf33ce9514b4fb06cf3cd5ba3b0e71364",
+      "bytes": 70397,
+      "sha256": "8f616dd2d4ed5f432ff8661ee4b930d9a90ed71df76068c3c158e86521a4ab08",
       "role": "source"
     },
     {
@@ -1386,8 +1386,8 @@
     {
       "source": "plugins/aukora-face/apps/vendor/auma-live/runtime/app/aumalive.js",
       "path": "faces/apps/vendor/auma-live/runtime/app/aumalive.js",
-      "bytes": 140269,
-      "sha256": "082d708bc096315e9cf5ccf15ac4c7d6b809ad434c70b962d8e23aca236d56e3",
+      "bytes": 141692,
+      "sha256": "20cf1eac17297e05a65bb6bd0a7c32e391078b63634b0addb8c502f1d630399b",
       "role": "asset"
     },
     {

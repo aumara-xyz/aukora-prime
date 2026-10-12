@@ -95,6 +95,8 @@ export interface AumaLiveHttpDependencies {
    * host could not determine it, and the strip renders that as unknown rather than as an absent conductor.
    */
   coreExists?: (() => boolean | null) | undefined
+  /** Optional sidecar availability, read without starting a process. */
+  voiceStatus?: (() => { available: boolean | null; code: string | null; message: string }) | undefined
   /**
    * TODAY'S SPEND AND THE CAP, for the same strip — read from the spend gate that lives in `index.ts`. Absent
    * leaves the fact unknown, never zero.
@@ -667,7 +669,8 @@ export class AumaLiveHttp {
         })),
         { cap: 24 },
       ),
-    }), providerSetup: providerSetupOf(this.dependencies.providerSendConsent, setupPolicy) })
+    }), providerSetup: providerSetupOf(this.dependencies.providerSendConsent, setupPolicy),
+    voice: this.dependencies.voiceStatus?.() })
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
@@ -698,13 +701,13 @@ export class AumaLiveHttp {
       return
     }
     const raw = this.dependencies.statusFacts?.() ?? {}
-    const body = JSON.stringify(statusPayloadOf({
+    const body = JSON.stringify({ ...statusPayloadOf({
       ...raw,
       // The two facts this class already holds are filled here rather than asked for again, so the route and the
       // minds response can never disagree about them.
       coreExists: this.dependencies.coreExists?.() ?? null,
       spend: this.dependencies.spendToday?.() ?? null,
-    }))
+    }), voice: this.dependencies.voiceStatus?.() })
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',

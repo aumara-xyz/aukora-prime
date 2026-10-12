@@ -512,19 +512,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // `at`, and a lane cannot emit two events of one type in the same millisecond. **If a true `seq` ever reaches this
   // handler, it belongs here instead** — the shape of the guard does not change, only the string it is built from.
   let lastWakeKey = ''
-  // The presence lens fails loud on a missing root instead of silently
-  // serving a repo-blind voice under a config that promised sight.
+  // An unavailable optional repo lens cannot prevent app and asset registration.
   let repoLens: RepoLens | undefined
   if (config.repoLensRoot.length > 0 && config.repoLensLookups > 0) {
     const root = path.resolve(config.repoLensRoot)
-    if (!existsSync(root)) throw new Error(`ui-stock-apps: repoLensRoot does not exist: ${root}`)
-    // **A ROOT THAT IS NOT A GIT WORK TREE MEANS NO REPO LENS, AND THE LOG SAYS SO.** The default root is `.`, the backend's cwd,
-    // which on a fresh install is `<stateRoot>/workspace`: an empty non-git directory. `git ls-files` fails there, and a lens
-    // built on it failed every spoken turn. The lens is a read of what git tracks; without git there is nothing to read.
-    if (await isGitWorkTree(root)) {
-      repoLens = new RepoLens({ root, maxFileBytes: config.repoLensFileBytes })
-    } else {
-      ctx.logger.warn(`ui-stock-apps: repoLensRoot ${root} is not inside a git work tree, so the Auma Live repo lens is OFF (no repository block, no repo lookups). Point repoLensRoot at a git checkout to turn it on.`)
+    try {
+      if (!existsSync(root)) throw new Error('repo-lens-unavailable')
+      if (await isGitWorkTree(root)) {
+        repoLens = new RepoLens({ root, maxFileBytes: config.repoLensFileBytes })
+      } else {
+        throw new Error('repo-lens-unavailable')
+      }
+    } catch {
+      ctx.logger.warn('ui-stock-apps: repo-lens-unavailable: repoLensRoot is missing, unreadable or not inside a git work tree; Auma Live repo lens is OFF.')
     }
   }
   // Only release bytes govern disclosure. Missing/invalid policy fails closed; consent stays independently off by default.
@@ -641,7 +641,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
 
+  const voiceSupervisor = config.voiceEnabled ? new VoiceSidecarSupervisor({
+    port: config.voicePort,
+    autoStart: config.voiceAutoStart,
+    runtimeDirectory: config.voiceRuntimeDirectory.length === 0 ? '' : path.resolve(config.voiceRuntimeDirectory),
+  }, { subprocess: ctx.subprocess, logger: voiceLogger(ctx.logger) }) : undefined
+  const voiceStatus = () => voiceSupervisor?.status()
+    ?? { available: false, code: 'voice-disabled', message: 'voice disabled on this node' }
   const liveHttp = new AumaLiveHttp({
+    voiceStatus,
     providerSendConsent: config.providerSendConsent,
     credentials: ctx.credentials,
     apiKeyEnv: config.apiKeyEnv,
@@ -956,14 +964,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   if (config.voiceEnabled) {
     const voiceProxy = new VoiceWebSocketProxy(config.voicePort)
-    const voiceSupervisor = new VoiceSidecarSupervisor({
-      port: config.voicePort,
-      autoStart: config.voiceAutoStart,
-      runtimeDirectory: config.voiceRuntimeDirectory.length === 0 ? '' : path.resolve(config.voiceRuntimeDirectory),
-      // THE VOICE LINES GO TO server.log AS WELL AS TO THE PLUGIN LOGGER. `<state>/logs/server.log` is the
-      // launcher's redirect of this child's stdout, so a line a person needs to read — "browser voice
-      // fallback active" — has to be printed, not only logged. Before this it was a sentence nothing wrote.
-    }, { subprocess: ctx.subprocess, logger: voiceLogger(ctx.logger) })
     ctx.effect(() => ctx.webServer.registerUpgrade({
       path: '/stock-apps/auma-live/voice',
       // The upgrade carries the browser's cookies too, and a socket that proxies audio
@@ -975,13 +975,17 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           socket.destroy()
           return
         }
+        if (voiceStatus().available === false) {
+          socket.end('HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\nvoice not installed on this node')
+          return
+        }
         voiceProxy.handle(req, socket, head)
       },
     }), 'ui-stock-apps: Auma Live voice WebSocket')
     ctx.effect(() => () => voiceProxy.close(), 'ui-stock-apps: Auma Live voice proxy')
     ctx.effect(() => {
-      voiceSupervisor.start()
-      return () => voiceSupervisor.stop()
+      voiceSupervisor?.start()
+      return () => voiceSupervisor?.stop()
     }, 'ui-stock-apps: Auma Live voice sidecar')
   }
   ctx.on('session/event', (session: Session, event: SessionEvent) => {

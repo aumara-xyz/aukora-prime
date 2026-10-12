@@ -406,6 +406,9 @@ check_tap 'node --experimental-vm-modules --test --test-reporter=tap tests/aukor
 check_tap 'node --test --test-reporter=tap tests/aukora-messages-node.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/face-bundle-build.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/face-bundle-freshness.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/face-plugins-load.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/voice-sidecar-optional.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/pilot-ui-probe.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-buzz-door-receipt.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-buzz-door-post-receipt.test.mjs'
 # Split in two by a pattern and its complement: as one command this neared the 55-second limit on Linux CI.
