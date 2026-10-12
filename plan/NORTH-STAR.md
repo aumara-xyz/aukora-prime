@@ -91,8 +91,9 @@ check them. Nothing in Prime is replaced.
   publishes is accepted, the recipient fetches it, opens it and proves the sender; a stranger asking for the
   recipient's messages is refused by the relay. ONE DIFFERENCE: NIP-17 stamps wraps with a random time up to two
   days back, and Buzz's relay refuses any event more than 15 minutes from its clock, so the plugin's normal send
-  is refused ("event timestamp too far from server time"); stamped with the current time it works. Either the
-  relay lets kind 1059 be older, or the plugin stamps "now" for this relay. Not decided.
+  was refused ("event timestamp too far from server time"). FIXED in the fork's relay the same day (aukora-buzz
+  c-relay change "accept a gift wrap dated up to two days back"): the plugin's own send, unchanged, is now accepted,
+  fetched and opened; a wrap 3 days old or in the future, and any other event more than 15 minutes off, are refused.
 - [NOT YET, unchecked] joining a Buzz channel (NIP-29 groups: kind 9 with an `h` tag and membership), which
   aukora-nostr does not do today; mounting the plugin on the pilot means a new owner-approved plugin set.
 - Several nodes can run side by side with one person playing every user: the cheapest test of the network.
