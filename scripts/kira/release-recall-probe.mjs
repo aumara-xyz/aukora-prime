@@ -13,7 +13,11 @@ import { isMainModule } from '../lib/is-main.mjs'
 const QUESTION = 'Where was my red two-wheeler left?'
 const LEXICAL = 'scarlet bicycle maple'
 const fail = code => { throw Object.assign(new Error(code), { code: `kira.release-probe:${code}` }) }
-const codeOf = error => /^kira\.release-probe:[a-z-]+$/u.test(error?.code) ? error.code : 'kira.release-probe:operation-failed'
+// Refusal codes from Kira itself (memory.identity:field-mismatch, kira.config:...) are names, not data: pass them
+// through so an operator sees why, instead of one opaque code. Anything else stays opaque.
+const codeOf = error => /^kira\.release-probe:[a-z-]+$/u.test(error?.code) ? error.code
+  : /^(?:memory\.identity|kira\.[a-z-]+):[a-z-]+$/u.test(error?.code) ? `kira.release-probe:operation-failed (${error.code})`
+    : 'kira.release-probe:operation-failed'
 const within = (child, parent) => { const path = relative(parent, child); return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)) }
 
 // Resolve missing state roots through their existing ancestors, including symlink aliases.

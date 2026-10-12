@@ -406,3 +406,13 @@ RAN in the staging container on the pilot, release `dcb2141`, approved with the 
 - NOT RUN: the relay closed with an owner (the one relay is the one Peter's app uses; closing it with a throwaway owner would lock his app out); admission by invite against the real relay; Kira recall through this release with OpenViking; anything on the live harness, which still runs `3673b98`.
 
 Outside view from the Honey Pot session, same night, kept because it is right: the demo's gaps are not belt rows. The Buzz app's Touch ID approval and the pilot gate's approval are two paths with two keys, and "which key signs on the pilot" is still open; showing one approval flow before they are joined would make the system look safer than it is. It also advised parking belt rows 11, 14, 43, 44, 54, 63, 66, 69 and 21; the belt worker on the next PORT rows was stopped on that advice.
+
+### 2026-10-12 night: memory through a release, on the pilot: RAN, 6 of 6
+
+A release directory was built from `main` (`6a63831`) on the pilot host with `--kira-openviking-home`, under `/opt/aukora-probe` beside the live release. Nothing was approved, installed or switched; the live harness stayed on `3673b98` and stayed active. `scripts/kira/release-recall-probe.mjs`, run as the harness user with scratch memory state, using that release's own Kira files and composition and the node's real OpenViking:
+
+- remember: 1 note; recall by meaning with a question sharing no word with it: `openviking-semantic`, not degraded, note returned; recall by text: found; forget: removed from the ledger and the index; then absent from both. Each step in a fresh process.
+
+This is the first time the path release composition -> Kira -> OpenViking has run anywhere. What it does not show: Auma using recalled notes in a turn (no model was involved), the live release doing it (the live release predates the fix and selects text search), or recall quality beyond one synthetic sentence.
+
+Two things an operator must get right, found the hard way and now in `plugins/aukora-kira/README.md`: run with the backend's environment (`DSH_HOME`, `AUKORA_SUPPORT_ROOT`, no `AUKORA_STATE`). The probe now prints Kira's own refusal name instead of one opaque code.

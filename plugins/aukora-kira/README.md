@@ -79,6 +79,14 @@ a fresh process. A word-disjoint meaning query must return the exact synthetic
 note through `openviking-semantic`, without degradation; explicit text search must
 also find it. Forget must remove it from both paths. No key or server body is printed.
 
+Run it as the harness user with the environment the harness backend has, which is not the
+launcher's: `DSH_HOME` (the harness home, the directory that holds `kira-memory`) and
+`AUKORA_SUPPORT_ROOT` (where `kira-deployment-overlay.patch.yml` lives), and **without**
+`AUKORA_STATE`. Measured on the Nebius pilot on 2026-10-12: with `AUKORA_STATE` set the owner
+overlay is not found (`memory.identity:field-missing`); without `DSH_HOME` the composition's state
+directory does not match the overlay's (`memory.identity:field-mismatch`). With both right, six of
+six steps passed there against the node's own OpenViking. A refusal from Kira is printed by name.
+
 Exit `0` means all six steps passed; `1` means failure/refusal; `2` prints
 `UNPERFORMED` for an absent OpenViking home or unavailable local service. The
 scratch store retains its content-free tombstone and index bookkeeping. A failed
