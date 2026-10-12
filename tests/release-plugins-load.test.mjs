@@ -225,6 +225,11 @@ if (process.argv.includes('--release-row')) {
 }
 
 home = mkdtempSync(join(root, '.release-load-'))
+// Required host configuration, not an optional file: on Linux Kira refuses to run memory for nobody, so a node
+// always has an owner deployment overlay. The test supplies a synthetic one (the subject is random, not a person).
+fs.mkdirSync(join(home, 'support'), { recursive: true, mode: 0o700 })
+fs.writeFileSync(join(home, 'support', 'kira-deployment-overlay.patch.yml'), ['- id: aukora-kira', '  config:', '    retrieval: lexical',
+  '    memoryOwner:', `      stateDir: ${join(home, 'kira-memory')}`, `      subject: aukora:1:${'5a'.repeat(32)}`, '      permittedPrivacy: [local]', ''].join('\n'), { mode: 0o600 })
 built = process.argv.includes('--without-harness') ? undefined
   : [process.env.AUKORA_DSH_BUILD, join(root, 'vendor/dsh')].filter(Boolean)
     .map(path => resolve(path)).find(path => existsSync(join(path, 'vendor/cordis/lib/index.js')))
