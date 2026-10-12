@@ -378,7 +378,7 @@ test('CLI emits fixed labels and refusal codes without keys, offers or reflected
   assert.deepEqual(errors, [`REFUSED ${REFUSE.EXISTS}`, `REFUSED ${REFUSE.INPUT}`])
 })
 
-if (process.argv.includes('--mutations')) test('removing each new protection fails its regression', t => {
+if (process.argv.includes('--mutations')) test('removing each new protection fails its regression', async t => {
   const f = fixture(t), original = fs.readFileSync(source, 'utf8')
   const mutations = [
     ['signed-offer', '  signedOffer(root, offer)', ''],
@@ -421,21 +421,34 @@ if (process.argv.includes('--mutations')) test('removing each new protection fai
     ['key-no-follow', 'fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK', 'fs.constants.O_RDONLY | fs.constants.O_NONBLOCK'],
     ['json-no-follow', 'fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK', 'fs.constants.O_RDONLY | fs.constants.O_NONBLOCK'],
   ]
-  const mutantFile = path.join(f.directory, 'mutant.mjs')
-  for (const [name, before, after] of mutations) {
+  // Each mutant reruns this whole file; one after another that outgrew the runner's 55 seconds on a busy
+  // Linux machine, so they run a few at a time, each from its own file.
+  const { spawn } = await import('node:child_process')
+  const runOne = ([name, before, after], index) => new Promise((resolve, reject) => {
     assert.ok(original.includes(before), `mutation target missing: ${name}`)
     let mutant = original.replaceAll(before, after)
     mutant = mutant.replace("'../../packages/invites/index.mjs'", JSON.stringify(pathToFileURL(path.resolve(source, '../../../packages/invites/index.mjs')).href))
       .replace("'../../plugins/aukora-nostr/lib/event.mjs'", JSON.stringify(pathToFileURL(path.resolve(source, '../../../plugins/aukora-nostr/lib/event.mjs')).href))
       .replace("'../../packages/contracts/src/json.mjs'", JSON.stringify(pathToFileURL(path.resolve(source, '../../../packages/contracts/src/json.mjs')).href))
+    const mutantFile = path.join(f.directory, `mutant-${index}.mjs`)
     fs.writeFileSync(mutantFile, mutant)
-    const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', fileURLToPath(import.meta.url)], {
-      encoding: 'utf8', timeout: 30000, env: { ...process.env, NODE_SPAWN_INVITE_MODULE: pathToFileURL(mutantFile).href },
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', fileURLToPath(import.meta.url)], {
+      timeout: 30000, env: { ...process.env, NODE_SPAWN_INVITE_MODULE: pathToFileURL(mutantFile).href }, stdio: ['ignore', 'pipe', 'pipe'],
     })
-    assert.equal(result.status, 1, `mutation survived: ${name}`)
-    assert.match(result.stdout, /not ok \d+ - /u, `mutation lacked a failing test: ${name}`)
-    assert.doesNotMatch(result.stdout + result.stderr, /SyntaxError/u, `invalid mutation: ${name}`)
-    t.diagnostic(`MUTATION ${name}: KILLED`)
-  }
+    let stdout = '', stderr = ''
+    child.stdout.on('data', chunk => { stdout += chunk }); child.stderr.on('data', chunk => { stderr += chunk })
+    child.on('error', reject)
+    child.on('close', status => {
+      try {
+        assert.equal(status, 1, `mutation survived: ${name}`)
+        assert.match(stdout, /not ok \d+ - /u, `mutation lacked a failing test: ${name}`)
+        assert.doesNotMatch(stdout + stderr, /SyntaxError/u, `invalid mutation: ${name}`)
+        resolve(name)
+      } catch (error) { reject(error) }
+    })
+  })
+  const queue = mutations.map((mutation, index) => [mutation, index])
+  const worker = async () => { for (let next = queue.shift(); next; next = queue.shift()) t.diagnostic(`MUTATION ${await runOne(...next)}: KILLED`) }
+  await Promise.all(Array.from({ length: 6 }, worker))
   t.diagnostic(`MUTATIONS ${mutations.length}/${mutations.length} KILLED`)
 })
