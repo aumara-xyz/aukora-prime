@@ -43,6 +43,11 @@ export const POST_GAP_MS = 10_000
 export const POSTS_PER_HOUR = 40
 export const WAKE_GAP_MS = 10_000
 export const WAKES_PER_HOUR = 40
+export const RESUME_GAP_MS = 10_000
+export const MAX_RESUME_GAP_MS = 60_000
+export const SESSION_REFUSE = Object.freeze({
+  MISSING: 'buzz-session:not-found', UNAVAILABLE: 'buzz-session:resume-unavailable', RESUME: 'buzz-session:resume-failed',
+})
 // Bounds on what one poll may cost the harness, applied BEFORE any signature is checked.
 export const MAX_RESPONSE_BYTES = 1_048_576
 export const MAX_EVENTS_PER_QUERY = 100
@@ -396,14 +401,15 @@ export function createWaker({ door, deliver, log = () => {}, now = () => Date.no
   return async function tick() {
     if (busy) return { skipped: true }
     busy = true
+    const poll = Symbol()
     let delivered = 0, dropped = 0
     try {
       for (const m of await door.poll()) {
         // Charge only a successful enqueue; backoff and delivery failures leave fresh messages retryable.
         try { limiter.check() } catch { dropped++; continue }
-        await deliver(wakeText(m), m); limiter.take(); door.ack(m); delivered++
+        await deliver(wakeText(m), m, poll); limiter.take(); door.ack(m); delivered++
       }
-      if (lastError !== null) { log('AUKORA_BUZZ_DOOR_RECOVERED'); lastError = null }
+      if (lastError !== null && delivered > 0) { log('AUKORA_BUZZ_DOOR_RECOVERED'); lastError = null }
     } catch (error) {
       const reason = door.scrub(error?.message ?? error)
       if (reason !== lastError) { log(`AUKORA_BUZZ_DOOR_FAILED ${reason}`); lastError = reason }
@@ -431,6 +437,42 @@ export function wakeMessage(text) {
   return deepFreeze({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: name, form: 'relay' }, role: 'user', id: randomUUID() })
 }
 
+/** Resume only the configured stored session; failures back off and leave mentions unacknowledged. */
+export function createSessionDelivery({ door, agents, getSessionController, sessionId, now = () => Date.now() }) {
+  let retryAt = 0, failures = 0, lastRefusal, lastResumePoll
+  const refusal = (code, message) => Object.assign(new Error(message), { code })
+  return async (text, message, poll) => {
+    let agent = pickAgent(agents, sessionId)
+    if (agent === null) {
+      const controller = getSessionController?.()
+      if (typeof controller?.resolveAgent !== 'function') throw refusal(SESSION_REFUSE.UNAVAILABLE,
+        'configured Buzz session unavailable; operator: open the configured Buzz session in the harness client')
+      if (now() < retryAt) throw lastRefusal
+      if (poll !== undefined && poll === lastResumePoll) throw refusal(SESSION_REFUSE.RESUME,
+        'configured Buzz session resume failed; will retry')
+      lastResumePoll = poll
+      try {
+        // resolveAgent resumes existing storage only; session/create would also create an unknown id.
+        const result = await controller.resolveAgent(sessionId)
+        if (result?.error) throw result.error
+        agent = pickAgent(agents, sessionId)
+        if (result?.agent?.id !== sessionId || agent !== result.agent) throw refusal(SESSION_REFUSE.RESUME,
+          'configured Buzz session resume failed; will retry')
+      } catch (error) {
+        lastRefusal = error?.code === 'session/not-found'
+          ? refusal(SESSION_REFUSE.MISSING, 'configured Buzz session does not exist')
+          : refusal(SESSION_REFUSE.RESUME, 'configured Buzz session resume failed; will retry')
+        failures++
+        retryAt = now() + Math.min(MAX_RESUME_GAP_MS, RESUME_GAP_MS * 2 ** Math.min(failures - 1, 6))
+        throw lastRefusal
+      }
+    }
+    retryAt = 0; failures = 0
+    await door.recordWake(message, sessionId)
+    await agent.followup(wakeMessage(text))
+  }
+}
+
 export function apply(ctx, config = {}) {
   if (process.platform !== 'linux') return // Her key and the gate exist only on the Linux host; elsewhere inert.
   const gateSocket = typeof config.gateSocket === 'string' && config.gateSocket.startsWith('/') ? config.gateSocket : '/run/aukora-gate/gate.sock'
@@ -447,12 +489,15 @@ export function apply(ctx, config = {}) {
   ctx.tools.register(tools.post)
   if (tools.postReceipt) ctx.tools.register(tools.postReceipt)
   if (!settings.sessionId) { console.info('AUKORA_BUZZ_DOOR_WAKE_DISABLED missing sessionId'); return }
-  const deliver = async (text, message) => {
-    const agent = pickAgent(ctx.agents, settings.sessionId)
-    if (agent === null) throw new Error('configured Buzz session unavailable')
-    await door.recordWake(message, settings.sessionId)
-    await agent.followup(wakeMessage(text))
-  }
+  let sessionController
+  ctx.inject?.(['sessionController'], scope => {
+    const service = scope.sessionController
+    sessionController = service
+    scope.effect(() => () => { if (sessionController === service) sessionController = undefined },
+      'aukora-buzz-door: release the session controller on unload')
+  })
+  const deliver = createSessionDelivery({ door, agents: ctx.agents, sessionId: settings.sessionId,
+    getSessionController: () => sessionController })
   const tick = createWaker({ door, deliver, log: line => console.info(line) })
   ctx.effect(() => {
     const timer = setInterval(() => { void tick() }, settings.pollMs ?? POLL_MS)
