@@ -1,7 +1,12 @@
 {
+  "formatVersion": 2,
   "face": "layout",
-  "srcDigest": "11593a21cae80dc405ea7ed6cfa495f86be1391e7340d7a860fa49c55eafedf0",
+  "srcDigest": "f67823ae243b94f55b96c5daf0c756db62ff3c1d022caf63857def5122ff789a",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/approvals-log.ts",
     "src/client/AppFrame.module.css",
@@ -49,7 +54,13 @@
     "src/invariant.ts",
     "src/watchdog-limit.ts",
     "src/why-store.ts",
+    "tsconfig.host.json",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-10-01T05:24:50Z"
+  "outputs": {
+    "client.js": "cdf76dc6df5f09d7e4bb9c8255fe774445fdd14df5c9ebe731b8371576c45a7f",
+    "index.js": "1e54c6b08f9acc8d1e49cfd94eda1caa562088c2f5e47a3652aead65c3e8bfac",
+    "invariant.js": "6289afba60b826cd0d2cda7b5911eb62d1a305c08b9d6a3067efc406c560f7b8"
+  }
 }

@@ -729,22 +729,18 @@ export interface MessagesGiftWrapDecoder {
 /** The relays a send or a read uses when nothing overrides them. */
 export type MessagesRelays = readonly string[];
 
-/**
- * The relay list to use, from {@link MESSAGES_RELAYS_ENV} or the module's defaults.
- *
- * A comma- or whitespace-separated list. An entry that is not `ws://` or `wss://` is DROPPED,
- * and a list that ends up empty falls back to the defaults rather than to an empty transport:
- * an unparseable override must not silently mean "no relays", which would read to a person as
- * "nobody answered me".
- *
- * @param defaults - the relay module's own default list.
- * @returns the relays to use.
- */
-export function messagesRelays(defaults: readonly string[]): readonly string[] {
+/** Only explicit host relay configuration may receive Messages traffic. */
+export function messagesRelays(nodeRelays: readonly string[] = []): readonly string[] {
   const configured = environmentValue(MESSAGES_RELAYS_ENV_NAME)
-  if (configured === undefined || configured.trim() === '') return defaults
-  const parsed = configured.split(/[\s,]+/u).filter(relay => /^wss?:\/\//u.test(relay))
-  return parsed.length === 0 ? defaults : parsed
+  const candidates = configured === undefined ? nodeRelays : configured.trim().split(/[\s,]+/u)
+  if (candidates.length === 0 || candidates.some(relay => {
+    if (typeof relay !== 'string' || relay.trim() !== relay || !/^wss?:\/\//u.test(relay)) return true
+    try {
+      const url = new URL(relay)
+      return !url.hostname || !!url.username || !!url.password || !!url.hash
+    } catch { return true }
+  })) return []
+  return [...new Set(candidates)]
 }
 
 /**
@@ -1082,7 +1078,7 @@ export const MESSAGES_CONTACT_MODULE_ENV = MESSAGES_CONTACT_MODULE_ENV_NAME
 
 /**
  * Environment variable naming the relays a send or a read uses. A comma- or whitespace-separated
- * list; entries that are not `ws://` or `wss://` are dropped. The court points this at its own
+ * list; an empty or invalid list disables transport. The court points this at its own
  * in-process relay so nothing touches the public internet.
  */
 export const MESSAGES_RELAYS_ENV = MESSAGES_RELAYS_ENV_NAME

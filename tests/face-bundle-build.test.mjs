@@ -183,6 +183,94 @@ with tempfile.TemporaryDirectory(prefix='.face-bundle-build-test-', dir=pathlib.
             assert refused is None, 'CHECK FAILED: ' + arm
         else:
             assert refused and refused.startswith('face-dependency-lock-mismatch:'), 'CHECK FAILED: ' + arm
+    elif arm.startswith('install '):
+        pinned = root / 'pinned'
+        namespace.update(PINNED=pinned, FACES=('apps',), DEFERRED=())
+        for home in (pinned, overlay):
+            loader = home / 'node_modules/js-yaml'
+            loader.mkdir(parents=True)
+            (loader / 'index.js').write_text('exports.load = JSON.parse')
+            (home / 'package.json').write_text('{"name":"fixture-root"}')
+        semver = overlay / 'node_modules/.pnpm/node_modules/semver'
+        semver.mkdir(parents=True)
+        (semver / 'index.js').write_text("exports.valid = value => /^\\d+\\.\\d+\\.\\d+$/.test(value); exports.satisfies = (value, range) => range === '*' || value === range.replace(/^\\^/, '')")
+        project = overlay / 'packages/core/fixture'
+        project.mkdir(parents=True)
+        (project / 'package.json').write_text('{"name":"@fixture/workspace","version":"1.0.0"}')
+        dependencies = {'fixture-external': '^1.0.0', '@fixture/workspace': 'workspace:*'}
+        manifest = {'name': '@fixture/face', 'dependencies': dependencies,
+                    'devDependencies': {'fixture-dev': '1.0.0', 'fixture-external': '99.0.0'},
+                    'optionalDependencies': {'fixture-optional': '1.0.0'}}
+        importer = {'dependencies': {}}
+        targets = {}
+        for name in ('fixture-external', 'fixture-dev', 'fixture-optional'):
+            target = overlay / 'node_modules/.pnpm' / name / 'node_modules' / name
+            target.mkdir(parents=True)
+            (target / 'package.json').write_text(json.dumps({'name': name, 'version': '1.0.0'}))
+            link = project / 'node_modules' / name
+            link.parent.mkdir(exist_ok=True)
+            link.symlink_to(os.path.relpath(target, link.parent), target_is_directory=True)
+            importer['dependencies'][name] = {'specifier': '1.0.0', 'version': '1.0.0(peer@1.0.0)'}
+            targets[name] = target
+        lock = {'importers': {'.': {}, 'packages/core/fixture': importer},
+                'packages': {'fixture-external@1.0.0': {}}, 'snapshots': {'fixture-external@1.0.0(peer@1.0.0)': {}}}
+        if arm == 'install range mismatch': dependencies['fixture-external'] = '^2.0.0'
+        if arm == 'install invalid pinned version':
+            dependencies['fixture-external'] = '*'
+            importer['dependencies']['fixture-external']['version'] = 'invalid'
+            (targets['fixture-external'] / 'package.json').write_text('{"name":"fixture-external","version":"invalid"}')
+        if arm == 'install ambiguous peers':
+            lock['importers']['.'] = {'dependencies': {'fixture-external': {'specifier': '1.0.0', 'version': '1.0.0(peer@2.0.0)'}}}
+        if arm == 'install workspace missing': dependencies['@fixture/missing'] = 'workspace:*'
+        if arm == 'install workspace range mismatch': dependencies['@fixture/workspace'] = 'workspace:^2.0.0'
+        if arm in ('install workspace range', 'install workspace caret', 'install workspace tilde'):
+            dependencies['@fixture/workspace'] = {'install workspace range': 'workspace:^1.0.0',
+                'install workspace caret': 'workspace:^', 'install workspace tilde': 'workspace:~'}[arm]
+        if arm == 'install optional precedence':
+            dependencies['fixture-external'] = '98.0.0'
+            manifest['optionalDependencies']['fixture-external'] = '1.0.0'
+        if arm in ('install wrong package name', 'install wrong package version'):
+            value = {'name': 'fixture-external', 'version': '1.0.0'}
+            value['name' if arm.endswith('name') else 'version'] = 'wrong' if arm.endswith('name') else '2.0.0'
+            (targets['fixture-external'] / 'package.json').write_text(json.dumps(value))
+        if arm in ('install external escape', 'install workspace escape'):
+            outside = root / 'outside'
+            outside.mkdir()
+            (outside / 'package.json').write_text('{"name":"fixture-external","version":"1.0.0"}' if arm == 'install external escape' else '{"name":"@fixture/escape","version":"1.0.0"}')
+            if arm == 'install external escape':
+                link = project / 'node_modules/fixture-external'
+                link.unlink()
+                link.symlink_to(outside, target_is_directory=True)
+            else:
+                (overlay / 'escape').symlink_to(outside, target_is_directory=True)
+                lock['importers']['escape'] = {}
+                dependencies['@fixture/escape'] = 'workspace:*'
+        (built / 'package.json').write_text(json.dumps(manifest))
+        lock_bytes = json.dumps(lock)
+        for home in (pinned, overlay): (home / 'pnpm-lock.yaml').write_text(lock_bytes)
+        calls, original_run = [], namespace['run']
+        def installed(*args, **kwargs):
+            calls.append(args[0])
+            assert args[0][0] == 'node', 'CHECK FAILED: ' + arm
+            return original_run(*args, **kwargs)
+        namespace['run'] = installed
+        refused = None
+        try:
+            namespace['install']()
+        except SystemExit as error:
+            refused = str(error)
+        if arm in ('install matching links', 'install lock preflight', 'install lock final', 'install optional precedence',
+                   'install workspace range', 'install workspace caret', 'install workspace tilde'):
+            assert refused is None, 'CHECK FAILED: ' + arm + ': ' + str(refused)
+            for name, target in dict(targets, **{'@fixture/workspace': project}).items():
+                link = built / 'node_modules' / name
+                assert link.is_symlink() and not os.path.isabs(os.readlink(link)) and link.resolve() == target, 'CHECK FAILED: ' + arm
+            assert len(calls) == 3, 'CHECK FAILED: ' + arm
+        else:
+            reason = 'face-dependency-outside-overlay' if arm.endswith('escape') else 'face-dependency-install-mismatch' if arm.startswith('install wrong') else 'face-dependency-unpinned'
+            assert refused and reason + ':' in refused, 'CHECK FAILED: ' + arm
+            assert not (built / 'node_modules').exists(), 'CHECK FAILED: ' + arm
+        assert all((home / 'pnpm-lock.yaml').read_text() == lock_bytes for home in (pinned, overlay)), 'CHECK FAILED: ' + arm
     elif arm == 'pinned bundle environment':
         os.environ['DSH_CLIENT_CALLER'] = 'unrecorded'
         os.environ['NODE_OPTIONS'] = '--conditions=unrecorded'
@@ -245,6 +333,18 @@ for (const [arm, anchor, replacement] of [
   ['unexpected CSS preset', 'if original.count(needle) != 3:', 'if False:'],
   ['dependency packages changed', 'JSON.stringify(canonical(pinned[section])) !== JSON.stringify(canonical(built[section]))', 'false'],
   ['dependency snapshots changed', 'JSON.stringify(canonical(pinned[section])) !== JSON.stringify(canonical(built[section]))', 'false'],
+  ['install range mismatch', "semver.satisfies(entry.version.split('(')[0], wanted)", 'true'],
+  ['install invalid pinned version', "semver.valid(entry.version.split('(')[0])", 'true'],
+  ['install ambiguous peers', 'new Set(candidates.map(entry => entry.version)).size !== 1', 'false'],
+  ['install workspace missing', "if (!target) refuse('face-dependency-unpinned', `${face}: ${name} ${wanted}`);", ''],
+  ['install workspace range mismatch', "!['*', '^', '~'].includes(range) && !semver.satisfies(read(path.join(inside(target), 'package.json')).version, range)", 'false'],
+  ['install optional precedence', "const sections = ['devDependencies', 'dependencies', 'optionalDependencies'];", "const sections = ['devDependencies', 'optionalDependencies', 'dependencies'];"],
+  ['install wrong package name', 'pkg.name === name && ', ''],
+  ['install wrong package version', "pkg.version === entry.version.split('(')[0]", 'true'],
+  ...['install external escape', 'install workspace escape'].map(arm =>
+    [arm, "if (!real.startsWith(overlay + path.sep)) refuse('face-dependency-outside-overlay', target);", '']),
+  ['install lock preflight', "    verify_dependency_lock()\n    link = r'''", "    link = r'''"],
+  ['install lock final', '    print(out.stdout.strip(), flush=True)\n    verify_dependency_lock()', '    print(out.stdout.strip(), flush=True)'],
   ['pinned bundle environment', "env = {key: os.environ[key] for key in ('PATH', 'HOME') if key in os.environ}", 'env = dict(os.environ)'],
   ['source changed before copy', 'if src_digest(name) != inputs:', 'if False:'],
   ['source changed during copy', "if (record['srcDigest'], record['files']) != inputs:", 'if False:'],
@@ -258,7 +358,8 @@ for (const [arm, anchor, replacement] of [
   })
 }
 
-for (const arm of ['fresh outputs stamped', 'matching dependency lock', 'harness unchanged', 'harness patched']) {
+for (const arm of ['fresh outputs stamped', 'matching dependency lock', 'harness unchanged', 'harness patched', 'install matching links',
+  'install workspace range', 'install workspace caret', 'install workspace tilde']) {
   test(`build-face.py ${arm}`, () => {
     const result = builderRun(arm)
     assert.equal(result.status, 0, result.stdout + result.stderr)

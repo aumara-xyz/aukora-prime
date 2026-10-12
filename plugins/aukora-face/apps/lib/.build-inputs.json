@@ -1,7 +1,17 @@
 {
+  "formatVersion": 2,
   "face": "apps",
-  "srcDigest": "4be10a33aac25d9bb7bdb44631ebd87f619a9a4bb7f99ff94c8d63c440aeb5f8",
+  "srcDigest": "fd5c56cc771a44e4b023a029db06e7554e716b548e1592497fb58fa4c679ac02",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
+    "assets/human-graph/bootstrap.js",
+    "assets/human-graph/graph-data.js",
+    "assets/human-graph/graph.css",
+    "assets/human-graph/graph.js",
+    "assets/human-graph/index.html",
     "package.json",
     "src/auma-canvas-tool.ts",
     "src/auma-canvas/projection.ts",
@@ -69,6 +79,9 @@
     "src/status-facts.ts",
     "src/vendor-paths.ts",
     "src/vendor/organism.ts",
+    "tsconfig.client.json",
+    "tsconfig.host.json",
+    "tsconfig.json",
     "tsdown.config.ts",
     "vendor/README.md",
     "vendor/auma-lingwa/canonical/AUMA_V15_DECISIONS.md",
@@ -196,6 +209,10 @@
     "vendor/auma-live/source/server/presenceLane.ts",
     "vendor/auma-live/source/voice/.gitignore",
     "vendor/auma-live/source/voice/README.md",
+    "vendor/auma-live/source/voice/install.py",
+    "vendor/auma-live/source/voice/launch.py",
+    "vendor/auma-live/source/voice/models.lock.json",
+    "vendor/auma-live/source/voice/requirements-linux.lock",
     "vendor/auma-live/source/voice/requirements.txt",
     "vendor/auma-live/source/voice/run.sh",
     "vendor/auma-live/source/voice/setup.sh",
@@ -204,6 +221,7 @@
     "vendor/auma-live/source/voice/test_fixes.py",
     "vendor/auma-live/source/voice/test_lazy_engines.py",
     "vendor/auma-live/source/voice/test_loop.py",
+    "vendor/auma-live/source/voice/wheels.lock.json",
     "vendor/auma-live/voice/.gitignore",
     "vendor/auma-live/voice/MODELS.md",
     "vendor/auma-live/voice/README.md",
@@ -242,5 +260,10 @@
     "vendor/zeta-harp/js/zh-fixtures-2.js",
     "vendor/zeta-harp/js/zh-math.js"
   ],
-  "builtAt": "2026-10-01T07:19:28Z"
+  "outputs": {
+    "auma-canvas-tool.js": "dc9089966199892f8e634ef40763d1b0d45273fc852610d59bee6571442f16f9",
+    "client.js": "a199f627698e2b87631fe2b3fb33fe0be4f58f7427d544951a0c77ab7a2abe45",
+    "index.js": "eb2d4e5486334b082b6871bf627d5ac9a30ef494da1654005cd9885b39ebdede",
+    "invariant.js": "3b8afb228be987e733eb733646c241242d9ad6f2ba47f58f0f10c1aaa2c1b190"
+  }
 }

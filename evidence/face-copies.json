@@ -10,6 +10,7 @@
     "apps/assets/human-graph/graph.js",
     "apps/assets/human-graph/index.html",
     "apps/lib/.build-inputs.json",
+    "apps/lib/auma-canvas-tool.js",
     "apps/lib/client.js",
     "apps/lib/index.js",
     "apps/lib/invariant.js",

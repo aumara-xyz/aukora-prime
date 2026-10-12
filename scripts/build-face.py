@@ -305,13 +305,78 @@ for (const section of ['packages', 'snapshots']) {
 
 
 def install():
-    env = {'CI': 'true', 'LEFTHOOK': '0', 'PATH': subprocess.os.environ.get('PATH', ''),
-           'HOME': subprocess.os.environ.get('HOME', '')}
-    # Not frozen: the lockfile in the clone gains our packages. The pinned lockfile is untouched.
-    print('FACE STEP install: pnpm install --offline --no-frozen-lockfile (overlay only)', flush=True)
-    out = run(['pnpm', 'install', '--offline', '--no-frozen-lockfile'], OVERLAY, env=env, check=False)
+    """Link face dependencies from the cloned pinned install without resolving the workspace again."""
+    verify_dependency_lock()
+    link = r'''
+const fs = require('node:fs');
+const path = require('node:path');
+const { createRequire } = require('node:module');
+const [overlay, ...faces] = process.argv.slice(1);
+const yaml = createRequire(path.join(overlay, 'package.json'))('js-yaml');
+const semver = createRequire(path.join(overlay, 'node_modules/.pnpm/loader.cjs'))('semver');
+const lock = yaml.load(fs.readFileSync(path.join(overlay, 'pnpm-lock.yaml'), 'utf8'));
+const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
+const refuse = (code, detail) => { throw new Error(`${code}: ${detail}`); };
+const inside = target => {
+  const real = fs.realpathSync(target);
+  if (!real.startsWith(overlay + path.sep)) refuse('face-dependency-outside-overlay', target);
+  return real;
+};
+const projects = Object.keys(lock.importers).concat(faces.map(name => `packages/client/aukora-face-${name}`));
+const workspaces = new Map(projects.map(project => {
+  const dir = path.join(overlay, project);
+  return [read(path.join(dir, 'package.json')).name, dir];
+}));
+const sections = ['devDependencies', 'dependencies', 'optionalDependencies'];
+const links = [];
+for (const face of faces) {
+  const dir = path.join(overlay, `packages/client/aukora-face-${face}`);
+  const manifest = read(path.join(dir, 'package.json'));
+  const dependencies = Object.assign({}, ...sections.map(section => manifest[section]));
+  for (const [name, wanted] of Object.entries(dependencies)) {
+    let target;
+    if (wanted.startsWith('workspace:')) {
+      target = workspaces.get(name);
+      if (!target) refuse('face-dependency-unpinned', `${face}: ${name} ${wanted}`);
+      const range = wanted.slice('workspace:'.length);
+      if (!['*', '^', '~'].includes(range) && !semver.satisfies(read(path.join(inside(target), 'package.json')).version, range))
+        refuse('face-dependency-unpinned', `${face}: ${name} ${wanted}`);
+    } else {
+      const candidates = Object.entries(lock.importers).flatMap(([project, importer]) =>
+        sections.flatMap(section => {
+          const entry = importer[section]?.[name];
+          return entry && semver.valid(entry.version.split('(')[0]) && semver.satisfies(entry.version.split('(')[0], wanted)
+            ? [{ project, version: entry.version }] : [];
+        }));
+      if (new Set(candidates.map(entry => entry.version)).size !== 1)
+        refuse('face-dependency-unpinned', `${face}: ${name} ${wanted} has no unique pinned resolution`);
+      for (const entry of candidates) {
+        const installed = path.join(overlay, entry.project, 'node_modules', name);
+        if (!fs.existsSync(installed)) continue;
+        const real = inside(installed);
+        const pkg = read(path.join(real, 'package.json'));
+        if (pkg.name === name && pkg.version === entry.version.split('(')[0]) {
+          target = real;
+          break;
+        }
+      }
+      if (!target) refuse('face-dependency-install-mismatch', `${face}: ${name} ${wanted}`);
+    }
+    links.push([path.join(dir, 'node_modules', name), inside(target)]);
+  }
+}
+for (const [destination, target] of links) {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.symlinkSync(path.relative(path.dirname(destination), target), destination, 'dir');
+}
+console.log(`FACE LINKED ${links.length} dependencies from the pinned overlay; lock unchanged`);
+'''
+    print('FACE STEP install: link face dependencies from pinned node_modules (offline, overlay only)', flush=True)
+    out = run(['node', '-e', link, str(OVERLAY), *(n for n in FACES if n not in DEFERRED)],
+              ROOT, env=build_environment(), check=False)
     if out.returncode != 0:
         sys.exit(f'face-install-failed:\n{out.stdout[-3000:]}')
+    print(out.stdout.strip(), flush=True)
     verify_dependency_lock()
 
 

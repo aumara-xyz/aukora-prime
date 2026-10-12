@@ -1,7 +1,12 @@
 {
+  "formatVersion": 2,
   "face": "threads",
-  "srcDigest": "23c6dee5224cb8ba00c5c974c1129b7f0d10b4825efb7d47c0f185e6cad3d187",
+  "srcDigest": "fae33b8d002c854610396aebad948a57171dbb8eccf7e5461d5ac56cb1a58f2b",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/client/ThreadHeaderActions.module.css",
     "src/client/ThreadHeaderActions.tsx",
@@ -25,7 +30,12 @@
     "src/css-modules.d.ts",
     "src/index.ts",
     "src/invariant.ts",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-09-30T07:50:42Z"
+  "outputs": {
+    "client.js": "0b6a367fe4b7decd01fab5cfd2fdc77fabc545b441a0be00a81d00597cc2245c",
+    "index.js": "e6cdc4b725585354102a5c4598c9d8c79d6abac62d7979c09919821716370438",
+    "invariant.js": "fac1dcd5cd871a9daa6c024904587025347c2dfd134858e7364b824d1536d7dc"
+  }
 }

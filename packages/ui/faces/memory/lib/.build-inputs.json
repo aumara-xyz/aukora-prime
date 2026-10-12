@@ -1,7 +1,12 @@
 {
+  "formatVersion": 2,
   "face": "memory",
-  "srcDigest": "c8b58311f8e1fdab4e50ff7b733b5232a054e0131a1f275980bfbe711387f635",
+  "srcDigest": "d03f076cfc0e3a69913461c04ca505b385fb64129cf7d5787ba59f9250ac4d9e",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/client/Memory.module.css",
     "src/client/MemoryMenu.tsx",
@@ -12,7 +17,13 @@
     "src/client/memory-model.ts",
     "src/css-modules.d.ts",
     "src/index.ts",
+    "tsconfig.client.json",
+    "tsconfig.host.json",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-09-30T12:17:56Z"
+  "outputs": {
+    "client.js": "686eef742faaeb95d285550a1b1bf1dfea6a68caabe1befc420827d3979c4f5c",
+    "index.js": "b9abe6bebac28e788495cf003df588d8fab9442ffe3c34d69a6412bfd0f532fb"
+  }
 }

@@ -1,7 +1,12 @@
 {
+  "formatVersion": 2,
   "face": "settings",
-  "srcDigest": "5c4cb66a052997c439ab9ac0670214f65af3c10da7f66e05703760a7a0f1761d",
+  "srcDigest": "fc266412e81cc9b816f4effa5b2542675c248466de1f1dfae534ff80fde552a2",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/aura/activity.ts",
     "src/aura/aggregate.ts",
@@ -33,7 +38,14 @@
     "src/css-modules.d.ts",
     "src/index.ts",
     "src/invariant.ts",
+    "tsconfig.client.json",
+    "tsconfig.host.json",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-09-30T07:50:53Z"
+  "outputs": {
+    "client.js": "6d20bf52dc03583c372bdd5d7354c2f8c5061fce68f43054e9f1c05e92f25f6e",
+    "index.js": "88ffc9928357ac7bc9d8379ce5f9769b221a6447037abf67e3722c05552b07b6",
+    "invariant.js": "ac97a8f17a8b9ea4cc74bb74faaebfb613ec92a958882b19673a6597ca88c225"
+  }
 }

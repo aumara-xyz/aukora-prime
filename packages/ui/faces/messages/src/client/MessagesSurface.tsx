@@ -1033,6 +1033,8 @@ const NAMED_WARNINGS: Record<string, MessagesKey> = {
   'messages:key-missing': 'warning.identity',
   'messages:key-unreadable': 'warning.identity',
   'messages:contact-peer-key-malformed': 'warning.peer-key',
+  'messages:no-relay-configured': 'warning.no-relay',
+  'messages:contact-foreign': 'warning.contact-foreign',
   'messages:relays-unreachable': 'warning.relays',
   'messages:reads-unavailable': 'warning.thread',
   'messages:thread-timeout': 'warning.thread-timeout',

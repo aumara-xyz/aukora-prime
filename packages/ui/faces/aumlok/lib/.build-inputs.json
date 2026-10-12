@@ -1,7 +1,11 @@
 {
+  "formatVersion": 2,
   "face": "aumlok",
-  "srcDigest": "32dd843b08f406090d65dd5a56333c994356263ef4dd1d019bb3d8ddf4536d1b",
+  "srcDigest": "a7890e685419877c8b3c07167bec49a9d37333bf4e8c03fad8e20ee8c84f11fe",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
     "../messages/package.json",
     "../messages/src/client/add-contact.ts",
     "../messages/src/client/qr-scanner.ts",
@@ -10,6 +14,7 @@
     "../messages/src/vendor/jsqr/jsQR.js",
     "../messages/src/vendor/jsqr/package.json",
     "../messages/src/vendor/jsqr/upstream-jsqr.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/client/Aumlok.module.css",
     "src/client/AumlokMenu.tsx",
@@ -37,7 +42,12 @@
     "src/invariant.ts",
     "src/vendor/qrcodegen/LICENSE",
     "src/vendor/qrcodegen/qrcodegen.ts",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-09-30T08:20:04Z"
+  "outputs": {
+    "client.js": "09c8d16b0ed328dda390de67e3e2ab6289e88641b4b6ebaf6c33a8fbf3b3571c",
+    "index.js": "e37ec665a746e432807ef469f3d943172c96221377c1bae167bee5c5df963e8d",
+    "invariant.js": "098e464c7e8186c21be68d972d433ddd1d95d382355c127887ffe964c294f301"
+  }
 }

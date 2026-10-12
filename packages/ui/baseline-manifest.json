@@ -14,7 +14,7 @@
     "documents",
     "settings"
   ],
-  "source_asset_policy": "Historical donor inventory with reviewed current source pins: three conversation rails reflect 0548eaf and voice-sidecar.ts reflects 01bfc673 (mirrored d6866997); the existing organism comment-only privacy adaptation is retained. Checked-in bundles and build records remain historical, without new compilation; adapters live outside faces/",
+  "source_asset_policy": "Historical donor inventory with reviewed current source pins and rebuilt face bundles. All nine faces were compiled offline from canonical source against the seven-patch pinned harness; lib/.build-inputs.json binds current source and output bytes. The organism comment-only privacy adaptation and historical donor build observations are retained; adapters live outside faces/.",
   "public_main_observed": "645d3213b8aede3b544269b4224ae09df06b0a42",
   "pending_items": [
     {
@@ -56,15 +56,15 @@
     {
       "source": "plugins/aukora-face/layout/lib/.build-inputs.json",
       "path": "faces/layout/lib/.build-inputs.json",
-      "bytes": 1708,
-      "sha256": "91dc5c6a74eaa84a265d13265bb0da0de845775bc38149cebe67d68f0c9480a1",
+      "bytes": 2161,
+      "sha256": "7a58adc0144accd0a627b8e862275412e8c4ed4a46adc38209ea83f4ee5af190",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/layout/lib/client.js",
       "path": "faces/layout/lib/client.js",
-      "bytes": 104485,
-      "sha256": "a4c9dfcb0bf3e5db90afd4dc5fb19173fc31d5e523a37e0e42a4cb94bea500a1",
+      "bytes": 104300,
+      "sha256": "cdf76dc6df5f09d7e4bb9c8255fe774445fdd14df5c9ebe731b8371576c45a7f",
       "role": "bundle"
     },
     {
@@ -434,15 +434,15 @@
     {
       "source": "plugins/aukora-face/sidebar/lib/.build-inputs.json",
       "path": "faces/sidebar/lib/.build-inputs.json",
-      "bytes": 415,
-      "sha256": "493ada588f69849c47e28e41db41193a75af1e65dace4587d53b171d74265133",
+      "bytes": 842,
+      "sha256": "c4dfeb7fc73df656447c5a0b53957ca2c982b2726f69950ff033ac7be0ad3da1",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/sidebar/lib/client.js",
       "path": "faces/sidebar/lib/client.js",
       "bytes": 11034,
-      "sha256": "bf71b5e47349d0af09f2203a1e10e2cc68e8099a21affb387f3d53a903a29135",
+      "sha256": "4ad451f37a7938c1916ca5eaabf38a18bfa9911437acdb1bf365151e2f719cfe",
       "role": "bundle"
     },
     {
@@ -532,15 +532,15 @@
     {
       "source": "plugins/aukora-face/threads/lib/.build-inputs.json",
       "path": "faces/threads/lib/.build-inputs.json",
-      "bytes": 990,
-      "sha256": "97e93dbeff64d80a4858d2377a82caa725798f20b57e5e4fa74964fb6dd1a777",
+      "bytes": 1417,
+      "sha256": "04d7990434502993a2351eddcbd757a55c222bb79ed1f60e3eac77006f28286c",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/threads/lib/client.js",
       "path": "faces/threads/lib/client.js",
       "bytes": 158102,
-      "sha256": "9dce3f8c646ed928b9053b72271bf52a2666916bf3ba2c69b3a4ea2494cb2f53",
+      "sha256": "0b6a367fe4b7decd01fab5cfd2fdc77fabc545b441a0be00a81d00597cc2245c",
       "role": "bundle"
     },
     {
@@ -770,22 +770,29 @@
     {
       "source": "plugins/aukora-face/apps/lib/.build-inputs.json",
       "path": "faces/apps/lib/.build-inputs.json",
-      "bytes": 12572,
-      "sha256": "a0e5ad961e27dd8b1763dbf9645225ee3d3337584f2c9a4be646cb54cb354894",
+      "bytes": 13599,
+      "sha256": "d615bceebe08ff75df8e53e1c5730b81800b7fdf3556b6b938fb7b988a1f24a2",
+      "role": "bundle"
+    },
+    {
+      "source": "plugins/aukora-face/apps/lib/auma-canvas-tool.js",
+      "path": "faces/apps/lib/auma-canvas-tool.js",
+      "bytes": 6598,
+      "sha256": "dc9089966199892f8e634ef40763d1b0d45273fc852610d59bee6571442f16f9",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/apps/lib/client.js",
       "path": "faces/apps/lib/client.js",
       "bytes": 55390,
-      "sha256": "f714dba6a346e0d1c1425c312533de5961e5da70e7ed7be14539806b9de0f700",
+      "sha256": "a199f627698e2b87631fe2b3fb33fe0be4f58f7427d544951a0c77ab7a2abe45",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/apps/lib/index.js",
       "path": "faces/apps/lib/index.js",
-      "bytes": 341146,
-      "sha256": "8f580a6746ca095b2bed53120aec4bf8f3fe65b398d2b75de3adda81687b1aec",
+      "bytes": 343282,
+      "sha256": "eb2d4e5486334b082b6871bf627d5ac9a30ef494da1654005cd9885b39ebdede",
       "role": "bundle"
     },
     {
@@ -1603,22 +1610,22 @@
     {
       "source": "plugins/aukora-face/messages/lib/.build-inputs.json",
       "path": "faces/messages/lib/.build-inputs.json",
-      "bytes": 882,
-      "sha256": "cb66acf18d771e046976bc3d2ba075c87a0e9df1954d1d555903f67f7a2bb4fa",
+      "bytes": 1363,
+      "sha256": "a7b40649c512f1b293f81d1e4d27ab5712dd747594b76cea94ff37d1fb55005c",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/messages/lib/client.js",
       "path": "faces/messages/lib/client.js",
-      "bytes": 445807,
-      "sha256": "69f53fd986f2f4679565222321bb34b19405f40cd3ba1f25d58e61d306f4faf8",
+      "bytes": 446258,
+      "sha256": "18f981899d2b8fd5d2a813fd5d410d0f46ad5c1d836e02720477278bea502bb7",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/messages/lib/index.js",
       "path": "faces/messages/lib/index.js",
-      "bytes": 149120,
-      "sha256": "dab01a91407911d92b6f4ebc18366275751275ec245ffaa3e0e4a4e2997bca63",
+      "bytes": 148876,
+      "sha256": "80030360a85ecd6abd62baff285da5db7513b5585b229de8a57449cf3c75d46f",
       "role": "bundle"
     },
     {
@@ -1666,8 +1673,8 @@
     {
       "source": "plugins/aukora-face/messages/src/client/MessagesSurface.tsx",
       "path": "faces/messages/src/client/MessagesSurface.tsx",
-      "bytes": 79399,
-      "sha256": "7b0504777a9805ffd60c210c4e29d6b0d4cf8b906443f3cba6f0549953e5e324",
+      "bytes": 79510,
+      "sha256": "366e7ad97a9771446bdbd7b5219fc89c8a6bc1bf837786438283828b7e2ca149",
       "role": "source"
     },
     {
@@ -1694,8 +1701,8 @@
     {
       "source": "plugins/aukora-face/messages/src/client/locales.ts",
       "path": "faces/messages/src/client/locales.ts",
-      "bytes": 20779,
-      "sha256": "055785deef1b09c223595338c80dec141840979c7f2c33777d3e7bd607ecf5d7",
+      "bytes": 21047,
+      "sha256": "b6076c93a499db2db1899075b158366bf0fa00e9b8c776cb18840385527b1a43",
       "role": "source"
     },
     {
@@ -1715,8 +1722,8 @@
     {
       "source": "plugins/aukora-face/messages/src/contacts-store.ts",
       "path": "faces/messages/src/contacts-store.ts",
-      "bytes": 60644,
-      "sha256": "2970b7a1d99797c8b34e73374416a2d2e2cc105d310254e6afde2f8cea5162be",
+      "bytes": 60464,
+      "sha256": "091c45243c906adf244c31eeb828667c89c4cb464b307be11aa5ceba38ace945",
       "role": "source"
     },
     {
@@ -1729,8 +1736,8 @@
     {
       "source": "plugins/aukora-face/messages/src/index.ts",
       "path": "faces/messages/src/index.ts",
-      "bytes": 77023,
-      "sha256": "26d841b20b676e7e294fa5b9076297e087c5736c637b3e612ce56819914173a1",
+      "bytes": 76929,
+      "sha256": "0dcc72fcb78e4b47657ff290cfca467f7556eb9236e5e791876303037fdfc13e",
       "role": "source"
     },
     {
@@ -1743,8 +1750,8 @@
     {
       "source": "plugins/aukora-face/messages/src/messages-route.ts",
       "path": "faces/messages/src/messages-route.ts",
-      "bytes": 64788,
-      "sha256": "747a0348188271638793301449d917f6d37fc2933f8f2bbf44752ae462163ba7",
+      "bytes": 64918,
+      "sha256": "49ba5a3b3676398dacff948fc94477f60499ba1c535c9f3e39eda2ca5a7159ac",
       "role": "source"
     },
     {
@@ -1813,15 +1820,15 @@
     {
       "source": "plugins/aukora-face/memory/lib/.build-inputs.json",
       "path": "faces/memory/lib/.build-inputs.json",
-      "bytes": 479,
-      "sha256": "36671d03fd838a9e42b4c5bc8516ad3e1782e91ebb8f7440d0402bc7c4ef2c90",
+      "bytes": 872,
+      "sha256": "fb7e0ead31321189e4f1f1bc9ac5cbbbb6f74cd8c808a8a742ebe94134cc3d5c",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/memory/lib/client.js",
       "path": "faces/memory/lib/client.js",
       "bytes": 52951,
-      "sha256": "a5e45eacabea1acb41096769f0102f4aea5e51f8aafb5baee064f40da44261ae",
+      "sha256": "686eef742faaeb95d285550a1b1bf1dfea6a68caabe1befc420827d3979c4f5c",
       "role": "bundle"
     },
     {
@@ -1932,22 +1939,22 @@
     {
       "source": "plugins/aukora-face/aumlok/lib/.build-inputs.json",
       "path": "faces/aumlok/lib/.build-inputs.json",
-      "bytes": 1417,
-      "sha256": "afff377771b3e0a889789c80cbd41d8132610e3a07bdb302bec1233a511dcf95",
+      "bytes": 1844,
+      "sha256": "0d7e5119cd19a24c4b3c30162779d340b9d7aff60bbdfaa6e29917a019b223c0",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/aumlok/lib/client.js",
       "path": "faces/aumlok/lib/client.js",
-      "bytes": 469543,
-      "sha256": "0eae939f7cd27ff58608c50062f80baf808a7777e8c176676b63622584b658d6",
+      "bytes": 471091,
+      "sha256": "09c8d16b0ed328dda390de67e3e2ab6289e88641b4b6ebaf6c33a8fbf3b3571c",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/aumlok/lib/index.js",
       "path": "faces/aumlok/lib/index.js",
-      "bytes": 79917,
-      "sha256": "b9367abf7bd3d379f638fdb06afc0b7d63ac984f893ad7f444e4626dccc81184",
+      "bytes": 80980,
+      "sha256": "e37ec665a746e432807ef469f3d943172c96221377c1bae167bee5c5df963e8d",
       "role": "bundle"
     },
     {
@@ -1981,8 +1988,8 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/AumlokSurface.tsx",
       "path": "faces/aumlok/src/client/AumlokSurface.tsx",
-      "bytes": 29418,
-      "sha256": "b820f0a67b3bc1dbaf1b57a751e972b81feeaae533230505a8bde018c624652d",
+      "bytes": 26912,
+      "sha256": "5faa5d88f3ff91050bdeab9ce10a0f9bee0ffb4ddb014a27ae9f9ec1f8639b10",
       "role": "source"
     },
     {
@@ -2023,15 +2030,15 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/binding-bridge.ts",
       "path": "faces/aumlok/src/client/binding-bridge.ts",
-      "bytes": 10991,
-      "sha256": "e16d51c32d00db7fa01db2c3e70400e18147aa1683c9a6dbedfcc78dd0a148e3",
+      "bytes": 9824,
+      "sha256": "dd242859962726fe4beb36a2190b536eb837a9920434de55abf236a72d835ded",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/aumlok/src/client/control-projection.ts",
       "path": "faces/aumlok/src/client/control-projection.ts",
-      "bytes": 7795,
-      "sha256": "fe69307fed1f0ea3bbf5a5f42b53bb65cb2624cc8c9923bac522a13f28505ae6",
+      "bytes": 7822,
+      "sha256": "0a7e2911a0659714f51bdbfc1979b76b8c72bf5263fc0553f2ae7ab173b8baaa",
       "role": "source"
     },
     {
@@ -2051,22 +2058,22 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/index.ts",
       "path": "faces/aumlok/src/client/index.ts",
-      "bytes": 5309,
-      "sha256": "b57dfccf4df5a804612950b0ad60bc2ef9aec6bd852f70bc3f6efab35d87b44a",
+      "bytes": 5331,
+      "sha256": "bc938498f19289f094083fb9c5fd7b2cd75b5b297365d157b14ef27664591238",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/aumlok/src/client/locales.ts",
       "path": "faces/aumlok/src/client/locales.ts",
-      "bytes": 22264,
-      "sha256": "feabab7d14d1b6f25853ac72668b69c7c5bd30f7ff2dad6619be286560773eea",
+      "bytes": 22963,
+      "sha256": "c75002f07397d4908a96c2572a6a64da9e8bdf7d43a5f6875133d3b7677eb336",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/aumlok/src/client/record-projection.ts",
       "path": "faces/aumlok/src/client/record-projection.ts",
-      "bytes": 28369,
-      "sha256": "0c00314af9a5e83e3bcff9b4a7c9cb65eeec1d2b9cbc7d4486ece49acd633ea4",
+      "bytes": 29079,
+      "sha256": "44145ef7bd1becaf28e3c16a8627702507f691c40c9c262be2fad26a08d37f82",
       "role": "source"
     },
     {
@@ -2093,8 +2100,8 @@
     {
       "source": "plugins/aukora-face/aumlok/src/control-projection.ts",
       "path": "faces/aumlok/src/control-projection.ts",
-      "bytes": 13487,
-      "sha256": "0bc93d23886a8da025cc92dbb4d2b177d07ad99129ae4214c843d2e845db2201",
+      "bytes": 13556,
+      "sha256": "238b3f1eb4546eadc6a6c24249cd2806397b059b9bfc163b4343fba7e8a45faa",
       "role": "source"
     },
     {
@@ -2163,15 +2170,15 @@
     {
       "source": "plugins/aukora-face/documents/lib/.build-inputs.json",
       "path": "faces/documents/lib/.build-inputs.json",
-      "bytes": 650,
-      "sha256": "3ed1ec8f784c4d796a41e4159c3766bb24bb6be68c5d8b4d635141986c7511c7",
+      "bytes": 1131,
+      "sha256": "cd3088564eab68299dbb6b514072ab7b09a12b85bdaf513eb6bd68b2518a26cd",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/documents/lib/client.js",
       "path": "faces/documents/lib/client.js",
       "bytes": 60504,
-      "sha256": "d31033043e56d8e7b168d53e855293bd4ff39b03ea2f8afd38de5151edfac7b9",
+      "sha256": "dd88b4c90981ab4c690b86addcb58109bcafe2aeed8d09dd097bddce2b07c3e4",
       "role": "bundle"
     },
     {
@@ -2324,15 +2331,15 @@
     {
       "source": "plugins/aukora-face/settings/lib/.build-inputs.json",
       "path": "faces/settings/lib/.build-inputs.json",
-      "bytes": 1208,
-      "sha256": "bdfa616f5e3a411955beba09b3dcf19e7b849df5fafc05afe6a621596966302d",
+      "bytes": 1689,
+      "sha256": "22a9110217c1982ab4bb4e777f4bdfbdcc8a7f1b40a126ab30e7da87514eed6e",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/client.js",
       "path": "faces/settings/lib/client.js",
-      "bytes": 128389,
-      "sha256": "d0002922ddc05ae3e737095ddcf82ef1307b9c4f3ab55a5c5aa85d54ae97d19a",
+      "bytes": 128206,
+      "sha256": "6d20bf52dc03583c372bdd5d7354c2f8c5061fce68f43054e9f1c05e92f25f6e",
       "role": "bundle"
     },
     {
@@ -3296,7 +3303,7 @@
       "srcDigest": "4be10a33aac25d9bb7bdb44631ebd87f619a9a4bb7f99ff94c8d63c440aeb5f8",
       "builtAt": "2026-10-01T07:19:28Z",
       "scope": "complete original donor input set, before selected historical vendor pruning and the publication privacy comment adaptation; not a current-source or rebuilt Prime bundle claim",
-      "current_source_qualification": "SOURCE-ONLY: one comment adaptation; historical srcDigest was not regenerated; no new build receipt"
+      "current_source_qualification": "Historical donor observation retained below; current compilation is recorded by current_bundle_qualification and lib/.build-inputs.json."
     },
     "aumlok": {
       "result": "MATCH",
@@ -3360,8 +3367,9 @@
         "bytes": 32882,
         "sha256": "e88fd0cfa5496aa02fe617b3a1ac039a94d4ae1889e36f298c27c0837817e810"
       },
-      "scope": "Only historical private session metadata in a block comment was redacted. Bytes outside the comment are unchanged; selected served assets and donor bundles are unchanged.",
-      "build_qualification": "SOURCE-ONLY: no new compilation or runtime qualification. The Apps lib/.build-inputs.json retains its historical original-donor input digest and timestamp."
+      "scope": "Only historical private session metadata in a block comment was redacted. Bytes outside that comment and selected served assets are unchanged; current bundles were rebuilt separately.",
+      "build_qualification": "Current canonical source, including this comment adaptation, participates in the rebuilt Apps lib/.build-inputs.json source digest; no installed runtime qualification."
     }
-  ]
+  ],
+  "current_bundle_qualification": "RAN: all nine canonical faces rebuilt offline on macOS arm64 with Node v24.11.1 and pinned harness; source/output manifests verified. Linux byte parity and installed browser composition UNPERFORMED."
 }

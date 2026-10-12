@@ -1,7 +1,12 @@
 {
+  "formatVersion": 2,
   "face": "sidebar",
-  "srcDigest": "4787c8a07d4442adc5e1253ace8935917f4b367bbd8263f48e7ef0fe0662c9a6",
+  "srcDigest": "40a9a551062a80b3d97ba513c68f95ffc1a4bcd38e51889ddedeedb6e61b37e6",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/client/SidebarRoot.module.css",
     "src/client/SidebarRoot.tsx",
@@ -10,7 +15,12 @@
     "src/css-modules.d.ts",
     "src/index.ts",
     "src/invariant.ts",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-09-30T07:50:40Z"
+  "outputs": {
+    "client.js": "4ad451f37a7938c1916ca5eaabf38a18bfa9911437acdb1bf365151e2f719cfe",
+    "index.js": "be323c589cda4dbb7714df563ebb66f581a3d37ed2ab6859fed85fcebf970aea",
+    "invariant.js": "5b199fbaa33b11662177d4728c55de26d8c3f3687c922239469ecda96500ee81"
+  }
 }

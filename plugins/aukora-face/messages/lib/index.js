@@ -225,6 +225,8 @@ const MESSAGES_STORE_REFUSALS = [
 const MESSAGES_WIRE_REFUSALS = [
 	"messages:identity-reissue-failed",
 	"messages:identity-changed",
+	"messages:no-relay-configured",
+	"messages:contact-foreign",
 	"messages:malformed-request",
 	"messages:request-body-unreadable",
 	"messages:no-such-route",
@@ -1426,22 +1428,20 @@ function resolveStoredContact(resolveContact, roots, contact) {
 		peerControllerKey: peer
 	};
 }
-/**
-* The relay list to use, from {@link MESSAGES_RELAYS_ENV} or the module's defaults.
-*
-* A comma- or whitespace-separated list. An entry that is not `ws://` or `wss://` is DROPPED,
-* and a list that ends up empty falls back to the defaults rather than to an empty transport:
-* an unparseable override must not silently mean "no relays", which would read to a person as
-* "nobody answered me".
-*
-* @param defaults - the relay module's own default list.
-* @returns the relays to use.
-*/
-function messagesRelays(defaults) {
+/** Only explicit host relay configuration may receive Messages traffic. */
+function messagesRelays(nodeRelays = []) {
 	const configured = environmentValue(MESSAGES_RELAYS_ENV_NAME);
-	if (configured === void 0 || configured.trim() === "") return defaults;
-	const parsed = configured.split(/[\s,]+/u).filter((relay) => /^wss?:\/\//u.test(relay));
-	return parsed.length === 0 ? defaults : parsed;
+	const candidates = configured === void 0 ? nodeRelays : configured.trim().split(/[\s,]+/u);
+	if (candidates.length === 0 || candidates.some((relay) => {
+		if (typeof relay !== "string" || relay.trim() !== relay || !/^wss?:\/\//u.test(relay)) return true;
+		try {
+			const url = new URL(relay);
+			return !url.hostname || !!url.username || !!url.password || !!url.hash;
+		} catch {
+			return true;
+		}
+	})) return [];
+	return [...new Set(candidates)];
 }
 /**
 * The per-relay timeout to use, from {@link MESSAGES_RELAY_TIMEOUT_ENV} or a default.
@@ -1700,7 +1700,7 @@ const MESSAGES_CONTACT_MODULE_CANDIDATES = Object.freeze({
 const MESSAGES_CONTACT_MODULE_ENV = MESSAGES_CONTACT_MODULE_ENV_NAME;
 /**
 * Environment variable naming the relays a send or a read uses. A comma- or whitespace-separated
-* list; entries that are not `ws://` or `wss://` are dropped. The court points this at its own
+* list; an empty or invalid list disables transport. The court points this at its own
 * in-process relay so nothing touches the public internet.
 */
 const MESSAGES_RELAYS_ENV = MESSAGES_RELAYS_ENV_NAME;
@@ -2447,6 +2447,8 @@ function messagesRefusalStatus(reason) {
 		case "messages:text-too-long": return 413;
 		case "messages:no-such-route": return 404;
 		case "messages:unreadable-state": return 500;
+		case "messages:no-relay-configured": return 503;
+		case "messages:contact-foreign": return 409;
 		case "messages:relays-unreachable": return 502;
 		case "messages:nobody-accepted": return 502;
 		case "messages:reads-unavailable": return 502;
@@ -2670,9 +2672,9 @@ const inboxAnnouncements = /* @__PURE__ */ new Map();
 async function identityBootstrap() {
 	return await import(__rewriteRelativeImportExtension(`${resolveContactModuleSpecifier().replace(/contact\.mjs$/u, "")}bootstrap.mjs`));
 }
-async function prepareIdentity(stateRoots) {
+async function prepareIdentity(stateRoots, relays) {
 	const identity = await (await identityBootstrap()).readMessagesIdentity(stateRoots);
-	if (Date.now() >= (inboxAnnouncements.get(stateRoots.stateDir) ?? 0)) {
+	if (relays.length > 0 && Date.now() >= (inboxAnnouncements.get(stateRoots.stateDir) ?? 0)) {
 		inboxAnnouncements.set(stateRoots.stateDir, Date.now() + 3e4);
 		(async () => {
 			const modules = await loadMailModules();
@@ -2680,7 +2682,7 @@ async function prepareIdentity(stateRoots) {
 			if (key.kind !== "key") return;
 			const publication = await modules.publishDmRelays({
 				secretKeyHex: key.secretKeyHex,
-				relays: messagesRelays(modules.DEFAULT_RELAYS),
+				relays,
 				timeoutMs: 2e3
 			});
 			const accepted = isRecord(publication) && Array.isArray(publication.accepted) && publication.accepted.length > 0;
@@ -2691,7 +2693,7 @@ async function prepareIdentity(stateRoots) {
 	}
 	return identity;
 }
-function identityRoute(gate, rootsOf) {
+function identityRoute(gate, rootsOf, relays) {
 	return {
 		kind: "exact",
 		path: "/aukora-messages/identity",
@@ -2700,7 +2702,7 @@ function identityRoute(gate, rootsOf) {
 			try {
 				json(res, 200, {
 					status: "ok",
-					...await prepareIdentity(rootsOf())
+					...await prepareIdentity(rootsOf(), relays)
 				});
 			} catch (error) {
 				answer(res, messagesRefusalBody("messages:unreadable-state", causeMessage(error)));
@@ -2855,7 +2857,7 @@ async function recordOpenedWraps(modules, stateDir, opened) {
 *   service names NOW rather than the one it named when this route was mounted.
 * @returns the route.
 */
-function contactsRoute(gate, rootsOf) {
+function contactsRoute(gate, rootsOf, relays) {
 	return {
 		kind: "exact",
 		path: MESSAGES_CONTACTS_ENDPOINT,
@@ -2876,7 +2878,7 @@ function contactsRoute(gate, rootsOf) {
 				answer(res, resolver.refusal);
 				return;
 			}
-			await prepareIdentity(rootsOf());
+			await prepareIdentity(rootsOf(), relays);
 			answer(res, await listContacts(resolver.resolver, rootsOf()));
 		}
 	};
@@ -2906,7 +2908,7 @@ function requestRoute(gate) {
 * @param rootsOf - the roots to read, asked per request; see {@link contactsRoute}.
 * @returns the route.
 */
-function threadRoute(gate, rootsOf) {
+function threadRoute(gate, rootsOf, relays) {
 	return {
 		kind: "exact",
 		path: MESSAGES_THREAD_ENDPOINT,
@@ -2923,8 +2925,12 @@ function threadRoute(gate, rootsOf) {
 				json(res, 400, messagesRefusalBody("messages:malformed-request", req.url ?? ""));
 				return;
 			}
+			if (relays.length === 0) {
+				answer(res, messagesRefusalBody("messages:no-relay-configured", "no relay configured"));
+				return;
+			}
 			const stateRoots = rootsOf();
-			await prepareIdentity(stateRoots);
+			await prepareIdentity(stateRoots, relays);
 			const modules = await modulesOrRefusal();
 			if (!modules.ok) {
 				answer(res, modules.refusal);
@@ -2957,7 +2963,7 @@ function threadRoute(gate, rootsOf) {
 				recipientPubkey: selfPubkey,
 				secretKeyHex: key.secretKeyHex,
 				since: requested.since ?? 0,
-				relays: messagesRelays(modules.modules.DEFAULT_RELAYS),
+				relays,
 				timeoutMs: budgetedRelayTimeoutMs(messagesRelayTimeoutMs(4), budgetMs)
 			}));
 			const settled = read.kind === "answered" ? read.value : void 0;
@@ -2998,7 +3004,7 @@ function threadRoute(gate, rootsOf) {
 * @param rootsOf - the roots to read, asked per request; see {@link contactsRoute}.
 * @returns the route.
 */
-function sendRoute(gate, rootsOf) {
+function sendRoute(gate, rootsOf, relays) {
 	return {
 		kind: "exact",
 		path: MESSAGES_SEND_ENDPOINT,
@@ -3034,8 +3040,12 @@ function sendRoute(gate, rootsOf) {
 				answer(res, messagesRefusalBody("messages:text-too-long", `${messagesTextBytes(requested.text)} bytes, over ${MESSAGES_TEXT_MAX_BYTES}`));
 				return;
 			}
+			if (relays.length === 0) {
+				answer(res, messagesRefusalBody("messages:no-relay-configured", "no relay configured"));
+				return;
+			}
 			const stateRoots = rootsOf();
-			if (!(await prepareIdentity(stateRoots)).binding) {
+			if (!(await prepareIdentity(stateRoots, relays)).binding) {
 				answer(res, messagesRefusalBody("messages:aumlok-not-linked", "Approve the Messages identity binding in the Aumlok popup before sending."));
 				return;
 			}
@@ -3063,25 +3073,13 @@ function sendRoute(gate, rootsOf) {
 				answer(res, messagesRefusalBody("messages:malformed-request", `${requested.npub} is not a contact of this node`));
 				return;
 			}
+			if (found.contact.state === "FOREIGN") {
+				answer(res, messagesRefusalBody("messages:contact-foreign", "the contact binding did not verify"));
+				return;
+			}
 			const recipientPubkey = npubHexOrRefusal(modules.modules, requested.npub);
 			if (typeof recipientPubkey !== "string") {
 				answer(res, recipientPubkey);
-				return;
-			}
-			const relays = messagesRelays(modules.modules.DEFAULT_RELAYS);
-			const discovered = await modules.modules.fetchDmRelays({
-				pubkey: recipientPubkey,
-				relays,
-				secretKeyHex: key.secretKeyHex,
-				timeoutMs: 2500
-			});
-			const inbox = isRecord(discovered) && Array.isArray(discovered.relays) ? discovered.relays.filter((relay) => typeof relay === "string") : [];
-			if (!isRecord(discovered) || !Array.isArray(discovered.answered) || discovered.answered.length === 0) {
-				answer(res, messagesRefusalBody("messages:relays-unreachable", requested.npub));
-				return;
-			}
-			if (inbox.length === 0) {
-				answer(res, messagesRefusalBody("messages:reads-unavailable", "nostr:dm-relays-missing"));
 				return;
 			}
 			const budgetMs = MESSAGES_SEND_BUDGET_MS;
@@ -3100,7 +3098,7 @@ function sendRoute(gate, rootsOf) {
 					if (!isRecord(entry) || !isRecord(entry.wrap)) continue;
 					const recipient = entry.recipient === recipientPubkey;
 					if (!recipient && recipientAccepted) modules.modules.retainGiftWrap(stateRoots.stateDir, entry.wrap);
-					const one = recipient || recipientAccepted ? await publishOne(modules.modules, entry.wrap, recipient ? inbox : relays, Math.min(3500, relayTimeoutMs), key.secretKeyHex) : {
+					const one = recipient || recipientAccepted ? await publishOne(modules.modules, entry.wrap, relays, Math.min(3500, relayTimeoutMs), key.secretKeyHex) : {
 						accepted: [],
 						verdict: "nostr:recipient-not-accepted"
 					};
@@ -3291,11 +3289,9 @@ async function withinBudget(budgetMs, work) {
 		if (timer !== void 0) clearTimeout(timer);
 	}
 }
-/**
-* Register the four routes on the loopback web server.
-* @param ctx - host context carrying the route registry and the request gate.
-*/
-function apply(ctx) {
+/** Register authenticated Messages routes with host-selected relays. */
+function apply(ctx, config = {}) {
+	const relays = messagesRelays(config.nodeRelay === void 0 ? [] : [config.nodeRelay]);
 	if (ctx.webServer.host !== "127.0.0.1") throw new Error("ui-messages: the messages routes require a loopback web server");
 	const register = (route) => ctx.webServer.register({
 		...route,
@@ -3310,12 +3306,12 @@ function apply(ctx) {
 	});
 	const gate = () => Reflect.get(ctx, "connection");
 	const rootsOf = () => roots(ctx);
-	ctx.effect(() => register(identityRoute(gate, rootsOf)), "ui-messages: identity route");
+	ctx.effect(() => register(identityRoute(gate, rootsOf, relays)), "ui-messages: identity route");
 	ctx.effect(() => register(reissueIdentityRoute(gate, rootsOf)), "ui-messages: explicit identity reissue route");
-	ctx.effect(() => register(contactsRoute(gate, rootsOf)), "ui-messages: contacts route");
+	ctx.effect(() => register(contactsRoute(gate, rootsOf, relays)), "ui-messages: contacts route");
 	ctx.effect(() => register(requestRoute(gate)), "ui-messages: contacts request route");
-	ctx.effect(() => register(threadRoute(gate, rootsOf)), "ui-messages: thread route");
-	ctx.effect(() => register(sendRoute(gate, rootsOf)), "ui-messages: send route");
+	ctx.effect(() => register(threadRoute(gate, rootsOf, relays)), "ui-messages: thread route");
+	ctx.effect(() => register(sendRoute(gate, rootsOf, relays)), "ui-messages: send route");
 	ctx.effect(() => register(addContactRoute((method, req, res) => admitted(gate, method, req, res), () => rootsOf().stateDir)), "ui-messages: add-contact route");
 	ctx.effect(() => register(confirmContactRoute((method, req, res) => admitted(gate, method, req, res), () => rootsOf())), "ui-messages: confirm-contact route");
 }

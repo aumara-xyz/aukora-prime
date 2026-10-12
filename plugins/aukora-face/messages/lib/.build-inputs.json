@@ -1,7 +1,12 @@
 {
+  "formatVersion": 2,
   "face": "messages",
-  "srcDigest": "d88251d4baa0bf28449406a7ef2dba5c6207048f1ddc5f8e987c9aa0e46e3cd7",
+  "srcDigest": "07f42beb685052949d6b628abd5640d187350c4754de76a70519b35eb718fd32",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/add-contact-route.ts",
     "src/client/Messages.module.css",
@@ -24,7 +29,14 @@
     "src/vendor/jsqr/jsQR.js",
     "src/vendor/jsqr/package.json",
     "src/vendor/jsqr/upstream-jsqr.json",
+    "tsconfig.client.json",
+    "tsconfig.host.json",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-10-01T04:05:13Z"
+  "outputs": {
+    "client.js": "18f981899d2b8fd5d2a813fd5d410d0f46ad5c1d836e02720477278bea502bb7",
+    "index.js": "80030360a85ecd6abd62baff285da5db7513b5585b229de8a57449cf3c75d46f",
+    "invariant.js": "629922c90a2a3ec394f9d28d733497bf061b78764a9de5036e21a39705416c71"
+  }
 }

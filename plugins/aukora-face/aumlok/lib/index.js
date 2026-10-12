@@ -1368,6 +1368,50 @@ function identityContactIssueRoute(fence, directory) {
 	});
 }
 //#endregion
+//#region lib/types/client/binding-bridge.js
+const AUMLOK_PHRASE_LANGUAGES = Object.freeze([
+	{
+		tag: "en",
+		name: "English"
+	},
+	{
+		tag: "es",
+		name: "Español"
+	},
+	{
+		tag: "fr",
+		name: "Français"
+	},
+	{
+		tag: "it",
+		name: "Italiano"
+	},
+	{
+		tag: "pt",
+		name: "Português"
+	},
+	{
+		tag: "cs",
+		name: "Čeština"
+	},
+	{
+		tag: "ja",
+		name: "日本語"
+	},
+	{
+		tag: "ko",
+		name: "한국어"
+	},
+	{
+		tag: "zh-Hans",
+		name: "简体中文"
+	},
+	{
+		tag: "zh-Hant",
+		name: "繁體中文"
+	}
+]);
+//#endregion
 //#region lib/types/client/record-projection.js
 /**
 * The fields `recordProjection` in `plugins/aukora-aumlok/lib/record-v3.mjs` produces.
@@ -1441,7 +1485,12 @@ const AUMLOK_RECORD_CONTROL_PROJECTION_FIELDS = [
 * `aumlok-control-projection:unrecognised` — a machine that had just bound read UNBOUND, which is the
 * exact defect U6 exists to catch, arrived at from the other side.
 */
-const AUMLOK_CONTROL_CARRIED_RECORD_FIELDS = ["boundAt", "handle"];
+const AUMLOK_CONTROL_CARRIED_RECORD_FIELDS = [
+	"boundAt",
+	"handle",
+	"phraseLanguage",
+	"phraseLegacy"
+];
 /**
 * The record's own fields the ORGAN'S CONTROL PROJECTION carries, and the one it makes optional.
 *
@@ -1476,7 +1525,11 @@ function isAumlokRecordControlProjection(input) {
 	return [...AUMLOK_RECORD_CONTROL_PROJECTION_FIELDS, ...AUMLOK_CONTROL_RECORD_FIELDS].every((field) => Object.hasOwn(input, field));
 }
 /** The one field a v3 record carries only sometimes: the public handle X8 salts the key with. */
-const AUMLOK_RECORD_OPTIONAL_FIELDS = ["handle"];
+const AUMLOK_RECORD_OPTIONAL_FIELDS = [
+	"handle",
+	"phraseLanguage",
+	"phraseLegacy"
+];
 /**
 * The domain this screen shows for a v3 record.
 *
@@ -1546,7 +1599,8 @@ function parseAumlokRecordControlProjection(input) {
 		approvalKeyDid,
 		custodyClass: CUSTODY_CLASS,
 		boundAt,
-		...typeof handle === "string" ? { handle } : {}
+		...typeof handle === "string" ? { handle } : {},
+		...phraseMetadata(record)
 	});
 }
 /**
@@ -1618,8 +1672,18 @@ function parseAumlokRecordProjection(input) {
 		approvalKeyDid,
 		custodyClass: CUSTODY_CLASS,
 		boundAt,
-		...typeof handle === "string" ? { handle } : {}
+		...typeof handle === "string" ? { handle } : {},
+		...phraseMetadata(record)
 	});
+}
+function phraseMetadata(record) {
+	const { phraseLanguage, phraseLegacy } = record;
+	if (phraseLanguage === void 0 && phraseLegacy === void 0) return {};
+	if (!AUMLOK_PHRASE_LANGUAGES.some((item) => item.tag === phraseLanguage) || typeof phraseLegacy !== "boolean") throw new TypeError("aumlok-record-projection: invalid phrase language or legacy flag");
+	return {
+		phraseLanguage,
+		phraseLegacy
+	};
 }
 //#endregion
 //#region lib/types/control-projection.js

@@ -1,7 +1,12 @@
 {
+  "formatVersion": 2,
   "face": "documents",
-  "srcDigest": "79622a9d01aabd2851e4757da929c45360897f69c2182501b1404454c2988cdb",
+  "srcDigest": "aa0a875825c4d814bbdb39b14e92ce9babae53e20372d4077cf6a8bb72c9142d",
   "files": [
+    "../../../scripts/build-face-bundles.sh",
+    "../../../scripts/build-face.py",
+    "../../../upstream-dsh.json",
+    "../tsdown.client.ts",
     "package.json",
     "src/client/Documents.module.css",
     "src/client/DocumentsIcons.tsx",
@@ -17,7 +22,14 @@
     "src/documents-route.ts",
     "src/index.ts",
     "src/invariant.ts",
+    "tsconfig.client.json",
+    "tsconfig.host.json",
+    "tsconfig.json",
     "tsdown.config.ts"
   ],
-  "builtAt": "2026-09-30T12:17:47Z"
+  "outputs": {
+    "client.js": "dd88b4c90981ab4c690b86addcb58109bcafe2aeed8d09dd097bddce2b07c3e4",
+    "index.js": "91d8dcc10a783f02a1733c5c822ead53c2bcb2773e4ef9fbd29b3fa5d7d644b5",
+    "invariant.js": "bc637fc1f53645dbdc508294d4df4012986262ea45f3a38664d47b20d784a454"
+  }
 }

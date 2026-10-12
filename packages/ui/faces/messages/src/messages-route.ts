@@ -329,6 +329,8 @@ export type MessagesRefusalReason =
   | 'messages:key-missing'
   | 'messages:key-unreadable'
   | 'messages:contact-peer-key-malformed'
+  | 'messages:no-relay-configured'
+  | 'messages:contact-foreign'
   | 'messages:relays-unreachable'
   | 'messages:nobody-accepted'
   | 'messages:reads-unavailable'
@@ -354,6 +356,8 @@ export const MESSAGES_STORE_REFUSALS: readonly MessagesRefusalReason[] = [
 export const MESSAGES_WIRE_REFUSALS: readonly MessagesRefusalReason[] = [
   'messages:identity-reissue-failed',
   'messages:identity-changed',
+  'messages:no-relay-configured',
+  'messages:contact-foreign',
   'messages:malformed-request',
   'messages:request-body-unreadable',
   'messages:no-such-route',

@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		let _aukora_face_layout_client = require("@aukora/face-layout/client");
 		//#region \0dsh-css:Memory.module.css.mjs
-		const css = ".Rjr40G_memoryView[hidden]{display:none!important}.Rjr40G_memoryView{z-index:1;box-sizing:border-box;overscroll-behavior:contain;scrollbar-gutter:stable;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow:hidden auto;container-type:inline-size}.Rjr40G_memoryHead{flex-direction:column;flex:none;align-items:flex-start;gap:4px;padding:0 4px}.Rjr40G_memoryTitle{margin:0;font-size:20px;font-weight:600;line-height:28px}.Rjr40G_portals{flex-direction:column;flex:none;gap:10px;min-width:0;display:flex}.Rjr40G_portalDot{background:currentColor;border-radius:50%;width:9px;height:9px}.Rjr40G_portalBody{flex-direction:column;gap:8px;display:flex}.Rjr40G_portalSearch{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aukora-accent) 30%, transparent);border-radius:var(--aukora-radius);background:var(--aukora-surface);width:100%;max-width:420px;height:38px;color:var(--aukora-text);font:inherit;text-align:center;margin:2px auto 8px;padding:0 16px;font-size:13px;display:block}.Rjr40G_portalSearch::placeholder{color:var(--aukora-text-muted)}.Rjr40G_portalSearch:focus-visible{outline:2px solid var(--aukora-accent);outline-offset:2px}.Rjr40G_portalQuiet{color:var(--aukora-text-muted);text-align:center;margin:4px 0;font-size:12px}.Rjr40G_memoryList{flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;display:flex}.Rjr40G_memoryPortal{gap:12px;min-height:48px;padding:10px 14px}.Rjr40G_memoryWords{overflow-wrap:anywhere;white-space:pre-wrap;min-width:0;font-size:14px;font-weight:400;line-height:20px;display:block}.Rjr40G_memoryItem[data-open=no] .Rjr40G_memoryWords{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.Rjr40G_memoryWhen{color:var(--aukora-text-muted);flex-direction:column;flex:none;align-items:flex-end;gap:3px;font-size:12px;display:flex}.Rjr40G_memoryDetail{padding:0 14px 12px}.Rjr40G_memoryActions{flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px;display:flex}.Rjr40G_pill{padding:4px 12px;font-size:12px}.Rjr40G_memoryProblem{color:var(--aukora-red-warning);align-self:center}.Rjr40G_retry,.Rjr40G_more{align-self:center}.Rjr40G_more{padding:8px 20px}.Rjr40G_portalBody,.Rjr40G_memoryList,.Rjr40G_memoryItem,.Rjr40G_memoryDetail{min-width:0}.Rjr40G_memoryMenuItem{width:100%}@container (width<=340px){.Rjr40G_memoryPortal{flex-direction:column;align-items:flex-start;gap:6px}.Rjr40G_memoryWhen{flex-flow:wrap;gap:8px;font-size:11px}.Rjr40G_portalHead{gap:10px;padding:10px 12px}.Rjr40G_portalBody{padding:2px 8px 12px}}";
+		const css = ".jUyaWW_memoryView[hidden]{display:none!important}.jUyaWW_memoryView{z-index:1;box-sizing:border-box;overscroll-behavior:contain;scrollbar-gutter:stable;width:100%;min-width:0;max-width:46rem;height:100%;min-height:0;color:var(--aukora-text);background:0 0;flex-direction:column;gap:18px;margin:0 auto;padding:22px 20px 48px;display:flex;position:relative;overflow:hidden auto;container-type:inline-size}.jUyaWW_memoryHead{flex-direction:column;flex:none;align-items:flex-start;gap:4px;padding:0 4px}.jUyaWW_memoryTitle{margin:0;font-size:20px;font-weight:600;line-height:28px}.jUyaWW_portals{flex-direction:column;flex:none;gap:10px;min-width:0;display:flex}.jUyaWW_portalDot{background:currentColor;border-radius:50%;width:9px;height:9px}.jUyaWW_portalBody{flex-direction:column;gap:8px;display:flex}.jUyaWW_portalSearch{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aukora-accent) 30%, transparent);border-radius:var(--aukora-radius);background:var(--aukora-surface);width:100%;max-width:420px;height:38px;color:var(--aukora-text);font:inherit;text-align:center;margin:2px auto 8px;padding:0 16px;font-size:13px;display:block}.jUyaWW_portalSearch::placeholder{color:var(--aukora-text-muted)}.jUyaWW_portalSearch:focus-visible{outline:2px solid var(--aukora-accent);outline-offset:2px}.jUyaWW_portalQuiet{color:var(--aukora-text-muted);text-align:center;margin:4px 0;font-size:12px}.jUyaWW_memoryList{flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;display:flex}.jUyaWW_memoryPortal{gap:12px;min-height:48px;padding:10px 14px}.jUyaWW_memoryWords{overflow-wrap:anywhere;white-space:pre-wrap;min-width:0;font-size:14px;font-weight:400;line-height:20px;display:block}.jUyaWW_memoryItem[data-open=no] .jUyaWW_memoryWords{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.jUyaWW_memoryWhen{color:var(--aukora-text-muted);flex-direction:column;flex:none;align-items:flex-end;gap:3px;font-size:12px;display:flex}.jUyaWW_memoryDetail{padding:0 14px 12px}.jUyaWW_memoryActions{flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px;display:flex}.jUyaWW_pill{padding:4px 12px;font-size:12px}.jUyaWW_memoryProblem{color:var(--aukora-red-warning);align-self:center}.jUyaWW_retry,.jUyaWW_more{align-self:center}.jUyaWW_more{padding:8px 20px}.jUyaWW_portalBody,.jUyaWW_memoryList,.jUyaWW_memoryItem,.jUyaWW_memoryDetail{min-width:0}.jUyaWW_memoryMenuItem{width:100%}@container (width<=340px){.jUyaWW_memoryPortal{flex-direction:column;align-items:flex-start;gap:6px}.jUyaWW_memoryWhen{flex-flow:wrap;gap:8px;font-size:11px}.jUyaWW_portalHead{gap:10px;padding:10px 12px}.jUyaWW_portalBody{padding:2px 8px 12px}}";
 		const tagId = "@aukora/face-memory/Memory.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -18,27 +18,27 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var Memory_module_css_default = {
-			"memoryActions": "Rjr40G_memoryActions",
-			"memoryDetail": "Rjr40G_memoryDetail",
-			"memoryHead": "Rjr40G_memoryHead",
-			"memoryItem": "Rjr40G_memoryItem",
-			"memoryList": "Rjr40G_memoryList",
-			"memoryMenuItem": "Rjr40G_memoryMenuItem",
-			"memoryPortal": "Rjr40G_memoryPortal",
-			"memoryProblem": "Rjr40G_memoryProblem",
-			"memoryTitle": "Rjr40G_memoryTitle",
-			"memoryView": "Rjr40G_memoryView",
-			"memoryWhen": "Rjr40G_memoryWhen",
-			"memoryWords": "Rjr40G_memoryWords",
-			"more": "Rjr40G_more",
-			"pill": "Rjr40G_pill",
-			"portalBody": "Rjr40G_portalBody",
-			"portalDot": "Rjr40G_portalDot",
-			"portalHead": "Rjr40G_portalHead",
-			"portalQuiet": "Rjr40G_portalQuiet",
-			"portalSearch": "Rjr40G_portalSearch",
-			"portals": "Rjr40G_portals",
-			"retry": "Rjr40G_retry"
+			"memoryActions": "jUyaWW_memoryActions",
+			"memoryDetail": "jUyaWW_memoryDetail",
+			"memoryHead": "jUyaWW_memoryHead",
+			"memoryItem": "jUyaWW_memoryItem",
+			"memoryList": "jUyaWW_memoryList",
+			"memoryMenuItem": "jUyaWW_memoryMenuItem",
+			"memoryPortal": "jUyaWW_memoryPortal",
+			"memoryProblem": "jUyaWW_memoryProblem",
+			"memoryTitle": "jUyaWW_memoryTitle",
+			"memoryView": "jUyaWW_memoryView",
+			"memoryWhen": "jUyaWW_memoryWhen",
+			"memoryWords": "jUyaWW_memoryWords",
+			"more": "jUyaWW_more",
+			"pill": "jUyaWW_pill",
+			"portalBody": "jUyaWW_portalBody",
+			"portalDot": "jUyaWW_portalDot",
+			"portalHead": "jUyaWW_portalHead",
+			"portalQuiet": "jUyaWW_portalQuiet",
+			"portalSearch": "jUyaWW_portalSearch",
+			"portals": "jUyaWW_portals",
+			"retry": "jUyaWW_retry"
 		};
 		//#endregion
 		//#region src/client/MemoryMenu.tsx

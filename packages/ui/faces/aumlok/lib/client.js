@@ -49,7 +49,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:Aumlok.module.css.mjs
-		const css = ".d3NDGa_surface{--aumlok-root:var(--dsw-static-spatial-mint);--aumlok-unite:var(--dsw-static-spatial-blue);--aumlok-rise:var(--dsw-static-spatial-violet);--aumlok-anchor:var(--dsw-static-spatial-gold);box-sizing:border-box;width:100%;min-width:0;height:100%;min-height:0;color:var(--dsw-alias-label-primary);background:0 0;padding:clamp(20px,3.2%,48px);overflow:auto;container:d3NDGa_aumlok/inline-size}.d3NDGa_surface[hidden]{display:none}.d3NDGa_canvas{box-sizing:border-box;width:min(100%,1160px);min-height:100%;margin:0 auto}.d3NDGa_identityPanel{background:0 0;padding:clamp(20px,3.2%,40px);overflow:auto;container-type:inline-size}.d3NDGa_identityCard{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--aukora-surface);border-radius:30px;flex-direction:column;align-items:center;gap:24px;width:min(100%,680px);margin:0 auto;padding:clamp(20px,4cqi,36px);display:flex;box-shadow:0 24px 80px #0003,inset 0 1px #ffffff08}.d3NDGa_identityHeader{align-items:center;gap:16px;width:100%;display:flex}.d3NDGa_identityHeader h2{overflow-wrap:anywhere;letter-spacing:-.03em;min-width:0;margin:0;font-size:clamp(32px,6cqi,52px);font-weight:640}.d3NDGa_identityAvatar{background:color-mix(in srgb, var(--aumlok-unite) 10%, transparent);width:82px;height:82px;box-shadow:0 0 0 1px color-mix(in srgb, var(--aumlok-unite) 35%, transparent), 0 8px 28px #0003;color:var(--aumlok-unite);border-radius:24px;flex:none;place-items:center;display:grid}.d3NDGa_identityAvatar svg{width:100%;height:100%}.d3NDGa_identityAvatar>svg[viewBox=\"0 0 24 24\"]{width:36px;height:36px}.d3NDGa_identityHeader h2{flex:1}.d3NDGa_identityHeader>[data-identity-verify]{flex:none;align-self:flex-start;margin-left:auto}.d3NDGa_identityNameForm{flex-wrap:wrap;flex:1;gap:8px;min-width:0;display:flex}.d3NDGa_identityNameForm input{border:1px solid var(--dsw-alias-border-l1);width:120px;min-width:0;color:inherit;background:var(--dsw-alias-bg-layer-2);font:inherit;border-radius:12px;flex:1;padding:10px}.d3NDGa_identityStorageError{color:#cf695f;font:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:8px;font-size:12px;display:flex}.d3NDGa_identityStorageError svg{width:18px;height:18px}.d3NDGa_identityScrim{--aumlok-root:var(--dsw-static-spatial-mint);--aumlok-unite:var(--dsw-static-spatial-blue);--aumlok-rise:var(--dsw-static-spatial-violet);--aumlok-anchor:var(--dsw-static-spatial-gold);z-index:100;box-sizing:border-box;backdrop-filter:blur(10px);background:#080615bb;place-items:center;padding:20px;display:grid;position:fixed;inset:0}.d3NDGa_identitySheet{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);width:min(100%,560px);max-height:90dvh;color:var(--dsw-alias-label-primary);background:linear-gradient(145deg,#162337,#12131f 55%,#211930);border-radius:24px;flex-direction:column;align-items:center;gap:22px;padding:24px;font-size:15px;line-height:1.6;display:flex;overflow:auto;box-shadow:0 20px 80px #0008}.d3NDGa_identitySheetHeader{justify-content:space-between;align-items:flex-start;gap:16px;width:100%;display:flex}.d3NDGa_identitySheetHeader h3{letter-spacing:-.035em;margin:0;font-size:clamp(27px,4vw,34px);line-height:1.2}.d3NDGa_identitySheetHeader p{color:var(--dsw-alias-label-secondary);margin:10px 0 0;font-size:16px}.d3NDGa_identitySheet .d3NDGa_identityAction{height:auto;min-height:44px;padding:10px 14px;font-size:15px}.d3NDGa_identitySheetHeader>.d3NDGa_identityAction{color:var(--dsw-alias-label-secondary)}.d3NDGa_identityCameraFrame{aspect-ratio:1.12;border:1px solid color-mix(in srgb, var(--aumlok-unite) 35%, transparent);width:100%;min-height:320px;box-shadow:inset 0 0 45px #0005, 0 0 30px color-mix(in srgb, var(--aumlok-unite) 5%, transparent);background:radial-gradient(#1c2d48,#090e19 80%);border-radius:22px;place-items:center;display:grid;position:relative;overflow:hidden}.d3NDGa_identityCamera{object-fit:cover;width:100%;height:100%;position:absolute;inset:0}.d3NDGa_identityCamera[hidden]{display:none}.d3NDGa_scanCorners{pointer-events:none;color:var(--aumlok-unite);position:absolute;inset:22px}.d3NDGa_scanCorners i{filter:drop-shadow(0 0 6px);border:0 solid;width:34px;height:34px;position:absolute}.d3NDGa_scanCorners i:first-child{border-top-width:3px;border-left-width:3px;border-top-left-radius:12px;top:0;left:0}.d3NDGa_scanCorners i:nth-child(2){border-top-width:3px;border-right-width:3px;border-top-right-radius:12px;top:0;right:0}.d3NDGa_scanCorners i:nth-child(3){border-bottom-width:3px;border-left-width:3px;border-bottom-left-radius:12px;bottom:0;left:0}.d3NDGa_scanCorners i:nth-child(4){border-bottom-width:3px;border-right-width:3px;border-bottom-right-radius:12px;bottom:0;right:0}.d3NDGa_identityCameraFrame[data-scanning] .d3NDGa_scanCorners{animation:2.4s ease-in-out infinite d3NDGa_identity-scan}@keyframes d3NDGa_identity-scan{50%{opacity:.5;transform:scale(.96)}}.d3NDGa_scannerMessage{text-align:center;color:var(--dsw-alias-label-primary);flex-direction:column;align-items:center;gap:14px;padding:44px 32px;display:flex;position:relative}.d3NDGa_scannerMessage>svg{width:42px;height:42px;color:var(--aumlok-unite)}.d3NDGa_scannerMessage strong{font-size:19px;line-height:1.4}.d3NDGa_scannerMessage p{max-width:32ch;color:var(--dsw-alias-label-secondary);margin:0;font-size:15px}.d3NDGa_scannerMessage[data-warning]>svg{color:#ee958a}.d3NDGa_scannerMessage[data-live]{color:#f3f6ff;background:#080e1de6;border:1px solid #ffffff24;border-radius:999px;flex-direction:row;align-self:end;gap:10px;margin:0 24px 42px;padding:10px 18px}.d3NDGa_scannerMessage[data-live]>svg{width:22px;height:22px}.d3NDGa_scannerMessage[data-live] strong{font-size:16px}.d3NDGa_identitySheet .d3NDGa_identityWarning{color:#ee958a;font-size:15px}.d3NDGa_identitySheet .d3NDGa_identityWarning svg{flex:none}.d3NDGa_identityScanned{flex-direction:column;align-items:center;gap:16px;width:100%;padding:22px 0;display:flex}.d3NDGa_identityScanned h2{overflow-wrap:anywhere;text-align:center;max-width:100%;margin:0;font-size:27px}.d3NDGa_scannerAbout{border-top:1px solid var(--dsw-alias-border-l1);width:100%}.d3NDGa_scannerAbout summary{cursor:pointer;color:var(--aumlok-unite);justify-content:space-between;align-items:center;gap:16px;padding:18px 0 4px;font-size:16px;list-style:none;display:flex}.d3NDGa_scannerAbout summary::-webkit-details-marker{display:none}.d3NDGa_scannerAbout p{color:var(--dsw-alias-label-secondary);margin:14px 0 0;font-size:15px}@media (prefers-reduced-motion:reduce){.d3NDGa_identityCameraFrame[data-scanning] .d3NDGa_scanCorners{animation:none}}.d3NDGa_identityBind:focus-visible{outline:2px solid var(--aumlok-unite);outline-offset:3px}.d3NDGa_identityQrHalo{box-sizing:border-box;background:#f4f3f8;border-radius:30px;place-items:center;width:min(100%,362px);padding:12px;display:grid;box-shadow:0 12px 36px #0002}.d3NDGa_identityQr{aspect-ratio:1;box-sizing:border-box;color:#252047;width:min(100%,336px);box-shadow:0 0 0 1px color-mix(in srgb, var(--aumlok-rise) 45%, transparent), 0 12px 40px #0003;background:0 0;border-radius:20px;place-items:center;padding:14px;display:grid}.d3NDGa_identityQr img{object-fit:contain;width:100%;height:100%;image-rendering:pixelated;display:block}.d3NDGa_identityQrPending{border:2px solid #25204740;border-top-color:#252047;border-radius:50%;width:24px;height:24px;animation:1s linear infinite d3NDGa_identity-loading}@keyframes d3NDGa_identity-loading{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.d3NDGa_identityQrPending{animation:none}}.d3NDGa_identityRetry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:1px solid;border-radius:14px;align-items:center;gap:10px;padding:12px 18px;display:inline-flex}.d3NDGa_identityRetry svg{width:20px;height:20px}.d3NDGa_identityRetry:focus-visible{outline-offset:4px;outline:2px solid}.d3NDGa_identityWarning{color:#963b38;align-items:center;gap:10px;display:inline-flex}.d3NDGa_identityWarning svg{width:20px;height:20px}.d3NDGa_identityPortals{gap:14px;width:100%;display:grid}.d3NDGa_identityPortal{--portal-color:var(--aumlok-anchor);border:1px solid color-mix(in srgb, var(--portal-color) 32%, transparent);background:linear-gradient(115deg, color-mix(in srgb, var(--portal-color) 9%, transparent), #10172480);border-radius:21px;min-width:0;transition:border-color .18s,background .18s;box-shadow:inset 0 1px #ffffff06,0 8px 24px #0002}.d3NDGa_identityPortal[data-identity-portal=nostr]{--portal-color:var(--aumlok-unite)}.d3NDGa_identityPortal[data-identity-portal=sharing]{--portal-color:var(--aumlok-rise)}.d3NDGa_identityPortal[data-identity-portal=sharing] .d3NDGa_portalContent p+p{border-top:0;padding-top:0}.d3NDGa_identityPortal:hover,.d3NDGa_identityPortal[open]{border-color:color-mix(in srgb, var(--portal-color) 64%, transparent)}.d3NDGa_identityPortal summary{box-sizing:border-box;cursor:pointer;align-items:center;gap:18px;min-height:106px;padding:20px 22px;list-style:none;display:flex}.d3NDGa_identityPortal summary::-webkit-details-marker{display:none}.d3NDGa_identityPortal summary:focus-visible,.d3NDGa_scannerAbout summary:focus-visible{outline:2px solid var(--aumlok-unite);outline-offset:4px;border-radius:18px}.d3NDGa_portalIcon{border:1px solid color-mix(in srgb, var(--portal-color) 32%, transparent);background:color-mix(in srgb, var(--portal-color) 8%, transparent);width:52px;height:52px;color:var(--portal-color);border-radius:16px;flex:none;place-items:center;display:grid}.d3NDGa_portalIcon svg{width:27px;height:27px}.d3NDGa_portalHeading{flex:1;gap:5px;min-width:0;display:grid}.d3NDGa_portalHeading strong{letter-spacing:-.025em;font-size:23px;font-weight:610}.d3NDGa_portalHeading>span{color:var(--dsw-alias-label-secondary);font-size:15px;line-height:1.5}.d3NDGa_portalChevron{width:9px;height:9px;color:var(--portal-color,var(--aumlok-unite));border:1.5px solid;border-width:0 1.5px 1.5px 0;flex:none;margin:0 3px 5px;display:block;transform:rotate(45deg)}.d3NDGa_identityPortal[open] .d3NDGa_portalChevron,.d3NDGa_scannerAbout[open] .d3NDGa_portalChevron{margin-bottom:-4px;transform:rotate(225deg)}.d3NDGa_portalContent{justify-items:start;gap:18px;padding:0 22px 24px;display:grid}.d3NDGa_portalContent p{border-top:1px solid color-mix(in srgb, var(--portal-color) 18%, transparent);color:var(--dsw-alias-label-secondary);margin:0;padding-top:18px;font-size:16px;line-height:1.7}.d3NDGa_portalContent code{box-sizing:border-box;overflow-wrap:anywhere;user-select:all;width:100%;min-width:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-mono,ui-monospace, monospace);background:#0003;border-radius:12px;padding:15px;font-size:15px;line-height:1.8}.d3NDGa_identityPortal .d3NDGa_portalContent .d3NDGa_identityAction[data-labeled]{color:var(--portal-color)}.d3NDGa_identityPortal .d3NDGa_portalContent .d3NDGa_identityAction[data-result=check]{color:var(--aumlok-root)}.d3NDGa_identityPortal .d3NDGa_portalContent .d3NDGa_identityAction[data-result=error]{color:#cf695f}.d3NDGa_identityBind{color:var(--aumlok-anchor);font:inherit;cursor:pointer;background:0 0;border:0;justify-self:start;padding:0;font-size:12px}.d3NDGa_identityActions{flex-wrap:wrap;justify-content:center;gap:12px;display:flex}.d3NDGa_identityAction{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:44px;height:44px;color:var(--aumlok-anchor);cursor:pointer;font:inherit;border-radius:14px;flex:none;place-items:center;font-size:15px;font-weight:600;display:inline-grid}.d3NDGa_identityAction[data-labeled]{justify-content:center;gap:9px;width:auto;height:auto;min-height:46px;padding:11px 18px;line-height:1.4;display:inline-flex}.d3NDGa_identityAction[data-labeled]:last-child{color:var(--aumlok-unite)}.d3NDGa_identityAction svg{width:20px;height:20px}.d3NDGa_identityAction:hover:not(:disabled),.d3NDGa_identityAction:focus-visible{border-color:var(--aumlok-anchor);outline:2px solid color-mix(in srgb, var(--aumlok-anchor) 30%, transparent);outline-offset:2px}.d3NDGa_identityAction:disabled{opacity:.4;cursor:default}.d3NDGa_identityAction[data-result=check],.d3NDGa_identityAction[data-labeled][data-result=check]{color:var(--aumlok-root)}.d3NDGa_identityAction[data-result=error],.d3NDGa_identityAction[data-labeled][data-result=error]{color:#cf695f}@container (width<=420px){.d3NDGa_identityHeader{text-align:left;flex-wrap:wrap}.d3NDGa_identityHeader h2{flex-basis:100%;order:1}.d3NDGa_identityPortal summary{gap:12px;padding:16px}.d3NDGa_portalHeading strong{font-size:21px}.d3NDGa_portalIcon{width:42px;height:42px}.d3NDGa_portalContent{padding:0 16px 20px}}.d3NDGa_hero{border-bottom:1px solid var(--dsw-alias-border-l1);justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:clamp(24px,4cqi,42px);display:flex}.d3NDGa_heroCopy{min-width:0}.d3NDGa_hero p,.d3NDGa_hero h2,.d3NDGa_hero span,.d3NDGa_phraseStage h3,.d3NDGa_flow h3,.d3NDGa_explanation{margin:0}.d3NDGa_hero p,.d3NDGa_phraseStage h3,.d3NDGa_flow h3,.d3NDGa_statusBadge,.d3NDGa_bandHeader,.d3NDGa_anchorMeta,.d3NDGa_position{font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)}.d3NDGa_hero p{color:var(--aumlok-unite);letter-spacing:.16em;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:720;line-height:16px;overflow:hidden}.d3NDGa_hero h2{letter-spacing:.07em;text-overflow:ellipsis;white-space:nowrap;margin-top:8px;font-size:clamp(30px,5cqi,46px);font-weight:640;line-height:1;overflow:hidden}.d3NDGa_statusBadge>svg{width:18px;height:18px}.d3NDGa_statusBadge{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 48%, transparent);color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 8%, transparent);letter-spacing:.14em;white-space:nowrap;border-radius:999px;flex:none;align-items:center;gap:7px;padding:7px 12px;font-size:10px;font-weight:720;line-height:14px;display:inline-flex}.d3NDGa_composition{gap:clamp(20px,3.4cqi,40px);padding:clamp(18px,3cqi,34px) 0;display:grid}.d3NDGa_phraseStage,.d3NDGa_flow{min-width:0}.d3NDGa_phraseStage h3,.d3NDGa_flow h3{color:var(--dsw-alias-label-tertiary);letter-spacing:.16em;font-size:11px;font-weight:720;line-height:16px}.d3NDGa_anchorToken{--band-color:var(--aumlok-anchor);box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 58%, transparent);background:linear-gradient(135deg, color-mix(in srgb, var(--aumlok-anchor) 15%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 76%, transparent));min-height:88px;box-shadow:inset 0 0 28px color-mix(in srgb, var(--aumlok-anchor) 5%, transparent);border-radius:17px;flex-direction:row;align-items:center;gap:12px;margin-top:14px;padding:18px 20px;display:flex}.d3NDGa_anchorBoxes{justify-content:flex-start;align-items:center;gap:8px;min-width:0;display:flex}.d3NDGa_anchorBox{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:40px;height:46px;color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 13%, transparent);box-shadow:inset 0 0 14px color-mix(in srgb, var(--aumlok-anchor) 10%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);border-radius:11px;flex:none;place-items:center;font-size:22px;line-height:1;animation-name:d3NDGa_aumlok-letter-settle;animation-duration:.42s;animation-timing-function:ease-out;animation-fill-mode:both;display:grid}.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(2){animation-delay:60ms}.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(3){animation-delay:.12s}.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(4){animation-delay:.18s}.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(5){animation-delay:.24s}.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(6){animation-delay:.3s}.d3NDGa_anchorDot{width:9px;height:9px;box-shadow:0 0 12px color-mix(in srgb, currentcolor 46%, transparent);background:currentColor;border-radius:50%;display:block}.d3NDGa_handleField{flex-direction:column;gap:6px;margin:0 0 14px;display:flex}.d3NDGa_handleLabel{color:var(--dsw-alias-label-primary);letter-spacing:.06em;text-transform:uppercase;font-size:13px;font-weight:600}.d3NDGa_handleInput{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:100%;min-width:0;height:44px;color:var(--dsw-alias-label-primary);background:color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.08em;border-radius:11px;padding:0 14px;font-size:16px}.d3NDGa_handleInput:focus{border-color:color-mix(in srgb, var(--aumlok-anchor) 82%, transparent);outline:2px solid color-mix(in srgb, var(--aumlok-anchor) 34%, transparent);outline-offset:1px}.d3NDGa_handleInput:disabled{opacity:.6}.d3NDGa_handleHeading{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px 20px;margin-bottom:22px;display:flex}.d3NDGa_phraseStage .d3NDGa_handleHeading h3{color:var(--dsw-alias-label-primary);letter-spacing:-.035em;font-size:clamp(25px,3.6cqi,32px);font-weight:610;line-height:1.3}.d3NDGa_handleLocked{overflow-wrap:anywhere;min-width:0;font-size:18px;font-weight:580;line-height:1.5}.d3NDGa_handleHint{color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-primary));margin:0;font-size:12px;line-height:1.4}.d3NDGa_anchorInput{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:100%;min-width:0;height:46px;color:var(--dsw-alias-label-primary);background:color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.12em;border-radius:11px;padding:0 14px;font-size:16px}.d3NDGa_anchorInput:focus{border-color:color-mix(in srgb, var(--aumlok-anchor) 82%, transparent);outline:2px solid color-mix(in srgb, var(--aumlok-anchor) 34%, transparent);outline-offset:1px}.d3NDGa_anchorMeta{flex-direction:column;gap:4px;min-width:0;display:flex}.d3NDGa_anchorMeta strong{color:var(--aumlok-anchor);letter-spacing:.11em;font-size:12px;line-height:17px}.d3NDGa_anchorMeta span{color:var(--dsw-alias-label-tertiary);letter-spacing:.04em;font-size:10px;line-height:15px}.d3NDGa_wordMask{align-items:center;gap:7px;display:flex}.d3NDGa_wordMask i{box-shadow:0 0 12px color-mix(in srgb, currentcolor 46%, transparent);background:currentColor;border-radius:50%;flex:none;display:block}.d3NDGa_anchorToken .d3NDGa_wordMask i{width:9px;height:9px}.d3NDGa_bands{flex-direction:column;gap:13px;margin-top:18px;display:flex}.d3NDGa_phraseBand{--band-color:var(--aumlok-unite);border:1px solid color-mix(in srgb, var(--band-color) 34%, transparent);border-left:3px solid color-mix(in srgb, var(--band-color) 76%, transparent);background:linear-gradient(100deg, color-mix(in srgb, var(--band-color) 10%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 55%, transparent));border-radius:15px;gap:12px;padding:15px;display:grid}.d3NDGa_phraseBand[data-aumlok-tone=green]{--band-color:var(--aumlok-root)}.d3NDGa_phraseBand[data-aumlok-tone=blue]{--band-color:var(--aumlok-unite)}.d3NDGa_phraseBand[data-aumlok-tone=purple]{--band-color:var(--aumlok-rise)}.d3NDGa_bandHeader{justify-content:space-between;align-items:baseline;gap:14px;display:flex}.d3NDGa_bandHeader strong{color:var(--band-color);letter-spacing:.12em;font-size:12px;line-height:17px}.d3NDGa_bandHeader span{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:15px;overflow:hidden}.d3NDGa_bandRows{grid-template-columns:minmax(0,1fr);gap:9px;display:grid}.d3NDGa_phraseRow{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--band-color) 22%, transparent);background:color-mix(in srgb, var(--dsw-alias-bg-layer-1) 70%, transparent);border-radius:11px;align-items:center;gap:9px;min-width:0;height:44px;padding:0 12px 0 8px;animation-name:d3NDGa_aumlok-row-settle;animation-duration:.38s;animation-timing-function:ease-out;animation-fill-mode:both;display:flex}.d3NDGa_bandRows .d3NDGa_phraseRow:nth-child(2){animation-delay:.12s}.d3NDGa_phraseBand:nth-child(2) .d3NDGa_bandRows .d3NDGa_phraseRow:first-child{animation-delay:.24s}.d3NDGa_phraseBand:nth-child(2) .d3NDGa_bandRows .d3NDGa_phraseRow:nth-child(2){animation-delay:.36s}.d3NDGa_phraseBand:nth-child(3) .d3NDGa_bandRows .d3NDGa_phraseRow:first-child{animation-delay:.48s}.d3NDGa_phraseBand:nth-child(3) .d3NDGa_bandRows .d3NDGa_phraseRow:nth-child(2){animation-delay:.6s}.d3NDGa_position{width:12px;color:var(--dsw-alias-label-dimmed);text-align:right;font-size:9px;line-height:12px}.d3NDGa_initialBox{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 52%, transparent);width:26px;height:26px;color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 10%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);border-radius:8px;flex:none;place-items:center;font-size:13px;line-height:1;display:grid}.d3NDGa_wordMask{min-width:0;color:var(--band-color);flex:1}.d3NDGa_wordMask i{opacity:.64;width:6px;height:6px}.d3NDGa_tileEmpty{box-sizing:border-box;border:1px dashed color-mix(in srgb, var(--band-color) 30%, transparent);min-width:0;height:30px;color:var(--dsw-alias-label-dimmed);border-radius:8px;flex:1;place-items:center;font-size:12px;line-height:1;display:grid}.d3NDGa_tileWord{min-width:0;color:var(--band-color);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.06em;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:15px;line-height:20px;overflow:hidden}.d3NDGa_tileInput{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--band-color) 52%, transparent);min-width:0;height:32px;color:var(--dsw-alias-label-primary);background:color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.05em;border-radius:8px;flex:1;padding:0 10px;font-size:13px}.d3NDGa_tileInput:focus{border-color:color-mix(in srgb, var(--band-color) 78%, transparent);outline:2px solid color-mix(in srgb, var(--band-color) 34%, transparent);outline-offset:1px}.d3NDGa_runtimePosture{flex-direction:column;gap:15px;margin-top:14px;display:flex}.d3NDGa_runtimePosture>div{flex-direction:column;gap:5px;display:flex}.d3NDGa_runtimePosture strong{color:var(--aumlok-anchor);font-size:15px;font-weight:610;line-height:21px}.d3NDGa_runtimePosture span{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}.d3NDGa_missingBinding{color:var(--dsw-alias-label-secondary);margin:0;font-size:13px;line-height:20px}.d3NDGa_controlProjection{gap:10px;margin:2px 0 0;display:grid}.d3NDGa_controlProjection>div{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 18%, transparent);background:color-mix(in srgb, var(--aumlok-anchor) 4%, transparent);border-radius:10px;grid-template-columns:minmax(112px,.34fr) minmax(0,1fr);align-items:baseline;gap:12px;min-width:0;padding:9px 11px;display:grid}.d3NDGa_controlProjection dt{color:var(--dsw-alias-label-tertiary);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.08em;font-size:9px;font-weight:700;line-height:14px}.d3NDGa_controlProjection dd{min-width:0;margin:0}.d3NDGa_controlProjection code{overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px;display:block}.d3NDGa_flow h3{margin-bottom:14px}.d3NDGa_ceremonyAction{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 38%, transparent);background:linear-gradient(125deg, color-mix(in srgb, var(--aumlok-anchor) 11%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 58%, transparent));border-radius:15px;flex-direction:column;gap:12px;margin-top:16px;padding:16px 17px;display:flex}.d3NDGa_ceremonyAction button{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:100%;min-height:46px;color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 12%, transparent);cursor:pointer;font:inherit;border-radius:999px;padding:11px 18px;font-size:13px;font-weight:610;line-height:20px}.d3NDGa_ceremonyAction button:hover:enabled{background:color-mix(in srgb, var(--aumlok-anchor) 19%, transparent)}.d3NDGa_ceremonyAction button:disabled{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-bg-layer-2);cursor:not-allowed}.d3NDGa_redraw{border-bottom:1px solid color-mix(in srgb, var(--aumlok-anchor) 34%, transparent);color:var(--dsw-alias-label-secondary);cursor:pointer;letter-spacing:.02em;align-self:flex-start;padding:2px 0;font-size:12px;line-height:18px;transition:color .12s,border-color .12s}.d3NDGa_redraw:hover{border-color:color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);color:var(--aumlok-anchor)}.d3NDGa_ceremonyRefusal{color:var(--dsw-alias-label-secondary);margin:0;font-size:12px;line-height:19px}.d3NDGa_ceremonyRefusal code{overflow-wrap:anywhere;color:var(--dsw-alias-label-error);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);font-size:11px;line-height:17px}.d3NDGa_boundReceipt{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 35%, transparent);background:linear-gradient(140deg, color-mix(in srgb, var(--aumlok-anchor) 8%, transparent), #11182580);border-radius:22px;margin-top:24px;padding:24px}.d3NDGa_phraseStage .d3NDGa_boundLine{color:var(--aumlok-anchor);letter-spacing:-.025em;margin:0;font-size:24px;font-weight:610;line-height:1.3}.d3NDGa_boundExplanation{color:var(--dsw-alias-label-secondary);margin:12px 0 16px;font-size:15px;line-height:1.7}.d3NDGa_boundRoot{overflow-wrap:anywhere;color:var(--aumlok-unite);font-family:var(--dsw-font-family-mono,ui-monospace, monospace);font-size:14px;line-height:1.8;display:block}.d3NDGa_boundReceipt .d3NDGa_ceremonyAction{background:0 0;border:0;margin-top:22px;padding:0}.d3NDGa_boundReceipt .d3NDGa_ceremonyAction button{min-height:48px;font-size:16px}.d3NDGa_confirm{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 52%, transparent);background:color-mix(in srgb, var(--aumlok-anchor) 8%, transparent);border-radius:12px;flex-direction:column;gap:10px;padding:12px 13px;display:flex}.d3NDGa_confirmWarning{color:var(--dsw-alias-label-primary);margin:0;font-size:13px;font-weight:560;line-height:20px}.d3NDGa_confirmRow{color:var(--dsw-alias-label-secondary);cursor:pointer;align-items:center;gap:9px;font-size:12px;line-height:18px;display:flex}.d3NDGa_confirmRow input{width:16px;height:16px;accent-color:var(--aumlok-anchor);flex:none}.d3NDGa_flow{border:1px solid color-mix(in srgb, var(--aumlok-rise) 23%, transparent);background:var(--aukora-surface);border-radius:26px;padding:clamp(24px,3cqi,36px);position:relative;box-shadow:inset 0 1px #ffffff06}.d3NDGa_flow h3{color:var(--dsw-alias-label-primary);letter-spacing:-.035em;margin-bottom:26px;font-size:clamp(28px,3.8cqi,37px);font-weight:610;line-height:1.2}.d3NDGa_boundaryArt{place-items:center;width:120px;height:94px;margin-bottom:24px;display:grid;position:relative}.d3NDGa_boundaryArt span{width:80px;height:80px;color:var(--aumlok-anchor);border:1px solid;border-radius:50%;position:absolute;transform:rotate(-30deg)scaleX(.6);box-shadow:0 0 24px #e4be7310}.d3NDGa_boundaryArt span:nth-child(2){color:var(--aumlok-unite);opacity:.65;transform:rotate(30deg)scaleX(.8)}.d3NDGa_boundaryArt span:nth-child(3){color:var(--aumlok-rise);opacity:.5;transform:rotate(80deg)}.d3NDGa_boundaryArt>svg{width:27px;height:27px;color:var(--aumlok-anchor);background:#161e2c;border-radius:50%;padding:12px;position:relative}.d3NDGa_explanation{color:var(--dsw-alias-label-secondary);gap:22px;font-size:15.5px;line-height:1.85;display:grid}.d3NDGa_explanation p{margin:0}.d3NDGa_explanation p:first-child{color:var(--dsw-alias-label-primary);font-size:17px;line-height:1.8}.d3NDGa_explanation p:nth-child(4){border-left:2px solid color-mix(in srgb, var(--aumlok-anchor) 65%, transparent);color:var(--dsw-alias-label-primary);padding-left:18px}.d3NDGa_boundaryClosing{border-top:1px solid color-mix(in srgb, var(--aumlok-anchor) 24%, transparent);color:var(--aumlok-anchor);letter-spacing:-.02em;margin:28px 0 0;padding-top:24px;font-size:22px;line-height:1.5}.d3NDGa_warning{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 42%, transparent);color:var(--dsw-alias-label-secondary);background:color-mix(in srgb, var(--aumlok-anchor) 7%, transparent);border-radius:11px;margin:0;padding:10px 12px;font-size:12px;line-height:19px}.d3NDGa_menuItem{box-sizing:border-box;width:100%;min-height:44px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:right;background:0 0;border:1px solid #0000;border-radius:12px;align-items:center;padding:10px 12px;font-family:inherit;display:flex}.d3NDGa_menuItem:hover{background:var(--dsw-alias-interactive-bg-hover)}.d3NDGa_menuItemActive{border-color:var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-nav-item-active)}.d3NDGa_menuCopy{flex-direction:column;flex:1;align-items:flex-end;min-width:0;display:flex}.d3NDGa_menuCopy strong{width:100%;font-size:var(--dsh-spatial-menu-title-size,14px);line-height:var(--dsh-spatial-menu-title-line-height,20px);text-overflow:ellipsis;text-align:right;white-space:nowrap;font-weight:570;overflow:hidden}.d3NDGa_menuCopy span{width:100%;color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-spatial-menu-description-size,12px);line-height:var(--dsh-spatial-menu-description-line-height,18px);text-overflow:ellipsis;text-align:right;white-space:nowrap;overflow:hidden}.d3NDGa_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@container d3NDGa_aumlok (width>=760px){.d3NDGa_composition{grid-template-columns:minmax(360px,1.08fr) minmax(300px,.92fr);align-items:start}.d3NDGa_flow{position:sticky;top:0}}@container d3NDGa_aumlok (width<=520px){.d3NDGa_surface{padding:18px}.d3NDGa_hero{gap:14px}.d3NDGa_hero h2{font-size:30px}}[data-aumlok-reveal=words]{display:contents}@keyframes d3NDGa_aumlok-letter-settle{0%{opacity:0}to{opacity:1}}@keyframes d3NDGa_aumlok-row-settle{0%{opacity:0}to{opacity:1}}@media (prefers-reduced-motion:reduce){.d3NDGa_anchorBox,.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(2),.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(3),.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(4),.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(5),.d3NDGa_anchorBoxes .d3NDGa_anchorBox:nth-child(6),.d3NDGa_phraseRow,.d3NDGa_bandRows .d3NDGa_phraseRow:nth-child(2),.d3NDGa_phraseBand:nth-child(2) .d3NDGa_bandRows .d3NDGa_phraseRow:first-child,.d3NDGa_phraseBand:nth-child(2) .d3NDGa_bandRows .d3NDGa_phraseRow:nth-child(2),.d3NDGa_phraseBand:nth-child(3) .d3NDGa_bandRows .d3NDGa_phraseRow:first-child,.d3NDGa_phraseBand:nth-child(3) .d3NDGa_bandRows .d3NDGa_phraseRow:nth-child(2){animation:none}}.d3NDGa_handleLockedWrap{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-unite) 62%, transparent);background:color-mix(in srgb, var(--aumlok-unite) 8%, transparent);min-width:0;max-width:100%;color:var(--aumlok-unite);box-shadow:inset 0 0 18px color-mix(in srgb, var(--aumlok-unite) 5%, transparent);border-radius:15px;align-items:center;gap:14px;padding:10px 17px;display:flex}.d3NDGa_handleLockedWrap>svg{flex:none;width:18px;height:18px}.d3NDGa_identityAvatar img{object-fit:cover;border-radius:18px;width:100%;height:100%}.d3NDGa_identityAvatarControls{flex-direction:column;flex:none;align-items:center;gap:3px;display:flex}.d3NDGa_identityAvatarButton{cursor:pointer;background:0 0;border:0;border-radius:18px;padding:0}.d3NDGa_identityAvatarButton:focus-visible{outline:2px solid var(--aumlok-unite);outline-offset:3px}.d3NDGa_identityAvatarControls>.d3NDGa_identityAction{min-width:28px;min-height:28px;padding:3px}.d3NDGa_handleHeading{--band-color:var(--aumlok-unite);box-sizing:border-box;border:1px solid color-mix(in srgb, var(--band-color) 34%, transparent);border-left:3px solid color-mix(in srgb, var(--band-color) 76%, transparent);background:linear-gradient(100deg, color-mix(in srgb, var(--band-color) 10%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 55%, transparent));border-radius:15px;width:100%;padding:15px}.d3NDGa_handleHeading .d3NDGa_handleLabel{color:var(--aumlok-unite);font-size:12px;display:block}.d3NDGa_phraseStage .d3NDGa_handleHeading h3{margin:4px 0 0;font-size:28px}.d3NDGa_handleTools{color:var(--aumlok-unite);align-items:center;gap:8px;font-size:12px;display:flex}.d3NDGa_handleTools svg{width:20px;height:20px}.d3NDGa_anchorMeta{flex:1;min-width:0}.d3NDGa_anchorBoxes{flex:1}.d3NDGa_anchorBox{flex:1;min-width:22px}.d3NDGa_explanationHeader{border-bottom:1px solid var(--dsw-alias-border-l1);gap:10px;margin-bottom:22px;padding-bottom:18px}.d3NDGa_flow .d3NDGa_explanationHeader h3{letter-spacing:-.025em;margin:0;font-size:22px}.d3NDGa_explanationHeader img{flex:none}.d3NDGa_boundaryClosing{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 58%, transparent);white-space:nowrap;border-radius:17px;padding:18px 20px;font-size:clamp(16px,1.8cqi,22px)}@container d3NDGa_aumlok (width<=520px){.d3NDGa_boundaryClosing{white-space:normal}.d3NDGa_anchorToken{flex-direction:column;align-items:stretch}.d3NDGa_anchorBoxes{width:100%}}.d3NDGa_phraseStage{container:d3NDGa_phrase/inline-size}@container d3NDGa_phrase (width<=520px){.d3NDGa_anchorToken{flex-direction:column;align-items:stretch}.d3NDGa_anchorBoxes{width:100%}}";
+		const css = ".aSU_Xq_surface{--aumlok-root:var(--dsw-static-spatial-mint);--aumlok-unite:var(--dsw-static-spatial-blue);--aumlok-rise:var(--dsw-static-spatial-violet);--aumlok-anchor:var(--dsw-static-spatial-gold);box-sizing:border-box;width:100%;min-width:0;height:100%;min-height:0;color:var(--dsw-alias-label-primary);background:0 0;padding:clamp(20px,3.2%,48px);overflow:auto;container:aSU_Xq_aumlok/inline-size}.aSU_Xq_surface[hidden]{display:none}.aSU_Xq_canvas{box-sizing:border-box;width:min(100%,1160px);min-height:100%;margin:0 auto}.aSU_Xq_identityPanel{background:0 0;padding:clamp(20px,3.2%,40px);overflow:auto;container-type:inline-size}.aSU_Xq_identityCard{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--aukora-surface);border-radius:30px;flex-direction:column;align-items:center;gap:24px;width:min(100%,680px);margin:0 auto;padding:clamp(20px,4cqi,36px);display:flex;box-shadow:0 24px 80px #0003,inset 0 1px #ffffff08}.aSU_Xq_identityHeader{align-items:center;gap:16px;width:100%;display:flex}.aSU_Xq_identityHeader h2{overflow-wrap:anywhere;letter-spacing:-.03em;min-width:0;margin:0;font-size:clamp(32px,6cqi,52px);font-weight:640}.aSU_Xq_identityAvatar{background:color-mix(in srgb, var(--aumlok-unite) 10%, transparent);width:82px;height:82px;box-shadow:0 0 0 1px color-mix(in srgb, var(--aumlok-unite) 35%, transparent), 0 8px 28px #0003;color:var(--aumlok-unite);border-radius:24px;flex:none;place-items:center;display:grid}.aSU_Xq_identityAvatar svg{width:100%;height:100%}.aSU_Xq_identityAvatar>svg[viewBox=\"0 0 24 24\"]{width:36px;height:36px}.aSU_Xq_identityHeader h2{flex:1}.aSU_Xq_identityHeader>[data-identity-verify]{flex:none;align-self:flex-start;margin-left:auto}.aSU_Xq_identityNameForm{flex-wrap:wrap;flex:1;gap:8px;min-width:0;display:flex}.aSU_Xq_identityNameForm input{border:1px solid var(--dsw-alias-border-l1);width:120px;min-width:0;color:inherit;background:var(--dsw-alias-bg-layer-2);font:inherit;border-radius:12px;flex:1;padding:10px}.aSU_Xq_identityStorageError{color:#cf695f;font:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:8px;font-size:12px;display:flex}.aSU_Xq_identityStorageError svg{width:18px;height:18px}.aSU_Xq_identityScrim{--aumlok-root:var(--dsw-static-spatial-mint);--aumlok-unite:var(--dsw-static-spatial-blue);--aumlok-rise:var(--dsw-static-spatial-violet);--aumlok-anchor:var(--dsw-static-spatial-gold);z-index:100;box-sizing:border-box;backdrop-filter:blur(10px);background:#080615bb;place-items:center;padding:20px;display:grid;position:fixed;inset:0}.aSU_Xq_identitySheet{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);width:min(100%,560px);max-height:90dvh;color:var(--dsw-alias-label-primary);background:linear-gradient(145deg,#162337,#12131f 55%,#211930);border-radius:24px;flex-direction:column;align-items:center;gap:22px;padding:24px;font-size:15px;line-height:1.6;display:flex;overflow:auto;box-shadow:0 20px 80px #0008}.aSU_Xq_identitySheetHeader{justify-content:space-between;align-items:flex-start;gap:16px;width:100%;display:flex}.aSU_Xq_identitySheetHeader h3{letter-spacing:-.035em;margin:0;font-size:clamp(27px,4vw,34px);line-height:1.2}.aSU_Xq_identitySheetHeader p{color:var(--dsw-alias-label-secondary);margin:10px 0 0;font-size:16px}.aSU_Xq_identitySheet .aSU_Xq_identityAction{height:auto;min-height:44px;padding:10px 14px;font-size:15px}.aSU_Xq_identitySheetHeader>.aSU_Xq_identityAction{color:var(--dsw-alias-label-secondary)}.aSU_Xq_identityCameraFrame{aspect-ratio:1.12;border:1px solid color-mix(in srgb, var(--aumlok-unite) 35%, transparent);width:100%;min-height:320px;box-shadow:inset 0 0 45px #0005, 0 0 30px color-mix(in srgb, var(--aumlok-unite) 5%, transparent);background:radial-gradient(#1c2d48,#090e19 80%);border-radius:22px;place-items:center;display:grid;position:relative;overflow:hidden}.aSU_Xq_identityCamera{object-fit:cover;width:100%;height:100%;position:absolute;inset:0}.aSU_Xq_identityCamera[hidden]{display:none}.aSU_Xq_scanCorners{pointer-events:none;color:var(--aumlok-unite);position:absolute;inset:22px}.aSU_Xq_scanCorners i{filter:drop-shadow(0 0 6px);border:0 solid;width:34px;height:34px;position:absolute}.aSU_Xq_scanCorners i:first-child{border-top-width:3px;border-left-width:3px;border-top-left-radius:12px;top:0;left:0}.aSU_Xq_scanCorners i:nth-child(2){border-top-width:3px;border-right-width:3px;border-top-right-radius:12px;top:0;right:0}.aSU_Xq_scanCorners i:nth-child(3){border-bottom-width:3px;border-left-width:3px;border-bottom-left-radius:12px;bottom:0;left:0}.aSU_Xq_scanCorners i:nth-child(4){border-bottom-width:3px;border-right-width:3px;border-bottom-right-radius:12px;bottom:0;right:0}.aSU_Xq_identityCameraFrame[data-scanning] .aSU_Xq_scanCorners{animation:2.4s ease-in-out infinite aSU_Xq_identity-scan}@keyframes aSU_Xq_identity-scan{50%{opacity:.5;transform:scale(.96)}}.aSU_Xq_scannerMessage{text-align:center;color:var(--dsw-alias-label-primary);flex-direction:column;align-items:center;gap:14px;padding:44px 32px;display:flex;position:relative}.aSU_Xq_scannerMessage>svg{width:42px;height:42px;color:var(--aumlok-unite)}.aSU_Xq_scannerMessage strong{font-size:19px;line-height:1.4}.aSU_Xq_scannerMessage p{max-width:32ch;color:var(--dsw-alias-label-secondary);margin:0;font-size:15px}.aSU_Xq_scannerMessage[data-warning]>svg{color:#ee958a}.aSU_Xq_scannerMessage[data-live]{color:#f3f6ff;background:#080e1de6;border:1px solid #ffffff24;border-radius:999px;flex-direction:row;align-self:end;gap:10px;margin:0 24px 42px;padding:10px 18px}.aSU_Xq_scannerMessage[data-live]>svg{width:22px;height:22px}.aSU_Xq_scannerMessage[data-live] strong{font-size:16px}.aSU_Xq_identitySheet .aSU_Xq_identityWarning{color:#ee958a;font-size:15px}.aSU_Xq_identitySheet .aSU_Xq_identityWarning svg{flex:none}.aSU_Xq_identityScanned{flex-direction:column;align-items:center;gap:16px;width:100%;padding:22px 0;display:flex}.aSU_Xq_identityScanned h2{overflow-wrap:anywhere;text-align:center;max-width:100%;margin:0;font-size:27px}.aSU_Xq_scannerAbout{border-top:1px solid var(--dsw-alias-border-l1);width:100%}.aSU_Xq_scannerAbout summary{cursor:pointer;color:var(--aumlok-unite);justify-content:space-between;align-items:center;gap:16px;padding:18px 0 4px;font-size:16px;list-style:none;display:flex}.aSU_Xq_scannerAbout summary::-webkit-details-marker{display:none}.aSU_Xq_scannerAbout p{color:var(--dsw-alias-label-secondary);margin:14px 0 0;font-size:15px}@media (prefers-reduced-motion:reduce){.aSU_Xq_identityCameraFrame[data-scanning] .aSU_Xq_scanCorners{animation:none}}.aSU_Xq_identityBind:focus-visible{outline:2px solid var(--aumlok-unite);outline-offset:3px}.aSU_Xq_identityQrHalo{box-sizing:border-box;background:#f4f3f8;border-radius:30px;place-items:center;width:min(100%,362px);padding:12px;display:grid;box-shadow:0 12px 36px #0002}.aSU_Xq_identityQr{aspect-ratio:1;box-sizing:border-box;color:#252047;width:min(100%,336px);box-shadow:0 0 0 1px color-mix(in srgb, var(--aumlok-rise) 45%, transparent), 0 12px 40px #0003;background:0 0;border-radius:20px;place-items:center;padding:14px;display:grid}.aSU_Xq_identityQr img{object-fit:contain;width:100%;height:100%;image-rendering:pixelated;display:block}.aSU_Xq_identityQrPending{border:2px solid #25204740;border-top-color:#252047;border-radius:50%;width:24px;height:24px;animation:1s linear infinite aSU_Xq_identity-loading}@keyframes aSU_Xq_identity-loading{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.aSU_Xq_identityQrPending{animation:none}}.aSU_Xq_identityRetry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:1px solid;border-radius:14px;align-items:center;gap:10px;padding:12px 18px;display:inline-flex}.aSU_Xq_identityRetry svg{width:20px;height:20px}.aSU_Xq_identityRetry:focus-visible{outline-offset:4px;outline:2px solid}.aSU_Xq_identityWarning{color:#963b38;align-items:center;gap:10px;display:inline-flex}.aSU_Xq_identityWarning svg{width:20px;height:20px}.aSU_Xq_identityPortals{gap:14px;width:100%;display:grid}.aSU_Xq_identityPortal{--portal-color:var(--aumlok-anchor);border:1px solid color-mix(in srgb, var(--portal-color) 32%, transparent);background:linear-gradient(115deg, color-mix(in srgb, var(--portal-color) 9%, transparent), #10172480);border-radius:21px;min-width:0;transition:border-color .18s,background .18s;box-shadow:inset 0 1px #ffffff06,0 8px 24px #0002}.aSU_Xq_identityPortal[data-identity-portal=nostr]{--portal-color:var(--aumlok-unite)}.aSU_Xq_identityPortal[data-identity-portal=sharing]{--portal-color:var(--aumlok-rise)}.aSU_Xq_identityPortal[data-identity-portal=sharing] .aSU_Xq_portalContent p+p{border-top:0;padding-top:0}.aSU_Xq_identityPortal:hover,.aSU_Xq_identityPortal[open]{border-color:color-mix(in srgb, var(--portal-color) 64%, transparent)}.aSU_Xq_identityPortal summary{box-sizing:border-box;cursor:pointer;align-items:center;gap:18px;min-height:106px;padding:20px 22px;list-style:none;display:flex}.aSU_Xq_identityPortal summary::-webkit-details-marker{display:none}.aSU_Xq_identityPortal summary:focus-visible,.aSU_Xq_scannerAbout summary:focus-visible{outline:2px solid var(--aumlok-unite);outline-offset:4px;border-radius:18px}.aSU_Xq_portalIcon{border:1px solid color-mix(in srgb, var(--portal-color) 32%, transparent);background:color-mix(in srgb, var(--portal-color) 8%, transparent);width:52px;height:52px;color:var(--portal-color);border-radius:16px;flex:none;place-items:center;display:grid}.aSU_Xq_portalIcon svg{width:27px;height:27px}.aSU_Xq_portalHeading{flex:1;gap:5px;min-width:0;display:grid}.aSU_Xq_portalHeading strong{letter-spacing:-.025em;font-size:23px;font-weight:610}.aSU_Xq_portalHeading>span{color:var(--dsw-alias-label-secondary);font-size:15px;line-height:1.5}.aSU_Xq_portalChevron{width:9px;height:9px;color:var(--portal-color,var(--aumlok-unite));border:1.5px solid;border-width:0 1.5px 1.5px 0;flex:none;margin:0 3px 5px;display:block;transform:rotate(45deg)}.aSU_Xq_identityPortal[open] .aSU_Xq_portalChevron,.aSU_Xq_scannerAbout[open] .aSU_Xq_portalChevron{margin-bottom:-4px;transform:rotate(225deg)}.aSU_Xq_portalContent{justify-items:start;gap:18px;padding:0 22px 24px;display:grid}.aSU_Xq_portalContent p{border-top:1px solid color-mix(in srgb, var(--portal-color) 18%, transparent);color:var(--dsw-alias-label-secondary);margin:0;padding-top:18px;font-size:16px;line-height:1.7}.aSU_Xq_portalContent code{box-sizing:border-box;overflow-wrap:anywhere;user-select:all;width:100%;min-width:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-mono,ui-monospace, monospace);background:#0003;border-radius:12px;padding:15px;font-size:15px;line-height:1.8}.aSU_Xq_identityPortal .aSU_Xq_portalContent .aSU_Xq_identityAction[data-labeled]{color:var(--portal-color)}.aSU_Xq_identityPortal .aSU_Xq_portalContent .aSU_Xq_identityAction[data-result=check]{color:var(--aumlok-root)}.aSU_Xq_identityPortal .aSU_Xq_portalContent .aSU_Xq_identityAction[data-result=error]{color:#cf695f}.aSU_Xq_identityBind{color:var(--aumlok-anchor);font:inherit;cursor:pointer;background:0 0;border:0;justify-self:start;padding:0;font-size:12px}.aSU_Xq_identityActions{flex-wrap:wrap;justify-content:center;gap:12px;display:flex}.aSU_Xq_identityAction{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:44px;height:44px;color:var(--aumlok-anchor);cursor:pointer;font:inherit;border-radius:14px;flex:none;place-items:center;font-size:15px;font-weight:600;display:inline-grid}.aSU_Xq_identityAction[data-labeled]{justify-content:center;gap:9px;width:auto;height:auto;min-height:46px;padding:11px 18px;line-height:1.4;display:inline-flex}.aSU_Xq_identityAction[data-labeled]:last-child{color:var(--aumlok-unite)}.aSU_Xq_identityAction svg{width:20px;height:20px}.aSU_Xq_identityAction:hover:not(:disabled),.aSU_Xq_identityAction:focus-visible{border-color:var(--aumlok-anchor);outline:2px solid color-mix(in srgb, var(--aumlok-anchor) 30%, transparent);outline-offset:2px}.aSU_Xq_identityAction:disabled{opacity:.4;cursor:default}.aSU_Xq_identityAction[data-result=check],.aSU_Xq_identityAction[data-labeled][data-result=check]{color:var(--aumlok-root)}.aSU_Xq_identityAction[data-result=error],.aSU_Xq_identityAction[data-labeled][data-result=error]{color:#cf695f}@container (width<=420px){.aSU_Xq_identityHeader{text-align:left;flex-wrap:wrap}.aSU_Xq_identityHeader h2{flex-basis:100%;order:1}.aSU_Xq_identityPortal summary{gap:12px;padding:16px}.aSU_Xq_portalHeading strong{font-size:21px}.aSU_Xq_portalIcon{width:42px;height:42px}.aSU_Xq_portalContent{padding:0 16px 20px}}.aSU_Xq_hero{border-bottom:1px solid var(--dsw-alias-border-l1);justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:clamp(24px,4cqi,42px);display:flex}.aSU_Xq_heroCopy{min-width:0}.aSU_Xq_hero p,.aSU_Xq_hero h2,.aSU_Xq_hero span,.aSU_Xq_phraseStage h3,.aSU_Xq_flow h3,.aSU_Xq_explanation{margin:0}.aSU_Xq_hero p,.aSU_Xq_phraseStage h3,.aSU_Xq_flow h3,.aSU_Xq_statusBadge,.aSU_Xq_bandHeader,.aSU_Xq_anchorMeta,.aSU_Xq_position{font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)}.aSU_Xq_hero p{color:var(--aumlok-unite);letter-spacing:.16em;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:720;line-height:16px;overflow:hidden}.aSU_Xq_hero h2{letter-spacing:.07em;text-overflow:ellipsis;white-space:nowrap;margin-top:8px;font-size:clamp(30px,5cqi,46px);font-weight:640;line-height:1;overflow:hidden}.aSU_Xq_statusBadge>svg{width:18px;height:18px}.aSU_Xq_statusBadge{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 48%, transparent);color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 8%, transparent);letter-spacing:.14em;white-space:nowrap;border-radius:999px;flex:none;align-items:center;gap:7px;padding:7px 12px;font-size:10px;font-weight:720;line-height:14px;display:inline-flex}.aSU_Xq_composition{gap:clamp(20px,3.4cqi,40px);padding:clamp(18px,3cqi,34px) 0;display:grid}.aSU_Xq_phraseStage,.aSU_Xq_flow{min-width:0}.aSU_Xq_phraseStage h3,.aSU_Xq_flow h3{color:var(--dsw-alias-label-tertiary);letter-spacing:.16em;font-size:11px;font-weight:720;line-height:16px}.aSU_Xq_anchorToken{--band-color:var(--aumlok-anchor);box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 58%, transparent);background:linear-gradient(135deg, color-mix(in srgb, var(--aumlok-anchor) 15%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 76%, transparent));min-height:88px;box-shadow:inset 0 0 28px color-mix(in srgb, var(--aumlok-anchor) 5%, transparent);border-radius:17px;flex-direction:row;align-items:center;gap:12px;margin-top:14px;padding:18px 20px;display:flex}.aSU_Xq_anchorBoxes{justify-content:flex-start;align-items:center;gap:8px;min-width:0;display:flex}.aSU_Xq_anchorBox{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:40px;height:46px;color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 13%, transparent);box-shadow:inset 0 0 14px color-mix(in srgb, var(--aumlok-anchor) 10%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);border-radius:11px;flex:none;place-items:center;font-size:22px;line-height:1;animation-name:aSU_Xq_aumlok-letter-settle;animation-duration:.42s;animation-timing-function:ease-out;animation-fill-mode:both;display:grid}.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(2){animation-delay:60ms}.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(3){animation-delay:.12s}.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(4){animation-delay:.18s}.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(5){animation-delay:.24s}.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(6){animation-delay:.3s}.aSU_Xq_anchorDot{width:9px;height:9px;box-shadow:0 0 12px color-mix(in srgb, currentcolor 46%, transparent);background:currentColor;border-radius:50%;display:block}.aSU_Xq_handleField{flex-direction:column;gap:6px;margin:0 0 14px;display:flex}.aSU_Xq_handleLabel{color:var(--dsw-alias-label-primary);letter-spacing:.06em;text-transform:uppercase;font-size:13px;font-weight:600}.aSU_Xq_handleInput{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:100%;min-width:0;height:44px;color:var(--dsw-alias-label-primary);background:color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.08em;border-radius:11px;padding:0 14px;font-size:16px}.aSU_Xq_handleInput:focus{border-color:color-mix(in srgb, var(--aumlok-anchor) 82%, transparent);outline:2px solid color-mix(in srgb, var(--aumlok-anchor) 34%, transparent);outline-offset:1px}.aSU_Xq_handleInput:disabled{opacity:.6}.aSU_Xq_handleHeading{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px 20px;margin-bottom:22px;display:flex}.aSU_Xq_phraseStage .aSU_Xq_handleHeading h3{color:var(--dsw-alias-label-primary);letter-spacing:-.035em;font-size:clamp(25px,3.6cqi,32px);font-weight:610;line-height:1.3}.aSU_Xq_handleLocked{overflow-wrap:anywhere;min-width:0;font-size:18px;font-weight:580;line-height:1.5}.aSU_Xq_handleHint{color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-primary));margin:0;font-size:12px;line-height:1.4}.aSU_Xq_anchorInput{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:100%;min-width:0;height:46px;color:var(--dsw-alias-label-primary);background:color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.12em;border-radius:11px;padding:0 14px;font-size:16px}.aSU_Xq_anchorInput:focus{border-color:color-mix(in srgb, var(--aumlok-anchor) 82%, transparent);outline:2px solid color-mix(in srgb, var(--aumlok-anchor) 34%, transparent);outline-offset:1px}.aSU_Xq_anchorMeta{flex-direction:column;gap:4px;min-width:0;display:flex}.aSU_Xq_anchorMeta strong{color:var(--aumlok-anchor);letter-spacing:.11em;font-size:12px;line-height:17px}.aSU_Xq_anchorMeta span{color:var(--dsw-alias-label-tertiary);letter-spacing:.04em;font-size:10px;line-height:15px}.aSU_Xq_wordMask{align-items:center;gap:7px;display:flex}.aSU_Xq_wordMask i{box-shadow:0 0 12px color-mix(in srgb, currentcolor 46%, transparent);background:currentColor;border-radius:50%;flex:none;display:block}.aSU_Xq_anchorToken .aSU_Xq_wordMask i{width:9px;height:9px}.aSU_Xq_bands{flex-direction:column;gap:13px;margin-top:18px;display:flex}.aSU_Xq_phraseBand{--band-color:var(--aumlok-unite);border:1px solid color-mix(in srgb, var(--band-color) 34%, transparent);border-left:3px solid color-mix(in srgb, var(--band-color) 76%, transparent);background:linear-gradient(100deg, color-mix(in srgb, var(--band-color) 10%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 55%, transparent));border-radius:15px;gap:12px;padding:15px;display:grid}.aSU_Xq_phraseBand[data-aumlok-tone=green]{--band-color:var(--aumlok-root)}.aSU_Xq_phraseBand[data-aumlok-tone=blue]{--band-color:var(--aumlok-unite)}.aSU_Xq_phraseBand[data-aumlok-tone=purple]{--band-color:var(--aumlok-rise)}.aSU_Xq_bandHeader{justify-content:space-between;align-items:baseline;gap:14px;display:flex}.aSU_Xq_bandHeader strong{color:var(--band-color);letter-spacing:.12em;font-size:12px;line-height:17px}.aSU_Xq_bandHeader span{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:15px;overflow:hidden}.aSU_Xq_bandRows{grid-template-columns:minmax(0,1fr);gap:9px;display:grid}.aSU_Xq_phraseRow{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--band-color) 22%, transparent);background:color-mix(in srgb, var(--dsw-alias-bg-layer-1) 70%, transparent);border-radius:11px;align-items:center;gap:9px;min-width:0;height:44px;padding:0 12px 0 8px;animation-name:aSU_Xq_aumlok-row-settle;animation-duration:.38s;animation-timing-function:ease-out;animation-fill-mode:both;display:flex}.aSU_Xq_bandRows .aSU_Xq_phraseRow:nth-child(2){animation-delay:.12s}.aSU_Xq_phraseBand:nth-child(2) .aSU_Xq_bandRows .aSU_Xq_phraseRow:first-child{animation-delay:.24s}.aSU_Xq_phraseBand:nth-child(2) .aSU_Xq_bandRows .aSU_Xq_phraseRow:nth-child(2){animation-delay:.36s}.aSU_Xq_phraseBand:nth-child(3) .aSU_Xq_bandRows .aSU_Xq_phraseRow:first-child{animation-delay:.48s}.aSU_Xq_phraseBand:nth-child(3) .aSU_Xq_bandRows .aSU_Xq_phraseRow:nth-child(2){animation-delay:.6s}.aSU_Xq_position{width:12px;color:var(--dsw-alias-label-dimmed);text-align:right;font-size:9px;line-height:12px}.aSU_Xq_initialBox{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 52%, transparent);width:26px;height:26px;color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 10%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);border-radius:8px;flex:none;place-items:center;font-size:13px;line-height:1;display:grid}.aSU_Xq_wordMask{min-width:0;color:var(--band-color);flex:1}.aSU_Xq_wordMask i{opacity:.64;width:6px;height:6px}.aSU_Xq_tileEmpty{box-sizing:border-box;border:1px dashed color-mix(in srgb, var(--band-color) 30%, transparent);min-width:0;height:30px;color:var(--dsw-alias-label-dimmed);border-radius:8px;flex:1;place-items:center;font-size:12px;line-height:1;display:grid}.aSU_Xq_tileWord{min-width:0;color:var(--band-color);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.06em;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:15px;line-height:20px;overflow:hidden}.aSU_Xq_tileInput{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--band-color) 52%, transparent);min-width:0;height:32px;color:var(--dsw-alias-label-primary);background:color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.05em;border-radius:8px;flex:1;padding:0 10px;font-size:13px}.aSU_Xq_tileInput:focus{border-color:color-mix(in srgb, var(--band-color) 78%, transparent);outline:2px solid color-mix(in srgb, var(--band-color) 34%, transparent);outline-offset:1px}.aSU_Xq_runtimePosture{flex-direction:column;gap:15px;margin-top:14px;display:flex}.aSU_Xq_runtimePosture>div{flex-direction:column;gap:5px;display:flex}.aSU_Xq_runtimePosture strong{color:var(--aumlok-anchor);font-size:15px;font-weight:610;line-height:21px}.aSU_Xq_runtimePosture span{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}.aSU_Xq_missingBinding{color:var(--dsw-alias-label-secondary);margin:0;font-size:13px;line-height:20px}.aSU_Xq_controlProjection{gap:10px;margin:2px 0 0;display:grid}.aSU_Xq_controlProjection>div{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 18%, transparent);background:color-mix(in srgb, var(--aumlok-anchor) 4%, transparent);border-radius:10px;grid-template-columns:minmax(112px,.34fr) minmax(0,1fr);align-items:baseline;gap:12px;min-width:0;padding:9px 11px;display:grid}.aSU_Xq_controlProjection dt{color:var(--dsw-alias-label-tertiary);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);letter-spacing:.08em;font-size:9px;font-weight:700;line-height:14px}.aSU_Xq_controlProjection dd{min-width:0;margin:0}.aSU_Xq_controlProjection code{overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px;display:block}.aSU_Xq_flow h3{margin-bottom:14px}.aSU_Xq_ceremonyAction{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 38%, transparent);background:linear-gradient(125deg, color-mix(in srgb, var(--aumlok-anchor) 11%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 58%, transparent));border-radius:15px;flex-direction:column;gap:12px;margin-top:16px;padding:16px 17px;display:flex}.aSU_Xq_ceremonyAction button{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);width:100%;min-height:46px;color:var(--aumlok-anchor);background:color-mix(in srgb, var(--aumlok-anchor) 12%, transparent);cursor:pointer;font:inherit;border-radius:999px;padding:11px 18px;font-size:13px;font-weight:610;line-height:20px}.aSU_Xq_ceremonyAction button:hover:enabled{background:color-mix(in srgb, var(--aumlok-anchor) 19%, transparent)}.aSU_Xq_ceremonyAction button:disabled{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-bg-layer-2);cursor:not-allowed}.aSU_Xq_redraw{border-bottom:1px solid color-mix(in srgb, var(--aumlok-anchor) 34%, transparent);color:var(--dsw-alias-label-secondary);cursor:pointer;letter-spacing:.02em;align-self:flex-start;padding:2px 0;font-size:12px;line-height:18px;transition:color .12s,border-color .12s}.aSU_Xq_redraw:hover{border-color:color-mix(in srgb, var(--aumlok-anchor) 62%, transparent);color:var(--aumlok-anchor)}.aSU_Xq_ceremonyRefusal{color:var(--dsw-alias-label-secondary);margin:0;font-size:12px;line-height:19px}.aSU_Xq_ceremonyRefusal code{overflow-wrap:anywhere;color:var(--dsw-alias-label-error);font-family:var(--dsw-font-family-mono,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);font-size:11px;line-height:17px}.aSU_Xq_boundReceipt{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 35%, transparent);background:linear-gradient(140deg, color-mix(in srgb, var(--aumlok-anchor) 8%, transparent), #11182580);border-radius:22px;margin-top:24px;padding:24px}.aSU_Xq_phraseStage .aSU_Xq_boundLine{color:var(--aumlok-anchor);letter-spacing:-.025em;margin:0;font-size:24px;font-weight:610;line-height:1.3}.aSU_Xq_boundExplanation{color:var(--dsw-alias-label-secondary);margin:12px 0 16px;font-size:15px;line-height:1.7}.aSU_Xq_boundRoot{overflow-wrap:anywhere;color:var(--aumlok-unite);font-family:var(--dsw-font-family-mono,ui-monospace, monospace);font-size:14px;line-height:1.8;display:block}.aSU_Xq_boundReceipt .aSU_Xq_ceremonyAction{background:0 0;border:0;margin-top:22px;padding:0}.aSU_Xq_boundReceipt .aSU_Xq_ceremonyAction button{min-height:48px;font-size:16px}.aSU_Xq_confirm{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 52%, transparent);background:color-mix(in srgb, var(--aumlok-anchor) 8%, transparent);border-radius:12px;flex-direction:column;gap:10px;padding:12px 13px;display:flex}.aSU_Xq_confirmWarning{color:var(--dsw-alias-label-primary);margin:0;font-size:13px;font-weight:560;line-height:20px}.aSU_Xq_confirmRow{color:var(--dsw-alias-label-secondary);cursor:pointer;align-items:center;gap:9px;font-size:12px;line-height:18px;display:flex}.aSU_Xq_confirmRow input{width:16px;height:16px;accent-color:var(--aumlok-anchor);flex:none}.aSU_Xq_flow{border:1px solid color-mix(in srgb, var(--aumlok-rise) 23%, transparent);background:var(--aukora-surface);border-radius:26px;padding:clamp(24px,3cqi,36px);position:relative;box-shadow:inset 0 1px #ffffff06}.aSU_Xq_flow h3{color:var(--dsw-alias-label-primary);letter-spacing:-.035em;margin-bottom:26px;font-size:clamp(28px,3.8cqi,37px);font-weight:610;line-height:1.2}.aSU_Xq_boundaryArt{place-items:center;width:120px;height:94px;margin-bottom:24px;display:grid;position:relative}.aSU_Xq_boundaryArt span{width:80px;height:80px;color:var(--aumlok-anchor);border:1px solid;border-radius:50%;position:absolute;transform:rotate(-30deg)scaleX(.6);box-shadow:0 0 24px #e4be7310}.aSU_Xq_boundaryArt span:nth-child(2){color:var(--aumlok-unite);opacity:.65;transform:rotate(30deg)scaleX(.8)}.aSU_Xq_boundaryArt span:nth-child(3){color:var(--aumlok-rise);opacity:.5;transform:rotate(80deg)}.aSU_Xq_boundaryArt>svg{width:27px;height:27px;color:var(--aumlok-anchor);background:#161e2c;border-radius:50%;padding:12px;position:relative}.aSU_Xq_explanation{color:var(--dsw-alias-label-secondary);gap:22px;font-size:15.5px;line-height:1.85;display:grid}.aSU_Xq_explanation p{margin:0}.aSU_Xq_explanation p:first-child{color:var(--dsw-alias-label-primary);font-size:17px;line-height:1.8}.aSU_Xq_explanation p:nth-child(4){border-left:2px solid color-mix(in srgb, var(--aumlok-anchor) 65%, transparent);color:var(--dsw-alias-label-primary);padding-left:18px}.aSU_Xq_boundaryClosing{border-top:1px solid color-mix(in srgb, var(--aumlok-anchor) 24%, transparent);color:var(--aumlok-anchor);letter-spacing:-.02em;margin:28px 0 0;padding-top:24px;font-size:22px;line-height:1.5}.aSU_Xq_warning{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-anchor) 42%, transparent);color:var(--dsw-alias-label-secondary);background:color-mix(in srgb, var(--aumlok-anchor) 7%, transparent);border-radius:11px;margin:0;padding:10px 12px;font-size:12px;line-height:19px}.aSU_Xq_menuItem{box-sizing:border-box;width:100%;min-height:44px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:right;background:0 0;border:1px solid #0000;border-radius:12px;align-items:center;padding:10px 12px;font-family:inherit;display:flex}.aSU_Xq_menuItem:hover{background:var(--dsw-alias-interactive-bg-hover)}.aSU_Xq_menuItemActive{border-color:var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-nav-item-active)}.aSU_Xq_menuCopy{flex-direction:column;flex:1;align-items:flex-end;min-width:0;display:flex}.aSU_Xq_menuCopy strong{width:100%;font-size:var(--dsh-spatial-menu-title-size,14px);line-height:var(--dsh-spatial-menu-title-line-height,20px);text-overflow:ellipsis;text-align:right;white-space:nowrap;font-weight:570;overflow:hidden}.aSU_Xq_menuCopy span{width:100%;color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-spatial-menu-description-size,12px);line-height:var(--dsh-spatial-menu-description-line-height,18px);text-overflow:ellipsis;text-align:right;white-space:nowrap;overflow:hidden}.aSU_Xq_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}@container aSU_Xq_aumlok (width>=760px){.aSU_Xq_composition{grid-template-columns:minmax(360px,1.08fr) minmax(300px,.92fr);align-items:start}.aSU_Xq_flow{position:sticky;top:0}}@container aSU_Xq_aumlok (width<=520px){.aSU_Xq_surface{padding:18px}.aSU_Xq_hero{gap:14px}.aSU_Xq_hero h2{font-size:30px}}[data-aumlok-reveal=words]{display:contents}@keyframes aSU_Xq_aumlok-letter-settle{0%{opacity:0}to{opacity:1}}@keyframes aSU_Xq_aumlok-row-settle{0%{opacity:0}to{opacity:1}}@media (prefers-reduced-motion:reduce){.aSU_Xq_anchorBox,.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(2),.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(3),.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(4),.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(5),.aSU_Xq_anchorBoxes .aSU_Xq_anchorBox:nth-child(6),.aSU_Xq_phraseRow,.aSU_Xq_bandRows .aSU_Xq_phraseRow:nth-child(2),.aSU_Xq_phraseBand:nth-child(2) .aSU_Xq_bandRows .aSU_Xq_phraseRow:first-child,.aSU_Xq_phraseBand:nth-child(2) .aSU_Xq_bandRows .aSU_Xq_phraseRow:nth-child(2),.aSU_Xq_phraseBand:nth-child(3) .aSU_Xq_bandRows .aSU_Xq_phraseRow:first-child,.aSU_Xq_phraseBand:nth-child(3) .aSU_Xq_bandRows .aSU_Xq_phraseRow:nth-child(2){animation:none}}.aSU_Xq_handleLockedWrap{box-sizing:border-box;border:1px solid color-mix(in srgb, var(--aumlok-unite) 62%, transparent);background:color-mix(in srgb, var(--aumlok-unite) 8%, transparent);min-width:0;max-width:100%;color:var(--aumlok-unite);box-shadow:inset 0 0 18px color-mix(in srgb, var(--aumlok-unite) 5%, transparent);border-radius:15px;align-items:center;gap:14px;padding:10px 17px;display:flex}.aSU_Xq_handleLockedWrap>svg{flex:none;width:18px;height:18px}.aSU_Xq_identityAvatar img{object-fit:cover;border-radius:18px;width:100%;height:100%}.aSU_Xq_identityAvatarControls{flex-direction:column;flex:none;align-items:center;gap:3px;display:flex}.aSU_Xq_identityAvatarButton{cursor:pointer;background:0 0;border:0;border-radius:18px;padding:0}.aSU_Xq_identityAvatarButton:focus-visible{outline:2px solid var(--aumlok-unite);outline-offset:3px}.aSU_Xq_identityAvatarControls>.aSU_Xq_identityAction{min-width:28px;min-height:28px;padding:3px}.aSU_Xq_handleHeading{--band-color:var(--aumlok-unite);box-sizing:border-box;border:1px solid color-mix(in srgb, var(--band-color) 34%, transparent);border-left:3px solid color-mix(in srgb, var(--band-color) 76%, transparent);background:linear-gradient(100deg, color-mix(in srgb, var(--band-color) 10%, transparent), color-mix(in srgb, var(--dsw-alias-bg-layer-2) 55%, transparent));border-radius:15px;width:100%;padding:15px}.aSU_Xq_handleHeading .aSU_Xq_handleLabel{color:var(--aumlok-unite);font-size:12px;display:block}.aSU_Xq_phraseStage .aSU_Xq_handleHeading h3{margin:4px 0 0;font-size:28px}.aSU_Xq_handleTools{color:var(--aumlok-unite);align-items:center;gap:8px;font-size:12px;display:flex}.aSU_Xq_handleTools svg{width:20px;height:20px}.aSU_Xq_anchorMeta{flex:1;min-width:0}.aSU_Xq_anchorBoxes{flex:1}.aSU_Xq_anchorBox{flex:1;min-width:22px}.aSU_Xq_explanationHeader{border-bottom:1px solid var(--dsw-alias-border-l1);gap:10px;margin-bottom:22px;padding-bottom:18px}.aSU_Xq_flow .aSU_Xq_explanationHeader h3{letter-spacing:-.025em;margin:0;font-size:22px}.aSU_Xq_explanationHeader img{flex:none}.aSU_Xq_boundaryClosing{border:1px solid color-mix(in srgb, var(--aumlok-anchor) 58%, transparent);white-space:nowrap;border-radius:17px;padding:18px 20px;font-size:clamp(16px,1.8cqi,22px)}@container aSU_Xq_aumlok (width<=520px){.aSU_Xq_boundaryClosing{white-space:normal}.aSU_Xq_anchorToken{flex-direction:column;align-items:stretch}.aSU_Xq_anchorBoxes{width:100%}}.aSU_Xq_phraseStage{container:aSU_Xq_phrase/inline-size}@container aSU_Xq_phrase (width<=520px){.aSU_Xq_anchorToken{flex-direction:column;align-items:stretch}.aSU_Xq_anchorBoxes{width:100%}}";
 		const tagId = "@aukora/face-aumlok/Aumlok.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -59,98 +59,98 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var Aumlok_module_css_default = {
-			"anchorBox": "d3NDGa_anchorBox",
-			"anchorBoxes": "d3NDGa_anchorBoxes",
-			"anchorDot": "d3NDGa_anchorDot",
-			"anchorInput": "d3NDGa_anchorInput",
-			"anchorMeta": "d3NDGa_anchorMeta",
-			"anchorToken": "d3NDGa_anchorToken",
-			"aumlok": "d3NDGa_aumlok",
-			"aumlok-letter-settle": "d3NDGa_aumlok-letter-settle",
-			"aumlok-row-settle": "d3NDGa_aumlok-row-settle",
-			"bandHeader": "d3NDGa_bandHeader",
-			"bandRows": "d3NDGa_bandRows",
-			"bands": "d3NDGa_bands",
-			"boundExplanation": "d3NDGa_boundExplanation",
-			"boundLine": "d3NDGa_boundLine",
-			"boundReceipt": "d3NDGa_boundReceipt",
-			"boundRoot": "d3NDGa_boundRoot",
-			"boundaryArt": "d3NDGa_boundaryArt",
-			"boundaryClosing": "d3NDGa_boundaryClosing",
-			"canvas": "d3NDGa_canvas",
-			"ceremonyAction": "d3NDGa_ceremonyAction",
-			"ceremonyRefusal": "d3NDGa_ceremonyRefusal",
-			"composition": "d3NDGa_composition",
-			"confirm": "d3NDGa_confirm",
-			"confirmRow": "d3NDGa_confirmRow",
-			"confirmWarning": "d3NDGa_confirmWarning",
-			"controlProjection": "d3NDGa_controlProjection",
-			"explanation": "d3NDGa_explanation",
-			"explanationHeader": "d3NDGa_explanationHeader",
-			"flow": "d3NDGa_flow",
-			"handleField": "d3NDGa_handleField",
-			"handleHeading": "d3NDGa_handleHeading",
-			"handleHint": "d3NDGa_handleHint",
-			"handleInput": "d3NDGa_handleInput",
-			"handleLabel": "d3NDGa_handleLabel",
-			"handleLocked": "d3NDGa_handleLocked",
-			"handleLockedWrap": "d3NDGa_handleLockedWrap",
-			"handleTools": "d3NDGa_handleTools",
-			"hero": "d3NDGa_hero",
-			"heroCopy": "d3NDGa_heroCopy",
-			"identity-loading": "d3NDGa_identity-loading",
-			"identity-scan": "d3NDGa_identity-scan",
-			"identityAction": "d3NDGa_identityAction",
-			"identityActions": "d3NDGa_identityActions",
-			"identityAvatar": "d3NDGa_identityAvatar",
-			"identityAvatarButton": "d3NDGa_identityAvatarButton",
-			"identityAvatarControls": "d3NDGa_identityAvatarControls",
-			"identityBind": "d3NDGa_identityBind",
-			"identityCamera": "d3NDGa_identityCamera",
-			"identityCameraFrame": "d3NDGa_identityCameraFrame",
-			"identityCard": "d3NDGa_identityCard",
-			"identityHeader": "d3NDGa_identityHeader",
-			"identityNameForm": "d3NDGa_identityNameForm",
-			"identityPanel": "d3NDGa_identityPanel",
-			"identityPortal": "d3NDGa_identityPortal",
-			"identityPortals": "d3NDGa_identityPortals",
-			"identityQr": "d3NDGa_identityQr",
-			"identityQrHalo": "d3NDGa_identityQrHalo",
-			"identityQrPending": "d3NDGa_identityQrPending",
-			"identityRetry": "d3NDGa_identityRetry",
-			"identityScanned": "d3NDGa_identityScanned",
-			"identityScrim": "d3NDGa_identityScrim",
-			"identitySheet": "d3NDGa_identitySheet",
-			"identitySheetHeader": "d3NDGa_identitySheetHeader",
-			"identityStorageError": "d3NDGa_identityStorageError",
-			"identityWarning": "d3NDGa_identityWarning",
-			"initialBox": "d3NDGa_initialBox",
-			"menuCopy": "d3NDGa_menuCopy",
-			"menuItem": "d3NDGa_menuItem",
-			"menuItemActive": "d3NDGa_menuItemActive",
-			"missingBinding": "d3NDGa_missingBinding",
-			"phrase": "d3NDGa_phrase",
-			"phraseBand": "d3NDGa_phraseBand",
-			"phraseRow": "d3NDGa_phraseRow",
-			"phraseStage": "d3NDGa_phraseStage",
-			"portalChevron": "d3NDGa_portalChevron",
-			"portalContent": "d3NDGa_portalContent",
-			"portalHeading": "d3NDGa_portalHeading",
-			"portalIcon": "d3NDGa_portalIcon",
-			"position": "d3NDGa_position",
-			"redraw": "d3NDGa_redraw",
-			"runtimePosture": "d3NDGa_runtimePosture",
-			"scanCorners": "d3NDGa_scanCorners",
-			"scannerAbout": "d3NDGa_scannerAbout",
-			"scannerMessage": "d3NDGa_scannerMessage",
-			"statusBadge": "d3NDGa_statusBadge",
-			"surface": "d3NDGa_surface",
-			"tileEmpty": "d3NDGa_tileEmpty",
-			"tileInput": "d3NDGa_tileInput",
-			"tileWord": "d3NDGa_tileWord",
-			"visuallyHidden": "d3NDGa_visuallyHidden",
-			"warning": "d3NDGa_warning",
-			"wordMask": "d3NDGa_wordMask"
+			"anchorBox": "aSU_Xq_anchorBox",
+			"anchorBoxes": "aSU_Xq_anchorBoxes",
+			"anchorDot": "aSU_Xq_anchorDot",
+			"anchorInput": "aSU_Xq_anchorInput",
+			"anchorMeta": "aSU_Xq_anchorMeta",
+			"anchorToken": "aSU_Xq_anchorToken",
+			"aumlok": "aSU_Xq_aumlok",
+			"aumlok-letter-settle": "aSU_Xq_aumlok-letter-settle",
+			"aumlok-row-settle": "aSU_Xq_aumlok-row-settle",
+			"bandHeader": "aSU_Xq_bandHeader",
+			"bandRows": "aSU_Xq_bandRows",
+			"bands": "aSU_Xq_bands",
+			"boundExplanation": "aSU_Xq_boundExplanation",
+			"boundLine": "aSU_Xq_boundLine",
+			"boundReceipt": "aSU_Xq_boundReceipt",
+			"boundRoot": "aSU_Xq_boundRoot",
+			"boundaryArt": "aSU_Xq_boundaryArt",
+			"boundaryClosing": "aSU_Xq_boundaryClosing",
+			"canvas": "aSU_Xq_canvas",
+			"ceremonyAction": "aSU_Xq_ceremonyAction",
+			"ceremonyRefusal": "aSU_Xq_ceremonyRefusal",
+			"composition": "aSU_Xq_composition",
+			"confirm": "aSU_Xq_confirm",
+			"confirmRow": "aSU_Xq_confirmRow",
+			"confirmWarning": "aSU_Xq_confirmWarning",
+			"controlProjection": "aSU_Xq_controlProjection",
+			"explanation": "aSU_Xq_explanation",
+			"explanationHeader": "aSU_Xq_explanationHeader",
+			"flow": "aSU_Xq_flow",
+			"handleField": "aSU_Xq_handleField",
+			"handleHeading": "aSU_Xq_handleHeading",
+			"handleHint": "aSU_Xq_handleHint",
+			"handleInput": "aSU_Xq_handleInput",
+			"handleLabel": "aSU_Xq_handleLabel",
+			"handleLocked": "aSU_Xq_handleLocked",
+			"handleLockedWrap": "aSU_Xq_handleLockedWrap",
+			"handleTools": "aSU_Xq_handleTools",
+			"hero": "aSU_Xq_hero",
+			"heroCopy": "aSU_Xq_heroCopy",
+			"identity-loading": "aSU_Xq_identity-loading",
+			"identity-scan": "aSU_Xq_identity-scan",
+			"identityAction": "aSU_Xq_identityAction",
+			"identityActions": "aSU_Xq_identityActions",
+			"identityAvatar": "aSU_Xq_identityAvatar",
+			"identityAvatarButton": "aSU_Xq_identityAvatarButton",
+			"identityAvatarControls": "aSU_Xq_identityAvatarControls",
+			"identityBind": "aSU_Xq_identityBind",
+			"identityCamera": "aSU_Xq_identityCamera",
+			"identityCameraFrame": "aSU_Xq_identityCameraFrame",
+			"identityCard": "aSU_Xq_identityCard",
+			"identityHeader": "aSU_Xq_identityHeader",
+			"identityNameForm": "aSU_Xq_identityNameForm",
+			"identityPanel": "aSU_Xq_identityPanel",
+			"identityPortal": "aSU_Xq_identityPortal",
+			"identityPortals": "aSU_Xq_identityPortals",
+			"identityQr": "aSU_Xq_identityQr",
+			"identityQrHalo": "aSU_Xq_identityQrHalo",
+			"identityQrPending": "aSU_Xq_identityQrPending",
+			"identityRetry": "aSU_Xq_identityRetry",
+			"identityScanned": "aSU_Xq_identityScanned",
+			"identityScrim": "aSU_Xq_identityScrim",
+			"identitySheet": "aSU_Xq_identitySheet",
+			"identitySheetHeader": "aSU_Xq_identitySheetHeader",
+			"identityStorageError": "aSU_Xq_identityStorageError",
+			"identityWarning": "aSU_Xq_identityWarning",
+			"initialBox": "aSU_Xq_initialBox",
+			"menuCopy": "aSU_Xq_menuCopy",
+			"menuItem": "aSU_Xq_menuItem",
+			"menuItemActive": "aSU_Xq_menuItemActive",
+			"missingBinding": "aSU_Xq_missingBinding",
+			"phrase": "aSU_Xq_phrase",
+			"phraseBand": "aSU_Xq_phraseBand",
+			"phraseRow": "aSU_Xq_phraseRow",
+			"phraseStage": "aSU_Xq_phraseStage",
+			"portalChevron": "aSU_Xq_portalChevron",
+			"portalContent": "aSU_Xq_portalContent",
+			"portalHeading": "aSU_Xq_portalHeading",
+			"portalIcon": "aSU_Xq_portalIcon",
+			"position": "aSU_Xq_position",
+			"redraw": "aSU_Xq_redraw",
+			"runtimePosture": "aSU_Xq_runtimePosture",
+			"scanCorners": "aSU_Xq_scanCorners",
+			"scannerAbout": "aSU_Xq_scannerAbout",
+			"scannerMessage": "aSU_Xq_scannerMessage",
+			"statusBadge": "aSU_Xq_statusBadge",
+			"surface": "aSU_Xq_surface",
+			"tileEmpty": "aSU_Xq_tileEmpty",
+			"tileInput": "aSU_Xq_tileInput",
+			"tileWord": "aSU_Xq_tileWord",
+			"visuallyHidden": "aSU_Xq_visuallyHidden",
+			"warning": "aSU_Xq_warning",
+			"wordMask": "aSU_Xq_wordMask"
 		};
 		//#endregion
 		//#region src/client/AumlokMenu.tsx
@@ -175,6 +175,189 @@ window.__ModuleLoader__.load({
 					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: t("menu.title") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("menu.description") })]
 				})
 			});
+		}
+		//#endregion
+		//#region src/client/binding-bridge.ts
+		/** Generated words contain only bounded Unicode letters and combining marks. */
+		const WORD = /^[\p{L}\p{M}]{1,64}$/u;
+		const AUMLOK_PHRASE_LANGUAGES = Object.freeze([
+			{
+				tag: "en",
+				name: "English"
+			},
+			{
+				tag: "es",
+				name: "Español"
+			},
+			{
+				tag: "fr",
+				name: "Français"
+			},
+			{
+				tag: "it",
+				name: "Italiano"
+			},
+			{
+				tag: "pt",
+				name: "Português"
+			},
+			{
+				tag: "cs",
+				name: "Čeština"
+			},
+			{
+				tag: "ja",
+				name: "日本語"
+			},
+			{
+				tag: "ko",
+				name: "한국어"
+			},
+			{
+				tag: "zh-Hans",
+				name: "简体中文"
+			},
+			{
+				tag: "zh-Hant",
+				name: "繁體中文"
+			}
+		]);
+		/** The plan's phrase is seven words, and a draw that is not seven words is not a phrase. */
+		const PHRASE_LENGTH = 7;
+		function isFunction(value) {
+			return typeof value === "function";
+		}
+		/**
+		* Read the shell bridge off the page, if this launch has one.
+		*
+		* `available: true` is required as well as both verbs: the shell's own flag is the shell's statement
+		* that a ceremony can actually be run here, and a bridge that declares itself unavailable must not grow
+		* a working-looking button. Both verbs are required together, for the same reason.
+		* @param page - the object to read the bridge from; the page's own global by default.
+		* @returns the bounded bridge, or undefined in a plain browser or a half-mounted shell.
+		*/
+		function readAumlokCeremonyBridge(page) {
+			const candidate = page === void 0 ? globalThis.aukoraAumlok : page;
+			if (candidate === null || typeof candidate !== "object") return void 0;
+			const record = candidate;
+			if (record["available"] !== true) return void 0;
+			if (!isFunction(record["draw"]) || !isFunction(record["submit"])) return void 0;
+			return {
+				draw: (intent, language) => record["draw"].call(candidate, intent, language),
+				submit: (intent, words, handle) => record["submit"].call(candidate, intent, words, handle)
+			};
+		}
+		/** The shell's reason, when it gave one this screen may show. */
+		function readReason(value) {
+			if (typeof value !== "string" || value.length === 0 || value.length > 128) return void 0;
+			return value;
+		}
+		/**
+		* Narrow one drawn phrase without inventing words the shell did not draw.
+		*
+		* Require seven bounded Unicode words and the shared generator's language and strength metadata.
+		* Carry the shell's refusal when no phrase was drawn.
+		* @param value - the resolved value of a draw call.
+		* @returns the seven words, or a failure carrying no words.
+		*/
+		function parseAumlokDrawnPhrase(value) {
+			if (value === null || typeof value !== "object" || Array.isArray(value)) return { ok: false };
+			const record = value;
+			const reason = readReason(record["reason"]);
+			if (record["ok"] !== true) return reason === void 0 ? { ok: false } : {
+				ok: false,
+				reason
+			};
+			const words = record["words"];
+			if (!Array.isArray(words) || words.length !== PHRASE_LENGTH) return { ok: false };
+			if (!words.every((word) => typeof word === "string" && WORD.test(word))) return { ok: false };
+			const language = record["language"];
+			if (!AUMLOK_PHRASE_LANGUAGES.some((item) => item.tag === language) || record["entropyBits"] !== 77) return { ok: false };
+			return {
+				ok: true,
+				words: words.map((word) => String(word)),
+				language,
+				entropyBits: 77
+			};
+		}
+		/**
+		* Narrow one submit result without inventing a claim the shell did not make.
+		*
+		* A value that is not the contracted shape is reported as a FAILURE with no reason, not as a success:
+		* the caller then says only that no result came back, which is the whole of what is known.
+		* @param value - the resolved value of a submit call.
+		* @returns the contracted result, or a failure carrying no reason.
+		*/
+		function parseAumlokCeremonyResult(value) {
+			if (value === null || typeof value !== "object" || Array.isArray(value)) return { ok: false };
+			const record = value;
+			const ok = record["ok"] === true;
+			const reason = readReason(record["reason"]);
+			const spent = record["drawSpent"] === true ? { drawSpent: true } : {};
+			const invalidWord = typeof record["invalidWord"] === "string" && record["invalidWord"].length > 0 && record["invalidWord"].length <= 64 ? { invalidWord: record["invalidWord"] } : {};
+			return reason === void 0 ? {
+				ok,
+				...spent,
+				...invalidWord
+			} : {
+				ok,
+				reason,
+				...spent,
+				...invalidWord
+			};
+		}
+		/**
+		* Draw one phrase and report what the shell said, and nothing more.
+		*
+		* A rejected promise (the shell died, its window was destroyed, the bridge was replaced) is the same
+		* fact as a refusal with no reason: no phrase came back. Neither outcome is turned into a success.
+		* @param bridge - the bounded bridge read from the page.
+		* @param intent - which ceremony to draw for.
+		* @returns the contracted drawn phrase, or a failure carrying no words.
+		*/
+		async function drawAumlokPhrase(bridge, intent, language = "en") {
+			try {
+				switch (intent) {
+					case "bind":
+					case "refresh": return parseAumlokDrawnPhrase(await bridge.draw(intent, language));
+					default: return {
+						ok: false,
+						reason: "aumlok:ceremony-intent-unknown"
+					};
+				}
+			} catch {
+				return { ok: false };
+			}
+		}
+		/**
+		* Hand the typed words back and report the shell's verdict, and nothing more.
+		*
+		* THE WORDS GO BACK EXACTLY AS TYPED, and this function keeps no copy of them: the array it is given
+		* is passed through and then forgotten, so nothing here can grow a cache of a phrase. THE HANDLE GOES
+		* WITH THEM, for the same reason and with the same care — except that it is public, so the only rule
+		* it needs is that it is not invented here.
+		* @param bridge - the bounded bridge read from the page.
+		* @param intent - which ceremony the words belong to.
+		* @param words - the seven typed words, in order, anchor first.
+		* @param handle - the person's public handle, as typed, or nothing on a ceremony that does not ask.
+		* @returns the contracted result, or a failure carrying no reason.
+		*/
+		async function submitAumlokPhrase(bridge, intent, words, handle) {
+			try {
+				switch (intent) {
+					case "bind":
+					case "refresh": return parseAumlokCeremonyResult(await bridge.submit(intent, words, handle));
+					default: return {
+						ok: false,
+						reason: "aumlok:ceremony-intent-unknown"
+					};
+				}
+			} catch {
+				return { ok: false };
+			}
+		}
+		function phraseStrengthKey(legacy) {
+			return legacy === false ? "phrase.strength.new" : "phrase.strength.legacy";
 		}
 		//#endregion
 		//#region src/client/IdentityVisuals.tsx
@@ -512,30 +695,6 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/AumlokSurface.tsx
-		/**
-		* The AUMLOK screen: the ceremony, the status, and nothing else.
-		*
-		* THE CEREMONY RUNS HERE. Plan §3: the Aumlok screen in the app IS the surface — there is no separate
-		* window and no separate page to open, nothing to start first, and the same compact layout always.
-		* Everything on this screen is READ or TYPED; it holds no key and approves nothing, because approval
-		* stays with a separate signer process on a Unix socket. The single write-shaped control here is the
-		* ceremony itself, and even that only asks the shell for the seven words and hands them back: this
-		* application derives no root, writes no record and keeps no phrase.
-		*
-		* ONE LAYOUT, THREE STATES, DRAWN AS PETER DREW IT (2026-09-23 14:19). The gold anchor card sits on
-		* top with SIX gold rounded letter boxes in a row — one per letter of the anchor, dots once a binding
-		* exists, never a letter afterwards — and the six themed rows sit under it in the three bands, green
-		* then blue then purple, each row a small gold rounded box holding that word's first letter and the
-		* word beside it. The numbers are there and quiet. The badge is above them: UNBOUND with empty tiles
-		* and "Give me my phrase", BOUND with dots, the receipt and "Your Aumlok is bound".
-		*
-		* THE WORDS ARE SHOWN ONCE AND LEAVE AS THE TILES TURN OVER. They arrive from the shell for display,
-		* live only in this component's state while they are on the screen, and are gone the moment the tiles
-		* accept input — a screen that showed them while accepting them would be reading the phrase back to
-		* the person who is meant to be remembering it. Nothing here logs, stores or transmits them, and the
-		* system copy-paste buffer is never touched. The step between typing them back and binding with them
-		* is Peter's own warning, and the box that must be ticked before Bind is live.
-		*/
 		function isEditableTarget(target) {
 			const el = target;
 			const tag = typeof el?.tagName === "string" ? el.tagName : "";
@@ -555,11 +714,7 @@ window.__ModuleLoader__.load({
 		function emptyTyped() {
 			return TILE_POSITIONS.map(() => "");
 		}
-		/**
-		* ONE OF THE ANCHOR CARD'S SIX BOXES. A letter while the words are on the screen, a dot once they are
-		* a binding, and nothing at all before then — the three faces are decided by `aumlokAnchorBoxes`, so a
-		* box cannot invent a fourth.
-		*/
+		/** Render one placeholder from the tile state; the revealed first word is rendered whole. */
 		function AnchorBox({ box, index }) {
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: Aumlok_module_css_default.anchorBox,
@@ -568,12 +723,7 @@ window.__ModuleLoader__.load({
 				children: box.kind === "letter" ? box.letter : box.kind === "dot" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("i", { className: Aumlok_module_css_default.anchorDot }) : null
 			});
 		}
-		/**
-		* WHAT ONE THEMED ROW SHOWS. There is one body per face and no others: an empty slot, dots where a
-		* bound phrase is never shown, the drawn word for the one beat it is on the screen, and the input that
-		* takes it back. The face itself comes from `aumlokTileFace`, so no row can invent a state the layout
-		* does not have.
-		*/
+		/** Render the word only during reveal, then accept its type-back or mask the bound phrase. */
 		function TileBody({ face, position, word, value, dots, onType, t }) {
 			switch (face) {
 				case "empty": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
@@ -601,7 +751,7 @@ window.__ModuleLoader__.load({
 					onChange: (event) => {
 						onType(position, event.target.value);
 					},
-					"aria-label": t("tile.input").replace("{position}", String(position)),
+					"aria-label": t("tile.input").replace("{position}", String(position + 1)),
 					autoComplete: "off",
 					autoCapitalize: "none",
 					spellCheck: false
@@ -626,7 +776,7 @@ window.__ModuleLoader__.load({
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: Aumlok_module_css_default.position,
 								"aria-hidden": "true",
-								children: position
+								children: position + 1
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: Aumlok_module_css_default.initialBox,
@@ -667,6 +817,7 @@ window.__ModuleLoader__.load({
 			const [words, setWords] = (0, react.useState)(void 0);
 			const [typed, setTyped] = (0, react.useState)(emptyTyped);
 			const [handle, setHandle] = (0, react.useState)("");
+			const [language, setLanguage] = (0, react.useState)("en");
 			const [busy, setBusy] = (0, react.useState)(false);
 			const [acknowledged, setAcknowledged] = (0, react.useState)(false);
 			const [outcome, setOutcome] = (0, react.useState)(void 0);
@@ -723,7 +874,7 @@ window.__ModuleLoader__.load({
 				setAcknowledged(false);
 				if (intent === "refresh") setRefreshing(true);
 				(async () => {
-					const drawn = await drawPhrase(intent).catch(() => ({ ok: false }));
+					const drawn = await drawPhrase(intent, language).catch(() => ({ ok: false }));
 					if (generation !== ceremonyGeneration.current) return;
 					setBusy(false);
 					if (!drawn.ok || drawn.words === void 0) {
@@ -866,10 +1017,14 @@ window.__ModuleLoader__.load({
 					outcome === void 0 || outcome.ok ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
 						className: Aumlok_module_css_default.ceremonyRefusal,
 						"data-aumlok-binding-refused": "true",
-						children: [t("runtime.binding.failed"), outcome.reason === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" ", /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
-							"data-aumlok-binding-reason": true,
-							children: outcome.reason
-						})] })]
+						children: [
+							t("runtime.binding.failed"),
+							outcome.invalidWord === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [" ", t("phrase.wordUnknown").replace("{word}", outcome.invalidWord)] }),
+							outcome.reason === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" ", /* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
+								"data-aumlok-binding-reason": true,
+								children: outcome.reason
+							})] })
+						]
 					})
 				]
 			}) : null;
@@ -902,6 +1057,26 @@ window.__ModuleLoader__.load({
 							className: Aumlok_module_css_default.phraseStage,
 							"aria-label": t("phrase.label"),
 							children: [
+								state !== "bound" || changingHandle ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: Aumlok_module_css_default.handleLabel,
+									children: [t("phrase.language"), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
+										"data-aumlok-phrase-language": true,
+										value: language,
+										disabled: busy || beat !== "none",
+										onChange: (event) => {
+											if (!busy && beat === "none") setLanguage(event.target.value);
+										},
+										children: AUMLOK_PHRASE_LANGUAGES.map((item) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: item.tag,
+											children: item.name
+										}, item.tag))
+									})]
+								}) : null,
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: Aumlok_module_css_default.handleHint,
+									"data-aumlok-phrase-strength": true,
+									children: t(state === "bound" ? phraseStrengthKey(projection.status === "connected" ? projection.control.phraseLegacy : void 0) : "phrase.strength.new")
+								}),
 								handleGate.ask ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 									className: Aumlok_module_css_default.handleField,
 									"data-aumlok-handle": true,
@@ -968,11 +1143,15 @@ window.__ModuleLoader__.load({
 												onChange: (event) => {
 													onType(0, event.target.value);
 												},
-												"aria-label": t("tile.input").replace("{position}", String(0)),
+												"aria-label": t("tile.input").replace("{position}", String(1)),
 												autoComplete: "off",
 												autoCapitalize: "none",
 												spellCheck: false
-											}) : aumlokAnchorBoxes(face, words?.[0]).map((box, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AnchorBox, {
+											}) : face === "word" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: Aumlok_module_css_default.tileWord,
+												"data-aumlok-first-word": true,
+												children: words?.[0]
+											}) : aumlokAnchorBoxes(face, void 0).map((box, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AnchorBox, {
 												box,
 												index
 											}, index))]
@@ -14006,7 +14185,12 @@ window.__ModuleLoader__.load({
 		* `aumlok-control-projection:unrecognised` — a machine that had just bound read UNBOUND, which is the
 		* exact defect U6 exists to catch, arrived at from the other side.
 		*/
-		const AUMLOK_CONTROL_CARRIED_RECORD_FIELDS = ["boundAt", "handle"];
+		const AUMLOK_CONTROL_CARRIED_RECORD_FIELDS = [
+			"boundAt",
+			"handle",
+			"phraseLanguage",
+			"phraseLegacy"
+		];
 		/**
 		* The record's own fields the ORGAN'S CONTROL PROJECTION carries, and the one it makes optional.
 		*
@@ -14041,7 +14225,11 @@ window.__ModuleLoader__.load({
 			return [...AUMLOK_RECORD_CONTROL_PROJECTION_FIELDS, ...AUMLOK_CONTROL_RECORD_FIELDS].every((field) => Object.hasOwn(input, field));
 		}
 		/** The one field a v3 record carries only sometimes: the public handle X8 salts the key with. */
-		const AUMLOK_RECORD_OPTIONAL_FIELDS = ["handle"];
+		const AUMLOK_RECORD_OPTIONAL_FIELDS = [
+			"handle",
+			"phraseLanguage",
+			"phraseLegacy"
+		];
 		/**
 		* The domain this screen shows for a v3 record.
 		*
@@ -14111,7 +14299,8 @@ window.__ModuleLoader__.load({
 				approvalKeyDid,
 				custodyClass: CUSTODY_CLASS,
 				boundAt,
-				...typeof handle === "string" ? { handle } : {}
+				...typeof handle === "string" ? { handle } : {},
+				...phraseMetadata(record)
 			});
 		}
 		/**
@@ -14183,8 +14372,18 @@ window.__ModuleLoader__.load({
 				approvalKeyDid,
 				custodyClass: CUSTODY_CLASS,
 				boundAt,
-				...typeof handle === "string" ? { handle } : {}
+				...typeof handle === "string" ? { handle } : {},
+				...phraseMetadata(record)
 			});
+		}
+		function phraseMetadata(record) {
+			const { phraseLanguage, phraseLegacy } = record;
+			if (phraseLanguage === void 0 && phraseLegacy === void 0) return {};
+			if (!AUMLOK_PHRASE_LANGUAGES.some((item) => item.tag === phraseLanguage) || typeof phraseLegacy !== "boolean") throw new TypeError("aumlok-record-projection: invalid phrase language or legacy flag");
+			return {
+				phraseLanguage,
+				phraseLegacy
+			};
 		}
 		//#endregion
 		//#region src/control-projection.ts
@@ -14329,139 +14528,6 @@ window.__ModuleLoader__.load({
 			return parseAumlokControlProjection(input);
 		}
 		//#endregion
-		//#region src/client/binding-bridge.ts
-		/** The only shape a word of a phrase can have: lower case, and short. */
-		const WORD = /^[a-z]{1,32}$/u;
-		/** The plan's phrase is seven words, and a draw that is not seven words is not a phrase. */
-		const PHRASE_LENGTH = 7;
-		function isFunction(value) {
-			return typeof value === "function";
-		}
-		/**
-		* Read the shell bridge off the page, if this launch has one.
-		*
-		* `available: true` is required as well as both verbs: the shell's own flag is the shell's statement
-		* that a ceremony can actually be run here, and a bridge that declares itself unavailable must not grow
-		* a working-looking button. Both verbs are required together, for the same reason.
-		* @param page - the object to read the bridge from; the page's own global by default.
-		* @returns the bounded bridge, or undefined in a plain browser or a half-mounted shell.
-		*/
-		function readAumlokCeremonyBridge(page) {
-			const candidate = page === void 0 ? globalThis.aukoraAumlok : page;
-			if (candidate === null || typeof candidate !== "object") return void 0;
-			const record = candidate;
-			if (record["available"] !== true) return void 0;
-			if (!isFunction(record["draw"]) || !isFunction(record["submit"])) return void 0;
-			return {
-				draw: (intent) => record["draw"].call(candidate, intent),
-				submit: (intent, words, handle) => record["submit"].call(candidate, intent, words, handle)
-			};
-		}
-		/** The shell's reason, when it gave one this screen may show. */
-		function readReason(value) {
-			if (typeof value !== "string" || value.length === 0 || value.length > 128) return void 0;
-			return value;
-		}
-		/**
-		* Narrow one drawn phrase without inventing words the shell did not draw.
-		*
-		* A value that is not seven lower-case words is reported as a FAILURE, not as a success: a screen that
-		* showed six words, or a word with a capital in it, would be showing something that is not a phrase,
-		* and the person would type back what they were shown. The shell's own reason is carried through when
-		* it gave one, so the screen quotes the shell rather than paraphrasing it.
-		* @param value - the resolved value of a draw call.
-		* @returns the seven words, or a failure carrying no words.
-		*/
-		function parseAumlokDrawnPhrase(value) {
-			if (value === null || typeof value !== "object" || Array.isArray(value)) return { ok: false };
-			const record = value;
-			const reason = readReason(record["reason"]);
-			if (record["ok"] !== true) return reason === void 0 ? { ok: false } : {
-				ok: false,
-				reason
-			};
-			const words = record["words"];
-			if (!Array.isArray(words) || words.length !== PHRASE_LENGTH) return { ok: false };
-			if (!words.every((word) => typeof word === "string" && WORD.test(word))) return { ok: false };
-			return {
-				ok: true,
-				words: words.map((word) => String(word))
-			};
-		}
-		/**
-		* Narrow one submit result without inventing a claim the shell did not make.
-		*
-		* A value that is not the contracted shape is reported as a FAILURE with no reason, not as a success:
-		* the caller then says only that no result came back, which is the whole of what is known.
-		* @param value - the resolved value of a submit call.
-		* @returns the contracted result, or a failure carrying no reason.
-		*/
-		function parseAumlokCeremonyResult(value) {
-			if (value === null || typeof value !== "object" || Array.isArray(value)) return { ok: false };
-			const record = value;
-			const ok = record["ok"] === true;
-			const reason = readReason(record["reason"]);
-			const spent = record["drawSpent"] === true ? { drawSpent: true } : {};
-			return reason === void 0 ? {
-				ok,
-				...spent
-			} : {
-				ok,
-				reason,
-				...spent
-			};
-		}
-		/**
-		* Draw one phrase and report what the shell said, and nothing more.
-		*
-		* A rejected promise (the shell died, its window was destroyed, the bridge was replaced) is the same
-		* fact as a refusal with no reason: no phrase came back. Neither outcome is turned into a success.
-		* @param bridge - the bounded bridge read from the page.
-		* @param intent - which ceremony to draw for.
-		* @returns the contracted drawn phrase, or a failure carrying no words.
-		*/
-		async function drawAumlokPhrase(bridge, intent) {
-			try {
-				switch (intent) {
-					case "bind":
-					case "refresh": return parseAumlokDrawnPhrase(await bridge.draw(intent));
-					default: return {
-						ok: false,
-						reason: "aumlok:ceremony-intent-unknown"
-					};
-				}
-			} catch {
-				return { ok: false };
-			}
-		}
-		/**
-		* Hand the typed words back and report the shell's verdict, and nothing more.
-		*
-		* THE WORDS GO BACK EXACTLY AS TYPED, and this function keeps no copy of them: the array it is given
-		* is passed through and then forgotten, so nothing here can grow a cache of a phrase. THE HANDLE GOES
-		* WITH THEM, for the same reason and with the same care — except that it is public, so the only rule
-		* it needs is that it is not invented here.
-		* @param bridge - the bounded bridge read from the page.
-		* @param intent - which ceremony the words belong to.
-		* @param words - the seven typed words, in order, anchor first.
-		* @param handle - the person's public handle, as typed, or nothing on a ceremony that does not ask.
-		* @returns the contracted result, or a failure carrying no reason.
-		*/
-		async function submitAumlokPhrase(bridge, intent, words, handle) {
-			try {
-				switch (intent) {
-					case "bind":
-					case "refresh": return parseAumlokCeremonyResult(await bridge.submit(intent, words, handle));
-					default: return {
-						ok: false,
-						reason: "aumlok:ceremony-intent-unknown"
-					};
-				}
-			} catch {
-				return { ok: false };
-			}
-		}
-		//#endregion
 		//#region src/client/control-projection.ts
 		/** Browser-owned observable store for validated AUMLOK control status. */
 		/** Stable disconnected snapshot shared by every projection store. */
@@ -14503,12 +14569,12 @@ window.__ModuleLoader__.load({
 			* @param intent - draw for a first binding, or for a refresh of a bound one.
 			* @returns the seven words, or the shell's own refusal.
 			*/
-			async drawPhrase(intent) {
+			async drawPhrase(intent, language = "en") {
 				if (this.ceremony === void 0) return {
 					ok: false,
 					reason: "aumlok:no-ceremony-bridge"
 				};
-				return drawAumlokPhrase(this.ceremony, intent);
+				return drawAumlokPhrase(this.ceremony, intent, language);
 			}
 			/**
 			* Hand the typed words back and wait for the shell's verdict.
@@ -14635,6 +14701,10 @@ window.__ModuleLoader__.load({
 		/** AUMLOK launcher and the Aumlok screen's own copy: three states of one layout (plan §3). */
 		/** Simplified Chinese dictionary (the key-set source of truth). */
 		const zh = {
+			"phrase.language": "密语语言",
+			"phrase.strength.new": "随机生成的密语：77 位（7 × 11；每词 2048 种选择）。自选词的强度未测量；公开句柄不增加秘密熵。",
+			"phrase.strength.legacy": "旧版密语，强度低。旧生成器约提供 14.3 或 34.14 位；公开句柄不增加秘密熵。",
+			"phrase.wordUnknown": "词“{word}”不在所选语言的词表中。",
 			"surface.action.drawNew": "抽取我的新密语",
 			"surface.handle.together": "密语和句柄必须一起更新。",
 			"surface.handle.mustChange": "请选择一个不同的句柄。大小写或字符宽度的变化不算新的句柄。",
@@ -14704,16 +14774,16 @@ window.__ModuleLoader__.load({
 			"surface.handle.hint": "公开。它为你的密钥加盐，并成为你的 名称@域名。请先输入它，再输入七个词。",
 			"surface.handle.invalid": "3–24 个字符：a–z、0–9、点、下划线、连字符。",
 			"surface.handle.locked": "已锁定",
-			"anchor.label": "词位零 · 锚词",
-			"anchor.detail": "六个字母 · 七个词中的第一个",
+			"anchor.label": "第 1 个词",
+			"anchor.detail": "第一个独立随机词",
 			"band.root": "ROOT",
-			"band.root.detail": "第一对 · 与大地相系",
+			"band.root.detail": "第 2 和第 3 个词",
 			"band.unite": "UNITE",
-			"band.unite.detail": "第二对 · 与彼此相系",
+			"band.unite.detail": "第 4 和第 5 个词",
 			"band.rise": "RISE",
-			"band.rise.detail": "第三对 · 与托举相系",
-			"token.anchorMasked": "已遮盖的六字母锚词",
-			"token.rowMasked": "已遮盖的主题词",
+			"band.rise.detail": "第 6 和第 7 个词",
+			"token.anchorMasked": "已遮盖的第一个词",
+			"token.rowMasked": "已遮盖的词",
 			"tile.empty": "空位",
 			"tile.input": "第 {position} 个词",
 			"surface.action.give": "给我我的密语",
@@ -14766,6 +14836,10 @@ window.__ModuleLoader__.load({
 		};
 		/** English dictionary, checked complete against the Chinese key set. */
 		const en = {
+			"phrase.language": "Phrase language",
+			"phrase.strength.new": "Generated phrase: 77 bits (7 × 11; 2048 choices per word). Chosen words are not measured; the public handle adds no secret bits.",
+			"phrase.strength.legacy": "Legacy phrase, weak. Old generators supplied about 14.3 or 34.14 bits; a public handle adds no secret bits.",
+			"phrase.wordUnknown": "Word “{word}” is not in the selected language’s list.",
 			"surface.action.drawNew": "Draw my new phrase",
 			"surface.handle.together": "Both must be refreshed together.",
 			"surface.handle.mustChange": "Choose a different handle; changing case or character width keeps the same handle.",
@@ -14835,16 +14909,16 @@ window.__ModuleLoader__.load({
 			"surface.handle.hint": "Public. It salts your key and becomes your name@domain. Type it first, then the seven words.",
 			"surface.handle.invalid": "3–24 characters: a–z, 0–9, dot, underscore, hyphen.",
 			"surface.handle.locked": "locked",
-			"anchor.label": "WORD ZERO · ANCHOR",
-			"anchor.detail": "six letters · word zero of the seven",
+			"anchor.label": "WORD 1",
+			"anchor.detail": "first independent random word",
 			"band.root": "ROOT",
-			"band.root.detail": "first pair · of the earth",
+			"band.root.detail": "words 2 and 3",
 			"band.unite": "UNITE",
-			"band.unite.detail": "second pair · of each other",
+			"band.unite.detail": "words 4 and 5",
 			"band.rise": "RISE",
-			"band.rise.detail": "third pair · of what lifts",
-			"token.anchorMasked": "masked six-letter anchor word",
-			"token.rowMasked": "masked themed word",
+			"band.rise.detail": "words 6 and 7",
+			"token.anchorMasked": "masked first word",
+			"token.rowMasked": "masked word",
 			"tile.empty": "empty",
 			"tile.input": "word {position}",
 			"surface.action.give": "Give me my phrase",
@@ -14963,7 +15037,7 @@ window.__ModuleLoader__.load({
 					inject: () => ({
 						hooks: { controlProjection: scope.aumlokControlProjection.store },
 						ceremonyAvailable: scope.aumlokControlProjection.ceremonyAvailable,
-						drawPhrase: (intent) => scope.aumlokControlProjection.drawPhrase(intent),
+						drawPhrase: (intent, language) => scope.aumlokControlProjection.drawPhrase(intent, language),
 						submitPhrase: (intent, words, handle) => scope.aumlokControlProjection.submitPhrase(intent, words, handle),
 						refreshControlStatus
 					})
