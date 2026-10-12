@@ -379,3 +379,9 @@ CORRECTIONS, night of 2026-10-12 (source status; no new installed observation):
   these landed in `d16c4fe` (invites), `2ab9e85` (receipt format/checker), `e6ea06e` (door receipt tool), and
   `d06c5da` (documentation). Source presence does not establish a model wake, deployed invite admission or a live
   receipt round trip.
+- [RAN on the pilot, live node, 2026-10-12 night; read-mostly] scripts/kira/viking-probe.mjs as the harness user
+  against the OpenViking service that runs there: configuration loaded, server health answers, the key is
+  accepted, the embedder answers, a throwaway note was written and read back, a query BY MEANING found exactly
+  that note above the threshold, and it was deleted again. 7 of 7. So OpenViking itself works on the pilot. What
+  this does not show: Kira using it. The release that runs there selects lexical recall and was not built with
+  the OpenViking setting (--kira-openviking-home, added in 7fc6ea0); a release built with it is the next test.
