@@ -2,8 +2,9 @@
 // Pure disposable DTO/encoding fixtures. No client, RPC, guest, key or C store.
 import assert from 'node:assert/strict'
 import { createHash,randomUUID } from 'node:crypto'
-import { pathToFileURL,fileURLToPath } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { guestPolicy } from '../src/policy.mjs'
 import { policyIdentity,expectedConfigIdentity,assertEffectiveConfiguration } from '../src/effective-policy.mjs'
 
@@ -32,7 +33,15 @@ function fixture(policy=wirePolicy('read-only')) {
 const rejects=fn=>assert.throws(fn,error=>error.code==='UNAVAILABLE')
 const cases={
   async sdk_vectors() {
-    const sdk=process.env.PRIME_OPEN_SHELL_SDK_DIR??fileURLToPath(new URL('../../../../reference/sdk-selected-build/sdk/typescript/',import.meta.url))
+    const sdk=process.env.PRIME_OPEN_SHELL_SDK_DIR
+    if(!sdk) {
+      console.log('UNPERFORMED: explicit built pinned OpenShell SDK directory is required')
+      process.exit(2)
+    }
+    if(!existsSync(join(sdk,'node_modules/@bufbuild/protobuf/dist/esm/index.js'))||!existsSync(join(sdk,'dist/raw.js'))) {
+      console.log('UNPERFORMED: built pinned OpenShell SDK with protobuf dependency is absent')
+      process.exit(2)
+    }
     const {create,toBinary}=await import(pathToFileURL(join(sdk,'node_modules/@bufbuild/protobuf/dist/esm/index.js')))
     const raw=await import(pathToFileURL(join(sdk,'dist/raw.js')))
     const le64=v=>{const b=Buffer.alloc(8);b.writeBigUInt64LE(BigInt(v));return b}

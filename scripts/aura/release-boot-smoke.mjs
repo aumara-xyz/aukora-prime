@@ -36,6 +36,10 @@ import { basename, join, resolve as resolvePath } from 'node:path'
 // alpha-30 exported that rule as a pure function precisely so the smoke could compose what the desktop composes.
 import { repointOverlayText } from '../aukora/desktop-cutover.mjs'
 import { isMainModule } from '../lib/is-main.mjs'
+if (isMainModule(import.meta.url) && process.argv.length === 2) {
+  console.log('UNPERFORMED: a selected built release and disposable boot state are required')
+  process.exit(2)
+}
 
 /** The two ports this smoke must never take: the live app's and the rehearsal's. */
 export const FORBIDDEN_PORTS = Object.freeze([3187, 50093])

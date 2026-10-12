@@ -3,7 +3,10 @@ import {createRequire} from 'node:module'
 import {dirname,resolve,join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 const flags={};for(let i=2;i<process.argv.length;i+=2)flags[process.argv[i]]=process.argv[i+1]
-for(const name of ['--dsh','--client-dist','--contracts','--output'])if(!flags[name])throw new Error('render-fixture requires '+name)
+for(const name of ['--dsh','--client-dist','--contracts','--output'])if(!flags[name]) {
+  console.log('UNPERFORMED: pinned harness, compiled clients, contracts and disposable fixture output required')
+  process.exit(2)
+}
 const output=resolve(flags['--output']);await mkdir(output,{recursive:true});if((await readdir(output)).length)throw new Error('fixture output must be empty')
 const require=createRequire(join(resolve(flags['--dsh']),'node_modules/.pnpm/node_modules/prime-ui-fixture.cjs'))
 const react=dirname(require.resolve('react/package.json')),dom=dirname(require.resolve('react-dom/package.json'))

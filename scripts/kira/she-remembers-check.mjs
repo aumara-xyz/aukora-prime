@@ -34,6 +34,10 @@ import { readLinesIfPresent } from '../../plugins/aukora-kira/lib/strict-read.mj
 
 const argv = process.argv.slice(2)
 const value = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }
+if (value('--state') === undefined) {
+  console.log('UNPERFORMED: an explicitly selected installed Kira state is required')
+  process.exit(2)
+}
 
 const stateHome = value('--state') ?? join(homedir(), 'Library', 'Application Support', 'AUKORA', 'state', 'home')
 const question = value('--question') ?? ''

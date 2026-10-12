@@ -19,6 +19,8 @@ p = importlib.util.module_from_spec(loader); loader.loader.exec_module(p)
 
 class PreviewChecks(unittest.TestCase):
     def setUp(self):
+        # The current release verifier refuses group-write; fixtures model protected bytes.
+        self.addCleanup(os.umask, os.umask(0o077))
         self.temporary = tempfile.TemporaryDirectory(prefix='prime-preview-stage-check-')
         self.base = Path(self.temporary.name).resolve()
         self.release = self.base / 'candidate'; self.release.mkdir(mode=0o755)
@@ -27,6 +29,7 @@ class PreviewChecks(unittest.TestCase):
         (self.release / 'prime-release.json').write_text(json.dumps({'source_commit': 'a' * 40}))
         (self.release / 'prime-ui-integrity.json').write_bytes(b'{"version":1,"fixture":true}\n')
         (self.release / 'physical').mkdir(mode=0o755)
+        (self.release / 'physical').chmod(0o755)
         (self.release / 'physical/module.mjs').write_bytes(b'// dependency bytes\n')
         os.chmod(self.release / 'physical/module.mjs', 0o755)
         (self.release / 'node_modules').mkdir(mode=0o755)

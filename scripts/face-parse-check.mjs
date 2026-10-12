@@ -28,7 +28,7 @@ import { join } from 'node:path'
 
 const roots = process.argv.slice(2).filter(argument => !argument.startsWith('-'))
 if (roots.length === 0) {
-  process.stderr.write('face-parse-check: give at least one directory to check\n')
+  process.stdout.write('UNPERFORMED: an explicitly selected emitted face directory is required\n')
   process.exit(2)
 }
 
@@ -58,7 +58,7 @@ function jsFiles(root) {
 
 const files = roots.flatMap(jsFiles)
 if (files.length === 0) {
-  process.stdout.write(`face-parse-check: NOT MEASURED — no .js file under ${roots.join(', ')}\n`)
+  process.stdout.write('UNPERFORMED: the selected face directories contain no emitted JavaScript\n')
   process.exit(2)
 }
 

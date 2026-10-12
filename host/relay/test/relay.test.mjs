@@ -12,6 +12,19 @@ import { createAuthenticator, loadAuthenticator, tokenDigest } from '../auth.mjs
 import { createClient } from '../client.mjs';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
+import { createServer } from 'node:net';
+
+try {
+  const probe = createServer();
+  await new Promise((done, fail) => { probe.once('error', fail); probe.listen(0, '127.0.0.1', done); });
+  await new Promise(done => probe.close(done));
+} catch (error) {
+  if (['EPERM', 'EACCES'].includes(error.code)) {
+    console.log(`UNPERFORMED: loopback listen unavailable (${error.code})`);
+    process.exit(2);
+  }
+  throw error;
+}
 
 const tokens = Object.fromEntries(AUTHORS.map(a => [a, `SYNTHETIC_PUBLIC_TEST_ONLY_${a}`.padEnd(64, '_')]));
 const config = { version: 1, tokenDigests: Object.fromEntries(AUTHORS.map(a => [a, tokenDigest(tokens[a])])) };

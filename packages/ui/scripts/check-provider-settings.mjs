@@ -4,7 +4,10 @@ import {pathToFileURL} from 'node:url'
 import {resolve,join} from 'node:path'
 import {providerNamespaceView,refuseGenericProviderCredentials,PRIME_PROVIDER_DIRECTORY} from '../adapters/provider-settings.mjs'
 const [harness,contractFile,providerFile]=process.argv.slice(2)
-if(!harness||!contractFile||!providerFile)throw Error('check-provider-settings.mjs <Prime pinned DSH> <Prime contracts> <Prime provider-settings>')
+if(!harness||!contractFile||!providerFile) {
+  console.log('UNPERFORMED: pinned harness, browser contracts and provider-settings paths required')
+  process.exit(2)
+}
 const require=createRequire(join(resolve(harness),'node_modules/.pnpm/node_modules/prime-provider-fixture.cjs'))
 const Schema=require('@deepseek-ai/schemastery'),contracts=await import(pathToFileURL(resolve(contractFile)).href)
 const {providerNamespace}=await import(pathToFileURL(resolve(providerFile)).href)

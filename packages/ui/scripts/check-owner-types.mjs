@@ -31,7 +31,14 @@ try {
   for(const folder of ['client','adapters'])for(const name of await readdir(join(typeRoot,folder))) {
     if(!name.endsWith('.mjs')&&!name.endsWith('.d.mts'))continue
     const path=join(typeRoot,folder,name),text=await readFile(path,'utf8')
-    for(const [,relative] of text.matchAll(/(?:from\s+|import\s*)['"](\.[^'"]+)['"]/g))await readFile(join(dirname(path),relative))
+    for(const [,relative] of text.matchAll(/(?:from\s+|import\s*)['"](\.[^'"]+)['"]/g)) {
+      // New TSX type imports belong to compiler output; this fixture verifies copied module sources.
+      if(name.endsWith('.d.mts')&&!/\.[a-z]+$/i.test(relative)) {
+        await readFile(join(sourceClient,relative+'.tsx'))
+        continue
+      }
+      await readFile(join(dirname(path),relative))
+    }
   }
   groups++
   const controller=join(typeRoot,'client/provider-controller.mjs'),declaration=join(typeRoot,'client/controller.d.mts'),adapter=join(typeRoot,'adapters/forget-result.mjs')

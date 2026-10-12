@@ -8,15 +8,25 @@ const { snapshotOwnerSources, publishedOwnerOutputs, verifyOwnerBuild } = verifi
 
 // Mutate disposable copies of the genuine compiler receipt and its bound files.
 // Never synthesize/repair release evidence, compile, mount, or contact services.
-const ui = fileURLToPath(new URL('../', import.meta.url))
 const work = fileURLToPath(new URL('../../../.runtime/', import.meta.url))
 const flags = {}
 for (let index = 2; index < process.argv.length; index++) {
   const flag = process.argv[index]
   if (flag === '--dependencies-only') flags.dependenciesOnly = true
   else if (flag === '--dsh' && process.argv[index + 1]) flags.dsh = resolve(process.argv[++index])
-  else throw new Error('usage: check-owner-build.mjs [--dependencies-only] [--dsh <existing pinned harness>]')
+  else if (flag === '--ui' && process.argv[index + 1]) flags.ui = resolve(process.argv[++index])
+  else throw new Error('usage: check-owner-build.mjs --ui <current compiled owner root> [--dependencies-only] [--dsh <existing pinned harness>]')
 }
+// The tracked compiler receipt predates current owner source; select a genuine current build explicitly.
+if (!flags.ui) {
+  console.log('UNPERFORMED: current compiled owner root matching its genuine receipt required (--ui)')
+  process.exit(2)
+}
+if (flags.dependenciesOnly && !flags.dsh) {
+  console.log('UNPERFORMED: pinned harness dependency inputs required (--dsh)')
+  process.exit(2)
+}
+const ui = flags.ui
 const dshSource = flags.dsh ?? resolve(ui, '../../vendor/dsh')
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 const clone = value => JSON.parse(JSON.stringify(value))

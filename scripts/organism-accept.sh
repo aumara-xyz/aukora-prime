@@ -298,8 +298,8 @@ d=json.load(open(sys.argv[1]))
   fi
 else
   if [ -z "$RELEASE" ] || [ ! -d "$RELEASE" ]; then
-    say "BLOCKED: --release needs an existing release directory"
-    exit 1
+    say "UNPERFORMED: explicitly selected existing release required for organism acceptance"
+    exit 2
   fi
   PATCHES=("$RELEASE/aukora-composition.patch.yml")
   for extra in aukora-lanes.patch.yml; do

@@ -32,7 +32,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '..', '..')
 const DSH = resolve(process.env.DSH_ROOT ?? join(REPO, 'vendor', 'dsh'))
 if (!existsSync(join(DSH, 'packages', 'core', 'tools', 'lib', 'index.js'))) {
-  process.stderr.write(`NOT RUN: no built DeepSeek Harness at ${DSH} (run scripts/build-dsh.py, or set DSH_ROOT)\n`)
+  process.stdout.write('UNPERFORMED: built DeepSeek Harness absent; build it or set DSH_ROOT\n')
   process.exit(2)
 }
 const need = createRequire(join(DSH, 'packages', 'core', 'tools', 'package.json'))

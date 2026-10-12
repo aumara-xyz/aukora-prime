@@ -8,7 +8,10 @@ import {createOwnerUiFixture} from './fixture.mjs'
 
 // This is server-render evidence of the actual native component, separate from browser observation.
 const [harness,contractFile,clientFile]=process.argv.slice(2)
-if(!harness||!contractFile)throw new Error('render.mjs <pinned Prime DSH> <browser contract helper> [owned built client.js]')
+if(!harness||!contractFile) {
+  console.log('UNPERFORMED: pinned harness and browser contracts required for owner SSR')
+  process.exit(2)
+}
 if(clientFile&&!isAbsolute(clientFile))throw new Error('render.mjs owned client must be an absolute local file path')
 const require=createRequire(join(resolve(harness),'node_modules/.pnpm/node_modules/prime-owner-render.cjs'))
 const React=require('react'),server=require('react-dom/server'),contracts=await import(pathToFileURL(resolve(contractFile)).href)

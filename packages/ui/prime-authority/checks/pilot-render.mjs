@@ -9,9 +9,11 @@ import {pathToFileURL} from 'node:url'
 import {createOwnerUiFixture} from './fixture.mjs'
 
 const [harness,contractFile,clientFile] = process.argv.slice(2)
-if (!harness || !contractFile || !clientFile || !isAbsolute(clientFile)) {
-  throw new Error('pilot-render.mjs <pinned-dsh> <browser-contracts> <absolute-fresh-client>')
+if (!harness || !contractFile || !clientFile) {
+  console.log('UNPERFORMED: pinned harness, browser contracts and fresh owner client bundle required')
+  process.exit(2)
 }
+if (!isAbsolute(clientFile)) throw new Error('pilot-render:absolute-client-required')
 const require = createRequire(join(resolve(harness),'node_modules/.pnpm/node_modules/prime-pilot-render.cjs'))
 const React = require('react'), server = require('react-dom/server')
 assert.equal(require('react/package.json').version,'18.3.1')

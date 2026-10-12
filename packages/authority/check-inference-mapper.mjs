@@ -11,7 +11,15 @@ import {createInferenceAuthorityJoin,parseInferenceAdmission,parseInferenceBindi
   parseInferenceOperation,inferenceRequestDigest,INFERENCE_BINDING_FIELDS} from './src/inference-admission.mjs'
 import {configureInferenceProfile,inferencePolicyContext} from './src/inference-profile.mjs'
 import {inferenceEffectReceiptDigest} from './src/inference-effect.mjs'
-import {inferenceBudgetState,totalBudgetPolicyDigest,normalizeTotalBudget} from '@aukora-prime/inference/budget-binding'
+import {registerHooks} from 'node:module'
+import {inferenceBudgetState,totalBudgetPolicyDigest,normalizeTotalBudget} from '../inference/src/budget-binding.mjs'
+
+// Standalone fixtures bind the shared helper without workspace installation.
+registerHooks({resolve(specifier,context,nextResolve) {
+  return specifier==='@aukora-prime/inference/budget-binding'
+    ? {url:new URL('../inference/src/budget-binding.mjs',import.meta.url).href,shortCircuit:true}
+    : nextResolve(specifier,context)
+}})
 
 const copy=value=>structuredClone(value)
 const digest=(domain,value)=>'sha256:'+createHash('sha256').update(domain+'\0'+canonicalJson(value)).digest('hex')

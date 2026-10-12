@@ -11,7 +11,7 @@
 # There is no `--commit` here and no code path that settles, stages, spends a nonce or appends an Aura
 # entry; the store is opened by readers only. `--keep` leaves the scratch directory for inspection.
 #
-# EXIT: 0 all four legs hold · 1 a leg failed, named · 2 usage · 4 the store is not readable.
+# EXIT: 0 all four legs hold · 1 a leg failed, named · 2 usage or missing store.
 #
 # PINS ARE READ LIVE, never remembered: the launch record names the port, pid, release and genesis; the
 # release on disk names the shell's digest; the deployment's own config file is hashed; and the subject
@@ -68,7 +68,11 @@ done
 
 # ── the store, and the subject this deployment serves ────────────────────────────────────────────
 [ -n "$STATE" ] || STATE="$AUKORA/state/home/kira-memory"
-[ -d "$STATE" ] || { echo "REFUSED: no Kira store at $STATE" >&2; exit 4; }
+[ -d "$STATE" ] || {
+  trap - EXIT
+  printf '%s\n' 'UNPERFORMED: explicitly selected readable Kira store required for organism breath'
+  exit 2
+}
 if [ -z "$SUBJECT" ]; then
   SUBJECT="$(python3 -c "
 import re, sys

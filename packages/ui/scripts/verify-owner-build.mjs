@@ -387,6 +387,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (!['--ui', '--receipt', '--dsh','--prime-root'].includes(process.argv[i]) || !process.argv[i + 1]) fail('usage: --ui <packages/ui> [--receipt <build.json>] [--dsh <original-pinned-harness> --prime-root <same-Prime-root>]')
     flags[process.argv[i]] = resolve(process.argv[i + 1])
   }
-  const uiRoot = flags['--ui'] ?? fileURLToPath(new URL('../', import.meta.url))
+  // The tracked compiler receipt predates current owner source; select a genuine current build explicitly.
+  if (!flags['--ui']) {
+    console.log('UNPERFORMED: current compiled owner root matching its genuine receipt required (--ui)')
+    process.exit(2)
+  }
+  const uiRoot = flags['--ui']
   console.log(JSON.stringify(await verifyOwnerBuild({ uiRoot, receiptPath: flags['--receipt'], dsh: flags['--dsh'], primeRoot:flags['--prime-root'] })))
 }

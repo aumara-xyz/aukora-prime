@@ -12,6 +12,10 @@ import { OWNER_CONFIG, OWNER_ID } from '../../scripts/verify-owner-build.mjs'
 const args = process.argv.slice(2)
 const dshArgument = args.length === 1 ? args[0]
   : args.length === 2 && args[0] === '--dsh' ? args[1] : null
+if (args.length === 0) {
+  console.log('UNPERFORMED: pinned harness with LightningCSS compiler hook required')
+  process.exit(2)
+}
 assert.ok(dshArgument, 'usage: node css-reproduction.mjs --dsh <pinned-dsh-root>')
 const dshRoot = resolve(dshArgument)
 const presetPath = join(dshRoot, 'packages/client/tsdown.client.ts')

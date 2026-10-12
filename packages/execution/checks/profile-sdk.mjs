@@ -7,6 +7,10 @@ import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { proposedCreateTemplate } from '../runtime/pilot-profile.mjs'
 
+if(process.argv.length===2) {
+  console.log('UNPERFORMED: explicit built pinned OpenShell SDK directory is required')
+  process.exit(2)
+}
 if(process.argv.length!==3)throw new Error('usage: node checks/profile-sdk.mjs /path/to/pinned/sdk/typescript')
 const sdk=resolve(process.argv[2]),pkg=JSON.parse(readFileSync(join(sdk,'package.json'),'utf8'))
 assert.equal(pkg.name,'@nvidia/openshell-sdk');assert.equal(pkg.version,'0.0.0')

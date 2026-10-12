@@ -7,6 +7,10 @@ import {createRequire} from 'node:module';
 import {resolve,relative,isAbsolute} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
+if (process.argv.length === 2) {
+  console.log('UNPERFORMED: an explicitly selected composed NEXT release is required');
+  process.exit(2);
+}
 const root=await realpath(resolve(process.argv[2]??''));
 assert(process.argv.length===3,'explicit composed release directory required');
 const metadata=JSON.parse(await readFile(resolve(root,'prime-release.json'),'utf8'));

@@ -74,6 +74,9 @@ def run(command: list[str], cwd: Path | None = None, env: dict | None = None) ->
 
 
 def main() -> int:
+    if not (ROOT / 'vendor/dsh/.dsh-build/pinned-harness-build.json').is_file():
+        print('UNPERFORMED: a built pinned harness with its successful build receipt is required')
+        return 2
     print('\nself-contained release — declared keeps, coverage, and the arm that must fail\n')
 
     if not DECLARATION.is_file():

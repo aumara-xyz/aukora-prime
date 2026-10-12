@@ -133,17 +133,10 @@ def root_metadata(metadata, directory=False):
 
 class World:
     def __init__(self):
-        # Under a parent only this check writes to, not the shared temporary directory: the bootstrap
-        # compares each ancestor directory before and after opening it, and unrelated processes creating
-        # files in a shared directory between the two reads made these tests refuse intermittently under
-        # a parallel runner. Not inside the checkout either: other checks copy and inventory that tree.
-        parent = Path.home() / ".cache" / "aukora-prime-checks" / "gate-bootstrap"
-        try:
-            parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            self.temporary = tempfile.TemporaryDirectory(prefix="source-", dir=parent)
-        except OSError:
-            # A sandbox that denies writes under the home directory: the shared directory still works alone.
-            self.temporary = tempfile.TemporaryDirectory(prefix="gate-bootstrap-source-")
+        # Fixture-owned paths retain full identity checks; external ancestors model custody only.
+        parent = REPOSITORY / ".scratch" / "gate-bootstrap"
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="source-", dir=parent)
         self.root = Path(os.path.realpath(self.temporary.name)) / "package"
         self.root.mkdir(mode=0o700)
         self.marker = self.root.parent / "executed-marker"
@@ -183,9 +176,12 @@ class World:
         self.configuration.write_bytes(json.dumps(self.aura_configuration()).encode())
         self.configuration.chmod(0o600)
         self.ancestors = set()
+        self.external_ancestors = set()
         for path in self.root.parents:
             metadata = path.stat()
             self.ancestors.add((metadata.st_dev, metadata.st_ino))
+            if path != self.root.parent:
+                self.external_ancestors.add((metadata.st_dev, metadata.st_ino))
 
     def put(self, name, data, root=None):
         base = self.root if root is None else root
@@ -199,6 +195,14 @@ class World:
         path.write_text(data)
         path.chmod(0o600)
         return path
+
+    def fixture_identity(self, metadata):
+        identity = SOURCE["identity"](metadata)
+        # Shared external anchors have synthetic custody; retain replacement,
+        # mode and owner detection without treating unrelated directory churn as a source race.
+        if (metadata.st_dev, metadata.st_ino) in self.external_ancestors:
+            return identity[:4]
+        return identity
 
     def fixture_metadata(self, metadata, directory=False):
         # Synthetic root custody for fixture inodes only; world-writable system
@@ -232,7 +236,7 @@ class World:
                              "entry_at": "2026-10-04T00:00:00Z", "anchored_at": "2026-10-04T00:00:01Z"}]}
 
     def check(self):
-        with patch.dict(G, {"protected_metadata": self.fixture_metadata}):
+        with patch.dict(G, {"protected_metadata": self.fixture_metadata, "identity": self.fixture_identity}):
             SOURCE["verify_package"](str(self.root), self.files)
 
     def owner_profile(self):
@@ -247,7 +251,7 @@ class World:
         self.check()
         with patch.dict(G, {"OWNER_KEY_SOURCE_PINS": self.owner_pins,
                             "LAUNCHER_SOURCE_PINS": self.launcher_files,
-                            "protected_metadata": self.fixture_metadata}):
+                            "protected_metadata": self.fixture_metadata, "identity": self.fixture_identity}):
             SOURCE["validate_launcher_profile"](self.launcher_profile())
             for name, digest in self.launcher_files.items():
                 SOURCE["require"](hashlib.sha256(SOURCE["protected_read"](str(self.launcher_root / name))).hexdigest()
@@ -275,6 +279,59 @@ class BootstrapChecks(unittest.TestCase):
 
     def refuses(self, code):
         return self.assertRaisesRegex(Refused, code)
+
+    def test_external_ancestor_churn_preserves_owned_file_directory_and_replacement_guards(self):
+        external_path = self.world.root.parent.parent
+        external = os.stat(external_path)
+        changed = SimpleNamespace(**{name: getattr(external, name) for name in dir(external) if name.startswith("st_")})
+        for name in ("st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns"):
+            setattr(changed, name, getattr(changed, name) + 1)
+        self.assertEqual(self.world.fixture_identity(external), self.world.fixture_identity(changed))
+        replaced = SimpleNamespace(**vars(changed))
+        replaced.st_ino += 1
+        self.assertNotEqual(self.world.fixture_identity(external), self.world.fixture_identity(replaced))
+        original_fstat = os.fstat
+        external_inode = (external.st_dev, external.st_ino)
+        def churn_external(fd):
+            metadata = original_fstat(fd)
+            return changed if (metadata.st_dev, metadata.st_ino) == external_inode else metadata
+        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity}), \
+                patch.object(os, "fstat", churn_external):
+            SOURCE["protected_directory"](str(external_path))
+        for path in (self.world.root.parent, self.world.root, self.world.root / "src/helper.mjs"):
+            before = path.stat()
+            inode = (before.st_dev, before.st_ino)
+            def change_owned(fd):
+                metadata = original_fstat(fd)
+                if (metadata.st_dev, metadata.st_ino) == inode:
+                    metadata = SimpleNamespace(**{name: getattr(metadata, name) for name in dir(metadata) if name.startswith("st_")})
+                    metadata.st_mtime_ns += 1
+                return metadata
+            with self.subTest(path=path.name), \
+                    patch.dict(G, {"protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity}), \
+                    patch.object(os, "fstat", change_owned), self.refuses("protected-open-identity"):
+                if path.is_dir():
+                    SOURCE["protected_directory"](str(path))
+                else:
+                    SOURCE["protected_read"](str(path))
+        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity}), \
+                patch.object(os, "fstat", return_value=replaced), self.refuses("protected-open-identity"):
+            SOURCE["protected_directory"](str(external_path))
+
+    def test_fixture_identity_scope_mutants_fail_churn_and_owned_guards(self):
+        source = Path(__file__).read_text()
+        guard = 'if (metadata.st_dev, metadata.st_ino) in self.external_ancestors:'
+        self.assertEqual(source.count(guard), 2)
+        for condition in ("if False:", "if True:"):
+            # The second occurrence is this literal mutation selector, not executable fixture code.
+            mutant = {"__name__": "fixture_identity_scope_mutant", "__file__": __file__}
+            exec(compile(source.replace(guard, condition, 1), "<fixture-identity-scope-mutant>", "exec"), mutant)
+            result = unittest.TestResult()
+            regression = mutant["BootstrapChecks"]("test_external_ancestor_churn_preserves_owned_file_directory_and_replacement_guards")
+            regression.run(result)
+            self.assertEqual(result.errors, [])
+            self.assertTrue(result.failures, "identity scope mutant must fail a deterministic guard assertion")
+        print("SOURCE-ONLY fixture identity scope mutations: 2/2 killed; external churn and owned identity remain separate", flush=True)
 
     def test_matching_complete_inventory_reaches_fixture_dispatch(self):
         self.world.launch()
@@ -385,10 +442,10 @@ class BootstrapChecks(unittest.TestCase):
             metadata = root_metadata(original_fstat(fd))
             metadata.st_ino += 1
             return metadata
-        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata}), patch.object(os, "fstat", changed_identity):
+        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity}), patch.object(os, "fstat", changed_identity):
             with self.refuses("protected-open-identity"):
                 SOURCE["protected_read"](str(self.world.root / "src/helper.mjs"))
-        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata}), patch.object(os, "read", return_value=b""):
+        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity}), patch.object(os, "read", return_value=b""):
             with self.refuses("protected-short-read"):
                 SOURCE["protected_read"](str(self.world.root / "src/helper.mjs"))
 
@@ -403,7 +460,7 @@ class BootstrapChecks(unittest.TestCase):
                 fired = True
                 path.write_text("// mutated after read\n")
             return data
-        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata}), patch.object(os, "read", mutate_during_read):
+        with patch.dict(G, {"protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity}), patch.object(os, "read", mutate_during_read):
             with self.refuses("protected-read-identity"):
                 SOURCE["protected_read"](str(path))
 
@@ -655,7 +712,7 @@ class BootstrapChecks(unittest.TestCase):
         pins = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in fixed_to_fixture.items()}
         def fixture_read(path, limit):
             return SOURCE["protected_read"](str(fixed_to_fixture[path]), limit)
-        with patch.dict(G, {"protected_read": fixture_read, "protected_metadata": self.world.fixture_metadata}):
+        with patch.dict(G, {"protected_read": fixture_read, "protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity}):
             SOURCE["verify_external_files"](pins)
             for path in fixed_to_fixture.values():
                 original = path.read_bytes()
@@ -726,7 +783,7 @@ class BootstrapChecks(unittest.TestCase):
             return read_os(fd, count)
         with patch.dict(namespace_globals, {"__file__": SOURCE["BOOTSTRAP"], "OWNER_KEY_SOURCE_PINS": self.world.owner_pins,
                 "LAUNCHER_SOURCE_PINS": self.world.launcher_files,
-                "AURA_SOURCE_PINS": self.world.aura_files, "protected_metadata": self.world.fixture_metadata,
+                "AURA_SOURCE_PINS": self.world.aura_files, "protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity,
                 "aura_directory_metadata": self.world.fixture_data_directory, "protected_read": fixture_read,
                 "protected_open": fixture_open, "protected_ancestors": fixture_ancestors, "verify_package": fixture_verify}), \
                 patch.object(os, "read", metadata_only_read):
@@ -1350,7 +1407,7 @@ class BootstrapChecks(unittest.TestCase):
             return original_verify(str(self.world.owner_root), files)
         with patch.dict(G, {"__file__": SOURCE["BOOTSTRAP"], "OWNER_KEY_SOURCE_PINS": self.world.owner_pins,
                             "LAUNCHER_SOURCE_PINS": self.world.launcher_files,
-                            "protected_metadata": self.world.fixture_metadata, "protected_read": fixture_read,
+                            "protected_metadata": self.world.fixture_metadata, "identity": self.world.fixture_identity, "protected_read": fixture_read,
                             "protected_open": fixture_open, "protected_ancestors": fixture_ancestors, "verify_package": fixture_verify}):
             self.assertEqual(SOURCE["verify_installation"]()["version"], 2)
             self.assertEqual(phases, ["gate"] + ["launcher:" + name for name in sorted(self.world.launcher_files)] + ["owner_key"])
@@ -1605,11 +1662,12 @@ class BootstrapChecks(unittest.TestCase):
                                 injected.st_mode &= ~0o022
                             original_metadata(injected, directory)
                         mutant["protected_metadata"] = fixture_metadata
+                        mutant["identity"] = world.fixture_identity
                         def regression(namespace):
                             with self.assertRaises(namespace["Refused"]):
                                 namespace["verify_package"](str(world.root), world.files)
                                 subprocess.run([sys.executable, "-I", "-S", str(dispatch_path)], check=True)
-                        with patch.dict(G, {"protected_metadata": world.fixture_metadata}):
+                        with patch.dict(G, {"protected_metadata": world.fixture_metadata, "identity": world.fixture_identity}):
                             regression(SOURCE)
                         self.assertFalse(world.marker.exists(), "original guard must stop actual trap dispatch")
                         with self.assertRaises(AssertionError):

@@ -15,6 +15,10 @@ const inputs=[
 ]
 const allowed=[...inputs.map(input=>input.option),'--output'],options={}
 const args=process.argv.slice(2)
+if(args.length===0) {
+  console.log('UNPERFORMED: explicit pinned authority, memory and UI source repositories are required')
+  process.exit(2)
+}
 for(let at=0;at<args.length;at+=2){
   const name=args[at],value=args[at+1]
   if(!allowed.includes(name)||options[name]!==undefined||typeof value!=='string'||!value.startsWith('/'))throw new TypeError('RECOVERY_JOIN_CLOSED_ABSOLUTE_OPTIONS_REQUIRED')

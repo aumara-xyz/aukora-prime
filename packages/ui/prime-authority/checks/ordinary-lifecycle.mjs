@@ -9,7 +9,10 @@ import {createPrimeOwnerController} from '../src/client/controller.mjs'
 import {createOwnerUiFixture} from './fixture.mjs'
 
 const [harness,contractFile]=process.argv.slice(2)
-if(!harness)throw new Error('ordinary-lifecycle.mjs <pinned Prime DSH> [browser contract helper]')
+if(!harness) {
+  console.log('UNPERFORMED: pinned harness with React and compiled owner client required')
+  process.exit(2)
+}
 const require=createRequire(join(resolve(harness),'node_modules/.pnpm/node_modules/prime-owner-ordinary.cjs'))
 const reactMeta=require('react/package.json')
 assert.equal(reactMeta.version,'18.3.1','ordinary built factory uses pinned React')

@@ -5,6 +5,10 @@ import { createHash } from 'node:crypto'
 
 // Source-output regression only: no host, browser or runtime qualification.
 const [oldPath, newPath, ...extra] = process.argv.slice(2)
+if (!oldPath || !newPath) {
+  console.log('UNPERFORMED: raw and normalized client bundles from the same compiler build required')
+  process.exit(2)
+}
 assert.ok(oldPath && newPath && extra.length === 0,
   'usage: node css-provenance.mjs <same-build-raw-client.js> <normalized-client.js>')
 const [oldBytes, newBytes, oldMapBytes, newMapBytes] = await Promise.all([

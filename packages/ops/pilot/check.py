@@ -48,6 +48,8 @@ def fixture(base):
 
 class PilotChecks(unittest.TestCase):
     def setUp(self):
+        # The current release verifier refuses group-write; fixtures model protected bytes.
+        self.addCleanup(os.umask, os.umask(0o077))
         self.temporary = tempfile.TemporaryDirectory(prefix='prime-pilot-source-')
         self.base = Path(self.temporary.name)
         self.spec = fixture(self.base)

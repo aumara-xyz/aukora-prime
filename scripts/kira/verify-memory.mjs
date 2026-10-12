@@ -31,6 +31,10 @@ import { rememberedChainEntry } from '../../plugins/aukora-kira/lib/memory-deps.
 const argv = process.argv.slice(2)
 const value = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }
 const flag = name => argv.includes(name)
+if (value('--state') === undefined) {
+  console.log('UNPERFORMED: an explicitly selected installed Kira state is required')
+  process.exit(2)
+}
 
 const stateDir = value('--state') ?? join(homedir(), 'Library', 'Application Support', 'AUKORA', 'state', 'home')
 const only = value('--id')
@@ -43,8 +47,7 @@ const quiet = flag('--quiet')
 // `--state` names, so the command reported an empty store on a full one.
 const storeDir = join(stateDir, 'kira-memory', STORE_PATHS.remembered)
 if (!existsSync(storeDir)) {
-  console.log(`kira.verify: no remembered store at ${storeDir} — nothing has been captured yet, so there is nothing to verify.`)
-  console.log('(That is an answer, not a failure: an empty store verifies vacuously and this says so rather than counting 0 as OK.)')
+  console.log('UNPERFORMED: the selected Kira state has no remembered store')
   // *** SAID BUT NOT FAILED. *** This branch prints "no remembered store … nothing has been checked" and then exited 0, so anything
   // reading the EXIT CODE read a clean verification of a store that is not there. The sentence was right; the code contradicted it.
   process.exit(2)

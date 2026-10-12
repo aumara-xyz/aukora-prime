@@ -11,6 +11,10 @@ import {tmpdir} from 'node:os'
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../../..')
 const allowed=['--ui-bundle','--ui-evidence','--host-repository','--output']
 const args=process.argv.slice(2),options={}
+if(args.length===0) {
+  console.log('UNPERFORMED: explicit reviewed UI bundle, evidence and host source artifacts are required')
+  process.exit(2)
+}
 for(let at=0;at<args.length;at+=2){
   const name=args[at],value=args[at+1]
   if(!allowed.includes(name)||options[name]!==undefined||!value||!value.startsWith('/'))throw new TypeError('SOURCE_JOIN_CLOSED_ABSOLUTE_OPTIONS_REQUIRED')

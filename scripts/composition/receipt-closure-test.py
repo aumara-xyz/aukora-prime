@@ -102,6 +102,9 @@ def main() -> int:
     for index, argument in enumerate(sys.argv[1:], start=1):
         if argument == '--release' and index < len(sys.argv) - 1:
             named = Path(sys.argv[index + 1]).resolve()
+    if named is None and not (ROOT / 'vendor/dsh/.dsh-build/pinned-harness-build.json').is_file():
+        print('UNPERFORMED: a built pinned harness with its successful build receipt is required')
+        return 2
     print('\nreceipt closure — producer, Aura pair and a stranger, from the release alone\n')
 
     work = Path(tempfile.mkdtemp(prefix='receipt-closure-'))

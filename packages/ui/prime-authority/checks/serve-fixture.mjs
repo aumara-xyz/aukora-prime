@@ -1,6 +1,10 @@
 import {createServer} from 'node:http'
 import {readFile,readdir} from 'node:fs/promises'
 import {resolve,join,extname} from 'node:path'
+if (!process.argv[2]) {
+  console.log('UNPERFORMED: rendered disposable browser fixture and browser observation required')
+  process.exit(2)
+}
 const root=resolve(process.argv[2]),files=new Map()
 async function load(directory,prefix=''){for(const item of await readdir(directory,{withFileTypes:true})){if(item.isSymbolicLink())throw new Error('Fixture symlink refused');const path=join(directory,item.name),route=prefix+'/'+item.name;if(item.isDirectory())await load(path,route);else if(item.isFile())files.set(route,await readFile(path))}}
 await load(root);files.set('/',files.get('/index.html'))

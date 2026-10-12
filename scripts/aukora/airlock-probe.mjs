@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { closeSync, constants, openSync } from 'node:fs'
 import { readOwnerDaemonConfig } from '../../apps/aukora-desktop/aumlok-airlock-config.mjs'
+if (!process.argv.includes('--installed')) {
+  console.log('UNPERFORMED: separated owner custody after the admin ceremony must be selected with --installed')
+  process.exit(2)
+}
 
 // Run as Peter after the admin ceremony. Opening is enough: never read key bytes.
 try {

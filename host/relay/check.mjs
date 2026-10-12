@@ -6,6 +6,19 @@ import { cpSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:f
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
+
+try {
+  const probe = createServer();
+  await new Promise((done, fail) => { probe.once('error', fail); probe.listen(0, '127.0.0.1', done); });
+  await new Promise(done => probe.close(done));
+} catch (error) {
+  if (['EPERM', 'EACCES'].includes(error.code)) {
+    console.log(`UNPERFORMED: loopback listen unavailable (${error.code})`);
+    process.exit(2);
+  }
+  throw error;
+}
 
 const source = dirname(fileURLToPath(import.meta.url));
 const twins = [

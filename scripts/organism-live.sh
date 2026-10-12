@@ -24,8 +24,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="${AUKORA_LIVE_STATE:-$HOME/Library/Application Support/AUKORA/state/launch.json}"
 
 if [ ! -f "$STATE" ]; then
-  echo "organism-live: NO RUNNING APP — $STATE is absent" >&2
-  echo "               (the app writes it at launch; start the app, or point AUKORA_LIVE_STATE at one)" >&2
+  printf '%s\n' 'UNPERFORMED: readable launch record required for organism-live'
   exit 2
 fi
 

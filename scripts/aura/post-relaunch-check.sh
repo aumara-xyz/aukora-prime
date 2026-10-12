@@ -12,6 +12,10 @@
 # EVERY SOURCE IS OVERRIDABLE BY ENVIRONMENT. That is not configuration for its own sake: it is what lets
 # the court force each leg to fail from a fixture, which is the only way to know a leg can fail at all.
 set -uo pipefail
+if [ "${AUKORA_POST_RELAUNCH_LIVE:-}" != 1 ]; then
+  printf '%s\n' 'UNPERFORMED: an explicitly selected installed app and AUKORA_POST_RELAUNCH_LIVE=1 are required'
+  exit 2
+fi
 
 ROOT="${AUKORA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 ALPHA_REPORT="${AUKORA_ALPHA_REPORT:-$ROOT/.agents/live/reports/ALPHA.md}"

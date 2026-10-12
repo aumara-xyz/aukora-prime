@@ -20,12 +20,21 @@ const args = process.argv.slice(2)
 const option = name => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 const url = option('--url')
 const out = resolve(option('--out') ?? join(root, '.runtime/aukora-render'))
-if (url === undefined) throw new Error('usage: verify-aukora-render.mjs --url <authenticated-url> --out <dir>')
+if (url === undefined) {
+  console.log('UNPERFORMED: an explicitly selected running UI and browser installation are required')
+  process.exit(2)
+}
 mkdirSync(out, { recursive: true })
 
 // Playwright is a workspace devDependency of the pinned source, not of Genesis.
 const require = createRequire(join(root, 'vendor/dsh/apps/web/package.json'))
-const { chromium } = require('playwright')
+let chromium
+try { ({ chromium } = require('playwright')) }
+catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') throw error
+  console.log('UNPERFORMED: Playwright from the pinned harness is absent')
+  process.exit(2)
+}
 
 const report = { url: url.replace(/token=[^&]+/u, 'token=[redacted]'), checks: [], colors: {}, screenshots: [] }
 const record = (name, detail) => {

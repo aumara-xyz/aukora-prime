@@ -4,7 +4,7 @@
 // Read the source only; all identities, copies and retention are disposable.
 // Same machine/UID, automatic scratch pairing: no independent or lasting witness.
 import { createHash } from 'node:crypto'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -133,6 +133,10 @@ try {
   const args = process.argv.slice(2)
   if (args.length > 1 || args[0]?.startsWith('-')) {
     throw new Verdict('UNAVAILABLE', 'usage: node scripts/aura/echo-head.mjs [aura.jsonl]')
+  }
+  if (!existsSync(args[0] ?? DEFAULT_CHAIN)) {
+    process.stdout.write('UNPERFORMED: readable Aura chain required for disposable Echo verification\n')
+    process.exit(2)
   }
   const output = await echoHead(resolve(args[0] ?? DEFAULT_CHAIN))
   process.stdout.write(output)

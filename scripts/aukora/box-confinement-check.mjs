@@ -12,7 +12,8 @@ const detail = error => String(error?.message ?? error).replace(/\s+/g, ' ').sli
 
 async function main() {
   if (process.platform !== 'darwin') {
-    console.log('BOX CONFINEMENT CHECK: SKIPPED (not macOS)')
+    console.log('UNPERFORMED: macOS Seatbelt is required')
+    process.exitCode = 2
     return
   }
   const arms = [
@@ -54,7 +55,8 @@ async function main() {
     if (!admission.error && admission.signal === null && admission.status !== 0
       && admission.stdout === ''
       && admission.stderr.trim() === 'sandbox-exec: sandbox_apply: Operation not permitted') {
-      console.log('BOX CONFINEMENT CHECK: NOT RUN (nested sandbox)')
+      console.log('UNPERFORMED: Seatbelt admission refused by nested sandbox')
+      process.exitCode = 2
       return
     }
     if (admission.error) throw admission.error

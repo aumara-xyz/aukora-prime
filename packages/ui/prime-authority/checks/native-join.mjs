@@ -10,8 +10,11 @@ import {pathToFileURL} from 'node:url'
 import {createOwnerUiFixture} from './fixture.mjs'
 
 const [harness,contractFile,clientFile,nativeFile]=process.argv.slice(2)
-if(!harness||!contractFile||!clientFile||!isAbsolute(clientFile))
- throw new Error('native-join.mjs <pinned DSH> <browser contracts> <absolute fresh owner client.js> [guarded owned H native helper]')
+if(!harness||!contractFile||!clientFile) {
+ console.log('UNPERFORMED: pinned harness, browser contracts and fresh owner client bundle required')
+ process.exit(2)
+}
+if(!isAbsolute(clientFile))throw new Error('native-join:absolute-client-required')
 const require=createRequire(join(resolve(harness),'node_modules/.pnpm/node_modules/prime-native-join.cjs'))
 const React=require('react')
 assert.equal(require('react/package.json').version,'18.3.1')

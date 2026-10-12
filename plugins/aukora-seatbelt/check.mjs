@@ -26,11 +26,11 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const DSH = resolve(process.env.DSH_ROOT ?? join(HERE, '..', '..', 'vendor', 'dsh'))
 const lib = (...parts) => join(DSH, 'packages', ...parts, 'lib', 'index.js')
 if (process.platform !== 'darwin') {
-  process.stderr.write('NOT RUN: Seatbelt is macOS only\n')
+  process.stdout.write('UNPERFORMED: Seatbelt requires macOS\n')
   process.exit(2)
 }
 if (!existsSync(lib('shell', 'bash-sandbox'))) {
-  process.stderr.write(`NOT RUN: no built DeepSeek Harness at ${DSH} (run scripts/build-dsh.py, or set DSH_ROOT)\n`)
+  process.stdout.write('UNPERFORMED: built DeepSeek Harness absent; build it or set DSH_ROOT\n')
   process.exit(2)
 }
 const load = async (path) => import(pathToFileURL(path).href)

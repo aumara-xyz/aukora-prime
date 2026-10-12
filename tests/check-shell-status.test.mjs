@@ -19,7 +19,7 @@ const footer = (pass = 46, arms = 46, failed = 0, pending = 2, dsh = 'UNPERFORME
 const tap = (pass = 0, skipped = 0, todo = 0) =>
   `# tests ${pass + skipped + todo}\n# pass ${pass}\n# fail 0\n# cancelled 0\n# skipped ${skipped}\n# todo ${todo}`
 const registrations = text => text.split('\n').filter(line => /^check(?:_tap|_unittest|_darwin|_injection)? '/u.test(line))
-assert.equal(registrations(source).length, 127, 'preserve every existing fixed registration')
+assert.equal(registrations(source).length, 238, 'preserve every existing fixed registration')
 assert.equal(registrations(source).filter(line => line.includes(command)).length, 1)
 
 function fragments(text) {
@@ -200,6 +200,133 @@ checkEmptyMutationCourt(zeroCourt)
 assert.throws(() => checkEmptyMutationCourt(zeroCourt.replace(guard, '')), { code: 'ERR_ASSERTION' })
 console.log('KILLED zero-mutation guard removal (empty requested court otherwise exits zero)')
 
+const uncoveredRegistrations = [
+  "check '/usr/bin/python3 scripts/phase0/selfcheck.py'",
+  "check '/usr/bin/python3 scripts/composition/composition-selfcheck.py'",
+  "check '/usr/bin/python3 scripts/composition/subject-digest-court.py'",
+  "check '/usr/bin/python3 scripts/composition/grant-rule-court.py'",
+  "check '/usr/bin/python3 scripts/composition/spent-store-race-test.py'",
+  "check '/usr/bin/python3 scripts/composition/ed25519.py'",
+  "check '/usr/bin/python3 scripts/composition/ceilings.py'",
+  "check '/usr/bin/python3 scripts/check-stage-pg-acceptance.py'",
+  "check 'node scripts/aumlok/check-vendor-closure.mjs'",
+  "check 'node scripts/aura/verify-append-only.mjs --selftest'",
+  "check 'node scripts/check-next-composition.mjs'",
+  "check 'node scripts/verify-aukora-render.mjs'",
+  "check 'node scripts/face-parse-check.mjs'",
+  "check 'node scripts/kira/she-remembers-check.mjs'",
+  "check 'node scripts/kira/verify-memory.mjs'",
+  "check '/usr/bin/python3 scripts/composition/receipt-closure-test.py'",
+  "check 'bash scripts/aura/post-relaunch-check.sh'",
+  "check 'node tests/unregistered-checks.test.mjs'",
+  "check 'node packages/ui/scripts/check-foundation.mjs'",
+  "check 'node packages/ui/scripts/check-owner-build.mjs'",
+  "check 'node packages/ui/scripts/check-owner-types.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/ui/scripts/check-prerequisites.test.mjs'",
+  "check 'node packages/ui/scripts/check-provider-settings.mjs'",
+  "check 'node packages/ui/scripts/verify-baseline.mjs'",
+  "check 'node packages/ui/scripts/verify-owner-build.mjs'",
+  "check 'node packages/ui/prime-authority/checks/css-provenance.mjs'",
+  "check 'node packages/ui/prime-authority/checks/css-reproduction.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/ui/prime-authority/checks/inference-controller.mjs'",
+  "check 'node packages/ui/prime-authority/checks/inference-native-join.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/ui/prime-authority/checks/native-connection.mjs'",
+  "check 'node packages/ui/prime-authority/checks/native-join.mjs'",
+  "check 'node packages/ui/prime-authority/checks/ordinary-lifecycle.mjs'",
+  "check 'node packages/ui/prime-authority/checks/ordinary-render.mjs'",
+  "check 'node packages/ui/prime-authority/checks/pilot-render.mjs'",
+  "check 'node packages/ui/prime-authority/checks/provider-controller.mjs'",
+  "check 'node packages/ui/prime-authority/checks/render-fixture.mjs'",
+  "check 'node packages/ui/prime-authority/checks/render.mjs'",
+  "check 'node packages/ui/prime-authority/checks/serve-fixture.mjs'",
+  "check_tap 'node --test --test-reporter=tap host/relay/test/prerequisites.test.mjs'",
+  "check 'node host/aura-interim/verify.mjs'",
+  "check 'node plugins/aukora-action-gate/check.mjs'",
+  "check_tap 'node --test --test-reporter=tap plugins/aukora-action-gate/file-fence-race.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap plugins/aukora-action-gate/prerequisites.test.mjs'",
+  "check 'AUKORA_PYTHON=/usr/bin/python3 bash plugins/aukora-composition-gate/test/declared-id-regression.sh \"$TMPDIR/declared-id\"'",
+  "check 'node plugins/aukora-face/apps/scripts/check-vendor-tests.mjs'",
+  "check 'node packages/authority/check-execution-receipt.mjs'",
+  "check 'node packages/authority/check-inference-evidence.mjs'",
+  "check 'node packages/authority/check-inference-mapper.mjs'",
+  "check 'node packages/authority/check-inference-service.mjs'",
+  "check_unittest '/usr/bin/python3 -I -S packages/boundary-gate/host/openshell/checks/private_proc_observer.py'",
+  "check_tap 'node --test --test-reporter=tap packages/boundary-gate/host/systemd/hardening.test.mjs'",
+  "check 'node packages/desktop/check.cjs'",
+  "check 'node packages/evolution-lab/checks/check.mjs'",
+  "check 'node packages/execution/checks/configuration.mjs'",
+  "check 'node packages/execution/checks/effective-policy.mjs'",
+  "check 'node packages/execution/checks/guardian-boundary.mjs'",
+  "check 'node packages/ops/check-unregistered.mjs packages/execution/checks/guardian-process.mjs'",
+  "check 'node packages/execution/checks/lifecycle.mjs'",
+  "check 'node packages/execution/checks/lifetime-safety.mjs'",
+  "check 'node packages/execution/checks/profile-sdk.mjs'",
+  "check 'node packages/execution/checks/readiness.mjs'",
+  "check 'node packages/execution/checks/timeout.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-dispatch-expiry.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-dispatch.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-dsh-cancellation.mjs'",
+  "check 'node packages/inference/check-types.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-private-transport.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-reserve-attempt.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-total-budget.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-worker-continuation.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/inference/check-worker-outbox.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/memory/test/new-lineage-bootstrap-source.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/memory/test/new-pilot-lineage-source.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/memory/test/new-pilot-memory-store-source.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/memory/test/reduced-pilot-scope.test.mjs'",
+  "check 'node packages/ops/check-unregistered.mjs packages/ops/check-external-state.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/ops/check-unregistered.test.mjs'",
+  "check 'node packages/ops/owner-save-pilot/v1/check-metadata.mjs'",
+  "check 'node packages/ops/owner-save-pilot/v1/check-source.mjs --contracts-root \"$PWD/packages/contracts/src\"'",
+  "check 'node packages/ops/pilot/check-pg-pool.mjs'",
+  "check_unittest '/usr/bin/python3 packages/ops/pilot/check.py'",
+  "check_unittest '/usr/bin/python3 packages/ops/pilot/check_preview_stage.py'",
+  "check_unittest '/usr/bin/python3 packages/ops/pilot/check_verify.py'",
+  "check_tap 'node --test --test-reporter=tap packages/owner-key/checks/authorization.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/owner-key/checks/gate-caller.test.mjs'",
+  "check 'node packages/owner-key/checks/mutants.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/owner-key/checks/software-signer.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/runtime-bridge/checks/closure-v2.test.mjs'",
+  "check 'node packages/ops/check-unregistered.mjs packages/runtime-bridge/checks/inference-boundary.test.mjs'",
+  "check 'node packages/ops/check-unregistered.mjs packages/runtime-bridge/checks/inference-real-authority.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/runtime-bridge/checks/retained-adapter.test.mjs'",
+  "check 'node packages/runtime-bridge/checks/retained-journal-restore.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/runtime-bridge/checks/retained-journal-sql.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/runtime-bridge/checks/retained-restore-forwarder.test.mjs'",
+  "check 'node packages/ops/check-unregistered.mjs packages/runtime-bridge/test/inference-ipc.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap packages/runtime-bridge/test/inference-unmounted.test.mjs'",
+  "check 'node packages/runtime-bridge/test/verify-owner-memory-source-join.mjs'",
+  "check 'node packages/runtime-bridge/test/verify-owner-recovery-source-join.mjs'",
+  "check '/usr/bin/python3 scripts/kira/experience-court.py --selftest'",
+  "check 'node packages/authority/upstream/vendor/authority/conformance.mjs'",
+  "check 'node scripts/aura/release-boot-smoke.mjs'",
+  "check 'node scripts/aukora/airlock-probe.mjs'",
+  "check 'AUKORA_LIVE_STATE=/dev/null/unselected-launch bash scripts/organism-live.sh'",
+  "check 'bash scripts/organism-accept.sh --release /dev/null/unselected-release'",
+  "check 'bash scripts/aura/organism-breath.sh --state /dev/null/unselected-store'",
+  "check 'node scripts/aura/echo-head.mjs /dev/null/unselected-aura.jsonl'",
+  "check_tap 'node --test --test-reporter=tap scripts/aura/late-prerequisites.test.mjs'",
+  "check 'node harness/check-memory-retention-boundary.mjs'",
+  "check 'node harness/check-static-csp.mjs'",
+  "check 'node harness/check-deployment-manifest.mjs'",
+  "check_unittest '/usr/bin/python3 -I -S -B tests/openviking-llama-pin.test.py'"
+]
+function checkUncoveredRegistrations(text = source) {
+  const rows = registrations(text)
+  for (const row of uncoveredRegistrations) assert.equal(rows.filter(value => value === row).length, 1,
+    'every uncovered check keeps its fixed runner command: ' + row)
+}
+checkUncoveredRegistrations()
+console.log(`PASS uncovered check registrations: ${uncoveredRegistrations.length} fixed commands retained`)
+if (process.argv.includes('--mutate')) {
+  for (const row of uncoveredRegistrations) {
+    assert.throws(() => checkUncoveredRegistrations(source.replace(row, '')), { code: 'ERR_ASSERTION' })
+  }
+  console.log(`KILLED ${uncoveredRegistrations.length} uncovered registration removals`)
+}
+
 const controls = [
   ['green unperformed row', '$disposition = "UNPERFORMED"; $reason = "reported unperformed injection checks";', '$disposition = "PASS"; $reason = "reported unperformed injection checks";', text => checkCase(...cases[0], text)],
   ['drop aggregate unperformed', 'if [ "$skipped" -ne 0 ] || [ "$unperformed" -ne 0 ]; then exit 2; fi', 'if [ "$skipped" -ne 0 ]; then exit 2; fi', checkAggregate],
@@ -236,4 +363,4 @@ if (process.argv.includes('--mutate')) {
     console.log(`KILLED ${name}`)
   }
 }
-console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 127 registrations retained; synthetic child/actual runner only; no fixture deletes`)
+console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 238 registrations retained; synthetic child/actual runner only; no fixture deletes`)

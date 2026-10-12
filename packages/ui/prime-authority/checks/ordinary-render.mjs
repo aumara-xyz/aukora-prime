@@ -12,7 +12,10 @@ import { providerNamespaceView } from '../../adapters/provider-settings.mjs'
 // Ordinary SSR acceptance only. Uses the tracked or explicitly supplied owned
 // native UI build and pinned React; no compilation, service or browser.
 const [harness, contractFile, clientFile] = process.argv.slice(2)
-if (!harness || !contractFile) throw new Error('ordinary-render.mjs <pinned Prime DSH> <browser contracts> [owned built client.js]')
+if (!harness || !contractFile) {
+  console.log('UNPERFORMED: pinned harness and browser contracts required for owner SSR')
+  process.exit(2)
+}
 if (clientFile && !isAbsolute(clientFile)) throw new Error('ordinary-render.mjs owned client must be an absolute local file path')
 const require = createRequire(join(resolve(harness), 'node_modules/.pnpm/node_modules/prime-ordinary-render.cjs'))
 const React = require('react'), server = require('react-dom/server')
@@ -52,7 +55,9 @@ ui.apply({
 const providerSlot = registrations.find(({descriptor}) => descriptor.name === 'settings.models.provider-card')
 assert(providerSlot)
 assert.equal(providerSlot.descriptor.key, 'prime-inference')
-assert(effects.length > 0); assert.equal(injections.length, 2)
+assert(effects.length > 0)
+// Native memory and inference view bindings added two injections after this check's original checkpoint.
+assert.deepEqual(injections.map(({names})=>names), [['primePilotMemory'],['primePilotInference'],['primeProviderSettings'],['primeAuthority']])
 const providers = providerSlot.descriptor.inject().controller
 try {
   const provider = {provider:'externalDeepSeek',displayName:'DeepSeek',settingsNs:'prime-inference',

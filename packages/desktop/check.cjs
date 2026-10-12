@@ -2,6 +2,10 @@
 
 // One disposable synthetic check. Uses shipped guards in an actual Electron renderer;
 // no browser profiles, owner keys, real backend, approval or executor are accessed.
+if (!process.versions.electron || (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY)) {
+  console.log('UNPERFORMED: Electron runtime and a display are required')
+  process.exit(2)
+}
 const { app, BrowserWindow, session } = require('electron')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
