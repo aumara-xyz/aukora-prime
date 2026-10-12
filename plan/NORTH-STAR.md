@@ -385,3 +385,13 @@ CORRECTIONS, night of 2026-10-12 (source status; no new installed observation):
   that note above the threshold, and it was deleted again. 7 of 7. So OpenViking itself works on the pilot. What
   this does not show: Kira using it. The release that runs there selects lexical recall and was not built with
   the OpenViking setting (--kira-openviking-home, added in 7fc6ea0); a release built with it is the next test.
+
+### 2026-10-12 late night: first full Linux verdict on tonight's tip was RED; three causes, fixed
+
+Linux CI on 8727a39 failed three checks. Every run between 17b5ce0 (green) and 8727a39 had been cancelled by the next push, so these went unseen for hours. Lesson kept: let a run finish.
+
+1. **A release's Kira never asked OpenViking.** Two landings (fce1152, 7fc6ea0) combined so that recall was forced to plain text search whenever the release selected `lexical`, which is the only value a release can select. The opt-in (`--kira-openviking-home`) therefore changed nothing. `tests/kira-openviking-http.test.mjs` had only ever passed inside the worker's sandbox, over a stand-in transport; over real HTTP it failed from the commit that added it, and I landed it without running it. Fixed: naming an OpenViking home is the opt-in; without one, text search. RAN on the Mac: that test and every `tests/kira-*.test.mjs`. The pilot probe (7/7) exercised OpenViking directly and was not affected; **recall through a release with OpenViking is still NOT RUN anywhere**.
+2. **Red-team replay** (`packages/boundary-gate/checks/redteam.mjs`): the look-alike authority word scanner (559bb4a) adds one warning to 66 attack rows; the lab comparison counted it. The comparison now checks every lab warning exactly as before and pins which 66 rows carry the new one; no benign row carries it. This had been red in `./security-review` since 559bb4a and I reported that script's exit code without reading its rows. From now: read the FAIL count, not the exit code.
+3. **Gate bootstrap check, Linux only, intermittent**: its fixture lived in the shared temporary directory; the bootstrap compares each ancestor directory before and after opening, and parallel checks creating files there made it refuse. The fixture now lives under a parent only that check writes to (`~/.cache/aukora-prime-checks/gate-bootstrap`). Passed on the pilot (Linux) before the change as well, which is why it is called intermittent and not fixed-and-proven.
+
+Staging: the roll of 8727a39 was refused at `launcher-hash:upstream-dsh.json` and restored itself. Cause is the script's order (the package was checked before the launcher checkout was moved to the new commit), not the source.

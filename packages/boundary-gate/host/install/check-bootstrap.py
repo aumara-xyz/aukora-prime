@@ -133,7 +133,13 @@ def root_metadata(metadata, directory=False):
 
 class World:
     def __init__(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="gate-bootstrap-source-")
+        # Under a parent only this check writes to, not the shared temporary directory: the bootstrap
+        # compares each ancestor directory before and after opening it, and unrelated processes creating
+        # files in a shared directory between the two reads made these tests refuse intermittently under
+        # a parallel runner. Not inside the checkout either: other checks copy and inventory that tree.
+        parent = Path.home() / ".cache" / "aukora-prime-checks" / "gate-bootstrap"
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="source-", dir=parent)
         self.root = Path(os.path.realpath(self.temporary.name)) / "package"
         self.root.mkdir(mode=0o700)
         self.marker = self.root.parent / "executed-marker"

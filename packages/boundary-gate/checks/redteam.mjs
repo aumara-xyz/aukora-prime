@@ -86,21 +86,29 @@ function replay(corpus) {
   return { g, base, rows }
 }
 
+const SCAN_WARNING = 'NOTE failed the authority-display scan'
 function assertMatchesLab(rows) {
+  const scanned = []
   for (const r of rows) {
     const e = r.a.expect
     assert.equal(r.result, e.result, `${r.a.id} result`)
     if (r.result === 'blocked') { assert.equal(r.blocked_by, e.blocked_by, `${r.a.id} refusal class`); continue }
     assert.equal(r.new_sha, e.new_sha, `${r.a.id} result sha`)
     assert.equal(r.after, e.after_apply, `${r.a.id} AFTER APPLY`)
-    assert.equal(r.flags.length, e.warnings, `${r.a.id} warning count`)
-    assert.equal(hash(JSON.stringify(r.flags)), e.flags_sha256, `${r.a.id} warning text`)
+    // The lab rows predate the authority-display scan. Its one warning is checked by id below; every other
+    // warning must still match the lab exactly, in order.
+    const lab = r.flags.filter(f => !f.startsWith(SCAN_WARNING))
+    assert.ok(r.flags.length - lab.length <= 1, `${r.a.id} at most one scan warning`)
+    if (lab.length !== r.flags.length) scanned.push(r.a.id)
+    assert.equal(lab.length, e.warnings, `${r.a.id} warning count`)
+    assert.equal(hash(JSON.stringify(lab)), e.flags_sha256, `${r.a.id} warning text`)
     assert.ok(r.owner.found, `${r.a.id} card on owner page`)
     assert.deepEqual(r.owner.warnings, r.flags, `${r.a.id} owner page shows the same warnings as the popup`)
     assert.equal(r.owner.after, r.after, `${r.a.id} owner page AFTER APPLY`)
     assert.equal(r.owner.chips, 2, `${r.a.id} BEFORE/AFTER swatch chips`)
     assert.ok(r.owner.approveNotTabbable && r.owner.rejectFirst, `${r.a.id} button order / tabindex`)
   }
+  return scanned
 }
 
 function assertNothingApplied(g, base) {
@@ -135,7 +143,9 @@ test('rt3 attacks: 673 reach the owner card, 142 refused (89 schema, 53 no-op); 
     // every misleading proposal that reaches the owner carries at least one gate warning
     const silent = pending.filter(r => r.a.misleading && r.flags.length === 0).map(r => r.a.id)
     assert.deepEqual(silent, [], 'misleading proposals with no warning')
-    assertMatchesLab(rows)
+    const scanned = assertMatchesLab(rows)
+    assert.equal(scanned.length, 66, 'attack rows that also carry the authority-display scan warning')
+    assert.equal(hash(JSON.stringify(scanned)), '046e994bfd3ca11cefec861bc690fdfa6f7be63c8d391c04967dadfad15544f7', 'which attack rows carry it')
     const log = assertNothingApplied(g, base)
     assert.equal(log.filter(e => e.event === 'decide-refused' && e.detail?.via === 'propose-close').length, 673, 'every approving close was refused and recorded')
   } finally { g.gate.close() }
@@ -149,7 +159,7 @@ test('rt3 benign: all 61 reach the owner card; 7 carry by-design warnings (6x #D
     assert.deepEqual(warned.map(r => r.a.id), ['B054', 'B055', 'B056', 'B057', 'B058', 'B059', 'B060'])
     assert.equal(warned.filter(r => /#D4AF37/.test(r.after) && /NAME COLLISION/.test(r.flags[0])).length, 6)
     assert.match(warned[6].after, /accent = default/)
-    assertMatchesLab(rows)
+    assert.deepEqual(assertMatchesLab(rows), [], 'no benign row trips the authority-display scan')
     assertNothingApplied(g, base)
   } finally { g.gate.close() }
 })

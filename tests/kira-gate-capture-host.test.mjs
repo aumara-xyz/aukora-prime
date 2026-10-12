@@ -303,7 +303,9 @@ async function createAcceptedEFixture() {
   // Reviewed: both recall calls now forward the composition's lexical selection.
   // Reviewed OpenViking home config validation/normalization and explicit-home precedence;
   // capture and association paths are unchanged. node:path stays the actual builtin below.
-  assert.equal(sha(indexSource), 'acd46aa42a94393aa1f4777052bfa80166fa74546f0dbf1889d213a50b2f9108',
+  // Reviewed: lexical selection is forced only when the composition names no OpenViking home;
+  // naming one is the opt-in to recall by meaning (the forwarded flag had disabled it in every release).
+  assert.equal(sha(indexSource), '1a2560d2ebaacef0468f96baf5e02265d2821e3ea7ed8a1728136fbb8becdb90',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')
