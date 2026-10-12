@@ -61,6 +61,32 @@ line.
 A configuration that names an unimplemented retrieval option, or that omits the
 read owner, fails at mount. It does not degrade silently.
 
+## Probe recall through a release
+
+Newly materialized releases carry the probe. Run as the harness user with the
+node's `DSH_HOME` and deployment support-root environment:
+
+```sh
+node /absolute/release/scripts/kira/release-recall-probe.mjs /absolute/release --scratch-state /absolute/private-empty-directory
+```
+
+The scratch directory must already exist, belong to the caller and have mode `0700`;
+use a directory created with `mktemp -d` beneath a caller-owned parent. The probe
+refuses the real Kira store and its descendants, including symlink aliases. It uses
+the release's composition parser, Kira files, OpenViking home and project mapping,
+with memory state redirected to scratch. Each remember, recall and forget runs in
+a fresh process. A word-disjoint meaning query must return the exact synthetic
+note through `openviking-semantic`, without degradation; explicit text search must
+also find it. Forget must remove it from both paths. No key or server body is printed.
+
+Exit `0` means all six steps passed; `1` means failure/refusal; `2` prints
+`UNPERFORMED` for an absent OpenViking home or unavailable local service. The
+scratch store retains its content-free tombstone and index bookkeeping. A failed
+forget can leave the synthetic note in OpenViking; inspect the reported failed
+step before removing scratch state. This exercises release files in an operator
+process; it does not prove the running harness loaded that release, a model used
+recall, containment, or general embedding quality.
+
 ## Tools
 
 ### `kira_stage`

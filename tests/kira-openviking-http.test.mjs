@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 // Mounted Kira saves before indexing and recalls across fresh processes.
 import assert from 'node:assert/strict'
-import { createServer } from 'node:http'
 import { fork } from 'node:child_process'
 import { registerHooks } from 'node:module'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { createOpenVikingHttpFixture, loopbackListenUnavailable } from './support/openviking-http.mjs'
 
 const mutations = {
   'vector-success': ['recall-openviking.mjs', "result?.vector_status !== 'complete'", 'false'],
@@ -37,27 +36,7 @@ if (child) {
     return { ...loaded, source: source.replace(before, after) }
   } })
   process.once('message', async input => {
-    let sequence = 0
-    const pending = new Map(), disposers = []
-    if (input.transport === 'ipc') {
-      process.on('message', message => {
-        const waiter = pending.get(message.request)
-        if (waiter) { pending.delete(message.request); waiter(message) }
-      })
-      globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
-        if (!process.connected) return reject(new Error('fixture closed'))
-        const request = ++sequence, abort = () => { pending.delete(request); reject(new Error('timeout')) }
-        if (options.signal?.aborted) return abort()
-        options.signal?.addEventListener('abort', abort, { once: true })
-        pending.set(request, message => {
-          options.signal?.removeEventListener('abort', abort)
-          resolve(Response.json(message.body, { status: message.status }))
-        })
-        process.send({ request, url, method: options.method ?? 'GET', headers: options.headers, body: options.body }, error => {
-          if (error) { pending.delete(request); reject(error) }
-        })
-      })
-    }
+    const disposers = []
     try {
       const kira = await import('../plugins/aukora-kira/lib/index.js')
       let result
@@ -91,58 +70,38 @@ if (child) {
     finally { disposers.forEach(dispose => dispose?.()) }
   })
 } else {
-  const root = mkdtempSync(join(tmpdir(), 'kira-http-')), home = join(root, 'openviking'), stateDir = join(root, 'state/kira')
-  const files = new Map(), vectors = new Set(), calls = []
-  let embeddingDown = false, vectorStatus = 'complete', slow = false
+  const assertListenRefusals = classify => {
+    for (const code of ['EPERM', 'EACCES']) assert.equal(classify({ syscall: 'listen', code }), true)
+    for (const error of [{ syscall: 'listen', code: 'EADDRINUSE' }, { syscall: 'listen', code: 'EINVAL' }, { syscall: 'open', code: 'EPERM' }, {}]) {
+      assert.equal(classify(error), false)
+    }
+  }
+  assertListenRefusals(loopbackListenUnavailable)
+  const helperSource = readFileSync(new URL('./support/openviking-http.mjs', import.meta.url), 'utf8')
+  for (const [before, after] of [
+    ["error?.syscall === 'listen' && ", ''],
+    ["['EPERM', 'EACCES'].includes(error?.code)", 'true'],
+    ["error?.syscall === 'listen' && ['EPERM', 'EACCES'].includes(error?.code)", 'false'],
+  ]) {
+    assert.equal(helperSource.split(before).length, 2, 'listener mutation must match once')
+    const changed = Buffer.from(helperSource.replace(before, after)).toString('base64')
+    const mutated = await import(`data:text/javascript;base64,${changed}`)
+    assert.throws(() => assertListenRefusals(mutated.loopbackListenUnavailable), undefined, 'listener classifier mutant survived')
+  }
+  console.log('PASS loopback listen refusal classifier; 3/3 source mutants killed')
+  const root = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), '.kira-http-')), home = join(root, 'openviking'), stateDir = join(root, 'state/kira')
   const statement = 'Miso, a feline companion, curls beside me.', question = 'Which animal lives indoors?'
   assert.equal(statement.toLowerCase().split(/\W+/u).filter(Boolean).some(word => question.toLowerCase().split(/\W+/u).includes(word)), false)
-  // Shapes from vendor/openviking/upstream-openviking.json's v0.4.21 source:
-  // server/routers/{content,search,filesystem}.py and storage/content_write.py.
-  // Scores here are a deterministic stand-in, never an embedding benchmark.
-  const dispatch = async request => {
-    const url = new URL(request.url), body = request.body ? JSON.parse(request.body) : {}, uri = url.searchParams.get('uri')
-    calls.push({ path: url.pathname, method: request.method, uri: body.uri ?? uri })
-    const ok = result => ({ status: 200, body: { status: 'ok', result } })
-    const error = (status, code) => ({ status, body: { status: 'error', error: { code, message: 'synthetic detail' } } })
-    if (url.pathname === '/health') return { status: 200, body: { healthy: true } }
-    if (request.headers?.['x-api-key'] !== 'synthetic-key') return error(401, 'UNAUTHENTICATED')
-    assert.equal(request.headers['x-openviking-account'], 'aukora')
-    assert.equal(request.headers['x-openviking-user'], 'owner')
-    if (url.pathname === '/api/v1/content/write') {
-      assert.equal(request.method, 'POST'); assert.equal(body.mode, 'replace'); assert.equal(body.wait, true)
-      assert.ok(body.uri.startsWith('viking://user/owner/memories/kira/content/'))
-      files.set(body.uri, body.content)
-      if (slow) await new Promise(resolve => setTimeout(resolve, 150))
-      const status = embeddingDown ? 'failed' : vectorStatus
-      if (status === 'complete') vectors.add(body.uri)
-      return ok({ uri: body.uri, semantic_status: 'skipped', vector_status: status })
-    }
-    if (url.pathname === '/api/v1/search/find') {
-      if (embeddingDown) return error(500, 'INTERNAL')
-      assert.equal(body.target_uri, 'viking://user/owner/memories/kira/content')
-      return ok({ memories: [...vectors].filter(uri => files.get(uri) === statement && body.query.endsWith(question))
-        .map(uri => ({ uri, score: 0.91, abstract: 'untrusted summary' })), resources: [], skills: [], total: vectors.size })
-    }
-    if (url.pathname === '/api/v1/content/read') return files.has(uri) ? ok(files.get(uri)) : error(404, 'NOT_FOUND')
-    if (url.pathname === '/api/v1/fs' && request.method === 'DELETE') { files.delete(uri); vectors.delete(uri); return ok({}) }
-    throw Error(`unexpected fixture endpoint ${url.pathname}`)
-  }
-  const server = createServer(async (req, res) => {
-    try {
-      let body = ''; for await (const chunk of req) body += chunk
-      const reply = await dispatch({ url: `http://127.0.0.1${req.url}`, method: req.method, headers: req.headers, body })
-      res.writeHead(reply.status, { 'content-type': 'application/json' }); res.end(JSON.stringify(reply.body))
-    } catch { res.writeHead(500); res.end('{}') }
-  })
-  let transport = 'http', url
+  let fixture
   try {
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
-    url = `http://127.0.0.1:${server.address().port}`
+    fixture = await createOpenVikingHttpFixture({ statement, question })
   } catch (error) {
-    if (error.code !== 'EPERM') throw error
-    transport = 'ipc'; url = 'http://127.0.0.1:1933'
-    console.log('UNPERFORMED loopback HTTP: listen EPERM; running the same protocol stand-in over child IPC')
+    rmSync(root, { recursive: true, force: true })
+    if (!loopbackListenUnavailable(error)) throw error
+    console.log(`UNPERFORMED: kira-openviking-http loopback listen refused (${error.code}); no HTTP checks ran`)
+    process.exit(2)
   }
+  const { url, files, vectors, calls, controls } = fixture
   mkdirSync(home, { recursive: true })
   const bridge = { url, account: 'aukora', user: 'owner', timeoutMs: 1000, syncBatch: 8 }
   const writeBridge = () => writeFileSync(join(home, 'aukora-bridge.json'), JSON.stringify(bridge))
@@ -156,15 +115,10 @@ if (child) {
     const processChild = fork(fileURLToPath(import.meta.url), ['--child', ...(mutant ? ['--mutant', mutant] : [])], { env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
     let result, error = '', completed = false
     processChild.stderr.on('data', chunk => { error += chunk })
-    processChild.on('message', async message => {
-      if (message.request) {
-        try { const reply = await dispatch(message); if (processChild.connected) processChild.send({ request: message.request, ...reply }) }
-        catch (failure) { reject(failure); processChild.kill() }
-      } else { result = message.result; error += message.error ?? ''; completed = true }
-    })
+    processChild.on('message', message => { result = message.result; error += message.error ?? ''; completed = true })
     processChild.on('error', reject)
     processChild.on('exit', code => code === 0 && completed ? resolve(result) : reject(Error(error || `worker exit ${code}`)))
-    processChild.send({ action, text, config, transport })
+    processChild.send({ action, text, config })
   })
   let passed = 0
   const check = async (name, action) => { await action(); passed++; console.log(`PASS ${name}`) }
@@ -178,10 +132,10 @@ if (child) {
       assert.equal(recalled.retrieval.method, 'openviking-semantic'); assert.equal(recalled.snippets[0].text, statement)
     })
     await check('embedder outage returns lexical data and explicit degraded flag in a fresh process', async () => {
-      embeddingDown = true
+      controls.embeddingDown = true
       const recalled = await run('recall', 'feline companion')
       assert.equal(recalled.retrieval.degraded, true); assert.equal(recalled.retrieval.method, 'lexical-bm25-bigram')
-      assert.equal(recalled.snippets[0].text, statement); embeddingDown = false
+      assert.equal(recalled.snippets[0].text, statement); controls.embeddingDown = false
     })
     await check('wrong key is a named refusal, without erasing local recall', async () => {
       writeFileSync(join(home, 'root.key'), 'wrong-key')
@@ -192,22 +146,22 @@ if (child) {
     })
     await check('HTTP 200 failed, skipped and queued vectors stay pending; successful save retries in a fresh process', async () => {
       for (const status of ['failed', 'skipped', 'queued', undefined]) {
-        vectorStatus = status
+        controls.vectorStatus = status
         const saved = await run('remember', `The cobalt telescope is beside orchard number ${passed}-${status}.`)
         assert.equal(saved.remembered, 1); assert.ok(saved.index.pending > 0); assert.ok(saved.index.failed.includes('index-write-failed'))
         const recalled = await run('recall', 'cobalt telescope')
         assert.equal(recalled.retrieval.degraded, true); assert.equal(recalled.remembered.semantic.reason, 'openviking-index-pending')
         assert.ok(recalled.snippets.length > 0)
       }
-      vectorStatus = 'complete'
+      controls.vectorStatus = 'complete'
       const recovered = await run('recall', question)
       assert.equal(recovered.remembered.index.pending, 0); assert.equal(recovered.snippets[0].text, statement)
     })
     await check('slow indexing stays saved and pending after client timeout', async () => {
-      slow = true; bridge.timeoutMs = 40; writeBridge()
+      controls.slow = true; bridge.timeoutMs = 40; writeBridge()
       const saved = await run('remember', 'The amber sundial stands beside a shaded pond.')
       assert.equal(saved.remembered, 1); assert.ok(saved.index.pending > 0); assert.ok(saved.index.failed.length)
-      slow = false; bridge.timeoutMs = 1000; writeBridge()
+      controls.slow = false; bridge.timeoutMs = 1000; writeBridge()
       assert.equal((await run('recall', question)).remembered.index.pending, 0)
     })
     await check('old false acknowledgements are repaired, but changed index bytes are never overwritten', async () => {
@@ -233,7 +187,7 @@ if (child) {
       assert.equal(calls.filter(call => call.path === '/api/v1/content/write').length, before)
     })
     await check('incomplete writes retain a deletion target across process exit', async () => {
-      vectorStatus = 'failed'
+      controls.vectorStatus = 'failed'
       const saved = await run('remember', 'The silver compass is stored inside a brass container.')
       assert.equal(saved.remembered, 1); assert.ok(saved.index.pending > 0)
       const uri = [...files.keys()].find(uri => files.get(uri).includes('silver compass'))
@@ -241,7 +195,7 @@ if (child) {
       assert.equal((await run('forget-index', saved.ids[0])).reached, true)
       assert.equal(files.has(uri), false)
     })
-    console.log(`kira-openviking-http: ${passed} passed, 0 failed; transport=${transport}; synthetic scores only`)
+    console.log(`kira-openviking-http: ${passed} passed, 0 failed; transport=http; synthetic scores only`)
   } catch (error) { console.error(`FAIL ${error.message}`); process.exitCode = 1 }
-  finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); rmSync(root, { recursive: true, force: true }) }
+  finally { await fixture.close(); rmSync(root, { recursive: true, force: true }) }
 }
