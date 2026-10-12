@@ -53,6 +53,7 @@ export function honestyRails(sight: RailSight): string {
   const can = [
     sight.repo === true ? 'read this repository read-only through the lens' : '',
     sight.organism === true ? 'see the state of the lanes you live among, read-only' : '',
+    sight.organismState === true ? 'read the organism state document read-only' : '',
     sight.web === true ? 'search the internet read-only' : '',
     sight.recall === true ? 'look up earlier conversations read-only' : '',
     sight.weights === true ? 'load and drop adapters on the weights that serve you' : '',

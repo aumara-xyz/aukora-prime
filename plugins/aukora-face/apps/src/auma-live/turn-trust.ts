@@ -28,7 +28,7 @@
  * being forgotten, and a list is what makes "forgotten" visible.
  */
 export const OUTSIDE_WORD_BLOCKS = Object.freeze([
-  'organism', 'claims', 'crossLane', 'lanes', 'screen',
+  'organism', 'organismState', 'claims', 'crossLane', 'lanes', 'screen',
   // **THE REPO LENS IS A SECOND DOOR FOR THE SAME BYTES.** `organism` covers the organism render, but the repo
   // LENS block is its own path into the system prompt, and it was missing here — so a deployment with the lens
   // wired and the organism lens absent composed a first segment holding file content while the turn counted as

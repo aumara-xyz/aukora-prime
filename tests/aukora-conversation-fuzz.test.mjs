@@ -23,7 +23,7 @@ const corpus = [
   '{"__proto__": {"polluted": true}, "value": 1}',
   '{"key": "k", "value": 1}', 'noise {"key":"k","value":0} noise',
 ]
-const blocks = ['organism', 'claims', 'crossLane', 'lanes', 'screen', 'repo']
+const blocks = ['organism', 'organismState', 'claims', 'crossLane', 'lanes', 'screen', 'repo']
 const operations = ['delete-char', 'dup-char', 'swap-chars', 'insert-json-punct',
   'insert-digit', 'insert-unicode', 'insert-key-token', 'insert-value-token', 'truncate', 'uppercase-key']
 const valid = '{"key": "lotus-pond", "value": 27}'
