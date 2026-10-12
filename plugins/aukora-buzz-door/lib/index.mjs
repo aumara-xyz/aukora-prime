@@ -45,6 +45,9 @@ export const WAKE_GAP_MS = 10_000
 export const WAKES_PER_HOUR = 40
 export const RESUME_GAP_MS = 10_000
 export const MAX_RESUME_GAP_MS = 60_000
+export const CALL_WAIT_MS = 10_000
+export const WAIT_REFUSE = Object.freeze({ POLL: 'buzz-wait:poll', DELIVERY: 'buzz-wait:delivery',
+  RELAY: 'buzz-wait:relay', RECORD: 'buzz-wait:wake-record', FOLLOWUP: 'buzz-wait:followup' })
 export const SESSION_REFUSE = Object.freeze({
   MISSING: 'buzz-session:not-found', UNAVAILABLE: 'buzz-session:resume-unavailable', RESUME: 'buzz-session:resume-failed',
 })
@@ -64,6 +67,23 @@ export const POST_RECEIPT_REFUSE = Object.freeze({
   PROPOSAL: 'buzz-receipt:proposal', SESSION: 'buzz-receipt:session',
 })
 const refuseReceipt = code => { throw Object.assign(new Error(code), { code }) }
+const waitError = code => Object.assign(new Error(code), { code })
+// Abandoned waits cannot continue into another effect or acknowledgement.
+function boundedWait(work, code, timeoutMs = CALL_WAIT_MS, signal) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort)
+      callback(value)
+    }
+    const abort = () => finish(reject, waitError(code))
+    const timer = setTimeout(abort, timeoutMs)
+    signal?.addEventListener('abort', abort, { once: true })
+    if (signal?.aborted) { abort(); return }
+    Promise.resolve().then(() => { if (!settled) return work() }).then(value => finish(resolve, value), error => finish(reject, error))
+  })
+}
 const DENIED_KEY_ROOTS = Object.freeze(['/sandbox', '/home/auma', '/tmp', '/var/tmp', '/dev/shm', '/proc'])
 const HEX64 = /^[0-9a-f]{64}$/iu
 const hex64 = value => typeof value === 'string' && HEX64.test(value) ? value.toLowerCase() : null
@@ -183,24 +203,27 @@ export function httpAuthHeader({ url, body, secretKeyHex, now = () => Date.now()
 
 async function relayPost(baseUrl, pathname, payload, secretKeyHex, { fetchImpl = fetch, now } = {}) {
   const url = baseUrl + pathname, body = JSON.stringify(payload)
-  let res
-  try {
-    res = await fetchImpl(url, { method: 'POST', body, redirect: 'error', signal: AbortSignal.timeout(10_000),
-      headers: { Authorization: httpAuthHeader({ url, body, secretKeyHex, now }), 'Content-Type': 'application/json' } })
-  } catch { throw new Error('buzz relay unavailable') }
-  if (!res.ok) throw new Error(`buzz relay refused (${res.status})`)
-  // Read at most MAX_RESPONSE_BYTES; a larger answer is refused whole rather than parsed.
-  let text = ''
-  try {
-    const decoder = new TextDecoder(); let bytes = 0
-    for await (const chunk of res.body) {
-      bytes += chunk.byteLength
-      if (bytes > MAX_RESPONSE_BYTES) throw new Error('too large')
-      text += decoder.decode(chunk, { stream: true })
-    }
-    text += decoder.decode()
-  } catch { throw new Error('buzz relay answer too large or unreadable') }
-  try { return JSON.parse(text) } catch { return null }
+  const controller = new AbortController()
+  try { return await boundedWait(async () => {
+    let res
+    try {
+      res = await fetchImpl(url, { method: 'POST', body, redirect: 'error', signal: controller.signal,
+        headers: { Authorization: httpAuthHeader({ url, body, secretKeyHex, now }), 'Content-Type': 'application/json' } })
+    } catch { throw new Error('buzz relay unavailable') }
+    if (!res.ok) throw new Error(`buzz relay refused (${res.status})`)
+    // Read at most MAX_RESPONSE_BYTES; a larger answer is refused whole rather than parsed.
+    let text = ''
+    try {
+      const decoder = new TextDecoder(); let bytes = 0
+      for await (const chunk of res.body) {
+        bytes += chunk.byteLength
+        if (bytes > MAX_RESPONSE_BYTES) throw new Error('too large')
+        text += decoder.decode(chunk, { stream: true })
+      }
+      text += decoder.decode()
+    } catch { throw new Error('buzz relay answer too large or unreadable') }
+    try { return JSON.parse(text) } catch { return null }
+  }, WAIT_REFUSE.RELAY) } finally { controller.abort() }
 }
 
 const tagValue = (event, name) => event.tags.find(t => Array.isArray(t) && t[0] === name)?.[1]
@@ -401,19 +424,21 @@ export function createWaker({ door, deliver, log = () => {}, now = () => Date.no
   return async function tick() {
     if (busy) return { skipped: true }
     busy = true
-    const poll = Symbol()
+    const controller = new AbortController(), poll = { signal: controller.signal }
     let delivered = 0, dropped = 0
     try {
-      for (const m of await door.poll()) {
+      for (const m of await boundedWait(() => door.poll(), WAIT_REFUSE.POLL)) {
         // Charge only a successful enqueue; backoff and delivery failures leave fresh messages retryable.
         try { limiter.check() } catch { dropped++; continue }
-        await deliver(wakeText(m), m, poll); limiter.take(); door.ack(m); delivered++
+        const result = await boundedWait(() => deliver(wakeText(m), m, poll), WAIT_REFUSE.DELIVERY, CALL_WAIT_MS * 4, poll.signal)
+        if (result?.unconfirmed) continue
+        limiter.take(); door.ack(m); delivered++
       }
       if (lastError !== null && delivered > 0) { log('AUKORA_BUZZ_DOOR_RECOVERED'); lastError = null }
     } catch (error) {
       const reason = door.scrub(error?.message ?? error)
       if (reason !== lastError) { log(`AUKORA_BUZZ_DOOR_FAILED ${reason}`); lastError = reason }
-    } finally { busy = false }
+    } finally { controller.abort(); busy = false }
     if (dropped) log(`AUKORA_BUZZ_DOOR_WAKE_RATE_LIMITED ${dropped}`)
     return { delivered, dropped }
   }
@@ -440,8 +465,12 @@ export function wakeMessage(text) {
 /** Resume only the configured stored session; failures back off and leave mentions unacknowledged. */
 export function createSessionDelivery({ door, agents, getSessionController, sessionId, now = () => Date.now() }) {
   let retryAt = 0, failures = 0, lastRefusal, lastResumePoll
+  const uncertain = new Map()
   const refusal = (code, message) => Object.assign(new Error(message), { code })
   return async (text, message, poll) => {
+    for (const [id, until] of uncertain) if (until <= now()) uncertain.delete(id)
+    // An unconfirmed enqueue may already have taken effect; never enqueue that fresh event again.
+    if (uncertain.has(message.id)) return { unconfirmed: true }
     let agent = pickAgent(agents, sessionId)
     if (agent === null) {
       const controller = getSessionController?.()
@@ -453,7 +482,7 @@ export function createSessionDelivery({ door, agents, getSessionController, sess
       lastResumePoll = poll
       try {
         // resolveAgent resumes existing storage only; session/create would also create an unknown id.
-        const result = await controller.resolveAgent(sessionId)
+        const result = await boundedWait(() => controller.resolveAgent(sessionId), SESSION_REFUSE.RESUME, CALL_WAIT_MS, poll?.signal)
         if (result?.error) throw result.error
         agent = pickAgent(agents, sessionId)
         if (result?.agent?.id !== sessionId || agent !== result.agent) throw refusal(SESSION_REFUSE.RESUME,
@@ -468,8 +497,15 @@ export function createSessionDelivery({ door, agents, getSessionController, sess
       }
     }
     retryAt = 0; failures = 0
-    await door.recordWake(message, sessionId)
-    await agent.followup(wakeMessage(text))
+    await boundedWait(() => door.recordWake(message, sessionId), WAIT_REFUSE.RECORD, CALL_WAIT_MS, poll?.signal)
+    uncertain.set(message.id, ((message.createdAt ?? Math.floor(now() / 1000)) + WAKE_WINDOW_S + 1) * 1000)
+    try {
+      await boundedWait(() => agent.followup(wakeMessage(text)), WAIT_REFUSE.FOLLOWUP, CALL_WAIT_MS, poll?.signal)
+      uncertain.delete(message.id)
+    } catch (error) {
+      if (error?.code !== WAIT_REFUSE.FOLLOWUP) uncertain.delete(message.id)
+      throw error
+    }
   }
 }
 

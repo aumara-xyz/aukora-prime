@@ -7,7 +7,7 @@ import path from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { createInvite, redeemInvite, verifyAdmission, createMemoryStore, REFUSE as INVITE_REFUSE } from '../packages/invites/index.mjs'
-import { publicKeyOf, randomSecretKey } from '../plugins/aukora-nostr/lib/event.mjs'
+import { publicKeyOf, randomSecretKey, signEvent } from '../plugins/aukora-nostr/lib/event.mjs'
 
 const source = fileURLToPath(new URL('../ops/node-spawn/invite.mjs', import.meta.url))
 const moduleUrl = process.env.NODE_SPAWN_INVITE_MODULE ?? pathToFileURL(source).href
@@ -114,7 +114,9 @@ test('authoritative replay, unadmitted ancestry and three-invite quota refuse', 
   await preflight({ config: f.config, offer: f.offer, now: NOW }, f.deps)
   await redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, f.deps)
   await rejected(() => preflight({ config: f.config, offer: f.offer, now: NOW }, f.deps), INVITE_REFUSE.REPLAY)
-  await rejected(() => redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, f.deps), INVITE_REFUSE.REPLAY)
+  const requests = f.requests.length
+  await redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, f.deps)
+  assert.equal(f.requests.length, requests, 'completed local request never spends again')
   const unadmittedKey = randomSecretKey()
   const parentInvite = createInvite({ root: f.root, secretKey: f.rootKey, now: NOW })
   const parentRedemption = redeemInvite({ invite: parentInvite, secretKey: unadmittedKey, now: NOW })
@@ -138,15 +140,160 @@ test('remote redemption binds the signed record to exactly the generated key and
   const other = path.join(f.privateDir, 'other-key')
   createKey(other, f.keyOptions)
   refusal(() => verifyBinding({ config: f.config, record, keyFile: other }, { keyOptions: f.keyOptions }), REFUSE.BINDING)
-  const different = { chain: [{ invite: f.invite, redemption: redeemInvite({ invite: f.invite, secretKey: randomSecretKey(), now: NOW }) }] }
-  await rejected(() => redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, {
-    keyOptions: f.keyOptions, fetchImpl: async () => reply({ admitted: true, record: different }),
-  }), REFUSE.BINDING)
-  for (const [data, status] of [[{ admitted: true, record }, 201], [{ admitted: false, record }, 200],
-    [{ admitted: true, record, extra: true }, 200]]) {
-    await rejected(() => redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, {
-      keyOptions: f.keyOptions, fetchImpl: async () => reply(data, status),
-    }), REFUSE.ADMISSION)
+  for (const variant of ['member', 'status', 'admitted', 'shape']) {
+    const g = fixture(t)
+    createKey(g.keyFile, g.keyOptions)
+    const different = { chain: [{ invite: g.invite, redemption: redeemInvite({ invite: g.invite, secretKey: randomSecretKey(), now: NOW }) }] }
+    await rejected(() => redeem({ config: g.config, offer: g.offer, keyFile: g.keyFile, now: NOW }, {
+      keyOptions: g.keyOptions, fetchImpl: async (url, options) => {
+        const body = JSON.parse(options.body), record = { chain: [...body.chain, { invite: body.invite, redemption: body.redemption }] }
+        const data = { admitted: variant !== 'admitted', record: variant === 'member' ? different : record }
+        if (variant === 'shape') data.extra = true
+        return reply(data, variant === 'status' ? 201 : 200)
+      },
+    }), REFUSE.SPENT)
+  }
+})
+
+const reordered = value => Array.isArray(value) ? value.map(reordered)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reordered(item)])) : value
+
+test('a spent admission with reordered JSON keys is accepted exactly once', async t => {
+  const f = fixture(t)
+  createKey(f.keyFile, f.keyOptions)
+  const fetchImpl = async (...args) => {
+    const response = await f.fetchImpl(...args)
+    return reply(reordered(await response.json()), response.status)
+  }
+  const record = await redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, { ...f.deps, fetchImpl })
+  assert.equal(f.spent.size, 1)
+  verifyBinding({ config: f.config, record, keyFile: f.keyFile }, f.deps)
+  assert.deepEqual(await redeem({ config: f.config, offer: reordered(f.offer), keyFile: f.keyFile, now: NOW + 172801 }, f.deps), record)
+  assert.equal(f.requests.length, 1)
+})
+
+test('valid alternative ancestry, offer and redemption values each refuse after spending', async t => {
+  for (const field of ['ancestry', 'offer', 'redemption']) {
+    const f = fixture(t)
+    createKey(f.keyFile, f.keyOptions)
+    let offer = f.offer, signer = f.rootKey
+    if (field === 'ancestry') {
+      signer = randomSecretKey()
+      offer = { chain: [{ invite: f.invite, redemption: redeemInvite({ invite: f.invite, secretKey: signer, now: NOW }) }],
+        invite: createInvite({ root: f.root, secretKey: signer, now: NOW }) }
+    }
+    let calls = 0
+    await rejected(() => redeem({ config: f.config, offer, keyFile: f.keyFile, now: NOW }, {
+      keyOptions: f.keyOptions, fetchImpl: async (url, options) => {
+        calls++
+        const body = JSON.parse(options.body), record = { chain: [...body.chain, { invite: body.invite, redemption: body.redemption }] }
+        const event = field === 'ancestry' ? record.chain[0].invite
+          : field === 'offer' ? record.chain.at(-1).invite : record.chain.at(-1).redemption
+        const oldId = event.id, oldSig = event.sig
+        signEvent(event, field === 'ancestry' ? f.rootKey : field === 'offer' ? signer : readKey(f.keyFile, f.keyOptions))
+        assert.equal(event.id, oldId, 'same bound event id')
+        assert.notEqual(event.sig, oldSig, 'different valid bound signature value')
+        return reply({ admitted: true, record })
+      },
+    }), REFUSE.SPENT)
+    assert.equal(calls, 1)
+  }
+})
+
+test('the generated expected ancestry is checked before spending and pending input changes refuse before transport', async t => {
+  const f = fixture(t)
+  createKey(f.keyFile, f.keyOptions)
+  const key = readKey(f.keyFile, f.keyOptions)
+  const ancestry = { invite: f.invite, redemption: redeemInvite({ invite: f.invite, secretKey: key, now: NOW }) }
+  const circular = { chain: [ancestry], invite: createInvite({ root: f.root, secretKey: key, now: NOW }) }
+  await rejected(() => redeem({ config: f.config, offer: circular, keyFile: f.keyFile, now: NOW }, f.deps), INVITE_REFUSE.MEMBER)
+  assert.equal(f.requests.length, 0)
+  await redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, f.deps)
+  const otherOffer = { chain: [], invite: createInvite({ root: f.root, secretKey: f.rootKey, now: NOW }) }
+  await rejected(() => redeem({ config: f.config, offer: otherOffer, keyFile: f.keyFile, now: NOW }, f.deps), REFUSE.BINDING)
+  await rejected(() => redeem({ config: { ...f.config, admission: 'https://changed.invalid' }, offer: f.offer,
+    keyFile: f.keyFile, now: NOW }, f.deps), REFUSE.BINDING)
+  assert.equal(f.requests.length, 1)
+})
+
+test('spent then mismatched record persists an exact resume step and a second run spends nothing', async t => {
+  const f = fixture(t), output = [], errors = []
+  createKey(f.keyFile, f.keyOptions)
+  const configFile = path.join(f.privateDir, 'config.json'), offerFile = path.join(f.privateDir, 'offer.json')
+  const authorityRecord = path.join(f.privateDir, 'authority-record.json')
+  fs.writeFileSync(configFile, JSON.stringify(f.config)); fs.writeFileSync(offerFile, JSON.stringify(f.offer))
+  const args = ['redeem', '--config', configFile, '--offer', offerFile, '--key-file', f.keyFile, '--out', f.recordFile]
+  let exact, spends = 0
+  const fetchImpl = async (url, options) => {
+    const result = await f.fetchImpl(url, options), data = await result.json()
+    if (data.admitted) { spends++; exact = data.record }
+    const different = { chain: [{ invite: f.invite, redemption: redeemInvite({ invite: f.invite,
+      secretKey: randomSecretKey(), now: NOW }) }] }
+    return reply({ admitted: true, record: different })
+  }
+  const deps = { ...f.deps, fetchImpl, now: () => NOW, out: line => output.push(line), err: line => errors.push(line) }
+  assert.equal(await runCli(args, deps), 1)
+  assert.match(errors.join('\n'), new RegExp(`SPENT_NOT_CONFIRMED invite_id=${f.invite.id} cause=${REFUSE.BINDING}`))
+  assert.ok(errors.at(-1).endsWith('--resume-record AUTHORITY_RECORD_PATH'))
+  assert.ok(errors.at(-1).includes(args.map(arg => "'" + arg + "'").join(' ')), 'exact original command is preserved')
+  const pending = readJson(f.keyFile + '.invite-pending.json')
+  const saved = readJson(f.keyFile + '.invite-response.json')
+  assert.equal(pending.redemption.id, exact.chain.at(-1).redemption.id)
+  assert.equal(saved.data.record.chain.at(-1).redemption.pubkey === pending.member, false)
+  for (const file of [f.keyFile + '.invite-pending.json', f.keyFile + '.invite-response.json', f.recordFile]) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'state and reserved output stay private under umask 002')
+  }
+  assert.equal(await runCli(args, { ...deps, now: () => NOW + 172801 }), 1)
+  assert.equal(spends, 1)
+  assert.equal(f.requests.length, 1, 'a repeated command never dispatches the invite again')
+  fs.writeFileSync(authorityRecord, JSON.stringify(reordered(exact)))
+  assert.equal(await runCli([...args, '--resume-record', authorityRecord], { ...deps, now: () => NOW + 172801 }), 0)
+  assert.equal(spends, 1)
+  assert.deepEqual(readJson(f.recordFile), reordered(exact))
+  assert.equal(fs.statSync(f.keyFile + '.invite-confirmed.json').mode & 0o777, 0o600)
+  assert.equal(await runCli(args, { ...deps, now: () => NOW + 172801 }), 0, 'plain rerun uses the persisted reconciliation')
+  assert.equal(f.requests.length, 1)
+  assert.deepEqual(output, ['ADMITTED', 'ADMITTED'])
+})
+
+test('unwritable or occupied output and non-durable pending state refuse before spending', async t => {
+  for (const variant of ['existing', 'unsafe', 'sync', 'occupied-response', 'occupied-confirmation']) {
+    const f = fixture(t)
+    createKey(f.keyFile, f.keyOptions)
+    if (variant === 'existing') fs.writeFileSync(f.recordFile, '{}', { mode: 0o600 })
+    if (variant === 'unsafe') fs.chmodSync(f.privateDir, 0o755)
+    if (variant === 'occupied-response') fs.writeFileSync(f.keyFile + '.invite-response.json', '{}', { mode: 0o600 })
+    if (variant === 'occupied-confirmation') fs.writeFileSync(f.keyFile + '.invite-confirmed.json', '{}', { mode: 0o600 })
+    const originalSync = fs.fsyncSync
+    if (variant === 'sync') fs.fsyncSync = fd => {
+      if (fs.fstatSync(fd).isDirectory()) throw Object.assign(new Error('fixture'), { code: 'EIO' })
+      return originalSync(fd)
+    }
+    try { await assert.rejects(() => redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile,
+      recordFile: f.recordFile, now: NOW }, f.deps)) }
+    finally { fs.fsyncSync = originalSync }
+    assert.equal(f.requests.length, 0, variant + ' never spends')
+  }
+})
+
+test('pending and saved responses refuse unsafe files and malformed local bindings before another spend', async t => {
+  for (const variant of ['pending-mode', 'pending-link', 'pending-shape', 'member', 'response-mode']) {
+    const f = fixture(t)
+    createKey(f.keyFile, f.keyOptions)
+    await redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, f.deps)
+    const pendingFile = f.keyFile + '.invite-pending.json', responseFile = f.keyFile + '.invite-response.json'
+    if (variant === 'pending-mode') fs.chmodSync(pendingFile, 0o644)
+    if (variant === 'pending-link') fs.linkSync(pendingFile, path.join(f.privateDir, 'linked-pending'))
+    if (variant === 'pending-shape') fs.writeFileSync(pendingFile, '{}')
+    if (variant === 'member') {
+      const state = readJson(pendingFile)
+      state.member = publicKeyOf(randomSecretKey())
+      fs.writeFileSync(pendingFile, JSON.stringify(state))
+    }
+    if (variant === 'response-mode') fs.chmodSync(responseFile, 0o644)
+    await rejected(() => redeem({ config: f.config, offer: f.offer, keyFile: f.keyFile, now: NOW }, f.deps),
+      variant === 'member' ? REFUSE.BINDING : REFUSE.FILE)
+    assert.equal(f.requests.length, 1, variant + ' never dispatches again')
   }
 })
 
@@ -244,12 +391,25 @@ if (process.argv.includes('--mutations')) test('removing each new protection fai
     ['preflight-shape', "!fields(data, ['available', 'invite_id'])", 'false'],
     ['preflight-available', 'data.available !== true', 'false'],
     ['preflight-invite', 'data.invite_id !== offer.invite.id', 'false'],
-    ['remote-refusal-code', "if (response.status !== 200 && fields(data, ['code'])", "if (false && fields(data, ['code'])"],
+    ['remote-refusal-code', "if (route !== '/redeem' && response.status !== 200 && fields(data, ['code'])", "if (false && fields(data, ['code'])"],
     ['response-bound', 'if (length > MAX_BYTES)', 'if (false)'],
-    ['redeem-status', "if (status !== 200 || !fields(data, ['admitted', 'record'])", "if (false || !fields(data, ['admitted', 'record'])"],
-    ['redeem-shape', "!fields(data, ['admitted', 'record'])", 'false'],
-    ['redeem-admitted', 'data.admitted !== true', 'false'],
-    ['redeem-binding', 'if (checked.member !== publicKeyOf(key) || JSON.stringify(data.record) !== JSON.stringify(expected))', 'if (false)'],
+    ['redeem-status', 'response.status !== 200', 'false'],
+    ['redeem-shape', "!fields(response.data, ['admitted', 'record'])", 'false'],
+    ['redeem-admitted', 'response.data.admitted !== true', 'false'],
+    ['canonical-values', 'canonicalJson(left) === canonicalJson(right)', 'JSON.stringify(left) === JSON.stringify(right)'],
+    ['redeem-binding', '|| !sameValue(last.redemption, redemption)', '|| false'],
+    ['redeem-offer-binding', '|| !sameValue(last.invite, offer.invite)', '|| false'],
+    ['redeem-ancestry-binding', 'if (!sameValue(record.chain.slice(0, -1), offer.chain)', 'if (false'],
+    ['redeem-member-binding', '|| !sameValue(last.redemption, redemption)\n    || checked.member !== member', '|| false'],
+    ['expected-before-spend', '  boundRecord(config, expected, offer, redemption, member)', ''],
+    ['request-not-resent', "    } else response = privateJson(responseFile, keyOptions)", "    } else response = await post(config, '/redeem', { root: config.root, ...offer, redemption }, fetchImpl)"],
+    ['pending-offer-binding', '|| !sameValue(pending.offer.chain, offer.chain) || !sameValue(pending.offer.invite, offer.invite)', '|| false'],
+    ['pending-endpoint-binding', '|| pending.version !== 1 || !sameValue(pending.config, config)', '|| pending.version !== 1'],
+    ['pending-member-binding', '|| pending.member !== member', '|| false'],
+    ['pending-file-custody', "if (!st.isFile() || st.nlink !== 1 || st.uid !== (options?.uid ?? process.getuid())\n      || (st.mode & 0o777) !== 0o600 || st.size < 1 || st.size > MAX_BYTES)", 'if (false)'],
+    ['output-before-spend', 'const output = recordOutput(recordFile, Boolean(pending), expected, keyOptions)', 'const output = undefined'],
+    ['pending-directory-sync', '    fs.fsyncSync(fd)\n  } catch { throw fail(REFUSE.FILE) }', '  } catch { throw fail(REFUSE.FILE) }'],
+    ['response-path-before-spend', '  if (!pending && (privateJson(responseFile, keyOptions) || privateJson(confirmedFile, keyOptions))) throw fail(REFUSE.FILE)', ''],
     ['resume-binding', 'if (checked.member !== publicKeyOf(key))', 'if (false)'],
     ['exclusive-key', 'fs.constants.O_CREAT | fs.constants.O_EXCL', 'fs.constants.O_CREAT'],
     ['key-home-custody', '    privateParent(file, options)', ''],
@@ -267,6 +427,7 @@ if (process.argv.includes('--mutations')) test('removing each new protection fai
     let mutant = original.replaceAll(before, after)
     mutant = mutant.replace("'../../packages/invites/index.mjs'", JSON.stringify(pathToFileURL(path.resolve(source, '../../../packages/invites/index.mjs')).href))
       .replace("'../../plugins/aukora-nostr/lib/event.mjs'", JSON.stringify(pathToFileURL(path.resolve(source, '../../../plugins/aukora-nostr/lib/event.mjs')).href))
+      .replace("'../../packages/contracts/src/json.mjs'", JSON.stringify(pathToFileURL(path.resolve(source, '../../../packages/contracts/src/json.mjs')).href))
     fs.writeFileSync(mutantFile, mutant)
     const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', fileURLToPath(import.meta.url)], {
       encoding: 'utf8', timeout: 30000, env: { ...process.env, NODE_SPAWN_INVITE_MODULE: pathToFileURL(mutantFile).href },

@@ -48,7 +48,9 @@ if(args[0].endsWith('/invite.mjs')) {
     for(const prior of body.chain){if(!state.transaction(tx=>tx.admission(body.root,prior.redemption.pubkey)))return Response.json({code:'invites:unadmitted'},{status:403})}
     return Response.json({available:true,invite_id:body.invite.id});
    }
-   const result=verifyAdmission({...body,state,now:Math.floor(Date.now()/1000)});return Response.json({admitted:true,record:result.record});
+   const result=verifyAdmission({...body,state,now:Math.floor(Date.now()/1000)});
+   if(process.env.MISMATCH_REPLY==='1') {log('authority-record',result.record);return Response.json({admitted:true,record:{chain:[]}})}
+   return Response.json({admitted:true,record:result.record});
   }catch(e){return Response.json({code:e.code},{status:403})}finally{state.close()}
  };
  process.exitCode=await runCli(args.slice(1),{fetchImpl});
@@ -174,6 +176,55 @@ test('owner enrollment pause spends nothing and resumes; approval pause preserve
   const count = f.events().length, result = f.run(); assert.equal(result.status, 0, result.stderr)
   assert.ok(!f.events().slice(count).some(row => ['key', 'redeem', 'materialize'].includes(row[0]) || row[0] === 'bootstrap' && row[2] === 'raise'))
 })
+test('phase two spent mismatch resumes locally before availability checks and does not spend either identity twice', t => {
+  const f = fixture(t)
+  refused(f.run({ MISMATCH_REPLY: '1' }), 'INVITE_SPENT_NOT_CONFIRMED')
+  const count = f.events().length
+  refused(f.run(), 'INVITE_SPENT_NOT_CONFIRMED')
+  assert.ok(!f.events().slice(count).some(row => row[0] === 'preflight'), 'spent identity reaches its saved response')
+  assert.equal(f.events().filter(row => row[0] === 'authority-record').length, 1)
+  const record = f.events().find(row => row[0] === 'authority-record')[1]
+  const memberHome = path.join(f.root, 'home/aukora-member')
+  const keyFile = path.join(memberHome, '.config/aukora-node/node-key')
+  const pendingFile = keyFile + '.invite-pending.json', expected = JSON.parse(fs.readFileSync(pendingFile))
+  assert.deepEqual(record.chain, [...expected.offer.chain, { invite: expected.offer.invite, redemption: expected.redemption }])
+  // This fixture supplies the authority's exported record through the adapter's local resume route.
+  const confirmation = path.join(f.base, 'confirmation.json')
+  f.write(confirmation, JSON.stringify(record), 0o600)
+  const args = ['redeem',
+    '--config', path.join(memberHome, '.config/aukora-node/spawn-config.json'), '--offer', path.join(memberHome, '.config/aukora-node/offer.json'),
+    '--key-file', keyFile, '--out', path.join(memberHome, '.config/aukora-node/admission.json'), '--resume-record', confirmation]
+  const adapter = `import { runCli } from ${JSON.stringify(pathToFileURL(path.join(repo, 'ops/node-spawn/invite.mjs')).href)};
+process.exitCode = await runCli(JSON.parse(process.argv[1]), { keyOptions: { home: process.argv[2] } });`
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', adapter, JSON.stringify(args), memberHome], {
+    encoding: 'utf8', timeout: 30000, env: { ...process.env, NODE_NO_WARNINGS: '1' },
+  })
+  assert.equal(result.status, 0, result.stderr)
+  const resumed = f.run()
+  assert.equal(resumed.status, 0, resumed.stderr)
+  assert.equal(f.events().filter(row => row[0] === 'authority-record').length, 1, 'member never dispatches a second spend')
+})
+test('reintroducing availability checks after spending blocks the resume regression', t => {
+  const before = 'if [[ $phase -lt 2 ]]; then verify_invites; fi'
+  assert.ok(shell.includes(before))
+  const f = fixture(t, { script: shell.replace(before, 'if [[ $phase -lt 3 ]]; then verify_invites; fi') })
+  refused(f.run({ MISMATCH_REPLY: '1' }), 'INVITE_SPENT_NOT_CONFIRMED')
+  assert.throws(() => refused(f.run(), 'INVITE_SPENT_NOT_CONFIRMED'), { name: 'AssertionError' })
+  t.diagnostic('MUTATION KILLED spent-resume-availability')
+})
+test('phase two resume still checks source inputs before recovery and its removal fails', t => {
+  const guard = 'if [[ $phase -eq 2 ]]; then run python3 -I -S "$HERE/stage.py" precheck "$config" "${root:-/}"; fi'
+  assert.ok(shell.includes(guard))
+  for (const mutant of [false, true]) {
+    const f = fixture(t, { script: mutant ? shell.replace(guard, ':') : shell })
+    refused(f.run({ MISMATCH_REPLY: '1' }), 'INVITE_SPENT_NOT_CONFIRMED')
+    f.write(path.join(f.source, 'packages/owner-key/source'), 'changed source input\n')
+    if (mutant) assert.throws(() => refused(f.run(), 'SPAWN_SOURCE_DIRTY'), { name: 'AssertionError' })
+    else refused(f.run(), 'SPAWN_SOURCE_DIRTY')
+    assert.equal(f.events().filter(row => row[0] === 'authority-record').length, 1)
+  }
+  t.diagnostic('MUTATION KILLED spent-resume-precheck')
+})
 test('changed installed admission/config/key or original inputs refuse completed resume', t => {
   const f = checkOrder(t)
   for (const file of ['home/aukora-host/.config/aukora-buzz/spawn-config.json', 'home/aukora-member/.config/aukora-node/node-key', 'home/aukora-member/.config/aukora-node/admission.json']) {
@@ -198,7 +249,7 @@ test('order, preload, owner barrier and resume binding mutants fail regressions'
   keyProbe.write(path.join(keyProbe.root, 'home/aukora-member/.config/aukora-node/node-key'), 'preexisting fixture', 0o600)
   assert.throws(() => refused(keyProbe.run(), 'SPAWN_KEY_EXISTS'), { name: 'AssertionError' }); t.diagnostic('MUTATION KILLED key-preflight')
   for (const [name, before, after] of [
-    ['verify-first', 'if [[ $phase -lt 3 ]]; then verify_invites; fi', ':'],
+    ['verify-first', 'if [[ $phase -lt 2 ]]; then verify_invites; fi', ':'],
     ['owner-enrollment', '&& ! -f $(path /etc/aukora-boundary-gate/owner-state.json)', '&& 1 == 2'],
     ['owner-approval', 'then owner_next; refuse OWNER_APPROVAL_REQUIRED;', 'then owner_next; :;'],
   ]) {

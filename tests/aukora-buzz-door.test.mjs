@@ -16,7 +16,7 @@ import { isValidEvent, publicKeyOf, randomSecretKey, signEvent, eventId } from '
 import { createDoor, createDoorTools, createWaker, createSessionDelivery, createRateLimiter, gateCall, httpAuthHeader, loadKey, pickAgent, wakeText,
   POST_GAP_MS, POSTS_PER_HOUR, WAKE_GAP_MS, WAKES_PER_HOUR, MAX_RESPONSE_BYTES, MAX_EVENT_TAGS,
   MAX_TEXT_BYTES, MAX_READ_OUTPUT_CHARS, READ_BODY_CHARS, MAX_CONFIG_BYTES, POST_TOOL, READ_TOOL, RELAY_HTTP, apply, loadConfig, wakeMessage, WAKE_REFUSE,
-  RESUME_GAP_MS, MAX_RESUME_GAP_MS, SESSION_REFUSE } from '../plugins/aukora-buzz-door/lib/index.mjs'
+  RESUME_GAP_MS, MAX_RESUME_GAP_MS, SESSION_REFUSE, CALL_WAIT_MS, WAIT_REFUSE, WAKE_WINDOW_S, FUTURE_SLACK_S } from '../plugins/aukora-buzz-door/lib/index.mjs'
 
 import { schnorr } from '../plugins/aukora-nostr/lib/vendor/noble-curves/curves/secp256k1.js'
 
@@ -526,6 +526,176 @@ test('session restart: a resolver cannot return a different session or an unregi
 test('waker: an empty poll does not clear a standing failure state', () => checkFailureState({ createWaker }))
 test('session restart: each poll permits at most one resume attempt', () => checkOneResumePerPoll({ createSessionDelivery, createWaker }))
 
+const flushWaits = async () => { for (let i = 0; i < 100; i++) await Promise.resolve() }
+async function expireWait(t, operation, ms = CALL_WAIT_MS) {
+  let settled = false, result, error
+  operation.then(value => { settled = true; result = value }, value => { settled = true; error = value })
+  await flushWaits(); t.mock.timers.tick(ms); await flushWaits()
+  assert.equal(settled, true, 'the deadline must settle the abandoned wait')
+  if (error) throw error
+  return result
+}
+
+async function checkHungResume(module, t, late = false) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const f = sessionRecorder(module), resume = f.service.resolveAgent.bind(f.service)
+    let abandoned
+    f.service.resolveAgent = id => {
+      if (f.resumes.length) return resume(id)
+      f.resumes.push(id)
+      return new Promise(resolve => { abandoned = () => { f.makeLive(); resolve({ agent: f.agents.get(SESSION) }) } })
+    }
+    const waiting = f.tick()
+    await flushWaits(); assert.deepEqual(await f.tick(), { skipped: true })
+    assert.deepEqual(await expireWait(t, waiting), { delivered: 0, dropped: 0 })
+    assert.deepEqual(f.handed, []); assert.deepEqual(f.notes, [])
+    assert.deepEqual(await f.tick(), { delivered: 0, dropped: 0 }, 'timeout releases busy for the next poll')
+    assert.deepEqual(f.resumes, [SESSION], 'timeout enters the existing resume backoff')
+    assert.equal(f.lines.length, 1, 'unchanged timeout is logged only once')
+    if (late) {
+      abandoned(); await flushWaits()
+      assert.deepEqual(f.handed, [], 'a late resume must not deliver the abandoned mention')
+      assert.deepEqual(f.notes, [], 'a late resume must not record a wake')
+      assert.equal((await f.door.poll()).length, 1, 'a late resume must not acknowledge the mention')
+    }
+    f.advance(RESUME_GAP_MS)
+    assert.deepEqual(await f.tick(), { delivered: 1, dropped: 0 })
+    if (!late) { abandoned(); await flushWaits() }
+    await f.tick(); f.advance(WAKE_GAP_MS); await f.tick()
+    assert.equal(f.handed.length, 1, 'a later successful attempt delivers exactly once despite the abandoned result')
+    assert.equal(f.notes.length, 1); assert.deepEqual(f.creates, []); assert.equal(f.roots(), 0)
+    assert.deepEqual(f.lines, ['AUKORA_BUZZ_DOOR_FAILED configured Buzz session resume failed; will retry', 'AUKORA_BUZZ_DOOR_RECOVERED'])
+  } finally { t.mock.timers.reset() }
+}
+
+async function checkHungRecord(module, t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const f = sessionRecorder(module); f.makeLive()
+    const record = f.door.recordWake.bind(f.door); let abandoned
+    f.door.recordWake = () => new Promise(resolve => { abandoned = resolve })
+    assert.deepEqual(await expireWait(t, f.tick()), { delivered: 0, dropped: 0 })
+    assert.deepEqual(f.handed, [])
+    abandoned(wakeAck()); await flushWaits()
+    assert.deepEqual(f.handed, [], 'a late wake record cannot continue into followup')
+    assert.equal((await f.door.poll()).length, 1)
+    f.door.recordWake = record
+    assert.deepEqual(await f.tick(), { delivered: 1, dropped: 0 }); await f.tick()
+    assert.equal(f.handed.length, 1)
+  } finally { t.mock.timers.reset() }
+}
+
+async function checkHungFollowup(module, t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const f = sessionRecorder(module); f.makeLive()
+    let abandoned, calls = 0
+    f.agents.get(SESSION).followup = () => { calls++; return new Promise(resolve => { abandoned = resolve }) }
+    assert.deepEqual(await expireWait(t, f.tick()), { delivered: 0, dropped: 0 })
+    assert.deepEqual(await expireWait(t, f.tick()), { delivered: 0, dropped: 0 })
+    abandoned(); await flushWaits(); await expireWait(t, f.tick())
+    assert.equal(calls, 1, 'an ambiguous enqueue is never dispatched a second time')
+    assert.equal((await f.door.poll()).length, 1, 'late followup completion cannot acknowledge delivery')
+    assert.deepEqual(f.lines, [`AUKORA_BUZZ_DOOR_FAILED ${WAIT_REFUSE.FOLLOWUP}`])
+    // Other mentions remain deliverable even while this one is unconfirmed.
+    const held = (await f.door.poll())[0], another = { ...held, id: 'c'.repeat(64) }, acknowledged = []
+    f.door.poll = async () => acknowledged.includes(another.id) ? [held] : [held, another]
+    f.door.ack = message => acknowledged.push(message.id)
+    f.agents.get(SESSION).followup = async () => { calls++ }
+    assert.deepEqual(await f.tick(), { delivered: 1, dropped: 0 })
+    assert.deepEqual(acknowledged, [another.id]); assert.equal(calls, 2)
+  } finally { t.mock.timers.reset() }
+}
+
+async function checkFutureQuarantine(module, t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const f = sessionRecorder(module); f.makeLive()
+    const future = { ...(await f.door.poll())[0], createdAt: Math.floor(Date.now() / 1000) + FUTURE_SLACK_S }
+    f.door.poll = async () => [future]
+    let calls = 0
+    f.agents.get(SESSION).followup = () => { calls++; return new Promise(() => {}) }
+    await expireWait(t, f.tick())
+    f.advance(WAKE_WINDOW_S * 1000 + 1)
+    await expireWait(t, f.tick())
+    assert.equal(calls, 1, 'a future-dated fresh event remains quarantined for its entire eligibility window')
+  } finally { t.mock.timers.reset() }
+}
+
+async function checkHungPoll(module, t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const f = sessionRecorder(module), poll = f.door.poll.bind(f.door); let abandoned
+    f.door.poll = () => new Promise(resolve => { abandoned = resolve })
+    assert.deepEqual(await expireWait(t, f.tick()), { delivered: 0, dropped: 0 })
+    abandoned([{ id: 'late', text: 'late' }]); await flushWaits()
+    assert.deepEqual(f.handed, []); assert.deepEqual(f.notes, [])
+    f.door.poll = poll
+    assert.deepEqual(await f.tick(), { delivered: 1, dropped: 0 }); await f.tick()
+    assert.equal(f.handed.length, 1)
+  } finally { t.mock.timers.reset() }
+}
+
+async function checkHungDelivery(module, t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const acknowledged = [], message = { id: 'e'.repeat(64), text: 'held' }
+    let abandoned, hung = true
+    const door = { poll: async () => acknowledged.length ? [] : [message], scrub: String, ack: m => acknowledged.push(m.id) }
+    const tick = module.createWaker({ door, deliver: () => hung ? new Promise(resolve => { abandoned = resolve }) : Promise.resolve() })
+    assert.deepEqual(await expireWait(t, tick(), CALL_WAIT_MS * 4), { delivered: 0, dropped: 0 })
+    abandoned(); await flushWaits(); assert.deepEqual(acknowledged, [], 'a late delivery result cannot acknowledge the abandoned tick')
+    hung = false; assert.deepEqual(await tick(), { delivered: 1, dropped: 0 }); await tick()
+    assert.deepEqual(acknowledged, [message.id])
+  } finally { t.mock.timers.reset() }
+}
+
+async function checkRelayDeadline(module, t, body = false) {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    let signal, abandoned
+    const door = module.createDoor({ getKey: () => randomSecretKey(), channel: CHANNEL,
+      fetchImpl: (_url, init) => {
+        signal = init.signal
+        return body ? Promise.resolve({ ok: true, body: { async *[Symbol.asyncIterator]() { await new Promise(resolve => { abandoned = resolve }); yield Buffer.from('[]') } } })
+          : new Promise(resolve => { abandoned = () => resolve(new Response('[]')) })
+      } })
+    await assert.rejects(expireWait(t, door.poll()), { code: WAIT_REFUSE.RELAY })
+    assert.equal(signal.aborted, true, 'the abandoned relay request is aborted as well as bounded')
+    abandoned(); await flushWaits()
+  } finally { t.mock.timers.reset() }
+}
+
+async function checkCancelledDispatch(module, _t, alreadyAborted = false) {
+  const controller = new AbortController(); let records = 0, follows = 0
+  const agent = { id: SESSION, followup: async () => { follows++ } }
+  const deliver = module.createSessionDelivery({ door: { recordWake: async () => { records++; return wakeAck() } },
+    agents: { get: () => agent }, sessionId: SESSION })
+  if (alreadyAborted) controller.abort()
+  const waiting = deliver('abandoned', { id: 'd'.repeat(64) }, { signal: controller.signal })
+  controller.abort()
+  await assert.rejects(waiting, { code: WAIT_REFUSE.RECORD }); await flushWaits()
+  assert.equal(records, 0, 'abandonment before dispatch cannot start the wake record')
+  assert.equal(follows, 0)
+}
+
+test('session restart: a never-settling resume releases busy, backs off and later delivers once', t => checkHungResume({ createSessionDelivery, createWaker }, t))
+test('session restart: a resume arriving after its deadline cannot wake or acknowledge', t => checkHungResume({ createSessionDelivery, createWaker }, t, true))
+test('waker: a stalled wake record cannot continue after its deadline', t => checkHungRecord({ createSessionDelivery, createWaker }, t))
+test('waker: a stalled followup is unconfirmed and cannot be dispatched or acknowledged twice', t => checkHungFollowup({ createSessionDelivery, createWaker }, t))
+test('waker: unconfirmed future-dated mentions remain held throughout their freshness window', t => checkFutureQuarantine({ createSessionDelivery, createWaker }, t))
+test('waker: a stalled poll releases busy and its late result is ignored', t => checkHungPoll({ createSessionDelivery, createWaker }, t))
+test('waker: the entire delivery has a deadline and cannot acknowledge on late completion', t => checkHungDelivery({ createWaker }, t))
+test('relay: fetch and response-body waits each have a deadline even if transport ignores abort', async t => {
+  await t.test('fetch', t => checkRelayDeadline({ createDoor }, t))
+  await t.test('response body', t => checkRelayDeadline({ createDoor }, t, true))
+})
+test('waker: abandonment before dispatch cannot start another harness or gate effect', async t => {
+  await checkCancelledDispatch({ createSessionDelivery }, t)
+  await checkCancelledDispatch({ createSessionDelivery }, t, true)
+})
+
 async function doorMutant(from, to) {
   const url = new URL('../plugins/aukora-buzz-door/lib/index.mjs', import.meta.url)
   let source = fs.readFileSync(url, 'utf8')
@@ -536,9 +706,9 @@ async function doorMutant(from, to) {
 
 test('session restart: exact id, no creation, retry bounds, single delivery and log-state mutants die', async t => {
   const cases = [
-    ['resume another stored session', 'const result = await controller.resolveAgent(sessionId)', "const result = await controller.resolveAgent('another-root')", checkRestart],
+    ['resume another stored session', '() => controller.resolveAgent(sessionId)', "() => controller.resolveAgent('another-root')", checkRestart],
     ['create unknown configured session', 'if (result?.error) throw result.error', 'if (result?.error) { await controller.create({ sessionId }); result.agent = agents.get(sessionId); delete result.error }', checkMissingSession],
-    ['deliver twice', 'await agent.followup(wakeMessage(text))', 'await agent.followup(wakeMessage(text)); await agent.followup(wakeMessage(text))', checkRestart],
+    ['deliver twice', '() => agent.followup(wakeMessage(text))', 'async () => { await agent.followup(wakeMessage(text)); await agent.followup(wakeMessage(text)) }', checkRestart],
     ['forget acknowledgement', 'limiter.take(); door.ack(m); delivered++', 'limiter.take(); delivered++', checkRestart],
     ['retry without backoff', 'if (now() < retryAt) throw lastRefusal', '', checkResumeFailure],
     ['remove resume backoff cap', 'Math.min(MAX_RESUME_GAP_MS, RESUME_GAP_MS * 2 ** Math.min(failures - 1, 6))', 'RESUME_GAP_MS * 2 ** Math.min(failures - 1, 6)', checkResumeCap],
@@ -552,6 +722,30 @@ test('session restart: exact id, no creation, retry bounds, single delivery and 
   for (const [label, from, to, check] of cases) await t.test(label, async () => {
     const mutant = await doorMutant(from, to)
     await assert.rejects(check(mutant), assert.AssertionError, 'the same regression must reject the mutated source')
+  })
+})
+
+test('deadlines: removed bounds, late continuation, stuck busy and duplicate enqueue mutants die', async t => {
+  const cases = [
+    ['no resume deadline', 'await boundedWait(() => controller.resolveAgent(sessionId), SESSION_REFUSE.RESUME, CALL_WAIT_MS, poll?.signal)', 'await controller.resolveAgent(sessionId)', checkHungResume],
+    ['accept late resume', '() => controller.resolveAgent(sessionId)', '() => controller.resolveAgent(sessionId).then(async result => { if (result.agent) await result.agent.followup(wakeMessage(text)); return result })', (module, t) => checkHungResume(module, t, true)],
+    ['busy stays set', 'controller.abort(); busy = false', 'controller.abort()', checkHungResume],
+    ['no wake-record deadline', 'await boundedWait(() => door.recordWake(message, sessionId), WAIT_REFUSE.RECORD, CALL_WAIT_MS, poll?.signal)', 'await door.recordWake(message, sessionId)', checkHungRecord],
+    ['no followup deadline', 'await boundedWait(() => agent.followup(wakeMessage(text)), WAIT_REFUSE.FOLLOWUP, CALL_WAIT_MS, poll?.signal)', 'await agent.followup(wakeMessage(text))', checkHungFollowup],
+    ['repeat ambiguous enqueue', 'if (uncertain.has(message.id)) return { unconfirmed: true }', '', checkHungFollowup],
+    ['acknowledge unconfirmed enqueue', 'if (result?.unconfirmed) continue', '', checkHungFollowup],
+    ['block later mentions', 'if (uncertain.has(message.id)) return { unconfirmed: true }', 'if (uncertain.has(message.id)) throw waitError(WAIT_REFUSE.FOLLOWUP)', checkHungFollowup],
+    ['expire quarantine before event', '((message.createdAt ?? Math.floor(now() / 1000)) + WAKE_WINDOW_S + 1) * 1000', 'now() + WAKE_WINDOW_S * 1000', checkFutureQuarantine],
+    ['no poll deadline', 'await boundedWait(() => door.poll(), WAIT_REFUSE.POLL)', 'await door.poll()', checkHungPoll],
+    ['no delivery deadline', 'await boundedWait(() => deliver(wakeText(m), m, poll), WAIT_REFUSE.DELIVERY, CALL_WAIT_MS * 4, poll.signal)', 'await deliver(wakeText(m), m, poll)', checkHungDelivery],
+    ['no relay deadline', '}, WAIT_REFUSE.RELAY) } finally', '}, WAIT_REFUSE.RELAY, CALL_WAIT_MS * 2) } finally', checkRelayDeadline],
+    ['do not abort relay', 'finally { controller.abort() }', 'finally {}', checkRelayDeadline],
+    ['dispatch after abandonment', 'if (!settled) return work()', 'return work()', checkCancelledDispatch],
+    ['ignore prior abandonment', 'if (signal?.aborted) { abort(); return }', '', (module, t) => checkCancelledDispatch(module, t, true)],
+  ]
+  for (const [label, from, to, check] of cases) await t.test(label, async t => {
+    const mutant = await doorMutant(from, to)
+    await assert.rejects(check(mutant, t), assert.AssertionError, 'the same regression must reject the mutated source')
   })
 })
 

@@ -157,7 +157,8 @@ if [[ $dry == 0 && $phase == 8 ]]; then
   owner_next
   exit 0
 fi
-if [[ $phase -lt 3 ]]; then verify_invites; fi
+if [[ $phase -lt 2 ]]; then verify_invites; fi
+if [[ $phase -eq 2 ]]; then run python3 -I -S "$HERE/stage.py" precheck "$config" "${root:-/}"; fi
 if [[ $phase -lt 1 ]]; then
   create_users
   install_release
