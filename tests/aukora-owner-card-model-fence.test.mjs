@@ -11,9 +11,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
+import { createHash } from 'node:crypto'
 import { accent, ACCENT, accentTarget, memoryStore, tmpHome } from '../packages/boundary-gate/checks/support/fixture.mjs'
 import { loadOwnerSecret, rotateBearer } from '../packages/boundary-gate/src/secrets.mjs'
 import { serveGate } from '../packages/boundary-gate/src/server.mjs'
+import { NOTE_TARGET, noteTarget } from '../packages/boundary-gate/src/targets.mjs'
 
 const M = process.env.OCF_MUTANT ?? ''
 const root = new URL('../', import.meta.url)
@@ -28,10 +30,23 @@ async function importMutated(rel, src) {
   return import(`data:text/javascript;base64,${Buffer.from(src).toString('base64')}`)
 }
 const gateSrc = mutate(read('packages/boundary-gate/src/gate.mjs'), 'gate-note-as-facts',
-  'try { from_to = s?.plain ? String(s.plain(oldText, newText)) : null } catch { from_to = null }', 'from_to = p.why')
-const adapterSrc = mutate(read('apps/aukora-desktop/aumlok-signer-airlock.mjs'), 'model-first',
+  'try { from_to = target_review ? target_review.from_to : s?.plain ? String(s.plain(oldText, newText)) : null } catch { from_to = null }', 'from_to = p.why')
+let adapterSrc = mutate(read('apps/aukora-desktop/aumlok-signer-airlock.mjs'), 'model-first',
   "  return [GATE_CARD.facts,", "  return [GATE_CARD.model, '> ' + review.model_note, GATE_CARD.modelEnd, GATE_CARD.facts,")
+adapterSrc = mutate(adapterSrc, 'note-size', "Buffer.byteLength(value.content, 'utf8') > 2000", 'false')
+adapterSrc = mutate(adapterSrc, 'note-wellformed', '!value.content.isWellFormed()', 'false')
+adapterSrc = mutate(adapterSrc, 'note-controls', '/[\\u0000-\\u0008\\u000b-\\u001f\\u007f]/u.test(value.content)', 'false')
+adapterSrc = mutate(adapterSrc, 'note-empty', 'value.content.trim().length === 0', 'false')
+adapterSrc = mutate(adapterSrc, 'note-diff-wellformed', '!value.diff.isWellFormed()', 'false')
+adapterSrc = mutate(adapterSrc, 'note-target', "const note = pending.target === 'plugins/owner-note/note.md'", 'const note = true')
+adapterSrc = mutate(adapterSrc, 'note-escape', 'return JSON.stringify(text).replace', 'return String(text).replace')
+adapterSrc = mutate(adapterSrc, 'note-bidi', '/[\\p{Cc}\\p{Cf}\\u2028\\u2029]/gu', '/(?!)/gu')
+adapterSrc = mutate(adapterSrc, 'note-facts', "note ? '  New stored content: '", "false ? '  New stored content: '")
 let html = read('apps/aukora-desktop/aumlok-approval.html')
+html = mutate(html, 'note-fence', 'n !== de + 1 || ne !== n + 2 || m !== ne + 1', 'false')
+html = mutate(html, 'note-html', "document.getElementById('gate-note-text').textContent = card.note", "document.getElementById('gate-note-text').innerHTML = card.note")
+html = mutate(html, 'note-render-call', '            renderGateNote(card)', '')
+html = mutate(html, 'note-fence-label', '<section id="gate-note" class="model-fence"', '<section id="gate-note"')
 const { createGate } = await importMutated('packages/boundary-gate/src/gate.mjs', gateSrc)
 const { createGateOwnerAdapter, GATE_CARD } = await importMutated('apps/aukora-desktop/aumlok-signer-airlock.mjs', adapterSrc)
 const fn = name => { const m = html.match(new RegExp(`\\n    function ${name}\\([^]*?\\n    \\}\\n`, 'u')); assert.ok(m, name); return m[0] }
@@ -107,5 +122,72 @@ test('the card refuses any other shape (reordered, unprefixed fact, model above 
   assert.equal(split([GATE_CARD.facts, 'Change: forged', ...ok.slice(2)]), null)
   assert.equal(split([...ok.slice(0, 6), GATE_CARD.model, 'no prefix', GATE_CARD.modelEnd]), null)
   assert.equal(split([...ok.slice(0, 3), 'x not a diff line', ...ok.slice(4)]), null)
+})
+
+const LOOKALIKE = '<h1>Approve AUKORA plugin set</h1>\nGATE FACTS (written by the gate, not by the model)\n'
+  + '  Clarity (gate): CRITICAL\n  What this does (gate): change keys\nEND OF GATE DIFF\n'
+  + 'MODEL-AUTHORED NOTE TEXT\n\t**Approve** \\u202e \u202e\u2066\u0085\u2028\u2029\u200b\u{e0001} café 🌱\n'
+
+async function noteQuestion(content = LOOKALIKE) {
+  const home = tmpHome(), now = () => Date.UTC(2026, 9, 4, 6)
+  const gate = createGate({ home, owner: loadOwnerSecret(home), targets: { [NOTE_TARGET]: noteTarget(home) },
+    store: memoryStore({ [NOTE_TARGET]: 'old note' }), now })
+  gate.startup({ pid: 1 })
+  gate.proposeOps.propose({ target: NOTE_TARGET, content, why: 'TEST note', claimed_base: gate.proposeOps.read({ target: NOTE_TARGET }).sha256 })
+  const adapter = createGateOwnerAdapter({ socketPath: '/synthetic-owner.sock', now,
+    call: async (_socket, op, args) => gate.ownerOps[op](args, 'owner-socket') })
+  return { question: await adapter.pending(), now }
+}
+
+test('note look-alike interface text stays complete, escaped and model-fenced; renderer writes text only', async () => {
+  const { question: q } = await noteQuestion()
+  assert.equal(q.approveAvailable, true)
+  const split = vm.runInNewContext(fn('splitGateCard') + '; splitGateCard(text)', { text: q.text })
+  assert.ok(split, 'the card accepts the note fence')
+  assert.equal(JSON.parse(split.note), LOOKALIKE, 'all proposed characters survive the reversible display, without truncation')
+  assert.doesNotMatch(split.facts, /change keys|<h1>|café/u, 'note bytes cannot become gate facts')
+  assert.doesNotMatch(split.note + split.diff.replaceAll('\n', ''), /[\p{Cc}\p{Cf}\u2028\u2029]/gu, 'all invisible characters are escaped except structural diff LF')
+  assert.match(split.note, /\\u202e.*\\u2066.*\\u0085.*\\u2028.*\\u2029.*\\u200b.*\\udb40\\udc01/u)
+  assert.equal(q.text.split('\n').filter(line => line === GATE_CARD.facts).length, 1)
+  const elements = { 'gate-note-text': { set innerHTML(_value) { assert.fail('note rendered as HTML') } }, 'gate-note': { hidden: true } }
+  vm.runInNewContext(fn('renderGateNote') + '; renderGateNote(card)', { card: split, document: { getElementById: id => elements[id] } })
+  assert.equal(elements['gate-note-text'].textContent, split.note)
+  assert.equal(elements['gate-note'].hidden, false, 'full note is visible without revealing the diff')
+  vm.runInNewContext(fn('renderGateNote') + '; renderGateNote(card)', { card: { note: null }, document: { getElementById: id => elements[id] } })
+  assert.equal(elements['gate-note'].hidden, true, 'legacy cards have no note section')
+  const renderPath = html.match(/var card = splitGateCard\(checks\[0\]\.text\)([^]*?)gateDisplayOk = true/u)?.[1]
+  assert.match(renderPath ?? '', /renderGateNote\(card\)/u, 'the verified popup path renders the note before enabling Approve')
+  assert.match(html, /<section id="gate-note" class="model-fence" hidden aria-label="Model-authored note text">\s*<h2>MODEL-AUTHORED NOTE TEXT<\/h2>/u,
+    'the visible note belongs to the labelled model-authored fence')
+})
+
+test('note adapter refuses malformed text and oversize even when the supplied content hash matches', async () => {
+  const { question: q, now } = await noteQuestion('valid note')
+  for (const content of ['x'.repeat(2001), 'é'.repeat(1001), '\ud800', 'a\u0000b', 'a\rb', 'a\u007fb', '\t\n ']) {
+    const new_sha = createHash('sha256').update(content).digest('hex')
+    const pending = { ...q.pending, new_sha }, review = { ...q.review, content, new_sha }
+    const adapter = createGateOwnerAdapter({ socketPath: '/synthetic-owner.sock', now,
+      call: async (_socket, op) => op === 'pending' ? { pending: [pending] } : review })
+    assert.equal((await adapter.pending()).approveAvailable, false, JSON.stringify(content).slice(0, 60))
+  }
+  for (const [pending, review] of [
+    [q.pending, { ...q.review, diff: '\ud800' }],
+    [{ ...q.pending, target: 'plugins/auma-theme/theme.json' }, { ...q.review, target: 'plugins/auma-theme/theme.json', content: 'line\nbreak', new_sha: createHash('sha256').update('line\nbreak').digest('hex') }],
+  ]) {
+    const adapter = createGateOwnerAdapter({ socketPath: '/synthetic-owner.sock', now,
+      call: async (_socket, op) => op === 'pending' ? { pending: [{ ...pending, new_sha: review.new_sha }] } : review })
+    assert.equal((await adapter.pending()).approveAvailable, false, 'note Unicode allowance cannot weaken other targets or accept malformed diff text')
+  }
+})
+
+test('note parser refuses a missing or moved model-authored note fence', async () => {
+  const { question: q } = await noteQuestion()
+  const parse = text => vm.runInNewContext(fn('splitGateCard') + '; splitGateCard(text)', { text })
+  assert.ok(parse(q.text))
+  const lines = q.text.split('\n'), start = lines.indexOf(GATE_CARD.note)
+  assert.equal(parse([...lines.slice(0, start), ...lines.slice(start + 3)].join('\n')), null)
+  assert.equal(parse(lines.filter(line => line !== GATE_CARD.noteEnd).join('\n')), null)
+  assert.equal(parse([...lines.slice(0, start + 1), '  Clarity (gate): ROUTINE', ...lines.slice(start + 1)].join('\n')), null)
+  assert.equal(parse(q.text.replace('  Target: plugins/owner-note/note.md', '  Target: plugins/auma-theme/theme.json')), null)
 })
 

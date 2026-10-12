@@ -10,7 +10,7 @@ import { tmpHome, approveViaReview } from './support/fixture.mjs'
 import { createGate } from '../src/gate.mjs'
 import { loadOwnerSecret, rotateBearer } from '../src/secrets.mjs'
 import { openDb, sha256 } from '../src/ledger.mjs'
-import { allowlist, assertTargetName, THEME_TARGET, readThemeText } from '../src/targets.mjs'
+import { allowlist, assertTargetName, THEME_TARGET, NOTE_TARGET, readThemeText } from '../src/targets.mjs'
 import { fsStore } from '../src/fs-store.mjs'
 import { verifyReceipt, verifyReceiptSignature, verifyApprovalEvidence } from '../src/receipts.mjs'
 import { gateTargets, gateStore } from '../src/wiring.mjs'
@@ -35,9 +35,9 @@ function realGate({ initial = theme('#FFD700') } = {}) {
 const base = (g) => g.proposeOps.read({ target: THEME_TARGET }).sha256
 const propose = (g, hex, why = 'Accent update.') => g.proposeOps.propose({ target: THEME_TARGET, content: theme(hex), why, claimed_base: base(g) })
 
-test('allowlist: exactly two declarative targets (theme; operator-only plugin-set approval); names under plugins/ only; code targets refused', () => {
+test('allowlist: theme, operator-only plugin-set approval and one fixed note; code targets refused', () => {
   const reg = allowlist('/srv/aukora-boundary/targets')
-  assert.deepEqual(Object.keys(reg), [THEME_TARGET, 'plugins/aukora-plugin-set/approval.json']); assert.ok(Object.isFrozen(reg))
+  assert.deepEqual(Object.keys(reg), [THEME_TARGET, 'plugins/aukora-plugin-set/approval.json', NOTE_TARGET]); assert.ok(Object.isFrozen(reg))
   assert.equal(reg['plugins/aukora-plugin-set/approval.json'].operatorOnly, true, 'the release admission target is operator-only')
   assert.equal(reg[THEME_TARGET].operatorOnly, undefined, 'the agent theme target is not operator-only and keeps the global TTL')
   assert.equal(reg[THEME_TARGET].ttlMs, undefined)

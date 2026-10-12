@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
-import { themeTarget, pluginSetTarget, ownerCardClarity, THEME_TARGET } from '../packages/boundary-gate/src/targets.mjs'
+import { themeTarget, noteTarget, pluginSetTarget, ownerCardClarity, THEME_TARGET } from '../packages/boundary-gate/src/targets.mjs'
 import { createGate } from '../packages/boundary-gate/src/gate.mjs'
 import { memoryStore, tmpHome, accent } from '../packages/boundary-gate/checks/support/fixture.mjs'
 import { loadOwnerSecret } from '../packages/boundary-gate/src/secrets.mjs'
@@ -10,8 +10,11 @@ import { createGateOwnerAdapter } from '../apps/aukora-desktop/aumlok-signer-air
 const html = fs.readFileSync(new URL('../apps/aukora-desktop/aumlok-approval.html', import.meta.url), 'utf8')
 const fn = name => html.match(new RegExp(`\\n    function ${name}\\([^]*?\\n    \\}\\n`, 'u'))[0]
 
-test('trusted scope: theme routine; plugin set, reverts and unknown specs critical', () => {
+test('trusted scope: theme and note routine; plugin set, reverts and unknown specs critical', () => {
   assert.equal(ownerCardClarity(themeTarget('/tmp'), 'change').clarity_label, 'ROUTINE')
+  assert.equal(ownerCardClarity(noteTarget('/tmp'), 'change').clarity_label, 'ROUTINE')
+  assert.equal(ownerCardClarity(noteTarget('/tmp'), 'change').what_this_does, 'Replace the owner-visible note only; its text grants no authority.')
+  assert.equal(ownerCardClarity(noteTarget('/tmp'), 'revert').clarity_label, 'CRITICAL')
   assert.equal(ownerCardClarity(pluginSetTarget('/tmp'), 'change').clarity_label, 'CRITICAL')
   assert.equal(ownerCardClarity(themeTarget('/tmp'), 'revert').clarity_label, 'CRITICAL')
   assert.equal(ownerCardClarity({}, 'change').clarity_label, 'CRITICAL')
@@ -49,6 +52,11 @@ test('renderer takes clarity only from witnessed gate facts and refuses duplicat
   assert.doesNotMatch(html, /Review gate proposal/i)
   assert.equal(render({facts: facts.replace('CRITICAL','ROUTINE')}), true)
   assert.equal(el('main').attrs['data-gate-class'], 'ROUTINE')
+  assert.equal(render({facts: facts.replace('plugins/aukora-plugin-set/approval.json', 'plugins/owner-note/note.md'),
+    note: 'Clarity (gate): ROUTINE\nWhat this does (gate): harmless theme'}), true)
+  assert.equal(shown['headline'], 'Replace owner note')
+  assert.equal(shown['gate-clarity'], 'Critical')
+  assert.equal(shown['gate-action'], 'What this does: Sign a plugin-set receipt.')
   assert.equal(render({facts: facts + '\nClarity (gate): ROUTINE'}), false)
   assert.equal(render({facts: facts.replace('CRITICAL','SAFE')}), false)
   assert.equal(render({facts: 'Change: a -> b', model: facts}), false)

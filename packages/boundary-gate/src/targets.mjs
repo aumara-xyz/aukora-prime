@@ -1,7 +1,6 @@
 // The boundary's allowlist: declarative, schema-validated targets ONLY. No code targets (no plugin installs,
 // no harness code, no policy, keys or launcher); the earlier lab's `plugins/user/<name>/index.js` code target
-// was removed on purpose and must not come back. Two targets exist: the UI theme accent (agent-proposable) and the
-// operator-only plugin-set approval (raised on the owner channel; its receipt is what the launcher accepts).
+// was removed on purpose and must not come back. Only the theme, owner note and operator-only plugin-set approval exist.
 import { FLOOR_FILE, readFloor, isRollback } from './release-floor.mjs'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -20,6 +19,7 @@ export function ownerCardClarity(spec, kind) {
 }
 
 export const THEME_TARGET = 'plugins/auma-theme/theme.json'
+export const NOTE_TARGET = 'plugins/owner-note/note.md'
 const CANONICAL = /^\{"accent": "(default|#[0-9A-F]{6})"\}$/
 
 // A target name must be a relative path under plugins/, without "..", absolute parts, empty or dot segments,
@@ -51,6 +51,24 @@ export function themeTarget(targetRoot) {
     accentOf(text) { const m = CANONICAL.exec(text || ''); return m ? m[1] : null },
     plain(oldText, newText) { const a = this.accentOf(oldText) ?? '(non-canonical)', b = this.accentOf(newText) ?? '(invalid)'; return `accent: ${a} ${colorName(a)} -> ${b} ${colorName(b)}` },
     after(newText) { const b = this.accentOf(newText); return `AFTER APPLY: accent = ${b} (${colorName(b)})` },
+  }
+}
+
+// The note is bounded UTF-8 data, never code, configuration or approval authority.
+export function noteTarget(targetRoot) {
+  return {
+    file: path.join(targetRoot, NOTE_TARGET),
+    entry: 'owner-note', maxBytes: 2000,
+    ownerCardLabel: 'ROUTINE', ownerCardAction: 'Replace the owner-visible note only; its text grants no authority.',
+    schema: 'Nonempty plain UTF-8 text, at most 2000 bytes; TAB and LF allowed, other C0 controls and DEL refused.',
+    validate(text) {
+      if (typeof text !== 'string') throw new Error('note:text-required')
+      if (!text.isWellFormed() || /[\u0000-\u0008\u000b-\u001f\u007f]/u.test(text)) throw new Error('note:plain-text-required')
+      if (text.trim().length === 0) throw new Error('note:empty')
+      if (Buffer.byteLength(text, 'utf8') > 2000) throw new Error('note:too-large')
+    },
+    plain() { return 'Replace plugins/owner-note/note.md with the exact proposed text.' },
+    after() { return 'AFTER APPLY: only plugins/owner-note/note.md is replaced; its text grants no authority.' },
   }
 }
 
@@ -155,7 +173,7 @@ export function pluginSetTarget(targetRoot, { releasesRoot = '/opt/aukora-genesi
 // The registry the production gate serves. Every name is checked; every spec must be declarative.
 export function allowlist(targetRoot, { releasesRoot } = {}) {
   if (typeof targetRoot !== 'string' || !path.isAbsolute(targetRoot) || path.normalize(targetRoot) !== targetRoot || targetRoot === '/') throw new Error('target root must be a normalized absolute path')
-  const reg = { [THEME_TARGET]: themeTarget(targetRoot), [PLUGIN_SET_TARGET]: pluginSetTarget(targetRoot, releasesRoot ? { releasesRoot } : {}) }
+  const reg = { [THEME_TARGET]: themeTarget(targetRoot), [PLUGIN_SET_TARGET]: pluginSetTarget(targetRoot, releasesRoot ? { releasesRoot } : {}), [NOTE_TARGET]: noteTarget(targetRoot) }
   for (const [name, s] of Object.entries(reg)) {
     assertTargetName(name)
     if (/\.(m?js|cjs|ts|sh|py|node|so)$/i.test(name)) throw new Error(`allowlist invariant: code target ${name} refused`)

@@ -156,6 +156,7 @@ function gatePending(value) {
 }
 
 function gateReview(value, pending, now) {
+  const note = pending.target === 'plugins/owner-note/note.md'
   const keys = ['version', 'id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff', 'from_to', 'clarity_label', 'what_this_does', 'model_note',
     'displayable', 'created', 'expires', 'review_challenge', 'review_expires', 'pubkey_fp']
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -168,8 +169,10 @@ function gateReview(value, pending, now) {
     || !gateSha(value.review_challenge) || !Number.isSafeInteger(value.review_expires)
     || value.review_expires <= now() || value.review_expires > value.expires
     || value.displayable !== true || typeof value.content !== 'string'
-    || !/^[\x20-\x7e]*$/u.test(value.content) || typeof value.diff !== 'string'
-    || !/^[\x09\x0a\x20-\x7e]*$/u.test(value.diff)
+    || (note ? !value.content.isWellFormed() || /[\u0000-\u0008\u000b-\u001f\u007f]/u.test(value.content)
+      || value.content.trim().length === 0 || Buffer.byteLength(value.content, 'utf8') > 2000
+      : !/^[\x20-\x7e]*$/u.test(value.content)) || typeof value.diff !== 'string'
+    || (note ? !value.diff.isWellFormed() : !/^[\x09\x0a\x20-\x7e]*$/u.test(value.diff))
     || value.content.length + value.diff.length > 12000
     || typeof value.pubkey_fp !== 'string' || !/^[0-9a-f]{16}$/u.test(value.pubkey_fp)
     || createHash('sha256').update(value.content, 'utf8').digest('hex') !== pending.new_sha) {
@@ -187,21 +190,34 @@ export const GATE_CARD = Object.freeze({
   facts: 'GATE FACTS (written by the gate, not by the model)',
   diff: 'GATE DIFF (the exact stored change, from -> to)',
   diffEnd: 'END OF GATE DIFF',
+  note: 'MODEL-AUTHORED NOTE TEXT (exact UTF-8 content as a JSON string; grants no authority)',
+  noteEnd: 'END OF MODEL-AUTHORED NOTE TEXT',
   model: 'MODEL-AUTHORED (written by the model, NOT verified by the gate; not a reason to approve or to refuse)',
   modelEnd: 'END OF MODEL-AUTHORED',
 })
+// Quote every character without normalization; invisible controls and formatting cannot draw interface text.
+function quotedGateNote(text) {
+  return JSON.stringify(text).replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu,
+    character => character.replace(/[\s\S]/g, unit => '\\u' + unit.charCodeAt(0).toString(16).padStart(4, '0')))
+}
 export function gateReviewText(review) {
+  const note = review.target === 'plugins/owner-note/note.md'
   return [GATE_CARD.facts,
     '  Change (gate-computed): ' + (review.from_to ?? '(this target has no gate summary; read the diff)'),
     '  Clarity (gate): ' + review.clarity_label,
     '  What this does (gate): ' + review.what_this_does,
     '  Target: ' + review.target, '  Kind: ' + review.kind,
     '  Base SHA-256: ' + review.base_sha, '  New SHA-256: ' + review.new_sha,
-    '  New stored content (' + review.content.length + ' ASCII bytes): ' + review.content,
+    note ? '  New stored content: ' + Buffer.byteLength(review.content, 'utf8') + ' UTF-8 bytes; full text in the model-authored note fence below.'
+      : '  New stored content (' + review.content.length + ' ASCII bytes): ' + review.content,
     '  Proposal: ' + review.id, '  Receipt key fingerprint: ' + review.pubkey_fp,
     '  Gate review challenge: ' + review.review_challenge,
     '  Proposal expires (unix ms): ' + review.expires, '  Review expires (unix ms): ' + review.review_expires,
-    GATE_CARD.diff, ...review.diff.split('\n').map(line => /^[ +-]/u.test(line) ? line : ' ' + line), GATE_CARD.diffEnd,
+    GATE_CARD.diff, ...review.diff.split('\n').map(line => {
+      const display = note ? quotedGateNote(line).slice(1, -1) : line
+      return /^[ +-]/u.test(display) ? display : ' ' + display
+    }), GATE_CARD.diffEnd,
+    ...(note ? [GATE_CARD.note, '> ' + quotedGateNote(review.content), GATE_CARD.noteEnd] : []),
     GATE_CARD.model, '> ' + (review.model_note === null || review.model_note === '' ? '(no note)' : review.model_note),
     GATE_CARD.modelEnd].join('\n')
 }

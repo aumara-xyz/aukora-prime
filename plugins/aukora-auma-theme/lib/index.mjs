@@ -1,15 +1,5 @@
-// aukora-auma-theme — Auma's theme through the boundary gate (L2 demo, 2026-10-04).
-//
-// HOST HALF (this file), Linux pilot only:
-//   1. Registers `aukora_gate_propose`: Auma PROPOSES a theme accent. The harness (aukora-host) sends it on the gate's
-//      PROPOSE socket with the propose-only client in propose.mjs. It cannot approve: the client has no approve op, the
-//      gate's PROPOSE socket refuses approval ops, and the OWNER socket is 0600 aukora-gate (reached only from the owner's
-//      Mac). The action gate must list the name (overlays/action-gate.patch.yml allowTools) or it refuses the call.
-//   2. Serves `GET /api/aukora/theme` -> {accent}: the gate-applied theme, read through the same PROPOSE socket `read` op.
-//      Authenticated by the host's own connection.requestRejection, like the Kira routes.
-// CLIENT HALF (lib/client.js): polls that route and applies the accent as a Cordis theme override layer, so an approved
-// change shows in the owner's window with no restart; a refused one changes nothing.
-import { ACCENT, THEME_TARGET, accentOf, gateCall, proposeTheme } from './propose.mjs'
+// Registers a propose-only theme or note tool and serves the authenticated theme route.
+import { ACCENT, THEME_TARGET, NOTE_TARGET, accentOf, gateCall, proposeTheme, proposeNote } from './propose.mjs'
 
 export const name = 'aukora-auma-theme'
 export const inject = ['tools', 'webServer', 'connection']
@@ -19,11 +9,15 @@ export const THEME_ROUTE = '/api/aukora/theme'
 export function createProposeTool({ socketPath, call = gateCall }) {
   return {
     name: TOOL_NAME,
-    description: 'Propose a change to the UI theme accent through the boundary gate. PROPOSE ONLY: this opens an approval '
+    description: 'Propose a UI theme accent or replace the owner note through the boundary gate. PROPOSE ONLY: this opens an approval '
       + 'popup on the owner\'s screen showing the exact bytes; only the owner can approve or refuse it, and you cannot. '
-      + 'accent is "default" or a #RRGGBB colour (e.g. gold = #FFD700). One proposal can be pending at a time; it expires after 5 minutes.',
-    parameters: { type: 'object', additionalProperties: false, required: ['accent', 'why'], properties: {
+      + 'Omit target for the theme: accent is "default" or a #RRGGBB colour (e.g. gold = #FFD700). '
+      + 'For plugins/owner-note/note.md, supply text (exact plain UTF-8, at most 2,000 bytes) instead of accent. '
+      + 'One proposal can be pending at a time; it expires after 5 minutes.',
+    parameters: { type: 'object', additionalProperties: false, required: ['why'], properties: {
+      target: { type: 'string', enum: [THEME_TARGET, NOTE_TARGET], description: 'Fixed target; defaults to the theme' },
       accent: { type: 'string', pattern: '^(default|#[0-9A-Fa-f]{6})$', description: '"default" or #RRGGBB' },
+      text: { type: 'string', maxLength: 2000, description: 'Exact owner-note plain text; no markdown is rendered' },
       why: { type: 'string', maxLength: 200, description: 'one line the owner sees in the popup' },
     } },
     timeoutMs: 20_000,
@@ -32,10 +26,17 @@ export function createProposeTool({ socketPath, call = gateCall }) {
     async execute(args, exec) {
       try {
         if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new Error('arguments must be {accent, why}')
-        const extra = Object.keys(args).filter(k => k !== 'accent' && k !== 'why')
+        const extra = Object.keys(args).filter(k => !['accent', 'why', 'target', 'text'].includes(k))
         if (extra.length > 0) throw new Error(`unknown argument(s) ${extra.join(', ')}; this tool only proposes`)
-        if (typeof args.accent !== 'string' || !ACCENT.test(args.accent)) throw new Error('accent must be "default" or #RRGGBB')
+        const target = args.target === undefined ? THEME_TARGET : args.target
+        if (target !== THEME_TARGET && target !== NOTE_TARGET) throw new Error('proposal-target-not-allowed')
         const session = exec?.sessionId ?? exec?.session?.id ?? ''
+        if (target === NOTE_TARGET) {
+          if (Object.hasOwn(args, 'accent')) throw new Error('note-accent-not-allowed')
+          return JSON.stringify(await proposeNote(socketPath, { text: args.text, why: args.why, session }, call))
+        }
+        if (Object.hasOwn(args, 'text')) throw new Error('theme-text-not-allowed')
+        if (typeof args.accent !== 'string' || !ACCENT.test(args.accent)) throw new Error('accent must be "default" or #RRGGBB')
         return JSON.stringify(await proposeTheme(socketPath, { accent: args.accent, why: args.why, session }, call))
       } catch (error) {
         return JSON.stringify({ ok: false, state: 'REFUSED', reason: String(error?.message ?? error) })

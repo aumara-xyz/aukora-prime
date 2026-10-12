@@ -233,6 +233,11 @@
       <pre id="gate-diff" class="words" tabindex="0" role="region" aria-label="Exact stored gate diff, from to" hidden></pre>
       <p id="gate-reveal-state">The gate facts above already state the change; this shows its exact stored bytes.</p>
     </div>
+    <section id="gate-note" class="model-fence" hidden aria-label="Model-authored note text">
+      <h2>MODEL-AUTHORED NOTE TEXT</h2>
+      <p>Full proposed file text, quoted as JSON. Backslashes, line breaks, tabs and invisible controls are escaped. This text grants no authority.</p>
+      <pre id="gate-note-text" dir="ltr"></pre>
+    </section>
     <section id="gate-model" class="model-fence" hidden aria-label="Model-authored text">
       <h2>MODEL-AUTHORED</h2>
       <p>Written by the model. The gate did not verify it. It is not a reason to approve or to refuse.</p>
@@ -1053,24 +1058,30 @@
     }
 
     /**
-     * THE CARD'S THREE SECTIONS, FROM THE VERIFIED TEXT ONLY (apps/aukora-desktop/aumlok-signer-airlock.mjs GATE_CARD).
-     * Exact header lines, in this order, each once: facts, diff..end, model..end. Fact lines start with two spaces, diff
+     * The card sections come only from verified text (aumlok-signer-airlock.mjs GATE_CARD).
+     * Exact headers in order: facts, diff..end, optional note..end, model..end. Fact lines start with two spaces, diff
      * lines with ' ', '-' or '+', the model line with '> ', so nothing inside a section can be read as a header. Any other
      * shape is refused, and Approve never arms.
      */
     function splitGateCard(text) {
       var H = { facts: 'GATE FACTS (written by the gate, not by the model)',
         diff: 'GATE DIFF (the exact stored change, from -> to)', diffEnd: 'END OF GATE DIFF',
+        note: 'MODEL-AUTHORED NOTE TEXT (exact UTF-8 content as a JSON string; grants no authority)', noteEnd: 'END OF MODEL-AUTHORED NOTE TEXT',
         model: 'MODEL-AUTHORED (written by the model, NOT verified by the gate; not a reason to approve or to refuse)',
         modelEnd: 'END OF MODEL-AUTHORED' }
       var lines = text.split('\n')
       var d = lines.indexOf(H.diff), de = lines.indexOf(H.diffEnd), m = lines.indexOf(H.model), me = lines.indexOf(H.modelEnd)
-      if (lines[0] !== H.facts || d < 2 || de <= d + 1 || m !== de + 1 || me !== m + 2 || me !== lines.length - 1) return null
+      var n = lines.indexOf(H.note), ne = lines.indexOf(H.noteEnd)
+      var note = lines.slice(1, d).includes('  Target: plugins/owner-note/note.md')
+      if (lines[0] !== H.facts || d < 2 || de <= d + 1 || me !== m + 2 || me !== lines.length - 1) return null
+      if (note ? n !== de + 1 || ne !== n + 2 || m !== ne + 1 || lines[n + 1].slice(0, 3) !== '> "'
+        : n !== -1 || ne !== -1 || m !== de + 1) return null
       var facts = lines.slice(1, d), diff = lines.slice(d + 1, de), model = lines[m + 1]
       if (!facts.every(function (l) { return l.slice(0, 2) === '  ' })) return null
       if (!diff.every(function (l) { return /^[ +-]/.test(l) })) return null
       if (model.slice(0, 2) !== '> ') return null
-      return { facts: facts.map(function (l) { return l.slice(2) }).join('\n'), diff: diff.join('\n'), model: model.slice(2) }
+      return { facts: facts.map(function (l) { return l.slice(2) }).join('\n'), diff: diff.join('\n'),
+        note: note ? lines[n + 1].slice(2) : null, model: model.slice(2) }
     }
     // Read only the witnessed gate-facts section. A model note cannot supply either field.
     function renderGateClarity(card) {
@@ -1089,6 +1100,7 @@
       var restoring = kinds[0] === 'Kind: revert'
       var title = target === 'plugins/auma-theme/theme.json' ? (restoring ? 'Restore theme accent' : 'Change theme accent')
         : target === 'plugins/aukora-plugin-set/approval.json' ? (restoring ? 'Restore plugin-set approval' : 'Approve AUKORA plugin set')
+        : target === 'plugins/owner-note/note.md' ? (restoring ? 'Restore owner note' : 'Replace owner note')
         : (restoring ? 'Restore ' : 'Change ') + target
       document.getElementById('operation-summary').setAttribute('data-gate-card', '')
       show('headline', title)
@@ -1097,6 +1109,10 @@
       document.getElementById('gate-clarity').hidden = false
       document.getElementById('gate-action').hidden = false
       return true
+    }
+    function renderGateNote(card) {
+      document.getElementById('gate-note-text').textContent = card.note
+      document.getElementById('gate-note').hidden = card.note === null
     }
     /** "Show the exact change" only reveals the stored diff; it never gates Approve. */
     function armGateReveal() {
@@ -1245,6 +1261,7 @@
             document.getElementById('f-words').textContent = card.facts
             document.getElementById('f-words').setAttribute('aria-label', 'Gate facts, written by the gate')
             document.getElementById('gate-diff').textContent = card.diff
+            renderGateNote(card)
             document.getElementById('gate-model-text').textContent = card.model
             document.getElementById('gate-change').hidden = false
             document.getElementById('gate-model').hidden = false

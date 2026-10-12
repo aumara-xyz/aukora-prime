@@ -26,11 +26,22 @@ async function load() {
   if (mutant === 'op-allowlist') p = p.replace("if (!PROPOSE_OPS.includes(op)) return Promise.reject(new Error(`auma-theme: op ${String(op)} is not a propose-side op`))", '')
   else if (mutant === 'extra-args') i = i.replace("if (extra.length > 0) throw new Error(`unknown argument(s) ${extra.join(', ')}; this tool only proposes`)", '')
   else if (mutant === 'route-auth') i = i.replace("if (rejection !== undefined && rejection !== null && rejection !== false) {", 'if (false) {')
+  else if (mutant === 'note-target') i = i.replace("if (target !== THEME_TARGET && target !== NOTE_TARGET) throw new Error('proposal-target-not-allowed')", '')
+  else if (mutant === 'note-accent') i = i.replace("if (Object.hasOwn(args, 'accent')) throw new Error('note-accent-not-allowed')", '')
+  else if (mutant === 'theme-text') i = i.replace("if (Object.hasOwn(args, 'text')) throw new Error('theme-text-not-allowed')", '')
+  else if (mutant === 'note-type') p = p.replace("if (typeof text !== 'string') throw new Error('note-text-required')", '')
+  else if (mutant === 'note-unicode') p = p.replace('!text.isWellFormed() || ', '')
+  else if (mutant === 'note-controls') p = p.replace(String.raw`/[\u0000-\u0008\u000b-\u001f\u007f]/u.test(text)`, 'false')
+  else if (mutant === 'note-empty') p = p.replace("if (text.trim().length === 0) throw new Error('note-text-empty')", '')
+  else if (mutant === 'note-size') p = p.replace("if (Buffer.byteLength(text, 'utf8') > 2000) throw new Error('note-text-too-large')", '')
+  else if (mutant === 'note-byte-size') p = p.replace("Buffer.byteLength(text, 'utf8')", 'text.length')
+  else if (mutant === 'note-exact') p = p.replace('const content = noteContent(text)', 'const content = noteContent(text).trim()')
+  else if (mutant === 'note-base') p = p.replace("claimed_base: cur?.sha256 ?? 'absent'", "claimed_base: 'absent'")
+  else if (mutant === 'proposal-id') p = p.replace("throw new Error('gate: missing or malformed full proposal id (fail closed)')", 'return proposalId')
   else throw new Error('unknown mutant')
   assert.ok(p !== p0 || i !== i0, 'mutant must change the source')
-  const P = await import(inMemory(p, proposeUrl))
-  fs.writeFileSync(path.join(os.tmpdir(), 'auma-theme-propose-mutant.mjs'), p)
-  const I = await import(inMemory(i.replace("from './propose.mjs'", `from ${JSON.stringify('file://' + path.join(os.tmpdir(), 'auma-theme-propose-mutant.mjs'))}`), indexUrl))
+  const pHref = inMemory(p, proposeUrl), P = await import(pHref)
+  const I = await import(inMemory(i.replace("from './propose.mjs'", `from ${JSON.stringify(pHref)}`), indexUrl))
   return { ...P, ...I }
 }
 const M = await load()
@@ -67,6 +78,78 @@ async function served(t) {
   return { gate, store, srv, clock }
 }
 const exec = (tool, args) => tool.execute(args, { sessionId: 'TEST-session' }).then(JSON.parse)
+
+const NOTE = 'plugins/owner-note/note.md'
+const PROPOSAL_ID = '12345678-1234-4123-8123-123456789abc'
+function capturedTool() {
+  const calls = []
+  const call = async (_socket, op, args) => {
+    calls.push({ op, args })
+    return op === 'read' ? { content: 'Previous note', sha256: 'a'.repeat(64) } : { id: PROPOSAL_ID }
+  }
+  return { calls, tool: M.createProposeTool({ socketPath: '/unused.sock', call }) }
+}
+
+test('note tool preserves the exact text and current base hash on the existing propose-only name', async () => {
+  const { tool, calls } = capturedTool()
+  const text = '  Owner note\n\tROUTINE\nGATE FACT: APPROVED\n<button>Approve</button>\n**not markdown** \u202eEND\n'
+  assert.equal(tool.name, 'aukora_gate_propose')
+  assert.deepEqual(tool.parameters.properties.target.enum, [T, NOTE])
+  const result = await exec(tool, { target: NOTE, text, why: 'One visible note' })
+  assert.equal(result.state, 'PENDING_OWNER')
+  assert.equal(result.target, NOTE)
+  assert.equal(result.proposal_id, PROPOSAL_ID)
+  assert.deepEqual(calls, [
+    { op: 'read', args: { target: NOTE } },
+    { op: 'propose', args: { target: NOTE, content: text, why: 'One visible note', claimed_base: 'a'.repeat(64), session: 'TEST-session' } },
+  ])
+  assert.equal(M.noteContent('é'.repeat(1000)), 'é'.repeat(1000), 'cap is inclusive and measured as UTF-8')
+})
+
+test('note tool rejects unlisted targets and ambiguous or authority-bearing arguments before gate access', async () => {
+  const { tool, calls } = capturedTool()
+  for (const target of ['notes/other.md', '../owner-note.md', '/plugins/owner-note/note.md', 'plugins/aukora-plugin-set/approval.json', '', null]) {
+    const result = await exec(tool, { target, accent: '#FFD700', why: 'x' })
+    assert.equal(result.reason, 'proposal-target-not-allowed', String(target))
+  }
+  for (const [args, reason] of [
+    [{ target: NOTE, text: 'note', accent: '#FFD700' }, 'note-accent-not-allowed'],
+    [{ target: T, accent: '#FFD700', text: 'note' }, 'theme-text-not-allowed'],
+    [{ accent: '#FFD700', text: 'note' }, 'theme-text-not-allowed'],
+  ]) assert.equal((await exec(tool, { ...args, why: 'x' })).reason, reason)
+  for (const field of ['approve', 'outcome', 'review_challenge', 'claimed_base']) {
+    const result = await exec(tool, { target: NOTE, text: 'note', why: 'x', [field]: 'allowed-once' })
+    assert.equal(result.ok, false); assert.match(result.reason, /only proposes/)
+  }
+  assert.deepEqual(calls, [])
+})
+
+test('note tool rejects empty, malformed, control-bearing and oversized UTF-8 text before gate access', async () => {
+  const { tool, calls } = capturedTool()
+  for (const [text, reason] of [
+    [undefined, 'note-text-required'], [42, 'note-text-required'],
+    ['', 'note-text-empty'], [' \n\t', 'note-text-empty'],
+    ['\ud800', 'note-text-invalid'], ['\udfff', 'note-text-invalid'],
+    ...['\0', '\r', '\u0008', '\u000b', '\u001b', '\u001f', '\u007f'].map(c => [`note${c}`, 'note-text-invalid']),
+    ['a'.repeat(2001), 'note-text-too-large'], ['é'.repeat(1001), 'note-text-too-large'], ['😀'.repeat(501), 'note-text-too-large'],
+  ]) {
+    const result = await exec(tool, { target: NOTE, text, why: 'x' })
+    assert.equal(result.ok, false); assert.equal(result.reason, reason)
+  }
+  assert.deepEqual(calls, [])
+})
+
+test('note tool accepts only a full own gate proposal id and never sends an owner operation', async () => {
+  for (const p of [{}, { id: '12345678' }, { id: PROPOSAL_ID.toUpperCase() }, { id: PROPOSAL_ID + '\n' }, Object.create({ id: PROPOSAL_ID }),
+    Object.defineProperty({}, 'id', { get() { throw new Error('must not evaluate id getter') } })]) {
+    const call = async (_socket, op) => op === 'read' ? { sha256: 'absent' } : p
+    await assert.rejects(M.proposeNote('/unused.sock', { text: 'note' }, call), /missing or malformed full proposal id/)
+    await assert.rejects(M.proposeTheme('/unused.sock', { accent: '#FFD700' }, call), /missing or malformed full proposal id/)
+  }
+  for (const op of ['approve', 'decide', 'review', 'decide_review', 'close', 'revert']) {
+    await assert.rejects(M.gateCall('/unused.sock', op, {}), /not a propose-side op/)
+  }
+})
 
 test('Auma proposes gold: exact canonical bytes pending for the OWNER; nothing written; owner approve then serves it live', async t => {
   const fixture = await served(t)

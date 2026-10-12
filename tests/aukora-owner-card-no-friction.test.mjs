@@ -106,3 +106,25 @@ test('card: Approve is available as soon as the review is shown; "Show the exact
   assert.doesNotMatch(bridgeSrc, /payload\.revealed|payload\.confirm/u, 'the bridge asks for no reveal and no typed confirmation')
   assert.match(bridgeSrc, /payload\.approve && \(gateEntry\.facts\.approveAvailable !== true \|\| payload\.wordsOk !== true\)\)\) \{/u)
 })
+
+test('note: full review permits one-click approve or refuse without reveal, typing or dwell', async () => {
+  const home = tmpHome(), clock = { t: Date.UTC(2026, 9, 4, 7) }, now = () => clock.t, target = targetsMod.NOTE_TARGET
+  const store = memoryStore({ [target]: 'previous note' })
+  const gate = createGate({ home, now, owner: loadOwnerSecret(home), targets: { [target]: targetsMod.noteTarget(home) }, store })
+  gate.startup({ pid: 1 })
+  const content = 'é'.repeat(998) + '\nEND'
+  const propose = () => gate.proposeOps.propose({ target, content, why: 'TEST', claimed_base: gate.proposeOps.read({ target }).sha256 })
+  const adapter = createGateOwnerAdapter({ socketPath: '/synthetic-owner.sock', now,
+    call: async (_socket, op, args) => gate.ownerOps[op](args, 'owner-socket') })
+  propose()
+  let q = await adapter.pending()
+  assert.equal(q.approveAvailable, true, 'the entire 2,000-byte note is approvable')
+  assert.equal((await adapter.decide(q.uiQuestionId, false, () => true)).state, 'refused')
+  assert.equal(store.read(target).toString(), 'previous note')
+  clock.t += 600001
+  propose()
+  q = await adapter.pending()
+  assert.equal(q.approveAvailable, true)
+  assert.equal((await adapter.decide(q.uiQuestionId, true, () => true)).applied, true)
+  assert.deepEqual(store.read(target), Buffer.from(content), 'one plain approve writes all exact UTF-8 bytes')
+})

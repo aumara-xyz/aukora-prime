@@ -13,7 +13,7 @@
 // P-256 owner proof reference. Rate limits are global and per target, never per
 // harness-chosen session label. Targets are injected; with an empty allowlist every proposal is refused.
 import path from 'node:path'
-import { ownerCardClarity } from './targets.mjs'
+import { ownerCardClarity, NOTE_TARGET } from './targets.mjs'
 import { createHmac, randomUUID, randomBytes, sign, verify, timingSafeEqual } from 'node:crypto'
 import { sha256, SHA, loadOrCreateKey, openDb, createLedger, signedEntryData,
   gateCompletedResultDigest, gateCaptureSigningBytes, entryBody } from './ledger.mjs'
@@ -241,7 +241,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   function createProposal({ target, content, why, claimed_base, session, call_id }, kind, extra = {}) {
     const s = spec(target)
     if (typeof content !== 'string') throw new Error('content must be a string')
-    if (!content.isWellFormed() || !/^[\x20-\x7e]*$/.test(content)) { append('reject', { target, detail: { reason: 'non-printable-ascii', kind } }); throw new Error('refused: content must be printable ASCII only (0x20-0x7e; no newlines, tabs, unicode or lone surrogates)') }
+    if (!content.isWellFormed() || (target !== NOTE_TARGET && !/^[\x20-\x7e]*$/.test(content))) { append('reject', { target, detail: { reason: 'non-printable-ascii', kind } }); throw new Error('refused: content must be printable ASCII only (0x20-0x7e; no newlines, tabs, unicode or lone surrogates)') }
     const bytes = Buffer.from(content, 'utf8')
     if (bytes.length > s.maxBytes) { append('reject', { target, detail: { reason: 'oversized', bytes: bytes.length, max: s.maxBytes, kind } }); throw new Error(`refused: ${bytes.length} bytes exceeds the ${s.maxBytes}-byte limit for ${target}`) }
     try { synchronous(s.validate(content), 'target validation') } catch (e) { append('reject', { target, detail: { reason: 'schema', error: e.message, kind } }); throw new Error('refused (schema): ' + e.message) }
@@ -681,7 +681,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     const startupTx = fn => synchronous(fn(), 'legacy startup transaction')
     for (const [t, s] of Object.entries(TARGETS)) {
       const cur = readCur(t); let validCur = true
-      try { if (cur) { const txt = cur.toString('utf8'); if (!/^[\x20-\x7e]*$/.test(txt)) throw new Error('non-ASCII'); s.validate(txt) } }
+      try { if (cur) { const txt = cur.toString('utf8'); if (t === NOTE_TARGET && !Buffer.from(txt, 'utf8').equals(cur)) throw new Error('note:invalid-utf8'); if (t !== NOTE_TARGET && !/^[\x20-\x7e]*$/.test(txt)) throw new Error('non-ASCII'); s.validate(txt) } }
       catch (e) { validCur = false; append('genesis-target-invalid', { target: t, new_sha: sha256(cur), detail: { error: String(e.message).slice(0, 200) } }) }
       if (cur && validCur && !db.prepare(`SELECT 1 FROM ledger WHERE target=? AND new_sha=? AND event IN ${APPLIED_EVENTS} LIMIT 1`).get(t, sha256(cur)))
         startupTx(() => { putBlob(t, cur); append('genesis-target', { target: t, new_sha: sha256(cur), detail: { note: 'current bytes adopted at gate start' } }) })
@@ -717,7 +717,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
         WHERE p.target=? AND (p.state IN ('applying','incomplete','conflict')
           OR (c.proposal_id IS NOT NULL AND p.state!='applied')) LIMIT 1`).get(t)) continue
       const cur = readCur(t); let validCur = true
-      try { if (cur) { const txt = cur.toString('utf8'); if (!/^[\x20-\x7e]*$/.test(txt)) throw new Error('non-ASCII'); synchronous(s.validate(txt), 'target validation') } }
+      try { if (cur) { const txt = cur.toString('utf8'); if (t === NOTE_TARGET && !Buffer.from(txt, 'utf8').equals(cur)) throw new Error('note:invalid-utf8'); if (t !== NOTE_TARGET && !/^[\x20-\x7e]*$/.test(txt)) throw new Error('non-ASCII'); synchronous(s.validate(txt), 'target validation') } }
       catch (e) { validCur = false; append('genesis-target-invalid', { target: t, new_sha: sha256(cur), detail: { error: String(e.message).slice(0, 200) } }) }
       if (cur && validCur && !db.prepare(`SELECT 1 FROM ledger WHERE target=? AND new_sha=? AND event IN ${APPLIED_EVENTS} LIMIT 1`).get(t, sha256(cur)))
         tx(() => { putBlob(t, cur); append('genesis-target', { target: t, new_sha: sha256(cur), detail: { note: 'current bytes adopted at gate start' } }) })

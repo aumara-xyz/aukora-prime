@@ -5,6 +5,7 @@
 import net from 'node:net'
 
 export const THEME_TARGET = 'plugins/auma-theme/theme.json'
+export const NOTE_TARGET = 'plugins/owner-note/note.md'
 export const PROPOSE_OPS = Object.freeze(['read', 'propose', 'state'])
 export const ACCENT = /^(default|#[0-9A-Fa-f]{6})$/u
 
@@ -36,6 +37,38 @@ export function accentOf(content) {
   return m ? m[1] : 'default'
 }
 
+export function noteContent(text) {
+  if (typeof text !== 'string') throw new Error('note-text-required')
+  if (!text.isWellFormed() || /[\u0000-\u0008\u000b-\u001f\u007f]/u.test(text)) throw new Error('note-text-invalid')
+  if (text.trim().length === 0) throw new Error('note-text-empty')
+  if (Buffer.byteLength(text, 'utf8') > 2000) throw new Error('note-text-too-large')
+  return text
+}
+
+function fullProposalId(p) {
+  const id = p && typeof p === 'object' ? Object.getOwnPropertyDescriptor(p, 'id') : null
+  const proposalId = id && Object.hasOwn(id, 'value') ? id.value : null
+  if (typeof proposalId !== 'string' || proposalId.length !== 36
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(proposalId))
+    throw new Error('gate: missing or malformed full proposal id (fail closed)')
+  return proposalId
+}
+
+/** Propose exact note bytes on the PROPOSE side; never approves or retries. */
+export async function proposeNote(socketPath, { text, why, session }, call = gateCall) {
+  const content = noteContent(text)
+  const cur = await call(socketPath, 'read', { target: NOTE_TARGET })
+  const p = await call(socketPath, 'propose', {
+    target: NOTE_TARGET, content, why: String(why ?? '').slice(0, 200), claimed_base: cur?.sha256 ?? 'absent', session: String(session ?? ''),
+  })
+  const proposalId = fullProposalId(p)
+  return {
+    ok: true, state: 'PENDING_OWNER', proposal: proposalId.slice(0, 8), proposal_id: proposalId, target: NOTE_TARGET,
+    expires: p?.expires ? new Date(p.expires).toISOString() : null,
+    message: 'Proposed. An approval popup is now on the owner\'s screen; only the owner can Approve or Refuse. You cannot approve it.',
+  }
+}
+
 /** Propose a theme change. Returns a plain result; never approves, never retries. */
 export async function proposeTheme(socketPath, { accent, why, session }, call = gateCall) {
   const content = themeContent(accent)
@@ -44,11 +77,7 @@ export async function proposeTheme(socketPath, { accent, why, session }, call = 
   const p = await call(socketPath, 'propose', {
     target: THEME_TARGET, content, why: String(why ?? '').slice(0, 200), claimed_base: cur?.sha256 ?? 'absent', session: String(session ?? ''),
   })
-  const id = p && typeof p === 'object' ? Object.getOwnPropertyDescriptor(p, 'id') : null
-  const proposalId = id && Object.hasOwn(id, 'value') ? id.value : null
-  if (typeof proposalId !== 'string' || proposalId.length !== 36
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(proposalId))
-    throw new Error('gate: missing or malformed full proposal id (fail closed)')
+  const proposalId = fullProposalId(p)
   return {
     ok: true, state: 'PENDING_OWNER', proposal: proposalId.slice(0, 8), proposal_id: proposalId, target: THEME_TARGET, accent: accentOf(content),
     expires: p?.expires ? new Date(p.expires).toISOString() : null,
