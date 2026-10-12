@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { EventEmitter } from 'node:events'
 import { registerHooks } from 'node:module'
 import { createHash, randomUUID } from 'node:crypto'
@@ -498,7 +499,9 @@ test('publication: lookup failure or a different signed event cannot resolve UNK
 })
 
 function isolatedFiles(t) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'buzz-isolation-')), dir = path.join(home, 'config')
+  // Linux TMPDIR is a denied key root; use disposable files in the canonical checkout instead.
+  const base = fs.realpathSync(fileURLToPath(new URL('.', import.meta.url)))
+  const home = fs.mkdtempSync(path.join(base, '.buzz-isolation-')), dir = path.join(home, 'config')
   fs.mkdirSync(dir, { mode: 0o700 })
   t.after(() => fs.rmSync(home, { recursive: true, force: true }))
   const keyFile = path.join(dir, 'key'), configFile = path.join(dir, 'door.json'), key = randomSecretKey()
@@ -506,6 +509,32 @@ function isolatedFiles(t) {
   fs.writeFileSync(configFile, JSON.stringify({ channel: CHANNEL, admit: [], sessionId: SESSION, pollMs: 2300 }), { mode: 0o600 })
   return { home, dir, keyFile, configFile, key, options: { home, deniedRoots: [] } }
 }
+
+test('apply: a HOME under /tmp is refused before reading otherwise valid key and config files', t => {
+  const f = isolatedFiles(t), home = '/tmp/buzz-denied-home', logs = [], registered = [], reads = []
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: 'linux' }); t.after(() => Object.defineProperty(process, 'platform', platform))
+  t.mock.method(os, 'homedir', () => home)
+  t.mock.method(console, 'warn', (...args) => logs.push(args.join(' ')))
+  t.mock.method(console, 'info', () => {})
+  // Map only the synthetic path to this court's files; no file is written outside the checkout.
+  for (const name of ['lstatSync', 'openSync']) {
+    const original = fs[name]
+    t.mock.method(fs, name, (file, ...args) => {
+      if (typeof file === 'string' && (file === home || file.startsWith(home + '/'))) {
+        reads.push(file); file = f.home + file.slice(home.length)
+      }
+      return original(file, ...args)
+    })
+  }
+  const keyFile = home + f.keyFile.slice(f.home.length), configFile = home + f.configFile.slice(f.home.length)
+  assert.throws(() => loadKey(keyFile), /guest, workspace or temp root/u)
+  assert.throws(() => loadConfig(configFile), /guest, workspace or temp root/u)
+  apply({ tools: { register: tool => registered.push(tool) }, agents: {}, effect() {} }, { keyFile, configFile })
+  assert.deepEqual(registered, [])
+  assert.deepEqual(reads, [], 'denied-root check precedes filesystem reads')
+  assert.equal(logs.length, 1); assert.match(logs[0], /AUKORA_BUZZ_DOOR_UNAVAILABLE/u)
+})
 
 test('file isolation: parents including HOME must not be symlinks or writable by other users, for key and config', t => {
   const f = isolatedFiles(t)
@@ -687,7 +716,7 @@ test('apply: an unavailable configured session logs once and retries the origina
   assert.deepEqual(logs, ['AUKORA_BUZZ_DOOR_FAILED configured Buzz session unavailable', 'AUKORA_BUZZ_DOOR_RECOVERED'])
 })
 
-test('LIVE (AUKORA_BUZZ_LIVE=1): against a real Buzz relay, a mention reaches the door and her reply is read back by the sender', { skip: process.env.AUKORA_BUZZ_LIVE !== '1' }, async () => {
+test('LIVE (AUKORA_BUZZ_LIVE=1): against a real Buzz relay, a mention reaches the door and her reply is read back by the sender', { skip: process.env.AUKORA_BUZZ_LIVE !== '1' && 'AUKORA_BUZZ_LIVE=1 and a configured real Buzz relay are required' }, async () => {
   const auma = randomSecretKey(), person = randomSecretKey(), channel = randomUUID()
   const send = async (sk, event) => {
     const body = JSON.stringify(event), url = `${RELAY_HTTP}/events`

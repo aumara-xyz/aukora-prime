@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Checks client refusals and advisory findings with synthetic state and transport.
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
@@ -21,6 +21,14 @@ const TEXT = 'synthetic-private-message'
 const accepted = (kind = 'prompt', session = SESSION) => ({ ok: true, kind, session, backend: { text: TEXT, token: TOKEN } })
 const json = (body = accepted(), status = 200) => new Response(JSON.stringify(body), { status })
 const code = expected => error => error.code === expected
+const mutationRequested = process.argv.includes('--mutate') || process.env.AUKORA_LANE_SEND_MUTATE === '1'
+let mutationsCaught = 0
+after(() => {
+  if (mutationRequested && mutationsCaught === 0) {
+    process.exitCode = 1
+    assert.fail('LANE_SEND_MUTATIONS_NOT_RUN')
+  }
+})
 
 function fixture(t) {
   const stateRoot = mkdtempSync(join(HERE, '.lane-send-'))
@@ -286,7 +294,7 @@ test('native fetch sends once to a synthetic loopback door', async t => {
   assert.equal(calls, 1)
 })
 
-if (process.argv.includes('--mutate')) test('each removed protection fails its regression', t => {
+if (mutationRequested) test('each removed protection fails its regression', t => {
   const directory = mkdtempSync(join(HERE, '.lane-send-mutations-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   for (const path of ['scripts/lane-send.mjs', 'plugins/aukora-eye/lib/token-file.mjs', 'apps/aukora-desktop/lane-dispatch.mjs']) {
@@ -334,10 +342,14 @@ if (process.argv.includes('--mutate')) test('each removed protection fails its r
     writeFileSync(mutant, source.replace(from, to))
     const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(mutant).href)})`], { encoding: 'utf8', timeout: 2_000 })
     assert.equal(probe.status, 0, `loadable mutant: ${label}`)
-    const result = spawnSync(process.execPath, ['--test-reporter=tap', `--test-name-pattern=${name}`, fileURLToPath(import.meta.url), '--subject', mutant], { encoding: 'utf8', timeout: 4_000 })
+    const env = { ...process.env }
+    delete env.AUKORA_LANE_SEND_MUTATE
+    delete env.NODE_TEST_CONTEXT
+    const result = spawnSync(process.execPath, ['--test-reporter=tap', `--test-name-pattern=${name}`, fileURLToPath(import.meta.url), '--subject', mutant], { encoding: 'utf8', timeout: 4_000, env })
     assert.equal(result.status, 1, `mutation must fail assertions: ${label}`)
     assert.match(result.stdout, /code: 'ERR_ASSERTION'/u, `assertion failure: ${label}`)
     assert.ok(result.stdout.includes(`not ok 1 - ${name}`), `intended regression: ${label}`)
+    mutationsCaught += 1
     console.log(`# MUTATION caught: ${label}`)
   }
   console.log(`# MUTATION ${mutations.length}/${mutations.length} caught`)

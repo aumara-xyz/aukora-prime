@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Exercise the real --plan entry point using copied synthetic state, never installed state.
+// Exercise desktop --plan and the Linux membrane API using copied synthetic state.
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { codeChain } from '../scripts/aukora/aura-code.mjs'
 import { root } from '../scripts/aukora/aura-merkle.mjs'
+import { membraneObservation, membraneRefusal } from '../scripts/aukora/become.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const git = (...args) => execFileSync('/usr/bin/git', ['-C', repo, ...args], { encoding: 'utf8' }).trim()
@@ -49,6 +50,32 @@ try {
     else if (options.retained) json(join(support, retainedRel), options.retained)
     const before = readFileSync(join(support, chainRel))
     const kept = options.retained === null ? null : readFileSync(join(support, retainedRel))
+    if (process.platform === 'linux') {
+      // Linux become dispatches to privileged canonical configuration before reaching the desktop membrane.
+      const env = { PATH: options.path ?? process.env.PATH,
+        P2_PROBE_SEEN: join(scratch, 'probe-seen'), P2_REAL_PYTHON: realPython }
+      const previous = Object.fromEntries(Object.keys(env).map(name => [name, process.env[name]]))
+      try {
+        Object.assign(process.env, env)
+        let membrane = membraneObservation(support), refusal = membraneRefusal(membrane), observations = 1
+        if (refusal === null) {
+          membrane = membraneObservation(support); refusal = membraneRefusal(membrane); observations++
+        }
+        assert.equal(refusal === null ? 'planned' : 'refused', expected)
+        assert.equal(membrane.chains.code.reason, reason)
+        if (expected === 'refused') assert.ok(refusal.includes(reason))
+        if (options.started !== undefined) assert.equal(observations, options.started ? 2 : 1)
+        assert.deepEqual(readFileSync(join(support, chainRel)), before)
+        if (kept) assert.deepEqual(readFileSync(join(support, retainedRel)), kept)
+        console.log(`PASS ${name}: membrane API ${membrane.chains.code.verdict} ${reason}`)
+      } finally {
+        for (const [name, value] of Object.entries(previous)) {
+          if (value === undefined) delete process.env[name]
+          else process.env[name] = value
+        }
+      }
+      return
+    }
     const out = spawnSync(process.execPath, [join(repo, 'scripts/aukora/become.mjs'), '--commit', commit, '--plan'], {
       encoding: 'utf8', timeout: 30_000,
       env: { ...process.env, AUKORA_SUPPORT_ROOT: support, AUKORA_RELEASES_ROOT: join(scratch, 'releases'),
@@ -79,5 +106,5 @@ try {
   run('conflict', 'refused', 'consistency:prefix-mismatch', { retained: { ...retained, root: otherRoot } })
   run('first-retention', 'planned', 'missing_prior_observation', { retained: null })
   run('final-verifier-unavailable', 'refused', 'verifier_exit_1', { path: finalFailure, started: true })
-  console.log('PASS: 8 scratch membrane cases; copied chain and retained heads unchanged')
+  console.log(`PASS: 8 scratch membrane cases (${process.platform === 'linux' ? 'exported membrane API; no Linux deployment' : 'desktop --plan'}); copied chain and retained heads unchanged`)
 } finally { rmSync(scratch, { recursive: true, force: true }) }

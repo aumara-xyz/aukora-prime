@@ -143,8 +143,7 @@ run_check() {
         my ($prefix, $command, $run, $format) = @ARGV;
         $format //= "plain";
         die "report format" unless $format =~ /\A(?:plain|tap|unittest|injection)\z/;
-        # Only this source-owned court declares exit 2 as incomplete acceptance.
-        # An arbitrary failing command must not acquire the same exemption.
+        # Injection totals apply only to this fixed source-owned command.
         if ($format eq "injection") {
             die "injection command" unless $command eq "node tests/kira-injection.test.mjs --mutate" && $run eq $command;
         }
@@ -190,12 +189,15 @@ run_check() {
         my $last = "(no output)";
         my (@tail, $private, %totals, %seen);
         my $reported_failure = 0;
+        my ($named_unperformed, $plain_failure) = (0, 0);
         my ($unit_tests, $unit_skipped, $unit_expected, $unit_unexpected, $unit_ok) = (undef, 0, 0, 0, 0);
         my ($unit_runs, $unit_summaries, $unit_invalid, $unit_failed) = (0, 0, 0, 0);
         my ($court_reports, $court_invalid, $court_failure) = (0, 0, 0);
         my ($court_pass, $court_arms, $court_fail, $court_unperformed, $court_dsh);
         while (<$output>) {
             chomp;
+            $named_unperformed = 1 if /\b(?:UNPERFORMED\b[^:\n]*:[ \t]*\S|NOT RUN:[ \t]*\S|NOT RUN[ \t]+\([ \t]*[^) \t][^)\n]*\))/;
+            $plain_failure = 1 if /\A[ \t]*(?:FAIL\b|not ok\b)/;
             if ($format eq "injection") {
                 $court_failure = 1 if /\A[ \t]*FAIL\s+[^\n]+:/;
                 if (/\A[ \t]*[0-9]+\/[0-9]+ arms passed\b/) {
@@ -313,6 +315,10 @@ run_check() {
                 }
             }
         }
+        if ($format eq "plain" && !%totals && $status == (2 << 8) && $reason eq "exit 2"
+            && $named_unperformed && !$plain_failure && !$reported_failure) {
+            $disposition = "UNPERFORMED"; $reason = "reported named unperformed check";
+        }
         open my $row, ">", "$prefix.row" or die "row: $!";
         printf {$row} "%s %6.2fs | %s%s%s | %s\n",
             $disposition, time - $start, $command,
@@ -406,7 +412,7 @@ check_tap 'node --test --test-reporter=tap tests/aukora-conversation-*.test.mjs'
 check 'node labs/time-anchors/checks/drand.mjs'
 check 'node tests/effect-settlement.test.mjs --mutate'
 check_tap 'node --test --test-reporter=tap tests/acp-reconcile.test.mjs'
-check_tap 'node --test-reporter=tap tests/lane-send.test.mjs --mutate'
+check_tap 'AUKORA_LANE_SEND_MUTATE=1 node --test --test-reporter=tap tests/lane-send.test.mjs'
 check_tap 'node --test --test-reporter=tap packages/copresence/portal-v0/tests/*.test.mjs'
 check 'node packages/copresence/receiver.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-openshell-confinement.test.mjs'

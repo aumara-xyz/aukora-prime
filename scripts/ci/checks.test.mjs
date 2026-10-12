@@ -20,7 +20,7 @@ const result = (stdout = '', extra = {}) => ({status: 0, signal: null, stdout, s
 const tap = (extra = {}) => Object.entries({tests: 1, pass: 1, fail: 0, cancelled: 0, skipped: 0, todo: 0,
   ...extra}).map(([key, value]) => `# ${key} ${value}`).join('\n') + '\n';
 const shell = (pass, total, fail = 0, skipped = 0, platform = 0, unperformed = 0) =>
-  `TOTAL checks | ${pass}/${total} passed | ${fail} failed | ${skipped} skipped (${platform} platform) | ${unperformed} unperformed\n`;
+  `${skipped + unperformed ? 'UNPERFORMED fixture: named missing dependency\n' : ''}TOTAL checks | ${pass}/${total} passed | ${fail} failed | ${skipped} skipped (${platform} platform) | ${unperformed} unperformed\n`;
 const redLine = 'tests/a.test.mjs | 2026-10-12 | waiting for synthetic fixture';
 const review = (rows = [{status: 'PASS'}], unperformed = []) => ({schema: 'aukora-security-review/v1',
   checks: rows, unperformed, summary: summarizeReview(rows, unperformed)});
@@ -112,7 +112,7 @@ const protections = [
   ['TAP skips never become passes', api => {
     assert.equal(api.classify('tests/a.test.mjs', result(tap({pass: 0, skipped: 1}))), 'UNPERFORMED');
     assert.equal(api.classify('tests/a.test.mjs', result(tap({tests: 2, skipped: 1}))), 'UNPERFORMED');
-  }, "return status === 'SKIP' ? 'UNPERFORMED' : status;", "return 'PASS';"],
+  }, "return status === 'SKIP' || (status === 'PASS' && result.status === 2) ? 'UNPERFORMED' : status;", "return 'PASS';"],
   ['Kira injection limits remain unperformed', api => {
     const out = '  3/3 arms passed, 0 failed; 1 unperformed checks; DSH source dispatch RAN; installed profile UNPERFORMED.\n';
     assert.equal(api.classify('tests/kira-injection.test.mjs', result(out)), 'UNPERFORMED');
@@ -120,12 +120,51 @@ const protections = [
     assert.equal(api.classify('tests/kira-injection.test.mjs', result('')), 'FAIL');
     assert.equal(api.classify('tests/kira-injection.test.mjs', result(out, {stderr: 'FAIL synthetic'})), 'FAIL');
   }, "if (path === 'tests/kira-injection.test.mjs') {", 'if (false) {'],
-  ['only the named missing harness exit is unperformed', api => {
-    const missing = result('', {status: 2, stderr: 'UNPERFORMED: carried DSH modules unavailable: fixture'});
-    assert.equal(api.classify('tests/aukora-filetool-search-race.test.mjs', missing), 'UNPERFORMED');
-    assert.equal(api.classify('tests/a.test.mjs', missing), 'FAIL');
-    assert.equal(api.classify('tests/aukora-filetool-search-race.test.mjs', result('', {status: 2})), 'FAIL');
-  }, "path === 'tests/aukora-filetool-search-race.test.mjs' &&", 'true &&'],
+  ['exit 2 with a stated reason is unperformed for every command', api => {
+    for (const path of ['tests/aukora-contact-migration.test.mjs', 'tests/kira-aura-association.test.mjs',
+      'tests/kira-memory-live-path.test.mjs', 'tests/a.test.mjs']) {
+      for (const stream of ['stdout', 'stderr'])
+        assert.equal(api.classify(path, result('', {status: 2, [stream]: 'UNPERFORMED: fixture dependency missing'})), 'UNPERFORMED');
+    }
+  }, "if (result.status === 2) return 'UNPERFORMED';", "if (result.status === 2) return 'FAIL';"],
+  ['exit 2 requires a printed reason', api => {
+    for (const stdout of ['', 'UNPERFORMED', 'UNPERFORMED: ', tap(), 'ok 1 - missing fixture # SKIP\n' + tap({pass: 0, skipped: 1})])
+      assert.equal(api.classify('tests/a.test.mjs', result(stdout, {status: 2})), 'FAIL');
+  }, "if (result.status === 2 && unperformedReasons(path, result).length === 0) return 'FAIL';", ''],
+  ['reported failures take precedence over named unperformed work', api => {
+    for (const failure of ['FAIL fixture', 'not ok 1 - fixture', '# fail 1', '# cancelled 1'])
+      assert.equal(api.classify('tests/a.test.mjs', result(`UNPERFORMED: absent fixture\n${failure}\n`, {status: 2})), 'FAIL');
+  }, "if (/^\\s*(?:FAIL\\b|not ok\\b)|^# (?:fail|cancelled) [1-9]\\d*\\s*$/m.test(out + '\\n' + err)) return 'FAIL';", ''],
+  ['security review incomplete rows require reasons', api => {
+    for (const reason of [undefined, '', ' ']) {
+      const report = review([{status: 'PASS'}], [{reason}]);
+      assert.equal(api.classify('security-review', result(JSON.stringify(report), {status: 2})), 'FAIL');
+    }
+  }, "requireValue(incomplete.every(row => typeof row.reason === 'string' && row.reason.trim()), 'CI_UNPERFORMED_REASON_REQUIRED');", ''],
+  ['shell incomplete rows require printed reasons', api => {
+    assert.equal(api.classify('scripts/check.sh', result(shell(0, 1, 0, 0, 0, 1).replace(/^UNPERFORMED[^\n]*\n/, ''), {status: 2})), 'FAIL');
+  }, "if (incomplete && unperformedReasons(path, result).length === 0) return 'FAIL';", ''],
+  ['named unperformed arms retain their printed reason', api => {
+    const output = result('UNPERFORMED release closure: no built harness found\n', {status: 2});
+    assert.equal(api.classify('tests/a.test.mjs', output), 'UNPERFORMED');
+    assert.deepEqual(api.unperformedReasons('tests/a.test.mjs', output), ['release closure: no built harness found']);
+  }, '|[ \\t]+(?=[^:\\n]+:[ \\t]*\\S)', ''],
+  ['TAP reporting fallback cannot qualify an unexplained exit 2', api => {
+    const output = result('ok 1 - missing fixture # SKIP\n' + tap({pass: 0, skipped: 1}), {status: 2});
+    assert.deepEqual(api.unperformedReasons('tests/a.test.mjs', output), []);
+    assert.deepEqual(api.unperformedReasons('tests/a.test.mjs', output, true), ['TAP check skipped without a stated reason: missing fixture']);
+    assert.equal(api.classify('tests/a.test.mjs', output), 'FAIL');
+  }, 'reportedFallback = false', 'reportedFallback = true'],
+  ['TAP reporting explains unnamed skips and incomplete totals', api => {
+    const unnamed = result('ok 1 - missing fixture # SKIP\n' + tap({pass: 0, skipped: 1}));
+    assert.deepEqual(api.unperformedReasons('tests/a.test.mjs', unnamed, true), ['TAP check skipped without a stated reason: missing fixture']);
+    const mixed = result('ok 1 - one # SKIP absent dependency\nok 2 - two # SKIP\n' + tap({tests: 2, pass: 0, skipped: 2}));
+    assert.deepEqual(api.unperformedReasons('tests/a.test.mjs', mixed, true), ['absent dependency', 'TAP check skipped without a stated reason: two']);
+    assert.deepEqual(api.unperformedReasons('tests/a.test.mjs', result('# tests 1\n'), true), ['missing or inconsistent completed test totals']);
+  }, "if (reportedFallback && /^# (tests|pass|fail|cancelled|skipped|todo) /m.test(out)) {", 'if (false) {'],
+  ['a failed command always fails the aggregate', api => {
+    assert.equal(api.summarize([{status: 'PASS'}, {status: 'FAIL'}, {status: 'UNPERFORMED'}]).exitCode, 1);
+  }, "['PASS', 'UNPERFORMED'].includes(row.status)", "['PASS', 'FAIL', 'UNPERFORMED'].includes(row.status)"],
   ['recall source NOT RUN remains unperformed', api => {
     for (const out of ['  ----  NOT RUN: the host validator is absent...', '  ----  NOT RUN: actual host ToolRuntime/Cordis is absent...'])
       assert.equal(api.classify('tests/kira-recall-output-seam.test.mjs', result(out)), 'UNPERFORMED');
@@ -136,14 +175,15 @@ const protections = [
   ['an empty run cannot succeed', api => {
     assert.deepEqual(api.summarize([]), {counts: {PASS: 0, FAIL: 0, UNPERFORMED: 0}, exitCode: 1});
   }, 'rows.length > 0 && rows.every', 'rows.every'],
-  ['aggregate exit stays nonzero for any non-PASS outcome', api => {
+  ['aggregate failure fails; named unperformed work does not fail the job', api => {
     for (const status of ['FAIL', 'UNPERFORMED']) {
       const summary = api.summarize([{status: 'PASS'}, {status}]);
       assert.deepEqual(summary.counts, {PASS: 1, FAIL: Number(status === 'FAIL'), UNPERFORMED: Number(status === 'UNPERFORMED')});
-      assert.equal(summary.exitCode, 1);
+      assert.equal(summary.exitCode, status === 'FAIL' ? 1 : 0);
     }
-    assert.equal(api.summarize([{status: 'PASS'}]).exitCode, 0);
-  }, "rows.every(row => row.status === 'PASS')", "rows.every(row => row.status !== 'FAIL')"],
+    assert.equal(api.summarize([{status: 'UNPERFORMED'}]).exitCode, 0);
+    assert.equal(api.summarize([{status: 'invalid'}]).exitCode, 1);
+  }, "rows.every(row => ['PASS', 'UNPERFORMED'].includes(row.status))", "rows.every(row => row.status === 'PASS')"],
 ];
 
 for (const [name, check] of protections) test(name, () => check(checks));
@@ -173,7 +213,7 @@ function runnerCheck(api) {
     const paths = ['failed', 'passed', 'skipped'].map(name => relative(root, join(directory, `${name}.mjs`)));
     writeFileSync(join(root, paths[0]), "console.log('synthetic stdout'); console.error('synthetic stderr'); process.exitCode = 1;\n");
     writeFileSync(join(root, paths[1]), "if ('CI_TEST_PRIVATE_SENTINEL' in process.env) throw Error('environment inherited'); console.log('child after failure');\n");
-    writeFileSync(join(root, paths[2]), `console.log(${JSON.stringify(tap({pass: 0, skipped: 1}))});\n`);
+    writeFileSync(join(root, paths[2]), `console.log(${JSON.stringify('ok 1 - source fixture # SKIP fixture dependency absent\n' + tap({pass: 0, skipped: 1}))});\n`);
     const output = join(directory, 'output');
     const previous = process.env.CI_TEST_PRIVATE_SENTINEL;
     process.env.CI_TEST_PRIVATE_SENTINEL = 'synthetic-only';
@@ -192,10 +232,57 @@ function runnerCheck(api) {
     assert.equal(log(paths[0], 'stdout'), 'synthetic stdout\n');
     assert.equal(log(paths[0], 'stderr'), 'synthetic stderr\n');
     assert.equal(log(paths[1], 'stdout'), 'child after failure\n');
-    assert.match(readFileSync(join(output, 'summary.md'), 'utf8'), /^PASS 1 \/ FAIL 1 \/ UNPERFORMED 1\n/);
+    assert.deepEqual(rows[2].reasons, ['fixture dependency absent']);
+    const summary = readFileSync(join(output, 'summary.md'), 'utf8');
+    assert.match(summary, /^PASS 1 \/ FAIL 1 \/ UNPERFORMED 1\n/);
+    assert.ok(summary.includes('| UNPERFORMED | fixture dependency absent |'));
   });
 }
 test('raw runner captures both streams and continues after a failed command', () => runnerCheck(checks));
+
+function incompleteRunCheck(api) {
+  scratch(directory => {
+    const child = join(directory, 'incomplete.mjs');
+    writeFileSync(child, "console.error('UNPERFORMED: required fixture absent'); process.exitCode = 2;\n");
+    const output = join(directory, 'output');
+    assert.equal(api.run([relative(root, child)], empty, output), 0);
+    const rows = JSON.parse(readFileSync(join(output, 'results.json'), 'utf8'));
+    assert.deepEqual(rows.map(row => [row.status, row.exit, row.reasons]), [['UNPERFORMED', 2, ['required fixture absent']]]);
+    assert.match(readFileSync(join(output, 'summary.md'), 'utf8'), /\| UNPERFORMED \| required fixture absent \|/);
+  });
+}
+test('a named exit 2 succeeds as a job and retains its reason', () => incompleteRunCheck(checks));
+
+test('reason extraction retains each source reason and ignores bare status totals', () => {
+  assert.deepEqual(checks.unperformedReasons('tests/a.test.mjs', result('UNPERFORMED:\n# tests 1\n# todo 0\n')), []);
+  assert.deepEqual(checks.unperformedReasons('tests/kira-memory-live-path.test.mjs', result('  UNPERFORMED 1. release: no built harness found\n')),
+    ['release: no built harness found']);
+  assert.deepEqual(checks.unperformedReasons('tests/aukora-owner-protocol.test.mjs', result('  SKIP fixture\n        NAMED CEILING: missing owner account\n')),
+    ['missing owner account']);
+  assert.deepEqual(checks.unperformedReasons('tests/a.test.mjs', result('UNPERFORMED release closure: no built harness found\n')), ['release closure: no built harness found']);
+  const report = review([{status: 'SKIP', reason: 'namespaces unavailable'}], [{reason: 'owner custody unperformed'}]);
+  assert.deepEqual(checks.unperformedReasons('security-review', result(JSON.stringify(report))), ['namespaces unavailable', 'owner custody unperformed']);
+});
+
+function homeEnvironmentCheck(api) {
+  scratch(directory => {
+    const child = join(directory, 'home.mjs');
+    writeFileSync(child, `if (process.env.HOME !== ${JSON.stringify(directory)} || process.env.RUNNER_TEMP !== ${JSON.stringify(directory)}) process.exitCode = 1;`);
+    const previous = {HOME: process.env.HOME, RUNNER_TEMP: process.env.RUNNER_TEMP};
+    process.env.HOME = directory; process.env.RUNNER_TEMP = directory;
+    try {assert.equal(api.run([relative(root, child)], empty, join(directory, 'output')), 0);}
+    finally {for (const [key, value] of Object.entries(previous)) {if (value === undefined) delete process.env[key]; else process.env[key] = value;}}
+  });
+}
+test('children retain HOME and RUNNER_TEMP; both removal mutants die', async () => {
+  homeEnvironmentCheck(checks);
+  for (const field of ['HOME', 'RUNNER_TEMP']) {
+    const mutant = replace(source, `${field}: process.env.${field}, `, '');
+    const mutated = await import(moduleURL(mutant));
+    assert.throws(() => homeEnvironmentCheck(mutated));
+  }
+  console.log('CI home-environment mutations: 2/2 killed');
+});
 
 function workflowCheck(text) {
   assert.match(text, /permissions:\n  contents: read\n/);
@@ -290,6 +377,7 @@ test('removed protections are caught by the same assertions', async () => {
   for (const [before, after] of [
     ['for (const row of rows) {', 'for (const row of rows.slice(0, 1)) {'],
     ["env: {PATH: process.env.PATH,", "env: {...process.env, PATH: process.env.PATH,"],
+    ["reasons: unperformedReasons(row.path, captured, true)", "reasons: []"],
   ]) {
     const mutant = await import(moduleURL(replace(source, before, after)));
     assert.throws(() => runnerCheck(mutant), undefined, `survived: ${before}`);
@@ -311,5 +399,9 @@ test('removed protections are caught by the same assertions', async () => {
     assert.throws(() => workflowCheck(workflow.replace(before, after)), undefined, `survived: ${before}`);
     killed++;
   }
+  const hiddenReasons = replace(source, "${cell((row.reasons ?? []).join('; ')) || 'none'}", 'none');
+  const hiddenReasonsModule = await import(moduleURL(hiddenReasons));
+  assert.throws(() => incompleteRunCheck(hiddenReasonsModule));
+  killed++;
   console.log(`CI mutations: ${killed}/${killed} killed`);
 });

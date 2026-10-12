@@ -38,7 +38,7 @@ function run(rows, text = source) {
   const calls = []
   for (let index = 0; index < rows.length; index++) {
     const row = rows[index]
-    const file = row.court ? 'tests/kira-injection.test.mjs' : `tests/producer-${index}.mjs`
+    const file = row.file ?? (row.court ? 'tests/kira-injection.test.mjs' : `tests/producer-${index}.mjs`)
     writeFileSync(join(directory, file), row.body ??
       `console.log(${JSON.stringify(row.output ?? '')});process.exit(${row.exit ?? 0});\n`, { mode: 0o600 })
     const runCommand = row.runCommand ?? (row.court ? command : `node ${file}`)
@@ -81,6 +81,14 @@ const cases = [
   ['literal command binding refuses a different label', { court: true, label: 'node tests/another-court.mjs', output: footer(), exit: 2 }, 'FAIL', 1],
   ['ordinary completed child stays pass', { output: 'completed synthetic assertions', exit: 0 }, 'PASS', 0],
   ['exact label cannot authorize different execution argv', { court: true, label: command, runCommand: 'node tests/kira-injection.test.mjs --source-only --mutate', output: footer(), exit: 2 }, 'FAIL', 1],
+  ['plain named exit two remains unperformed', { output: 'UNPERFORMED: sandbox loopback listen refused (EPERM)', exit: 2 }, 'UNPERFORMED', 2],
+  ['named arm exit two remains unperformed', { output: 'FRESH BIND: UNPERFORMED approval round trip: Unix socket listen unavailable (EPERM)', exit: 2 }, 'UNPERFORMED', 2],
+  ['reasonless exit two remains failure', { output: 'UNPERFORMED:', exit: 2 }, 'FAIL', 1],
+  ['plain failure outranks a named gap', { output: 'FAIL actual assertion\nUNPERFORMED: unavailable socket', exit: 2 }, 'FAIL', 1],
+  ['plain TAP failure outranks a named gap', { output: 'not ok 1 - failed\nUNPERFORMED: unavailable socket', exit: 2 }, 'FAIL', 1],
+  ['named nested-sandbox refusal remains unperformed', { output: 'CAGED WORKER: NOT RUN (nested sandbox - denials here would prove nothing; exit 2)', exit: 2 }, 'UNPERFORMED', 2],
+  ['empty parenthesized reason remains failure', { output: 'CAGED WORKER: NOT RUN ()', exit: 2 }, 'FAIL', 1],
+  ['unperformed marker must be a complete word', { output: 'UNPERFORMEDNESS: fixture', exit: 2 }, 'FAIL', 1],
 ]
 
 function checkCase(name, row, status, exit, text = source) {
@@ -112,6 +120,39 @@ function checkAggregate(text = source) {
 checkAggregate()
 console.log('PASS aggregate: one gap remains exit 2; mixed failure remains exit 1')
 
+function checkMutationDispatch(text = source) {
+  const rows = registrations(text)
+  assert.equal(rows.some(line => /\bnode --test(?: |$).*\.mjs\s+--/u.test(line)), false,
+    'Node test-runner file arguments do not reach process.argv')
+  const lane = rows.filter(line => line.includes('tests/lane-send.test.mjs'))
+  assert.equal(lane.length, 1)
+  const invocation = lane[0].match(/^check_tap '([^']+)'$/u)?.[1]
+  assert(invocation, 'retain the TAP mutation registration')
+  const result = run([{ file: 'tests/lane-send.test.mjs', runCommand: invocation, format: 'tap',
+    body: "import test from 'node:test'; import assert from 'node:assert/strict'; test('mutation requested', () => assert.equal(process.env.AUKORA_LANE_SEND_MUTATE, '1'));\n" }], text)
+  assert.equal(result.status, 0, 'the actual shell registration must request mutations')
+}
+checkMutationDispatch()
+console.log('PASS mutation dispatch: actual lane registration requests mutations; no swallowed file flags')
+
+const laneSource = readFileSync(new URL('./lane-send.test.mjs', import.meta.url), 'utf8')
+const laneHere = new URL('.', import.meta.url).pathname
+const guard = "if (mutationRequested && mutationsCaught === 0) {\n    process.exitCode = 1\n    assert.fail('LANE_SEND_MUTATIONS_NOT_RUN')\n  }"
+assert.equal(laneSource.split(guard).length, 2)
+const zeroCourt = laneSource.replace('const HERE = dirname(fileURLToPath(import.meta.url))', `const HERE = ${JSON.stringify(laneHere)}`)
+  .replace("if (mutationRequested) test('each removed protection", "if (false) test('each removed protection")
+function checkEmptyMutationCourt(text) {
+  const child = spawnSync(process.execPath, ['--test-reporter=tap', '--test-name-pattern=goal examples', '--input-type=module', '--eval', text], {
+    env: { ...environment, AUKORA_LANE_SEND_MUTATE: '1' }, encoding: 'utf8', timeout: 10000,
+  })
+  assert.equal(child.error, undefined)
+  assert.equal(child.status, 1, 'an explicitly requested empty mutation court must fail')
+  assert.match(child.stdout, /LANE_SEND_MUTATIONS_NOT_RUN/u)
+}
+checkEmptyMutationCourt(zeroCourt)
+assert.throws(() => checkEmptyMutationCourt(zeroCourt.replace(guard, '')), { code: 'ERR_ASSERTION' })
+console.log('KILLED zero-mutation guard removal (empty requested court otherwise exits zero)')
+
 const controls = [
   ['green unperformed row', '$disposition = "UNPERFORMED"; $reason = "reported unperformed injection checks";', '$disposition = "PASS"; $reason = "reported unperformed injection checks";', () => checkCase(...cases[0])],
   ['drop aggregate unperformed', 'if [ "$skipped" -ne 0 ] || [ "$unperformed" -ne 0 ]; then exit 2; fi', 'if [ "$skipped" -ne 0 ]; then exit 2; fi', checkAggregate],
@@ -120,6 +161,11 @@ const controls = [
   ['drop unique footer guard', '$court_reports != 1 || $court_invalid', '0 || $court_invalid', () => checkCase(...cases[10])],
   ['drop explicit command binding', 'die "injection command" unless $command eq "node tests/kira-injection.test.mjs --mutate" && $run eq $command;', '# removed command binding', () => checkCase(...cases[19])],
   ['drop execution argv binding', '$run eq $command', '1', () => checkCase(...cases[21])],
+  ['drop mutation request', 'AUKORA_LANE_SEND_MUTATE=1 ', '', checkMutationDispatch],
+  ['drop plain reason requirement', '$named_unperformed && ', '', () => checkCase(...cases[24])],
+  ['drop plain failure precedence', '!$plain_failure && ', '', () => checkCase(...cases[25])],
+  ['drop exact marker', String.raw`UNPERFORMED\b`, 'UNPERFORMED', () => checkCase(...cases[29])],
+  ['drop parenthesized reason', String.raw`[^) \t][^)\n]*`, String.raw`[^)\n]*`, () => checkCase(...cases[28])],
 ]
 if (process.argv.includes('--mutate')) {
   for (const [name, before, after, inspect] of controls) {
@@ -127,9 +173,9 @@ if (process.argv.includes('--mutate')) {
     const mutated = source.replace(before, after)
     let caught = false
     try {
-      if (inspect === checkAggregate) inspect(mutated)
+      if (inspect === checkAggregate || inspect === checkMutationDispatch) inspect(mutated)
       else {
-        const position = name === 'drop reported failure guard' ? 6 : name === 'drop unique footer guard' ? 10 : name === 'drop explicit command binding' ? 19 : name === 'drop execution argv binding' ? 21 : 0
+        const position = name === 'drop exact marker' ? 29 : name === 'drop parenthesized reason' ? 28 : name === 'drop plain reason requirement' ? 24 : name === 'drop plain failure precedence' ? 25 : name === 'drop reported failure guard' ? 6 : name === 'drop unique footer guard' ? 10 : name === 'drop explicit command binding' ? 19 : name === 'drop execution argv binding' ? 21 : 0
         checkCase(...cases[position], mutated)
       }
     } catch (error) {
@@ -140,4 +186,4 @@ if (process.argv.includes('--mutate')) {
     console.log(`KILLED ${name}`)
   }
 }
-console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 103 registrations retained; synthetic child/actual runner only; no fixture deletes`)
+console.log(`check-shell-status: ${cases.length + 5} cases PASS; ${1 + (process.argv.includes('--mutate') ? controls.length : 0)} controls killed; 103 registrations retained; synthetic child/actual runner only; no fixture deletes`)

@@ -3,11 +3,9 @@
 // No installed runtime or real credentials are accessed. Removal controls load
 // modified production policy in memory only; its other dependencies stay real.
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import test from 'node:test'
+import test, { after } from 'node:test'
 
 const indexUrl = new URL('../plugins/aukora-action-gate/lib/index.mjs', import.meta.url)
 const policyUrl = new URL('../plugins/aukora-action-gate/lib/policy.mjs', import.meta.url)
@@ -37,8 +35,16 @@ async function loadGate() {
 const { apply } = await loadGate()
 const marker = 'FIXTURE_MARKER harmless controlled data\n'
 
+const fixtureRoots = []
+after(() => { for (const root of fixtureRoots) rmSync(root, { recursive: true, force: true }) })
+function searchFixture(path) {
+  if (statSync(path).isDirectory()) return readdirSync(path).map(name => searchFixture(join(path, name))).join('\n')
+  return readFileSync(path, 'utf8')
+}
+
 function fixture() {
-  const root = mkdtempSync(join(realpathSync(tmpdir()), 'aukora-filetool-secret-'))
+  const root = mkdtempSync(new URL('../.prime-check-filetool-secret-', import.meta.url))
+  fixtureRoots.push(root)
   const workspace = join(root, 'workspace')
   const outside = join(root, 'outside')
   const state = join(root, 'state')
@@ -63,7 +69,7 @@ function fixture() {
     // This transport is a fixture, not an attestation of installed DSH tools.
     if (name === 'grep') {
       const path = args.path ?? cwd
-      return { invoked: true, value: execFileSync('rg', ['--hidden', '--no-ignore', '--follow', 'FIXTURE_MARKER', path], { encoding: 'utf8', cwd: cwd ?? workspace }) }
+      return { invoked: true, value: searchFixture(resolve(cwd ?? workspace, path)) }
     }
     const raw = args.file_path ?? args.path ?? args.files?.[0]?.path
     const path = raw.startsWith('~/') ? resolve(root, raw.slice(2)) : resolve(cwd, raw)

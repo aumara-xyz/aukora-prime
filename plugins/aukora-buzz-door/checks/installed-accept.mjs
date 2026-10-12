@@ -1,19 +1,38 @@
 #!/usr/bin/env node
-// Acceptance driver for an INSTALLED release (run as the harness user on a node or in its staging container):
-//   node installed-accept.mjs <release dir>
-// It loads the door's bytes from that release, applies them with the composition row's own configuration, and
-// exercises them against the node's real gate socket and real Buzz relay. Refusals first, then the path that works.
-// No model is involved: the "agent" is a recorder, so this shows what the door hands over and refuses, not what a
-// model does with it. It makes a throwaway key and channel on first run and never prints a key.
+// Installed acceptance uses an explicit scratch HOME and never replaces live door configuration.
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 
-const REL = process.argv[2]
-if (!REL || !path.isAbsolute(REL)) { console.error('usage: installed-accept.mjs <absolute release dir>'); process.exit(2) }
-const HOME = process.env.HOME
+const [REL, option, scratchHome, ...extra] = process.argv.slice(2)
+const refuse = code => { console.error(`REFUSED ${code}`); process.exit(1) }
+const present = file => { try { fs.lstatSync(file); return true } catch (error) { if (error.code !== 'ENOENT') throw error; return false } }
+if (!REL || !path.isAbsolute(REL) || (option && option !== '--scratch-home') || extra.length) {
+  console.error('UNPERFORMED usage: installed-accept.mjs <absolute release dir> --scratch-home <existing absolute directory>'); process.exit(2)
+}
+const realHome = fs.realpathSync(process.env.HOME)
+const liveDir = path.join(realHome, '.config', 'aukora-buzz')
+const liveDirs = [liveDir, ...(fs.existsSync(liveDir) ? [fs.realpathSync(liveDir)] : [])]
+if (!scratchHome) {
+  if (['door.json', 'auma.key'].some(name => present(path.join(liveDir, name)))) refuse('LIVE_HOME_STATE_EXISTS')
+  refuse('SCRATCH_HOME_REQUIRED')
+}
+if (!path.isAbsolute(scratchHome)) refuse('SCRATCH_HOME_NOT_DIRECTORY')
+let HOME
+try { HOME = fs.realpathSync(scratchHome); if (!fs.statSync(HOME).isDirectory()) refuse('SCRATCH_HOME_NOT_DIRECTORY') }
+catch { refuse('SCRATCH_HOME_NOT_DIRECTORY') }
+if (HOME === realHome || liveDirs.some(live => HOME === live || HOME.startsWith(live + path.sep))) refuse('LIVE_HOME_FORBIDDEN')
 const dir = path.join(HOME, '.config', 'aukora-buzz'), keyFile = path.join(dir, 'auma.key'), configFile = path.join(dir, 'door.json')
+for (const parent of [path.dirname(dir), dir]) {
+  if (present(parent) && (!fs.lstatSync(parent).isDirectory() || fs.lstatSync(parent).isSymbolicLink())) refuse('SCRATCH_CONFIG_PATH_UNSAFE')
+}
+if ([keyFile, configFile].some(present)) refuse('SCRATCH_HOME_STATE_EXISTS')
+process.env.HOME = HOME
+function writeFresh(file, data) {
+  try { fs.writeFileSync(file, data, { mode: 0o600, flag: 'wx' }) }
+  catch (error) { if (error.code === 'EEXIST') refuse('SCRATCH_HOME_STATE_EXISTS'); throw error }
+}
 const SESSION = 'buzz-acceptance'
 const file = path.join(REL, 'plugins/aukora-buzz-door/lib/index.mjs')
 console.log('PLUGIN', file, createHash('sha256').update(fs.readFileSync(file)).digest('hex'))
@@ -27,7 +46,7 @@ const row = (ok, what, detail = '') => { if (!ok) failed++; console.log(`${ok ? 
 // Throwaway people. The owner and stranger exist only in this process; her key is written once, 0600.
 const owner = randomSecretKey(), stranger = randomSecretKey()
 fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-if (!fs.existsSync(keyFile)) fs.writeFileSync(keyFile, randomSecretKey() + '\n', { mode: 0o600 })
+writeFresh(keyFile, randomSecretKey() + '\n')
 const me = publicKeyOf(fs.readFileSync(keyFile, 'utf8').trim())
 const send = async (sk, kind, tags, content = '') => {
   const event = signEvent({ pubkey: publicKeyOf(sk), created_at: now(), kind, tags, content }, sk)
@@ -39,7 +58,7 @@ const channel = randomUUID()
 const made = await send(owner, 9007, [['h', channel], ['name', `door-accept-${channel.slice(0, 8)}`], ['visibility', 'open'], ['channel_type', 'stream']])
 row(made.code === 200 && made.data?.accepted === true, 'relay reachable from this node; throwaway channel created', `http ${made.code}`)
 if (failed) process.exit(1)
-fs.writeFileSync(configFile, JSON.stringify({ channel, ownerPubkey: publicKeyOf(owner), admit: [], sessionId: SESSION }) + '\n', { mode: 0o600 })
+writeFresh(configFile, JSON.stringify({ channel, ownerPubkey: publicKeyOf(owner), admit: [], sessionId: SESSION }) + '\n')
 
 // The harness, reduced to a recorder: one session that keeps what it is handed.
 const tools = {}, handed = [], lines = []
