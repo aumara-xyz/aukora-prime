@@ -8,7 +8,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 U=aukora-buzz
 ROOT=/var/lib/aukora-buzz
 LIB=/usr/local/lib/aukora-buzz
-PORT="${AUKORA_BUZZ_PORT:-18740}"
+# Buzz binds a community to the host name a client asks for, so every client must dial the same name the relay
+# was told it has (RELAY_URL). On the node and through a tunnel alike that is localhost:3000.
+PORT="${AUKORA_BUZZ_PORT:-3000}"
 OWNER=""
 while [ $# -gt 0 ]; do
   case "$1" in

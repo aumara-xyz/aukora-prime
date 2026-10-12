@@ -13,8 +13,11 @@ scp ops/buzz-relay/* NODE:/tmp/aukora-buzz-install/      then on the node:  bash
 git -C ~/aukora-buzz archive --format=tar "$(cat ops/buzz-relay/PIN)" | ssh NODE 'sudo -u aukora-buzz sh -c "mkdir -p ~/src/SHA && tar -x -C ~/src/SHA"'
 ssh NODE 'sudo -u aukora-buzz /usr/local/lib/aukora-buzz/build.sh SHA'     # about 20 to 40 minutes, niced
 ssh NODE 'sudo systemctl enable --now aukora-buzz && bash /usr/local/lib/aukora-buzz/check.sh'
-ssh -N -L 127.0.0.1:3000:127.0.0.1:18740 NODE                               # then Buzz's app on the Mac sees it as its local relay
+ssh -N -L 127.0.0.1:3000:127.0.0.1:3000 NODE                                 # then Buzz's app on the Mac sees it as its local relay
 ```
+
+A changed port needs the pod made again (data is kept): `sudo systemctl stop aukora-buzz`, then as aukora-buzz
+`podman pod rm -f aukora-buzz`, then install and start.
 
 Remove: `sudo systemctl disable --now aukora-buzz`, then `sudo loginctl disable-linger aukora-buzz` and
 `sudo userdel -r aukora-buzz` (this deletes the relay's data), and delete the unit file and `/usr/local/lib/aukora-buzz`.

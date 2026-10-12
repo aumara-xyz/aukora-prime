@@ -199,3 +199,16 @@ STEP 2, 2026-10-12 (written by the builder session in this repository; nothing a
   the relay's own database holds the channel creation and his two messages (09:01 to 09:02 UTC), all signed by one
   key, the app's existing identity. Not shown: a second person or device reading them; the phone app; an agent
   answering (he added Buzz's "Fizz" agent and addressed it; no reply was looked for).
+- [RAN on the pilot, later the same day] Buzz binds a community to the host name a client asks for: from the pilot
+  itself, ws://127.0.0.1:18740 was refused (404) while the same socket asked for as localhost:3000 was accepted.
+  The relay now listens on 127.0.0.1:3000 on the pilot, so a process on the node and the Mac through the tunnel
+  both dial ws://localhost:3000. check.sh 10 of 10 PASS after the move; Peter's channel messages are still in the
+  database; a WebSocket from the pilot's own Node opens. A phone will need a real host name the same way.
+- STEP 3, what was found (read-only): plugins/aukora-nostr is a library with no tools, not a mountable plugin, and
+  it is not in the live release's plugin directory. Nothing on the pilot wakes Auma except the owner typing in the
+  UI (aukora-relay-auma is pull-only). The harness does give a plugin a way to start a turn: the `agents` service
+  (`agent.followup`), already used by aukora-goal-resume and aukora-box. So step 3 is a new host plugin that holds
+  her Buzz key outside the model, hands a channel message to her as data and gives her one tool to answer. That is
+  a new plugin set and a new release on the pilot: both are Peter's to approve, and the safe path to bring the
+  pilot up to main (step 1) has to be named first. Her sandbox does not need the firewall opened: the plugin runs
+  in the harness process, which the rule does not restrict.
