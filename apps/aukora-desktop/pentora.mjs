@@ -1,7 +1,7 @@
 /* Pentora v1 display expansion + geometry, browser port. Source: aukora-identity spec/pentora-v1/PENTORA-EXPANSION-v1-NORMATIVE.md (sections 1-3);
    geometry from data/geometry_index_table_v1.json, sha256 pin 96b27c9b4de41cd961612be5b1e88d40e973a2fded16bd320415b3e15e3b8c61 (src/pentora/pinned-data.mjs).
    Display only: it never authenticates or authorises. Conformance: tests/pentora-port.test.mjs. */
-const PENTORA = {
+export const PENTORA = {
   centre: 55,
   mutable: [
     0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,
@@ -43,16 +43,16 @@ const PENTORA = {
     [16,47,83,4,36,73,1,26,58,33,70,103,20,55,90,7,40,77,52,84,109,37,74,106,27,63,94],
     [18,48,83,5,35,72,0,23,57,34,71,104,21,55,89,6,39,76,53,87,110,38,75,105,27,62,92]]
 };
-async function pentoraDigest(head32, sha256) {
-  if (!(head32 instanceof Uint8Array) || head32.length !== 32) throw new RangeError('pentora head must be exactly 32 bytes');
+export async function pentoraDigest(head32, sha256) {
+  if (!(head32 instanceof Uint8Array) || head32.length !== 32) throw new RangeError('pentora:head-invalid');
   const msg = new Uint8Array(51); // "pentora.display.v1" (18) || 0x00 || head (32)
   for (let i = 0; i < 18; i++) msg[i] = 'pentora.display.v1'.charCodeAt(i);
   msg.set(head32, 19);
   const out = await sha256(msg), digest = out instanceof ArrayBuffer ? new Uint8Array(out) : out;
-  if (!(digest instanceof Uint8Array) || digest.length !== 32) throw new TypeError('pentora sha256 must return 32 bytes');
+  if (!(digest instanceof Uint8Array) || digest.length !== 32) throw new TypeError('pentora:hash-invalid');
   return digest;
 }
-async function pentoraDigits(head32, sha256) {
+export async function pentoraDigits(head32, sha256) {
   const n = Array.from(await pentoraDigest(head32, sha256)), digits = new Uint8Array(110);
   for (let i = 0; i < 110; i++) { // digit[i] = floor(N / 3^i) mod 3: divide the big-endian N by 3, keep the remainder
     let r = 0;

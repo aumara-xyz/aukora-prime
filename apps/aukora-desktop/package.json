@@ -46,6 +46,8 @@
       "lane-dispatch.mjs",
       "lane-door.mjs",
       "main.mjs",
+      "pentora.mjs",
+      "pentora-view.mjs",
       "resolve.mjs",
       "supervisor.mjs",
       "url-policy.mjs"

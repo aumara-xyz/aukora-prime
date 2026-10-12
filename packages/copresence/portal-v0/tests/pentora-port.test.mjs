@@ -1,26 +1,20 @@
-// Conformance gate for pentora-port.js, the browser port of the normative
-// Pentora v1 display expansion and geometry (aukora-identity spec/pentora-v1).
-// The snippet is evaluated from its exact bytes with indirect eval, the way a
-// single-file page would run it, so the gate exercises the text that ships.
-//
-//   node --test copresence-portal-v0/tests/pentora-port.test.mjs
+// The shared Pentora module and frozen portal must agree with the imported vectors.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, webcrypto } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { PENTORA, pentoraDigest, pentoraDigits } from '../../../../apps/aukora-desktop/pentora.mjs';
+import { loadCore } from './load-core.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const PORT_JS = path.join(here, 'pentora-port.js');
+const MODULE_JS = new URL('../../../../apps/aukora-desktop/pentora.mjs', import.meta.url);
 const VECTORS_JSON = path.join(here, 'pentora-vectors.json');
 // Read-only reference implementation. Override the location for other machines.
 const IDENTITY_ROOT = process.env.PENTORA_IDENTITY_ROOT || path.join(here, 'data', 'identity');
 
-const portText = fs.readFileSync(PORT_JS, 'utf8');
-// `const` does not escape an eval, so the same evaluation hands the three names out.
-(0, eval)(portText + '\n;globalThis.__pentoraPort = { PENTORA, pentoraDigest, pentoraDigits };');
-const { PENTORA, pentoraDigest, pentoraDigits } = globalThis.__pentoraPort;
+const portText = fs.readFileSync(MODULE_JS, 'utf8');
 
 // Injected hash, in the shape a browser supplies it.
 const sha256 = async bytes => new Uint8Array(await webcrypto.subtle.digest('SHA-256', bytes));
@@ -54,17 +48,17 @@ function* pseudoRandomHeads(seed, count) {
   }
 }
 
-test('snippet is plain script text: declared order, no modules, no Node APIs, 6-decimal numbers', () => {
+test('shared module exports the derivation without dependencies or Node APIs', () => {
   const code = portText.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  const iConst = code.indexOf('const PENTORA = {');
-  const iDigest = code.indexOf('async function pentoraDigest(head32, sha256)');
-  const iDigits = code.indexOf('async function pentoraDigits(head32, sha256)');
+  const iConst = code.indexOf('export const PENTORA = {');
+  const iDigest = code.indexOf('export async function pentoraDigest(head32, sha256)');
+  const iDigits = code.indexOf('export async function pentoraDigits(head32, sha256)');
   assert.ok(iConst >= 0 && iDigest > iConst && iDigits > iDigest, 'PENTORA, pentoraDigest, pentoraDigits in that order');
-  assert.doesNotMatch(code, /\b(import|export|require|process|Buffer|BigInt|crypto|module|globalThis|window)\b/);
+  assert.doesNotMatch(code, /\b(import|require|process|Buffer|BigInt|crypto|module|globalThis|window)\b/);
   assert.doesNotMatch(code, /\d\.\d{7,}/, 'no numeric literal beyond 6 decimal places');
   assert.doesNotMatch(code.slice(0, iDigest), /\bawait\b/, 'no top-level await');
   assert.match(portText, /^\/\*[^]*?PENTORA-EXPANSION-v1-NORMATIVE\.md[^]*?[0-9a-f]{64}[^]*?\*\//, 'header names the spec and the pin');
-  assert.doesNotMatch(portText, /<\/script/i, 'safe to paste inside a <script> block');
+  assert.doesNotMatch(portText, /<\/script/i);
 });
 
 test('(a) known-answer vectors: digest and all 110 digits match', async () => {
@@ -87,6 +81,30 @@ test('(a) known-answer vectors: digest and all 110 digits match', async () => {
   }
 });
 
+test('frozen portal matches the shared module on vectors, generated heads and geometry', async () => {
+  const portal = loadCore();
+  const vectors = JSON.parse(fs.readFileSync(VECTORS_JSON, 'utf8'));
+  const heads = [...vectors.map(vector => unhex(vector.head)), ...pseudoRandomHeads(0x9e3779b9, 200)];
+  for (const head of heads) {
+    const digest = await pentoraDigest(head, sha256);
+    assert.deepEqual(await portal.pentoraDigest(head), digest, `digest for ${hex(head)}`);
+    assert.deepEqual(await portal.pentoraDigits(head), await pentoraDigits(head, sha256), `digits for ${hex(head)}`);
+    assert.equal(await portal.shortDigest(head), hex(digest.subarray(0, 4)).toUpperCase(), `short digest for ${hex(head)}`);
+  }
+  assert.equal(heads.length, 264);
+  assert.equal(portal.PENTORA.centre, PENTORA.centre);
+  assert.deepEqual(portal.PENTORA.mutable, PENTORA.mutable);
+  assert.deepEqual(portal.PENTORA.edges, PENTORA.edges);
+  assert.equal(portal.PENTORA.points.length, PENTORA.points.length);
+  for (const [i, point] of PENTORA.points.entries()) {
+    assert.equal(portal.PENTORA.points[i].length, 3);
+    for (let axis = 0; axis < 3; axis += 1) {
+      assert.ok(Math.abs(point[axis] - portal.PENTORA.points[i][axis]) <= 5.000001e-6,
+        `portal point ${i} coordinate ${axis} agrees at its 5-decimal precision`);
+    }
+  }
+});
+
 test('expansion: independent BigInt recomputation, sync and ArrayBuffer hashes agree', async () => {
   const syncHash = bytes => new Uint8Array(createHash('sha256').update(bytes).digest());
   const bufferHash = bytes => webcrypto.subtle.digest('SHA-256', bytes);
@@ -105,14 +123,14 @@ test('expansion: independent BigInt recomputation, sync and ArrayBuffer hashes a
 
 test('input rejection: head must be exactly 32 bytes, hash must return 32 bytes', async () => {
   for (const length of [0, 1, 31, 33, 64]) {
-    await assert.rejects(pentoraDigits(new Uint8Array(length), sha256), RangeError, `length ${length}`);
-    await assert.rejects(pentoraDigest(new Uint8Array(length), sha256), RangeError, `length ${length}`);
+    await assert.rejects(pentoraDigits(new Uint8Array(length), sha256), { name: 'RangeError', message: 'pentora:head-invalid' }, `length ${length}`);
+    await assert.rejects(pentoraDigest(new Uint8Array(length), sha256), { name: 'RangeError', message: 'pentora:head-invalid' }, `length ${length}`);
   }
   for (const bad of [undefined, null, 'a'.repeat(32), '0'.repeat(64), Array(32).fill(0), new Uint16Array(32), new ArrayBuffer(32)]) {
-    await assert.rejects(pentoraDigits(bad, sha256), RangeError);
+    await assert.rejects(pentoraDigits(bad, sha256), { name: 'RangeError', message: 'pentora:head-invalid' });
   }
   for (const badHash of [async () => new Uint8Array(20), async () => 32, async () => '0'.repeat(32), async () => null]) {
-    await assert.rejects(pentoraDigits(new Uint8Array(32), badHash), TypeError);
+    await assert.rejects(pentoraDigits(new Uint8Array(32), badHash), { name: 'TypeError', message: 'pentora:hash-invalid' });
   }
   let seen = null;
   await pentoraDigest(new Uint8Array(32).fill(7), async bytes => { seen = Uint8Array.from(bytes); return new Uint8Array(32); });

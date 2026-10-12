@@ -27,6 +27,38 @@ The optional three Pentora module comparisons retain their original skip behavio
 the default now points inside this unit (`tests/data/identity`, not included).
 Known-answer vectors and independent mathematical geometry checks still run.
 
+The maintained derivation is now `apps/aukora-desktop/pentora.mjs` (relative to
+the repository root), promoted from `tests/pentora-port.js`: SHA-256 of
+`pentora.display.v1`, NUL, and a 32-byte head, expanded to 110 base-3 digits,
+least significant first. Its five-cube geometry has 111 points and a fixed centre.
+The unchanged portal is a frozen caller checked through `tests/load-core.mjs`;
+the desktop's `pentora-view.mjs` uses the shared module for its approval Details
+picture. `aumlok-draw.mjs` draws identity words, not Pentora. Frozen UI face
+snapshots contain no Pentora caller. The desktop picture compares the displayed
+operation digest (gate mode: proposed content SHA-256), not the whole gate review.
+It grants no authority and does not change approval eligibility.
+
+`pentora-port.test.mjs` checks the 64 imported vectors and agreement on another
+200 deterministic heads. `pentora-display.test.mjs` checks the desktop's rendered
+cells and palette against those vectors and the frozen portal. The desktop view
+is static; the portal rotates, so this is not pixel equality or a tested human
+comparison. The three external-reference
+checks still require `PENTORA_IDENTITY_ROOT/src/pentora/{expansion,geometry,pinned-data}.mjs`
+and `spec/pentora-v1/data/geometry_index_table_v1.json` with the original pinned
+hash. SPEC-v1 describes the ceremony; it cannot reconstruct those original JSON
+bytes or establish their provenance. No replacement reference was fabricated.
+
+This is source only. `scripts/materialize-aukora-release.py` neither carries this
+portal in `LANE_PLUGINS` nor mounts it in its composition rows. The separate
+desktop package includes both shared/display modules. An operator can run
+`node --test packages/copresence/portal-v0/tests/pentora*.test.mjs`: expect 13 pass,
+0 fail, 3 skipped without the outside reference. After an authorized desktop
+build/install, open an ordinary approval's Details: a valid 64-hex digest should
+show a Pentora picture. No approval click is required to inspect it. Linux node
+portal hosting, two real devices and installed desktop observation remain undone.
+Matching pictures support byte comparison, not who is looking; the 110-trit
+display is a lossy fingerprint, not a proof of byte equality or human presence.
+
 Not imported/run: browser-dependent gate3-twin and its harness. Gate2 optical,
 servers, fixture generators and other donor tools are outside the requested set.
 No physical device, trusted approval click, relay publication, installed application,
@@ -42,7 +74,9 @@ not exhaustive mutation coverage or browser enforcement evidence.
 
 ## Imported file SHA-256
 
-Paths are relative to this directory; hashes are the imported bytes. The README
+Paths are relative to this directory; hashes are the imported bytes. The old
+`tests/pentora-port.js` was promoted to the shared desktop module above; its row
+records provenance, not a current file. The README
 itself is excluded. Licence text whitespace may differ from upstream web sources
 as disclosed in `vendor/NOTICES`. The symlink's text is `../vendor`.
 
