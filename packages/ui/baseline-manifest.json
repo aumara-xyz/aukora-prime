@@ -1611,7 +1611,7 @@
       "source": "plugins/aukora-face/messages/lib/.build-inputs.json",
       "path": "faces/messages/lib/.build-inputs.json",
       "bytes": 1363,
-      "sha256": "a7b40649c512f1b293f81d1e4d27ab5712dd747594b76cea94ff37d1fb55005c",
+      "sha256": "08e3c4205b642636a22379c6c35440be1de2a2e4fd93722e7a5188c44dd30597",
       "role": "bundle"
     },
     {
@@ -1624,8 +1624,8 @@
     {
       "source": "plugins/aukora-face/messages/lib/index.js",
       "path": "faces/messages/lib/index.js",
-      "bytes": 148876,
-      "sha256": "80030360a85ecd6abd62baff285da5db7513b5585b229de8a57449cf3c75d46f",
+      "bytes": 148978,
+      "sha256": "6684ca8a395266bd63b09fb2c1de152b8bd1329600c70b164685a9ea6237951b",
       "role": "bundle"
     },
     {
@@ -1736,8 +1736,8 @@
     {
       "source": "plugins/aukora-face/messages/src/index.ts",
       "path": "faces/messages/src/index.ts",
-      "bytes": 76929,
-      "sha256": "0dcc72fcb78e4b47657ff290cfca467f7556eb9236e5e791876303037fdfc13e",
+      "bytes": 77071,
+      "sha256": "bf90858aa1d94a7429f8ef2f60459bb2edf321b725d2332942cfbb625ed48bdf",
       "role": "source"
     },
     {

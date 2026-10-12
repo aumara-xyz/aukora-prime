@@ -454,6 +454,16 @@ export async function loadOrganLibrary(releaseDir) {
     }
     Object.assign(wire, await import(pathToFileURL(modulePath).href))
   }
+  // Optional colours cannot replace signer exports or prevent the signer from loading.
+  const tokens = join(releaseDir, 'plugins', 'aukora-aumlok', 'lib', 'ceremony-tokens.mjs')
+  try {
+    if (existsSync(tokens)) {
+      const { ceremonyTokenValues } = await import(pathToFileURL(tokens).href)
+      if (typeof ceremonyTokenValues === 'function' && !('ceremonyTokenValues' in modules)) {
+        modules.ceremonyTokenValues = ceremonyTokenValues
+      }
+    }
+  } catch { /* the sheet retains its checked fallback colours */ }
   return Object.assign(modules, { library: wire })
 }
 

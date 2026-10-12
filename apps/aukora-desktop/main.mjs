@@ -48,6 +48,7 @@ if (!isAbsolute(supportRoot)) throw new Error('support-root-relative: name an ab
 app.setPath('userData', resolvePath(supportRoot))
 if (process.platform === 'darwin' && !app.requestSingleInstanceLock()) app.exit(0)
 
+process.env.AUKORA_SUPPORT_ROOT = app.getPath('userData')
 const env = process.env
 // The shell's own state root. `resolveTarget` may name another one, which changes
 // where an OWNED backend writes — it is not a way to attach to a running one.

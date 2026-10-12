@@ -30,6 +30,7 @@
  * @module @aukora/dsh-plugin-kira/autostage-hook
  */
 import { mayStageForTurn, turnKey } from './autostage.mjs'
+import { cutText } from './memory-tiers.mjs'
 
 /** The service that reads session logs. Read via the non-throwing accessor; NEVER declared in `inject`. */
 export const AUTOSTAGE_READER_SERVICE = 'sessionQuery'
@@ -254,7 +255,7 @@ export function registerAutoStage(ctx, { stageFromDigest, now, onStaged, onSkipp
       if (record === undefined) { skipped('session-not-found'); return }
 
       const surface = await readWithin(reader.readSurface(sessionId), AUTOSTAGE_READ_TIMEOUT_MS)
-      const ask = lastRealAsk(surface?.events).slice(0, MAX_ASK_CHARS)
+      const ask = cutText(lastRealAsk(surface?.events), MAX_ASK_CHARS)
       // AN ABSENT ASK IS THE COMMON CASE, NOT A FAULT: most turns close without saying anything a
       // person would want kept, and that must be silent rather than an error.
       if (ask === '') { skipped('nothing-said'); return }

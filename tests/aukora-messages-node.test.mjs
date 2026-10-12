@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { registerHooks, stripTypeScriptTypes } from 'node:module'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -10,7 +10,7 @@ import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createBinding, loadOrCreateNostrKey } from '../plugins/aukora-nostr/lib/identity.mjs'
 import { isValidEvent, randomSecretKey, signEvent } from '../plugins/aukora-nostr/lib/event.mjs'
-import { openGiftWrap } from '../plugins/aukora-nostr/lib/giftwrap.mjs'
+import { composeDirectMessage, openGiftWrap } from '../plugins/aukora-nostr/lib/giftwrap.mjs'
 import { fetchGiftWraps } from '../plugins/aukora-nostr/lib/relay.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = dirname(HERE)
@@ -36,6 +36,10 @@ const mutations = [
   { name: 'thread-stays-on-node', file: FACE,
     before: 'since: requested.since ?? 0,\n        relays,',
     after: 'since: requested.since ?? 0,\n        relays: modules.modules.DEFAULT_RELAYS,' },
+  { name: 'thread-pages-inbox', file: FACE,
+    before: 'stateDir: stateRoots.stateDir,', after: '' },
+  { name: 'thread-forwards-scan-state', file: FACE,
+    before: '...(spec.stateDir === undefined ? {} : { stateDir: spec.stateDir }),', after: '' },
   { name: 'advertised-inbox-cannot-redirect', file: FACE,
     before: 'publishOne(modules.modules, entry.wrap, relays,',
     after: 'publishOne(modules.modules, entry.wrap, recipient ? (await modules.modules.fetchDmRelays({ pubkey: recipientPubkey, relays, secretKeyHex: key.secretKeyHex, timeoutMs: 2500 })).relays : relays,' },
@@ -62,7 +66,7 @@ registerHooks({
     return { format: 'module', source: stripTypeScriptTypes(source, { mode: 'transform' }), shortCircuit: true }
   },
 })
-const { apply } = await import(pathToFileURL(compiled ? join(ROOT, 'plugins/aukora-face/messages/lib/index.js') : FACE).href)
+const { apply, loadMailModules } = await import(pathToFileURL(compiled ? join(ROOT, 'plugins/aukora-face/messages/lib/index.js') : FACE).href)
 const { contactPayload, liveContactEvent } = await import('../plugins/aukora-face/aumlok/src/contact-qr.ts')
 const { identityContactVerificationRoute } = await import('../plugins/aukora-face/aumlok/src/contact-verification.ts')
 const { parseContactInput } = await import('../plugins/aukora-face/messages/src/client/add-contact.ts')
@@ -250,6 +254,48 @@ async function exchange(t, live = false) {
 
 test('real Messages route: signed contact, two copies, authenticated recipient, proved sender and stranger refusal', async t => {
   await exchange(t)
+})
+
+test('thread reads older pages through the host state folder and retains history for an offline read', async t => {
+  const { a, b } = fixture(t), server = relay(); globalThis.WebSocket = server.Socket
+  const A = mount(a)
+  await addSignedContact(A, b)
+  const texts = ['oldest retained message', 'middle retained message', 'newest retained message']
+  const now = Math.floor(Date.now() / 1000) - 60
+  for (const [index, text] of texts.entries()) {
+    const message = composeDirectMessage({ text, senderSecretKey: b.secretKeyHex,
+      recipientPubkeys: [a.xonlyHex], now: now + index, random: () => 0 })
+    server.events.push(message.wraps.find(copy => copy.recipient === a.xonlyHex).wrap)
+  }
+  // Reduce only the page size; the production defaults still choose one stateless or 32 persisted pages.
+  const modules = await loadMailModules(), original = modules.fetchGiftWraps, reads = []
+  modules.fetchGiftWraps = async spec => {
+    const result = await original({ ...spec, limit: 2, maxKeptWraps: 3 })
+    reads.push(result)
+    return result
+  }
+  t.after(() => { modules.fetchGiftWraps = original })
+  const thread = await A(`/aukora-messages/thread?npub=${b.npub}`)
+  assert.equal(thread.status, 200)
+  assert.deepEqual(thread.body.messages.map(message => message.text), texts, 'older than the first relay page is visible')
+  const outcome = reads[0].outcomes[0]
+  assert.equal(outcome.complete, true)
+  assert.ok(outcome.pages > 1 && outcome.pages <= 32, 'persisted read uses bounded additional pages')
+  assert.ok(outcome.replies <= 10000, 'persisted read stays inside its reply budget')
+  const scans = join(a.stateDir, 'nostr/scans', a.xonlyHex)
+  const cursor = readdirSync(scans).find(name => !name.endsWith('.kept.json'))
+  assert.equal(JSON.parse(readFileSync(join(scans, cursor), 'utf8')).scan, null)
+  const kept = JSON.parse(readFileSync(join(scans, cursor.replace('.json', '.kept.json')), 'utf8')).kept
+  assert.equal(kept.length, 3)
+  server.events.length = 0
+  globalThis.WebSocket = class extends EventTarget {
+    constructor() { super(); queueMicrotask(() => this.dispatchEvent(new Event('error'))) }
+    close() {}
+  }
+  const offline = await A(`/aukora-messages/thread?npub=${b.npub}`)
+  assert.equal(offline.status, 200)
+  assert.deepEqual(offline.body.messages.map(message => message.text), texts)
+  assert.deepEqual(offline.body.answered, [])
 })
 
 test('unconfigured, empty or malformed relay configuration refuses before any socket or identity change', async t => {

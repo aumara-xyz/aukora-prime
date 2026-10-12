@@ -1099,6 +1099,7 @@ function threadRoute(gate: () => RouteGate, rootsOf: () => MessagesContactsRoots
         since: requested.since ?? 0,
         relays,
         timeoutMs: budgetedRelayTimeoutMs(messagesRelayTimeoutMs(4), budgetMs),
+        stateDir: stateRoots.stateDir,
       }))
       const settled = read.kind === 'answered' ? read.value : undefined
       const threadRead = readMailThread([...stored, ...(settled?.wraps ?? [])], modules.modules.openGiftWrap, {
@@ -1374,7 +1375,7 @@ function npubHexOrRefusal(
 /** One relay read, or undefined when the read itself failed before it could answer. */
 async function fetchWraps(
   modules: MessagesMailModules,
-  spec: { readonly recipientPubkey: string; readonly secretKeyHex?: string; readonly since: number | null; readonly relays: MessagesRelays; readonly timeoutMs: number },
+  spec: { readonly recipientPubkey: string; readonly secretKeyHex?: string; readonly since: number | null; readonly relays: MessagesRelays; readonly timeoutMs: number; readonly stateDir?: string },
 ): Promise<{ readonly wraps: readonly unknown[]; readonly answered: readonly string[] } | undefined> {
   try {
     const result = await modules.fetchGiftWraps({
@@ -1383,6 +1384,7 @@ async function fetchWraps(
       ...(spec.since === null ? {} : { since: spec.since }),
       relays: spec.relays,
       timeoutMs: spec.timeoutMs,
+      ...(spec.stateDir === undefined ? {} : { stateDir: spec.stateDir }),
     })
     if (!isRecord(result)) return undefined
     const wraps = Array.isArray(result.wraps) ? result.wraps : []

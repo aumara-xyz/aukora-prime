@@ -34,6 +34,7 @@ import {
   stageKiraMemoryRecord,
 } from './record.mjs'
 import { ownerControlIn } from './memory-forget.mjs'
+import { cutText } from './memory-tiers.mjs'
 
 /** The three things a turn can be worth keeping for. Closed: a fourth needs a new format version. */
 export const AUTO_STAGE_CATEGORIES = Object.freeze(['agent-instruction', 'preference', 'decision', 'measured-fact'])
@@ -217,7 +218,8 @@ export function autoStageCandidate(digest, subject, privacy) {
   if (said !== null) return { category: null, reason: `owner-said-${said}` }
   if (CONTROL_CHARACTERS.test(ask)) return { category: null, reason: 'text-not-a-single-line' }
 
-  const category = classifyCandidate(ask.slice(0, MAX_CANDIDATE_CHARS))
+  const text = cutText(ask, MAX_CANDIDATE_CHARS)
+  const category = classifyCandidate(text)
   if (category === null) return { category: null, reason: 'nothing-worth-keeping' }
 
   const kind = CATEGORY_RECORD_KIND[category]
@@ -236,7 +238,7 @@ export function autoStageCandidate(digest, subject, privacy) {
     createdAt: digest.at,
     content: {
       category,
-      note: ask.slice(0, MAX_CANDIDATE_CHARS),
+      note: text,
       // THE TURN IS THE PROVENANCE. The record contract's `source` names other RECORDS, which this is
       // not derived from, so citing the turn it came from belongs in the content where a reader will
       // meet it — and `source` stays empty rather than being filled with something that only looks

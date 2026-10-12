@@ -511,7 +511,7 @@ export function installApprovalBridge(deps) {
     // changes. The one colour read synchronously above is the pre-paint colour; this is the rest of them,
     // and it lands as soon as the document has one.
     view.webContents.on('did-finish-load', () => {
-      void applySiteTokens(view, theme).catch(() => { /* the sheet keeps its fallbacks, which are the site's own values as of the build */ })
+      void applySiteTokens(view, theme).catch(error => say(`aumlok approval: face colours not applied, built-in fallbacks kept: ${String(error?.message ?? error)}`))
     })
     // THE WINDOW NAVIGATES NOWHERE. It is a local file and it stays one: an open handler that denied
     // nothing would let a link, or a compromised renderer, turn it into a browser.

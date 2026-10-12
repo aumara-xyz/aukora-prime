@@ -2964,7 +2964,8 @@ function threadRoute(gate, rootsOf, relays) {
 				secretKeyHex: key.secretKeyHex,
 				since: requested.since ?? 0,
 				relays,
-				timeoutMs: budgetedRelayTimeoutMs(messagesRelayTimeoutMs(4), budgetMs)
+				timeoutMs: budgetedRelayTimeoutMs(messagesRelayTimeoutMs(4), budgetMs),
+				stateDir: stateRoots.stateDir
 			}));
 			const settled = read.kind === "answered" ? read.value : void 0;
 			const threadRead = readMailThread([...stored, ...settled?.wraps ?? []], modules.modules.openGiftWrap, {
@@ -3182,7 +3183,8 @@ async function fetchWraps(modules, spec) {
 			secretKeyHex: spec.secretKeyHex,
 			...spec.since === null ? {} : { since: spec.since },
 			relays: spec.relays,
-			timeoutMs: spec.timeoutMs
+			timeoutMs: spec.timeoutMs,
+			...spec.stateDir === void 0 ? {} : { stateDir: spec.stateDir }
 		});
 		if (!isRecord(result)) return void 0;
 		return {

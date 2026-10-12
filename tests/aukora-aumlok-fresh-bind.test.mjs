@@ -38,6 +38,7 @@ if (process.env.AUKORA_SUPPORT_ROOT !== undefined) {
 const stateRoot = join(support, 'state')
 const release = join(scratch, 'release')
 const library = await loadOrganLibrary(repo)
+assert.equal(typeof library.ceremonyTokenValues, 'function')
 const mode = path => statSync(path).mode & 0o777
 const verdict = result => ({ ok: result.ok, reason: result.reason, drawSpent: result.drawSpent })
 const handle = 'fresh-bind-fixture'

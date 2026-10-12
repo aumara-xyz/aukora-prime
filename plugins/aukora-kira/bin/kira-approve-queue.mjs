@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync
 // THE PREPARED GRANT AND THE APPROVAL ARTIFACT ARE READ STRICTLY: these are the two files whose contents decide
 // whether a settlement proceeds, so a symlink, a FIFO or a repeated key must refuse rather than be followed.
 import { readJsonStrict } from '../lib/strict-read.mjs'
+import { cutText } from '../lib/memory-tiers.mjs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -113,7 +114,7 @@ if (LIST) {
   for (const row of listing.entries) {
     const where = row.state === 'unreadable' ? `UNREADABLE (${String(row.reason)})` : String(row.state)
     process.stdout.write(`  ${where.padEnd(22)} ${String(row.recordId ?? row.name)}  ${String(row.kind ?? '')} ${String(row.createdAt ?? '')}\n`)
-    if (typeof row.text === 'string') process.stdout.write(`      ${row.text.slice(0, 160)}${row.truncated === true ? '…' : ''}\n`)
+    if (typeof row.text === 'string') process.stdout.write(`      ${cutText(row.text, 160)}${row.truncated === true ? '…' : ''}\n`)
   }
   process.exit(0)
 }

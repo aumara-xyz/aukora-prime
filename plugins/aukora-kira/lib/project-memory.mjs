@@ -4,6 +4,7 @@
 import { recallFilter } from './memory-frame.mjs'
 import { isAbsolute } from 'node:path'
 import { projectMemoryText } from './memory-quality.mjs'
+import { cutText } from './memory-tiers.mjs'
 import { createProjectIdentityResolver, isProjectScopeAttached, resolvedProjectScopeOf } from './project-identity.mjs'
 
 const unattachedProjectIdentity = createProjectIdentityResolver()
@@ -39,7 +40,7 @@ export function visibleRemembered(notes, policy, scope, projectContext = { attac
 
 export function rememberedSnippet(note) {
   return {
-    recordId: note.id, ...projectMemoryText(note, String(note.statement ?? note.text ?? '').slice(0, 600), { start: 0 }),
+    recordId: note.id, ...projectMemoryText(note, cutText(note.statement ?? note.text, 600), { start: 0 }),
     observedAt: note.observedAt, tier: 'remembered', attributedTo: note.attributedTo,
     source: note.source, scope: note.scope,
     citation: { remembered: true, sessionId: note.source?.sessionId, seq: note.source?.seq,

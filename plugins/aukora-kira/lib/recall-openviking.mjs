@@ -1,4 +1,4 @@
-import { sha256Hex, MEMORY_TIER, MEMORY_STORAGE } from './memory-tiers.mjs'
+import { cutText, sha256Hex, MEMORY_TIER, MEMORY_STORAGE } from './memory-tiers.mjs'
 import { memoryQuality, verifyContentHash, projectMemoryText } from './memory-quality.mjs'
 import { dirname } from 'node:path'
 import { readJsonStrict, readTextStrict, stateExists, durableWrite, ensureDirectory, withFileLock } from './strict-read.mjs'
@@ -568,7 +568,7 @@ export function semanticNotes(answer, chars = 600) {
       const useSpan = note.statement.length > chars && semanticSpan?.unit === 'utf8-bytes'
       const start = useSpan ? semanticSpan.start : 0
       const text = useSpan ? Buffer.from(note.statement, 'utf8').subarray(start, semanticSpan.end).toString('utf8') : note.statement
-      return { id, ...projectMemoryText(note, text.slice(0, chars), { start }), score,
+      return { id, ...projectMemoryText(note, cutText(text, chars), { start }), score,
       uri, observedAt: note.observedAt ?? null,
       ...(semanticSpan ? { semanticSpan } : {}),
       tier: MEMORY_TIER.remembered, relevance, attributedTo: note.attributedTo, scope: note.scope, source: note.source,

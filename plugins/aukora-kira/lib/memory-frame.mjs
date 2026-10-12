@@ -17,7 +17,7 @@
  *
  * @module @aukora/dsh-plugin-kira/memory-frame
  */
-import { MEMORY_TIERS } from './memory-tiers.mjs'
+import { MEMORY_TIERS, cutText } from './memory-tiers.mjs'
 import { isProjectScopeAttached } from './project-identity.mjs'
 
 /** The tier weight in the score (§4.1): a Signed note outranks a Remembered one, and never hides it. */
@@ -185,7 +185,7 @@ export function lineFor(note, handle) {
     ? `signed ${when}${changed}`
     : `unreviewed · ${note.attributedTo === 'owner-voice' ? 'heard' : 'you said'} ${when.slice(5)}${changed}`
   const quote = note.attributedTo === 'owner-voice' && typeof note.evidence?.[0]?.quote === 'string'
-    ? ` "${escapeForInjection(note.evidence[0].quote).slice(0, 60)}"`
+    ? ` "${cutText(escapeForInjection(note.evidence[0].quote), 60)}"`
     : ''
   return `  [${handle} ${provenance}]${quote} ${escapeForInjection(note.statement)}`
 }
@@ -220,7 +220,7 @@ export function frameOf(input) {
   if (relevantLines.length > 0) parts.push('relevant:', ...relevantLines)
   if (status !== null) parts.push(status)
   let text = parts.join('\n')
-  if (text.length > FRAME_BUDGETS.totalChars) text = `${text.slice(0, FRAME_BUDGETS.totalChars - 1)}…`
+  if (text.length > FRAME_BUDGETS.totalChars) text = `${cutText(text, FRAME_BUDGETS.totalChars - 1)}…`
 
   // *** OUTSIDE WORDS (§4.2). *** "When any Remembered line is present, the `memory` block counts in
   // OUTSIDE_WORD_BLOCKS, so `[weights …]` is switched off for that turn. In practice that is most turns. This is the

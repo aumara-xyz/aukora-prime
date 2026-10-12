@@ -174,11 +174,19 @@ export function sha256Hex(text) {
   return createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')
 }
 
-/** The first `max` UTF-16 units of `text`, minus a trailing high surrogate: a cut never stores half an emoji, which the
- * strict reader refuses (json:lone-surrogate) and which would mark the whole store incomplete. */
+const textGraphemes = new Intl.Segmenter('und', { granularity: 'grapheme' })
+
+/** Keep complete graphemes within a UTF-16 budget; absent or non-string text is empty. */
 export function cutText(text, max) {
-  const cut = String(text ?? '').slice(0, max)
-  return /[\uD800-\uDBFF]$/u.test(cut) ? cut.slice(0, -1) : cut
+  const source = typeof text === 'string' ? text : ''
+  const limit = Math.max(0, Math.trunc(Number(max) || 0))
+  let end = 0
+  for (const part of textGraphemes.segment(source)) {
+    const next = part.index + part.segment.length
+    if (next > limit || /[\uD800-\uDBFF]$/u.test(part.segment)) break
+    end = next
+  }
+  return source.slice(0, end)
 }
 
 /**

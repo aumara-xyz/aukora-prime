@@ -39,6 +39,7 @@
  */
 
 import { mayReturnPreviousDecisionOnMemoryFault, memoryFaultInjectionLine } from './partial-failure.mjs'
+import { cutText } from './memory-tiers.mjs'
 import { normalizeRecallState } from './recall-state.mjs'
 
 /** The name this contribution carries in the context snapshot. */
@@ -241,8 +242,8 @@ export function latestAsk(messages) {
     const message = messages[at]
     if (message?.role !== 'user' || message?.source?.kind !== 'user') continue
     const parts = Array.isArray(message.content) ? message.content : typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : []
-    const text = parts.map(part => (part?.type === 'text' && typeof part.text === 'string' ? part.text : '')).join(' ')
-      .replace(/\s+/gu, ' ').trim().slice(0, ASK_QUERY_CHARS)
+    const text = cutText(parts.map(part => (part?.type === 'text' && typeof part.text === 'string' ? part.text : '')).join(' ')
+      .replace(/\s+/gu, ' ').trim(), ASK_QUERY_CHARS)
     if (text !== '') return text
   }
   return ''
@@ -271,7 +272,7 @@ export const LANE_QUERY_PREFIX = 'summary '
  */
 export function laneQueries(lane, seed) {
   const wanted = typeof lane === 'string' && lane.trim() !== '' ? lane.trim().toUpperCase() : null
-  const seedText = typeof seed === 'string' ? seed.trim().replace(/\s+/gu, ' ').slice(0, LANE_SEED_CHARS) : ''
+  const seedText = typeof seed === 'string' ? cutText(seed.trim().replace(/\s+/gu, ' '), LANE_SEED_CHARS) : ''
   const laneQuery = wanted === null ? null : `${LANE_QUERY_PREFIX}${wanted}${seedText === '' ? '' : ` ${seedText}`}`
   return Object.freeze([...(laneQuery === null ? [] : [laneQuery]), ...OPENING_QUERIES])
 }
@@ -527,7 +528,7 @@ export function recalledContextLine(reply, recent = undefined, options = {}) {
   const diagnostic = retrievalStatus(reply, recent)
   const returnedSibling = (recent?.snippets ?? []).some(one => String(one?.text ?? '').trim() !== '')
   const budget = Math.max(0, total - (diagnostic ? diagnostic.length + 2 : 0))
-  const finish = text => `${diagnostic ? `${diagnostic}\n\n` : ''}${text.slice(0, budget)}`.slice(0, total)
+  const finish = text => cutText(`${diagnostic ? `${diagnostic}\n\n` : ''}${text}`, total)
   if (recent?.projectState && recent.snippets?.length > 0) {
     const project = newestBlockOf(recent, new Set(), Math.min(budget, 1500)) ?? ''
     const ids = new Set(recent.snippets.map(one => one.recordId))

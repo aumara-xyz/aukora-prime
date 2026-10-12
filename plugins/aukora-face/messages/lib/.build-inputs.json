@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "messages",
-  "srcDigest": "07f42beb685052949d6b628abd5640d187350c4754de76a70519b35eb718fd32",
+  "srcDigest": "608085d676da4ea25e188052a1122f529f1977a7e39494e02895cb3cee85e9a2",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",
@@ -36,7 +36,7 @@
   ],
   "outputs": {
     "client.js": "18f981899d2b8fd5d2a813fd5d410d0f46ad5c1d836e02720477278bea502bb7",
-    "index.js": "80030360a85ecd6abd62baff285da5db7513b5585b229de8a57449cf3c75d46f",
+    "index.js": "6684ca8a395266bd63b09fb2c1de152b8bd1329600c70b164685a9ea6237951b",
     "invariant.js": "629922c90a2a3ec394f9d28d733497bf061b78764a9de5036e21a39705416c71"
   }
 }

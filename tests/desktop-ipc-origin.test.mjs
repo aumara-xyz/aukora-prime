@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Script } from 'node:vm'
 import { APPROVAL_CHANNELS, APPROVAL_REFUSE } from '../apps/aukora-desktop/aumlok-bridge-state.mjs'
@@ -13,6 +13,33 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const bridgePath = 'apps/aukora-desktop/aumlok-bridge.mjs'
 const source = readFileSync(join(root, bridgePath), 'utf8')
 const main = readFileSync(join(root, 'apps/aukora-desktop/main.mjs'), 'utf8')
+function supportRootCheck(text) {
+  const start = text.indexOf('const supportRoot = '), end = text.indexOf('const ownStateRoot = ', start)
+  assert.ok(start >= 0 && end > start, 'missing desktop support-root setup')
+  for (const supplied of [
+    {},
+    { AUKORA_SUPPORT_ROOT: '/synthetic/support/../owner' },
+    { AUKORA_SUPPORT_ROOT: '/synthetic/stale', AUKORA_DESKTOP_USERDATA: '/synthetic/desktop/../owner' },
+  ]) {
+    const env = { ...supplied }
+    let userData
+    const app = { getPath: name => name === 'appData' ? '/synthetic/application-data' : userData,
+      setPath: (name, value) => { assert.equal(name, 'userData'); userData = value },
+      requestSingleInstanceLock: () => true }
+    new Script(text.slice(start, end)).runInNewContext({ app, process: { env, platform: 'darwin' },
+      isAbsolute, join, resolvePath })
+    assert.equal(env.AUKORA_SUPPORT_ROOT, userData,
+      'default presence readers and child processes must inherit the resolved desktop root')
+  }
+}
+supportRootCheck(main)
+console.log('PASS resolved desktop userData is the support root inherited by presence readers and children')
+for (const replacement of ['', "process.env.AUKORA_SUPPORT_ROOT ??= app.getPath('userData')"]) {
+  const mutant = main.replace("process.env.AUKORA_SUPPORT_ROOT = app.getPath('userData')", replacement)
+  assert.notEqual(mutant, main, 'missing support-root mutation target')
+  assert.throws(() => supportRootCheck(mutant), assert.AssertionError)
+}
+console.log('EXPECTED FAILURE with support-root assignment removed or changed to ??=: root agreement assertion fails')
 const pinExpression = main.match(/applicationOrigin: ([^,\n]+),/u)?.[1]
 assert.ok(pinExpression, 'caller did not supply an origin contract')
 const ownedOrigin = 'http://127.0.0.1:3187'

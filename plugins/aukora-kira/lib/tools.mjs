@@ -36,6 +36,7 @@ import { CONVERSATION_ACTIONS, KiraConversationError } from './conversation.mjs'
 import { readOwnerPolicy } from './read-owner.mjs'
 import { projectMemoryText } from './memory-quality.mjs'
 import { RETRIEVAL_LIMITS } from './retrieval.mjs'
+import { cutText } from './memory-tiers.mjs'
 // The phase 9 policy's OWN vocabularies, so the declared output schema cannot drift from the values
 // `reconcileRecallAvailability` actually returns. A copy of the enum here would be one more thing to
 // forget; importing it means a new action breaks the import rather than the live tool.
@@ -703,7 +704,7 @@ export async function recallRemembered(listNotes, text, limit = 5, govern = note
   return {
     state: notes.length === 0 ? 'empty' : 'found', grantsAuthority: false,
     notes: notes.sort((a, b) => score.get(b) - score.get(a)).slice(0, limit).map(note => ({
-      id: note.id, ...projectMemoryText(note, String(note.text).slice(0, 600)), observedAt: note.observedAt ?? null,
+      id: note.id, ...projectMemoryText(note, cutText(note.text, 600)), observedAt: note.observedAt ?? null,
       tier: note.tier,
       source: { sessionId: note.source?.sessionId ?? null, seq: note.source?.seq ?? null }, bodyAtCapture: note.bodyAtCapture ?? null,
       ...(note.containment ? { advisoryOnly: true, grantsAuthority: false, containment: note.containment, staleness: note.staleness } : {}),

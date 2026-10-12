@@ -226,10 +226,11 @@ const SURFACE_TOKENS = Object.freeze(['--dsw-alias-bg-layer-1', '--dsw-alias-bg-
 function parseColour(raw) {
   const text = String(raw ?? '').trim().toLowerCase()
   if (text === 'transparent' || text === 'currentcolor' || text === 'inherit') return null
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/u.exec(text)
+  const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/u.exec(text)
   if (hex !== null) {
-    const digits = hex[1].length === 3 ? hex[1].split('').map(part => part + part).join('') : hex[1]
-    return [0, 2, 4].map(at => Number.parseInt(digits.slice(at, at + 2), 16)).concat([1])
+    const digits = hex[1].length <= 4 ? hex[1].split('').map(part => part + part).join('') : hex[1]
+    const [r, g, b, a = 255] = digits.match(/../gu).map(pair => Number.parseInt(pair, 16))
+    return [r, g, b, a / 255]
   }
   const fn = /^rgba?\(\s*([0-9.]+)\s*[,\s]\s*([0-9.]+)\s*[,\s]\s*([0-9.]+)\s*(?:[,/]\s*([0-9.]+)\s*)?\)$/u.exec(text)
   if (fn === null) return null
