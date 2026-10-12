@@ -19,9 +19,15 @@ import * as wire from '../plugins/aukora-face/messages/src/messages-route.ts'
 import * as store from '../plugins/aukora-face/messages/src/contacts-store.ts'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const scratch = fs.mkdtempSync(path.join(tmpdir(), 'contact-migration-'))
 const source = name => fs.readFileSync(path.join(root, name), 'utf8')
-const prior = name => execFileSync('/usr/bin/git', ['-C', root, 'show', `2e9b855d29f4ecf9148d482497a28ed38757d83b:${name}`], { encoding: 'utf8' })
+const priorRevision = '2e9b855d29f4ecf9148d482497a28ed38757d83b'
+const priorType = execFileSync('/usr/bin/git', ['-C', root, 'cat-file', '--batch-check=%(objectname) %(objecttype)'], {
+  input: priorRevision + '\n', encoding: 'utf8',
+}).trim()
+const hasPrior = priorType !== `${priorRevision} missing`
+if (hasPrior) assert.equal(priorType, `${priorRevision} commit`)
+const prior = name => execFileSync('/usr/bin/git', ['-C', root, 'show', `${priorRevision}:${name}`], { encoding: 'utf8' })
+const scratch = fs.mkdtempSync(path.join(tmpdir(), 'contact-migration-'))
 const compiled = process.argv.includes('--compiled')
 const region = (text, name) => {
   const start = text.indexOf(`//#region ${name}`), end = text.indexOf('//#endregion', start)
@@ -118,11 +124,15 @@ function confirmationRoute(owner, text = host === null ? source('plugins/aukora-
 }
 try {
   const alice = party('alice', 1, 'a'), bob = party('bob', 2, 'b'), runtime = bootstrap()
-  const baseline = bootstrap(prior('plugins/aukora-nostr/lib/bootstrap.mjs'))
-  mode = 'declined'
-  await assert.rejects(baseline.ensureMessagesIdentity(opts(alice)), error => error.code === 'signer:declined')
-  assert.equal(calls, 1)
-  console.log('REPRODUCED baseline background ensure reaches synthetic signer for a legacy binding')
+  if (hasPrior) {
+    const baseline = bootstrap(prior('plugins/aukora-nostr/lib/bootstrap.mjs'))
+    mode = 'declined'
+    await assert.rejects(baseline.ensureMessagesIdentity(opts(alice)), error => error.code === 'signer:declined')
+    assert.equal(calls, 1)
+    console.log('REPRODUCED baseline background ensure reaches synthetic signer for a legacy binding')
+  } else {
+    console.log(`UNPERFORMED: historical background-signing and full70 comparisons need donor commit ${priorRevision}; c358ac7 imported its tree without Genesis history`)
+  }
   calls = 0; mode = 'approved'
   assert.equal((await runtime.readMessagesIdentity(opts(alice))).binding, null)
   await runtime.ensureMessagesIdentity(opts(alice)); assert.equal(calls, 0)
@@ -175,7 +185,7 @@ try {
     assert.equal(own.digits, full.digits.slice(full.comparisonGroupIndex * 5, full.comparisonGroupIndex * 5 + 35))
     assert.equal(own.digits.length, 35); assert.ok(!JSON.stringify(own).includes(peerHalf))
     assert.equal(wire.parseSafetyNumber(full), undefined, 'old full wire payload accepted')
-    if (owner === alice) {
+    if (owner === alice && hasPrior) {
       const oldParser = new Script(`(${fn(prior('plugins/aukora-face/messages/src/messages-route.ts'), 'parseSafetyNumber')})`).runInNewContext({
         isRecord: value => value !== null && typeof value === 'object' && !Array.isArray(value),
         hasExactKeys: (value, keys) => Object.keys(value).sort().join(',') === keys.sort().join(','), contactFieldsAreSafe: wire.contactFieldsAreSafe,
@@ -300,4 +310,5 @@ try {
     console.log('PASS compiled host/client end-to-end: own35 display, one peer input, copied-own refusal, entered synthetic peer35 -> full70 signed v2 in both orders; reachable explicit migration asks only on gesture and preserves keys')
   }
   console.log('NOT VERIFIED: installed app, real signer/approval, custody or human attendance. Values are public-derived; a malicious client can compute them. Only synthetic keys/stores and replaced transport were used.')
+  if (!hasPrior) process.exitCode = 2
 } finally { fs.rmSync(scratch, { recursive: true, force: true }) }

@@ -62,6 +62,15 @@ function note(text) {
   console.log(`       ${text}`)
 }
 
+// Only an unavailable listen operation can leave socket checks unperformed.
+function socketUnavailable(error) {
+  if (error?.syscall !== 'listen') return false
+  if (['EPERM', 'EACCES', 'ENAMETOOLONG'].includes(error.code)) return true
+  const limit = process.platform === 'darwin' ? 104 : 108
+  return error.code === 'EINVAL' && typeof error.address === 'string'
+    && Buffer.byteLength(error.address) >= limit
+}
+
 const scratch = mkdtempSync(join(tmpdir(), 'aukora-approval-roundtrip-'))
 process.on('exit', () => { try { rmSync(scratch, { recursive: true, force: true }) } catch { /* leaving */ } })
 
@@ -132,6 +141,15 @@ const expected = {
 // ── 2. a listener that records whether anything dialled it ───────────────────────────────────────
 console.log('\n── 2. the signer socket, and a probe that records the dial ──')
 const socketPath = join(scratch, 'aumlok-signer.sock')
+const probe = createServer()
+try {
+  await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(socketPath, resolve) })
+  await new Promise(resolve => probe.close(resolve))
+} catch (error) {
+  if (!socketUnavailable(error)) throw error
+  console.log(`UNPERFORMED: approval round-trip Unix socket listen unavailable (${error.code}); ${arms - failures}/${arms} projection arms passed`)
+  process.exit(failures === 0 ? 2 : 1)
+}
 const library = await bridge.loadOrganLibrary(releaseDir)
 const asked = []
 const signerVerdict = await signerModule.startShellSigner({

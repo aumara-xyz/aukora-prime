@@ -71,7 +71,7 @@ test('gateCall: a disallowed operation is refused before opening any socket', as
   assert.equal(connections, 0)
 })
 
-// Prefer real Unix sockets below HOME. Restricted runners inject only the net transport; gateCall's framing,
+// Prefer real Unix sockets below TMPDIR. Restricted runners inject only the net transport; gateCall's framing,
 // parsing, limits and timer remain real. Both transports answer only after receiving the request's newline.
 async function gateTransport(t, answer) {
   const requests = [], sockets = new Set(), timers = new Set()
@@ -88,8 +88,9 @@ async function gateTransport(t, answer) {
     if (dir) fs.rmSync(dir, { recursive: true, force: true })
   })
   try {
-    dir = fs.mkdtempSync(path.join(os.homedir(), '.buzz-gate-test-'))
-    const socketPath = path.join(dir, 'gate.sock')
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), '.buzz-gate-test-'))
+    const absolute = path.join(dir, 'gate.sock'), relative = path.relative(process.cwd(), absolute)
+    const socketPath = Buffer.byteLength(relative) < Buffer.byteLength(absolute) ? relative : absolute
     server = net.createServer(socket => {
       sockets.add(socket); socket.on('close', () => sockets.delete(socket))
       socket.on('error', () => {}) // the expected oversize/timeout refusal closes the peer
@@ -101,7 +102,7 @@ async function gateTransport(t, answer) {
     return { socketPath, requests }
   } catch (error) {
     if (!['EPERM', 'EACCES'].includes(error.code)) throw error
-    t.diagnostic('gate transport: injected net stub (sandbox denied HOME/socket access)')
+    t.diagnostic(`UNPERFORMED: real Unix gate transport (${error.code}); framing checks use an injected net stub`)
     t.mock.method(net, 'createConnection', () => {
       const client = new EventEmitter(); let destroyed = false
       client.destroy = () => { destroyed = true; sockets.delete(client) }

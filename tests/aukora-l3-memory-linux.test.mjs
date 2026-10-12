@@ -64,14 +64,22 @@ const memory = {
 }
 throwsCode(() => createVikingDoor({ memory, port: 0 }), 'viking.door:credential-missing', 'door refuses to start without a credential')
 const door = createVikingDoor({ memory, authToken: 'fixture-door-token-0123456789', port: 0 })
-const { port } = await door.listen()
-const ask = headers => fetch(`http://127.0.0.1:${port}/recall`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-aukora-memory-version': '2', ...headers }, body: JSON.stringify({ q: 'sister' }) })
-ok((await ask({})).status === 401, 'no Bearer: 401')
-ok((await ask({ authorization: 'Bearer wrong-token' })).status === 401, 'wrong Bearer: 401')
-ok(calls === 0, 'memory untouched by unauthenticated requests')
-ok((await ask({ authorization: 'Bearer fixture-door-token-0123456789' })).status === 200, 'right Bearer: 200')
-ok(calls === 1, 'memory reached only after authentication')
-await door.close()
+let address, unavailable
+try { address = await door.listen() } catch (error) {
+  if (!['EPERM', 'EACCES'].includes(error.code) || error.syscall !== 'listen' || error.address !== '127.0.0.1') throw error
+  unavailable = `loopback listen refused (${error.code})`
+}
+if (!unavailable) {
+  try {
+    const { port } = address
+    const ask = headers => fetch(`http://127.0.0.1:${port}/recall`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-aukora-memory-version': '2', ...headers }, body: JSON.stringify({ q: 'sister' }) })
+    ok((await ask({})).status === 401, 'no Bearer: 401')
+    ok((await ask({ authorization: 'Bearer wrong-token' })).status === 401, 'wrong Bearer: 401')
+    ok(calls === 0, 'memory untouched by unauthenticated requests')
+    ok((await ask({ authorization: 'Bearer fixture-door-token-0123456789' })).status === 200, 'right Bearer: 200')
+    ok(calls === 1, 'memory reached only after authentication')
+  } finally { await door.close() }
+}
 
 // ── THE FILE FENCE AROUND L3 ────────────────────────────────────────────────────────────────────────────────
 const state = join(dir, 'genesis', 'state'); const dshHome = join(state, 'home'); const workspace = join(state, 'workspace')
@@ -92,4 +100,5 @@ for (const confineReads of [true, false]) {
     }
   }
 }
-console.log(`aukora-l3-memory-linux: ${n}/${n} PASS`)
+console.log(`aukora-l3-memory-linux: ${n}/${n} PASS${unavailable ? `; 5 UNPERFORMED: ${unavailable}` : ''}`)
+if (unavailable) process.exitCode = 2

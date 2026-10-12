@@ -14,6 +14,15 @@ import { requestOwnerSignature } from '../apps/aukora-desktop/aumlok-signer-airl
 import { readOwnerDaemonConfig } from '../apps/aukora-desktop/aumlok-airlock-config.mjs'
 import { readBindingState } from '../apps/aukora-desktop/aumlok-bridge-state.mjs'
 
+// Only an unavailable listen operation can leave socket checks unperformed.
+function socketUnavailable(error) {
+  if (error?.syscall !== 'listen') return false
+  if (['EPERM', 'EACCES', 'ENAMETOOLONG'].includes(error.code)) return true
+  const limit = process.platform === 'darwin' ? 104 : 108
+  return error.code === 'EINVAL' && typeof error.address === 'string'
+    && Buffer.byteLength(error.address) >= limit
+}
+
 const scratch = mkdtempSync(join(tmpdir(), 'airlock-'))
 const { privateKey, publicKey } = generateKeyPairSync('ed25519')
 const ownerPublicKeyHex = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex')
@@ -115,6 +124,10 @@ try {
     console.log('VERIFIED wrong kernel peer UID, bad signature, and wrong public-key pin refused')
     console.log('NOT VERIFIED: stand-in shares test UID; separate-user installation and EACCES require admin probe')
   }
+} catch (error) {
+  if (!socketUnavailable(error)) throw error
+  console.log(`UNPERFORMED: airlock Unix socket listen unavailable (${error.code}); custody checks above ran`)
+  process.exitCode = 2
 } finally {
   if (shell?.stop) await shell.stop()
   if (server) await new Promise(resolve => server.close(resolve))

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { promisify } from 'node:util'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
+import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { installApprovalBridge } from '../apps/aukora-desktop/aumlok-bridge.mjs'
@@ -19,6 +20,15 @@ import { startShellSigner } from '../apps/aukora-desktop/aumlok-signer.mjs'
 import * as organ from '../plugins/aukora-aumlok/lib/index.mjs'
 import { createAumlokControlService } from '../plugins/aukora-aumlok/lib/service.mjs'
 const repo = fileURLToPath(new URL('..', import.meta.url))
+// Only an unavailable listen operation can leave socket checks unperformed.
+function socketUnavailable(error) {
+  if (error?.syscall !== 'listen') return false
+  if (['EPERM', 'EACCES', 'ENAMETOOLONG'].includes(error.code)) return true
+  const limit = process.platform === 'darwin' ? 104 : 108
+  return error.code === 'EINVAL' && typeof error.address === 'string'
+    && Buffer.byteLength(error.address) >= limit
+}
+
 const scratch = mkdtempSync(join(tmpdir(), 'fresh-bind-'))
 const support = process.env.AUKORA_SUPPORT_ROOT ?? join(scratch, 'support\'s # "quoted"')
 if (process.env.AUKORA_SUPPORT_ROOT !== undefined) {
@@ -85,6 +95,16 @@ try {
   assert.equal(signer.serving, false)
   assert.equal(signer.reason, 'aumlok:no-seed')
   console.log('FIRST RUN: shell and backend unbound; same scratch key directory; signer has no seed')
+  let socketReason = null
+  const probe = createServer()
+  try {
+    await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(socketPath, resolve) })
+    await new Promise(resolve => probe.close(resolve))
+  } catch (error) {
+    if (!socketUnavailable(error)) throw error
+    socketReason = `Unix socket listen unavailable (${error.code})`
+    console.log(`UNPERFORMED: ${socketReason}; binding and custody checks continue`)
+  }
   shell = bridge(first.patch, async () => { callbacks += 1; signer = await startShellSigner(signerArgs) })
   let drawn = await shell.call('DRAW', 'bind')
   assert.equal(drawn.ok, true)
@@ -100,46 +120,49 @@ try {
   const bound = await submit(drawn.words)
   assert.deepEqual(verdict(bound), { ok: true, reason: DRAW_REFUSE.VERIFIED, drawSpent: true })
   assert.equal(callbacks, 1)
-  assert.equal(signer.serving, true, signer.reason)
+  if (socketReason === null) assert.equal(signer.serving, true, signer.reason)
   const state = readState(library, directory)
   assert.equal(state.bound, true)
   assert.equal(backend.refresh().subject, bound.subject)
   const settings = join(support, INSTALL_SETTINGS_NAME)
-  console.log('BIND: spent draws refused; new draw bound; backend sees same identity; signer serving before submit returns')
-  const projection = organ.loadLocalAumlokPublicControl(directory).projection
-  const operation = Buffer.from('synthetic fresh-bind approval operation\n')
-  const operationDigest = organ.operationDigestOf(operation)
-  const receiptPath = join(scratch, 'receipt.json')
-  const publicPath = join(scratch, 'public-key.txt')
-  const operationPath = join(scratch, 'operation.txt')
-  writeFileSync(operationPath, operation)
-  const produced = await promisify(execFile)(process.execPath, [join(repo, 'scripts/aumlok/approve-operation'),
-    '--controller', directory, '--expect-subject', projection.subject,
-    '--expect-control-digest', projection.activeControlDigest, '--operation', operationPath,
-    '--operation-digest', operationDigest, '--artifact-out', receiptPath,
-    '--expires-at', String(Math.floor(Date.now() / 1000) + 300), '--timeout-ms', '20000'],
-  { env: { ...process.env, AUKORA_SUPPORT_ROOT: support, AUKORA_SIGNER_SOCKET: socketPath } })
-  assert.match(produced.stdout, /APPROVAL: MINTED/u)
-  console.log(produced.stdout.split('\n').find(line => line === 'APPROVAL: MINTED'))
-  assert.equal(asked.length, 1)
-  assert.equal(asked[0].operationDigest, operationDigest)
-  assert.equal(JSON.parse(readFileSync(receiptPath)).approvalKeyDid, projection.approvalKeyDid)
-  writeFileSync(publicPath, organ.ed25519PublicKeyFromDidKey(projection.approvalKeyDid))
-  const verifyArgs = [join(repo, 'scripts/aumlok/verify-approval'), receiptPath, '--pub', publicPath,
-    '--operation', operationPath, '--subject', projection.subject, '--control-digest', projection.activeControlDigest]
-  const verified = spawnSync(process.execPath, verifyArgs, { encoding: 'utf8', env: { ...process.env, AUKORA_SUPPORT_ROOT: support } })
-  assert.equal(verified.status, 0, verified.stdout + verified.stderr)
-  assert.match(verified.stdout, /VERIFIED: the key you supplied signed exactly these bytes/u)
-  console.log(verified.stdout.split('\n').find(line => line.startsWith('VERIFIED:')))
-  writeFileSync(operationPath, 'different operation\n')
-  const refused = spawnSync(process.execPath, verifyArgs, { encoding: 'utf8' })
-  assert.equal(refused.status, 1)
-  assert.match(refused.stdout + refused.stderr, /aukora:verify-operation-mismatch/u)
-  console.log('APPROVAL: synthetic ask answered once; new key signed; verify-approval accepted; changed operation refused')
+  console.log(`BIND: spent draws refused; new draw bound; backend sees same identity; signer ${socketReason === null ? 'serving before submit returns' : 'UNPERFORMED'}`)
+  if (socketReason === null) {
+    const projection = organ.loadLocalAumlokPublicControl(directory).projection
+    const operation = Buffer.from('synthetic fresh-bind approval operation\n')
+    const operationDigest = organ.operationDigestOf(operation)
+    const receiptPath = join(scratch, 'receipt.json')
+    const publicPath = join(scratch, 'public-key.txt')
+    const operationPath = join(scratch, 'operation.txt')
+    writeFileSync(operationPath, operation)
+    const produced = await promisify(execFile)(process.execPath, [join(repo, 'scripts/aumlok/approve-operation'),
+      '--controller', directory, '--expect-subject', projection.subject,
+      '--expect-control-digest', projection.activeControlDigest, '--operation', operationPath,
+      '--operation-digest', operationDigest, '--artifact-out', receiptPath,
+      '--expires-at', String(Math.floor(Date.now() / 1000) + 300), '--timeout-ms', '20000'],
+    { env: { ...process.env, AUKORA_SUPPORT_ROOT: support, AUKORA_SIGNER_SOCKET: socketPath } })
+    assert.match(produced.stdout, /APPROVAL: MINTED/u)
+    console.log(produced.stdout.split('\n').find(line => line === 'APPROVAL: MINTED'))
+    assert.equal(asked.length, 1)
+    assert.equal(asked[0].operationDigest, operationDigest)
+    assert.equal(JSON.parse(readFileSync(receiptPath)).approvalKeyDid, projection.approvalKeyDid)
+    writeFileSync(publicPath, organ.ed25519PublicKeyFromDidKey(projection.approvalKeyDid))
+    const verifyArgs = [join(repo, 'scripts/aumlok/verify-approval'), receiptPath, '--pub', publicPath,
+      '--operation', operationPath, '--subject', projection.subject, '--control-digest', projection.activeControlDigest]
+    const verified = spawnSync(process.execPath, verifyArgs, { encoding: 'utf8', env: { ...process.env, AUKORA_SUPPORT_ROOT: support } })
+    assert.equal(verified.status, 0, verified.stdout + verified.stderr)
+    assert.match(verified.stdout, /VERIFIED: the key you supplied signed exactly these bytes/u)
+    console.log(verified.stdout.split('\n').find(line => line.startsWith('VERIFIED:')))
+    writeFileSync(operationPath, 'different operation\n')
+    const refused = spawnSync(process.execPath, verifyArgs, { encoding: 'utf8' })
+    assert.equal(refused.status, 1)
+    assert.match(refused.stdout + refused.stderr, /aukora:verify-operation-mismatch/u)
+    console.log('APPROVAL: synthetic ask answered once; new key signed; verify-approval accepted; changed operation refused')
+  }
   const recordPath = join(directory, 'local-control.json')
   const record = readFileSync(recordPath)
   const seed = readFileSync(join(directory, 'machine-seed-v3.json'))
-  await signer.stop()
+  if (socketReason === null) await signer.stop()
+  else await signer.stop?.()
   shell.dispose()
   const second = await resolveTarget(resolveArgs)
   assert.equal(resolveAumlokDirectory(second.patch).directory, directory)
@@ -158,8 +181,8 @@ try {
   assert.deepEqual(readFileSync(join(directory, 'machine-seed-v3.json')), seed)
   assert.equal(callbacks, 1)
   signer = await startShellSigner(signerArgs)
-  assert.equal(signer.serving, true, signer.reason)
-  console.log('SECOND RUN: bound identity retained; no bind draw; key unchanged; signer serving')
+  if (socketReason === null) assert.equal(signer.serving, true, signer.reason)
+  console.log(`SECOND RUN: bound identity retained; no bind draw; key unchanged; signer ${socketReason === null ? 'serving' : 'UNPERFORMED'}`)
   const guarded = join(scratch, 'guarded-seed'), victim = join(scratch, 'existing-seed')
   mkdirSync(guarded)
   writeFileSync(victim, 'existing key bytes\n')
@@ -172,7 +195,8 @@ try {
   console.log('SEED REFUSAL: exclusive keep refused symlink; bind rolled back its record; existing key unchanged')
   await assert.rejects(organ.bindV3({ handle, words: drawn.words, directory: guarded,
     boundAt: new Date().toISOString(), custodian: 'keychain' }), { code: 'aumlok:bind-write-failed' })
-  console.log('FRESH BIND: PASS (scratch only; synthetic approval; no human attendance claimed)')
+  if (socketReason === null) console.log('FRESH BIND: PASS (scratch only; synthetic approval; no human attendance claimed)')
+  else { console.log(`FRESH BIND: UNPERFORMED approval round trip: ${socketReason}; binding and custody assertions passed`); process.exitCode = 2 }
 } finally {
   await signer?.stop?.()
   shell?.dispose()

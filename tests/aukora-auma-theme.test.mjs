@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createServer } from 'node:net'
 import { createGate } from '../packages/boundary-gate/src/gate.mjs'
 import { serveGate, call as rawCall } from '../packages/boundary-gate/src/server.mjs'
 import { themeTarget } from '../packages/boundary-gate/src/targets.mjs'
@@ -35,19 +36,42 @@ async function load() {
 const M = await load()
 const T = 'plugins/auma-theme/theme.json'
 
-async function served() {
+// Only an unavailable listen operation can leave socket checks unperformed.
+function socketUnavailable(error) {
+  if (error?.syscall !== 'listen') return false
+  if (['EPERM', 'EACCES', 'ENAMETOOLONG'].includes(error.code)) return true
+  const limit = process.platform === 'darwin' ? 104 : 108
+  return error.code === 'EINVAL' && typeof error.address === 'string'
+    && Buffer.byteLength(error.address) >= limit
+}
+
+async function served(t) {
   const clock = { t: Date.UTC(2026, 9, 4, 3) }, home = tmpHome(), owner = loadOwnerSecret(home)
   rotateBearer(home, owner, () => clock.t)
   const store = memoryStore({ [T]: '{"accent": "default"}' })
   const gate = createGate({ home, owner, targets: { [T]: themeTarget(fs.mkdtempSync(path.join(os.tmpdir(), 'tt-'))) }, store, now: () => clock.t })
   gate.startup({ pid: 1 })
-  const srv = await serveGate(gate, { runDir: fs.mkdtempSync(path.join(os.tmpdir(), 'gate-run-')), ownerHttpPort: 0 })
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-run-'))
+  for (const leaf of ['gate.sock', 'owner.sock']) {
+    const probe = createServer()
+    try {
+      await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(path.join(runDir, leaf), resolve) })
+      await new Promise(resolve => probe.close(resolve))
+    } catch (error) {
+      if (!socketUnavailable(error)) throw error
+      t.skip(`UNPERFORMED: boundary gate Unix socket listen unavailable (${error.code})`)
+      return null
+    }
+  }
+  const srv = await serveGate(gate, { runDir, ownerHttpPort: 0 })
   return { gate, store, srv, clock }
 }
 const exec = (tool, args) => tool.execute(args, { sessionId: 'TEST-session' }).then(JSON.parse)
 
-test('Auma proposes gold: exact canonical bytes pending for the OWNER; nothing written; owner approve then serves it live', async () => {
-  const { gate, store, srv } = await served()
+test('Auma proposes gold: exact canonical bytes pending for the OWNER; nothing written; owner approve then serves it live', async t => {
+  const fixture = await served(t)
+  if (fixture === null) return
+  const { gate, store, srv } = fixture
   try {
     const tool = M.createProposeTool({ socketPath: srv.proposeSocket })
     assert.equal(tool.name, 'aukora_gate_propose')
@@ -69,8 +93,10 @@ test('Auma proposes gold: exact canonical bytes pending for the OWNER; nothing w
   } finally { await srv.close() }
 })
 
-test('break-test: the tool can never approve or decide; the PROPOSE socket refuses approval ops', async () => {
-  const { gate, store, srv } = await served()
+test('break-test: the tool can never approve or decide; the PROPOSE socket refuses approval ops', async t => {
+  const fixture = await served(t)
+  if (fixture === null) return
+  const { gate, store, srv } = fixture
   try {
     for (const op of ['approve', 'decide', 'review', 'decide_review', 'close', 'revert', 'pending', 'reject']) {
       await assert.rejects(M.gateCall(srv.proposeSocket, op, { id: 'x' }), /not a propose-side op/, `client must refuse ${op} locally`)

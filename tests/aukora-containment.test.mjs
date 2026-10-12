@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { validateConfinementInfo } from '../plugins/aukora-openshell-confinement/lib/transport.mjs'
@@ -26,7 +27,7 @@ with patch('subprocess.Popen',side_effect=AssertionError('import performed effec
 function check(body, sources = []) {
   const result = spawnSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', setup + body, probe, runner, ...sources], {
     encoding: 'utf8', timeout: 8000, maxBuffer: 64 * 1024,
-    env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', TMPDIR: '/tmp' },
+    env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', TMPDIR: tmpdir() },
   })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 0, result.stderr)
@@ -165,7 +166,7 @@ def fixture(use_closer,full_guard_refusal=False):
             child_command=(selected if use_closer else '')+'\nexec '+shlex.join(child_argv)
             result=subprocess.run(['/bin/bash','-p','-c',child_command],input=b'owned fixture stdin\n',
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,close_fds=True,pass_fds=tuple(passed),
-                timeout=4,env={'PATH':'/usr/bin:/bin','LC_ALL':'C','TMPDIR':'/tmp'})
+                timeout=4,env={'PATH':'/usr/bin:/bin','LC_ALL':'C','TMPDIR':os.environ['TMPDIR']})
             if full_guard_refusal:
                 assert projected,'full-guard refusal case is Darwin-only'
                 assert result.returncode==125,result.stderr.decode('utf-8','replace')

@@ -28,6 +28,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createPublicKey } from 'node:crypto'
 import { tmpdir } from 'node:os'
+import { createServer } from 'node:net'
 import { sawSomething } from './helpers/vacuity.mjs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -117,6 +118,15 @@ function arm(label, check) {
   }
 }
 
+// Only an unavailable listen operation can leave socket checks unperformed.
+function socketUnavailable(error) {
+  if (error?.syscall !== 'listen') return false
+  if (['EPERM', 'EACCES', 'ENAMETOOLONG'].includes(error.code)) return true
+  const limit = process.platform === 'darwin' ? 104 : 108
+  return error.code === 'EINVAL' && typeof error.address === 'string'
+    && Buffer.byteLength(error.address) >= limit
+}
+
 const work = mkdtempSync(join(tmpdir(), 'aukora-aumlok-verify-'))
 const running = []
 
@@ -170,6 +180,19 @@ console.log('AUMLOK — the stranger side of the approval receipt\n')
 console.log(`repository : ${ROOT}`)
 
 // ── produce one real receipt, from a real daemon ──────────────────────────────────────────────
+const probe = createServer()
+mkdirSync(join(work, 'signer-dir'), { mode: 0o700 })
+try {
+  await new Promise((resolve, reject) => {
+    probe.once('error', reject); probe.listen(join(work, 'signer-dir', 'signer.sock'), resolve)
+  })
+  await new Promise(resolve => probe.close(resolve))
+} catch (error) {
+  if (!socketUnavailable(error)) throw error
+  rmSync(work, { recursive: true, force: true })
+  console.log(`UNPERFORMED: receipt producer Unix socket listen unavailable (${error.code}); no verifier arms ran`)
+  process.exit(2)
+}
 const identity = buildIdentity('identity', SEED_RECEIPT)
 const other = buildIdentity('other', SEED_OTHER)
 const signer = await startSigner(identity, join(work, 'signer-dir'))
