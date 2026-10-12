@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { verifyEvent } from '../../plugins/aukora-nostr/lib/event.mjs'
+import { gateCall } from '../../plugins/aukora-buzz-door/lib/index.mjs'
 
 export const RECEIVER_REFUSE = Object.freeze({
   MALFORMED: 'copresence:malformed',
@@ -18,6 +19,7 @@ export const RECEIVER_REFUSE = Object.freeze({
   STORE: 'copresence:store',
   REPLAY: 'copresence:replay',
   BINDING: 'copresence:binding',
+  AURA: 'copresence:aura-unrecorded',
 })
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -122,6 +124,8 @@ function runVerifier(script, file, ...args) {
 }
 
 function verifiedEvidence(receipt, options) {
+  if (options.gateSocket !== undefined && (typeof options.gateSocket !== 'string'
+    || !path.isAbsolute(options.gateSocket) || options.gateSocket.includes('\0'))) throw refuse(RECEIVER_REFUSE.AURA)
   const { now, maxAge = 300, expectedText, expectedAsker, expectedApprover, scratchDir = tmpdir(), store } = options
   if (!Number.isFinite(now) || now < 0 || !Number.isFinite(maxAge) || maxAge < 0
     || (expectedText !== undefined && typeof expectedText !== 'string')
@@ -163,19 +167,27 @@ function verifiedEvidence(receipt, options) {
   return Object.freeze(evidence)
 }
 
-async function consume(evidence, store) {
+async function consume(evidence, { store, gateSocket, gate = gateCall }) {
   let result
   try { result = await store.consume(evidence.core) }
   catch { throw refuse(RECEIVER_REFUSE.STORE) }
   if (result === false) throw refuse(RECEIVER_REFUSE.REPLAY)
   if (result !== true) throw refuse(RECEIVER_REFUSE.STORE)
+  // Only the verified signed core reaches Aura; a failed acknowledgement leaves that core spent.
+  if (gateSocket !== undefined) {
+    try {
+      const ack = await gate(gateSocket, 'aura_note', { kind: 'copresence-accepted', digest_sha256: evidence.core })
+      if (ack?.ok !== true || !Number.isSafeInteger(ack.seq) || ack.seq < 1
+        || typeof ack.hash !== 'string' || !/^[0-9a-f]{64}$/.test(ack.hash)) throw refuse(RECEIVER_REFUSE.AURA)
+    } catch { throw refuse(RECEIVER_REFUSE.AURA) }
+  }
   return evidence
 }
 
 export async function receiveReceipt(receipt, options = {}) {
   if (!object(options)) throw refuse(RECEIVER_REFUSE.MALFORMED)
   const evidence = verifiedEvidence(receipt, options)
-  return consume(evidence, options.store)
+  return consume(evidence, options)
 }
 
 // Both the device's exact intent and the member's signed core statement must verify before consumption.
@@ -195,5 +207,5 @@ export async function verifyDeviceBinding(receipt, options = {}) {
     if (verifyEvent(event) !== true || event.pubkey.toLowerCase() !== member || event.kind !== 1
       || event.tags.length !== 0 || event.content !== `${text}:${evidence.core}`) throw new Error()
   } catch { throw refuse(RECEIVER_REFUSE.BINDING) }
-  return consume(evidence, options.store)
+  return consume(evidence, options)
 }

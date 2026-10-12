@@ -15,7 +15,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { isValidEvent, publicKeyOf, randomSecretKey, signEvent, eventId } from '../plugins/aukora-nostr/lib/event.mjs'
 import { createDoor, createDoorTools, createWaker, createRateLimiter, gateCall, httpAuthHeader, loadKey, pickAgent, wakeText,
   POST_GAP_MS, POSTS_PER_HOUR, WAKE_GAP_MS, WAKES_PER_HOUR, MAX_RESPONSE_BYTES, MAX_EVENT_TAGS,
-  MAX_TEXT_BYTES, MAX_READ_OUTPUT_CHARS, READ_BODY_CHARS, MAX_CONFIG_BYTES, POST_TOOL, READ_TOOL, RELAY_HTTP, apply, loadConfig, wakeMessage } from '../plugins/aukora-buzz-door/lib/index.mjs'
+  MAX_TEXT_BYTES, MAX_READ_OUTPUT_CHARS, READ_BODY_CHARS, MAX_CONFIG_BYTES, POST_TOOL, READ_TOOL, RELAY_HTTP, apply, loadConfig, wakeMessage, WAKE_REFUSE } from '../plugins/aukora-buzz-door/lib/index.mjs'
 
 import { schnorr } from '../plugins/aukora-nostr/lib/vendor/noble-curves/curves/secp256k1.js'
 
@@ -62,6 +62,24 @@ async function fixture(t, { gateFails = false, postLimiter } = {}) {
   return { ...b, auma, owner, stranger, gateCalls, door, tools, post: args => tools.post.execute(args, CALLER), me: publicKeyOf(auma) }
 }
 const parse = s => { assert.equal(typeof s, 'string'); return JSON.parse(s) }
+const wakeAck = () => ({ ok: true, seq: 1, hash: 'a'.repeat(64) })
+
+function wakeGate(t, answer = () => ({ ok: true, result: wakeAck() })) {
+  const requests = []
+  t.mock.method(net, 'createConnection', () => {
+    const connection = new EventEmitter()
+    connection.destroy = () => {}
+    connection.write = wire => {
+      const request = JSON.parse(wire); requests.push(request)
+      void Promise.resolve(answer(request)).then(reply => {
+        connection.emit('data', JSON.stringify(reply)); connection.emit('end')
+      })
+    }
+    queueMicrotask(() => connection.emit('connect'))
+    return connection
+  })
+  return requests
+}
 
 test('gateCall: a disallowed operation is refused before opening any socket', async t => {
   let connections = 0
@@ -222,6 +240,31 @@ test('poll: nothing from before the door opened wakes her', async t => {
   const door = createDoor({ getKey: () => auma, channel: CHANNEL, admit: [publicKeyOf(other)], baseUrl: b.baseUrl, fetchImpl: b.fetchImpl, gateSocket: '/x', gate: async () => ({}) })
   assert.deepEqual(await door.poll(), [])
   assert.deepEqual((await door.read(5)).map(m => m.text), ['old'], 'history is still readable on request')
+})
+
+test('Aura wake notes contain only event id, sender key and the exact session digest; reads and polls write no note', async t => {
+  const f = await fixture(t), event = chat(f.owner, 'private message body', { mention: f.me })
+  f.events.push(event)
+  await f.door.read(); const [message] = await f.door.poll()
+  assert.deepEqual(f.gateCalls, [])
+  const requests = [], sessionId = 'private session 🐝', ack = wakeAck()
+  const door = createDoor({ getKey: () => f.auma, channel: CHANNEL, gateSocket: '/run/test/gate.sock',
+    gate: async (socket, op, args) => { requests.push({ socket, op, args }); return ack } })
+  assert.deepEqual(await door.recordWake(message, sessionId), ack)
+  assert.deepEqual(requests, [{ socket: '/run/test/gate.sock', op: 'aura_note', args: { kind: 'buzz-wake',
+    event_id: event.id, sender_pubkey: event.pubkey, session_sha256: createHash('sha256').update(sessionId, 'utf8').digest('hex') } }])
+})
+
+test('Aura wake notes require a confirmed ledger position and lowercase hash', async () => {
+  for (const ack of [undefined, null, {}, { ...wakeAck(), ok: false }, { ...wakeAck(), seq: 0 }, { ...wakeAck(), seq: 1.5 },
+    { ...wakeAck(), seq: Number.MAX_SAFE_INTEGER + 1 }, { ...wakeAck(), hash: null }, { ...wakeAck(), hash: Object('a'.repeat(64)) },
+    { ...wakeAck(), hash: 'A'.repeat(64) }, { ...wakeAck(), hash: 'a'.repeat(63) },
+    ...['\n', '\r', '\r\n'].map(ending => ({ ...wakeAck(), hash: 'a'.repeat(64) + ending }))]) {
+    const door = createDoor({ getKey: randomSecretKey, channel: CHANNEL, gate: async () => ack })
+    await assert.rejects(door.recordWake({ id: '1'.repeat(64), author: '2'.repeat(64) }, SESSION), { message: WAKE_REFUSE.RECORD })
+  }
+  const refused = createDoor({ getKey: randomSecretKey, channel: CHANNEL, gate: async () => { throw new Error('gate refused') } })
+  await assert.rejects(refused.recordWake({ id: '1'.repeat(64), author: '2'.repeat(64) }, SESSION), /gate refused/u)
 })
 
 test('poll: a future-dated message neither wakes her nor hides the real one after it; stale and flooded input is bounded', async t => {
@@ -651,6 +694,7 @@ test('apply: an admitted mention reaches only the named session with actual plug
   Object.defineProperty(process, 'platform', { value: 'linux' }); t.after(() => Object.defineProperty(process, 'platform', platform))
   t.mock.method(os, 'homedir', () => f.home)
   t.mock.method(console, 'info', () => {})
+  const recorded = wakeGate(t)
   t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([event])))
   // Substitute only the harness constructor, so the real apply/delivery path supplies provenance and routing.
   const hooks = registerHooks({ resolve(specifier, context, next) {
@@ -664,7 +708,7 @@ test('apply: an admitted mention reaches only the named session with actual plug
   t.mock.method(globalThis, 'setInterval', fn => { poll = fn; return { unref() {} } })
   const ctx = { tools: { register() {} }, effect: fn => fn(), agents: {
     roots: () => { throw new Error('root fallback must never be used') },
-    get: id => { assert.equal(id, SESSION); return { followup: message => { delivered.push(message); finish() } } },
+    get: id => { assert.equal(id, SESSION); return { followup: message => { assert.equal(recorded.length, 1); delivered.push(message); finish() } } },
   } }
   apply(ctx, { keyFile: f.keyFile, configFile: f.configFile })
   assert.equal(typeof poll, 'function'); poll()
@@ -672,6 +716,8 @@ test('apply: an admitted mention reaches only the named session with actual plug
   try { await Promise.race([received, new Promise((_r, reject) => { timeout = setTimeout(() => reject(new Error('no followup')), 2000) })]) }
   finally { clearTimeout(timeout) }
   assert.equal(delivered.length, 1)
+  assert.deepEqual(recorded, [{ op: 'aura_note', args: { kind: 'buzz-wake', event_id: event.id, sender_pubkey: event.pubkey,
+    session_sha256: createHash('sha256').update(SESSION, 'utf8').digest('hex') } }])
   assert.deepEqual(delivered[0].source, { kind: 'plugin', plugin: 'aukora-buzz-door', form: 'relay' })
   assert.match(delivered[0].content[0].text, /external words/u)
 })
@@ -686,6 +732,7 @@ test('apply: an unavailable configured session logs once and retries the origina
   Object.defineProperty(process, 'platform', { value: 'linux' }); t.after(() => Object.defineProperty(process, 'platform', platform))
   t.mock.method(os, 'homedir', () => f.home)
   t.mock.method(console, 'info', (...args) => logs.push(args.join(' ')))
+  const recorded = wakeGate(t)
   t.mock.method(globalThis, 'fetch', async () => { queries++; return new Response(JSON.stringify([event])) })
   t.mock.method(globalThis, 'setInterval', fn => { poll = fn; return { unref() {} } })
   const hooks = registerHooks({ resolve(specifier, context, next) {
@@ -707,6 +754,7 @@ test('apply: an unavailable configured session logs once and retries the origina
   await tick(); await tick()
   assert.equal(queries, 2); assert.equal(lookups, 2, 'an unavailable session must not acknowledge the message')
   assert.deepEqual(delivered, [])
+  assert.deepEqual(recorded, [], 'a missing session writes no wake note')
   assert.deepEqual(logs, ['AUKORA_BUZZ_DOOR_FAILED configured Buzz session unavailable'])
   available = true
   poll()
@@ -715,8 +763,37 @@ test('apply: an unavailable configured session logs once and retries the origina
   finally { clearTimeout(watchdog) }
   await tick()
   assert.equal(delivered.length, 1, 'the original mention is retried, then acknowledged exactly once')
+  assert.equal(recorded.length, 1)
   assert.match(delivered[0].content[0].text, new RegExp(event.id, 'u'))
   assert.deepEqual(logs, ['AUKORA_BUZZ_DOOR_FAILED configured Buzz session unavailable', 'AUKORA_BUZZ_DOOR_RECOVERED'])
+})
+
+test('apply: a refused or unconfirmed Aura note never wakes or acknowledges; delivery waits for recording', async t => {
+  const f = isolatedFiles(t), owner = randomSecretKey(), platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  const event = chat(owner, 'retry after recording', { mention: publicKeyOf(f.key) }), delivered = []
+  fs.writeFileSync(f.configFile, JSON.stringify({ channel: CHANNEL, ownerPubkey: publicKeyOf(owner), sessionId: SESSION }))
+  Object.defineProperty(process, 'platform', { value: 'linux' }); t.after(() => Object.defineProperty(process, 'platform', platform))
+  t.mock.method(os, 'homedir', () => f.home)
+  t.mock.method(console, 'info', () => {})
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([event])))
+  let poll, answer = { ok: false, error: 'fixture refusal' }
+  const recorded = wakeGate(t, () => answer)
+  t.mock.method(globalThis, 'setInterval', fn => { poll = fn; return { unref() {} } })
+  apply({ tools: { register() {} }, effect: fn => fn(), agents: {
+    get: id => { assert.equal(id, SESSION); return { followup: message => { delivered.push(message) } } },
+  } }, { keyFile: f.keyFile, configFile: f.configFile })
+  const tick = async () => { poll(); await new Promise(resolve => setImmediate(resolve)) }
+  await tick(); assert.deepEqual(delivered, []); assert.equal(recorded.length, 1)
+  answer = { ok: true, result: {} }
+  await tick(); assert.deepEqual(delivered, []); assert.equal(recorded.length, 2, 'refused message was not acknowledged')
+  let confirm
+  answer = new Promise(resolve => { confirm = resolve })
+  await tick(); assert.deepEqual(delivered, []); assert.equal(recorded.length, 3, 'unconfirmed message was not acknowledged')
+  confirm({ ok: true, result: wakeAck() })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(delivered.length, 1, 'failed recording did not spend the wake rate allowance')
+  await tick(); assert.equal(recorded.length, 3); assert.equal(delivered.length, 1, 'confirmed delivery is acknowledged')
+  assert(recorded.every(request => request.op === 'aura_note' && request.args.event_id === event.id))
 })
 
 test('LIVE (AUKORA_BUZZ_LIVE=1): against a real Buzz relay, a mention reaches the door and her reply is read back by the sender', { skip: process.env.AUKORA_BUZZ_LIVE !== '1' && 'AUKORA_BUZZ_LIVE=1 and a configured real Buzz relay are required' }, async () => {

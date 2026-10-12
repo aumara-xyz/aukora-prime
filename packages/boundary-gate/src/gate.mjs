@@ -33,6 +33,9 @@ export const DEFAULT_LIMITS = Object.freeze({
 const CLOSE_OUTCOMES = ['rejected', 'cancelled', 'unavailable', 'expired']
 const APPLIED_EVENTS = "('apply','revert-applied','genesis-target')"
 export const maskId = (id) => id ? String(id).slice(0, 8) + '…' : id
+export const AURA_NOTE_REFUSE = Object.freeze({
+  KIND: 'aura-note:kind', SHAPE: 'aura-note:shape', DIGEST: 'aura-note:digest',
+})
 
 // targets: { [name]: { entry, maxBytes, schema, validate(text), accentOf?, plain?, after? } }
 // store:   { read(name, spec) -> Buffer|null, write(name, spec, bytes, proposalId) }
@@ -803,6 +806,21 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     return { ok: true, seq: e.seq, hash: e.hash }
   }
 
+  // Closed digest-only caller reports grant no authority and attest no completed effect.
+  function auraNote(a) {
+    const refuse = code => { throw Object.assign(new Error(code), { code }) }
+    const kind = a && typeof a === 'object' ? Object.getOwnPropertyDescriptor(a, 'kind')?.value : undefined
+    const fields = kind === 'buzz-wake' ? ['event_id', 'sender_pubkey', 'session_sha256']
+      : kind === 'admission' || kind === 'copresence-accepted' ? ['digest_sha256'] : null
+    if (!fields) refuse(AURA_NOTE_REFUSE.KIND)
+    if (!exactKeys(a, ['kind', ...fields])) refuse(AURA_NOTE_REFUSE.SHAPE)
+    if (!fields.every(k => typeof a[k] === 'string' && a[k].length === 64 && SHA.test(a[k]))) refuse(AURA_NOTE_REFUSE.DIGEST)
+    const detail = { kind, ...Object.fromEntries(fields.map(k => [k, a[k]])),
+      source: 'propose-socket', verification: 'caller-reported-unverified', grants_authority: false }
+    const e = tx(() => append('aura-note', { detail }))
+    return { ok: true, seq: e.seq, hash: e.hash }
+  }
+
   const proposeOps = {
     ping: () => ({ ok: true, pubkey_fp: key.fp, pubkey_pem: key.pubPem }),
     targets: () => Object.entries(TARGETS).map(([t, s]) => ({ target: t, schema: s.schema, entry: s.entry, maxBytes: s.maxBytes })),
@@ -838,6 +856,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     // an intent (body digest and size) BEFORE the harness sends it, and the server-assigned message id AFTER. It records
     // nothing else, grants nothing, and accepts only these closed shapes. Bodies are never stored here, only digests.
     relay_record: (a) => relayRecord(a),
+    aura_note: (a) => auraNote(a),
     selfcheck: ({ result }) => {
       append('selfcheck', { detail: { source: 'propose-socket/harness', verification: 'caller-reported-unverified', result: result ?? null } })
       return { ok: true, verification: 'caller-reported-unverified' }
@@ -890,7 +909,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
         .run(expired ? t : row.window_start_ms, expired ? 1 : row.used + 1)
     })
   }
-  for (const op of ['propose', 'revert', 'close', 'harness_start', 'selfcheck', 'relay_record']) {
+  for (const op of ['propose', 'revert', 'close', 'harness_start', 'selfcheck', 'relay_record', 'aura_note']) {
     const handler = proposeOps[op]
     proposeOps[op] = (...args) => { chargePropose(); return handler(...args) }
   }

@@ -8,6 +8,7 @@
 // outside denied guest/temp roots and configured workspaces. The key stays loaded until reload, including for scrubbing.
 // Posts require an Aura relay_record intent before sending. Ambiguous answers trigger one lookup by event id and
 // remain UNKNOWN if unconfirmed; confirmed posts get three completion attempts, then may be POSTED_UNRECORDED.
+// Wakes require a confirmed Aura note before enqueueing; it records the event, sender key and session digest only.
 // Rate limits, acknowledgements and completion retries are in memory, not restart-durable. Neither the data frame
 // nor a Buzz signature is an approval; approval remains with the gate. This plugin does not restrict session tools.
 // buzz_post_receipt requires an isolated gatePublicKeyFile; only the named session may post its gate-fetched,
@@ -51,7 +52,8 @@ export const MAX_EVENT_TAGS = 64
 // nobody's timestamp moves a cursor. Buzz itself refuses events more than 15 minutes from its own clock.
 export const WAKE_WINDOW_S = 300
 export const FUTURE_SLACK_S = 60
-export const GATE_OPS = Object.freeze(['relay_record', 'state', 'log'])
+export const GATE_OPS = Object.freeze(['relay_record', 'aura_note', 'state', 'log'])
+export const WAKE_REFUSE = Object.freeze({ RECORD: 'buzz-wake:unrecorded' })
 export const POST_RECEIPT_REFUSE = Object.freeze({
   ID: 'buzz-receipt:proposal-id', UNDECIDED: 'buzz-receipt:undecided', UNAVAILABLE: 'buzz-receipt:unavailable',
   PROPOSAL: 'buzz-receipt:proposal', SESSION: 'buzz-receipt:session',
@@ -298,6 +300,13 @@ export function createDoor({ getKey, channel, ownerPubkey = null, admit = [], ba
         .filter(e => e.created_at >= from && e.created_at <= t + FUTURE_SLACK_S && !done.has(e.id) && admitted.has(e.pubkey) && e.pubkey !== self && mentions(e, self))
         .map(view)
     },
+    async recordWake(m, sessionId) {
+      const recorded = await gate(gateSocket, 'aura_note', { kind: 'buzz-wake', event_id: m.id, sender_pubkey: m.author,
+        session_sha256: createHash('sha256').update(sessionId, 'utf8').digest('hex') })
+      if (recorded?.ok !== true || !Number.isSafeInteger(recorded.seq) || recorded.seq < 1
+        || typeof recorded.hash !== 'string' || recorded.hash.length !== 64 || !/^[0-9a-f]+$/u.test(recorded.hash)) throw new Error(WAKE_REFUSE.RECORD)
+      return recorded
+    },
     ack(m) { const id = hex64(m.id); if (id !== null) done.set(id, m.createdAt) },
     post: (text, replyTo) => post(text, replyTo),
     ...(gatePublicKey === undefined ? {} : { postReceipt }),
@@ -438,9 +447,10 @@ export function apply(ctx, config = {}) {
   ctx.tools.register(tools.post)
   if (tools.postReceipt) ctx.tools.register(tools.postReceipt)
   if (!settings.sessionId) { console.info('AUKORA_BUZZ_DOOR_WAKE_DISABLED missing sessionId'); return }
-  const deliver = async text => {
+  const deliver = async (text, message) => {
     const agent = pickAgent(ctx.agents, settings.sessionId)
     if (agent === null) throw new Error('configured Buzz session unavailable')
+    await door.recordWake(message, settings.sessionId)
     await agent.followup(wakeMessage(text))
   }
   const tick = createWaker({ door, deliver, log: line => console.info(line) })

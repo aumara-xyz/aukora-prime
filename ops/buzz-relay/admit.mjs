@@ -4,8 +4,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import { createInvite, redeemInvite, verifyAdmission, verifyRecord, createDatabaseStore, REFUSE as INVITE_REFUSE } from '../../packages/invites/index.mjs'
-import { loadKey, RELAY_HTTP } from '../../plugins/aukora-buzz-door/lib/index.mjs'
+import { gateCall, loadKey, RELAY_HTTP } from '../../plugins/aukora-buzz-door/lib/index.mjs'
 import { publicKeyOf, isHex32 } from '../../plugins/aukora-nostr/lib/event.mjs'
 import { createMemberClient, REFUSE as MEMBER_REFUSE } from './member.mjs'
 
@@ -13,6 +14,7 @@ export const REFUSE = Object.freeze({
   INPUT: 'buzz-admit:invalid-input', KEY: 'buzz-admit:isolated-key-required',
   STORE: 'buzz-admit:store-invalid', BUSY: 'buzz-admit:store-busy',
   UNKNOWN: 'buzz-admit:acceptance-unconfirmed', PENDING: 'buzz-admit:pending-admissions',
+  AURA: 'buzz-admit:aura-unrecorded',
 })
 const fail = code => Object.assign(new Error(code), { code })
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -94,13 +96,15 @@ function appendAdmissions(store) {
 }
 
 function context(options, deps) {
+  if (options.gateSocket !== undefined && (typeof options.gateSocket !== 'string'
+    || !path.isAbsolute(options.gateSocket) || options.gateSocket.includes('\0'))) throw fail(REFUSE.AURA)
   const baseUrl = options.baseUrl ?? RELAY_HTTP
   const client = createMemberClient({ keyFile: options.keyFile, baseUrl }, {
     keyOptions: deps.keyOptions ?? defaultKeyOptions(), fetchImpl: deps.fetchImpl,
   })
   const store = openStore(options.storeDir, client.pubkey, baseUrl)
   return { store, root: client.pubkey, sender: deps.sender ?? (command => client.send(command)),
-    onStage: deps.onStage ?? (() => {}) }
+    onStage: deps.onStage ?? (() => {}), gateSocket: options.gateSocket, gate: deps.gate ?? gateCall }
 }
 
 function checkedRecord(store, root, row) {
@@ -117,6 +121,15 @@ async function deliver(ctx, row) {
   const { entry, record } = checkedRecord(store, ctx.root, row)
   appendAdmissions(store)
   onStage('append')
+  // Retries may duplicate this digest; a configured gate must acknowledge before the relay is changed.
+  if (ctx.gateSocket !== undefined) {
+    try {
+      const ack = await ctx.gate(ctx.gateSocket, 'aura_note', { kind: 'admission',
+        digest_sha256: createHash('sha256').update(json(record)).digest('hex') })
+      if (ack?.ok !== true || !Number.isSafeInteger(ack.seq) || ack.seq < 1
+        || typeof ack.hash !== 'string' || !/^[0-9a-f]{64}$/.test(ack.hash)) throw fail(REFUSE.AURA)
+    } catch { throw fail(REFUSE.AURA) }
+  }
   const ack = await sender({ command: 'add', pubkey: entry.member, role: 'member' })
   if (ack?.accepted !== true || ack.kind !== 9030 || !isHex32(ack.event_id)) throw fail(REFUSE.UNKNOWN)
   onStage('sent')
@@ -172,8 +185,8 @@ export async function resume(options, deps = {}) {
 const HELP = `Usage: node ops/buzz-relay/admit.mjs <command> [options]
   issue  --key-file PATH --root OWNER_PUBKEY > invite.json
   redeem --key-file PATH --invite invite.json > redemption.json
-  admit  --key-file OWNER_PATH --store ABSOLUTE_DIRECTORY --invite invite.json --redemption redemption.json [--chain chain.json] [--relay http://localhost:3000]
-  resume --key-file OWNER_PATH --store ABSOLUTE_DIRECTORY [--relay http://localhost:3000]
+  admit  --key-file OWNER_PATH --store ABSOLUTE_DIRECTORY --invite invite.json --redemption redemption.json [--chain chain.json] [--relay http://localhost:3000] [--gate-socket PATH]
+  resume --key-file OWNER_PATH --store ABSOLUTE_DIRECTORY [--relay http://localhost:3000] [--gate-socket PATH]
 Key files use member.mjs isolated-file rules; no inline secret keys. Output contains signed events, never secret keys.
 The root is the relay owner's public key. --chain is the inviter's root-first array of signed pairs;
 use the previous admit output's record.chain. Supply [] for the root. Transfer bearer invites privately.
@@ -181,6 +194,8 @@ The admissions store holds, unencrypted, every member's public key and who invit
 Resume: repeat an incomplete admit, or run resume with the same owner, relay and store. A spend committed before
 expiry is still delivered after expiry; uncommitted requests must still be valid. Never reset or restore the store.
 The append-only admissions.jsonl precedes each send. Recovery completes a torn matching prefix; other damage refuses.
+With --gate-socket, the gate must record the signed admission record's SHA-256 before each send. Reuse that option
+on resume. Gate failure leaves delivery pending; an uncertain send or gate reply may produce duplicate digest notes.
 An uncertain send is retried as an idempotent member add; this is not exactly-once HTTP delivery. A completed invite
 is refused as a replay. The store must have one trusted operator; permissions do not prevent owner tampering.
 Requires a CLOSED relay owned by this key. Relay idempotence and closure require live qualification.
@@ -193,8 +208,8 @@ export async function runCli(args, deps = {}) {
     const [command, ...rest] = args
     const allowed = {
       issue: ['--key-file', '--root'], redeem: ['--key-file', '--invite'],
-      admit: ['--key-file', '--store', '--invite', '--redemption', '--chain', '--relay'],
-      resume: ['--key-file', '--store', '--relay'],
+      admit: ['--key-file', '--store', '--invite', '--redemption', '--chain', '--relay', '--gate-socket'],
+      resume: ['--key-file', '--store', '--relay', '--gate-socket'],
     }
     if (!Object.hasOwn(allowed, command)) throw fail(REFUSE.INPUT)
     const opts = {}
@@ -213,7 +228,7 @@ export async function runCli(args, deps = {}) {
       result = command === 'issue' ? createInvite({ root: opts['--root'], secretKey: key, now })
         : redeemInvite({ invite: read('--invite'), secretKey: key, now })
     } else {
-      const options = { keyFile: opts['--key-file'], storeDir: opts['--store'], baseUrl: opts['--relay'] }
+      const options = { keyFile: opts['--key-file'], storeDir: opts['--store'], baseUrl: opts['--relay'], gateSocket: opts['--gate-socket'] }
       result = command === 'resume' ? await resume(options, deps)
         : await admit({ ...options, invite: read('--invite'), redemption: read('--redemption'),
           chain: opts['--chain'] ? read('--chain') : [] }, deps)

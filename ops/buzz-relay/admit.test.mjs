@@ -16,6 +16,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SOURCE = path.join(HERE, 'admit.mjs')
 const TEST = fileURLToPath(import.meta.url)
 const accepted = { accepted: true, event_id: 'ab'.repeat(32), kind: 9030 }
+const auraAck = { ok: true, seq: 1, hash: 'cd'.repeat(32) }
 const rejects = (fn, code) => assert.rejects(fn, error => error.code === code)
 
 function fixture(t) {
@@ -119,9 +120,13 @@ test('root admits A, A vouches for B, and the owner alone sends signed member ad
 
 test('three redeemed invites exhaust A; fourth, expired, replayed, unadmitted and forged redemptions never reach the relay', async t => {
   const f = fixture(t), b = bridge(f.people[0].pubkey), deps = { ...f.deps, fetchImpl: b.fetchImpl }
+  const notes = []
+  f.options.gateSocket = '/fixture-gate.sock'
+  deps.gate = async (...args) => { notes.push(args); return auraAck }
   const first = pair(f), a = await admit({ ...f.options, ...first }, deps), chain = a.record.chain
   for (const member of [2, 3, 4]) await admit({ ...f.options, ...pair(f, 1, member), chain }, deps)
   const prior = b.requests.length
+  const notesBefore = notes.length
   await rejects(() => admit({ ...f.options, ...pair(f, 1, 5), chain }, deps), INVITES.ALLOTMENT)
   await rejects(() => admit({ ...f.options, ...first }, deps), INVITES.REPLAY)
   await rejects(() => admit({ ...f.options, ...pair(f, 0, 5, f.now - TTL_SECONDS) }, deps), INVITES.EXPIRED)
@@ -132,14 +137,17 @@ test('three redeemed invites exhaust A; fourth, expired, replayed, unadmitted an
   pubkey: f.people[5].pubkey }
   await rejects(() => admit({ ...f.options, ...forged }, deps), INVITES.SIGNATURE)
   assert.equal(b.requests.length, prior); assert.deepEqual(counts(f), { consumed: 4, admissions: 4 })
+  assert.equal(notes.length, notesBefore)
   assert.deepEqual(b.errors, [])
 })
 
 test('issue and redeem CLI join three key files without putting any secret in output', async t => {
   const f = fixture(t), b = bridge(f.people[0].pubkey), output = [], errors = []
+  const notes = []
   const invoke = async args => {
     const out = [], err = []
-    assert.equal(await runCli(args, { ...f.deps, fetchImpl: b.fetchImpl, out: x => out.push(x), err: x => err.push(x) }), 0)
+    assert.equal(await runCli(args, { ...f.deps, fetchImpl: b.fetchImpl,
+      gate: async (...args) => { notes.push(args); return auraAck }, out: x => out.push(x), err: x => err.push(x) }), 0)
     output.push(...out); errors.push(...err)
     return JSON.parse(out[0])
   }
@@ -154,12 +162,59 @@ test('issue and redeem CLI join three key files without putting any secret in ou
     const redemptionFile = path.join(f.home, `redemption-${member}.json`), chainFile = path.join(f.home, 'chain.json')
     fs.writeFileSync(redemptionFile, JSON.stringify(redemption)); fs.writeFileSync(chainFile, JSON.stringify(chain))
     const result = await invoke(['admit', '--key-file', f.people[0].keyFile, '--store', f.storeDir,
-      '--invite', inviteFile, '--redemption', redemptionFile, '--chain', chainFile])
+      '--invite', inviteFile, '--redemption', redemptionFile, '--chain', chainFile, '--gate-socket', '/fixture-gate.sock'])
     assert.equal(result.member, f.people[member].pubkey); chain = result.record.chain
   }
-  assert.deepEqual(await invoke(['resume', '--key-file', f.people[0].keyFile, '--store', f.storeDir]), [])
+  assert.deepEqual(await invoke(['resume', '--key-file', f.people[0].keyFile, '--store', f.storeDir, '--gate-socket', '/fixture-gate.sock']), [])
+  assert.equal(notes.length, 2); assert(notes.every(call => call[0] === '/fixture-gate.sock' && call[1] === 'aura_note'))
   assert.deepEqual(errors, []); assert.deepEqual(b.errors, [])
   for (const person of f.people) assert(!output.join('\n').includes(person.key))
+})
+
+test('Aura admission digest is acknowledged after durable append and before relay delivery; absent socket is unchanged', async t => {
+  const f = fixture(t), claim = pair(f), calls = []
+  let recorded = false
+  const result = await admit({ ...f.options, ...claim, gateSocket: '/fixture-gate.sock' }, { ...f.deps,
+    gate: async (...args) => {
+      calls.push(args)
+      assert.equal(lines(f).length, 1); assert.deepEqual(counts(f), { consumed: 1, admissions: 1 })
+      await Promise.resolve(); recorded = true
+      return auraAck
+    }, sender: async () => { assert.equal(recorded, true); return accepted },
+  })
+  assert.deepEqual(calls, [['/fixture-gate.sock', 'aura_note', { kind: 'admission',
+    digest_sha256: createHash('sha256').update(JSON.stringify(result.record)).digest('hex') }]])
+  const local = fixture(t)
+  await admit({ ...local.options, ...pair(local) }, { ...local.deps,
+    gate: async () => assert.fail('unconfigured gate called'), sender: async () => accepted })
+})
+
+test('Aura admission failures and malformed acknowledgements never send; durable admission can resume', async t => {
+  const bad = [undefined, {}, { ...auraAck, ok: false }, { ...auraAck, ok: 1 },
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1'].map(seq => ({ ...auraAck, seq })),
+    ...[undefined, 'aa', 'AB'.repeat(32), 'z'.repeat(64), auraAck.hash + '\n', 1].map(hash => ({ ...auraAck, hash })),
+    new Error('private gate error')]
+  for (const ack of bad) {
+    const f = fixture(t), claim = pair(f), calls = [], options = { ...f.options, gateSocket: '/fixture-gate.sock' }
+    let sends = 0
+    const deps = { ...f.deps, sender: async () => { sends++; return accepted }, gate: async (...args) => {
+      calls.push(args); if (ack instanceof Error) throw ack; return ack
+    } }
+    await rejects(() => admit({ ...options, ...claim }, deps), REFUSE.AURA)
+    assert.equal(sends, 0); assert.equal(lines(f).length, 1)
+    assert.deepEqual(counts(f), { consumed: 1, admissions: 1 })
+    assert.equal((await resume(options, { ...deps, gate: async (...args) => { calls.push(args); return auraAck } })).length, 1)
+    assert.equal(sends, 1); assert.equal(calls.length, 2); assert.deepEqual(calls[0], calls[1])
+  }
+})
+
+test('Aura admission configured socket must be an absolute path before any spend', async t => {
+  const f = fixture(t), claim = pair(f)
+  for (const gateSocket of [null, '', 'relative', 1, {}, '/bad\0socket']) {
+    await rejects(() => admit({ ...f.options, ...claim, gateSocket }, { ...f.deps,
+      gate: async () => assert.fail('invalid socket reached gate'), sender: async () => assert.fail('invalid socket reached relay') }), REFUSE.AURA)
+  }
+  assert.deepEqual(counts(f), { consumed: 0, admissions: 0 })
 })
 
 test('each abrupt process exit resumes durable intent in spend, log, send order', async t => {
@@ -401,6 +456,16 @@ test('CLI permits no secret arguments, isolation overrides or reflected exceptio
 test('admission protections fail under mutation', { skip: process.env.AUKORA_ADMIT_MUTATIONS !== '1' }, () => {
   const source = fs.readFileSync(SOURCE, 'utf8')
   const mutations = [
+    ['Aura required recording', 'if (ctx.gateSocket !== undefined) {', 'if (false) {'],
+    ['Aura digest-only payload', "digest_sha256: createHash('sha256').update(json(record)).digest('hex')", "digest_sha256: createHash('sha256').update(json(record)).digest('hex'), record"],
+    ['Aura exact record digest', ".update(json(record)).digest('hex')", ".update(json(entry)).digest('hex')"],
+    ['Aura positive acknowledgement', 'ack?.ok !== true || ', ''],
+    ['Aura integer sequence', '!Number.isSafeInteger(ack.seq) || ', ''],
+    ['Aura positive sequence', 'ack.seq < 1', 'false'],
+    ['Aura hash acknowledgement', "typeof ack.hash !== 'string' || !/^[0-9a-f]{64}$/.test(ack.hash)", 'false'],
+    ['Aura refusal surface', '} catch { throw fail(REFUSE.AURA) }', '} catch {}'],
+    ['Aura configured socket', "if (options.gateSocket !== undefined && (typeof options.gateSocket !== 'string'\n    || !path.isAbsolute(options.gateSocket) || options.gateSocket.includes('\\0'))) throw fail(REFUSE.AURA)", ''],
+    ['Aura CLI configuration', "gateSocket: opts['--gate-socket']", 'gateSocket: undefined'],
     ['verifier authorization', 'verifyAdmission({ root, invite, redemption, chain, state, now: (deps.now ?? seconds)() })',
       'state.transaction(tx => { tx.consume(invite.id); tx.record(compact(root, invite, redemption)) })'],
     ['atomic membership record', 'tx.record(entry)\n        store.db', 'void entry\n        store.db'],
@@ -446,6 +511,10 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
     ['CLI error redaction', 'err(codes.includes(error?.code) ? error.code : REFUSE.INPUT)', 'err(error.message)'],
   ]
   const targets = [
+    [['Aura required recording', 'Aura digest-only payload', 'Aura exact record digest'], 'Aura admission digest'],
+    [['Aura positive acknowledgement', 'Aura integer sequence', 'Aura positive sequence', 'Aura hash acknowledgement', 'Aura refusal surface'], 'Aura admission failures'],
+    [['Aura configured socket'], 'Aura admission configured socket'],
+    [['Aura CLI configuration'], 'issue and redeem CLI'],
     [['verifier authorization', 'completed replay'], 'three redeemed invites'],
     [['atomic membership record', 'durable outbox', 'log before relay'], 'root admits A'],
     [['completion after acknowledgement', 'accepted acknowledgement', 'member-kind acknowledgement', 'event-id acknowledgement', 'concurrent sender lock'], 'in-flight sender'],

@@ -269,8 +269,8 @@ test('gate key loader refuses malformed, non-Ed25519, oversized and non-file inp
   }
 })
 
-test('the gate allow-list adds only state and log, with the propose socket request and result framing', async t => {
-  assert.deepEqual([...GATE_OPS].sort(), ['log', 'relay_record', 'state'])
+test('the gate allow-list permits only recording and receipt reads, with the propose socket request and result framing', async t => {
+  assert.deepEqual([...GATE_OPS].sort(), ['aura_note', 'log', 'relay_record', 'state'])
   const requests = []
   t.mock.method(net, 'createConnection', socket => {
     assert.equal(socket, '/gate.sock')
