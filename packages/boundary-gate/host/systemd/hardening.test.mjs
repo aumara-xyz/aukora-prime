@@ -12,7 +12,7 @@ const proposal = readFileSync(join(here, 'HARDENING.proposed.conf'), 'utf8')
 const trees = ['packages/boundary-gate/host/systemd', 'host', 'ops/systemd', 'ops/buzz-relay']
 const sections = {
   Unit: 'Description After Before Requires Wants BindsTo PartOf OnFailure StartLimitIntervalSec StartLimitBurst DefaultDependencies',
-  Service: 'Type User Group UMask RuntimeDirectory RuntimeDirectoryMode UnsetEnvironment ExecStart ExecStartPre ExecStop ExecStopPost ExecReload Restart RestartSec NoNewPrivileges RemainAfterExit TimeoutStartSec TimeoutStopSec WorkingDirectory Environment EnvironmentFile KillMode ProtectSystem ProtectHome ReadOnlyPaths ReadWritePaths BindPaths PrivateTmp PrivateNetwork PrivateDevices ProtectKernelTunables ProtectKernelModules ProtectKernelLogs ProtectControlGroups RestrictAddressFamilies RestrictNamespaces RestrictSUIDSGID LockPersonality MemoryDenyWriteExecute SystemCallFilter SystemCallErrorNumber CapabilityBoundingSet AmbientCapabilities TasksMax MemoryHigh MemoryMax CPUQuota StandardOutput StandardError LimitNOFILE LimitCORE',
+  Service: 'Type User Group UMask RuntimeDirectory RuntimeDirectoryMode UnsetEnvironment ExecStart ExecStartPre ExecStop ExecStopPost ExecReload Restart RestartSec NoNewPrivileges RemainAfterExit TimeoutStartSec TimeoutStopSec WorkingDirectory Environment EnvironmentFile KillMode ProtectSystem ProtectHome ReadOnlyPaths ReadWritePaths BindPaths PrivateTmp PrivateNetwork PrivateDevices ProtectKernelTunables ProtectKernelModules ProtectKernelLogs ProtectControlGroups RestrictAddressFamilies RestrictNamespaces RestrictSUIDSGID LockPersonality MemoryDenyWriteExecute SystemCallFilter SystemCallErrorNumber CapabilityBoundingSet AmbientCapabilities TasksMax MemoryHigh MemoryMax CPUQuota StandardOutput StandardError LimitNOFILE LimitCORE IPAddressDeny IPAddressAllow',
   Timer: 'OnBootSec OnActiveSec OnUnitActiveSec AccuracySec Persistent Unit',
   Install: 'WantedBy RequiredBy Also Alias',
 }
@@ -29,7 +29,7 @@ function unitsBelow(dir) {
 const units = trees.flatMap(unitsBelow).sort()
 
 function render(text) {
-  const values = { UID: '12345', MEMORY_LIMITS: '0', NODE_PATH: '/usr/bin/node', SOURCE_ROOT: '/opt/source', EXISTING_PRIVATE_DOOR_KEY_FILE: '/var/lib/aukora-host/door.key' }
+  const values = { UID: '12345', MEMORY_LIMITS: '0', NODE_PATH: '/usr/bin/node', SOURCE_ROOT: '/opt/source', EXISTING_PRIVATE_DOOR_KEY_FILE: '/var/lib/aukora-host/door.key', RELAY_PORT: '3000' }
   return text.replace(/@([A-Z_]+)@/g, (_, name) => {
     assert.ok(Object.hasOwn(values, name), `UNKNOWN_TEMPLATE: ${name}`)
     return values[name]
