@@ -235,8 +235,10 @@ test('materializer changes exactly two Kira names and retains the original rows/
   const source = bytes.toString('utf8'), entry = './plugins/aukora-kira/lib/gate-capture-host.mjs'
   assert.equal(source.split(entry).length - 1, 2)
   assert.equal(source.includes('./plugins/aukora-kira/lib/index.js'), false)
+  // Reviewed 02b1818..d06c5da: 11b731c and 8f186df change Buzz carry/config only;
+  // both Kira rows/config and the proposal socket remain unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '263283b74055f66b89c809013422d5236890de643510c65d95b4f1d76de24fe5')
+    '7bc916c7adde67f416782c7e15b6616e3ceb5eeb993a9c2a58219da75341b339')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
