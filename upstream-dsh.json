@@ -38,6 +38,11 @@
       "file": "patches/gateway-per-read-cancellation.patch.json",
       "sha256": "7ce8c512d3dab1a1d0e86af878944148f4b81217a56458dde85939f5fae337e1",
       "reason": "Create one cancellation promise per gateway iterator read so a long-lived Remote stream does not retain all completed Promise.race reactions. Backport only cancellableStream from official DSH 4cfd292a7ba6fcac697731da4252a5754d59c74a, preserving pinned remoteCancelled errors and iterator cleanup; no duplex transport or settings upgrade."
+    },
+    {
+      "file": "patches/subprocess-env-scrub.patch.json",
+      "sha256": "02bfe26df92bf1c51239658da6323edce5ff8574a6a70c36a32edf8696680b32",
+      "reason": "Scrub credential-shaped names, SSH/GPG agent variables and DSH_/AUKORA_ namespaces from inherited child environments; preserve explicit host overrides and pinned proxy handling."
     }
   ]
 }

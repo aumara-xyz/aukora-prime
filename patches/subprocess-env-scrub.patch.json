@@ -1,0 +1,61 @@
+{
+  "formatVersion": 1,
+  "name": "subprocess-env-scrub",
+  "reason": "Scrub credential-shaped names, SSH/GPG agent variables and DSH_/AUKORA_ namespaces from inherited child environments; preserve explicit host overrides and pinned proxy handling.",
+  "upstream": {
+    "repository": "aukora-harness",
+    "sourceCommit": "9d11730438d7f15695a9caf6295ac0451dd8ee92",
+    "baseCommit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+    "files": [
+      "packages/subprocess/subprocess/src/index.ts",
+      "packages/subprocess/subprocess/src/types.ts",
+      "packages/subprocess/subprocess/tests/service.spec.ts"
+    ],
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 DeepSeek",
+    "licenseFiles": [
+      "licenses/DSH-MIT-LICENSE"
+    ],
+    "scope": "Inheritance scrub and focused assertion only; explicit env can restore filtered names, and other spawning routes remain outside this policy."
+  },
+  "edits": [
+    {
+      "path": "packages/subprocess/subprocess/src/index.ts",
+      "find": "export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i",
+      "replace": "export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN|AUTH|CREDENTIAL|PRIVATE|SSH_AUTH_SOCK|SSH_AGENT_PID|GPG_AGENT_INFO/i",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/subprocess/subprocess/src/index.ts",
+      "find": "/**\n * The ambient parent environment minus credential-shaped names and minus all\n * `DSH_*` names \u2014 the canonical base every harness child starts from. `PATH`,\n * `HOME`, locale, and proxy variables survive, so child CLIs run normally;\n * harness identity never leaks implicitly (a deliberately forwarded\n * credential or current `DSH_*` fact goes through the spec's explicit `env`,\n * which merges after this scrub). Both scrubs match case-insensitively:\n * Windows environment names are case-insensitive, so a parent `dsh_*` entry\n * would otherwise survive and read back as `$env:DSH_*` in the child;\n * deliberate lowercase `dsh_*` names on POSIX are implausible. Exported as a plain function so spawners\n * that cannot route through the service (node-pty backends, SDK-managed\n * transports) share the one scrub definition.\n *\n * When a proxy is active the result also carries the resolved proxy names and the flag a child Node\n * needs to honor them, so a child inherits the same routing as its parent.\n * @returns a fresh environment object safe to hand to a child spawn.\n */\n",
+      "replace": "/** Scrub inherited sensitive names and DSH_/AUKORA_ facts; explicit env layers apply later. */\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/subprocess/subprocess/src/index.ts",
+      "find": "    if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = value",
+      "replace": "    const upper = key.toUpperCase()\n    if (\n      value !== undefined &&\n      !SENSITIVE_ENV_PATTERN.test(key) &&\n      !upper.startsWith(DSH_ENV_PREFIX) &&\n      !upper.startsWith('AUKORA_')\n    ) {\n      env[key] = value\n    }",
+      "occurrences": 1
+    }
+  ],
+  "expectAfterApply": [
+    {
+      "path": "packages/subprocess/subprocess/src/index.ts",
+      "contains": "export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN|AUTH|CREDENTIAL|PRIVATE|SSH_AUTH_SOCK|SSH_AGENT_PID|GPG_AGENT_INFO/i"
+    },
+    {
+      "path": "packages/subprocess/subprocess/src/index.ts",
+      "contains": "    const upper = key.toUpperCase()\n    if (\n      value !== undefined &&\n      !SENSITIVE_ENV_PATTERN.test(key) &&\n      !upper.startsWith(DSH_ENV_PREFIX) &&\n      !upper.startsWith('AUKORA_')\n    ) {\n      env[key] = value\n    }"
+    }
+  ],
+  "expectAfterBuild": [
+    {
+      "path": "packages/subprocess/subprocess/lib/index.js",
+      "contains": "const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN|AUTH|CREDENTIAL|PRIVATE|SSH_AUTH_SOCK|SSH_AGENT_PID|GPG_AGENT_INFO/i"
+    },
+    {
+      "path": "packages/subprocess/subprocess/lib/index.js",
+      "contains": "!upper.startsWith(\"AUKORA_\")"
+    }
+  ]
+}

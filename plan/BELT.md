@@ -27,7 +27,7 @@ licence is unstated or proprietary, the code is the owner's own and the licence 
 | 14 | model-tuning/lora | PORT | M | Fixture instrument passes; policy adapter and licensing need resolution. | open |
 | 15 | nebius-compute | PORT | M | Useful registry concept; current checker is warn-only and can fail open. | open |
 | 16 | egress-control | PORT | S | Useful DNS pinning; offline tests pass, proprietary licence blocks adaptation. | open |
-| 19 | capability-confinement | PORT | S | Small DSH inheritance hardening missing at the general subprocess seam. | open |
+| 19 | capability-confinement | PORT | S | Small DSH inheritance hardening missing at the general subprocess seam. | DONE (ported; see the commit that changed this row) |
 | 21 | strict-json/canonicalization | PORT | S | Useful display scanner, but confirmed bypass and unresolved licence. | open |
 | 24 | governed-capsule | PORT | M | Keep frozen candidate/check binding; avoid importing patched Council runtime. | open |
 | 31 | pqc-hybrid-signing | PORT | M | Primitive already in Prime; offline rotation verification remains useful. | open |
