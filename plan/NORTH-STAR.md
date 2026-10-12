@@ -194,3 +194,8 @@ STEP 2, 2026-10-12 (written by the builder session in this repository; nothing a
   is a change to the boundary and is Peter's to approve.
 - The install scripts had one independent read-only review (Codex) before the first start; its nine findings were
   fixed. First build attempt failed at its first step (no registry for short image names); recorded in the history.
+- [RAN by Peter at the app, 2026-10-12 17:01 local] step 2's done-check: Buzz's desktop app on his Mac, through the
+  tunnel, joined the pilot's relay, he created the channel "TEST MONDAY" and sent a message. Confirmed on the pilot:
+  the relay's own database holds the channel creation and his two messages (09:01 to 09:02 UTC), all signed by one
+  key, the app's existing identity. Not shown: a second person or device reading them; the phone app; an agent
+  answering (he added Buzz's "Fizz" agent and addressed it; no reply was looked for).
