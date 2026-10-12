@@ -4,5 +4,9 @@ After=aukora-buzz.service
 
 [Service]
 Type=oneshot
+# Keep files created by the root watch and its sudo children private.
+UMask=0077
+# Keep sudo and Podman's UID/GID helpers usable; deny unused host hardware, clock and kernel-log powers.
+CapabilityBoundingSet=~CAP_SYS_MODULE CAP_SYS_RAWIO CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
 ExecStart=/usr/local/lib/aukora-buzz/check.sh --watch
 TimeoutStartSec=360

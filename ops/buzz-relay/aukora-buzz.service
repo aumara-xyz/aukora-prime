@@ -9,6 +9,10 @@ Type=oneshot
 RemainAfterExit=yes
 User=aukora-buzz
 Group=aukora-buzz
+# Keep files created by the launch/stop scripts private to the service account.
+UMask=0077
+# Keep Podman's UID/GID helpers usable; deny unused host hardware, clock and kernel-log powers.
+CapabilityBoundingSet=~CAP_SYS_MODULE CAP_SYS_RAWIO CAP_SYS_TIME CAP_SYSLOG CAP_WAKE_ALARM
 WorkingDirectory=/var/lib/aukora-buzz
 Environment=AUKORA_BUZZ_MEMORY_LIMITS=@MEMORY_LIMITS@
 ExecStart=/usr/local/lib/aukora-buzz/up.sh
