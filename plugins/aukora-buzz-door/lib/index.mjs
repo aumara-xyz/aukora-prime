@@ -10,19 +10,24 @@
 // remain UNKNOWN if unconfirmed; confirmed posts get three completion attempts, then may be POSTED_UNRECORDED.
 // Rate limits, acknowledgements and completion retries are in memory, not restart-durable. Neither the data frame
 // nor a Buzz signature is an approval; approval remains with the gate. This plugin does not restrict session tools.
+// buzz_post_receipt requires an isolated gatePublicKeyFile; only the named session may post its gate-fetched,
+// applied v2 receipt after signature verification. It shares the post limiter and Aura recording path.
 // Missing/invalid config or key leaves apply inert; missing sessionId disables waking and posting. Linux host only.
 // Transport is signed NIP-98 HTTP polling. Private messages and Aumlok binding are not implemented here.
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { isValidEvent, publicKeyOf, signEvent } from '../../aukora-nostr/lib/event.mjs'
+import { verifyReceiptSignature } from '../../../packages/boundary-gate/src/receipts.mjs'
+import { receiptMessage, RECEIPT_REFUSE } from './receipt.mjs'
 
 export const name = 'aukora-buzz-door'
 export const inject = ['tools', 'agents']
 export const READ_TOOL = 'buzz_read'
 export const POST_TOOL = 'buzz_post'
+export const POST_RECEIPT_TOOL = 'buzz_post_receipt'
 export const RELAY_HTTP = 'http://localhost:3000'
 export const CHAT_KIND = 9
 export const HTTP_AUTH_KIND = 27235
@@ -45,7 +50,12 @@ export const MAX_EVENT_TAGS = 64
 // nobody's timestamp moves a cursor. Buzz itself refuses events more than 15 minutes from its own clock.
 export const WAKE_WINDOW_S = 300
 export const FUTURE_SLACK_S = 60
-export const GATE_OPS = Object.freeze(['relay_record'])
+export const GATE_OPS = Object.freeze(['relay_record', 'state', 'log'])
+export const POST_RECEIPT_REFUSE = Object.freeze({
+  ID: 'buzz-receipt:proposal-id', UNDECIDED: 'buzz-receipt:undecided', UNAVAILABLE: 'buzz-receipt:unavailable',
+  PROPOSAL: 'buzz-receipt:proposal', SESSION: 'buzz-receipt:session',
+})
+const refuseReceipt = code => { throw Object.assign(new Error(code), { code }) }
 const DENIED_KEY_ROOTS = Object.freeze(['/sandbox', '/home/auma', '/tmp', '/var/tmp', '/dev/shm', '/proc'])
 const HEX64 = /^[0-9a-f]{64}$/iu
 const hex64 = value => typeof value === 'string' && HEX64.test(value) ? value.toLowerCase() : null
@@ -93,17 +103,26 @@ export function loadKey(keyFile, options) {
   return key
 }
 
+export function loadGatePublicKey(file, options) {
+  const pem = loadIsolated(file, 'key', 1024, options)
+  let key
+  try { key = createPublicKey(pem) } catch { refuseReceipt(RECEIPT_REFUSE.GATE_KEY) }
+  if (key.asymmetricKeyType !== 'ed25519') refuseReceipt(RECEIPT_REFUSE.GATE_KEY)
+  return key
+}
+
 export function loadConfig(configFile, options) {
   const raw = loadIsolated(configFile, 'config', MAX_CONFIG_BYTES, options)
   let config
   try { config = JSON.parse(raw) } catch { throw new Error('buzz config must be valid JSON') }
   if (!config || typeof config !== 'object' || Array.isArray(config)
-    || Object.keys(config).some(k => !['channel', 'ownerPubkey', 'admit', 'sessionId', 'pollMs'].includes(k))) throw new Error('buzz config has unknown fields or wrong shape')
+    || Object.keys(config).some(k => !['channel', 'ownerPubkey', 'admit', 'sessionId', 'pollMs', 'gatePublicKeyFile'].includes(k))) throw new Error('buzz config has unknown fields or wrong shape')
   if (!UUID.test(config.channel)) throw new Error('buzz channel must be a lowercase uuid')
   if (config.ownerPubkey !== undefined && config.ownerPubkey !== null && hex64(config.ownerPubkey) === null) throw new Error('owner pubkey must be 64-hex')
   if (config.admit !== undefined && (!Array.isArray(config.admit) || config.admit.some(k => hex64(k) === null))) throw new Error('admit must be a list of 64-hex pubkeys')
   if (config.sessionId !== undefined && (typeof config.sessionId !== 'string' || !config.sessionId.trim() || config.sessionId.length > 256 || display(config.sessionId) !== config.sessionId)) throw new Error('sessionId must name one session')
   if (config.pollMs !== undefined && (!Number.isInteger(config.pollMs) || config.pollMs < 1000 || config.pollMs > 3_600_000)) throw new Error('pollMs must be 1000..3600000')
+  if (config.gatePublicKeyFile !== undefined && (typeof config.gatePublicKeyFile !== 'string' || !path.isAbsolute(config.gatePublicKeyFile) || path.normalize(config.gatePublicKeyFile) !== config.gatePublicKeyFile)) refuseReceipt(RECEIPT_REFUSE.GATE_KEY)
   return { ...config, ownerPubkey: config.ownerPubkey == null ? null : hex64(config.ownerPubkey), admit: (config.admit ?? []).map(hex64) }
 }
 
@@ -183,7 +202,7 @@ const mentions = (event, pubkey) => event.tags.some(t => Array.isArray(t) && t[0
  * The door itself, with no harness in it: read the channel, find what is addressed to her, post.
  * `getKey` is called once; rotation takes effect on the next plugin load.
  */
-export function createDoor({ getKey, channel, ownerPubkey = null, admit = [], baseUrl = RELAY_HTTP, gateSocket, gate = gateCall, fetchImpl = fetch, now = () => Date.now(),
+export function createDoor({ getKey, channel, ownerPubkey = null, admit = [], baseUrl = RELAY_HTTP, gateSocket, gatePublicKey, gate = gateCall, fetchImpl = fetch, now = () => Date.now(),
   postLimiter = createRateLimiter({ gapMs: POST_GAP_MS, perHour: POSTS_PER_HOUR, now }) }) {
   if (!UUID.test(String(channel))) throw new Error('buzz channel must be a lowercase uuid')
   if (ownerPubkey !== null && hex64(ownerPubkey) === null) throw new Error('owner pubkey must be 64-hex')
@@ -191,6 +210,10 @@ export function createDoor({ getKey, channel, ownerPubkey = null, admit = [], ba
   ownerPubkey = ownerPubkey === null ? null : hex64(ownerPubkey)
   const admitted = new Set(admit.map(hex64)); if (ownerPubkey !== null) admitted.add(ownerPubkey)
   if (baseUrl !== RELAY_HTTP && !/^http:\/\/(127\.0\.0\.1|localhost):[0-9]{2,5}$/u.test(baseUrl)) throw new Error('buzz relay URL must be loopback')
+  if (gatePublicKey !== undefined) {
+    try { if (gatePublicKey?.type !== 'public') gatePublicKey = createPublicKey(gatePublicKey) } catch { refuseReceipt(RECEIPT_REFUSE.GATE_KEY) }
+    if (gatePublicKey.asymmetricKeyType !== 'ed25519') refuseReceipt(RECEIPT_REFUSE.GATE_KEY)
+  }
   const key = getKey(), self = publicKeyOf(key)
   const me = () => self
   const scrub = msg => display(String(msg ?? 'error').replaceAll(key, '[redacted]').replaceAll(key.toUpperCase(), '[redacted]')).slice(0, 300)
@@ -208,6 +231,49 @@ export function createDoor({ getKey, channel, ownerPubkey = null, admit = [], ba
     // Verify signed bytes before canonicalising identity fields; aliases must not bypass admission or deduplication.
     const canonical = list.slice(-MAX_EVENTS_PER_QUERY).filter(mine).map(e => ({ ...e, id: hex64(e.id), pubkey: hex64(e.pubkey) }))
     return [...new Map(canonical.map(e => [e.id, e])).values()].sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1))
+  }
+  async function post(text, replyTo, receiptTags) {
+    const bytes = validateText(text)
+    if (replyTo !== undefined) { replyTo = hex64(replyTo); if (replyTo === null) throw new Error('reply_to must be a 64-hex message id') }
+    postLimiter.check()
+    const body_sha256 = createHash('sha256').update(text, 'utf8').digest('hex')
+    const client_request_id = `buzz-${channel}-${randomUUID().replaceAll('-', '')}`
+    await gate(gateSocket, 'relay_record', { phase: 'intent', author: 'auma', client_request_id, body_sha256, bytes })
+    postLimiter.take()
+    const event = signEvent({ pubkey: publicKeyOf(key), created_at: Math.floor(now() / 1000), kind: CHAT_KIND, content: text,
+      tags: receiptTags ?? [['h', channel], ...(replyTo === undefined ? [] : [['e', replyTo, '', 'reply']])] }, key)
+    let data
+    try { data = await relayPost(baseUrl, '/events', event, key, { fetchImpl, now }) } catch { /* outcome is ambiguous after dispatch */ }
+    if (data?.accepted === false) throw new Error('buzz relay explicitly refused the message')
+    if (data?.accepted !== true) {
+      let found = false
+      try { found = (await query({ ids: [event.id], kinds: [CHAT_KIND], '#h': [channel], limit: 1 })).some(e => e.id === event.id) } catch { /* a failed lookup proves no absence */ }
+      if (!found) return { state: 'UNKNOWN', id: event.id, bytes }
+    }
+    // The intent is already in the ledger. The completion is tried three times; if the gate stays away the post
+    // is reported as POSTED_UNRECORDED and the ledger shows an intent with no completion.
+    let recorded = false
+    for (let i = 0; i < 3 && !recorded; i++) {
+      try { await gate(gateSocket, 'relay_record', { phase: 'posted', author: 'auma', client_request_id, body_sha256, bytes, message_id: event.id, cursor: String(event.created_at) }); recorded = true } catch { /* tried again */ }
+    }
+    return { state: recorded ? 'POSTED' : 'POSTED_UNRECORDED', id: event.id, bytes }
+  }
+
+  // Only gate-fetched, applied receipts signed by the pinned key may enter the shared post path.
+  async function postReceipt(proposalId) {
+    if (typeof proposalId !== 'string' || !UUID.test(proposalId)) refuseReceipt(POST_RECEIPT_REFUSE.ID)
+    let result = await gate(gateSocket, 'state', { id: proposalId })
+    if (['pending', 'applying'].includes(result?.state)) refuseReceipt(POST_RECEIPT_REFUSE.UNDECIDED)
+    if (result?.state !== 'applied') refuseReceipt(POST_RECEIPT_REFUSE.UNAVAILABLE)
+    if (result.receipt === undefined && result.receipt_sig === undefined) {
+      const log = await gate(gateSocket, 'log', { limit: 200 })
+      result = Array.isArray(log?.entries) ? log.entries.find(entry => entry?.proposal === proposalId && ['apply', 'revert-applied'].includes(entry.event))?.detail : null
+    }
+    if (!result?.receipt || !result?.receipt_sig) refuseReceipt(POST_RECEIPT_REFUSE.UNAVAILABLE)
+    if (result.receipt.proposal !== proposalId) refuseReceipt(POST_RECEIPT_REFUSE.PROPOSAL)
+    const message = receiptMessage(result, { channel })
+    if (!verifyReceiptSignature(result.receipt, result.receipt_sig, gatePublicKey).ok) refuseReceipt(RECEIPT_REFUSE.RECEIPT)
+    return post(message.content, undefined, message.tags)
   }
   // Nothing older than the moment the door opened wakes her; history is read with buzz_read.
   const opened = Math.floor(now() / 1000)
@@ -232,32 +298,8 @@ export function createDoor({ getKey, channel, ownerPubkey = null, admit = [], ba
         .map(view)
     },
     ack(m) { const id = hex64(m.id); if (id !== null) done.set(id, m.createdAt) },
-    async post(text, replyTo) {
-      const bytes = validateText(text)
-      if (replyTo !== undefined) { replyTo = hex64(replyTo); if (replyTo === null) throw new Error('reply_to must be a 64-hex message id') }
-      postLimiter.check()
-      const body_sha256 = createHash('sha256').update(text, 'utf8').digest('hex')
-      const client_request_id = `buzz-${channel}-${randomUUID().replaceAll('-', '')}`
-      await gate(gateSocket, 'relay_record', { phase: 'intent', author: 'auma', client_request_id, body_sha256, bytes })
-      postLimiter.take()
-      const event = signEvent({ pubkey: publicKeyOf(key), created_at: Math.floor(now() / 1000), kind: CHAT_KIND, content: text,
-        tags: [['h', channel], ...(replyTo === undefined ? [] : [['e', replyTo, '', 'reply']])] }, key)
-      let data
-      try { data = await relayPost(baseUrl, '/events', event, key, { fetchImpl, now }) } catch { /* outcome is ambiguous after dispatch */ }
-      if (data?.accepted === false) throw new Error('buzz relay explicitly refused the message')
-      if (data?.accepted !== true) {
-        let found = false
-        try { found = (await query({ ids: [event.id], kinds: [CHAT_KIND], '#h': [channel], limit: 1 })).some(e => e.id === event.id) } catch { /* a failed lookup proves no absence */ }
-        if (!found) return { state: 'UNKNOWN', id: event.id, bytes }
-      }
-      // The intent is already in the ledger. The completion is tried three times; if the gate stays away the post
-      // is reported as POSTED_UNRECORDED and the ledger shows an intent with no completion.
-      let recorded = false
-      for (let i = 0; i < 3 && !recorded; i++) {
-        try { await gate(gateSocket, 'relay_record', { phase: 'posted', author: 'auma', client_request_id, body_sha256, bytes, message_id: event.id, cursor: String(event.created_at) }); recorded = true } catch { /* tried again */ }
-      }
-      return { state: recorded ? 'POSTED' : 'POSTED_UNRECORDED', id: event.id, bytes }
-    },
+    post: (text, replyTo) => post(text, replyTo),
+    ...(gatePublicKey === undefined ? {} : { postReceipt }),
   }
 }
 
@@ -315,7 +357,23 @@ export function createDoorTools(door, { sessionId } = {}) {
       } catch (error) { return refuse(error) }
     },
   }
-  return { read, post }
+  if (typeof door.postReceipt !== 'function') return { read, post }
+  const postReceipt = {
+    name: POST_RECEIPT_TOOL,
+    description: 'Post a decided proposal\'s gate-signed receipt to your Buzz channel. Supply only its proposal id. Uses the same post limits and Aura recording as buzz_post; the gate public key must be configured.',
+    parameters: { type: 'object', additionalProperties: false, required: ['proposal_id'], properties: {
+      proposal_id: { type: 'string', pattern: UUID.source } } },
+    timeoutMs: 90_000, isConcurrencySafe: () => false, output: out,
+    async execute(args, exec) {
+      try {
+        if (typeof sessionId !== 'string' || !sessionId || exec?.agent?.id !== sessionId) refuseReceipt(POST_RECEIPT_REFUSE.SESSION)
+        exact(args, ['proposal_id'])
+        const result = await door.postReceipt(args.proposal_id)
+        return JSON.stringify({ ok: result.state !== 'UNKNOWN', ...result })
+      } catch (error) { return refuse(error) }
+    },
+  }
+  return { read, post, postReceipt }
 }
 
 /**
@@ -371,11 +429,13 @@ export function apply(ctx, config = {}) {
   try {
     settings = loadConfig(config.configFile, { extraDenied })
     const key = loadKey(config.keyFile, { extraDenied })
-    door = createDoor({ getKey: () => key, channel: settings.channel, ownerPubkey: settings.ownerPubkey, admit: settings.admit, gateSocket })
+    const gatePublicKey = settings.gatePublicKeyFile === undefined ? undefined : loadGatePublicKey(settings.gatePublicKeyFile, { extraDenied })
+    door = createDoor({ getKey: () => key, channel: settings.channel, ownerPubkey: settings.ownerPubkey, admit: settings.admit, gateSocket, gatePublicKey })
   } catch { console.warn('AUKORA_BUZZ_DOOR_UNAVAILABLE invalid or unavailable isolated key/config'); return }
   const tools = createDoorTools(door, { sessionId: settings.sessionId })
   ctx.tools.register(tools.read)
   ctx.tools.register(tools.post)
+  if (tools.postReceipt) ctx.tools.register(tools.postReceipt)
   if (!settings.sessionId) { console.info('AUKORA_BUZZ_DOOR_WAKE_DISABLED missing sessionId'); return }
   const deliver = async text => {
     const agent = pickAgent(ctx.agents, settings.sessionId)
@@ -388,5 +448,5 @@ export function apply(ctx, config = {}) {
     timer.unref?.()
     return () => clearInterval(timer)
   }, 'aukora-buzz-door: poll the channel and wake on an admitted mention')
-  console.info('AUKORA_BUZZ_DOOR_REGISTERED', READ_TOOL, POST_TOOL)
+  console.info('AUKORA_BUZZ_DOOR_REGISTERED', READ_TOOL, POST_TOOL, ...(tools.postReceipt ? [POST_RECEIPT_TOOL] : []))
 }

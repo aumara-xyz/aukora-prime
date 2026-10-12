@@ -237,8 +237,10 @@ test('materializer changes exactly two Kira names and retains the original rows/
   assert.equal(source.includes('./plugins/aukora-kira/lib/index.js'), false)
   // Reviewed 02b1818..d06c5da: 11b731c and 8f186df change Buzz carry/config only;
   // both Kira rows/config and the proposal socket remain unchanged.
+  // Reviewed receipt carry: only ledger.mjs and receipts.mjs join RELEASE_IMPORT_FILES;
+  // the Kira rows/config and proposal socket remain unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '7bc916c7adde67f416782c7e15b6616e3ceb5eeb993a9c2a58219da75341b339')
+    'ca310bb643c395b938f234449bb95c1eed7f929d4a33163da87b7ee0c5ccd767')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 

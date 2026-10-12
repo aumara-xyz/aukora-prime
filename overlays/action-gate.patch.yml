@@ -85,6 +85,7 @@
           # BUZZ host tools (plugins/aukora-buzz-door): bounded channel chat, posts recorded in Aura.
           - buzz_read
           - buzz_post
+          - buzz_post_receipt
           - memory.put
           - mcp__viking__*
           - mcp__kira-memory__*

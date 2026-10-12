@@ -153,7 +153,8 @@ VENDORED = (ROOT / 'vendor/append-only', ROOT / 'vendor/receipt', ROOT / 'vendor
 #: resolve.mjs also imports plugins/aukora-aumlok/lib/plugin-set-content.mjs, carried with that plugin.
 RELEASE_IMPORT_FILES = ('apps/aukora-desktop/card-chain.mjs', 'scripts/aukora/desktop-cutover.mjs',
                         'packages/contracts/src/json.mjs', 'apps/aukora-desktop/resolve.mjs',
-                        'apps/aukora-desktop/url-policy.mjs', 'apps/aukora-desktop/install-settings.mjs')
+                        'apps/aukora-desktop/url-policy.mjs', 'apps/aukora-desktop/install-settings.mjs',
+                        'packages/boundary-gate/src/ledger.mjs', 'packages/boundary-gate/src/receipts.mjs')
 # `target/` is build output, never vendored bytes — the same exception the pin checker declares.
 BUILD_OUTPUT_DIRS = {'target'}
 # Runtime debris, never authored bytes. `__pycache__` appears the moment anyone imports a script
