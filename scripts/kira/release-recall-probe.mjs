@@ -154,12 +154,19 @@ export function bindScratchIO(scratch, held, { descriptorPaths = process.platfor
   const flagsOf = flags => typeof flags === 'number' ? flags : ({ r: constants.O_RDONLY, 'r+': constants.O_RDWR,
     w: constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC, wx: constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
     a: constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND, ax: constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_EXCL })[flags]
-  fs.openSync = (path, flags, mode) => guarded(path, (target, check) => {
-    const value = relativePath(path) === null ? flags : flagsOf(flags) | constants.O_NOFOLLOW | constants.O_NONBLOCK
-    check()
-    const fd = original.openSync(target, typeof value === 'number' ? value & ~constants.O_TRUNC : value, mode)
-    try { check(); if (typeof value === 'number' && (value & constants.O_TRUNC)) fs.ftruncateSync(fd); return fd } catch (error) { fs.closeSync(fd); throw error }
-  })
+  fs.openSync = (path, flags, mode) => {
+    let opened, accepted = false
+    try {
+      const result = guarded(path, (target, check) => {
+        const value = relativePath(path) === null ? flags : flagsOf(flags) | constants.O_NOFOLLOW | constants.O_NONBLOCK
+        check()
+        const fd = original.openSync(target, typeof value === 'number' ? value & ~constants.O_TRUNC : value, mode)
+        try { check(); if (typeof value === 'number' && (value & constants.O_TRUNC)) fs.ftruncateSync(fd); opened = fd; return fd }
+        catch (error) { fs.closeSync(fd); throw error }
+      })
+      accepted = true; return result
+    } finally { if (!accepted && opened !== undefined) fs.closeSync(opened) }
+  }
   fs.readFileSync = (path, options) => relativePath(path) === null ? original.readFileSync(path, options)
     : (() => { const fd = fs.openSync(path, constants.O_RDONLY); try { return original.readFileSync(fd, options) } finally { fs.closeSync(fd) } })()
   for (const name of ['writeFileSync', 'appendFileSync']) fs[name] = (path, data, options) => relativePath(path) === null
@@ -193,15 +200,27 @@ export function probeTransport(config, run, transport = globalThis.fetch) {
   const map = (value, from, to) => typeof value === 'string' && (value === from || value.startsWith(`${from}/`)) ? to + value.slice(from.length) : value
   const translate = (value, from, to) => Array.isArray(value) ? value.map(item => translate(item, from, to))
     : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, translate(item, from, to)])) : map(value, from, to)
-  return async (url, options = {}) => {
+  const controller = new AbortController(), pending = new Set()
+  const track = async action => {
+    const request = Promise.resolve().then(action)
+    pending.add(request)
+    try { return await request } finally { pending.delete(request) }
+  }
+  const fetch = async (url, options = {}) => {
     if (!String(url).startsWith(`${config.url}/`)) return transport(url, options)
     const mapped = new URL(url), uri = mapped.searchParams.get('uri')
     if (uri) mapped.searchParams.set('uri', map(uri, normal, isolated))
-    const response = await transport(mapped.href, { ...options, ...(options.body ? { body: JSON.stringify(translate(JSON.parse(options.body), normal, isolated)) } : {}) })
-    return { ok: response.ok, status: response.status, json: async () => translate(await response.json(), isolated, normal) }
+    const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal
+    const response = await track(() => transport(mapped.href, { ...options, signal,
+      ...(options.body ? { body: JSON.stringify(translate(JSON.parse(options.body), normal, isolated)) } : {}) }))
+    return { ok: response.ok, status: response.status, json: () => track(async () => translate(await response.json(), isolated, normal)) }
   }
+  fetch.abort = () => controller.abort()
+  fetch.close = async () => { fetch.abort(); await Promise.allSettled([...pending]) }
+  return fetch
 }
 
+// Delete once, then establish content and index absence twice before releasing recovery state.
 async function cleanupIndex(input, bridge) {
   const config = bridge.readBridgeConfig(input.config.openVikingHome)
   if (!config.configured || config.user !== input.user || config.account !== input.account || config.url !== input.url) return { cleaned: false }
@@ -210,14 +229,18 @@ async function cleanupIndex(input, bridge) {
   try {
     const deleted = await fetch(`${config.url}/api/v1/fs?uri=${encodeURIComponent(input.uri)}`, { ...options, method: 'DELETE' })
     if (deleted.status !== 404 && (!deleted.ok || (await deleted.json()).status !== 'ok')) return { cleaned: false }
-    const absent = await fetch(`${config.url}/api/v1/content/read?uri=${encodeURIComponent(input.uri)}`, { ...options, signal: AbortSignal.timeout(Math.max(1, Math.min(30_000, config.timeoutMs))) })
-    if (absent.status !== 404) return { cleaned: false }
-    const searched = await fetch(`${config.url}/api/v1/search/find`, { ...options, method: 'POST',
-      body: JSON.stringify({ query: input.sentence, target_uri: input.uri.slice(0, input.uri.lastIndexOf('/')), limit: 50 }),
-      signal: AbortSignal.timeout(Math.max(1, Math.min(30_000, config.timeoutMs))) })
-    const result = await searched.json()
-    return { cleaned: searched.ok && result.status === 'ok' && Array.isArray(result.result?.memories)
-      && result.result.memories.length === 0 && Array.isArray(result.result?.resources) && result.result.resources.length === 0 }
+    for (let observation = 0; observation < 2; observation++) {
+      if (observation) await new Promise(resolveDelay => setTimeout(resolveDelay, 250))
+      const absent = await fetch(`${config.url}/api/v1/content/read?uri=${encodeURIComponent(input.uri)}`, { ...options, signal: AbortSignal.timeout(Math.max(1, Math.min(30_000, config.timeoutMs))) })
+      if (absent.status !== 404) return { cleaned: false }
+      const searched = await fetch(`${config.url}/api/v1/search/find`, { ...options, method: 'POST',
+        body: JSON.stringify({ query: input.sentence, target_uri: input.uri.slice(0, input.uri.lastIndexOf('/')), limit: 50 }),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(30_000, config.timeoutMs))) })
+      const result = await searched.json()
+      if (!searched.ok || result.status !== 'ok' || !Array.isArray(result.result?.memories)
+        || result.result.memories.length !== 0 || !Array.isArray(result.result?.resources) || result.result.resources.length !== 0) return { cleaned: false }
+    }
+    return { cleaned: true }
   } catch { return { cleaned: false } }
 }
 
@@ -239,37 +262,42 @@ async function childOperation(input) {
   }
   const bridgeConfig = bridge.readBridgeConfig(input.config.openVikingHome)
   globalThis.fetch = probeTransport(bridgeConfig, input.run)
-  const kira = await import(input.kiraUrl)
-  const { createGateCaptureHostPlugin } = await import(input.hostUrl)
-  const tools = new Map(), services = new Map(), routes = new Map(), disposers = []
-  const web = { get: name => name === 'webServer' ? { register: route => { routes.set(route.path, route.handler); return () => routes.delete(route.path) } }
-    : name === 'connection' ? { requestRejection: () => false } : undefined,
-  effect: create => { const dispose = create(); if (typeof dispose === 'function') disposers.push(dispose); return dispose } }
-  const ctx = { tools: { register: tool => tools.set(tool.name, tool) }, sessions: new Map(),
-    on: () => () => {}, inject: (_names, mount) => mount(web), emit() {}, logger: { info() {}, warn() {} },
-    effect: web.effect, provide: (name, value) => services.set(name, value), reflect: { get: name => services.get(name) } }
+  const transport = globalThis.fetch
+  const abort = () => transport.abort()
+  process.once('SIGTERM', abort)
   try {
-    await createGateCaptureHostPlugin({ platform: 'probe', preflight: async () => false,
-      loadKira: async () => kira, loadAura: async () => ({}), loadCapture: async () => ({}), gateCall: async () => ({}) }).apply(ctx, input.config)
-    if (input.action === 'remember') {
-      const result = await tools.get('kira_remember').execute({ text: input.sentence }, {})
-      return { remembered: result.remembered, ids: result.ids, index: result.index }
-    }
-    if (input.action === 'forget') {
-      const handler = routes.get('/api/kira/memories/forget')
-      if (!handler) fail('forget-route-unavailable')
-      const request = Readable.from([JSON.stringify({ id: input.id })])
-      request.method = 'POST'; request.url = '/api/kira/memories/forget'
-      let result
-      const response = { statusCode: 200, setHeader() {}, end: bytes => { result = JSON.parse(bytes) } }
-      await handler(request, response)
-      return { forgotten: result?.forgotten === true, removed: result?.openviking?.removed === true, status: response.statusCode }
-    }
-    const answer = await tools.get('kira_recall').execute({ text: input.lexical ? LEXICAL : QUESTION, ...(input.lexical ? { lexical: true } : {}) }, {})
-    return { method: answer.remembered?.method, degraded: answer.remembered?.degraded === true,
-      state: answer.remembered?.state, sentence: answer.snippets?.some(note => note.text === input.sentence) === true,
-      ids: answer.snippets?.map(note => note.id), project: answer.project?.state }
-  } finally { for (const dispose of disposers.reverse()) dispose() }
+    const kira = await import(input.kiraUrl)
+    const { createGateCaptureHostPlugin } = await import(input.hostUrl)
+    const tools = new Map(), services = new Map(), routes = new Map(), disposers = []
+    const web = { get: name => name === 'webServer' ? { register: route => { routes.set(route.path, route.handler); return () => routes.delete(route.path) } }
+      : name === 'connection' ? { requestRejection: () => false } : undefined,
+    effect: create => { const dispose = create(); if (typeof dispose === 'function') disposers.push(dispose); return dispose } }
+    const ctx = { tools: { register: tool => tools.set(tool.name, tool) }, sessions: new Map(),
+      on: () => () => {}, inject: (_names, mount) => mount(web), emit() {}, logger: { info() {}, warn() {} },
+      effect: web.effect, provide: (name, value) => services.set(name, value), reflect: { get: name => services.get(name) } }
+    try {
+      await createGateCaptureHostPlugin({ platform: 'probe', preflight: async () => false,
+        loadKira: async () => kira, loadAura: async () => ({}), loadCapture: async () => ({}), gateCall: async () => ({}) }).apply(ctx, input.config)
+      if (input.action === 'remember') {
+        const result = await tools.get('kira_remember').execute({ text: input.sentence }, {})
+        return { remembered: result.remembered, ids: result.ids, index: result.index }
+      }
+      if (input.action === 'forget') {
+        const handler = routes.get('/api/kira/memories/forget')
+        if (!handler) fail('forget-route-unavailable')
+        const request = Readable.from([JSON.stringify({ id: input.id })])
+        request.method = 'POST'; request.url = '/api/kira/memories/forget'
+        let result
+        const response = { statusCode: 200, setHeader() {}, end: bytes => { result = JSON.parse(bytes) } }
+        await handler(request, response)
+        return { forgotten: result?.forgotten === true, removed: result?.openviking?.removed === true, status: response.statusCode }
+      }
+      const answer = await tools.get('kira_recall').execute({ text: input.lexical ? LEXICAL : QUESTION, ...(input.lexical ? { lexical: true } : {}) }, {})
+      return { method: answer.remembered?.method, degraded: answer.remembered?.degraded === true,
+        state: answer.remembered?.state, sentence: answer.snippets?.some(note => note.text === input.sentence) === true,
+        ids: answer.snippets?.map(note => note.id), project: answer.project?.state }
+    } finally { for (const dispose of disposers.reverse()) dispose() }
+  } finally { try { await transport.close() } finally { process.removeListener('SIGTERM', abort) } }
 }
 
 export function validateHeldScratch(scratch, held) {
@@ -283,18 +311,21 @@ export function fresh(input, scratch, held) {
   delete env.AUKORA_STATE; delete env.AUKORA_SUPPORT_ROOT
   return new Promise((resolveStep, reject) => {
     const child = fork(fileURLToPath(import.meta.url), ['--child'], { execArgv: [], env, cwd: input.release, stdio: ['ignore', 'ignore', 'ignore', 'ipc', held] })
-    let timedOut = false
-    const timeout = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, 120_000)
+    let timedOut = false, childFailed = false, killTimeout
+    const stop = () => { child.kill('SIGTERM'); killTimeout ??= setTimeout(() => child.kill('SIGKILL'), 1000) }
+    const timeout = setTimeout(() => { timedOut = true; stop() }, 120_000)
     let response
     child.once('message', value => { response = value })
-    child.once('error', () => { clearTimeout(timeout); reject(new Error('child-failed')) })
-    child.once('exit', code => {
-      clearTimeout(timeout)
-      if (timedOut) reject(Object.assign(new Error('child-timeout'), { code: 'kira.release-probe:child-timeout' }))
-      else if (code !== 0 || !response?.result) reject(Object.assign(new Error('child-failed'), { code: response?.reason }))
+    child.once('error', () => { childFailed = true; stop() })
+    child.once('close', code => {
+      clearTimeout(timeout); clearTimeout(killTimeout)
+      const operationFinished = response?.finished === true && !childFailed
+      if (timedOut) reject(Object.assign(new Error('child-timeout'), { code: 'kira.release-probe:child-timeout', operationFinished }))
+      else if (childFailed || code !== 0 || !response?.result) reject(Object.assign(new Error('child-failed'), { code: response?.reason, operationFinished }))
       else resolveStep({ ...response.result, pid: child.pid })
     })
-    child.send({ ...input, scratch })
+    try { child.send({ ...input, scratch }, error => { if (error) { childFailed = true; stop() } }) }
+    catch { childFailed = true; stop() }
   })
 }
 
@@ -383,7 +414,10 @@ export async function probeRelease({ release: selected, scratch, cleanup = false
   let input, needsCleanup = false, ambiguousWrite = false
   const step = async (name, action, check) => {
     try { const result = await fresh({ ...input, ...action }, path, held); steps.push({ name, ok: check(result), ...result }); return result }
-    catch (error) { steps.push({ name, ok: false, reason: codeOf(error) }); return null }
+    catch (error) {
+      if (action.action === 'remember') ambiguousWrite = error.operationFinished !== true
+      steps.push({ name, ok: false, reason: codeOf(error) }); return null
+    }
   }
   try {
     if (cleanup) { input = journalInput({ ...loaded, config }, path, saved); needsCleanup = true }
@@ -399,7 +433,6 @@ export async function probeRelease({ release: selected, scratch, cleanup = false
       input = journalInput({ ...loaded, config }, path, scratchJournal(path, held, saved))
       needsCleanup = true
       const remembered = await step('remember', { action: 'remember' }, result => result.remembered === 1 && result.ids?.length === 1)
-      ambiguousWrite = remembered === null || remembered.index?.failed?.length > 0 || remembered.index?.pending > 0
       await step('semantic-recall', { action: 'recall' }, result => result.method === 'openviking-semantic' && result.degraded === false && result.sentence)
       await step('lexical-recall', { action: 'recall', lexical: true }, result => result.method === 'lexical-bm25-bigram' && result.degraded === false && result.sentence)
       await step('forget', { action: 'forget', id: remembered?.ids?.[0] }, result => result.forgotten && result.removed && result.status === 200)
@@ -423,8 +456,8 @@ export async function probeRelease({ release: selected, scratch, cleanup = false
 if (isMainModule(import.meta.url)) {
   if (process.argv[2] === '--child' && process.send) {
     process.once('message', async input => {
-      try { const result = await childStep(input); process.send({ result }, () => process.disconnect()) }
-      catch (error) { process.exitCode = 1; process.send({ failed: true, reason: codeOf(error) }, () => process.disconnect()) }
+      try { const result = await childStep(input); process.send({ result, finished: true }, () => process.disconnect()) }
+      catch (error) { process.exitCode = 1; process.send({ failed: true, reason: codeOf(error), finished: true }, () => process.disconnect()) }
     })
   } else {
     try {

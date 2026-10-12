@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Compile both static type fixtures only with installed local compiler and types.
-import {createRequire} from 'node:module'
+import {accessSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 
-const require=createRequire(import.meta.url)
 let compiler
 try {
-  compiler=require.resolve('typescript/bin/tsc')
-  require.resolve('@types/node/package.json')
-  require.resolve('@aukora-prime/contracts')
-  require.resolve('@aukora-prime/inference')
+  compiler=fileURLToPath(import.meta.resolve('typescript/bin/tsc'))
+  for(const name of ['@types/node/package.json','@aukora-prime/contracts','@aukora-prime/inference'])
+    accessSync(fileURLToPath(import.meta.resolve(name)))
+  accessSync(compiler)
 } catch(error) {
-  if(error.code!=='MODULE_NOT_FOUND')throw error
+  if(error.code!=='ERR_MODULE_NOT_FOUND'&&error.code!=='ENOENT')throw error
   console.log('UNPERFORMED: installed TypeScript compiler, Node types and local workspace packages are required')
   process.exit(2)
 }

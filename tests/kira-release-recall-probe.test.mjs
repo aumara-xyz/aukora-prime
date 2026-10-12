@@ -300,7 +300,7 @@ export const apply=async(ctx,config)=>{
     assert.equal((await runProbe(syntheticRelease, path)).status, 0, 'cleaned scratch must be reusable')
     for (const [name, controls, target, replacement] of [
       ['content-confirmation', { ackWithoutRemoval: true, hideSearch: true }, 'if (absent.status !== 404) return { cleaned: false }', 'if (false) return { cleaned: false }'],
-      ['vector-confirmation', { ackWithoutRemoval: true, hideRead: true }, 'result.result.memories.length === 0', 'true'],
+      ['vector-confirmation', { ackWithoutRemoval: true, hideRead: true }, 'result.result.memories.length !== 0', 'false'],
     ]) {
       providerState(controls); const incomplete = await runProbe(syntheticRelease, empty(`${name}-state`))
       assert.equal(incomplete.status, 3, incomplete.stdout + incomplete.stderr)
@@ -335,7 +335,7 @@ export const apply=async(ctx,config)=>{
     }
   })
   await check('timed-out children stop before cleanup and ambiguous writes retain a recovery target', async () => {
-    const shortTimeout = mutateScript('short-timeout', '120_000', '250')
+    const shortTimeout = mutateScript('short-timeout', '120_000', "input.action === 'cleanup' ? 5000 : 250")
     providerState({ hangRecall: true }); const path = empty('timeout-recall-state')
     const result = await runProbe(syntheticRelease, path, { script: shortTimeout })
     assert.equal(result.status, 1, result.stdout + result.stderr)
@@ -349,7 +349,7 @@ export const apply=async(ctx,config)=>{
     providerState({ hangWrite: true }); const ambiguous = empty('timeout-write-state')
     const interrupted = await runProbe(syntheticRelease, ambiguous, { script: shortTimeout })
     assert.equal(interrupted.status, 3, interrupted.stdout + interrupted.stderr)
-    assert.ok(existsSync(join(ambiguous, 'release-probe.json')), 'ambiguous remote write lost recovery target')
+    assert.ok(existsSync(join(ambiguous, 'release-probe.json')), 'forced termination lost the ambiguous remote write recovery target')
     providerState({}); assert.equal((await runProbe(null, ambiguous, { cleanup: true })).status, 0)
   })
   }
