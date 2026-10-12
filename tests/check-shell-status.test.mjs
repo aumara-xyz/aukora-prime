@@ -19,7 +19,7 @@ const footer = (pass = 46, arms = 46, failed = 0, pending = 2, dsh = 'UNPERFORME
 const tap = (pass = 0, skipped = 0, todo = 0) =>
   `# tests ${pass + skipped + todo}\n# pass ${pass}\n# fail 0\n# cancelled 0\n# skipped ${skipped}\n# todo ${todo}`
 const registrations = text => text.split('\n').filter(line => /^check(?:_tap|_unittest|_darwin|_injection)? '/u.test(line))
-assert.equal(registrations(source).length, 253, 'preserve every existing fixed registration')
+assert.equal(registrations(source).length, 254, 'preserve every existing fixed registration')
 assert.equal(registrations(source).filter(line => line.includes(command)).length, 1)
 
 function fragments(text) {
@@ -363,4 +363,4 @@ if (process.argv.includes('--mutate')) {
     console.log(`KILLED ${name}`)
   }
 }
-console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 253 registrations retained; synthetic child/actual runner only; no fixture deletes`)
+console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 254 registrations retained; synthetic child/actual runner only; no fixture deletes`)

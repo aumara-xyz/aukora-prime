@@ -403,6 +403,7 @@ check_tap 'node --test --test-reporter=tap tests/aukora-eye-action-gate.test.mjs
 check_tap 'node --test --test-reporter=tap tests/desktop-eye-privacy.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/desktop-owner-privacy.test.mjs'
 check_tap 'node --experimental-vm-modules --test --test-reporter=tap tests/aukora-overlay-mounts.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/release-plugins-load.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-messages-node.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/face-bundle-build.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/face-bundle-freshness.test.mjs'
