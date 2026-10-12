@@ -465,3 +465,19 @@ It took three runs. Two failures were mine and only showed on the live machine (
 Also found: Peter's desktop shortcut starts the app WITHOUT the pilot attach settings, so it silently falls back to the old Genesis release installed on the Mac (`~/au91-root/aukora-release-9572138ef`) and shows that. Only `~/.aukora-nebius/launch-aukora.sh` attaches to the pilot. That is why he saw "the old app".
 
 NOT yet on live: the Buzz door answers `AUKORA_BUZZ_DOOR_UNAVAILABLE` because the live node has no relay key or door configuration for Auma (never created there); the relay is still open; the admission service is not installed.
+
+### 2026-10-13 morning: the live switch was rolled back; the fixed build is verified on a real screen in staging
+
+The live pilot ran `c8cf03c` for about twelve minutes and showed Peter no apps and broken thread icons. Cause: last night's rebuild of every face compiled in the Linux voice sidecar source, which had been left unbuilt on purpose; it needs a pin file at load that the pilot does not have, so the apps plugin threw, and that plugin serves every stock app and the thread icon. Goal resume threw at load too. The pilot was rolled back to `3673b98`. The rollback was cut off half-way when its connection closed and the harness was down for about eight minutes until I restarted it. Total unplanned downtime this morning: about ten minutes, all caused by me.
+
+Fixed on `main` (`ddc3375`): an absent voice installation no longer stops the apps plugin; goal resume and the board plugin no longer throw at load; tools that make the owner's existing notes readable; recall by meaning under a partial index.
+
+RAN in staging on `ddc3375`: no plugin threw at load; `ops/pilot/ui-probe.mjs` signed in: the icon, Auma Lingwa, Auma Live, Zeta Harp, Human Graph, Dakini Code, the Auma Live status and the Aura snapshot all served; installed door acceptance PASS. **Seen in a real browser for the first time** (staging, through a loopback tunnel): thread icons render; the apps panel lists the apps; Auma Lingwa opens and renders; the Aura Coherence page shows a settled Pentora with 3 of 3 sources present. Screenshots were sent to Peter. One thing seen there and not yet explained: two requests to `/api/aukora/aumlok-control` returned 404 in staging.
+
+RAN on the live pilot (read-only): on `3673b98` everything the probe checks is served except the Aura snapshot, which that release does not have.
+
+Measured on the live pilot (read-only): Kira holds 202 notes, 147 filed under the older label for `/home/aukora-host/workspaces/aukora-prime/.git`, 52 under the one for `/home/aukora-host/genesis/state/workspace`, 3 unresolved; none readable by the assistant until a project map exists. That is why she reported her memory as withheld.
+
+The live pilot stays on `3673b98` until Peter has seen the screenshots and the switch script has been rewritten (click first, with everything still up; a mandatory screen probe and plugin-load check before success).
+
+Also this morning: GitHub Actions switched off by Peter on seven private repositories; the "clones" he saw on the Buzz fork were its inherited workflows checking out the code.
