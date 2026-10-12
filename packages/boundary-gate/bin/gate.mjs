@@ -16,6 +16,7 @@ import { rotateBearer, loadOwnerSecret } from '../src/secrets.mjs'
 import { openDb, verifyLedger, loadOrCreateKey, keyFingerprint } from '../src/ledger.mjs'
 import { gateTargets, gateStore } from '../src/wiring.mjs'
 import { verifyReceipt } from '../src/receipts.mjs'
+import { ownerStateReader } from '../src/owner-state.mjs'
 
 process.umask(0o027)
 const [cmd, ...rest] = process.argv.slice(2)
@@ -43,7 +44,9 @@ if (cmd === 'verify') {
   const home = abs('home', o.home), runDir = abs('run', o.run)
   const owner = loadOwnerSecret(home)
   const bearerInfo = rotateBearer(home, owner)
+  const readOwnerState = ownerStateReader()
   const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }),
+    ...(readOwnerState === undefined ? {} : { readOwnerState }),
     ...(o['journal-id'] === undefined ? {} : { journalId: o['journal-id'] }) })
   const v = gate.startup({ bearerInfo })
   if (!v.ok) console.error('LEDGER VERIFY FAILED', v.errors)

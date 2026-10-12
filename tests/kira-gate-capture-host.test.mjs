@@ -899,7 +899,7 @@ test('actual E193 revalidates the retained H scope after awaited write policy be
 const binURL = new URL('../packages/boundary-gate/bin/gate.mjs', import.meta.url)
 const unitURL = new URL('../packages/boundary-gate/host/systemd/aukora-boundary-gate.service', import.meta.url)
 let gateCliFixtureSequence = 0
-async function runGateCli(args, source) {
+async function runGateCli(args, source, { readOwnerState, ownerStateError } = {}) {
   source ??= await readFile(binURL, 'utf8')
   const observed = { calls: [], gates: [], servers: [], messages: [], exit: null, error: null }
   const exit = Object.freeze({ fixture: 'process-exit' }), owner = Object.freeze({ fixture: 'owner' })
@@ -913,6 +913,11 @@ async function runGateCli(args, source) {
     fs: { readFileSync: () => { observed.calls.push(['read-file']); return 'fixture public bytes' } },
     createPublicKey: () => { observed.calls.push(['public-key']); return 'fixture-public-key' },
     loadOwnerSecret: home => { observed.calls.push(['owner', home]); return owner },
+    ownerStateReader: (...args) => {
+      assert.deepEqual(args, []); observed.calls.push(['owner-state-reader'])
+      if (ownerStateError) throw ownerStateError
+      return readOwnerState
+    },
     rotateBearer: (home, actualOwner) => { assert.equal(actualOwner, owner); observed.calls.push(['bearer', home]); return { fixture: 'bearer-info' } },
     gateTargets: (root, options) => { observed.calls.push(['targets', root, options]); return { fixtureTarget: {} } },
     gateStore: options => { observed.calls.push(['store', options]); return { fixture: 'store' } },
@@ -967,6 +972,37 @@ test('gate CLI binds only the optional exact operator journal while legacy serve
   assert.equal(equals.error, null); assert.equal(equals.gates[0].journalId, 'aukora-gate-pilot')
 })
 
+test('gate CLI passes an enrolled owner-state reader with and without the operator journal', async () => {
+  for (const journalArgs of [[], ['--journal-id', 'aukora-gate-pilot'], ['--journal-id=aukora-gate-pilot']]) {
+    let state = Object.freeze({ fixture: 'owner-state' }), reads = 0
+    const readOwnerState = () => { reads++; if (state instanceof Error) throw state; return state }
+    const selected = await runGateCli([...serveArgs, ...journalArgs], undefined, { readOwnerState })
+    assert.equal(selected.error, null); assert.equal(selected.exit, null); assert.equal(selected.gates.length, 1)
+    assert.deepEqual(Object.keys(selected.gates[0]).sort(), journalArgs.length
+      ? ['home', 'journalId', 'owner', 'readOwnerState', 'store', 'targets']
+      : ['home', 'owner', 'readOwnerState', 'store', 'targets'])
+    assert.equal(selected.gates[0].readOwnerState, readOwnerState)
+    assert.equal(reads, 0, 'the CLI forwards the reader instead of caching owner state')
+    assert.equal(selected.calls.filter(([call]) => call === 'owner-state-reader').length, 1)
+    assert.equal(selected.servers.length, 1)
+    if (journalArgs.length) assert.equal(selected.gates[0].journalId, 'aukora-gate-pilot')
+    assert.equal(selected.gates[0].readOwnerState(), state)
+    state = Object.freeze({ fixture: 'changed-owner-state' })
+    assert.equal(selected.gates[0].readOwnerState(), state)
+    state = Object.assign(new Error('owner-state-unprotected'), { code: 'owner-state-unprotected' })
+    assert.throws(() => selected.gates[0].readOwnerState(), error => error === state)
+  }
+})
+
+test('gate CLI never falls back to legacy when selecting the owner-state reader fails', async () => {
+  const ownerStateError = Object.assign(new Error('EACCES'), { code: 'EACCES' })
+  const refused = await runGateCli(serveArgs, undefined, { ownerStateError })
+  assert.equal(refused.error, ownerStateError)
+  assert.equal(refused.gates.length, 0); assert.equal(refused.servers.length, 0)
+  assert.equal(refused.calls.filter(([call]) => call === 'owner-state-reader').length, 1)
+  assert.equal(refused.calls.some(([call]) => call === 'startup'), false)
+})
+
 test('gate CLI refuses wrong, missing, repeated and non-serve journal arguments before gate state', async () => {
   const rejected = [
     [...serveArgs, '--journal-id', 'other-journal'], [...serveArgs, '--journal-id', ''],
@@ -1011,4 +1047,17 @@ test('gate CLI negative controls detect lost command, literal and duplicate jour
   assert.equal(missingLiteral.gates[0].journalId, 'other-journal')
   const missingDuplicate = await runGateCli([...serveArgs, '--journal-id', 'other-journal', '--journal-id', 'aukora-gate-pilot'], source.replace(duplicate, ''))
   assert.equal(missingDuplicate.gates[0].journalId, 'aukora-gate-pilot')
+})
+
+test('gate CLI negative controls detect omitted enrolled state and changed legacy options', async () => {
+  const source = await readFile(binURL, 'utf8')
+  const binding = '...(readOwnerState === undefined ? {} : { readOwnerState }),'
+  assert.ok(source.includes(binding))
+  const readOwnerState = () => Object.freeze({ fixture: 'owner-state' })
+  const missing = await runGateCli(serveArgs, source.replace(binding, ''), { readOwnerState })
+  assert.equal(missing.error, null); assert.equal(missing.gates.length, 1)
+  assert.equal(Object.hasOwn(missing.gates[0], 'readOwnerState'), false)
+  const unconditional = await runGateCli(serveArgs, source.replace(binding, 'readOwnerState,'))
+  assert.equal(unconditional.error, null); assert.equal(unconditional.gates.length, 1)
+  assert.equal(Object.hasOwn(unconditional.gates[0], 'readOwnerState'), true)
 })
