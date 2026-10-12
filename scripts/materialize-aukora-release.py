@@ -254,7 +254,9 @@ def AURA_COPY_IGNORE(directory, names):
 #                 cannot look at the app, while every eye court stays green — which is why
 #                 `tests/aukora-eye-row.test.mjs` holds this constant and the row below together.
 LANE_PLUGINS = ('aukora-kira', 'aukora-aumlok', 'aukora-board', 'aukora-eye', 'aukora-caged-worker', 'aukora-auma-theme',
-                'aukora-relay-auma',
+                'aukora-relay-auma', 'aukora-buzz-door',
+                # Buzz imports its sibling event module, including the pinned lib/vendor closure.
+                'aukora-nostr',
                 'aukora-openshell-confinement',
                 # ── MEASURED OUTAGE, 2026-09-25: A RELEASE THAT COULD NOT START ──────────────────────
                 # The cutover died with `ERR_MODULE_NOT_FOUND`: `plugins/aukora-composition-gate/src/
@@ -335,9 +337,9 @@ PLUGIN_DIRS = {'aukora-owner-daemon': ('lib', 'bin')}
 # `<release>/aukora-nostr/lib/contact.mjs` the call returns that path; with the same bytes at
 # `<release>/plugins/aukora-nostr/lib/contact.mjs` the path is not a candidate at all and the call
 # throws `messages:nostr-tree-absent` naming `<release>/aukora-nostr/lib/contact.mjs`. LANE_PLUGINS
-# therefore does NOT fit this tree: its destination is where the SOURCE-tree walk lands, not where
+# therefore does NOT serve this face: its destination is where the SOURCE-tree walk lands, not where
 # the shipped face's walk lands, so copying it there would carry the bytes while leaving the face
-# refusing — the failure this carry exists to end.
+# refusing — the failure this carry exists to end. Buzz separately needs the sibling copy under plugins/.
 #
 # The WHOLE tree travels, for the vendored trees' reason above: the resolver reads `lib/`, and a
 # subset would be a tree the repository's own `plugins/aukora-nostr/lib/vendor/**/upstream-*.json`
@@ -1541,6 +1543,17 @@ def main() -> int:
         + '        gateSocket: /run/aukora-gate/gate.sock\n'
         + '        workspaceRoots:\n'
         + "          - !!js process.env.HOME + '/workspaces'\n"
+        # Buzz configuration uses the loader's existing process.env expression surface.
+        + '    - id: aukora-buzz-door\n'
+        + '      name: ./plugins/aukora-buzz-door/lib/index.mjs\n'
+        + '      config:\n'
+        + "        keyFile: !!js process.env.HOME + '/.config/aukora-buzz/auma.key'\n"
+        + '        gateSocket: /run/aukora-gate/gate.sock\n'
+        + '        workspaceRoots:\n'
+        + "          - !!js process.env.HOME + '/workspaces'\n"
+        + '        channel: !!js process.env.AUKORA_BUZZ_CHANNEL\n'
+        + '        ownerPubkey: !!js process.env.AUKORA_BUZZ_OWNER_PUBKEY\n'
+        + '        sessionId: !!js process.env.AUKORA_BUZZ_SESSION\n'
         + '    - id: aukora-kira\n'
         + '      name: ./plugins/aukora-kira/lib/gate-capture-host.mjs\n'
         + '      config:\n'

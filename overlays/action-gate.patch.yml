@@ -82,6 +82,9 @@
           # AUMA relay host tools (plugins/aukora-relay-auma): read newest <=20; post plain chat <=2000 bytes, rate-limited, recorded in Aura.
           - relay_read
           - relay_post
+          # BUZZ host tools (plugins/aukora-buzz-door): bounded channel chat, posts recorded in Aura.
+          - buzz_read
+          - buzz_post
           - memory.put
           - mcp__viking__*
           - mcp__kira-memory__*
