@@ -434,3 +434,14 @@ RAN in staging on `3854a3b`: roll with gate package upgrade and stand-in approva
 Also tonight: 111 checks that nothing ran are registered (`fd41bcf`); six found red or unfit are listed in `plan/CHECKS-INVENTORY.md` and not registered. A worker's rewrite of the harness build format was NOT landed (it would force every harness to be rebuilt); it is in `plan/PROPOSAL-harness-build-identity.md` for Peter. `./prime verify` ran to completion on the Mac: 64 PASS, 0 FAIL, 12 UNPERFORMED.
 
 Way of working that paid for itself: run new tests on the pilot (Linux, Ubuntu's umask 002) before pushing. It caught the mounts test needing the harness archive, three node-spawn tests, two unfit registrations and the probe's HTTP path, none of which the Mac or a worker's sandbox showed.
+
+### 2026-10-13 early: Aura's snapshot with all three sources present: RAN in staging
+
+Staging on `727d9d7`. Two findings on the way:
+
+- **Kira had never been running in staging.** Staging had no owner deployment overlay, so Kira refused to mount (`memory.identity:field-missing`) on every release rolled there tonight; the door, the gate and the Aura route were exercised in staging, Kira was not. Staging now has an overlay with a synthetic subject (not a person). Everything said tonight about Kira on a node comes from the pilot runs (the OpenViking probe and the release recall probe), not from staging.
+- With Kira mounted: before any note, the snapshot reported `kira-chain` absent (`kira-ledger-missing`), which is true. After one synthetic note was remembered through the release's own Kira (and recalled by text), the snapshot showed `gate-ledger` (295 entries), `kira-chain` (1 entry) and `code-chain` (the release record's digest) all present, and the snapshot's head changed while the gate's head did not. So the Pentora on the Aura page is now a picture of approvals, memory and code together, and it moves when any one of them does.
+
+NOT RUN: the page in a browser; a model turn; the live harness. The admission service (`727d9d7`) is not installed in staging.
+
+Linux CI on `727d9d7` was red on one check: the new admission unit had no entry in the hardening proposals, and I had pushed without rerunning `scripts/check.sh` after landing it. Fixed in `5ad3467`; on the pilot the hardening test passes 5 of 5 with `systemd-analyze`.
