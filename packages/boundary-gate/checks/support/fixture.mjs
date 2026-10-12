@@ -23,7 +23,9 @@ export function memoryStore(initial = {}) {
   return { files, writes: 0, read: (t) => files.has(t) ? Buffer.from(files.get(t)) : null, write(t, _s, bytes) { this.writes++; files.set(t, Buffer.from(bytes)) } }
 }
 
-export function tmpHome() { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-gate-')); fs.chmodSync(d, 0o700); return d }
+// The gate refuses a target path with a symlink in any component, and macOS's temp directory sits under /var, a
+// symlink to /private/var: resolve the temp root once so the fixture's own path is canonical.
+export function tmpHome() { const d = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'boundary-gate-')); fs.chmodSync(d, 0o700); return d }
 
 export function makeGate({ initial = { [ACCENT]: accent('#FFD700') }, limits = {}, targets = { [ACCENT]: accentTarget }, start = Date.UTC(2026, 9, 3, 12) } = {}) {
   const clock = { t: start }
