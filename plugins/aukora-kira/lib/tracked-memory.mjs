@@ -403,13 +403,16 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
       report.hashMismatches = live.hashMismatches + (answer.dropped?.tampered?.length ?? 0)
       const notes = filter([...ledger(live).entries.values(), ...live.withheld], live)
       const byId = new Map(notes.map(note => [note.id, note]))
-      if (!answer.available) {
+      const count = Number.isInteger(limit) ? Math.max(1, Math.min(50, limit)) : SEMANTIC_DEFAULTS.limit
+      const lexicalHits = () => {
         const records = notes.map(note => ({ recordId: note.id, text: note.statement }))
-        const count = Number.isInteger(limit) ? Math.max(1, Math.min(50, limit)) : SEMANTIC_DEFAULTS.limit
-        const hits = rankRecords(compileIndex(records), records, String(question ?? ''))
+        return rankRecords(compileIndex(records), records, String(question ?? ''))
           .filter(row => row.score >= LEXICAL_METHOD.minScore).slice(0, count)
           .map(row => ({ id: row.recordId, score: row.score, note: byId.get(row.recordId), relevance: 'lexical-overlap',
             uri: contentUri(config.user ?? SEMANTIC_DEFAULTS.user, byId.get(row.recordId).contentHash) }))
+      }
+      if (!answer.available) {
+        const hits = lexicalHits()
         return { ...semanticNotes({ ...answer, hits, threshold: LEXICAL_METHOD.minScore }, 60_000),
           ...(live.complete ? {} : { state: 'undetermined' }), method: LEXICAL_METHOD.name, ceiling: RETRIEVAL_CEILING,
           degraded: !lexical, semantic: { available: false, reason: answer.reason, failures: answer.failures }, memory: report, dropped: answer.dropped }
@@ -420,6 +423,12 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
         if (!verifyContentHash(note.statement, hit.note?.contentHash).ok) { report.hashMismatches++; return [] }
         return [{ ...hit, note }]
       })
+      // Partial index: notes not indexed yet are invisible to the search by meaning. They are still the owner's
+      // notes, so text search covers them as well; its hits are appended and labelled, never mixed up with the others.
+      if (answer.coverage?.partial === true) {
+        const have = new Set(hits.map(hit => hit.id))
+        for (const hit of lexicalHits()) { if (hits.length >= count) break; if (!have.has(hit.id)) { hits.push(hit); have.add(hit.id) } }
+      }
       return { ...semanticNotes({ ...answer, hits }, 60_000), ...(live.complete && answer.ledgerComplete ? {} : { state: 'undetermined' }),
         semantic: { available: true, failures: answer.failures }, memory: report, dropped: answer.dropped }
     } catch {
