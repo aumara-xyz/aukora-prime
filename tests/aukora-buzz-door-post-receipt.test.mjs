@@ -53,9 +53,28 @@ function fixture({ state = applied(), log = { entries: [logEntry()] }, gatePubli
 }
 
 function isolatedFiles(t) {
-  const home = fs.mkdtempSync(path.join(root, '.post-receipt-test-')), dir = path.join(home, 'config')
+  const home = fs.mkdtempSync(path.join(fs.realpathSync(root), '.post-receipt-test-')), dir = path.join(home, 'config')
   fs.mkdirSync(dir, { mode: 0o700 })
   t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+  // Only outside ancestors have synthetic ownership/mode; disposable HOME metadata stays real.
+  const descriptors = new Map(), original = Object.fromEntries(['openSync', 'closeSync', 'fstatSync', 'lstatSync'].map(name => [name, fs[name]]))
+  const nominal = file => {
+    const match = /^\/proc\/self\/fd\/(\d+)\/(.*)$/u.exec(String(file))
+    return match ? path.join(descriptors.get(Number(match[1])), match[2]) : String(file)
+  }
+  const parentStat = (stat, file) => stat.isDirectory() && file !== home && !file.startsWith(home + path.sep)
+    ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, { uid: 0, mode: 0o40755 }) : stat
+  t.mock.method(fs, 'openSync', (file, flags, ...args) => {
+    const filePath = nominal(file), fd = original.openSync(file, flags, ...args)
+    if (typeof flags === 'number' && (flags & fs.constants.O_DIRECTORY) !== 0) descriptors.set(fd, filePath)
+    return fd
+  })
+  t.mock.method(fs, 'closeSync', fd => { descriptors.delete(fd); return original.closeSync(fd) })
+  t.mock.method(fs, 'fstatSync', (fd, ...args) => {
+    const stat = original.fstatSync(fd, ...args), file = descriptors.get(fd)
+    return file === undefined ? stat : parentStat(stat, file)
+  })
+  t.mock.method(fs, 'lstatSync', (file, ...args) => parentStat(original.lstatSync(file, ...args), String(file)))
   const file = path.join(dir, 'gate.pub'), config = path.join(dir, 'door.json')
   fs.writeFileSync(file, gatePem, { mode: 0o600 })
   fs.writeFileSync(config, JSON.stringify({ channel, sessionId, gatePublicKeyFile: file }), { mode: 0o600 })

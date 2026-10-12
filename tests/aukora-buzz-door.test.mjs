@@ -11,11 +11,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EventEmitter } from 'node:events'
 import { registerHooks } from 'node:module'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto'
 import { isValidEvent, publicKeyOf, randomSecretKey, signEvent, eventId } from '../plugins/aukora-nostr/lib/event.mjs'
 import { createDoor, createDoorTools, createWaker, createSessionDelivery, createRateLimiter, gateCall, httpAuthHeader, loadKey, pickAgent, wakeText,
   POST_GAP_MS, POSTS_PER_HOUR, WAKE_GAP_MS, WAKES_PER_HOUR, MAX_RESPONSE_BYTES, MAX_EVENT_TAGS,
-  MAX_TEXT_BYTES, MAX_READ_OUTPUT_CHARS, READ_BODY_CHARS, MAX_CONFIG_BYTES, POST_TOOL, READ_TOOL, RELAY_HTTP, apply, loadConfig, wakeMessage, WAKE_REFUSE,
+  MAX_TEXT_BYTES, MAX_READ_OUTPUT_CHARS, READ_BODY_CHARS, MAX_CONFIG_BYTES, POST_TOOL, READ_TOOL, RELAY_HTTP, apply, loadConfig, loadGatePublicKey, wakeMessage, WAKE_REFUSE,
   RESUME_GAP_MS, MAX_RESUME_GAP_MS, SESSION_REFUSE, CALL_WAIT_MS, WAIT_REFUSE, WAKE_WINDOW_S, FUTURE_SLACK_S } from '../plugins/aukora-buzz-door/lib/index.mjs'
 
 import { schnorr } from '../plugins/aukora-nostr/lib/vendor/noble-curves/curves/secp256k1.js'
@@ -763,8 +763,8 @@ test('wakeText and pickAgent: the sender cannot write a line of their own in the
   assert.equal(pickAgent({ roots: () => [one, two], get: id => (id === 's2' ? two : undefined) }, 's2'), two)
 })
 
-test('key isolation: a key that is group-readable, a symlink, under a guest or temp root, or the wrong shape is refused', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buzz-door-test-'))
+test('key isolation: a key that is group-readable, a symlink, under a guest or temp root, or the wrong shape is refused', t => {
+  const { home: dir } = isolatedFiles(t)
   try {
     const good = path.join(dir, 'k'); fs.writeFileSync(good, randomSecretKey() + '\n', { mode: 0o600 })
     const options = { home: dir, deniedRoots: [] }
@@ -780,14 +780,14 @@ test('key isolation: a key that is group-readable, a symlink, under a guest or t
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('configuration: the relay must be loopback, the channel a uuid; off Linux the plugin registers nothing', () => {
+test('configuration: the relay must be loopback, the channel a uuid; off Linux the plugin registers nothing', t => {
   const base = { getKey: () => randomSecretKey(), channel: CHANNEL, gateSocket: '/x' }
   assert.throws(() => createDoor({ ...base, baseUrl: 'http://example.com:3000' }), /loopback/u)
   assert.throws(() => createDoor({ ...base, channel: 'general' }), /uuid/u)
   assert.equal(RELAY_HTTP, 'http://localhost:3000')
   if (process.platform !== 'linux') {
     // A key that WOULD load, so the only thing keeping the plugin inert here is the platform guard.
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buzz-door-test-'))
+    const { home: dir } = isolatedFiles(t)
     try {
       const keyFile = path.join(dir, 'k'); fs.writeFileSync(keyFile, randomSecretKey(), { mode: 0o600 })
       assert.match(loadKey(keyFile, { home: dir, deniedRoots: [] }), /^[0-9a-f]{64}$/u)
@@ -916,6 +916,52 @@ test('publication: lookup failure or a different signed event cannot resolve UNK
   assert.equal(parse(await createDoorTools(refused, { sessionId: SESSION }).post.execute({ text: 'no' }, CALLER)).state, 'REFUSED')
 })
 
+function isolatedParents(t, home) {
+  // Only ancestry outside the fixture has synthetic ownership/mode; /tmp is never trusted.
+  const original = Object.fromEntries(['openSync', 'closeSync', 'fstatSync', 'lstatSync', 'existsSync'].map(name => [name, fs[name]]))
+  const fixture = { descriptors: new Map(), opened: [], overrides: new Map() }
+  const procAvailable = original.existsSync('/proc/self/fd')
+  fixture.move = (from, to) => {
+    fs.renameSync(from, to)
+    for (const descriptor of fixture.descriptors.values()) {
+      if (descriptor.target === from || descriptor.target.startsWith(from + '/')) descriptor.target = to + descriptor.target.slice(from.length)
+    }
+  }
+  const nominal = name => {
+    const match = /^\/proc\/self\/fd\/(\d+)\/(.*)$/u.exec(String(name))
+    return match ? path.join(fixture.descriptors.get(Number(match[1])).path, match[2]) : name
+  }
+  fixture.nominal = nominal
+  const changed = (st, name) => Object.assign(st, name !== home && !name.startsWith(home + '/')
+    ? { uid: 0, mode: 0o40755 } : fixture.overrides.get(name) ?? {})
+  let inHook = false
+  const hook = (name, ...args) => {
+    if (inHook) return
+    inHook = true
+    try { fixture[name]?.(...args) } finally { inHook = false }
+  }
+  t.mock.method(fs, 'openSync', (name, flags, ...args) => {
+    const p = nominal(name), directory = (flags & fs.constants.O_DIRECTORY) !== 0
+    hook('beforeOpen', p, directory)
+    const match = /^\/proc\/self\/fd\/(\d+)\/(.*)$/u.exec(String(name))
+    // On macOS the Linux branch is a descriptor-path fixture; held fstat metadata remains real.
+    const source = match && !procAvailable ? path.join(fixture.descriptors.get(Number(match[1])).target, match[2]) : name
+    const fd = original.openSync(source, flags, ...args)
+    fixture.opened.push({ path: p, source: name, flags, directory }); fixture.descriptors.set(fd, { path: p, target: source, directory })
+    hook('afterOpen', p, directory, flags)
+    return fd
+  })
+  t.mock.method(fs, 'closeSync', fd => { fixture.descriptors.delete(fd); return original.closeSync(fd) })
+  t.mock.method(fs, 'fstatSync', fd => {
+    const st = original.fstatSync(fd), descriptor = fixture.descriptors.get(fd)
+    return descriptor?.directory ? Object.assign(changed(st, descriptor.path), fixture.heldFields?.(descriptor.path)) : st
+  })
+  t.mock.method(fs, 'lstatSync', name => { fixture.beforeStat?.(name); return changed(original.lstatSync(name), name) })
+  t.mock.method(fs, 'existsSync', name => name === '/proc/self/fd' && fixture.descriptorPaths !== undefined
+    ? fixture.descriptorPaths : original.existsSync(name))
+  return fixture
+}
+
 function isolatedFiles(t) {
   // Linux TMPDIR is a denied key root; use disposable files in the canonical checkout instead.
   const base = fs.realpathSync(fileURLToPath(new URL('.', import.meta.url)))
@@ -925,7 +971,7 @@ function isolatedFiles(t) {
   const keyFile = path.join(dir, 'key'), configFile = path.join(dir, 'door.json'), key = randomSecretKey()
   fs.writeFileSync(keyFile, key, { mode: 0o600 })
   fs.writeFileSync(configFile, JSON.stringify({ channel: CHANNEL, admit: [], sessionId: SESSION, pollMs: 2300 }), { mode: 0o600 })
-  return { home, dir, keyFile, configFile, key, options: { home, deniedRoots: [] } }
+  return { home, dir, keyFile, configFile, key, parents: isolatedParents(t, home), options: { home, deniedRoots: [] } }
 }
 
 test('apply: a HOME under /tmp is refused before reading otherwise valid key and config files', t => {
@@ -935,16 +981,7 @@ test('apply: a HOME under /tmp is refused before reading otherwise valid key and
   t.mock.method(os, 'homedir', () => home)
   t.mock.method(console, 'warn', (...args) => logs.push(args.join(' ')))
   t.mock.method(console, 'info', () => {})
-  // Map only the synthetic path to this court's files; no file is written outside the checkout.
-  for (const name of ['lstatSync', 'openSync']) {
-    const original = fs[name]
-    t.mock.method(fs, name, (file, ...args) => {
-      if (typeof file === 'string' && (file === home || file.startsWith(home + '/'))) {
-        reads.push(file); file = f.home + file.slice(home.length)
-      }
-      return original(file, ...args)
-    })
-  }
+  f.parents.beforeOpen = f.parents.beforeStat = file => reads.push(file)
   const keyFile = home + f.keyFile.slice(f.home.length), configFile = home + f.configFile.slice(f.home.length)
   assert.throws(() => loadKey(keyFile), /guest, workspace or temp root/u)
   assert.throws(() => loadConfig(configFile), /guest, workspace or temp root/u)
@@ -956,7 +993,6 @@ test('apply: a HOME under /tmp is refused before reading otherwise valid key and
 
 test('file isolation: parents including HOME must not be symlinks or writable by other users, for key and config', t => {
   const f = isolatedFiles(t)
-  const originalStat = fs.lstatSync
   for (const [load, file] of [[loadKey, f.keyFile], [loadConfig, f.configFile]]) {
     assert.doesNotThrow(() => load(file, f.options))
     for (const dir of [f.dir, f.home]) {
@@ -973,34 +1009,29 @@ test('file isolation: parents including HOME must not be symlinks or writable by
     assert.throws(() => load(file, { ...f.options, uid: process.getuid() + 1 }), /owned/u)
     assert.throws(() => load(file, { ...f.options, extraDenied: [f.dir] }), /workspace/u)
     for (const foreign of [f.dir, f.home]) {
-      const mocked = t.mock.method(fs, 'lstatSync', name => {
-        const st = originalStat(name); if (name === foreign) st.uid = process.getuid() + 999
-        return st
-      })
+      f.parents.overrides.set(foreign, { uid: process.getuid() + 999 })
       assert.throws(() => load(file, f.options), /parents must be owned/u)
-      mocked.mock.restore()
+      f.parents.overrides.clear()
     }
   }
 })
 
 test('file isolation: inspect and read one O_NOFOLLOW descriptor despite path replacement; size and file type are bounded', t => {
-  const f = isolatedFiles(t), originalOpen = fs.openSync
+  const f = isolatedFiles(t)
   for (const [load, file, expected, replacement] of [
     [loadKey, f.keyFile, f.key, randomSecretKey()],
     [loadConfig, f.configFile, SESSION, JSON.stringify({ channel: CHANNEL, sessionId: 'attacker' })],
   ]) {
     let opens = 0
-    const mocked = t.mock.method(fs, 'openSync', (name, flags, ...rest) => {
-      const fd = originalOpen(name, flags, ...rest)
-      if (name === file && typeof flags === 'number') {
+    f.parents.afterOpen = (name, directory, flags) => {
+      if (!directory && name === file) {
         opens++; assert(flags & fs.constants.O_NOFOLLOW)
         fs.renameSync(file, file + '.old'); fs.writeFileSync(file, replacement, { mode: 0o600 })
       }
-      return fd
-    })
+    }
     const result = load(file, f.options)
     assert.equal(typeof result === 'string' ? result : result.sessionId, expected); assert.equal(opens, 1)
-    mocked.mock.restore()
+    f.parents.afterOpen = undefined
     fs.unlinkSync(file); fs.symlinkSync(file + '.old', file)
     assert.throws(() => load(file, f.options), /regular file/u)
     fs.unlinkSync(file); fs.mkdirSync(file)
@@ -1008,6 +1039,116 @@ test('file isolation: inspect and read one O_NOFOLLOW descriptor despite path re
     fs.rmdirSync(file); fs.writeFileSync(file, 'x'.repeat(MAX_CONFIG_BYTES + 1), { mode: 0o600 })
     assert.throws(() => load(file, f.options), /too large/u)
   }
+})
+
+function checkIsolatedParents(module, t) {
+  const f = isolatedFiles(t), fixture = f.parents
+  const previousFixture = globalThis.buzzDoorIsolationFixture
+  globalThis.buzzDoorIsolationFixture = fixture
+  const pem = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' })
+  const gateFile = path.join(f.dir, 'gate.pem'); fs.writeFileSync(gateFile, pem, { mode: 0o600 })
+  const cases = [[module.loadKey, f.keyFile, f.key, randomSecretKey()],
+    [module.loadConfig, f.configFile, SESSION, JSON.stringify({ channel: CHANNEL, sessionId: 'replacement' })],
+    [module.loadGatePublicKey, gateFile, pem, generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' })]]
+  const resultOf = value => typeof value === 'string' ? value : value.sessionId ?? value.export({ type: 'spki', format: 'pem' })
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value: 'linux' })
+  try {
+    for (const descriptorPaths of [false, true]) for (const [load, file, expected, replacement] of cases) {
+      fixture.descriptorPaths = descriptorPaths; fixture.opened.length = 0
+      let control
+      assert.doesNotThrow(() => { control = load(file, f.options) }, 'unchanged isolated file loads')
+      assert.equal(resultOf(control), expected, 'unchanged isolated file loads')
+      assert.equal(fixture.opened[0].path, '/', 'hold ancestry from the filesystem root')
+      assert.equal(fixture.opened.filter(row => row.directory).length, path.dirname(file).split('/').filter(Boolean).length + 1)
+      for (const { flags } of fixture.opened.filter(row => row.directory)) {
+        assert(flags & fs.constants.O_DIRECTORY, 'directory descriptor required')
+        assert(flags & fs.constants.O_NOFOLLOW, 'parent nofollow required')
+      }
+      assert.equal(fixture.descriptors.size, 0, 'all retained descriptors close on success')
+      for (const replaced of [f.dir, f.home]) for (const symlink of [false, true]) {
+        const moved = replaced + '-held', alternate = replaced + '-alternate'
+        fixture.beforeOpen = (p, directory) => {
+          if (directory || p !== file) return
+          fixture.beforeOpen = undefined; fixture.move(replaced, moved)
+          const target = symlink ? alternate : replaced, targetFile = target + file.slice(replaced.length)
+          fs.mkdirSync(path.dirname(targetFile), { recursive: true, mode: 0o700 })
+          fs.writeFileSync(targetFile, replacement, { mode: 0o600 })
+          if (symlink) fs.symlinkSync(alternate, replaced)
+        }
+        try { assert.throws(() => load(file, f.options), error => error.code === 'buzz-isolation:parent-changed', 'parent replacement refused') }
+        finally {
+          fixture.beforeOpen = undefined; fs.rmSync(replaced, { recursive: true, force: true })
+          fs.rmSync(alternate, { recursive: true, force: true }); fixture.move(moved, replaced)
+        }
+        assert.equal(fixture.descriptors.size, 0, 'all retained descriptors close on refusal')
+      }
+      if (descriptorPaths) {
+        // Swap back before comparison: an anchored open reads the held directory, a path open reads the replacement.
+        const moved = f.dir + '-held'
+        fixture.beforeOpen = (p, directory) => {
+          if (directory || p !== file) return
+          fixture.beforeOpen = undefined; fixture.move(f.dir, moved)
+          fs.mkdirSync(f.dir, { mode: 0o700 }); fs.writeFileSync(file, replacement, { mode: 0o600 })
+        }
+        fixture.afterOpen = (p, directory) => {
+          if (directory || p !== file) return
+          fixture.afterOpen = undefined; fs.rmSync(f.dir, { recursive: true }); fixture.move(moved, f.dir)
+        }
+        try {
+          let loaded
+          assert.doesNotThrow(() => { loaded = load(file, f.options) }, 'transient replacement keeps the anchored file')
+          assert.equal(resultOf(loaded), expected, 'descriptor path ignores transient replacement')
+        }
+        finally {
+          fixture.beforeOpen = fixture.afterOpen = undefined
+          if (fs.existsSync(moved)) { fs.rmSync(f.dir, { recursive: true, force: true }); fixture.move(moved, f.dir) }
+        }
+      }
+    }
+    const hardlink = f.keyFile + '-hard'; fs.linkSync(f.keyFile, hardlink)
+    try { assert.throws(() => module.loadKey(f.keyFile, f.options), error => error.code === 'buzz-isolation:file-links') }
+    finally { fs.unlinkSync(hardlink) }
+    for (const mode of [0o400, 0o640, 0o700]) {
+      fs.chmodSync(f.keyFile, mode)
+      assert.throws(() => module.loadKey(f.keyFile, f.options), /private to the harness/u, 'key must be exactly 0600')
+    }
+    fs.chmodSync(f.keyFile, 0o600)
+    fixture.heldFields = p => p === f.dir ? { uid: process.getuid() + 999 } : {}
+    assert.throws(() => module.loadKey(f.keyFile, f.options), error => error.code === 'buzz-isolation:parent-owner', 'ownership comes from the held descriptor')
+    fixture.heldFields = undefined
+    fixture.overrides.set(f.dir, { uid: process.getuid() + 999 })
+    assert.throws(() => module.loadKey(f.keyFile, f.options), error => error.code === 'buzz-isolation:parent-owner', 'held descriptor ownership checked')
+    fixture.overrides.clear()
+    const getuid = t.mock.method(process, 'getuid', () => undefined)
+    try { assert.throws(() => module.loadKey(f.keyFile, f.options), error => error.code === 'buzz-isolation:isolation-unavailable') }
+    finally { getuid.mock.restore() }
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    if (previousFixture === undefined) delete globalThis.buzzDoorIsolationFixture
+    else globalThis.buzzDoorIsolationFixture = previousFixture
+  }
+}
+
+test('file isolation: key, config and gate key refuse parent replacement; hard-linked key refused', t => {
+  checkIsolatedParents({ loadKey, loadConfig, loadGatePublicKey }, t)
+})
+
+test('file isolation: path opens, missing comparison, ancestry, flags, held metadata and hard-link mutants die', async t => {
+  for (const [label, from, to] of [
+    ['isolation unavailable', "if (uid === undefined || ['O_DIRECTORY', 'O_NOFOLLOW', 'O_NONBLOCK'].some(flag => typeof fs.constants[flag] !== 'number'))\n    refuse('isolation-unavailable', 'isolation unavailable')", ''],
+    ['path-based file open', 'fd = fs.openSync(source, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)', 'fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)'],
+    ['post-open comparison', "if (['dev', 'ino', 'uid', 'mode'].some(key => parent.stat[key] !== st[key] || st[key] !== current[key]))\n        refuse('parent-changed', 'parents changed while opening the file')", ''],
+    ['full ancestry', "['/', ...path.dirname(file).split('/').filter(Boolean)]", '[path.dirname(file)]'],
+    ['directory flag', 'fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW', 'fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW'],
+    ['parent nofollow', 'fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW', 'fs.constants.O_RDONLY | fs.constants.O_DIRECTORY'],
+    ['held metadata', 'const st = fs.fstatSync(fd)\n    if (!st.isDirectory()', 'const st = fs.lstatSync(globalThis.buzzDoorIsolationFixture.descriptors.get(fd).path)\n    if (!st.isDirectory()'],
+    ['hard links', "if (st.nlink !== 1) refuse('file-links', 'must be a regular file with one link')", ''],
+    ['exact key mode', "label === 'key' ? (st.mode & 0o777) !== 0o600 : (st.mode & 0o022) !== 0", "(st.mode & (label === 'key' ? 0o077 : 0o022)) !== 0"],
+  ]) await t.test(label, async t => {
+    const mutant = await doorMutant(from, to)
+    assert.throws(() => checkIsolatedParents(mutant, t), assert.AssertionError, 'the regression rejects the mutated production source')
+  })
 })
 
 test('stable signing key: a rotation during the operation cannot change its author or leak the original key in errors', async t => {
