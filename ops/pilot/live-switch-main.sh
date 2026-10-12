@@ -1,123 +1,322 @@
 #!/bin/bash
-# LIVE PILOT. NOT RUN. Written by the Prime builder 2026-10-13 for Peter to start himself:  sudo bash ~/aukora-zip/live-switch-main.sh <full commit>
-# Same order that ran in the staging container six times on 2026-10-12/13 (roll2.sh), with ONE difference: the approval
-# is Peter's click in his own popup, not a stand-in key. Staging does not have this host's sandbox, OpenShell gateway or
-# his real owner key, so the first live run can still stop; every stop restores the old gate package and the old release.
-#
-#  1 preflight   2 backup   3 stage gate package + manifest from STAGED copies   4 stop harness, swap gate package,
-#  move launcher source, check-package (restore on failure)   5 start gate, RAISE ONE CARD   6 WAIT for Peter's click
-#  (15 minutes, then restore)   7 install approval, point release.env at the new release, floor check, start harness
-#  (restore on failure).
-set -uo pipefail
-[ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
-C=${1:?full commit}; S=${C:0:7}; REL=/opt/aukora-genesis/release-$S; SRC=/opt/aukora-genesis/src
-L=/usr/local/lib/aukora-boundary; M=/etc/aukora-boundary-gate/gate-package-manifest.json; A=/etc/aukora-approvals/$C/state
-CLEAN="env -i PATH=/usr/bin:/bin HOME=/root LANG=C LC_ALL=C"; BOOT="$CLEAN /usr/bin/python3 -I -S $L/gate-bootstrap"
-G="git -c safe.directory=* -C $SRC"; O="sudo -u aukora-gate /opt/aukora-node/bin/node --no-warnings /opt/aukora-boundary-gate/bin/owner-cli.mjs"
-step() { echo; echo "== $*"; }
-# The launcher refuses to start while any connection on its port lingers (an attached app keeps some for seconds
-# after a stop). Found on the first live run, 2026-10-13: both the new release and the restored one failed with
-# port-unavailable. Wait for the port to drain before every start.
-PORT=18735
-drain() { local n=1; for i in $(seq 1 60); do n=$(ss -tan 2>/dev/null | grep -c ":$PORT " || true); [ "$n" = 0 ] && break; sleep 2; done; echo "port $PORT drained (remaining $n)"; }
-step "1 preflight"
-[ -d "$REL" ] || { echo "release $REL is not built (run mat-live-main.sh first)"; exit 1; }
-[ -z "$($G status --porcelain)" ] || { echo "launcher source checkout is not clean"; exit 1; }
-PREV=$($G rev-parse HEAD); OLDREL=$(grep -o "release-[0-9a-f]*" /etc/aukora-genesis/release.env | head -1)
-$G cat-file -t $C >/dev/null 2>&1 || $G fetch -q /home/ubuntu/aukora-zip/repro.bundle refs/remotes/origin/main 2>/dev/null
-$G cat-file -t $C >/dev/null 2>&1 || { echo "commit $S is not in the launcher checkout and not in ~/aukora-zip/repro.bundle"; exit 1; }
-echo "running $OLDREL, launcher at ${PREV:0:7}; going to release-$S"
-for u in aukora-genesis aukora-boundary-gate; do [ "$(systemctl is-active $u)" = active ] || { echo "$u is not active; fix that first"; exit 1; }; done
-step "2 backup"
-# A backup directory no earlier run can share: a second run in the same minute must not nest or overwrite one.
-TS=$(date -u +%Y%m%d-%H%M%S); B=$(mktemp -d /root/aukora-backup-pre-$S-$TS-XXXXXX) || { echo "could not create a backup directory; nothing was changed"; exit 1; }
-chmod 0700 $B
-nothing() { echo "backup step failed: $1; nothing was changed"; exit 1; }
-tar -C / -czf $B/host.tgz opt/aukora-boundary-gate etc/aukora-boundary-gate usr/local/lib/aukora-boundary etc/aukora-genesis etc/aukora-approvals $( [ -d /opt/owner-key ] && echo opt/owner-key ) || nothing "archive"
-cp -a /etc/aukora-genesis/release.env $B/release.env.old || nothing "release.env"
-[ ! -f /etc/aukora-approvals/release-floor.json ] || cp -a /etc/aukora-approvals/release-floor.json $B/ || nothing "release floor"
-cp -a $M $B/manifest.old || nothing "manifest"; cp -a $L/gate-bootstrap $B/gate-bootstrap.old || nothing "bootstrap"; echo $PREV > $B/src.old || nothing "launcher commit"
-# What to do by hand if this script is killed outright (power loss, kill -9) after step 4 has begun.
-cat > $B/RECOVERY.txt <<RECOVERY
-If the switch was interrupted and the harness is down, as root:
-  systemctl stop aukora-genesis aukora-boundary-gate
-  [ -d $B/aukora-boundary-gate.old ] && { mv /opt/aukora-boundary-gate /opt/aukora-boundary-gate.failed; mv $B/aukora-boundary-gate.old /opt/aukora-boundary-gate; }
-  [ -d $B/owner-key.old ] && { mv /opt/owner-key /opt/owner-key.failed; mv $B/owner-key.old /opt/owner-key; }
-  cp -a $B/manifest.old $M; cp -a $B/gate-bootstrap.old $L/gate-bootstrap; cp -a $B/release.env.old /etc/aukora-genesis/release.env
-  git -c safe.directory='*' -C $SRC checkout --detach $PREV
-  systemctl start aukora-boundary-gate; systemctl reset-failed aukora-genesis; systemctl start aukora-genesis
-The full copy of every replaced path is $B/host.tgz (extract with: tar -C / -xzf $B/host.tgz).
-RECOVERY
-echo "backup in $B ($(du -h $B/host.tgz | cut -f1))"
-step "3 stage"
-ST=/root/gate-staging-$S; [ -e $ST ] && mv $ST $ST.old-$TS; mkdir -m 700 $ST; $G archive $C | (mkdir $ST/launcher && tar -x -C $ST/launcher)
-cp -a $ST/launcher/packages/boundary-gate $ST/gate-package; cp -a $ST/launcher/packages/owner-key $ST/owner-key; cp /etc/aukora-boundary-gate/signer-epochs.json $ST/signer-epochs.json
-out=$(cd $ST/launcher && /usr/bin/python3 -I -S packages/boundary-gate/host/install/generate-manifest.py --package $ST/gate-package --signer-epochs $ST/signer-epochs.json --owner-key $ST/owner-key --launcher-checkout $ST/launcher --output $ST/gate-package-manifest.json 2>&1) || { echo "generate-manifest REFUSED: $(echo "$out" | head -2 | cut -c1-200)"; echo "nothing was changed"; exit 1; }
-echo "manifest generated from staged copies"
-RESTORING=0; ARMED=0
-restore() {
-  [ $RESTORING = 1 ] && return; RESTORING=1; trap - INT TERM HUP
-  echo; echo "!! RESTORING the old gate package, manifest, bootstrap, launcher source and release"
-  local bad=0; try() { "$@" || { echo "   restore step failed: $*"; bad=1; }; }
-  systemctl stop aukora-genesis 2>/dev/null || true; systemctl stop aukora-boundary-gate 2>/dev/null || true
-  if [ -d $B/aukora-boundary-gate.old ]; then [ ! -d /opt/aukora-boundary-gate ] || try mv /opt/aukora-boundary-gate /opt/aukora-boundary-gate.failed-$TS; try mv $B/aukora-boundary-gate.old /opt/aukora-boundary-gate; fi
-  if [ -d $B/owner-key.old ]; then [ ! -d /opt/owner-key ] || try mv /opt/owner-key /opt/owner-key.failed-$TS; try mv $B/owner-key.old /opt/owner-key
-  elif [ -e $B/owner-key.absent ] && [ -d /opt/owner-key ]; then try mv /opt/owner-key /opt/owner-key.failed-$TS; fi
-  try cp -a $B/manifest.old $M; try cp -a $B/gate-bootstrap.old $L/gate-bootstrap; try cp -a $B/release.env.old /etc/aukora-genesis/release.env
-  [ ! -f $B/release-floor.json ] || try cp -a $B/release-floor.json /etc/aukora-approvals/release-floor.json
-  try $G -c advice.detachedHead=false checkout -q --detach $(cat $B/src.old)
-  try systemctl start aukora-boundary-gate; sleep 3; drain; systemctl reset-failed aukora-genesis 2>/dev/null || true; try systemctl start aukora-genesis; sleep 8
-  [ "$(systemctl is-active aukora-genesis)" = active ] || { drain; systemctl reset-failed aukora-genesis 2>/dev/null || true; try systemctl start aukora-genesis; sleep 8; }
-  echo "RESTORED: gate $(systemctl is-active aukora-boundary-gate), harness $(systemctl is-active aukora-genesis), on $(grep -o 'release-[0-9a-f]*' /etc/aukora-genesis/release.env | head -1). Backup kept in $B"
-  [ $bad = 0 ] || echo "!! SOME RESTORE STEPS FAILED. Follow $B/RECOVERY.txt by hand."
-  exit 1
-}
-step "4 swap the gate package (harness and gate stopped from here until step 7)"
-# From here an interrupt (Ctrl-C, a dropped connection, a kill) restores instead of leaving the harness stopped.
-trap restore INT TERM HUP; ARMED=1
-systemctl stop aukora-selfcheck.timer 2>/dev/null || true; systemctl stop aukora-genesis || restore; systemctl stop aukora-boundary-gate || restore
-for pair in "gate-package:/opt/aukora-boundary-gate" "owner-key:/opt/owner-key"; do name=${pair%%:*}; dest=${pair##*:}
-  rm -rf $dest.new; cp -a $ST/$name $dest.new && chown -R root:root $dest.new && chmod -R u+rwX,go+rX,go-w $dest.new || restore
-  if [ -d $dest ]; then mv $dest $B/$(basename $dest).old || restore; else touch $B/$(basename $dest).absent || restore; fi
-  mv $dest.new $dest || restore; done
-install -o root -g root -m 644 $ST/gate-package-manifest.json $M || restore
-install -o root -g root -m 755 $ST/launcher/packages/boundary-gate/host/install/gate-bootstrap.py $L/gate-bootstrap || restore
-$G -c advice.detachedHead=false checkout -q --detach $C && echo "launcher source at $($G rev-parse --short HEAD)" || restore
-out=$($BOOT check-package 2>&1); echo "check-package: $(echo "$out" | head -2 | cut -c1-200)"; [ "$out" = PACKAGE_VERIFIED ] || restore
-step "5 start the gate on the new package and raise ONE card"
-systemctl start aukora-boundary-gate; for i in $(seq 1 20); do [ -S /run/aukora-gate/owner.sock ] && [ "$(systemctl is-active aukora-boundary-gate)" = active ] && break; sleep 1; done
-[ "$(systemctl is-active aukora-boundary-gate)" = active ] || { journalctl -u aukora-boundary-gate -n 8 --no-pager -o cat | cut -c1-200; restore; }
-cd /tmp; SHOW=$($BOOT approval show --release-dir $REL 2>&1 | grep -viE "experimental|trace-warn|base64"); echo "$SHOW" | head -8
-OP=$(echo "$SHOW" | awk '/^OPERATION/{print $2}'); REC=$(echo "$SHOW" | awk '/^RECORD/{print $2}'); [ -n "$OP" ] && [ -n "$REC" ] || { echo NO_OPERATION; restore; }
-install -d -o root -g root -m 0755 /etc/aukora-approvals/$C $A $A/gate-state || restore
-# An earlier run may have been interrupted or timed out: the owner may already have approved this exact operation
-# (then there is nothing to wait for), or its card may still be pending (then that card is the one to wait on).
-OK=0; ID=""
-OUT=$($BOOT approval install --release-dir $REL --operation $OP --out $A/gate-state 2>&1) && echo "$OUT" | grep -q "^INSTALLED" && { OK=1; echo "already approved by the owner in an earlier run:"; echo "$OUT" | grep -E "INSTALLED|FLOOR" | grep -v base64 | cut -c1-200; }
-if [ $OK = 0 ]; then
-  RAISE=$($BOOT approval raise --release-dir $REL --operation $OP 2>&1 | grep -viE "base64|experimental|trace-warn" || true); echo "$RAISE" | head -4
-  ID=$(echo "$RAISE" | awk '/^PENDING/{print $2}')
-  if [ -z "$ID" ]; then
-    ID=$($O pending --socket /run/aukora-gate/owner.sock 2>/dev/null | awk '$3 == "plugins/aukora-plugin-set/approval.json" {print $1}' | head -1)
-    [ -n "$ID" ] && echo "no new card was raised; waiting on the card that is already pending: $ID" || { echo RAISE_FAILED; restore; }
-  fi
+# Collects owner approval before stopping services and restores interrupted switches. History: ops/pilot/README.md.
+set -Eeuo pipefail
+umask 077
+refuse() { echo "REFUSED: $*" >&2; exit 1; }
+ROOT=${ROOT:-}
+if [ -n "$ROOT" ]; then
+  [ "${PILOT_SWITCH_TEST:-}" = 1 ] || refuse ROOT_TEST_ONLY
+  [[ "$ROOT" = /* && "$ROOT" != / && "$ROOT" != */ && "$ROOT" != *'/../'* && "$ROOT" != *'/./'* ]] || refuse ROOT_INVALID
+  [ -d "$ROOT" ] && [ ! -L "$ROOT" ] || refuse ROOT_INVALID
 fi
-step "6 approval"
-[ $OK = 1 ] || echo "   WAITING for Peter to approve the plugin set in his popup (card ${ID:0:8}; 15 minutes)."
-echo "   The card must show PLUGIN SET $(echo "$SHOW" | awk '/^PLUGIN SET/{print $3}') and RECORD $REC. Approve only if it does."
-[ $OK = 1 ] || for i in $(seq 1 ${WAIT_TICKS:-180}); do
-  if ! $O pending --socket /run/aukora-gate/owner.sock 2>/dev/null | grep -q "^${ID:0:8} "; then
-    OUT=$($BOOT approval install --release-dir $REL --operation $OP --out $A/gate-state 2>&1); if echo "$OUT" | grep -q "^INSTALLED"; then OK=1; echo "$OUT" | grep -E "INSTALLED|FLOOR" | grep -v base64 | cut -c1-200; fi; break
-  fi; sleep 5; done
-[ $OK = 1 ] || { echo "no approval was installed (rejected, expired or timed out): $(echo "${OUT:-}" | grep -v base64 | head -2 | cut -c1-200)"; restore; }
-step "7 point at the new release and start the harness"
-printf 'AUKORA_RELEASE_DIR=%s\nAUKORA_APPROVAL_ROOT=%s\nAUKORA_RECORD_SHA=%s\n' $REL $A $REC > /etc/aukora-genesis/release.env.new && chmod 0644 /etc/aukora-genesis/release.env.new && mv /etc/aukora-genesis/release.env.new /etc/aukora-genesis/release.env
-sudo -u aukora-host $CLEAN /usr/bin/python3 -I -S $L/gate-bootstrap floor check --release-dir $REL --approval-state-root $A 2>&1 | grep -viE "experimental|trace-warn" | cut -c1-200 || true
-drain; systemctl reset-failed aukora-genesis 2>/dev/null || true; T0=$(date -u +"%Y-%m-%d %H:%M:%S"); systemctl start aukora-genesis || true
-for i in $(seq 1 40); do curl -s -m 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:18735/ | grep -qE "200|30[0-9]|401|403" && break; [ "$(systemctl is-failed aukora-genesis)" = failed ] && break; sleep 5; done
-journalctl -u aukora-genesis --since "$T0" --no-pager -o cat | grep -E "REFUSED|release-floor|selfcheck|plugin set ENFORCE|AUKORA_BUZZ|AUKORA_RELAY|rror" | tail -10 | cut -c1-200
-[ "$(systemctl is-active aukora-genesis)" = active ] || restore
-trap - INT TERM HUP
-systemctl start aukora-selfcheck.timer 2>/dev/null || true
-echo; echo "SWITCH_DONE: harness $(systemctl is-active aukora-genesis) on release-$S, gate $(systemctl is-active aukora-boundary-gate), relay $(systemctl is-active aukora-relay 2>/dev/null). Backup in $B"
-echo "Next, as the harness user: the door acceptance and the memory probe (commands in plan/MORNING-2026-10-13.md)."
+[ "$(id -u)" = 0 ] || refuse ROOT_REQUIRED
+PYTHON=$ROOT/usr/bin/python3
+CLEAN=(env -i PATH=/usr/bin:/bin HOME="$ROOT/root" LANG=C LC_ALL=C)
+if [ -n "$ROOT" ]; then CLEAN=(env -i PATH="$ROOT/usr/bin:$ROOT/bin:/usr/bin:/bin" HOME="$ROOT/root" LANG=C LC_ALL=C ROOT="$ROOT" PILOT_SWITCH_TEST=1); fi
+SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT=$SCRIPT_DIR/$(basename -- "$0")
+detached() {
+  "${CLEAN[@]}" "$PYTHON" -I -S -c 'import os,re,signal,sys
+ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN
+session=os.getsid(0)==int(sys.argv[1])
+if session:
+ try: fd=os.open("/dev/tty",os.O_RDONLY); os.close(fd); session=False
+ except OSError: pass
+stream=sys.argv[3]; service=False
+if re.fullmatch("[0-9a-f]{32}",sys.argv[2]) and re.fullmatch("[0-9]+:[0-9]+",stream):
+ st=os.fstat(1); service=stream==str(st.st_dev)+":"+str(st.st_ino)
+sys.exit(0 if ignored or session or service else 1)' "$$" "${INVOCATION_ID:-}" "${JOURNAL_STREAM:-}"
+}
+# A detached child has no terminal input or SSH environment; its log is private even under umask 002.
+if { [ -t 0 ] || [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ]; } && ! detached; then
+  LOG=$(mktemp "$ROOT/root/aukora-switch-log-XXXXXX") || refuse DETACH_LOG_FAILED
+  nohup env -u SSH_CONNECTION -u SSH_CLIENT -u SSH_TTY "$BASH" "$SCRIPT" "$@" < /dev/null > "$LOG" 2>&1 &
+  printf 'DETACHED: pid %s; tail -f %q\n' "$!" "$LOG"
+  exit 0
+fi
+SRC=$ROOT/opt/aukora-genesis/src
+L=$ROOT/usr/local/lib/aukora-boundary
+M=$ROOT/etc/aukora-boundary-gate/gate-package-manifest.json
+ENVFILE=$ROOT/etc/aukora-genesis/release.env
+FLOOR=$ROOT/etc/aukora-approvals/release-floor.json
+NODE=$ROOT/opt/aukora-node/bin/node
+boot() { "${CLEAN[@]}" "$PYTHON" -I -S "$L/gate-bootstrap" "$@"; }
+git_src() { (umask 022; git -c 'safe.directory=*' -C "$SRC" "$@"); }
+owner_pending() { sudo -u aukora-gate "$NODE" --no-warnings "$ROOT/opt/aukora-boundary-gate/bin/owner-cli.mjs" pending --socket "$ROOT/run/aukora-gate/owner.sock"; }
+active() { [ "$(systemctl is-active "$1" 2>/dev/null)" = active ]; }
+phase() {
+  printf 'phase=%s\n' "$1" > "$B/state.new"
+  mv "$B/state.new" "$B/state"
+  "${CLEAN[@]}" "$PYTHON" -I -S -c 'import os,sys
+for p in (sys.argv[1], os.path.dirname(sys.argv[1])):
+ f=os.open(p,os.O_RDONLY)
+ try: os.fsync(f)
+ finally: os.close(f)' "$B/state"
+}
+clean_prepared() {
+  local name
+  for name in aukora-boundary-gate owner-key; do rm -rf "$ROOT/opt/$name.switch-new-${B##*/}"; done
+}
+PORT=18735
+drain() {
+  local i connections
+  for ((i=0; i<60; i++)); do
+    connections=$(ss -tan) || { echo PORT_STATUS_FAILED; return 1; }
+    if ! grep -q ":$PORT " <<< "$connections"; then echo "port $PORT drained"; return 0; fi
+    sleep 2
+  done
+  echo PORT_NOT_DRAINED; return 1
+}
+wait_harness() {
+  local i code
+  for ((i=0; i<40; i++)); do
+    code=$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/" || true)
+    if active aukora-genesis && [[ "$code" =~ ^(200|30[0-9]|401|403)$ ]]; then return 0; fi
+    [ "$(systemctl is-failed aukora-genesis 2>/dev/null)" != failed ] || break
+    sleep 5
+  done
+  return 1
+}
+B=; ARMED=0; LOCKED=0; RESTORING=0; LOCK_PREP=
+LOCK=$ROOT/root/aukora-switch.lock
+release_lock() {
+  if [ "$LOCKED" = 1 ]; then rm -f "$LOCK"; LOCKED=0; fi
+  if [ -n "$LOCK_PREP" ]; then rm -f "$LOCK_PREP/pid"; rmdir "$LOCK_PREP"; LOCK_PREP=; fi
+}
+restore() {
+  [ "$RESTORING" = 0 ] || return 1
+  RESTORING=1; ARMED=0; set +e
+  trap - INT TERM HUP
+  echo "RESTORING: $B"
+  local bad=0 name dest old attempt unit wanted candidate
+  try() { "$@" || { echo RESTORE_STEP_FAILED; bad=1; }; }
+  phase restoring || return 1
+  try systemctl stop aukora-selfcheck.timer
+  try systemctl stop aukora-genesis
+  try systemctl stop aukora-boundary-gate
+  for name in aukora-boundary-gate owner-key; do
+    dest=$ROOT/opt/$name; old=$dest.switch-old-${B##*/}
+    if [ -d "$B/$name.saved" ]; then
+      # Immutable saved copies make recovery repeatable even if recovery itself is killed between renames.
+      try rm -rf "$dest.switch-restore"
+      try cp -a "$B/$name.saved" "$dest.switch-restore"
+      try rm -rf "$dest"
+      try mv "$dest.switch-restore" "$dest"
+    elif [ -f "$B/$name.absent" ]; then try rm -rf "$dest"; else bad=1; fi
+    try rm -rf "$dest.switch-new-${B##*/}" "$old"
+  done
+  try cp -a "$B/manifest.old" "$M"
+  try cp -a "$B/gate-bootstrap.old" "$L/gate-bootstrap"
+  try cp -a "$B/release.env.old" "$ENVFILE"
+  candidate=$(cat "$B/commit")
+  if [[ "$candidate" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+    dest=$ROOT/etc/aukora-approvals/$candidate
+    try rm -rf "$dest"
+    [ ! -d "$B/approval.saved" ] || try cp -a "$B/approval.saved" "$dest"
+  else echo RECOVERY_COMMIT_INVALID; bad=1; fi
+  if [ -f "$B/release-floor.json" ]; then try cp -a "$B/release-floor.json" "$FLOOR"; else try rm -f "$FLOOR"; fi
+  [ ! -f "$B/floor-lock.absent" ] || try rm -f "$FLOOR.lock"
+  try git_src -c advice.detachedHead=false checkout -q --detach "$(cat "$B/src.old")"
+  try systemctl start aukora-boundary-gate
+  for ((attempt=0; attempt<3; attempt++)); do
+    if drain; then
+      systemctl reset-failed aukora-genesis >/dev/null 2>&1
+      systemctl start aukora-genesis
+      wait_harness && break
+    fi
+  done
+  while read -r unit wanted; do
+    if [ "$wanted" = active ]; then
+      if [ "$unit" != aukora-genesis ]; then try systemctl start "$unit"; fi
+      active "$unit" || bad=1
+    else try systemctl stop "$unit"; active "$unit" && bad=1; fi
+  done < "$B/units.old"
+  if ! active aukora-genesis; then echo 'HARNESS DOWN: recovery exhausted three drain-then-start attempts'; bad=1; fi
+  if [ "$bad" = 0 ]; then phase done || return 1; echo 'RESTORED: original release and active units'; return 0; fi
+  echo "RECOVERY_FAILED: run $SCRIPT --recover $B"; return 1
+}
+finish() {
+  local rc=$?
+  trap - EXIT
+  if [ "$ARMED" = 1 ]; then restore || true; rc=1
+  elif [ "$MODE" = switch ] && [ -n "$B" ] && [ "$RESTORING" = 0 ]; then clean_prepared || rc=1; phase done || rc=1; fi
+  release_lock || rc=1
+  exit "$rc"
+}
+MODE=switch
+if [ "${1:-}" = --recover ]; then
+  [ "$#" = 2 ] || refuse RECOVERY_ARGUMENTS
+  MODE=recover; B=$2
+  [ "${B%/*}" = "$ROOT/root" ] && [[ "${B##*/}" = aukora-backup-pre-* ]] || refuse RECOVERY_PATH
+  [ "$(cd -- "$B" 2>/dev/null && pwd -P)" = "$B" ] && [ ! -L "$B" ] && [ -f "$B/state" ] || refuse RECOVERY_PATH
+else
+  [ "$#" = 1 ] && [[ "$1" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || refuse COMMIT_ARGUMENT
+  C=$1; S=${C:0:7}; REL=$ROOT/opt/aukora-genesis/release-$S; A=$ROOT/etc/aukora-approvals/$C/state
+  for prior in "$ROOT"/root/aukora-backup-pre-*/state; do
+    [ -f "$prior" ] || continue
+    grep -qx 'phase=done' "$prior" || refuse "UNFINISHED_SWITCH: $SCRIPT --recover ${prior%/state}"
+  done
+fi
+if [ -e "$LOCK" ] || [ -L "$LOCK" ]; then
+  PID=$(cat "$LOCK/pid" 2>/dev/null || true)
+  [[ "$PID" =~ ^[0-9]+$ ]] || refuse SWITCH_LOCK_INCOMPLETE
+  if [[ "$PID" =~ ^[0-9]+$ ]] && kill -0 "$PID" 2>/dev/null; then refuse SWITCH_RUNNING; fi
+  # A dead lock without an unfinished state precedes every service stop and can be discarded.
+  if [ -L "$LOCK" ]; then
+    old_lock=$(readlink "$LOCK")
+    [ "${old_lock%/*}" = "$ROOT/root" ] && [[ "${old_lock##*/}" = .aukora-switch-lock-* ]] || refuse SWITCH_LOCK_INVALID
+    rm -f "$LOCK" "$old_lock/pid"; rmdir "$old_lock" || refuse SWITCH_LOCK_FAILED
+  else rm -f "$LOCK/pid"; rmdir "$LOCK" || refuse SWITCH_LOCK_FAILED; fi
+fi
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+# Publish a complete pid directory atomically; another invocation never sees an uninitialized lock.
+LOCK_PREP=$(mktemp -d "$ROOT/root/.aukora-switch-lock-XXXXXX")
+printf '%s\n' "$$" > "$LOCK_PREP/pid"
+"${CLEAN[@]}" "$PYTHON" -I -S -c 'import os,sys; os.symlink(sys.argv[1],sys.argv[2])' "$LOCK_PREP" "$LOCK" || refuse SWITCH_LOCK_FAILED
+LOCKED=1
+if [ "$MODE" = recover ]; then
+  # Before the armed marker, only private backup/staging files and a pending owner card could have changed.
+  if [ ! -f "$B/armed" ]; then clean_prepared; phase done; echo 'RECOVERED: no services were stopped'; exit 0; fi
+  for f in manifest.old gate-bootstrap.old release.env.old src.old units.old commit; do [ -f "$B/$f" ] || refuse "RECOVERY_BACKUP_MISSING: $f"; done
+  restore; exit $?
+fi
+[ -f "$SCRIPT_DIR/ui-probe.mjs" ] || refuse UI_PROBE_MISSING
+[ ! -e "$FLOOR.lock" ] || refuse FLOOR_LOCK_REQUIRES_RECONCILIATION
+[ -d "$REL" ] || refuse RELEASE_NOT_BUILT
+[ -z "$(git_src status --porcelain)" ] || refuse LAUNCHER_DIRTY
+PREV=$(git_src rev-parse HEAD)
+git_src cat-file -t "$C" >/dev/null 2>&1 || git_src fetch -q "$ROOT/home/ubuntu/aukora-zip/repro.bundle" refs/remotes/origin/main
+git_src cat-file -t "$C" >/dev/null 2>&1 || refuse COMMIT_MISSING
+for unit in aukora-genesis aukora-boundary-gate; do active "$unit" || refuse "UNIT_NOT_ACTIVE: $unit"; done
+B=$(mktemp -d "$ROOT/root/aukora-backup-pre-$S-XXXXXX")
+phase backup
+printf '%s\n' "$C" > "$B/commit"
+for unit in aukora-genesis aukora-boundary-gate aukora-selfcheck.timer; do
+  if active "$unit"; then printf '%s active\n' "$unit"; else printf '%s inactive\n' "$unit"; fi
+done > "$B/units.old"
+items=(opt/aukora-boundary-gate etc/aukora-boundary-gate usr/local/lib/aukora-boundary etc/aukora-genesis etc/aukora-approvals)
+[ ! -d "$ROOT/opt/owner-key" ] || items+=(opt/owner-key)
+tar -C "${ROOT:-/}" -czf "$B/host.tgz" "${items[@]}"
+cp -a "$ENVFILE" "$B/release.env.old"
+[ ! -f "$FLOOR" ] || cp -a "$FLOOR" "$B/release-floor.json"
+touch "$B/floor-lock.absent"
+[ ! -d "${A%/state}" ] || cp -a "${A%/state}" "$B/approval.saved"
+cp -a "$M" "$B/manifest.old"; cp -a "$L/gate-bootstrap" "$B/gate-bootstrap.old"
+printf '%s\n' "$PREV" > "$B/src.old"
+for name in aukora-boundary-gate owner-key; do
+  if [ -d "$ROOT/opt/$name" ]; then cp -a "$ROOT/opt/$name" "$B/$name.saved"; else touch "$B/$name.absent"; fi
+done
+cat > "$B/RECOVERY.txt" <<RECOVERY
+As root, after an interrupted switch:
+  bash '$SCRIPT' --recover '$B'
+This restores the saved packages, launcher, manifest, bootstrap, floor and release.env,
+then drains and starts the harness (at most three attempts). It also starts
+aukora-selfcheck.timer when units.old records it active, and verifies the original unit set.
+Do not begin another switch until recovery reports RESTORED. HARNESS DOWN is a failure.
+The full host archive is '$B/host.tgz'; saved package directories remain reusable.
+RECOVERY
+ST=$B/staging
+phase stage
+mkdir "$ST" "$ST/launcher"
+git_src archive "$C" | tar -x -C "$ST/launcher"
+cp -a "$ST/launcher/packages/boundary-gate" "$ST/gate-package"
+cp -a "$ST/launcher/packages/owner-key" "$ST/owner-key"
+cp "$ROOT/etc/aukora-boundary-gate/signer-epochs.json" "$ST/signer-epochs.json"
+(cd "$ST/launcher" && "${CLEAN[@]}" "$PYTHON" -I -S packages/boundary-gate/host/install/generate-manifest.py --package "$ST/gate-package" --signer-epochs "$ST/signer-epochs.json" --owner-key "$ST/owner-key" --launcher-checkout "$ST/launcher" --output "$ST/gate-package-manifest.json") > "$B/manifest.log" 2>&1 || refuse STAGE_MANIFEST_FAILED
+phase approval
+SHOW=$(boot approval show --release-dir "$REL" 2>/dev/null) || refuse 'INSTALLED_GATE_SHOW_FAILED: old release remains up; upgrade compatibility requires owner review'
+OP=$(printf '%s\n' "$SHOW" | awk '/^OPERATION/{print $2}')
+REC=$(printf '%s\n' "$SHOW" | awk '/^RECORD/{print $2}')
+CONTENT=$(printf '%s\n' "$SHOW" | awk '/^CONTENT SHA/{print $3}')
+SET=$(printf '%s\n' "$SHOW" | awk '/^PLUGIN SET/{print $3}')
+[[ "$OP" =~ ^[0-9a-f]{64}$ && "$REC" =~ ^[0-9a-f]{64}$ && "$CONTENT" =~ ^[0-9a-f]{64}$ && "$SET" =~ ^[0-9a-f]{64}$ ]] || refuse INSTALLED_GATE_CARD_INVALID
+approval_exists() {
+  "${CLEAN[@]}" "$NODE" --input-type=commonjs -e 'const fs=require("node:fs"),crypto=require("node:crypto");try{process.exit(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex")===process.argv[2]?0:1)}catch{process.exit(1)}' "$ROOT/var/lib/aukora-boundary/targets/plugins/aukora-plugin-set/approval.json" "$CONTENT"
+}
+if ! approval_exists; then
+  RAISE=$(boot approval raise --release-dir "$REL" --operation "$OP" 2>/dev/null) || RAISE=
+  ID=$(printf '%s\n' "$RAISE" | awk '/^PENDING/{print $2}')
+  if [ -z "$ID" ] && ! approval_exists; then
+    PENDING=$(owner_pending 2>/dev/null) || refuse INSTALLED_GATE_PENDING_FAILED
+    FACTS="| release $C (release-$S) | plugin set $SET | operation $OP (rechecked at launch) | release record $REC"
+    ID=$(printf '%s\n' "$PENDING" | awk -v sha="${CONTENT:0:12}" -v facts="$FACTS" '
+      /^[^ ]/ {id=($3=="plugins/aukora-plugin-set/approval.json" && $6==sha) ? $1 : ""; first=1; next}
+      first {if(id!="" && index($0,facts)) {print id; exit}; first=0}')
+    [ -n "$ID" ] || refuse 'INSTALLED_GATE_RAISE_FAILED: old release remains up; no matching pending card'
+  fi
+  echo "WAITING: owner approval for operation $OP and record $REC; old release remains up (default 15 minutes)"
+  [[ "${WAIT_TICKS:-180}" =~ ^[1-9][0-9]*$ ]] || refuse WAIT_INVALID
+  for ((i=0; i<${WAIT_TICKS:-180}; i++)); do
+    approval_exists && break
+    owner_pending > /dev/null 2>&1 || refuse APPROVAL_POLL_FAILED
+    sleep 5
+  done
+fi
+approval_exists || refuse APPROVAL_NOT_RECEIVED
+# Prepare copies on each destination filesystem before entering the two-rename swap window.
+phase prepared
+for pair in "gate-package:aukora-boundary-gate" "owner-key:owner-key"; do
+  name=${pair%%:*}; dest=$ROOT/opt/${pair#*:}; new=$dest.switch-new-${B##*/}
+  [ ! -e "$new" ] || refuse PACKAGE_STAGE_EXISTS
+  cp -a "$ST/$name" "$new"; chown -R root:root "$new"; chmod -R u+rwX,go+rX,go-w "$new"
+done
+# This marker precedes the first stop and survives SIGKILL; --recover never sources state as shell code.
+touch "$B/armed"; ARMED=1
+phase stop
+systemctl stop aukora-selfcheck.timer
+systemctl stop aukora-genesis
+systemctl stop aukora-boundary-gate
+for pair in "gate-package:aukora-boundary-gate" "owner-key:owner-key"; do
+  name=${pair%%:*}; dest=$ROOT/opt/${pair#*:}; new=$dest.switch-new-${B##*/}; old=$dest.switch-old-${B##*/}
+  phase "$name-out"
+  [ ! -e "$dest" ] || mv "$dest" "$old"
+  phase "$name-in"
+  mv "$new" "$dest"
+done
+phase manifest
+install -o root -g root -m 644 "$ST/gate-package-manifest.json" "$M"
+phase bootstrap
+install -o root -g root -m 755 "$ST/launcher/packages/boundary-gate/host/install/gate-bootstrap.py" "$L/gate-bootstrap"
+phase launcher
+git_src -c advice.detachedHead=false checkout -q --detach "$C"
+phase check-package
+OUT=$(boot check-package 2>/dev/null) || refuse PACKAGE_CHECK_FAILED
+[ "$OUT" = PACKAGE_VERIFIED ] || refuse PACKAGE_CHECK_FAILED
+phase gate-start
+systemctl start aukora-boundary-gate
+for ((i=0; i<20; i++)); do active aukora-boundary-gate && break; sleep 1; done
+active aukora-boundary-gate || refuse GATE_START_FAILED
+phase approval-install
+boot approval recover-cache --release-dir "$REL" --operation "$OP" --out "$A/gate-state" > "$B/approval.log" 2>&1 || boot approval install --release-dir "$REL" --operation "$OP" --out "$A/gate-state" > "$B/approval.log" 2>&1 || refuse APPROVAL_INSTALL_FAILED
+grep -q '^INSTALLED' "$B/approval.log" || refuse APPROVAL_INSTALL_FAILED
+phase floor
+sudo -u aukora-host "${CLEAN[@]}" "$PYTHON" -I -S "$L/gate-bootstrap" floor check --release-dir "$REL" --approval-state-root "$A" > "$B/floor.log" 2>&1 || refuse FLOOR_CHECK_FAILED
+phase drain
+drain || refuse PORT_NOT_DRAINED
+systemctl reset-failed aukora-genesis
+# Publish the new environment immediately before starting; any unverified start restores the old one.
+printf 'AUKORA_RELEASE_DIR=%s\nAUKORA_APPROVAL_ROOT=%s\nAUKORA_RECORD_SHA=%s\n' "$REL" "$A" "$REC" > "$B/release.env.new"
+chmod 0644 "$B/release.env.new"
+phase release-env
+phase harness-start
+mv "$B/release.env.new" "$ENVFILE"
+systemctl start aukora-genesis || refuse HARNESS_START_FAILED
+wait_harness || refuse HARNESS_NOT_READY
+phase ui-probe
+"${CLEAN[@]}" "$NODE" "$SCRIPT_DIR/ui-probe.mjs" "$ROOT/home/aukora-host/genesis/state/launch-url.json" > "$B/ui-probe.log" 2>&1 || refuse UI_PROBE_FAILED
+phase log-check
+INVOCATION=$(systemctl show aukora-genesis -p InvocationID --value)
+[[ "$INVOCATION" =~ ^[0-9a-f]{32}$ ]] || refuse HARNESS_LOG_ID_MISSING
+journalctl "_SYSTEMD_INVOCATION_ID=$INVOCATION" --no-pager -o cat > "$B/harness.log" || refuse HARNESS_LOG_FAILED
+if grep -qE '^aukora-[a-z-]+ \(file://.*\): Error' "$B/harness.log"; then refuse PLUGIN_LOAD_ERROR; fi
+active aukora-genesis || refuse HARNESS_NOT_ACTIVE
+phase units
+while read -r unit wanted; do
+  if [ "$wanted" = active ]; then systemctl start "$unit"; active "$unit" || refuse "UNIT_NOT_ACTIVE: $unit"
+  else systemctl stop "$unit"; if active "$unit"; then refuse "UNIT_UNEXPECTED_ACTIVE: $unit"; fi; fi
+done < "$B/units.old"
+phase done; ARMED=0
+echo "SWITCH_DONE: verified harness on release-$S, approval installed, UI probe and plugin log check passed; backup $B"
