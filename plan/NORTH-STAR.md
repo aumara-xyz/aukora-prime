@@ -212,3 +212,54 @@ STEP 2, 2026-10-12 (written by the builder session in this repository; nothing a
   a new plugin set and a new release on the pilot: both are Peter's to approve, and the safe path to bring the
   pilot up to main (step 1) has to be named first. Her sandbox does not need the firewall opened: the plugin runs
   in the harness process, which the rule does not restrict.
+
+ADDED LATER ON 2026-10-12 (the builder session in this repository; Peter's decisions that day in his words where
+quoted; nothing above is changed):
+
+THE NETWORK AND WHO IS IN IT (Peter's design; he ruled on it, it is not open):
+- "You can download the open-source software, but you can't be part of the network without a direct invite from me
+  or someone I've invited, or so on and so forth." He invites people he knows; they invite people they know.
+- An invite is a one-time code. It can be given remotely: the people are known to the inviter, so no meeting is
+  required. It expires after 48 hours. Each member starts with three invites; ways to earn more come later.
+- A valid invite is what unlocks a node on the incubator account (Nebius), "Take Me Sovereign".
+- The joining ceremony: the new member does the screen-to-screen co-presence with their OWN two devices first
+  ("just you and your screen"), which teaches the gesture; then the Aumlok phrase. The same gesture is used later
+  between people, and "more and more elaborate" human verification is added as the network grows.
+- What keeps bots out at the start is the invite chain from the creator, not the ceremony.
+- [NOT BUILT] No invite code, redemption, count or membership check exists in this repository (searched 10-12): the
+  invitation tree is "PROPOSED, nothing built" in the Golden Boundary paper, the Identity screen says vouching "will
+  come with invites", and the one earlier attempt is a patch outside any repository (belt row 94).
+- [SOURCE, tested] what an invite can be built from, already here: the Identity screen's signed contact code (one
+  use, 60 seconds, replay refused: packages/ui/faces/aumlok/src/contact-qr.ts, contact-verification.ts; no test
+  reaches the scan route), the contact states up to VERIFIED and the key binding (plugins/aukora-nostr/lib/contact.mjs,
+  identity.mjs; tests/aukora-contact-migration.test.mjs), the co-presence receipt checkers (packages/copresence), and
+  a relay that admits only listed keys (Buzz's closed mode, not yet run here).
+- [OPEN] "Lock out after five guesses": the phrase becomes a key on the member's own device, offline, so nothing
+  counts guesses today, and the phrase with its handle is about 34 bits. A lockout needs a step the node checks.
+
+FOR THE PROTOTYPE (Peter: "whatever you recommend is fine"):
+- ONE closed relay for the first network: Peter's key is the owner, invited members' keys are admitted, their nodes
+  talk through it. A relay per member, and Buzz's mesh mode, come later; an identity is a key the member holds, so
+  moving later strands nobody.
+- The relay that can wake a node's harness stays on loopback on that node. A community relay with a public host name
+  is a second instance (the Buzz builder's point, taken).
+- Say plainly to anyone shown it: whoever runs the relay can read channel messages and who talks to whom. Buzz's own
+  "direct messages" are private channels on the relay, not end-to-end (checked in the fork's source by its
+  builder). Messages sent with aukora-nostr's gift wraps are end-to-end, and Buzz's apps do not show them.
+- No phone is needed for the first demo. A second device is needed only for the screen-to-screen ceremony.
+
+STEP 3 STATE, evening of 2026-10-12:
+- plugins/aukora-buzz-door has had two independent reviews (Codex; 7 then 10 findings, fixed). Only admitted keys
+  can wake her, into a named session, with plugin provenance. [RAN on the Mac, Node 24.11.1] its tests with the
+  live test against the pilot's relay, 35 of 35. [NOT RUN] inside a harness.
+- [RAN in the pilot's STAGING container only] main at ce1d342 materialized into a release (25 AUKORA plugins, 656
+  files recorded, the door carried) with the 10-04 script still in that container, and staging's gate produced the
+  approval it would raise. Not approved, not started, running staging service not switched. A snapshot of the
+  container was taken before the next attempt. The live harness is untouched.
+- ./prime verify under Node 24.11.1 on the Mac at 8f186df: 62 PASS, 0 FAIL, 13 unperformed by design (so the suite's
+  own word for the run is UNPERFORMED). The one earlier failure was a stale test expectation (65ede20).
+- ORDER, from the other sessions' reviews: close the relay; run the refusals in staging before the wake that
+  works; find where a turn labelled as the owner's is stored as "Peter said" before the door goes live; then live.
+- THE DEMO needs no new key work: Auma proposes one harmless action from a Buzz message, the gate holds it, Peter
+  approves in the popup he already has, the door posts the gate's signed receipt in the channel, a stranger
+  verifies it with the existing script. The owner's Touch ID signature is the upgrade after.
