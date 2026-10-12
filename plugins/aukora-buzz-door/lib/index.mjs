@@ -39,6 +39,15 @@ export const POST_GAP_MS = 10_000
 export const POSTS_PER_HOUR = 40
 export const WAKE_GAP_MS = 10_000
 export const WAKES_PER_HOUR = 40
+// Bounds on what one poll may cost the harness, applied BEFORE any signature is checked.
+export const MAX_RESPONSE_BYTES = 1_048_576
+export const MAX_EVENTS_PER_QUERY = 100
+export const MAX_EVENT_CONTENT_CHARS = 65_536
+export const MAX_EVENT_TAGS = 64
+// A message can wake her only while it is this fresh by the HOST's clock; the same window is re-read every poll, so
+// nobody's timestamp moves a cursor. Buzz itself refuses events more than 15 minutes from its own clock.
+export const WAKE_WINDOW_S = 300
+export const FUTURE_SLACK_S = 60
 export const GATE_OPS = Object.freeze(['relay_record'])
 const DENIED_KEY_ROOTS = Object.freeze(['/sandbox', '/home/auma', '/tmp', '/var/tmp', '/dev/shm', '/proc'])
 const HEX64 = /^[0-9a-f]{64}$/u
@@ -117,9 +126,19 @@ async function relayPost(baseUrl, pathname, payload, secretKeyHex, { fetchImpl =
     res = await fetchImpl(url, { method: 'POST', body, redirect: 'error', signal: AbortSignal.timeout(10_000),
       headers: { Authorization: httpAuthHeader({ url, body, secretKeyHex, now }), 'Content-Type': 'application/json' } })
   } catch { throw new Error('buzz relay unavailable') }
-  let data = null; try { data = await res.json() } catch { data = null }
   if (!res.ok) throw new Error(`buzz relay refused (${res.status})`)
-  return data
+  // Read at most MAX_RESPONSE_BYTES; a larger answer is refused whole rather than parsed.
+  let text = ''
+  try {
+    const decoder = new TextDecoder(); let bytes = 0
+    for await (const chunk of res.body) {
+      bytes += chunk.byteLength
+      if (bytes > MAX_RESPONSE_BYTES) throw new Error('too large')
+      text += decoder.decode(chunk, { stream: true })
+    }
+    text += decoder.decode()
+  } catch { throw new Error('buzz relay answer too large or unreadable') }
+  try { return JSON.parse(text) } catch { return null }
 }
 
 const tagValue = (event, name) => event.tags.find(t => Array.isArray(t) && t[0] === name)?.[1]
@@ -140,29 +159,38 @@ export function createDoor({ getKey, channel, ownerPubkey = null, baseUrl = RELA
     createdAt: e.created_at, reply_to: e.tags.find(t => t[0] === 'e' && t[3] === 'reply')?.[1] ?? null,
     text: String(e.content).slice(0, READ_BODY_CHARS), truncated: String(e.content).length > READ_BODY_CHARS })
   // Only events that are well signed, of the chat kind and in THIS channel are ever shown to her.
-  const mine = (e) => isValidEvent(e) && e.kind === CHAT_KIND && tagValue(e, 'h') === channel
+  // Cheap shape and size checks come first, so an oversized or malformed event costs no hashing or signature work.
+  const cheap = (e) => e !== null && typeof e === 'object' && e.kind === CHAT_KIND && typeof e.content === 'string' && e.content.length <= MAX_EVENT_CONTENT_CHARS
+    && Array.isArray(e.tags) && e.tags.length <= MAX_EVENT_TAGS && Number.isSafeInteger(e.created_at)
+  const mine = (e) => cheap(e) && isValidEvent(e) && tagValue(e, 'h') === channel
   const query = async (filter) => {
-    const data = await relayPost(baseUrl, '/query', [filter], getKey(), { fetchImpl, now })
+    const data = await relayPost(baseUrl, '/query', [{ ...filter, limit: Math.min(filter.limit ?? MAX_EVENTS_PER_QUERY, MAX_EVENTS_PER_QUERY) }], getKey(), { fetchImpl, now })
     const list = Array.isArray(data) ? data : Array.isArray(data?.events) ? data.events : []
-    return list.filter(mine).sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1))
+    return list.slice(-MAX_EVENTS_PER_QUERY).filter(mine).sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1))
   }
   // Nothing older than the moment the door opened wakes her; history is read with buzz_read.
-  let since = Math.floor(now() / 1000)
-  const seen = new Set()
+  const opened = Math.floor(now() / 1000)
+  const done = new Map() // id -> created_at, for every message already handed over or deliberately dropped
   return {
     scrub, pubkey: me,
     async read(count = MAX_READ) {
       if (!Number.isInteger(count) || count < 1 || count > MAX_READ) throw new Error(`count must be 1..${MAX_READ}`)
       return (await query({ kinds: [CHAT_KIND], '#h': [channel], limit: count })).slice(-count).map(view)
     },
-    /** New messages that mention her key and that she did not write, oldest first. Each is returned once. */
+    /**
+     * Messages that mention her key, that she did not write, that are fresh by the host's clock and that have not
+     * been acknowledged, oldest first. A message keeps coming back until `ack(id)`, so a failed delivery is retried
+     * for as long as it is fresh; an acknowledged id is remembered for as long as it could be returned again.
+     */
     async poll() {
-      const fresh = (await query({ kinds: [CHAT_KIND], '#h': [channel], since })).filter(e => !seen.has(e.id))
-      for (const e of fresh) { seen.add(e.id); if (e.created_at > since) since = e.created_at }
-      if (seen.size > 2000) for (const id of [...seen].slice(0, seen.size - 1000)) seen.delete(id)
+      const t = Math.floor(now() / 1000), from = Math.max(opened, t - WAKE_WINDOW_S)
+      for (const [id, at] of done) if (at < from) done.delete(id)
       const self = me()
-      return fresh.filter(e => e.pubkey !== self && mentions(e, self)).map(view)
+      return (await query({ kinds: [CHAT_KIND], '#h': [channel], since: from }))
+        .filter(e => e.created_at >= from && e.created_at <= t + FUTURE_SLACK_S && !done.has(e.id) && e.pubkey !== self && mentions(e, self))
+        .map(view)
     },
+    ack(m) { done.set(m.id, m.createdAt) },
     async post(text, replyTo) {
       const bytes = validateText(text)
       if (replyTo !== undefined && !HEX64.test(String(replyTo))) throw new Error('reply_to must be a 64-hex message id')
@@ -175,20 +203,28 @@ export function createDoor({ getKey, channel, ownerPubkey = null, baseUrl = RELA
       const event = signEvent({ pubkey: publicKeyOf(key), created_at: Math.floor(now() / 1000), kind: CHAT_KIND, content: text,
         tags: [['h', channel], ...(replyTo === undefined ? [] : [['e', replyTo, '', 'reply']])] }, key)
       const data = await relayPost(baseUrl, '/events', event, key, { fetchImpl, now })
-      if (data?.accepted === false) throw new Error(`buzz relay did not accept the message${typeof data?.message === 'string' ? ` (${data.message.slice(0, 120)})` : ''}`)
-      let recorded = true
-      try { await gate(gateSocket, 'relay_record', { phase: 'posted', author: 'auma', client_request_id, body_sha256, bytes, message_id: event.id, cursor: String(event.created_at) }) } catch { recorded = false }
+      if (data?.accepted !== true) throw new Error(`buzz relay did not accept the message${typeof data?.message === 'string' ? ` (${data.message.slice(0, 120)})` : ''}`)
+      // The intent is already in the ledger. The completion is tried three times; if the gate stays away the post
+      // is reported as POSTED_UNRECORDED and the ledger shows an intent with no completion.
+      let recorded = false
+      for (let i = 0; i < 3 && !recorded; i++) {
+        try { await gate(gateSocket, 'relay_record', { phase: 'posted', author: 'auma', client_request_id, body_sha256, bytes, message_id: event.id, cursor: String(event.created_at) }); recorded = true } catch { /* tried again */ }
+      }
       return { state: recorded ? 'POSTED' : 'POSTED_UNRECORDED', id: event.id, bytes }
     },
   }
 }
 
-/** What she is handed when a message wakes her. The sender's words sit between the rules, marked as data. */
+/**
+ * What she is handed when a message wakes her. The sender's words are ONE JSON string on ONE line: a newline, a
+ * quote or a look-alike of these labels inside the message stays inside that string, so the sender cannot write a
+ * line of their own. This keeps the frame honest; it does not make a model ignore what the string says.
+ */
 export function wakeText(m) {
   return [
     `[Buzz channel message. ${DATA_RULE}]`,
-    `from: ${m.author}  owner_key: ${m.owner_key}  id: ${m.id}`,
-    '--- message (data) ---', m.text + (m.truncated ? ' [truncated]' : ''), '--- end of message ---',
+    `from: ${m.author}  owner_key: ${m.owner_key}  id: ${m.id}  truncated: ${m.truncated}`,
+    `message_json: ${JSON.stringify(m.text)}`,
     `To answer in the channel, call ${POST_TOOL} with reply_to set to this id.`,
   ].join('\n')
 }
@@ -236,13 +272,15 @@ export function createWaker({ door, deliver, log = () => {}, now = () => Date.no
     let delivered = 0, dropped = 0
     try {
       for (const m of await door.poll()) {
-        try { limiter.take() } catch { dropped++; continue }
-        await deliver(wakeText(m), m); delivered++
+        // Over the wake rate: dropped on purpose and not retried. A delivery that throws is NOT acknowledged, so
+        // that message and the ones after it come back on the next poll while they are fresh.
+        try { limiter.take() } catch { door.ack(m); dropped++; continue }
+        await deliver(wakeText(m), m); door.ack(m); delivered++
       }
       if (lastError !== null) { log('AUKORA_BUZZ_DOOR_RECOVERED'); lastError = null }
     } catch (error) {
       const reason = door.scrub(error?.message ?? error)
-      if (reason !== lastError) { log(`AUKORA_BUZZ_DOOR_POLL_FAILED ${reason}`); lastError = reason }
+      if (reason !== lastError) { log(`AUKORA_BUZZ_DOOR_FAILED ${reason}`); lastError = reason }
     } finally { busy = false }
     if (dropped) log(`AUKORA_BUZZ_DOOR_WAKE_RATE_LIMITED ${dropped}`)
     return { delivered, dropped }
