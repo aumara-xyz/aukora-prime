@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Snapshot framing, read-only source projection and route refusals survive executable mutations.
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { spawn, spawnSync } from 'node:child_process'
 import { stripTypeScriptTypes } from 'node:module'
 import { createGate } from '../packages/boundary-gate/src/gate.mjs'
+import { pentoraDigest } from '../apps/aukora-desktop/pentora.mjs'
 import * as snapshot from '../plugins/aukora-face/settings/src/aura/snapshot.ts'
 import * as reader from '../plugins/aukora-face/settings/src/aura/snapshot-reader.ts'
 import * as client from '../plugins/aukora-face/settings/src/client/aura-snapshot.ts'
@@ -21,6 +24,26 @@ const response = () => ({ status: null, headers: null, body: null,
   end(body) { this.body = body } })
 const checks = []
 const add = (name, run) => checks.push({ name, run })
+const previousMask = process.umask(0o002)
+const digest = value => createHash('sha256').update(value).digest('hex')
+const privateNote = 'PRIVATE_KIRA_NOTE_FIXTURE'
+let growthFixtureId = 0
+function changingHead() {
+  let reads = 0
+  return { get head() { return ++reads === 1 ? heads[1] : privateNote }, entries: 7, absence: null }
+}
+function changingAbsence() {
+  let reads = 0
+  return { head: null, entries: null, get absence() { return ++reads === 1 ? 'kira-ledger-broken' : privateNote } }
+}
+function writeCodeRecord(root, change = '') {
+  const build = join(root, '.dsh-build'); mkdirSync(build, { recursive: true, mode: 0o700 })
+  const record = JSON.stringify({ kind: 'genesis-artifact-record', formatVersion: 1, producer: { fixture: change } }) + '\n'
+  const head = digest(record)
+  writeFileSync(join(build, 'genesis-artifacts.json'), record, { mode: 0o600 })
+  writeFileSync(join(build, 'aukora-release.json'), JSON.stringify({ record: { path: '/untrusted/path/ignored', sha256: head } }), { mode: 0o600 })
+  return head
+}
 
 add('fixed framing, order, per-source changes and explicit absence', ({ makeAuraSnapshot }) => {
   const base = makeAuraSnapshot(sources)
@@ -31,6 +54,17 @@ add('fixed framing, order, per-source changes and explicit absence', ({ makeAura
     assert.notEqual(makeAuraSnapshot(sources.map((source, i) => i === index ? absent(i) : source)).head, base.head)
   }
   assert.equal(makeAuraSnapshot(sources.map(source => ({ ...source, entries: 999 }))).head, base.head)
+})
+add('canonical Pentora fingerprint changes with any head and stays fixed without a head change', async ({ makeAuraSnapshot }) => {
+  const fingerprint = async input => Buffer.from(await pentoraDigest(Buffer.from(makeAuraSnapshot(input).head, 'hex'),
+    bytes => createHash('sha256').update(bytes).digest())).toString('hex')
+  const base = await fingerprint(sources)
+  assert.equal(await fingerprint(sources.map(source => ({ ...source }))), base)
+  for (let index = 0; index < sources.length; index += 1) {
+    const changed = sources.map((source, i) => i === index ? { ...source, head: '44'.repeat(32) } : source)
+    assert.notEqual(await fingerprint(changed), base, `Pentora observes ${sources[index].name}`)
+    assert.equal(await fingerprint(changed), await fingerprint(changed))
+  }
 })
 add('fixed source set', ({ makeAuraSnapshot }) => {
   refusal(() => makeAuraSnapshot(sources.slice(1)), 'aura-snapshot:source-set-invalid')
@@ -56,6 +90,119 @@ add('only verified gate head, never a partial or malformed one', (_snapshot, { g
   assert.equal(gateLedgerSource({ ok: true, head: 'deadbeef', entries: 7 }).head, null)
   assert.equal(gateLedgerSource({ ok: true, head: heads[0], entries: 1.5 }).head, null)
   assert.deepEqual(gateLedgerSource({ ok: true, head: 'GENESIS', entries: 0 }), { name: 'gate-ledger', head: null, entries: 0, absence: 'gate-ledger-empty' })
+})
+add('Kira service projects only validated head, count and fixed absence codes', (_snapshot, { kiraChainSource }) => {
+  assert.deepEqual(kiraChainSource(undefined), { name: 'kira-chain', head: null, entries: null, absence: 'kira-service-unavailable' })
+  assert.deepEqual(kiraChainSource({ head: heads[1], entries: 7, absence: null, note: privateNote,
+    subjectId: privateNote, path: privateNote }), { name: 'kira-chain', head: heads[1], entries: 7, absence: null })
+  for (const absence of ['kira-ledger-missing', 'kira-ledger-unreadable', 'kira-ledger-torn', 'kira-ledger-malformed',
+    'kira-ledger-broken', 'kira-ledger-unavailable', 'kira-head-invalid', 'kira-ledger-head-invalid', 'kira-ledger-state-root-invalid']) {
+    assert.deepEqual(kiraChainSource({ head: null, entries: null, absence }), { name: 'kira-chain', head: null, entries: null, absence })
+  }
+  assert.deepEqual(kiraChainSource({ head: null, entries: 0, absence: 'kira-ledger-empty' }),
+    { name: 'kira-chain', head: null, entries: 0, absence: 'kira-ledger-empty' })
+  for (const value of [null, [], {}, { head: heads[1], entries: 7, absence: 'kira-ledger-broken' },
+    { head: heads[1], entries: 0, absence: null }, { head: heads[1], entries: -1, absence: null },
+    { head: heads[1], entries: 1.5, absence: null }, { head: heads[1], entries: Number.MAX_SAFE_INTEGER + 1, absence: null },
+    { head: heads[1], entries: null, absence: null }, { head: null, entries: 7, absence: 'kira-ledger-broken' },
+    { head: 'AA'.repeat(32), entries: 7, absence: null }, { head: 'deadbeef', entries: 7, absence: null },
+    { head: 'g'.repeat(64), entries: 7, absence: null }, { head: null, entries: null, absence: privateNote }]) {
+    let projected
+    assert.doesNotThrow(() => { projected = kiraChainSource(value) })
+    assert.deepEqual(projected, { name: 'kira-chain', head: null, entries: null, absence: 'kira-head-invalid' })
+  }
+})
+add('Kira fields are captured once before validating and projecting them', (_snapshot, { kiraChainSource }) => {
+  assert.deepEqual(kiraChainSource(changingHead()), { name: 'kira-chain', head: heads[1], entries: 7, absence: null })
+  assert.deepEqual(kiraChainSource(changingAbsence()), { name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-broken' })
+  let reads = 0
+  assert.deepEqual(kiraChainSource({ head: heads[1], get entries() { return ++reads === 1 ? 7 : privateNote }, absence: null }),
+    { name: 'kira-chain', head: heads[1], entries: 7, absence: null })
+})
+add('code source reads its own release record, validates its digest, and exposes no record detail', async (_snapshot, { readCodeSource }) => {
+  const scratch = mkdtempSync(new URL('.aura-code-', import.meta.url))
+  try {
+    assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-missing' })
+    const head = writeCodeRecord(scratch, privateNote)
+    const base = { name: 'code-chain', head, entries: 1, absence: null }
+    assert.deepEqual(await readCodeSource(scratch), base)
+    assert.deepEqual(await readCodeSource(scratch), base)
+    const manifest = join(scratch, '.dsh-build/aukora-release.json')
+    const record = join(scratch, '.dsh-build/genesis-artifacts.json')
+    for (const value of ['{', 'null', '[]', '{}', JSON.stringify({ record: { sha256: 'AA'.repeat(32) } }),
+      JSON.stringify({ record: { sha256: 'deadbeef' } }), JSON.stringify({ record: { sha256: 7 } })]) {
+      writeFileSync(manifest, value)
+      assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-invalid' })
+    }
+    writeCodeRecord(scratch, privateNote)
+    writeFileSync(record, readFileSync(record, 'utf8') + ' ')
+    assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-mismatch' })
+    for (const body of ['{', 'null', '[]', '{}', JSON.stringify({ kind: 'wrong', formatVersion: 1 }),
+      JSON.stringify({ kind: 'genesis-artifact-record', formatVersion: 2 })]) {
+      writeFileSync(record, body)
+      writeFileSync(manifest, JSON.stringify({ record: { sha256: digest(body) } }))
+      assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-invalid' })
+    }
+    const changed = writeCodeRecord(scratch, 'changed-record')
+    assert.notEqual(changed, head)
+    assert.equal((await readCodeSource(scratch)).head, changed)
+    writeFileSync(join(scratch, '.dsh-build/reference.json'), readFileSync(record), { mode: 0o600 })
+    rmSync(record)
+    symlinkSync(join(scratch, '.dsh-build/reference.json'), record)
+    assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-unreadable' })
+    rmSync(record)
+    writeCodeRecord(scratch)
+    truncateSync(record, 32 * 1024 * 1024 + 1)
+    assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-unreadable' })
+    rmSync(record)
+    assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-missing' })
+    mkdirSync(record)
+    assert.deepEqual(await readCodeSource(scratch), { name: 'code-chain', head: null, entries: null, absence: 'code-record-unreadable' })
+  } finally { rmSync(scratch, { recursive: true, force: true }) }
+})
+add('release FIFOs are refused promptly rather than waiting for a writer', async (_snapshot, _reader, _client, specifier = readerUrl.href) => {
+  const scratch = mkdtempSync(new URL('.aura-code-fifo-', import.meta.url))
+  try {
+    writeCodeRecord(scratch)
+    const record = join(scratch, '.dsh-build/genesis-artifacts.json')
+    rmSync(record)
+    const made = spawnSync('mkfifo', [record], { encoding: 'utf8' })
+    if (made.error?.code === 'ENOENT') { console.log('UNPERFORMED: mkfifo is unavailable'); process.exit(2) }
+    assert.equal(made.status, 0, 'FIFO fixture must be created')
+    const script = `const {readCodeSource}=await import(${JSON.stringify(specifier)}); console.log(JSON.stringify(await readCodeSource(${JSON.stringify(scratch)})))`
+    const result = await new Promise(resolve => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] })
+      let out = '', timedOut = false
+      child.stdout.on('data', bytes => { out += bytes })
+      child.stderr.resume()
+      const deadline = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, 1200)
+      child.on('close', status => { clearTimeout(deadline); resolve({ status, out, timedOut }) })
+    })
+    assert.equal(result.timedOut, false, 'FIFO read must finish without a writer')
+    assert.equal(result.status, 0, 'FIFO read must return an absence')
+    assert.deepEqual(JSON.parse(result.out), { name: 'code-chain', head: null, entries: null, absence: 'code-record-unreadable' })
+  } finally { rmSync(scratch, { recursive: true, force: true }) }
+})
+add('record growth beyond its captured size is refused and every file handle closes', async (_snapshot, _reader, _client, specifier = readerUrl.href) => {
+  const record = JSON.stringify({ kind: 'genesis-artifact-record', formatVersion: 1 }) + '\n'
+  const manifest = JSON.stringify({ record: { sha256: digest(record) } })
+  let source = specifier.startsWith('data:') ? Buffer.from(specifier.split(',')[1], 'base64').toString('utf8')
+    : stripTypeScriptTypes(readFileSync(readerUrl, 'utf8'))
+  source = source.replaceAll("'./snapshot.ts'", JSON.stringify(snapshotUrl.href))
+  const stub = `export const closedFiles = [];
+    const open = async file => {
+      const body = Buffer.from(file.endsWith('/aukora-release.json') ? ${JSON.stringify(manifest)} : ${JSON.stringify(record)});
+      let at = 0;
+      return { async stat() { return { isFile: () => true, size: body.length - 1 } },
+        async read(bytes, offset, length) { const count = Math.min(length, body.length - at); body.copy(bytes, offset, at, at + count); at += count; return { bytesRead: count } },
+        async close() { closedFiles.push(file) } };
+    }`
+  assert.ok(source.includes("import { open } from 'node:fs/promises'"), 'growth read stub seam')
+  source = source.replace("import { open } from 'node:fs/promises'", stub)
+  source += `\nconst testFixtureId = ${++growthFixtureId}\n`
+  const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+  assert.deepEqual(await module.readCodeSource('/fixture'), { name: 'code-chain', head: null, entries: null, absence: 'code-record-unreadable' })
+  assert.deepEqual(module.closedFiles, ['/fixture/.dsh-build/aukora-release.json'])
 })
 add('real signed ledger reads do not move the snapshot; recorded append does', ({ makeAuraSnapshot }, { gateLedgerSource }) => {
   const scratch = mkdtempSync(new URL('.aura-ledger-', import.meta.url))
@@ -122,7 +269,7 @@ add('in-flight and interval cache bound shared ledger verification', async (_sna
   time = 4500; const second = read(); assert.notEqual(second, first); assert.equal(reads, 2)
   complete(snapshot.makeAuraSnapshot(sources)); await second
 })
-add('carried read-only transport, no ledger detail, unexposed sources and read failure', async (_snapshot, { readAuraSnapshot }) => {
+add('carried read-only transport, all source changes, and route never disclose Kira note text', async (_snapshot, { readAuraSnapshot, auraSnapshotHandler }) => {
   const scratch = mkdtempSync(new URL('.aura-snapshot-', import.meta.url))
   try {
     const clientDir = join(scratch, 'plugins/aukora-buzz-door/lib'); mkdirSync(clientDir, { recursive: true })
@@ -132,9 +279,42 @@ add('carried read-only transport, no ledger detail, unexposed sources and read f
     }`)
     const result = await readAuraSnapshot(scratch, '/fixture/gate.sock')
     assert.equal(result.sources[0].head, heads[0]); assert.equal(result.sources[0].entries, 7)
-    assert.deepEqual(result.sources.slice(1), [{ name: 'kira-chain', head: null, entries: null, absence: 'kira-head-not-exposed' },
-      { name: 'code-chain', head: null, entries: null, absence: 'code-head-not-exposed' }])
+    assert.deepEqual(result.sources.slice(1), [{ name: 'kira-chain', head: null, entries: null, absence: 'kira-service-unavailable' },
+      { name: 'code-chain', head: null, entries: null, absence: 'code-record-missing' }])
     assert.equal(JSON.stringify(result).includes('PRIVATE_FIXTURE_DETAIL'), false)
+    const codeHead = writeCodeRecord(scratch, privateNote)
+    let kiraHead = heads[1], kiraEntries = 9
+    const recall = () => ({ head: kiraHead, entries: kiraEntries, absence: null,
+      notes: [{ text: privateNote, subjectId: privateNote, path: privateNote }], [privateNote]: privateNote })
+    const present = await readAuraSnapshot(scratch, '/fixture/gate.sock', recall)
+    assert.deepEqual(present.sources.slice(1), [{ name: 'kira-chain', head: kiraHead, entries: 9, absence: null },
+      { name: 'code-chain', head: codeHead, entries: 1, absence: null }])
+    assert.deepEqual(await readAuraSnapshot(scratch, '/fixture/gate.sock', recall), present)
+    kiraHead = heads[2]; kiraEntries += 1
+    const memoryChanged = await readAuraSnapshot(scratch, '/fixture/gate.sock', recall)
+    assert.notEqual(memoryChanged.head, present.head)
+    writeCodeRecord(scratch, 'changed-running-release')
+    const codeChanged = await readAuraSnapshot(scratch, '/fixture/gate.sock', recall)
+    assert.notEqual(codeChanged.head, memoryChanged.head)
+    const connection = () => ({ requestRejection: () => undefined })
+    for (const memory of [recall, changingHead, changingAbsence, () => ({ head: null, entries: null, absence: privateNote }),
+      () => { throw Error(privateNote) }, () => Promise.reject(Error(privateNote))]) {
+      const res = response()
+      await auraSnapshotHandler(connection, () => readAuraSnapshot(scratch, '/fixture/gate.sock', memory))({ method: 'GET', headers: {} }, res)
+      assert.equal(res.status, 200)
+      assert.equal(res.headers['cache-control'], 'no-store')
+      assert.equal(res.body.includes(privateNote), false, 'Kira note text, subject, path and error text never leave this route')
+      const payload = JSON.parse(res.body)
+      assert.deepEqual(Object.keys(payload).sort(), ['head', 'schema', 'sources'])
+      for (const source of payload.sources) assert.deepEqual(Object.keys(source).sort(), ['absence', 'entries', 'head', 'name'])
+    }
+    const failedMemory = await readAuraSnapshot(scratch, '/fixture/gate.sock', () => { throw Error(privateNote) })
+    assert.deepEqual(failedMemory.sources[1], { name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-unreadable' })
+    assert.equal(failedMemory.sources[2].head, codeChanged.sources[2].head, 'Kira read failure does not hide the code source')
+    const partialMemory = await readAuraSnapshot(scratch, '/fixture/gate.sock', () => ({ head: heads[1], entries: 9, absence: 'kira-ledger-broken' }))
+    assert.deepEqual(partialMemory.sources[1], { name: 'kira-chain', head: null, entries: null, absence: 'kira-head-invalid' })
+    const missingMemory = await readAuraSnapshot(scratch, '/fixture/gate.sock', () => ({ head: null, entries: null, absence: 'kira-ledger-missing' }))
+    assert.deepEqual(missingMemory.sources[1], { name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-missing' })
     const failure = await readAuraSnapshot(scratch, '/fixture/other.sock')
     assert.equal(failure.sources[0].head, null); assert.equal(failure.sources[0].absence, 'gate-ledger-unavailable')
     const invalid = await readAuraSnapshot(scratch, null)
@@ -187,6 +367,8 @@ const mutations = [
   ['snapshot', "const DOMAIN = 'aukora.aura.snapshot.v1\\0'", "const DOMAIN = 'changed-domain\\0'"],
   ['snapshot', "hash.update(lengthPrefixed(Buffer.from(source.name, 'utf8')))", "hash.update(Buffer.from(source.name, 'utf8'))"],
   ['snapshot', "hash.update(lengthPrefixed(source.head === null ? Buffer.alloc(0) : Buffer.from(source.head, 'hex')))", "hash.update(source.head === null ? Buffer.alloc(0) : Buffer.from(source.head, 'hex'))"],
+  ['snapshot', 'for (const source of sources) {', "for (const source of sources.filter(source => source.name !== 'kira-chain')) {"],
+  ['snapshot', 'for (const source of sources) {', "for (const source of sources.filter(source => source.name !== 'code-chain')) {"],
   ['snapshot', 'if (!Array.isArray(input) || input.length !== AURA_SNAPSHOT_SOURCES.length\n    || AURA_SNAPSHOT_SOURCES.some(name => input.filter(source => source?.name === name).length !== 1))', 'if (false)'],
   ['snapshot', '!HEX64.test(source.head)', 'false'],
   ['snapshot', '!Number.isSafeInteger(source.entries)', 'false'],
@@ -194,6 +376,34 @@ const mutations = [
   ['reader', 'if (verified?.ok !== true)', 'if (false)'],
   ['reader', '!HEX64.test(verified.head)', 'false'],
   ['reader', '!Number.isSafeInteger(verified.entries)', 'false'],
+  ['reader', "if (value === undefined) return absent('kira-chain', 'kira-service-unavailable')", "if (value === undefined) return absent('kira-chain', 'kira-head-invalid')"],
+  ['reader', 'KIRA_ABSENCES.has(absence)', 'true'],
+  ['reader', '(entries === null || entries === 0)', 'true'],
+  ['reader', 'absence !== null', 'false'],
+  ['reader', "typeof head !== 'string' || !HEX64.test(head)", 'false'],
+  ['reader', '!Number.isSafeInteger(entries)', 'false'],
+  ['reader', '(entries as number) < 1', 'false'],
+  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null }",
+    "return { ...(value as object), name: 'kira-chain', head, entries: entries as number, absence: null }"],
+  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null }",
+    "return { name: 'kira-chain', head: (value as { head: string }).head, entries: entries as number, absence: null }"],
+  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null }",
+    "return { name: 'kira-chain', head, entries: (value as { entries: number }).entries, absence: null }"],
+  ['reader', "return absent('kira-chain', absence, entries)", "return absent('kira-chain', (value as { absence: string }).absence, entries)"],
+  ['reader', "typeof digest !== 'string' || !HEX64.test(digest)", 'false'],
+  ['reader', 'record?.formatVersion !== 1', 'false'],
+  ['reader', "record.kind !== 'genesis-artifact-record'", 'false'],
+  ['reader', "if (createHash('sha256').update(recordBytes).digest('hex') !== digest)", 'if (false)'],
+  ['reader', "readReleaseFact(join(releaseRoot, '.dsh-build/genesis-artifacts.json'))", "readReleaseFact(join(releaseRoot, '.dsh-build/aukora-release.json'))"],
+  ['reader', '!stat.isFile()', 'false'],
+  ['reader', 'stat.size > 32 * 1024 * 1024', 'false'],
+  ['reader', 'FS.O_NOFOLLOW', '0'],
+  ['reader', 'FS.O_NONBLOCK', '0'],
+  ['reader', "    throw Object.assign(new Error('code-record-unreadable'), { code: 'code-record-unreadable' })\n  } finally", '    return bytes\n  } finally'],
+  ['reader', 'await handle.close()', 'undefined', null, null, 'record growth beyond its captured size is refused and every file handle closes'],
+  ['reader', "? 'code-record-missing' : 'code-record-unreadable'", "? 'code-record-missing' : 'code-record-missing'"],
+  ['reader', 'await readKira?.()', 'undefined'],
+  ['reader', 'await readCodeSource(releaseRoot)', "absent('code-chain', 'code-record-missing')"],
   ['reader', 'normalize(socket) === socket', 'true'],
   ['reader', 'isAbsolute(socket)', 'true'],
   ['reader', 'socket.length <= 1024', 'true'],
@@ -225,19 +435,38 @@ const mutations = [
   ['client', 'Math.max(before ?? source.entries, source.entries)', 'source.entries'],
 ]
 let killed = 0
-for (const [file, before, after, secondBefore, secondAfter] of mutations) {
+async function runMutation([file, before, after, secondBefore, secondAfter, only]) {
   let source = readFileSync(file === 'snapshot' ? snapshotUrl : file === 'reader' ? readerUrl : clientUrl, 'utf8')
   assert.ok(source.includes(before), `missing mutation seam: ${before}`)
   source = source.replaceAll(before, after)
   if (secondBefore) { assert.ok(source.includes(secondBefore)); source = source.replace(secondBefore, secondAfter) }
-  if (file === 'reader') source = source.replaceAll("'./snapshot.ts'", JSON.stringify(snapshotUrl.href))
-  const module = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString('base64')}`)
+  if (file === 'reader') {
+    source = source.replaceAll("'./snapshot.ts'", JSON.stringify(snapshotUrl.href))
+      .replace("await import(join(releaseRoot, 'plugins/aukora-buzz-door/lib/index.mjs'))",
+        "await import(testFileURL(join(releaseRoot, 'plugins/aukora-buzz-door/lib/index.mjs')).href)")
+    source = "import { pathToFileURL as testFileURL } from 'node:url'\n" + source
+  }
+  const specifier = `data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString('base64')}`
+  const module = await import(specifier)
+  const selected = only === undefined ? checks : checks.filter(check => check.name === only)
+  assert.ok(selected.length > 0, 'mutation selects executable checks')
+  let checked
   try {
-    for (const check of checks) await check.run(file === 'snapshot' ? module : snapshot, file === 'reader' ? module : reader, file === 'client' ? module : client)
+    for (const check of selected) {
+      checked = check.name
+      await check.run(file === 'snapshot' ? module : snapshot, file === 'reader' ? module : reader,
+        file === 'client' ? module : client, file === 'reader' ? specifier : readerUrl.href)
+    }
   } catch (error) {
     if (error.code !== 'ERR_ASSERTION') throw error
+    if (before === after) throw Object.assign(new Error(`unchanged control failed ${checked}: ${error.message}`), { code: 'ERR_ASSERTION' })
     killed += 1
   }
 }
+for (let offset = 0; offset < mutations.length; offset += 4) await Promise.all(mutations.slice(offset, offset + 4).map(runMutation))
 assert.equal(killed, mutations.length, 'a removed protection survived its regression')
+await Promise.all(Array.from({ length: 4 }, () => runMutation(['reader', 'const CACHE_MS = 1500', 'const CACHE_MS = 1500'])))
+assert.equal(killed, mutations.length, 'an unchanged control must survive the same concurrent regressions')
 console.log(`PASS Aura snapshot mutation controls: ${killed}/${mutations.length} killed`)
+console.log('PASS Aura snapshot unchanged controls: 4/4 survived')
+process.umask(previousMask)

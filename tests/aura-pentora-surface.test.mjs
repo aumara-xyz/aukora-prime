@@ -138,6 +138,12 @@ function elements(tree, predicate) {
 const stage = tree => elements(tree, node => node.props?.['data-pentora-state'] !== undefined)[0]
 const renderedCells = tree => elements(tree, node => node.props?.['data-pentora-cell'] !== undefined)
   .sort((a, b) => a.props['data-pentora-cell'] - b.props['data-pentora-cell']).map(node => node.props['data-trit'])
+function textOf(value) {
+  if (Array.isArray(value)) return value.map(textOf).join('')
+  if (value === null || value === undefined || typeof value === 'boolean') return ''
+  if (typeof value === 'object') return textOf(value.props?.children)
+  return String(value)
+}
 
 function runtime(text = source, options = {}) {
   let now = 0, nextId = 0, cursor = 0, tree, renders = [], prepared = 0
@@ -264,6 +270,30 @@ async function checkPolling(text) {
   ui.unmount()
 }
 
+async function checkSourceLegend(text) {
+  const ui = runtime(text)
+  const named = ['gate-ledger', 'kira-chain', 'code-chain']
+  const available = named.map((name, index) => ({ name, head: heads[index], entries: index === 2 ? 1 : 10, absence: null }))
+  const observe = async (index, sources) => {
+    await ui.reply(index, { ...snapshot(heads[0]), sources })
+    assert.deepEqual(elements(ui.tree, node => node.type === 'dt').map(textOf), named)
+    const rows = elements(ui.tree, node => node.type === 'dd').map(textOf)
+    for (let at = 0; at < sources.length; at += 1) {
+      const source = sources[at]
+      assert.ok(rows[at].includes(source.head === null ? 'aura.snapshot.absent' : 'aura.snapshot.available'), `legend availability of ${source.name}`)
+      assert.ok(rows[at].includes(source.head === null ? source.absence : source.head.slice(0, 16)), `legend observed head or refusal of ${source.name}`)
+    }
+    const count = sources.filter(source => source.head !== null).length
+    assert.ok(elements(ui.tree, node => node.type === 'p').some(node => node.props.children === `aura.snapshot.present:{"count":${count}}`))
+  }
+  await observe(0, available)
+  await ui.advance(2000)
+  await observe(1, available.map((source, index) => index === 1 ? { ...source, head: null, entries: null, absence: 'kira-ledger-torn' } : source))
+  await ui.advance(2000)
+  await observe(2, available.map(source => ({ ...source, head: null, entries: null, absence: 'fixture-unavailable' })))
+  ui.unmount()
+}
+
 async function checkClock(text) {
   const ui = runtime(text)
   await ui.reply(0, snapshot(heads[0]))
@@ -381,8 +411,10 @@ function checkDisclosure(text, dictionaries = { en, zh }, styles = style) {
   }
   assert.match(dictionaries.en['aura.snapshot.limit'], /does not prove completeness, identity, who is looking, or approval/u)
   assert.match(dictionaries.zh['aura.snapshot.limit'], /不证明记录完整、身份、谁在观看或审批/u)
-  assert.match(dictionaries.en['aura.snapshot.polling'], /Only gate-ledger advances are available today/u)
-  assert.match(dictionaries.zh['aura.snapshot.polling'], /当前仅提供门账本/u)
+  assert.match(dictionaries.en['aura.snapshot.polling'], /gate approvals, Kira memory and the running release record \(one record\)/u)
+  assert.match(dictionaries.zh['aura.snapshot.polling'], /门审批账本、Kira 记忆账本和当前版本的记录（一个记录）/u)
+  assert.equal(dictionaries.en['aura.snapshot.available'], 'Present')
+  assert.equal(dictionaries.zh['aura.snapshot.available'], '已提供')
   assert.match(dictionaries.en['aura.status.moving'], /transition, not a recorded state/u)
   assert.match(dictionaries.zh['aura.status.moving'], /过渡帧，不是记录状态/u)
   assert.match(styles, /\.root\[hidden\]\s*\{\s*display:\s*none/u)
@@ -395,6 +427,7 @@ function checkDisclosure(text, dictionaries = { en, zh }, styles = style) {
 
 for (const [label, check] of [
   ['surface renders reference cells and disclosed sources; unchanged heads do not animate', checkPolling],
+  ['legend names all three sources and shows present, mixed and absent observations', checkSourceLegend],
   ['new heads cannot reuse the previous settled clock; transition and counts are real', checkClock],
   ['reduced motion changes directly and preference updates cancel animation', checkReduced],
   ['inactive and hidden surfaces stop reads and frames; cleanup cancels pending work', checkLifecycle],
@@ -428,6 +461,8 @@ test('mutations of surface protections are detected by executable hook tests', a
     ['same origin credentials', "credentials: 'same-origin'", "credentials: 'omit'", checkPolling],
     ['record derived cell colors', 'const trit = cell === undefined ? 1 : frame.cells[cell]', 'const trit = 1', checkPolling],
     ['absent sources disclosed', 'snapshot.sources.map(source => <div key={source.name}>', 'snapshot.sources.slice(0, 1).map(source => <div key={source.name}>', checkPolling],
+    ['present source legend', "t('aura.snapshot.available')", "t('aura.snapshot.absent')", checkSourceLegend],
+    ['absent source legend', "t('aura.snapshot.absent')", "t('aura.snapshot.available')", checkSourceLegend],
     ['same head reuse', 'prior?.snapshot.head === snapshot.head ? prior.motion', 'false ? prior.motion', checkPolling],
     ['clock belongs to motion', 'clock?.motion === observation.motion ? clock.elapsed : 0', 'clock?.elapsed ?? 0', checkClock],
     ['transition label', 'data-pentora-state={frame.status}', 'data-pentora-state="solid"', checkClock],
@@ -440,10 +475,10 @@ test('mutations of surface protections are detected by executable hook tests', a
     ['disposed response', 'if (disposed) return', 'if (false) return', checkDisposed],
     ['stale notice', "t('aura.snapshot.stale')", "t('aura.snapshot.waiting')", checkReadFailures],
   ]
-  for (const [label, before, after, check] of mutations) {
-    assert.ok(source.includes(before), `missing mutation anchor: ${label}`)
-    await assert.rejects(check(source.replace(before, after)), assert.AssertionError, `surviving mutant: ${label}`)
-  }
+  for (let offset = 0; offset < mutations.length; offset += 4) await Promise.all(mutations.slice(offset, offset + 4).map(async ([label, before, after, check]) => {
+      assert.ok(source.includes(before), `missing mutation anchor: ${label}`)
+      await assert.rejects(check(source.replace(before, after)), assert.AssertionError, `surviving mutant: ${label}`)
+    }))
   console.log(`MUTATION aura-pentora-surface: ${mutations.length}/${mutations.length} killed`)
 })
 
@@ -454,7 +489,7 @@ test('mutations removing display limits, available-source disclosure and transit
     killed++
   }
   for (const language of ['en', 'zh']) {
-    for (const key of ['aura.snapshot.limit', 'aura.snapshot.polling', 'aura.status.moving']) {
+    for (const key of ['aura.snapshot.limit', 'aura.snapshot.polling', 'aura.snapshot.available', 'aura.status.moving']) {
       const dictionaries = { en: { ...en }, zh: { ...zh } }
       dictionaries[language][key] = 'Synthetic omitted disclosure'
       assert.throws(() => checkDisclosure(source, dictionaries), assert.AssertionError)
@@ -472,4 +507,19 @@ test('mutations removing display limits, available-source disclosure and transit
     killed++
   }
   console.log(`MUTATION aura-pentora-surface-disclosure: ${killed}/${killed} killed`)
+})
+
+// A condition from the co-presence builder (2026-10-13): while the picture is between two heads, the page shows
+// no digest text. Source-level: every place a head is printed sits behind the settled branch.
+test('no digest text is rendered while the Pentora is between two heads', async () => {
+  const { readFileSync } = await import('node:fs')
+  const source = readFileSync(new URL('../plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx', import.meta.url), 'utf8')
+  assert.match(source, /const digestsWithheld = frame !== null && frame\.status !== 'solid'/u)
+  const branch = source.indexOf("digestsWithheld ? <p className={css.state}>{t('aura.status.moving')}</p> : <>")
+  assert.ok(branch > 0, 'the withheld branch is present')
+  for (const printed of ['snapshot.head.slice(', 'source.head.slice(', 'JSON.stringify(snapshot']) {
+    const at = source.indexOf(printed)
+    assert.ok(at > branch, `${printed} is only reachable after the settled branch`)
+    assert.equal(source.indexOf(printed, at + 1), -1, `${printed} appears once`)
+  }
 })

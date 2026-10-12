@@ -185,6 +185,14 @@ export async function readAuraEvidence(releaseRoot: string): Promise<object> {
 
 /** Register the projection, the settings namespace, and the evidence route. */
 export function apply(ctx: Context, config: { gateSocket?: unknown } = {}): void {
+  let readKira: (() => unknown) | undefined
+  ctx.inject(['kira.head'], (headCtx) => {
+    const read = () => (Reflect.get(headCtx, 'kira.head') as { readHead: () => unknown }).readHead()
+    headCtx.effect(() => {
+      readKira = read
+      return () => { if (readKira === read) readKira = undefined }
+    }, 'ui-settings-general: Kira head reader')
+  })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(auraCoherenceProjectionDefinition)
   })
@@ -200,7 +208,7 @@ export function apply(ctx: Context, config: { gateSocket?: unknown } = {}): void
     const releaseRoot = resolve(HERE, '..', '..', '..')
     const gate = (): RouteGate => Reflect.get(webCtx, 'connection') as RouteGate
     const socket = snapshotGateSocket(config)
-    const readSnapshot = createAuraSnapshotReader(() => readAuraSnapshot(releaseRoot, socket))
+    const readSnapshot = createAuraSnapshotReader(() => readAuraSnapshot(releaseRoot, socket, () => readKira?.()))
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
       path: AURA_SNAPSHOT_ENDPOINT,

@@ -2332,21 +2332,21 @@
       "source": "plugins/aukora-face/settings/lib/.build-inputs.json",
       "path": "faces/settings/lib/.build-inputs.json",
       "bytes": 1770,
-      "sha256": "d41114ad172197b927a636302ef42f8e50e8b4c8234980b841d2af8f2857160a",
+      "sha256": "bf4efa22501e079cfa79d50afb42dc6710dfb2eb0c574af5ecf0a973336394d9",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/client.js",
       "path": "faces/settings/lib/client.js",
-      "bytes": 58854,
-      "sha256": "6365cfb3540c98c046117fcd0e2cb8add1e8810ff31bbea229686cb63562d523",
+      "bytes": 59405,
+      "sha256": "8b120c1a46ece3faabd85ba13235c6af6c2b149ce024402ffae33683f1f43adf",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/index.js",
       "path": "faces/settings/lib/index.js",
-      "bytes": 23351,
-      "sha256": "c8c1981d606ff93c901adfd30d9ea86a06dc8286c187e93ccf73a67b05f19fc8",
+      "bytes": 26738,
+      "sha256": "90cc67a0cbb039e29bf46e1a5cd7e4e5733a4939569d39f82a687a8be999bafd",
       "role": "bundle"
     },
     {
@@ -2408,8 +2408,8 @@
     {
       "source": "plugins/aukora-face/settings/src/aura/snapshot-reader.ts",
       "path": "faces/settings/src/aura/snapshot-reader.ts",
-      "bytes": 4744,
-      "sha256": "f13a11a3db78444e59d85e011fcd236248a790511d44361f75fa271a0965535f",
+      "bytes": 8307,
+      "sha256": "3b3a3004fd69419ec9275a03e9903b16fc79860af04e0969bc1600ff362812c6",
       "role": "source"
     },
     {
@@ -2450,8 +2450,8 @@
     {
       "source": "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx",
       "path": "faces/settings/src/client/AuraCoherenceSurface.tsx",
-      "bytes": 9196,
-      "sha256": "3903cb7209b368284dc39c6ba1a0b3d200e1e2950016893429530dcc07f79c19",
+      "bytes": 9524,
+      "sha256": "8c6f1c6a11612239eac449f60fb8c2d3705d61e3babd66b6d51752b60b216cd6",
       "role": "source"
     },
     {
@@ -2541,8 +2541,8 @@
     {
       "source": "plugins/aukora-face/settings/src/client/locales.ts",
       "path": "faces/settings/src/client/locales.ts",
-      "bytes": 3725,
-      "sha256": "2d9209ad9ccaaac32aa9066f859ef37a82266280e55e2535cf88d1d53b946a75",
+      "bytes": 3866,
+      "sha256": "933ce6799ce3d46bb7234a66724f1c5c8adda42061377babb4ea4bcd12387f80",
       "role": "source"
     },
     {
@@ -2569,8 +2569,8 @@
     {
       "source": "plugins/aukora-face/settings/src/index.ts",
       "path": "faces/settings/src/index.ts",
-      "bytes": 11454,
-      "sha256": "3c6e0a0270021ead5447bef9456f8c5d78bf30e91f4f677df7c6def3b311be2e",
+      "bytes": 11831,
+      "sha256": "ae5a463216ac5b24484e620e9f43b0023a5d1f72eddb88ccc08d193250b36de9",
       "role": "source"
     },
     {

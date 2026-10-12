@@ -1,10 +1,11 @@
 import z from "@deepseek-ai/schemastery";
 import { z as z$1 } from "zod";
-import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { constants, existsSync, readFileSync } from "node:fs";
+import { open } from "node:fs/promises";
+import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync } from "node:fs";
 //#region lib/types/aura/projection.js
 /**
 * Pure Aura Coherence projection over durable session records.
@@ -355,6 +356,18 @@ const CACHE_MS = 1500;
 const SOCKET_TIMEOUT_MS = 3e3;
 const HEX64 = /^[0-9a-f]{64}$/u;
 const DEFAULT_GATE_SOCKET = "/run/aukora-gate/gate.sock";
+const KIRA_ABSENCES = new Set([
+	"kira-ledger-missing",
+	"kira-ledger-empty",
+	"kira-ledger-unreadable",
+	"kira-ledger-torn",
+	"kira-ledger-malformed",
+	"kira-ledger-broken",
+	"kira-ledger-unavailable",
+	"kira-head-invalid",
+	"kira-ledger-head-invalid",
+	"kira-ledger-state-root-invalid"
+]);
 function absent(name, absence, entries = null) {
 	return {
 		name,
@@ -376,23 +389,83 @@ function gateLedgerSource(value) {
 		absence: null
 	};
 }
+/** Copy only validated head/count fields and fixed refusal names from the read-only service. */
+function kiraChainSource(value) {
+	if (value === void 0) return absent("kira-chain", "kira-service-unavailable");
+	const { head, entries, absence } = value ?? {};
+	if (head === null && typeof absence === "string" && KIRA_ABSENCES.has(absence) && (entries === null || entries === 0)) return absent("kira-chain", absence, entries);
+	if (absence !== null || typeof head !== "string" || !HEX64.test(head) || !Number.isSafeInteger(entries) || entries < 1) return absent("kira-chain", "kira-head-invalid");
+	return {
+		name: "kira-chain",
+		head,
+		entries,
+		absence: null
+	};
+}
+/** Read bounded regular files without following a record symlink or waiting on a FIFO. */
+async function readReleaseFact(file) {
+	const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+	try {
+		const stat = await handle.stat();
+		if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw Object.assign(/* @__PURE__ */ new Error("code-record-unreadable"), { code: "code-record-unreadable" });
+		const bytes = Buffer.alloc(stat.size + 1);
+		let offset = 0;
+		while (offset < bytes.length) {
+			const read = await handle.read(bytes, offset, bytes.length - offset, null);
+			if (read.bytesRead === 0) return bytes.subarray(0, offset);
+			offset += read.bytesRead;
+		}
+		throw Object.assign(/* @__PURE__ */ new Error("code-record-unreadable"), { code: "code-record-unreadable" });
+	} finally {
+		await handle.close();
+	}
+}
+/** The code head is the exact RECORD digest, checked against the record beside this loaded face. */
+async function readCodeSource(releaseRoot) {
+	let manifestBytes, recordBytes;
+	try {
+		manifestBytes = await readReleaseFact(join(releaseRoot, ".dsh-build/aukora-release.json"));
+		recordBytes = await readReleaseFact(join(releaseRoot, ".dsh-build/genesis-artifacts.json"));
+	} catch (error) {
+		return absent("code-chain", error.code === "ENOENT" ? "code-record-missing" : "code-record-unreadable");
+	}
+	let digest;
+	try {
+		digest = JSON.parse(manifestBytes.toString("utf8"))?.record?.sha256;
+		const record = JSON.parse(recordBytes.toString("utf8"));
+		if (typeof digest !== "string" || !HEX64.test(digest) || record?.formatVersion !== 1 || record.kind !== "genesis-artifact-record") return absent("code-chain", "code-record-invalid");
+	} catch {
+		return absent("code-chain", "code-record-invalid");
+	}
+	if (createHash("sha256").update(recordBytes).digest("hex") !== digest) return absent("code-chain", "code-record-mismatch");
+	return {
+		name: "code-chain",
+		head: digest,
+		entries: 1,
+		absence: null
+	};
+}
 /** Match the composition's gateSocket option; an invalid explicit socket is never replaced with the default. */
 function snapshotGateSocket(config, env = process.env) {
 	const socket = config.gateSocket === void 0 ? env["AUKORA_GATE_SOCKET"] ?? DEFAULT_GATE_SOCKET : config.gateSocket;
 	return typeof socket === "string" && socket.length <= 1024 && isAbsolute(socket) && normalize(socket) === socket && !/[\u0000-\u001f\u007f]/u.test(socket) ? socket : null;
 }
 /** The carried Buzz transport allows log; only its verify result leaves this reader. */
-async function readAuraSnapshot(releaseRoot, socket) {
+async function readAuraSnapshot(releaseRoot, socket, readKira) {
 	let gate = absent("gate-ledger", socket === null ? "gate-socket-invalid" : "gate-ledger-unavailable");
 	if (socket !== null) try {
 		const client = await import(__rewriteRelativeImportExtension$1(join(releaseRoot, "plugins/aukora-buzz-door/lib/index.mjs")));
 		if (typeof client.gateCall !== "function") gate = absent("gate-ledger", "gate-client-not-carried");
 		else gate = gateLedgerSource((await client.gateCall(socket, "log", { limit: 1 }, SOCKET_TIMEOUT_MS))?.verify);
 	} catch {}
+	let kira = absent("kira-chain", "kira-ledger-unreadable");
+	try {
+		kira = kiraChainSource(await readKira?.());
+	} catch {}
 	return makeAuraSnapshot([
 		gate,
-		absent("kira-chain", "kira-head-not-exposed"),
-		absent("code-chain", "code-head-not-exposed")
+		kira,
+		await readCodeSource(releaseRoot)
 	]);
 }
 /** Concurrent windows share one in-flight read and at most one verification per cache interval. */
@@ -590,6 +663,16 @@ async function readAuraEvidence(releaseRoot) {
 }
 /** Register the projection, the settings namespace, and the evidence route. */
 function apply(ctx, config = {}) {
+	let readKira;
+	ctx.inject(["kira.head"], (headCtx) => {
+		const read = () => Reflect.get(headCtx, "kira.head").readHead();
+		headCtx.effect(() => {
+			readKira = read;
+			return () => {
+				if (readKira === read) readKira = void 0;
+			};
+		}, "ui-settings-general: Kira head reader");
+	});
 	ctx.inject(["sessionProjections"], (projectionCtx) => {
 		projectionCtx.sessionProjections.register(auraCoherenceProjectionDefinition);
 	});
@@ -600,7 +683,7 @@ function apply(ctx, config = {}) {
 		const releaseRoot = resolve(HERE, "..", "..", "..");
 		const gate = () => Reflect.get(webCtx, "connection");
 		const socket = snapshotGateSocket(config);
-		const readSnapshot = createAuraSnapshotReader(() => readAuraSnapshot(releaseRoot, socket));
+		const readSnapshot = createAuraSnapshotReader(() => readAuraSnapshot(releaseRoot, socket, () => readKira?.()));
 		webCtx.effect(() => webCtx.webServer.register({
 			kind: "exact",
 			path: AURA_SNAPSHOT_ENDPOINT,

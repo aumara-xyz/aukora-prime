@@ -5,7 +5,7 @@
 /** Check ledger-backed session hints, refusals and concurrent appends with synthetic metadata. */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync as rawMkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync as rawWriteFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as production from '../plugins/aukora-kira/lib/continuity-head.mjs'
@@ -15,6 +15,11 @@ import { memoryChain } from '../plugins/aukora-kira/lib/tracked-memory.mjs'
 
 const sourceURL = new URL('../plugins/aukora-kira/lib/continuity-head.mjs', import.meta.url)
 const source = readFileSync(sourceURL, 'utf8')
+const indexURL = new URL('../plugins/aukora-kira/lib/index.js', import.meta.url)
+const indexSource = readFileSync(indexURL, 'utf8')
+const priorMask = process.umask(0o002)
+const mkdirSync = (path, options = {}) => rawMkdirSync(path, { mode: 0o700, ...options })
+const writeFileSync = (path, data, options = {}) => rawWriteFileSync(path, data, { mode: 0o600, ...options })
 const scratch = fileURLToPath(new URL('../.scratch/', import.meta.url))
 mkdirSync(scratch, { recursive: true })
 const root = mkdtempSync(join(scratch, 'continuity-test-'))
@@ -190,6 +195,103 @@ check('held ledger lock refuses without appending', api => {
   assert.deepEqual(readFileSync(ledger(stateDir)), before)
 })
 
+check('memory head exposes only final hash and full entry count without writing', api => {
+  const stateDir = fresh()
+  seed(api, stateDir)
+  const [entry] = chainAuraEntries(stateDir, [{ op: 'remember', tier: 'remembered',
+    statement: 'synthetic-note-must-never-leave-the-head-service', subject: 'synthetic-subject-private' }], { file: ledger(stateDir) })
+  appendJournalLine({ file: ledger(stateDir), line: JSON.stringify(entry) })
+  const before = readFileSync(ledger(stateDir))
+  const answer = api.readMemoryLedgerHead({ stateDir })
+  assert.deepEqual(answer, { head: entry.hash, entries: 2, absence: null })
+  assert.match(answer.head, /^[0-9a-f]{64}$/u)
+  assert.deepEqual(api.readMemoryLedgerHead({ stateDir }), answer)
+  assert.deepEqual(readFileSync(ledger(stateDir)), before)
+  assert.deepEqual(readdirSync(dirname(ledger(stateDir))), ['aura.jsonl'])
+  assert.equal(api.readContinuityHead({ stateDir }).sessionId, 'session_a')
+  const [next] = chainAuraEntries(stateDir, [{ op: 'forget', tier: 'remembered' }], { file: ledger(stateDir) })
+  appendJournalLine({ file: ledger(stateDir), line: JSON.stringify(next) })
+  const changed = api.readMemoryLedgerHead({ stateDir })
+  assert.deepEqual(changed, { head: next.hash, entries: 3, absence: null })
+  assert.notEqual(changed.head, answer.head)
+})
+
+check('missing empty and invalid roots have explicit absent memory heads', api => {
+  const stateDir = fresh()
+  assert.deepEqual(api.readMemoryLedgerHead({ stateDir }), { head: null, entries: 0, absence: 'kira-ledger-missing' })
+  mkdirSync(dirname(ledger(stateDir)))
+  writeFileSync(ledger(stateDir), '')
+  assert.deepEqual(api.readMemoryLedgerHead({ stateDir }), { head: null, entries: 0, absence: 'kira-ledger-empty' })
+  for (const bad of [undefined, '', '.', 'relative', '/bad\0root', '/bad\nroot']) {
+    assert.deepEqual(api.readMemoryLedgerHead({ stateDir: bad }), { head: null, entries: null, absence: 'kira-ledger-state-root-invalid' })
+  }
+})
+
+check('unreadable memory heads never become empty or leak paths', api => {
+  for (const kind of ['directory', 'symlink', 'invalid-utf8']) {
+    const stateDir = fresh()
+    mkdirSync(dirname(ledger(stateDir)))
+    if (kind === 'directory') mkdirSync(ledger(stateDir))
+    else if (kind === 'symlink') {
+      const target = join(stateDir, 'target')
+      writeFileSync(target, '')
+      symlinkSync(target, ledger(stateDir))
+    } else writeFileSync(ledger(stateDir), Buffer.from([0xc0, 0xaf]))
+    assert.deepEqual(api.readMemoryLedgerHead({ stateDir }), { head: null, entries: null, absence: 'kira-ledger-unreadable' })
+  }
+})
+
+check('damaged memory heads never expose a previous valid prefix', api => {
+  for (const [damage, reason] of [
+    [text => `${text}{torn`, 'kira-ledger-torn'],
+    [text => `${text}{malformed\n`, 'kira-ledger-malformed'],
+    [text => `${text}{"op":1,"op":2}\n`, 'kira-ledger-malformed'],
+    [text => `${text}null\n`, 'kira-ledger-malformed'],
+    [text => text.replace('"messageCount":3', '"messageCount":4'), 'kira-ledger-broken'],
+    [text => rewrite(text, entry => { entry.hash = 'F'.repeat(64) }), 'kira-ledger-broken'],
+    [text => rewrite(text, entry => { entry.sequence = 9 }, true), 'kira-ledger-broken'],
+    [text => rewrite(text, entry => { entry.prev = 'f'.repeat(64) }, true), 'kira-ledger-broken'],
+    [text => rewrite(text, entry => { entry.grantsAuthority = true }, true), 'kira-ledger-head-invalid'],
+    [text => rewrite(text, entry => { entry.sessionId = '../private' }, true), 'kira-ledger-head-invalid'],
+  ]) {
+    const stateDir = fresh()
+    seed(api, stateDir)
+    writeFileSync(ledger(stateDir), damage(readFileSync(ledger(stateDir), 'utf8')))
+    const before = readFileSync(ledger(stateDir))
+    assert.deepEqual(api.readMemoryLedgerHead({ stateDir }), { head: null, entries: null, absence: reason })
+    assert.deepEqual(readFileSync(ledger(stateDir)), before)
+  }
+})
+
+async function mountedHead(text = indexSource) {
+  const { apply } = await load(text, indexURL)
+  const stateDir = fresh(), services = new Map(), tools = new Map(), disposers = []
+  const ctx = {
+    tools: { register: tool => tools.set(tool.name, tool) }, sessions: new Map(),
+    provide: (name, service) => services.set(name, service),
+    effect: create => { const dispose = create(); if (typeof dispose === 'function') disposers.push(dispose) },
+    on: () => () => {}, inject() {}, emit() {}, reflect: { get: name => services.get(name) },
+    logger: { warn() {}, info() {}, debug() {} },
+  }
+  try {
+    const subject = `aukora:1:${'37'.repeat(32)}`
+    await apply(ctx, { retrieval: 'lexical', memoryOwner: { stateDir, subject } })
+    const service = services.get('kira.head')
+    assert.ok(service, 'mounted Kira provides the named head reader')
+    assert.equal(Object.isFrozen(service), true)
+    assert.deepEqual(Object.keys(service), ['readHead'])
+    assert.deepEqual(service.readHead(), { head: null, entries: 0, absence: 'kira-ledger-missing' })
+    const note = 'The synthetic private lantern is beside the synthetic private harbour.'
+    assert.equal((await tools.get('kira_remember').execute({ text: note }, {})).remembered, 1)
+    const entries = memoryChain(stateDir), answer = service.readHead()
+    assert.deepEqual(answer, { head: entries.at(-1).hash, entries: entries.length, absence: null })
+    const response = JSON.stringify(answer)
+    for (const privateValue of [note, subject, stateDir]) assert.equal(response.includes(privateValue), false)
+    for (const dispose of disposers.splice(0).reverse()) dispose()
+    assert.deepEqual(service.readHead(), { head: null, entries: null, absence: 'kira-ledger-unavailable' })
+  } finally { for (const dispose of disposers.reverse()) dispose() }
+}
+
 async function concurrentWriters() {
   const stateDir = fresh()
   const childCode = `import { touchContinuityHead } from ${JSON.stringify(sourceURL.href)};
@@ -235,10 +337,16 @@ const mutants = [
   ['read failure refusal', "refuse('ledger-unreadable')", 'return null', 12],
   ['shared ledger lock', 'return withFileLock(file, () => {', 'return ((_file, fn) => fn())(file, () => {', 14],
   ['durable append', 'durableAppend(file,', ';(() => {})(file,', 0],
+  ['memory head projection', 'head: prev, entries: sequence, absence: null', 'head: head, entries: sequence, absence: null', 15],
+  ['memory head entry count', 'head: prev, entries: sequence, absence: null', 'head: prev, entries: 1, absence: null', 15],
+  ['memory head metadata exclusion', 'head: prev, entries: sequence, absence: null', 'head: prev, entries: sequence, absence: null, ...head', 15],
+  ['missing memory head', "absence: 'kira-ledger-missing'", 'absence: null', 16],
+  ['empty memory head', "absence: 'kira-ledger-empty'", 'absence: null', 16],
+  ['absent memory head projection', 'return { head: null, entries: null, absence:', "return { head: 'f'.repeat(64), entries: null, absence:", 18],
 ]
 
-function load(text) {
-  const resolved = text.replace(/from '(\.\/[^']+)'/gu, (_, specifier) => `from '${new URL(specifier, sourceURL).href}'`)
+function load(text, base = sourceURL) {
+  const resolved = text.replace(/from '(\.\/[^']+)'/gu, (_, specifier) => `from '${new URL(specifier, base).href}'`)
   return import(`data:text/javascript;base64,${Buffer.from(resolved).toString('base64')}`)
 }
 
@@ -268,12 +376,17 @@ try {
   await defaultClock(source)
   casesRun++
   console.log('PASS default timestamp is captured inside the ledger lock')
-  if (process.argv.includes('--mutate')) for (const [name, before, after, index] of mutants) {
-    assert.equal(source.split(before).length, 2, `${name}: unique mutation anchor`)
-    const api = await load(source.replace(before, after))
-    await assert.rejects(async () => checks[index][1](api), error => error.code === 'ERR_ASSERTION', `${name}: assertion must kill removed protection`)
-    killed++
-    console.log(`KILLED ${name}`)
+  await mountedHead()
+  casesRun++
+  console.log('PASS mounted Kira head exposes no note text and refuses after disposal')
+  if (process.argv.includes('--mutate')) for (let offset = 0; offset < mutants.length; offset += 4) {
+    await Promise.all(mutants.slice(offset, offset + 4).map(async ([name, before, after, index]) => {
+      assert.equal(source.split(before).length, 2, `${name}: unique mutation anchor`)
+      const api = await load(source.replace(before, after))
+      await assert.rejects(async () => checks[index][1](api), error => error.code === 'ERR_ASSERTION', `${name}: assertion must kill removed protection`)
+      killed++
+      console.log(`KILLED ${name}`)
+    }))
   }
   if (process.argv.includes('--mutate')) {
     const line = '    const snapshot = { ...input, ts: input.ts === undefined ? new Date().toISOString() : input.ts }\n'
@@ -282,8 +395,19 @@ try {
     await assert.rejects(() => defaultClock(early), error => error.code === 'ERR_ASSERTION')
     killed++
     console.log('KILLED timestamp captured before lock')
+    await Promise.all([
+      ['named head service', "ctx.provide('kira.head',", "ctx.provide('kira.head-missing',"],
+      ['frozen head service', "ctx.provide('kira.head', Object.freeze({", "ctx.provide('kira.head', ((_service) => _service)({"],
+      ['disposed head service', 'readHead: () => associationHostLive ?', 'readHead: () => true ?'],
+    ].map(async ([name, before, after]) => {
+      assert.equal(indexSource.split(before).length, 2, `${name}: unique mutation anchor`)
+      await assert.rejects(() => mountedHead(indexSource.replace(before, after)), error => error.code === 'ERR_ASSERTION')
+      killed++
+      console.log(`KILLED ${name}`)
+    }))
   }
   console.log(`kira-continuity-head: ${casesRun} passed, 0 failed; ${killed} mutants killed; source fixtures only`)
 } finally {
   rmSync(root, { recursive: true, force: true })
+  process.umask(priorMask)
 }

@@ -312,7 +312,9 @@ async function createAcceptedEFixture() {
   // Reviewed startup projectIdentityFile loading, exclusive identity sources,
   // and project status in tool/service recall and automatic diagnostics. Existing
   // capture/association authority and project attachment predicates stay intact.
-  assert.equal(sha(indexSource), 'b5c239b877944b0e971f8e24cb2e98f7e97ff39f94ae7b92fda71ca5dd3d6d9b',
+  // Reviewed: import the ledger head reader and provide frozen read-only kira.head;
+  // only head/count leave it, disposal refuses reads, and no authority paths changed.
+  assert.equal(sha(indexSource), 'a583f7cd29184cdcd069dc231516f6483b0e8e70f7dbfa370273c8eccaf37537',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')

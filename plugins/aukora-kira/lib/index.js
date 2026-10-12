@@ -28,6 +28,7 @@ import {
 import { createMemoryOwner } from './memory-owner.mjs'
 import { loadReadOwner, readOwnerPolicy, readOwnerSnapshot } from './read-owner.mjs'
 import { provideKiraRecall } from './recall-service.mjs'
+import { readMemoryLedgerHead } from './continuity-head.mjs'
 // §10.2's ceilings travel with every recall reply, and THIS is the module allowed to name them: `recall-service.mjs` has no imports at all, by design and by court.
 import { RECALL_CEILINGS } from './memory-tiers.mjs'
 import { provideKiraCite } from './cite-service.mjs'
@@ -453,6 +454,12 @@ export async function apply(ctx, config, gateCaptureHost) {
   // Explicit readOwner modules retain their isolated historical compatibility path.
   const memoryOwner = normalized.memoryOwner
   let associationHostLive = true
+  if (memoryOwner !== undefined && typeof ctx.provide === 'function') {
+    ctx.provide('kira.head', Object.freeze({
+      readHead: () => associationHostLive ? readMemoryLedgerHead({ stateDir: memoryOwner.stateDir })
+        : { head: null, entries: null, absence: 'kira-ledger-unavailable' },
+    }))
+  }
   const owner = memoryOwner === undefined ? await loadReadOwner(normalized.readOwner) : {
     describe: async () => ({ subject: memoryOwner.subject, policyRevision: memoryOwner.policyRevision,
       permittedPrivacy: memoryOwner.permittedPrivacy }),

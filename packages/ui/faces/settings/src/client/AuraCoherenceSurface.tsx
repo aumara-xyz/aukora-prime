@@ -134,6 +134,9 @@ export function AuraCoherenceSurface({ activeSurface, closeSurface, t }: AuraCoh
   }, [active, closeSurface])
 
   const frame = observation === null ? null : pentoraMotionFrame(observation.motion, clock?.motion === observation.motion ? clock.elapsed : 0, reducedMotion)
+  // Digests appear only once the picture has settled: between two heads nothing a person could read out or
+  // compare is on the page.
+  const digestsWithheld = frame !== null && frame.status !== 'solid'
   const snapshot = observation?.snapshot
   const present = snapshot?.sources.filter(source => source.head !== null).length ?? 0
   return <section className={css.root} hidden={!active} aria-label={t('aura.trigger')}>
@@ -160,7 +163,7 @@ export function AuraCoherenceSurface({ activeSurface, closeSurface, t }: AuraCoh
         <p className={css.state} role="status">{t(frame.status === 'solid' ? 'aura.status.rest' : 'aura.status.moving')}</p>
       </div>}
       {problem !== null && <p className={css.problem} role="status">{t('aura.snapshot.stale')} · {problem}</p>}
-      {snapshot === undefined ? <p>{t('aura.snapshot.waiting')}</p> : <>
+      {snapshot === undefined ? <p>{t('aura.snapshot.waiting')}</p> : digestsWithheld ? <p className={css.state}>{t('aura.status.moving')}</p> : <>
         <div className={css.readout}>
           <p>{t('aura.snapshot.head')} <code title={snapshot.head}>{snapshot.head.slice(0, 16)}</code></p>
           <p>{t('aura.snapshot.entries', { count: entriesMoved })}</p>
@@ -169,7 +172,7 @@ export function AuraCoherenceSurface({ activeSurface, closeSurface, t }: AuraCoh
         <dl className={css.sources}>{snapshot.sources.map(source => <div key={source.name}>
           <dt>{source.name}</dt>
           <dd>{source.head === null ? <span className={css.absent}>{t('aura.snapshot.absent')} · {source.absence}</span>
-            : <><code title={source.head}>{source.head.slice(0, 16)}</code><span> · {source.entries} {t('aura.snapshot.records')}</span></>}</dd>
+            : <><span>{t('aura.snapshot.available')} · </span><code title={source.head}>{source.head.slice(0, 16)}</code><span> · {source.entries} {t('aura.snapshot.records')}</span></>}</dd>
         </div>)}</dl>
         <details className={css.details}><summary>{t('aura.snapshot.details')}</summary><pre>{JSON.stringify(snapshot, null, 2)}</pre></details>
       </>}

@@ -1277,6 +1277,7 @@ window.__ModuleLoader__.load({
 				};
 			}, [active, closeSurface]);
 			const frame = observation === null ? null : pentoraMotionFrame(observation.motion, clock?.motion === observation.motion ? clock.elapsed : 0, reducedMotion);
+			const digestsWithheld = frame !== null && frame.status !== "solid";
 			const snapshot = observation?.snapshot;
 			const present = snapshot?.sources.filter((source) => source.head !== null).length ?? 0;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("section", {
@@ -1351,7 +1352,10 @@ window.__ModuleLoader__.load({
 								problem
 							]
 						}),
-						snapshot === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.snapshot.waiting") }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						snapshot === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("aura.snapshot.waiting") }) : digestsWithheld ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: AuraCoherenceSurface_module_css_default.state,
+							children: t("aura.status.moving")
+						}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: AuraCoherenceSurface_module_css_default.readout,
 								children: [
@@ -1376,15 +1380,19 @@ window.__ModuleLoader__.load({
 										" · ",
 										source.absence
 									]
-								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
-									title: source.head,
-									children: source.head.slice(0, 16)
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
-									" · ",
-									source.entries,
-									" ",
-									t("aura.snapshot.records")
-								] })] }) })] }, source.name))
+								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [t("aura.snapshot.available"), " · "] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
+										title: source.head,
+										children: source.head.slice(0, 16)
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+										" · ",
+										source.entries,
+										" ",
+										t("aura.snapshot.records")
+									] })
+								] }) })] }, source.name))
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
 								className: AuraCoherenceSurface_module_css_default.details,
@@ -1778,13 +1786,14 @@ window.__ModuleLoader__.load({
 			"aura.snapshot.entries": "打开后观察到 {count} 个源记录前进",
 			"aura.snapshot.present": "{count} / 3 个源提供了头",
 			"aura.snapshot.absent": "缺失",
+			"aura.snapshot.available": "已提供",
 			"aura.snapshot.records": "条记录",
 			"aura.snapshot.details": "完整头与快照输入",
 			"aura.snapshot.waiting": "等待记录头；尚无图形。",
 			"aura.snapshot.stale": "读取失败；图形仅表示上次观察到的快照",
 			"aura.snapshot.meaning": "两个人或两台设备看到相同 Pentora，即持有相同记录快照的显示指纹。可在详情比较完整头。",
 			"aura.snapshot.limit": "图形不证明记录完整、身份、谁在观看或审批。未暴露的头不是空链。",
-			"aura.snapshot.polling": "可见时每两秒读取一次，可能跳过中间头。当前仅提供门账本；只记录在会话或 Kira 中的操作不会使图形变化。",
+			"aura.snapshot.polling": "可见时每两秒读取一次，可能跳过中间头。三个源分别标识门审批账本、Kira 记忆账本和当前版本的记录（一个记录）。缺失的源会明确显示。",
 			"aura.menu": "记录快照"
 		};
 		/** English dictionary, checked complete against the zh key set. */
@@ -1806,13 +1815,14 @@ window.__ModuleLoader__.load({
 			"aura.snapshot.entries": "{count} observed source entries advanced since opening",
 			"aura.snapshot.present": "{count} / 3 sources supplied a head",
 			"aura.snapshot.absent": "Absent",
+			"aura.snapshot.available": "Present",
 			"aura.snapshot.records": "entries",
 			"aura.snapshot.details": "Full heads and snapshot inputs",
 			"aura.snapshot.waiting": "Waiting for recorded heads; no picture yet.",
 			"aura.snapshot.stale": "Read failed; the picture shows only the last observed snapshot",
 			"aura.snapshot.meaning": "Two people or devices seeing the same Pentora hold the same displayed snapshot fingerprint of the record. Compare full heads under Details.",
 			"aura.snapshot.limit": "The picture does not prove completeness, identity, who is looking, or approval. A head not exposed is not an empty chain.",
-			"aura.snapshot.polling": "Reads every two seconds while visible; intermediate heads may be missed. Only gate-ledger advances are available today; actions recorded only in sessions or Kira do not move this picture.",
+			"aura.snapshot.polling": "Reads every two seconds while visible; intermediate heads may be missed. The three sources identify gate approvals, Kira memory and the running release record (one record). Missing sources remain explicit.",
 			"aura.menu": "record snapshot"
 		};
 		//#endregion
