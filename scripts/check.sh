@@ -419,7 +419,8 @@ check_tap 'node --test-reporter=tap tests/node-spawn-configure.test.mjs --mutati
 # Split in two (resume and pause cases; the rest): as one command this reached 40-50 seconds.
 check_tap 'node --test --test-reporter=tap --test-skip-pattern=mutants --test-name-pattern="resume|pause" tests/node-spawn-linux.test.mjs'
 check_tap 'node --test --test-reporter=tap --test-skip-pattern="mutants|resume|pause" tests/node-spawn-linux.test.mjs'
-check_tap 'node --test --test-reporter=tap --test-name-pattern=mutants tests/node-spawn-linux.test.mjs'
+check_tap 'node --test --test-reporter=tap --test-name-pattern="(preload and preexisting key|order and owner barrier) mutants" tests/node-spawn-linux.test.mjs'
+check_tap 'node --test --test-reporter=tap --test-name-pattern="resume binding and installation policy mutants" tests/node-spawn-linux.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/node-spawn-stage.test.mjs'
 check_tap 'node --test --test-reporter=tap ops/buzz-relay/member.test.mjs'
 # Split in two by a pattern and its complement: as one command this neared the 55-second limit on Linux CI.

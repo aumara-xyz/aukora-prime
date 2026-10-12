@@ -8,9 +8,9 @@ import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
-import { createInvite, redeemInvite, TTL_SECONDS, REFUSE as INVITES } from '../packages/invites/index.mjs'
+import { createInvite, redeemInvite, verifyAdmissionRecord, TTL_SECONDS, REFUSE as INVITES } from '../packages/invites/index.mjs'
 import { publicKeyOf, randomSecretKey, verifyEvent } from '../plugins/aukora-nostr/lib/event.mjs'
-import { preflight, redeem } from '../ops/node-spawn/invite.mjs'
+import { preflight, redeem, verifyBinding, REFUSE as CLIENT } from '../ops/node-spawn/invite.mjs'
 import { REFUSE } from '../ops/buzz-relay/admit.mjs'
 import { REFUSE as MEMBER } from '../ops/buzz-relay/member.mjs'
 
@@ -163,6 +163,7 @@ check('client and idempotence', () => withServer(async (f, s) => {
   await preflight({ config: s.config, offer: o, now: f.now })
   assert.deepEqual(counts(f), { consumed: 0, admissions: 0 }); assert.equal(s.b.additions.length, 0)
   const record = await redeem({ config: s.config, offer: o, keyFile: f.people[1].keyFile, now: f.now }, { keyOptions: f.keyOptions })
+  assert.equal(verifyAdmissionRecord({ root: s.config.root, record }).member, f.people[1].pubkey)
   assert.equal(record.chain.at(-1).redemption.id, claim.redemption.id)
   claim.redemption = record.chain.at(-1).redemption
   assert.deepEqual(record.chain, [claim]); assert.deepEqual(counts(f), { consumed: 1, admissions: 1 })
@@ -278,6 +279,19 @@ check('global limit', () => withServer(async (f, s) => {
   assert.deepEqual(counts(f), { consumed: 0, admissions: 0 }); assert.equal(s.b.additions.length, 0)
   assert.equal(s.logs.length, 2); logsOnly(s.logs, f.people)
 }, { addressLimit: 10, globalLimit: 1 }))
+check('per-address refusals preserve global allowance', () => withServer(async (f, s) => {
+  const body = input(f, pair(f)); delete body.redemption
+  const from = address => post(s, '/preflight', body, { headers: {
+    'content-type': 'application/json', 'x-client-address': address,
+  } })
+  assert.equal((await from('192.0.2.1')).status, 200)
+  refused(await from('192.0.2.1'), REFUSE.BUSY)
+  refused(await from('192.0.2.1'), REFUSE.BUSY)
+  assert.equal((await from('192.0.2.2')).status, 200, 'A=200,429,429 must leave B allowance')
+  refused(await from('192.0.2.3'), REFUSE.BUSY)
+  assert.deepEqual(counts(f), { consumed: 0, admissions: 0 })
+}, { behindTlsProxy: true, trustedAddressHeader: 'x-client-address', addressLimit: 1,
+  globalLimit: 2, windowMs: 300000 }))
 check('isolated key', async () => {
   const f = fixture(), b = bridge(f.people[0].pubkey)
   try {
@@ -317,25 +331,68 @@ process.send({kind:'ready',port:server.address().port});`
   })
   return { child, ready, exited, get stderr() { return stderr } }
 }
-check('crash recovery', async () => {
+check('client crash recovery', async () => {
   const f = fixture(), b = bridge(f.people[0].pubkey), claim = pair(f)
   let s, c
   try {
     c = await crashServer(f, b); const port = await c.ready
-    await assert.rejects(() => fetch(`http://127.0.0.1:${port}/redeem`, { method: 'POST',
-      headers: { 'content-type': 'application/json' }, body: JSON.stringify(input(f, claim)), signal: AbortSignal.timeout(3000) }))
+    const config = { version: 1, root: f.people[0].pubkey, admission: `http://127.0.0.1:${port}` }
+    const args = { config, offer: offer(claim), keyFile: f.people[1].keyFile, now: f.now }
+    const requests = [], deps = { keyOptions: f.keyOptions, fetchImpl: (url, options) => {
+      requests.push(options.body); return fetch(url, options)
+    } }
+    await reject(() => redeem(args, deps), CLIENT.SPENT)
     const exited = await c.exited; assert.equal(exited.signal, 'SIGKILL'); assert.equal(fs.readFileSync(path.join(f.home, 'spent-marker'), 'utf8'), 'spent')
     assert.deepEqual(counts(f), { consumed: 1, admissions: 1 }); assert.equal(b.additions.length, 0)
-    s = await serve(f, {}, { fetchImpl: b.fetchImpl })
+    const pending = JSON.parse(fs.readFileSync(args.keyFile + '.invite-pending.json', 'utf8'))
+    claim.redemption = pending.redemption
+    const forged = { chain: [claim] }
+    await assert.rejects(() => redeem({ ...args, resumeRecord: forged }, deps))
+    assert.equal(requests.length, 1, 'a locally constructed record cannot confirm admission')
+    s = await serve(f, { port }, { fetchImpl: b.fetchImpl, now: () => f.now + TTL_SECONDS + 1 })
     assert.equal(b.additions.length, 1); assert.equal(journal(f).length, 1)
+    const record = await redeem({ ...args, now: f.now + TTL_SECONDS + 1 }, deps)
+    assert.equal(verifyAdmissionRecord({ root: config.root, record }).member, f.people[1].pubkey)
+    assert.equal(requests.length, 2); assert.equal(requests[1], requests[0], 'resume replays identical signed bytes')
     const result = await post(s, '/redeem', input(f, claim))
-    assert.equal(result.status, 200); assert.deepEqual(result.data, { admitted: true, record: { chain: [claim] } })
+    assert.equal(result.status, 200); assert.deepEqual(result.data, { admitted: true, record })
     const replay = await post(s, '/redeem', input(f, claim))
     assert.deepEqual(replay.data, result.data); assert.equal(b.additions.length, 1)
     assert.deepEqual(counts(f), { consumed: 1, admissions: 1 }); assert.equal(journal(f).length, 1)
     assert.deepEqual(b.errors, []); for (const person of f.people) assert(!c.stderr.includes(person.key))
   } finally {
     if (s) await close(s.server); if (c?.child.exitCode === null && c?.child.signalCode === null) c.child.kill('SIGKILL')
+    fs.rmSync(f.home, { recursive: true, force: true })
+  }
+})
+
+check('client transport retry and forged record', async () => {
+  const f = fixture()
+  let s, closed = false
+  try {
+    s = await serve(f)
+    const port = s.server.address().port, config = s.config, claim = pair(f)
+    await close(s.server); closed = true
+    const args = { config, offer: offer(claim), keyFile: f.people[1].keyFile, now: f.now }
+    const requests = [], deps = { keyOptions: f.keyOptions, fetchImpl: (url, options) => {
+      requests.push(options.body); return fetch(url, options)
+    } }
+    await reject(() => redeem(args, deps), CLIENT.SPENT)
+    assert.deepEqual(counts(f), { consumed: 0, admissions: 0 })
+    const pending = JSON.parse(fs.readFileSync(args.keyFile + '.invite-pending.json', 'utf8'))
+    const forged = { chain: [{ invite: claim.invite, redemption: pending.redemption }] }
+    await assert.rejects(() => redeem({ ...args, resumeRecord: forged }, deps))
+    assert.throws(() => verifyBinding({ config, record: forged, keyFile: args.keyFile }, deps))
+    assert.equal(requests.length, 1, 'ADMITTED authority_count=0 is refused')
+    assert.equal(fs.existsSync(args.keyFile + '.invite-confirmed.json'), false)
+    s = await serve(f, { port }); closed = false
+    const record = await redeem(args, deps)
+    assert.equal(verifyAdmissionRecord({ root: config.root, record }).member, f.people[1].pubkey)
+    assert.equal(requests.length, 2, 'transport_attempts=1 must not strand the pending invite')
+    assert.equal(requests[1], requests[0])
+    assert.deepEqual(counts(f), { consumed: 1, admissions: 1 }); assert.equal(s.b.additions.length, 1)
+  } finally {
+    if (s && !closed) await close(s.server)
     fs.rmSync(f.home, { recursive: true, force: true })
   }
 })

@@ -11,7 +11,7 @@ import { registerHooks } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
-import { createInvite, redeemInvite, REFUSE as INVITES } from '../packages/invites/index.mjs'
+import { createInvite, redeemInvite, createAdmissionRecord, verifyAdmissionRecord, REFUSE as INVITES } from '../packages/invites/index.mjs'
 import { randomSecretKey, publicKeyOf } from '../plugins/aukora-nostr/lib/event.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -29,8 +29,16 @@ const MUTATIONS = [
   ['strict JSON', 'parseStrictJson(text, { maxBytes: config.bodyLimit })', 'JSON.parse(text)', 'strict JSON'],
   ['unknown fields', '!fields(body, names)', 'false', 'strict JSON'],
   ['request deadline', '}, config.deadlineMs)', '}, config.deadlineMs * 100)', 'deadline'],
-  ['global rate limit', '++total > config.globalLimit', 'false', 'limits'],
-  ['address rate limit', 'count <= config.addressLimit', 'true', 'limits'],
+  ['global rate limit', 'total >= config.globalLimit', 'false', 'limits'],
+  ['address rate limit', 'count > config.addressLimit', 'false', 'limits'],
+  ['address refusal global charge', 'if (count > config.addressLimit) return false', 'if (count > config.addressLimit) { total++; return false }', 'limits'],
+  ['forwarding proxy opt-in', "config.trustedAddressHeader !== undefined && (config.behindTlsProxy !== true", 'config.trustedAddressHeader !== undefined && (false', 'forwarding'],
+  ['single forwarded address', 'headers.length !== 1', 'false', 'forwarding'],
+  ['valid forwarded address', '!isIP(address)', 'false', 'forwarding'],
+  ['stored confirmation signature', 'verifyAdmissionRecord({ root, record }).member !== result.member', 'false', 'confirmation'],
+  ['stored confirmation bytes', 'canonicalJson({ chain: record.chain }) !== canonicalJson(result.record)', 'false', 'confirmation'],
+  ['authority confirmation', 'confirmedRecord(config, owner, result, (deps.now ?? (() => Math.floor(Date.now() / 1000)))())', 'result.record', 'recovery'],
+  ['persisted confirmation', "database.prepare('INSERT INTO confirmations VALUES (?, ?)').run(redemptionId, row.record)", 'void row', 'recovery'],
   ['no response cache', "'cache-control': 'no-store'", "'cache-control': 'public'", 'protocol'],
   ['refusal redaction', "codes.has(error?.code) ? error.code : ADMIT.UNKNOWN", 'error.message', 'redaction'],
   ['log redaction', 'invite_id: inviteId, outcome', 'invite_id: inviteId, outcome, secret: options.keyFile', 'redaction'],
@@ -103,16 +111,16 @@ function fixture(t, extra = {}) {
     const db = new DatabaseSync(file, { readOnly: true })
     try { return db.prepare('SELECT count(*) AS n FROM consumed').get().n } finally { db.close() }
   }
-  return { home, key, keyFile, root, body, redemption, options, deps, logs, sends, counts,
+  return { home, key, memberKey, keyFile, root, body, redemption, options, deps, logs, sends, counts,
     setClosed: value => { closed = value }, setBroken: value => { broken = value } }
 }
 
-async function request(server, value, { method = 'POST', url = '/preflight', headers = {}, rawHeaders, bytes, slow = false, chunks, parserError = false } = {}) {
+async function request(server, value, { method = 'POST', url = '/preflight', headers = {}, rawHeaders, bytes, slow = false, chunks, parserError = false, address = '127.0.0.1' } = {}) {
   const req = new PassThrough()
   req.method = method; req.url = url
   req.headers = { 'content-type': 'application/json', ...headers }
   req.rawHeaders = rawHeaders ?? Object.entries(req.headers).flat()
-  req.socket = Object.assign(new EventEmitter(), { remoteAddress: '127.0.0.1', writable: true, end() {}, destroy() {} })
+  req.socket = Object.assign(new EventEmitter(), { remoteAddress: address, writable: true, end() {}, destroy() {} })
   const res = new EventEmitter()
   res.destroyed = false
   res.writeHead = (status, outputHeaders) => { res.status = status; res.headers = outputHeaders }
@@ -203,12 +211,31 @@ test('parser errors log an active request or malformed header only once', async 
 
 test('limits bound one socket peer and globally across peers; forwarding headers do not change identity', async t => {
   const f = fixture(t)
-  const server = await startAdmissionServer({ ...f.options, addressLimit: 1, globalLimit: 5, windowMs: 300000 }, f.deps)
+  const server = await startAdmissionServer({ ...f.options, addressLimit: 1, globalLimit: 2, windowMs: 300000 }, f.deps)
   assert.equal((await request(server, f.body)).status, 200)
   refused(await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.2' } }), 429, REFUSE.BUSY)
-  const global = await startAdmissionServer({ ...f.options, addressLimit: 5, globalLimit: 1, windowMs: 300000 }, f.deps)
-  assert.equal((await request(global, f.body)).status, 200)
-  refused(await request(global, f.body), 429, REFUSE.BUSY)
+  refused(await request(server, f.body), 429, REFUSE.BUSY)
+  assert.equal((await request(server, f.body, { address: '127.0.0.2' })).status, 200)
+  refused(await request(server, f.body, { address: '127.0.0.3' }), 429, REFUSE.BUSY)
+})
+
+test('forwarding requires an opted-in TLS proxy and a single valid address', async t => {
+  const f = fixture(t), trustedAddressHeader = 'x-forwarded-for'
+  await assert.rejects(() => startAdmissionServer({ ...f.options, trustedAddressHeader }, f.deps), error => error.code === REFUSE.INPUT)
+  for (const value of ['', 'X-Forwarded-For', 'bad header']) {
+    await assert.rejects(() => startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedAddressHeader: value }, f.deps), error => error.code === REFUSE.INPUT)
+  }
+  const server = await startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedAddressHeader, addressLimit: 1 }, f.deps)
+  refused(await request(server, f.body), 400)
+  for (const address of ['203.0.113.1, 203.0.113.2', 'unknown', ' 203.0.113.1']) {
+    refused(await request(server, f.body, { headers: { 'x-forwarded-for': address } }), 400)
+  }
+  refused(await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.1' },
+    rawHeaders: ['content-type', 'application/json', 'X-Forwarded-For', '203.0.113.1', 'x-forwarded-for', '203.0.113.1'] }), 400)
+  assert.equal((await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.1' } })).status, 200)
+  refused(await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.1' } }), 429, REFUSE.BUSY)
+  assert.equal((await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.2' } })).status, 200)
+  assert.equal(f.counts(), 0)
 })
 
 test('redaction returns stable codes and logs only invite id and outcome', async t => {
@@ -249,6 +276,33 @@ test('recovery completes a pending spend before accepting requests; exact replay
   assert.equal(f.sends.length, 1)
   const replay = await request(restarted, { ...f.body, redemption: f.redemption }, { url: '/redeem' })
   assert.equal(replay.status, 200); assert.equal(f.sends.length, 1); assert.equal(f.counts(), 1)
+  assert.equal(verifyAdmissionRecord({ root: f.root, record: replay.body.record }).member, f.redemption.pubkey)
+  const repeated = await request(restarted, { ...f.body, redemption: f.redemption }, { url: '/redeem' })
+  assert.deepEqual(repeated.body.record, replay.body.record)
+  const again = await startAdmissionServer(f.options, f.deps)
+  const afterRestart = await request(again, { ...f.body, redemption: f.redemption }, { url: '/redeem' })
+  assert.deepEqual(afterRestart.body.record, replay.body.record)
+})
+
+test('confirmation cache rejects forged signatures and unrelated owner-signed chains', async t => {
+  const f = fixture(t), server = await startAdmissionServer(f.options, f.deps)
+  const payload = { ...f.body, redemption: f.redemption }
+  const first = await request(server, payload, { url: '/redeem' })
+  assert.equal(first.status, 200)
+  const database = new DatabaseSync(path.join(f.options.storeDir, 'admissions.sqlite'))
+  t.after(() => database.close())
+  const update = record => database.prepare('UPDATE confirmations SET record = ? WHERE redemptionId = ?').run(JSON.stringify(record), f.redemption.id)
+  const forged = structuredClone(first.body.record)
+  forged.confirmation.sig = '00'.repeat(64)
+  update(forged)
+  refused(await request(server, payload, { url: '/redeem' }), 503, REFUSE.STORE)
+  const now = Math.floor(Date.now() / 1000)
+  const invite = createInvite({ root: f.root, secretKey: f.key, now })
+  const redemption = redeemInvite({ invite, secretKey: f.memberKey, now })
+  const unrelated = createAdmissionRecord({ root: f.root, secretKey: f.key, record: { chain: [{ invite, redemption }] }, now })
+  update(unrelated)
+  refused(await request(server, payload, { url: '/redeem' }), 503, REFUSE.STORE)
+  assert.equal(f.counts(), 1); assert.equal(f.sends.length, 1)
 })
 
 test('HTTP protections fail under isolated parallel mutations', { skip: process.env.AUKORA_ADMISSION_GUARD_MUTATIONS !== '1' }, async () => {

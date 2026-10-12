@@ -42,12 +42,26 @@ receives `{root, invite, chain}` and returns HTTP 200
 `redemption`, returning HTTP 200 `{admitted:true, record}` only after durable
 spending and closed-relay admission. Known refusals return non-200 `{code}`.
 Redirects refuse. Returned ancestry, offer, redemption and generated key must
-match exactly. HTTPS authenticates this authority; signed ancestry alone does
-not prove spending or relay admission. The [admission service](../buzz-relay/README.md#invite-admission-http-service)
+match exactly. The record includes the relay owner's signed confirmation of
+the canonical chain and redemption ID, verified against the configured network
+root. Signed ancestry alone does not prove spending or relay admission. The [admission service](../buzz-relay/README.md#invite-admission-http-service)
 implements that server in source; installed operation remains unqualified. It shares one trusted store and the existing
 `ops/buzz-relay/admit.mjs` outbox. The relay owner's key stays at the relay.
 There is one closed community relay; this command installs none. The door's
 existing loopback route needs a separately supplied transport to that relay.
+
+Before dispatch, the client durably saves the exact signed request in a private
+0600 file. An uncertain reply prints `UNKNOWN_WHETHER_SPENT`; rerunning the same
+command sends those identical bytes to `/redeem`, once per run with a ten-second
+deadline. It generates no replacement redemption. The authority returns its
+same admission after a completed spend. A local `--resume-record` is only a
+checked owner-signed cache and cannot substitute for that replay. Legacy bare
+records are untrusted caches. Only an owner-confirmed reply or a definitive
+no-spend refusal ends the pending state; signed confirmation or a terminal
+refusal is saved beside the retained request history. `NOT_SPENT` means that
+exact request was not spent in this authority's store, not that the invite was
+never used elsewhere. Replay, conflicting ancestry, store errors and uncertain
+relay delivery remain unknown and retry the same request.
 
 The eight functions in `linux.sh` follow this sequence:
 
@@ -94,8 +108,8 @@ Root-held phase bindings preserve installation across an enrollment pause and
 identities across an approval pause. Exact completed reruns only read back:
 no reinstall, new spend, duplicate card or floor reset. Changed inputs, keys,
 admissions or configuration refuse. A crash during staging, between key creation
-and its phase marker, or after remote spending before record storage needs
-operator reconciliation; arbitrary crash recovery is not proved. A refused
+and its phase marker needs operator reconciliation; an uncertain invite reply
+replays through the authority. Arbitrary crash recovery is not proved. A refused
 approval leaves the harness unstarted. Exact-floor proof is retained and checked.
 
 Installed readback loads the release's actual door readers, checks nonmember

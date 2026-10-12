@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { redeemInvite, verifyRecord, REFUSE as INVITE_REFUSE } from '../../packages/invites/index.mjs'
+import { redeemInvite, verifyRecord, verifyAdmissionRecord, REFUSE as INVITE_REFUSE } from '../../packages/invites/index.mjs'
 import { publicKeyOf, randomSecretKey } from '../../plugins/aukora-nostr/lib/event.mjs'
 import { canonicalJson } from '../../packages/contracts/src/json.mjs'
 
@@ -17,6 +17,7 @@ export const REFUSE = Object.freeze({
   SPENT: 'INVITE_SPENT_NOT_CONFIRMED',
 })
 const MAX_BYTES = 262144
+const NOT_SPENT = [INVITE_REFUSE.EXPIRED, INVITE_REFUSE.ALLOTMENT, INVITE_REFUSE.MEMBER, INVITE_REFUSE.UNADMITTED]
 const fail = code => Object.assign(new Error(code), { code })
 const seconds = () => Math.floor(Date.now() / 1000)
 const hex = value => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value)
@@ -110,7 +111,7 @@ async function post(config, route, body, fetchImpl) {
   let response
   try {
     response = await fetchImpl(config.admission + route, { method: 'POST', redirect: 'error',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) })
+      headers: { 'Content-Type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body), signal: AbortSignal.timeout(10000) })
   } catch { throw fail(REFUSE.TRANSPORT) }
   let text = '', data
   try {
@@ -138,7 +139,7 @@ export async function preflight({ config, offer, now = seconds() }, { fetchImpl 
 const sameValue = (left, right) => canonicalJson(left) === canonicalJson(right)
 
 function boundRecord(config, record, offer, redemption, member) {
-  const checked = verifyRecord({ root: config.root, record })
+  const checked = verifyAdmissionRecord({ root: config.root, record })
   const last = record.chain.at(-1)
   if (!sameValue(record.chain.slice(0, -1), offer.chain)
     || !sameValue(last.invite, offer.invite)
@@ -174,7 +175,7 @@ function durableRecord(file, value, options) {
   finally { if (fd !== undefined) fs.closeSync(fd) }
 }
 
-function recordOutput(file, resuming, expected, options) {
+function recordOutput(file, resuming, expected, config, options) {
   if (file === undefined) return undefined
   let fd
   try {
@@ -184,7 +185,12 @@ function recordOutput(file, resuming, expected, options) {
     const st = fs.fstatSync(fd)
     if (!st.isFile() || st.nlink !== 1 || st.uid !== (options?.uid ?? process.getuid())
       || (st.mode & 0o777) !== 0o600 || st.size > MAX_BYTES) throw fail(REFUSE.FILE)
-    if (st.size && !sameValue(JSON.parse(fs.readFileSync(fd, 'utf8')), expected)) throw fail(REFUSE.BINDING)
+    if (st.size) {
+      const existing = JSON.parse(fs.readFileSync(fd, 'utf8'))
+      if (fields(existing, ['chain'])) verifyRecord({ root: config.root, record: existing })
+      else verifyAdmissionRecord({ root: config.root, record: existing })
+      if (!sameValue(existing.chain, expected.chain)) throw fail(REFUSE.BINDING)
+    }
     fs.fsyncSync(fd)
     return fd
   } catch (error) {
@@ -193,55 +199,66 @@ function recordOutput(file, resuming, expected, options) {
   }
 }
 
-// A persisted request is never spent again; authority records resume only the same signed binding.
+// Pending requests replay exact signed bytes; only owner-confirmed records complete admission.
 export async function redeem({ config, offer, keyFile, recordFile, resumeRecord, now = seconds() }, { fetchImpl = fetch, keyOptions } = {}) {
   config = checkedConfig(config)
   const key = readKey(keyFile, keyOptions)
   const member = publicKeyOf(key), pendingFile = keyFile + '.invite-pending.json', responseFile = keyFile + '.invite-response.json'
-  const confirmedFile = keyFile + '.invite-confirmed.json'
+  const confirmedFile = keyFile + '.invite-confirmed.json', refusedFile = keyFile + '.invite-refused.json'
   const pending = privateJson(pendingFile, keyOptions)
-  if (!pending && (privateJson(responseFile, keyOptions) || privateJson(confirmedFile, keyOptions))) throw fail(REFUSE.FILE)
-  if (pending && (!fields(pending, ['version', 'config', 'offer', 'redemption', 'member'])
+  const response = privateJson(responseFile, keyOptions), confirmed = privateJson(confirmedFile, keyOptions)
+  const refused = privateJson(refusedFile, keyOptions)
+  if (!pending && (response || confirmed || refused)) throw fail(REFUSE.FILE)
+  const pendingNames = ['version', 'config', 'offer', 'redemption', 'member']
+  if (pending && ((!fields(pending, pendingNames) && !fields(pending, [...pendingNames, 'request']))
     || !fields(pending.offer, ['invite', 'chain']) || !pending.redemption)) throw fail(REFUSE.FILE)
   offer = verifyOffer({ root: config.root, offer, now: pending ? pending.redemption?.created_at : now })
-  if (pending && (!fields(pending, ['version', 'config', 'offer', 'redemption', 'member'])
-    || pending.version !== 1 || !sameValue(pending.config, config)
+  if (pending && (pending.version !== 1 || !sameValue(pending.config, config)
     || !sameValue(pending.offer.chain, offer.chain) || !sameValue(pending.offer.invite, offer.invite)
     || pending.member !== member)) throw fail(REFUSE.BINDING)
   if (!pending && resumeRecord !== undefined) throw fail(REFUSE.INPUT)
   const redemption = pending ? pending.redemption : redeemInvite({ invite: offer.invite, secretKey: key, now })
   const expected = { chain: [...offer.chain, { invite: offer.invite, redemption }] }
-  boundRecord(config, expected, offer, redemption, member)
-  // Reserve and sync writable output before the authority can consume the invite.
-  const output = recordOutput(recordFile, Boolean(pending), expected, keyOptions)
+  verifyRecord({ root: config.root, record: expected })
+  const request = pending && Object.hasOwn(pending, 'request') ? pending.request
+    : JSON.stringify({ root: config.root, ...(pending?.offer ?? offer), redemption })
   try {
-    let response
-    if (!pending) {
-      durableRecord(pendingFile, { version: 1, config, offer, redemption, member }, keyOptions)
-      try {
-        response = await post(config, '/redeem', { root: config.root, ...offer, redemption }, fetchImpl)
-        durableRecord(responseFile, response, keyOptions)
-      } catch (error) {
-        throw Object.assign(fail(REFUSE.SPENT), { inviteId: offer.invite.id, causeCode: error?.code ?? REFUSE.TRANSPORT })
-      }
-    } else response = privateJson(responseFile, keyOptions)
-    if (response?.status !== 200 && fields(response?.data, ['code'])
-      && Object.values(INVITE_REFUSE).includes(response.data.code)) throw fail(response.data.code)
+    if (typeof request !== 'string' || !sameValue(JSON.parse(request), { root: config.root, ...offer, redemption })) throw fail(REFUSE.BINDING)
+  } catch { throw fail(REFUSE.BINDING) }
+  if (resumeRecord !== undefined) boundRecord(config, resumeRecord, offer, redemption, member)
+  // Reserve and sync writable output before the authority can consume the invite.
+  const output = recordOutput(recordFile, Boolean(pending), expected, config, keyOptions)
+  try {
     let record
-    try {
-      const confirmed = privateJson(confirmedFile, keyOptions)
-      if (resumeRecord !== undefined) {
-        record = boundRecord(config, resumeRecord, offer, redemption, member)
-        if (!confirmed) durableRecord(confirmedFile, record, keyOptions)
-        else boundRecord(config, confirmed, offer, redemption, member)
-      } else if (confirmed) record = boundRecord(config, confirmed, offer, redemption, member)
-      else {
-        if (!response || response.status !== 200 || !fields(response.data, ['admitted', 'record'])
-          || response.data.admitted !== true) throw fail(REFUSE.ADMISSION)
-        record = boundRecord(config, response.data.record, offer, redemption, member)
+    if (confirmed && !fields(confirmed, ['chain'])) record = boundRecord(config, confirmed, offer, redemption, member)
+    else {
+      if (refused) {
+        if (!fields(refused, ['request', 'code']) || refused.request !== request || !NOT_SPENT.includes(refused.code)) throw fail(REFUSE.FILE)
+        throw Object.assign(fail(refused.code), { inviteId: offer.invite.id, notSpent: true })
       }
-    } catch (error) {
-      throw Object.assign(fail(REFUSE.SPENT), { inviteId: offer.invite.id, causeCode: error?.code ?? REFUSE.BINDING })
+      if (confirmed) {
+        verifyRecord({ root: config.root, record: confirmed })
+        if (!sameValue(confirmed.chain, expected.chain)) throw fail(REFUSE.BINDING)
+        // A legacy bare chain is a cache, never authority confirmation.
+        fs.unlinkSync(confirmedFile)
+      }
+      if (!pending) durableRecord(pendingFile, { version: 1, config, offer, redemption, member, request }, keyOptions)
+      // Each run dispatches at most once, including recovery after an uncertain transport.
+      let answer
+      try { answer = await post(config, '/redeem', request, fetchImpl) }
+      catch (error) { throw Object.assign(fail(REFUSE.SPENT), { inviteId: offer.invite.id, causeCode: error?.code ?? REFUSE.TRANSPORT }) }
+      if (answer.status !== 200 && fields(answer.data, ['code']) && NOT_SPENT.includes(answer.data.code)) {
+        durableRecord(refusedFile, { request, code: answer.data.code }, keyOptions)
+        throw Object.assign(fail(answer.data.code), { inviteId: offer.invite.id, notSpent: true })
+      }
+      try {
+        if (answer.status !== 200 || !fields(answer.data, ['admitted', 'record'])
+          || answer.data.admitted !== true) throw fail(fields(answer.data, ['code']) ? answer.data.code : REFUSE.ADMISSION)
+        record = boundRecord(config, answer.data.record, offer, redemption, member)
+        durableRecord(confirmedFile, record, keyOptions)
+      } catch (error) {
+        throw Object.assign(fail(REFUSE.SPENT), { inviteId: offer.invite.id, causeCode: error?.code ?? REFUSE.BINDING })
+      }
     }
     try {
       if (output !== undefined) {
@@ -263,7 +280,7 @@ export async function redeem({ config, offer, keyFile, recordFile, resumeRecord,
 export function verifyBinding({ config, record, keyFile }, { keyOptions } = {}) {
   config = checkedConfig(config)
   const key = readKey(keyFile, keyOptions)
-  const checked = verifyRecord({ root: config.root, record })
+  const checked = verifyAdmissionRecord({ root: config.root, record })
   if (checked.member !== publicKeyOf(key)) throw fail(REFUSE.BINDING)
 }
 
@@ -313,10 +330,11 @@ export async function runCli(args, deps = {}) {
     err(`REFUSED ${code}`)
     if (code === REFUSE.SPENT) {
       const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
-      err(`SPENT_NOT_CONFIRMED invite_id=${error.inviteId} cause=${error.causeCode}`)
+      err(`UNKNOWN_WHETHER_SPENT invite_id=${error.inviteId} cause=${error.causeCode}`)
       const resumeArgs = args.filter((arg, index) => arg !== '--resume-record' && args[index - 1] !== '--resume-record')
-      err(`RESUME obtain this invite's signed record from the configured authority outbox, then run: node ops/node-spawn/invite.mjs ${resumeArgs.map(quote).join(' ')} --resume-record AUTHORITY_RECORD_PATH`)
+      err(`RETRY one identical persisted redemption with a 10-second transport deadline: node ops/node-spawn/invite.mjs ${resumeArgs.map(quote).join(' ')}`)
     }
+    if (error?.notSpent === true) err(`NOT_SPENT invite_id=${error.inviteId} cause=${code}`)
     return 1
   }
 }

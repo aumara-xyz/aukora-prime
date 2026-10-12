@@ -85,7 +85,9 @@ closure, idempotence, owner custody, store rollback resistance or enforcement in
 `admission-server.mjs` wraps that engine for [node-spawn](../node-spawn/README.md). `POST /preflight` receives
 `{root, invite, chain}` and verifies availability without spending. `POST /redeem` adds the signed `redemption`;
 it returns `{admitted:true, record}` only after durable spending and the relay owner's signed kind-9030 member add.
-The same signed redemption returns the same committed record on retry; a different redemption of a spent invite
+The record carries the owner's signed kind-39704 confirmation of the network root, last redemption id, and
+SHA-256 of the canonical chain; node-spawn requires that signature before recording admission. The confirmation
+is preserved in the admission database. The same signed redemption returns the same committed record on retry; a different redemption of a spent invite
 is refused. Refusals return non-200 `{code}` without request bytes. Both routes require `application/json`, reject
 unknown fields and bounded/slow bodies, and return `cache-control: no-store`. Fixed-window limits apply to the
 socket's remote address and globally. Logs contain the invite id and outcome; the service stores no private key
@@ -120,7 +122,10 @@ the pending outbox is recovered using the same owner and relay. A lost acknowled
 
 The default listener is `127.0.0.1:3100`. TLS termination belongs to the operator's reverse proxy, which should
 forward only `/preflight` and `/redeem` to that loopback address without logging bodies. The service neither serves
-TLS nor trusts forwarding headers for address accounting: callers behind one proxy share its address limit.
+TLS. Forwarding headers are ignored by default: callers behind one proxy share its address limit. An operator
+may opt in with `--behind-tls-proxy --trusted-address-header x-forwarded-for` only when a trusted proxy strips
+all client copies and sets one valid IP address, and callers cannot bypass that proxy. Lists, repeated headers,
+and invalid addresses are refused. An address-limited request does not consume the global allowance.
 For a direct non-loopback bind, the CLI requires both `--host ADDRESS` and `--behind-tls-proxy`; the flag records
 operator intent and does not prove TLS. Such a deployment also needs an explicitly reviewed unit override for its
 loopback IP restrictions. Node-spawn must use the operator's HTTPS endpoint (or its existing explicit loopback

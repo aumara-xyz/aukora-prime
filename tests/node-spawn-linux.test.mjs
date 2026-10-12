@@ -26,7 +26,7 @@ function fixture(t, { script = shell, hostSource = host } = {}) {
   for (const dir of [root, source, bin, runner]) fs.mkdirSync(dir, { mode: 0o755 })
   const events = path.join(base, 'events'), configPath = path.join(base, 'config.json'), driver = path.join(base, 'driver.mjs')
   const env = { ...process.env, PATH: bin + ':' + process.env.PATH, SPAWN_TEST_ROOT: root, SPAWN_TEST_EVENTS: events,
-    SPAWN_TEST_DB: path.join(base, 'authority.sqlite'), NODE_NO_WARNINGS: '1', PYTHONDONTWRITEBYTECODE: '1' }
+    SPAWN_TEST_DB: path.join(base, 'authority.sqlite'), SPAWN_TEST_AUTHORITY_KEY: path.join(base, 'authority.key'), NODE_NO_WARNINGS: '1', PYTHONDONTWRITEBYTECODE: '1' }
   const exec = (command, args, options = {}) => spawnSync(command, args, { encoding: 'utf8', env, timeout: 30000, ...options })
   const must = result => assert.equal(result.status, 0, result.stderr)
   write(path.join(runner, 'linux.sh'), script)
@@ -34,7 +34,7 @@ function fixture(t, { script = shell, hostSource = host } = {}) {
   for (const file of ['stage.py', 'invite.mjs', 'configure.mjs']) fs.symlinkSync(path.join(subject, file), path.join(runner, file))
   const url = file => pathToFileURL(path.join(repo, file)).href
   write(driver, `import fs from 'node:fs'; import { DatabaseSync } from 'node:sqlite';
-import { createDatabaseStore, verifyAdmission } from ${JSON.stringify(url('packages/invites/index.mjs'))};
+import { createDatabaseStore, verifyAdmission, createAdmissionRecord } from ${JSON.stringify(url('packages/invites/index.mjs'))};
 import { runCli } from ${JSON.stringify(url('ops/node-spawn/invite.mjs'))};
 import { writeDoor, verifyGateSigner } from ${JSON.stringify(url('ops/node-spawn/configure.mjs'))};
 const args=process.argv.slice(2), log=(...v)=>fs.appendFileSync(process.env.SPAWN_TEST_EVENTS,JSON.stringify(v)+'\\n');
@@ -48,9 +48,15 @@ if(args[0].endsWith('/invite.mjs')) {
     for(const prior of body.chain){if(!state.transaction(tx=>tx.admission(body.root,prior.redemption.pubkey)))return Response.json({code:'invites:unadmitted'},{status:403})}
     return Response.json({available:true,invite_id:body.invite.id});
    }
-   const result=verifyAdmission({...body,state,now:Math.floor(Date.now()/1000)});
-   if(process.env.MISMATCH_REPLY==='1') {log('authority-record',result.record);return Response.json({admitted:true,record:{chain:[]}})}
-   return Response.json({admitted:true,record:result.record});
+   db.exec('CREATE TABLE IF NOT EXISTS confirmations (id TEXT PRIMARY KEY, record TEXT NOT NULL) STRICT');
+   let record=db.prepare('SELECT record FROM confirmations WHERE id=?').get(body.redemption.id)?.record;
+   if(record) record=JSON.parse(record);
+   else {const result=verifyAdmission({...body,state,now:Math.floor(Date.now()/1000)});
+    record=createAdmissionRecord({root:body.root,secretKey:fs.readFileSync(process.env.SPAWN_TEST_AUTHORITY_KEY,'utf8').trim(),record:result.record,now:body.redemption.created_at});
+    db.prepare('INSERT INTO confirmations VALUES (?,?)').run(body.redemption.id,JSON.stringify(record));}
+   log('redemption',body.redemption.id);
+   if(process.env.MISMATCH_REPLY==='1') {log('authority-record',record);return Response.json({admitted:true,record:{chain:[]}})}
+   return Response.json({admitted:true,record});
   }catch(e){return Response.json({code:e.code},{status:403})}finally{state.close()}
  };
  process.exitCode=await runCli(args.slice(1),{fetchImpl});
@@ -105,6 +111,7 @@ print('FIXTURE_VERIFIED')
   must(exec('git', ['-C', source, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture: source']))
   const commit = exec('git', ['-C', source, 'rev-parse', 'HEAD']).stdout.trim()
   const key = randomSecretKey(), network = publicKeyOf(key), now = Math.floor(Date.now() / 1000)
+  write(env.SPAWN_TEST_AUTHORITY_KEY, key + '\n', 0o600)
   const offers = [path.join(base, 'offer.json'), path.join(base, 'auma-offer.json')]
   for (const file of offers) write(file, JSON.stringify({ invite: createInvite({ root: network, secretKey: key, now }), chain: [] }), 0o600)
   const template = path.join(base, 'door.json'); write(template, JSON.stringify({ channel: '00000000-0000-0000-0000-000000000001', sessionId: 'member-chat' }), 0o600)
@@ -176,33 +183,37 @@ test('owner enrollment pause spends nothing and resumes; approval pause preserve
   const count = f.events().length, result = f.run(); assert.equal(result.status, 0, result.stderr)
   assert.ok(!f.events().slice(count).some(row => ['key', 'redeem', 'materialize'].includes(row[0]) || row[0] === 'bootstrap' && row[2] === 'raise'))
 })
-test('phase two spent mismatch resumes locally before availability checks and does not spend either identity twice', t => {
+test('phase two spent mismatch replays the same request before availability checks and does not spend either identity twice', t => {
   const f = fixture(t)
   refused(f.run({ MISMATCH_REPLY: '1' }), 'INVITE_SPENT_NOT_CONFIRMED')
   const count = f.events().length
-  refused(f.run(), 'INVITE_SPENT_NOT_CONFIRMED')
-  assert.ok(!f.events().slice(count).some(row => row[0] === 'preflight'), 'spent identity reaches its saved response')
-  assert.equal(f.events().filter(row => row[0] === 'authority-record').length, 1)
+  refused(f.run({ MISMATCH_REPLY: '1' }), 'INVITE_SPENT_NOT_CONFIRMED')
+  assert.ok(!f.events().slice(count).some(row => row[0] === 'preflight'), 'spent identity retries before availability')
+  assert.equal(f.events().filter(row => row[0] === 'authority-record').length, 2)
   const record = f.events().find(row => row[0] === 'authority-record')[1]
   const memberHome = path.join(f.root, 'home/aukora-member')
   const keyFile = path.join(memberHome, '.config/aukora-node/node-key')
   const pendingFile = keyFile + '.invite-pending.json', expected = JSON.parse(fs.readFileSync(pendingFile))
   assert.deepEqual(record.chain, [...expected.offer.chain, { invite: expected.offer.invite, redemption: expected.redemption }])
-  // This fixture supplies the authority's exported record through the adapter's local resume route.
+  // A locally constructed path must not reconcile the unknown authority decision.
   const confirmation = path.join(f.base, 'confirmation.json')
-  f.write(confirmation, JSON.stringify(record), 0o600)
+  f.write(confirmation, JSON.stringify({ chain: record.chain }), 0o600)
   const args = ['redeem',
     '--config', path.join(memberHome, '.config/aukora-node/spawn-config.json'), '--offer', path.join(memberHome, '.config/aukora-node/offer.json'),
     '--key-file', keyFile, '--out', path.join(memberHome, '.config/aukora-node/admission.json'), '--resume-record', confirmation]
   const adapter = `import { runCli } from ${JSON.stringify(pathToFileURL(path.join(repo, 'ops/node-spawn/invite.mjs')).href)};
-process.exitCode = await runCli(JSON.parse(process.argv[1]), { keyOptions: { home: process.argv[2] } });`
+process.exitCode = await runCli(JSON.parse(process.argv[1]), { keyOptions: { home: process.argv[2] }, fetchImpl: async()=>{throw Error('unavailable fixture')} });`
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', adapter, JSON.stringify(args), memberHome], {
     encoding: 'utf8', timeout: 30000, env: { ...process.env, NODE_NO_WARNINGS: '1' },
   })
-  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.status, 1)
+  assert.equal(fs.existsSync(keyFile + '.invite-confirmed.json'), false)
   const resumed = f.run()
   assert.equal(resumed.status, 0, resumed.stderr)
-  assert.equal(f.events().filter(row => row[0] === 'authority-record').length, 1, 'member never dispatches a second spend')
+  assert.equal(f.events().filter(row => row[0] === 'authority-record').length, 2)
+  const redemptions = f.events().filter(row => row[0] === 'redemption').map(row => row[1])
+  assert.equal(new Set(redemptions.slice(0, 3)).size, 1, 'member retries the same redemption')
+  assert.equal(new Set(redemptions).size, 2, 'each identity has only one redemption')
 })
 test('reintroducing availability checks after spending blocks the resume regression', t => {
   const before = 'if [[ $phase -lt 2 ]]; then verify_invites; fi'
@@ -232,7 +243,12 @@ test('changed installed admission/config/key or original inputs refuse completed
     fs.appendFileSync(target, '\n'); refused(f.run(), 'SPAWN_RESUME_CONFLICT'); fs.writeFileSync(target, original)
   }
 })
-test('order, preload, owner barrier and resume binding mutants fail regressions', t => {
+// The mutant cases take about as long as everything else in this file together. Run plainly (as CI runs every
+// test file, under one time limit) the file leaves them out and says so; scripts/check.sh runs them by name.
+const selectedByName = process.execArgv.some(argument => argument.startsWith('--test-name-pattern') || argument.startsWith('--test-skip-pattern'))
+const mutantTest = (name, body) => selectedByName ? test(name, body) : undefined
+if (!selectedByName) console.log('# node-spawn-linux: 3 mutant cases are not run in a plain run; scripts/check.sh runs them (--test-name-pattern=mutants)')
+mutantTest('preload and preexisting key mutants fail regressions', t => {
   const preloadGuard = '[[ ${NODE_OPTIONS+x} != x && ${NODE_PATH+x} != x && ${LD_PRELOAD+x} != x && ${LD_LIBRARY_PATH+x} != x && ${LD_AUDIT+x} != x ]]'
   assert.ok(shell.includes(preloadGuard))
   for (const mutant of [false, true]) {
@@ -248,6 +264,8 @@ test('order, preload, owner barrier and resume binding mutants fail regressions'
   const keyProbe = fixture(t, { script: shell.replace(existsGuard, '|| true') })
   keyProbe.write(path.join(keyProbe.root, 'home/aukora-member/.config/aukora-node/node-key'), 'preexisting fixture', 0o600)
   assert.throws(() => refused(keyProbe.run(), 'SPAWN_KEY_EXISTS'), { name: 'AssertionError' }); t.diagnostic('MUTATION KILLED key-preflight')
+})
+mutantTest('order and owner barrier mutants fail regressions', t => {
   for (const [name, before, after] of [
     ['verify-first', 'if [[ $phase -lt 2 ]]; then verify_invites; fi', ':'],
     ['owner-enrollment', '&& ! -f $(path /etc/aukora-boundary-gate/owner-state.json)', '&& 1 == 2'],
@@ -261,6 +279,8 @@ test('order, preload, owner barrier and resume binding mutants fail regressions'
     else assert.throws(() => refused(result, name === 'owner-enrollment' ? 'OWNER_ENROLLMENT_REQUIRED' : 'OWNER_APPROVAL_REQUIRED'), { name: 'AssertionError' })
     t.diagnostic('MUTATION KILLED ' + name)
   }
+})
+mutantTest('resume binding and installation policy mutants fail regressions', t => {
   const anchor = "if read(marker) != binding(config_path, config, root, number):"
   assert.ok(host.includes(anchor)); const f = fixture(t, { hostSource: host.replace(anchor, 'if False:') })
   assert.equal(f.run().status, 0); fs.appendFileSync(path.join(f.root, 'home/aukora-member/.config/aukora-node/node-key'), '\n')

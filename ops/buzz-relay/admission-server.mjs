@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Bounds HTTP requests and serves durable invite decisions through the relay owner.
 import http from 'node:http'
+import { DatabaseSync } from 'node:sqlite'
 import { isIP } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TextDecoder } from 'node:util'
-import { parseStrictJson } from '../../packages/contracts/src/json.mjs'
-import { REFUSE as INVITES } from '../../packages/invites/index.mjs'
+import { parseStrictJson, canonicalJson } from '../../packages/contracts/src/json.mjs'
+import { createAdmissionRecord, verifyAdmissionRecord, REFUSE as INVITES } from '../../packages/invites/index.mjs'
+import { loadKey } from '../../plugins/aukora-buzz-door/lib/index.mjs'
+import { publicKeyOf } from '../../plugins/aukora-nostr/lib/event.mjs'
 import { preflight, admitIdempotent, resume, REFUSE as ADMIT } from './admit.mjs'
 import { createMemberClient, verifyClosed, REFUSE as MEMBER } from './member.mjs'
 
@@ -26,22 +29,58 @@ function settings(options) {
     || !Number.isInteger(config.port) || config.port < 0 || config.port > 65535
     || !['bodyLimit', 'deadlineMs', 'windowMs', 'addressLimit', 'globalLimit'].every(name =>
       Number.isSafeInteger(config[name]) && config[name] > 0)
-    || config.bodyLimit > 262144 || config.deadlineMs > 30000) throw fail(ADMIT.INPUT)
+    || config.bodyLimit > 262144 || config.deadlineMs > 30000
+    || (config.trustedAddressHeader !== undefined && (config.behindTlsProxy !== true
+      || typeof config.trustedAddressHeader !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/u.test(config.trustedAddressHeader)))) throw fail(ADMIT.INPUT)
   return config
 }
 
-// Address windows share a global cap; forwarded headers cannot allocate identities.
+// Per-address refusals never consume the shared allowance.
 function limiter(config) {
   let window = -1, total = 0
   const addresses = new Map()
   return address => {
     const current = Math.floor(Date.now() / config.windowMs)
     if (window !== current) { window = current; total = 0; addresses.clear() }
-    if (++total > config.globalLimit) return false
     const count = (addresses.get(address) ?? 0) + 1
+    if (count > config.addressLimit) return false
+    if (total >= config.globalLimit) return false
     addresses.set(address, count)
-    return count <= config.addressLimit
+    total++
+    return true
   }
+}
+
+function addressOf(request, config) {
+  if (config.trustedAddressHeader === undefined) return request.socket.remoteAddress
+  const name = config.trustedAddressHeader
+  const headers = request.rawHeaders.filter((_, index) => index % 2 === 0 && request.rawHeaders[index].toLowerCase() === name)
+  const address = request.headers[name]
+  if (headers.length !== 1 || typeof address !== 'string' || !isIP(address)) throw fail(ADMIT.INPUT)
+  return address
+}
+
+// A durable owner confirmation is created only after the relay acknowledges admission.
+function confirmedRecord(config, owner, result, now) {
+  let database
+  try {
+    database = new DatabaseSync(path.join(config.storeDir, 'admissions.sqlite'))
+    database.exec(`PRAGMA busy_timeout = 0; PRAGMA synchronous = FULL; BEGIN IMMEDIATE;
+      CREATE TABLE IF NOT EXISTS confirmations (redemptionId TEXT PRIMARY KEY, record TEXT NOT NULL) STRICT;`)
+    const root = publicKeyOf(owner), redemptionId = result.record.chain.at(-1).redemption.id
+    let row = database.prepare('SELECT record FROM confirmations WHERE redemptionId = ?').get(redemptionId)
+    if (!row) {
+      const record = createAdmissionRecord({ root, secretKey: owner, record: result.record, now })
+      row = { record: JSON.stringify(record) }
+      database.prepare('INSERT INTO confirmations VALUES (?, ?)').run(redemptionId, row.record)
+    }
+    const record = parseStrictJson(row.record)
+    if (verifyAdmissionRecord({ root, record }).member !== result.member
+      || canonicalJson({ chain: record.chain }) !== canonicalJson(result.record)) throw fail(ADMIT.STORE)
+    database.exec('COMMIT')
+    return record
+  } catch { throw fail(ADMIT.STORE) }
+  finally { database?.close() }
 }
 
 function readBody(request, config, signal) {
@@ -94,6 +133,9 @@ async function requireClosed(options, deps) {
 export async function startAdmissionServer(options, deps = {}) {
   const config = settings(options)
   createMemberClient(config, { keyOptions: deps.keyOptions, fetchImpl: deps.fetchImpl })
+  let owner
+  try { owner = loadKey(config.keyFile, deps.keyOptions ?? { extraDenied: [path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), process.cwd()] }) }
+  catch { throw fail(ADMIT.KEY) }
   const startup = transport(deps, AbortSignal.timeout(config.deadlineMs))
   await requireClosed(config, startup)
   await resume(config, startup)
@@ -128,7 +170,7 @@ export async function startAdmissionServer(options, deps = {}) {
       if (!finished) { finished = true; clearTimeout(timer); writeLog(inviteId, ADMIT.UNKNOWN) }
     })
     try {
-      if (!allow(request.socket.remoteAddress)) { finish(429, { code: ADMIT.BUSY }, ADMIT.BUSY); return }
+      if (!allow(addressOf(request, config))) { finish(429, { code: ADMIT.BUSY }, ADMIT.BUSY); return }
       if (request.method !== 'POST') { finish(405, { code: ADMIT.INPUT }, ADMIT.INPUT); return }
       if (!['/preflight', '/redeem'].includes(request.url)) { finish(404, { code: ADMIT.INPUT }, ADMIT.INPUT); return }
       const contentTypes = request.rawHeaders.filter((_, index) => index % 2 === 0 && request.rawHeaders[index].toLowerCase() === 'content-type')
@@ -148,7 +190,8 @@ export async function startAdmissionServer(options, deps = {}) {
         await requireClosed(config, engine)
         if (controller.signal.aborted) return
         const result = await admitIdempotent({ ...config, ...body }, engine)
-        finish(200, { admitted: true, record: result.record }, 'admitted')
+        const record = confirmedRecord(config, owner, result, (deps.now ?? (() => Math.floor(Date.now() / 1000)))())
+        finish(200, { admitted: true, record }, 'admitted')
       }
     } catch (error) {
       const code = refusal(error)
@@ -179,9 +222,10 @@ export async function startAdmissionServer(options, deps = {}) {
 }
 
 const HELP = `Usage: node ops/buzz-relay/admission-server.mjs --key-file OWNER_PATH --store ABSOLUTE_DIRECTORY
-  [--relay http://localhost:3000] [--host 127.0.0.1] [--port 3100] [--behind-tls-proxy] [--gate-socket PATH]
+  [--relay http://localhost:3000] [--host 127.0.0.1] [--port 3100] [--behind-tls-proxy] [--trusted-address-header NAME] [--gate-socket PATH]
 Uses the isolated owner key loader and durable admission engine. Non-loopback binding requires --behind-tls-proxy.
-TLS termination is the operator's reverse proxy. Forwarded headers are ignored; limits use the socket peer.
+TLS termination is the operator's reverse proxy. Limits use the socket peer unless --trusted-address-header
+names one header under --behind-tls-proxy. The proxy must strip client copies and set one valid IP address.
 The relay must be closed. Pending spends recover before listening. No service is enabled by this command.`
 
 export async function runCli(args, deps = {}) {
@@ -189,7 +233,7 @@ export async function runCli(args, deps = {}) {
   try {
     if (args.length === 1 && args[0] === '--help') { out(HELP); return 0 }
     const options = {}, names = { '--key-file': 'keyFile', '--store': 'storeDir', '--relay': 'baseUrl',
-      '--host': 'host', '--port': 'port', '--gate-socket': 'gateSocket' }
+      '--host': 'host', '--port': 'port', '--gate-socket': 'gateSocket', '--trusted-address-header': 'trustedAddressHeader' }
     for (let i = 0; i < args.length; i++) {
       const flag = args[i]
       if (flag === '--behind-tls-proxy' && !Object.hasOwn(options, 'behindTlsProxy')) { options.behindTlsProxy = true; continue }

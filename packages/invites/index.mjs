@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Signed invitation chains require atomic consumption, quota accounting and membership records.
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import { closeSync, openSync, chmodSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { signEvent, isValidEvent, publicKeyOf } from '../../plugins/aukora-nostr/lib/event.mjs'
+import { canonicalJson } from '../contracts/src/json.mjs'
 
 export const INVITE_KIND = 39701
 export const REDEMPTION_KIND = 39702
 export const GRANT_KIND = 39703
+export const ADMISSION_KIND = 39704
 export const TTL_SECONDS = 48 * 60 * 60
 export const MAX_CLOCK_SKEW_SECONDS = 300
 export const REFUSE = Object.freeze(Object.fromEntries([
@@ -91,9 +93,7 @@ export function createGrant({ root, secretKey, member, allotment, sequence, now 
   return signed(GRANT_KIND, secretKey, now, member, { network: root, member, allotment, sequence })
 }
 
-// Offline records prove the signed path, not consumption or the verifier's historical clock.
-export function verifyRecord({ root, record }) {
-  record = snapshot(record)
+function verifyChain(root, record) {
   if (!hex(root) || !fields(record, ['chain']) || !Array.isArray(record.chain)
     || record.chain.length < 1 || record.chain.length > 128) refuse(REFUSE.CHAIN)
   let inviter = root
@@ -110,6 +110,37 @@ export function verifyRecord({ root, record }) {
     previousTime = entry.redemption.created_at
   }
   return { member: inviter }
+}
+
+const recordDigest = chain => createHash('sha256').update(canonicalJson({ chain })).digest('hex')
+
+// The root's signed confirmation binds the exact chain and last redemption.
+export function createAdmissionRecord({ root, secretKey, record, now }) {
+  record = snapshot(record)
+  verifyChain(root, record)
+  if (publicKeyOf(secretKey) !== root) refuse(REFUSE.SIGNATURE)
+  const redemptionId = record.chain.at(-1).redemption.id
+  return { chain: record.chain, confirmation: signed(ADMISSION_KIND, secretKey, now, redemptionId,
+    { network: root, redemptionId, recordSha256: recordDigest(record.chain) }) }
+}
+
+export function verifyAdmissionRecord({ root, record }) {
+  record = snapshot(record)
+  if (!fields(record, ['chain', 'confirmation'])) refuse(REFUSE.CHAIN)
+  const result = verifyChain(root, { chain: record.chain })
+  const value = body(record.confirmation, ADMISSION_KIND, ['network', 'redemptionId', 'recordSha256'])
+  if (record.confirmation.pubkey !== root) refuse(REFUSE.SIGNATURE)
+  if (value.network !== root) refuse(REFUSE.NETWORK)
+  const redemptionId = record.chain.at(-1).redemption.id
+  if (value.redemptionId !== redemptionId || value.recordSha256 !== recordDigest(record.chain)) refuse(REFUSE.CHAIN)
+  tag(record.confirmation, redemptionId)
+  return result
+}
+
+// Bare offline records prove ancestry; confirmed records also require the root's signature.
+export function verifyRecord({ root, record }) {
+  record = snapshot(record)
+  return Object.hasOwn(record ?? {}, 'confirmation') ? verifyAdmissionRecord({ root, record }) : verifyChain(root, record)
 }
 
 function grantFor(root, member, grant, now) {

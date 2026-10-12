@@ -6,10 +6,12 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, statSync, chmodSync }
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { canonicalJson } from '../contracts/src/json.mjs'
 import { publicKeyOf, signEvent, isValidEvent } from '../../plugins/aukora-nostr/lib/event.mjs'
 import {
-  INVITE_KIND, REDEMPTION_KIND, GRANT_KIND, TTL_SECONDS, MAX_CLOCK_SKEW_SECONDS, REFUSE,
-  createInvite, redeemInvite, createGrant, verifyAdmission, verifyRecord,
+  INVITE_KIND, REDEMPTION_KIND, GRANT_KIND, ADMISSION_KIND, TTL_SECONDS, MAX_CLOCK_SKEW_SECONDS, REFUSE,
+  createInvite, redeemInvite, createGrant, createAdmissionRecord, verifyAdmissionRecord, verifyAdmission, verifyRecord,
   createMemoryStore, createFileStore,
 } from './index.mjs'
 
@@ -53,6 +55,68 @@ function row(invite, redemption) {
     inviter: invite.pubkey, member: redemption.pubkey }
 }
 function availabilityState(t) { const state = createAvailabilityStore(); t.after(() => state.close()); return state }
+
+test('authority confirmation requires the root signature over the exact redemption and canonical chain', t => {
+  const record = admit(memory(t)).record
+  const confirmed = createAdmissionRecord({ root, secretKey: keys[0], record, now: NOW })
+  assert.equal(confirmed.confirmation.kind, ADMISSION_KIND)
+  assert.equal(isValidEvent(confirmed.confirmation), true)
+  assert.deepEqual(JSON.parse(confirmed.confirmation.content), { network: root,
+    redemptionId: record.chain.at(-1).redemption.id,
+    recordSha256: createHash('sha256').update(canonicalJson(record)).digest('hex') })
+  assert.deepEqual(verifyAdmissionRecord({ root, record: confirmed }), { member: pubs[1] })
+  assert.deepEqual(verifyRecord({ root, record: confirmed }), { member: pubs[1] })
+  refusal(() => verifyAdmissionRecord({ root, record }), REFUSE.CHAIN)
+  refusal(() => createAdmissionRecord({ root, secretKey: keys[1], record, now: NOW }), REFUSE.SIGNATURE)
+  const check = (confirmation, code) => {
+    refusal(() => verifyAdmissionRecord({ root, record: { ...confirmed, confirmation } }), code)
+    refusal(() => verifyRecord({ root, record: { ...confirmed, confirmation } }), code)
+  }
+  check({ ...confirmed.confirmation, sig: '00'.repeat(64) }, REFUSE.SIGNATURE)
+  check(signed(confirmed.confirmation, { pubkey: pubs[1] }, keys[1]), REFUSE.SIGNATURE)
+  check(content(confirmed.confirmation, { network: pubs[9] }), REFUSE.NETWORK)
+  check(content(confirmed.confirmation, { redemptionId: 'ab'.repeat(32) }), REFUSE.CHAIN)
+  check(content(confirmed.confirmation, { recordSha256: '00'.repeat(32) }), REFUSE.CHAIN)
+  check(signed(confirmed.confirmation, { kind: GRANT_KIND }), REFUSE.SHAPE)
+  check(signed(confirmed.confirmation, { tags: [['d', 'ab'.repeat(32)]] }), REFUSE.SHAPE)
+  const other = { chain: [pair()] }
+  refusal(() => verifyAdmissionRecord({ root, record: { ...confirmed, chain: other.chain } }), REFUSE.CHAIN)
+  const reordered = structuredClone(confirmed)
+  reordered.chain[0].invite = Object.fromEntries(Object.entries(reordered.chain[0].invite).reverse())
+  assert.deepEqual(verifyAdmissionRecord({ root, record: reordered }), { member: pubs[1] })
+})
+
+if (process.argv.includes('--admission-mutations')) test('authority confirmation mutations are detected', async () => {
+  const mutations = [
+    ['confirmation signature', 'if (!isValidEvent(event))', 'if (false)'],
+    ['confirmation kind', 'event.kind !== kind', 'false'],
+    ['confirmation tag', "JSON.stringify(event.tags) !== JSON.stringify([['d', identifier]])", 'false'],
+    ['confirmation required', "if (!fields(record, ['chain', 'confirmation'])) refuse(REFUSE.CHAIN)", ''],
+    ['owner signing', 'if (publicKeyOf(secretKey) !== root) refuse(REFUSE.SIGNATURE)', ''],
+    ['owner verification', 'if (record.confirmation.pubkey !== root) refuse(REFUSE.SIGNATURE)', ''],
+    ['confirmation network', 'if (value.network !== root) refuse(REFUSE.NETWORK)', ''],
+    ['confirmation redemption', 'value.redemptionId !== redemptionId', 'false'],
+    ['confirmation digest', 'value.recordSha256 !== recordDigest(record.chain)', 'false'],
+    ['canonical chain', 'canonicalJson({ chain })', 'JSON.stringify({ chain })'],
+  ]
+  const original = readFileSync(fileURLToPath(moduleUrl), 'utf8')
+  const run = async ([name, before, after]) => {
+    assert(original.includes(before), `mutation target missing: ${name}`)
+    const hook = `import { registerHooks } from 'node:module'; registerHooks({ load(url, context, next) {
+      const result = next(url, context); return url === ${JSON.stringify(moduleUrl)}
+        ? { ...result, source: String(result.source).replace(${JSON.stringify(before)}, ${JSON.stringify(after)}) } : result;
+    } });`
+    const result = spawnSync(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(hook),
+      '--test', '--test-reporter=tap', '--test-name-pattern', 'authority confirmation', fileURLToPath(import.meta.url)],
+    { encoding: 'utf8', timeout: 4000 })
+    assert.equal(result.status, 1, `mutation survived or crashed: ${name}\n${result.stdout}\n${result.stderr}`)
+    assert.match(result.stdout, /not ok \d+ - /u, `no failing test: ${name}`)
+    assert.doesNotMatch(result.stdout + result.stderr, /SyntaxError/u, `invalid mutation: ${name}`)
+    console.log(`ADMISSION MUTATION ${name}: KILLED`)
+  }
+  for (const mutation of mutations) await run(mutation)
+  console.log(`ADMISSION MUTATIONS ${mutations.length}/${mutations.length} KILLED`)
+})
 
 test('availability verifies current state without spending and refuses spent, fourth, unknown and expired offers', t => {
   const state = availabilityState(t), first = pair()
@@ -465,7 +529,7 @@ test('file state preserves consumed ids, quota, ancestry, and grants after reope
   } finally { reopened.close() }
 })
 
-if (process.argv.includes('--mutations')) test('guard-removal mutations are detected', () => {
+if (process.argv.includes('--mutations')) test('guard-removal mutations are detected', async () => {
   const path = fileURLToPath(moduleUrl), original = readFileSync(path, 'utf8')
   const mutations = [
     ['snapshot', 'return structuredClone(value)', 'return value'],
@@ -518,18 +582,38 @@ if (process.argv.includes('--mutations')) test('guard-removal mutations are dete
     ['store-atomic', /database\.exec\('(BEGIN IMMEDIATE|COMMIT|ROLLBACK)'\)/gu, 'undefined'],
     ['store-private', 'chmodSync(path, 0o600)', ''],
   ]
-  try {
-    for (const [name, before, after] of mutations) {
-      assert.ok(typeof before === 'string' ? original.includes(before) : original.match(before), `mutation target missing: ${name}`)
-      writeFileSync(path, original.replace(before, after))
-      const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', fileURLToPath(import.meta.url)],
-        { encoding: 'utf8', timeout: 15000 })
-      assert.equal(result.status, 1, `mutation survived or crashed: ${name}\n${result.stdout}\n${result.stderr}`)
-      assert.match(result.stdout, /not ok \d+ - /u, `no failing test: ${name}`)
-      assert.doesNotMatch(result.stdout + result.stderr, /SyntaxError/u, `invalid mutation: ${name}`)
-      console.log(`MUTATION ${name}: KILLED`)
-    }
-  } finally { writeFileSync(path, original) }
+  const run = async ([name, before, after]) => {
+    assert.ok(typeof before === 'string' ? original.includes(before) : original.match(before), `mutation target missing: ${name}`)
+    const target = typeof before === 'string' ? JSON.stringify(before) : before.toString()
+    const hook = `import { registerHooks } from 'node:module'; registerHooks({ load(url, context, next) {
+      const result = next(url, context); return url === ${JSON.stringify(moduleUrl)}
+        ? { ...result, source: String(result.source).replace(${target}, ${JSON.stringify(after)}) } : result;
+    } });`
+    const result = await new Promise((resolve, reject) => {
+      const env = { ...process.env, AUKORA_AVAILABLE_MUTATIONS: '0' }
+      delete env.NODE_TEST_CONTEXT; delete env.AUKORA_AVAILABLE_MODULE
+      const focused = { snapshot: 'snapshot prevents', 'random-code': 'events use', signature: 'forged invite|authority confirmation',
+        'verifier-expiry': 'availability verifies|expiry uses', 'redemption-future': 'future clock', 'member-reuse': 'already admitted',
+        replay: 'replay and', allotment: 'fourth distinct', 'clock-shape': 'invalid verifier clocks' }
+      const pattern = focused[name] ?? (name.startsWith('store-') ? 'store|file state|unpaired|process crash|independent file'
+        : name.startsWith('grant-') ? 'grant' : name.startsWith('chain-') ? 'offline verification|ancestry must|already admitted'
+          : name.startsWith('ancestor-') ? 'signed ancestry|ancestry must|availability verifies'
+            : 'network mismatch|signed code|invalid verifier clocks|redemption must')
+      const child = spawn(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(hook),
+        '--test', '--test-reporter=tap', '--test-name-pattern', pattern, fileURLToPath(import.meta.url)], { env })
+      let stdout = '', stderr = ''
+      const timer = setTimeout(() => child.kill('SIGKILL'), 4000)
+      child.stdout.on('data', bytes => { stdout += bytes })
+      child.stderr.on('data', bytes => { stderr += bytes })
+      child.on('error', reject)
+      child.on('close', status => { clearTimeout(timer); resolve({ status, stdout, stderr }) })
+    })
+    assert.equal(result.status, 1, `mutation survived or crashed: ${name}\n${result.stdout}\n${result.stderr}`)
+    assert.match(result.stdout, /not ok \d+ - /u, `no failing test: ${name}`)
+    assert.doesNotMatch(result.stdout + result.stderr, /SyntaxError/u, `invalid mutation: ${name}`)
+    console.log(`MUTATION ${name}: KILLED`)
+  }
+  for (let index = 0; index < mutations.length; index += 3) await Promise.all(mutations.slice(index, index + 3).map(run))
   console.log(`MUTATIONS ${mutations.length}/${mutations.length} KILLED`)
 })
 
