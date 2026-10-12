@@ -1,12 +1,11 @@
 // Check emitted mount exports with inert imports; this does not qualify activation or import closure.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
+import { root, source, generated, rows, sourcePath } from './helpers/release-composition.mjs'
 // Module evaluation in a vm context sits behind a Node flag. Run plainly (as CI runs every test file),
 // this file starts itself again with the flag and reports that run's result.
 if (vm.SourceTextModule === undefined) {
@@ -15,89 +14,6 @@ if (vm.SourceTextModule === undefined) {
   process.exit(again.status ?? 1)
 }
 const { createContext, SourceTextModule, SyntheticModule } = vm
-
-const root = fileURLToPath(new URL('../', import.meta.url))
-const builder = join(root, 'scripts/materialize-aukora-release.py')
-const source = readFileSync(builder, 'utf8')
-const release = '/synthetic/release'
-
-function generated(input = source) {
-  return JSON.parse(execFileSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', `
-import ast, hashlib, json, re, sys, tarfile
-from pathlib import Path
-from types import SimpleNamespace
-source = sys.stdin.read()
-path = sys.argv[1]
-ns = dict(__file__=path, __name__='mount_fixture')
-exec(compile(source, path, 'exec'), ns)
-main = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'main')
-patches = {}
-class Patch:
-    def __init__(self, name): self.name = name
-    def read_text(self, **kwargs): return patches.get(self.name, '')
-ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(development=False, kira_openviking_home=None, kira_project_map=None),
-          patch=Patch('aukora-composition.patch.yml'), default_patch=Patch('aukora-composition.patch.yml'),
-          hmr_row=ns['hmr_disable_row'](False))
-for node in main.body:
-    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call): continue
-    call = node.value
-    if not isinstance(call.func, ast.Attribute) or call.func.attr != 'write_text': continue
-    target = call.func.value
-    name = 'aukora-composition.patch.yml' if isinstance(target, ast.Name) and target.id in ('patch', 'default_patch') else None
-    if isinstance(target, ast.BinOp) and isinstance(target.left, ast.Name) and target.left.id == 'target' and isinstance(target.right, ast.Constant):
-        name = target.right.value
-    if name and name.endswith('.patch.yml'):
-        patches[name] = eval(compile(ast.Expression(call.args[0]), path, 'eval'), ns)
-archive = ns['ROOT'] / 'vendor/dsh-source.tar.gz'
-if not archive.is_file():
-    # A checkout without the pinned harness archive (CI, a node) still checks every row that names this
-    # repository's own files; rows naming harness packages are reported as not inspected.
-    print(json.dumps(dict(patches=patches, upstream=None)))
-    raise SystemExit(0)
-pin = json.loads((ns['ROOT'] / 'upstream-dsh.json').read_text())
-if hashlib.sha256(archive.read_bytes()).hexdigest() != pin['archiveSha256']:
-    raise SystemExit('overlay-mount:harness-archive-pin')
-with tarfile.open(archive, 'r:gz') as tar:
-    package_roots = set()
-    for patch in patches.values():
-        for match in re.finditer(r'^\\s*name: (?:\\./|/synthetic/release/)(packages/[^\\n]+?)/lib/index.js$', patch, re.M):
-            package_roots.add(match.group(1) + '/src/')
-    upstream = {}
-    for entry in tar.getmembers():
-        path = entry.name.partition('/')[2]
-        if entry.isfile() and any(path.startswith(prefix) for prefix in package_roots) and path.endswith('.ts'):
-            upstream[path] = tar.extractfile(entry).read().decode('utf-8')
-print(json.dumps(dict(patches=patches, upstream=upstream)))
-`, builder], { cwd: root, input, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: '/synthetic/home' } }))
-}
-
-function rows(patch, label) {
-  const result = []
-  let row
-  for (const line of patch.split('\n')) {
-    const id = /^(\s*)- id: (\S+)\s*$/u.exec(line)
-    if (id) { row = { id: id[2], indent: id[1].length, label }; result.push(row); continue }
-    const anonymous = /^(\s*)- name: (.+?)\s*$/u.exec(line)
-    if (anonymous) {
-      row = { id: '<anonymous>', indent: anonymous[1].length, label, name: anonymous[2].replace(/^(['"])(.*)\1$/u, '$2') }
-      result.push(row); continue
-    }
-    const name = /^(\s*)name: (.+?)\s*$/u.exec(line)
-    if (name) {
-      assert.ok(row && name[1].length === row.indent + 2, `overlay-mount:unmatched-name: ${label}`)
-      row.name = name[2].replace(/^(['"])(.*)\1$/u, '$2')
-    }
-  }
-  for (const row of result) assert.ok(row.name || row.indent === 0, `overlay-mount:insert-without-name: ${label}:${row.id}`)
-  return result
-}
-
-function sourcePath(name) {
-  let path = name.startsWith(`${release}/`) ? name.slice(release.length + 1) : name.replace(/^\.\//u, '')
-  path = path.replace(/^plugins\/aukora-face-([^/]+)\//u, 'plugins/aukora-face/$1/')
-  if (path === 'plugins/aukora-aura-association/lib/index.js') path = 'scripts/aura/composition/association-plugin.js'
-  return resolve(root, path)
-}
 
 async function mountable(path, upstream, replacement) {
   const context = createContext({ process: { platform: process.platform, env: {} } })

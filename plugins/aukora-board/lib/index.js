@@ -135,7 +135,7 @@ function openDigestStore(stateDir) {
 export function apply(ctx, config = {}) {
   const stateDir = typeof config.stateDir === 'string' && config.stateDir !== ''
     ? config.stateDir
-    : join(ctx.baseDir ?? process.cwd(), 'board-state')
+    : join(ctx.get('baseDir') ?? process.cwd(), 'board-state')
   const maxSessions = Number.isInteger(config.maxSessions) ? config.maxSessions : MAX_BOARD_SESSIONS
   const maxChars = Number.isInteger(config.maxChars) ? config.maxChars : MAX_BOARD_CHARS
   const newId = config.newId ?? (() => globalThis.crypto.randomUUID())
