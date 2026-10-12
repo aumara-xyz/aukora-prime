@@ -31,7 +31,7 @@ licence is unstated or proprietary, the code is the owner's own and the licence 
 | 21 | strict-json/canonicalization | PORT | S | Useful display scanner, but confirmed bypass and unresolved licence. | open |
 | 24 | governed-capsule | PORT | M | Keep frozen candidate/check binding; avoid importing patched Council runtime. | open |
 | 31 | pqc-hybrid-signing | PORT | M | Primitive already in Prime; offline rotation verification remains useful. | open |
-| 35 | time-proof-anchors | PORT | S | Offline beacon verification passes; retain advisory scope. | open |
+| 35 | time-proof-anchors | PORT | S | Offline beacon verification passes; retain advisory scope. | DONE (ported; see the commit that changed this row) |
 | 37 | authority-graph/policy-rings | PORT | M | Classifier useful; donor table fails coverage and ratification cannot transfer. | open |
 | 38 | effect-settlement | PORT | S | Checker passes pinned fixture; Prime already has stronger runtime recovery. | DONE (ported; see the commit that changed this row) |
 | 40 | code-attestation | SUPERSEDED |  | Prime already binds exact releases to approval and protected rollback ordering. | no action |
