@@ -70,6 +70,9 @@ fi
 printf 'PORT=%s\n' "$PORT" > node.env
 EOS
 
+# Buzz's Dockerfile names its base images without a registry; resolve those to Docker Hub for this user only.
+sudo -u "$U" sh -c 'mkdir -p ~/.config/containers && printf "unqualified-search-registries = [\"docker.io\"]\nshort-name-mode = \"permissive\"\n" > ~/.config/containers/registries.conf'
+
 sudo install -d -m 0755 "$LIB"
 sudo install -m 0755 "$HERE/up.sh" "$HERE/down.sh" "$HERE/build.sh" "$HERE/check.sh" "$LIB/"
 sudo install -m 0644 "$HERE/aukora-buzz.service" /etc/systemd/system/aukora-buzz.service
