@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Refuse incomplete node provisioning; plan mode runs no external commands.
+# Verify admission before LXD and refuse unsupported provisioning steps.
 # Gaps in this revision (never supplied by the admission file or environment):
-# INVITE_ADMISSION_VERIFIER_MISSING: no invite verifier/consume-to-node contract.
 # LXD_PROFILE_MISSING: no pinned Ubuntu 24.04 image or qualified unprivileged,
 #   isolated profile for nested rootless Podman; no network publishing allowed.
 # RESUME_CONTRACT_MISSING: no admission/container/revision binding or crash recovery.
 # RUNTIME_INSTALL_MISSING: no pinned Linux Node 24.11.1/OpenShell 0.1.2 installer.
 # PRINCIPAL_INSTALL_MISSING: no reconciler for users, ranges, directories or sudoers.
 # SOURCE_INSTALL_MISSING: no protected checkout transport/install at a reviewed SHA.
-# FRESH_KEYS_MISSING: gate creates local keys, but bootstrap needs its public epoch
-#   first; no first-key enrollment route (nor member owner-key enrollment) exists.
+# FRESH_KEYS_MISSING: gate creates local keys, but bootstrap needs its public epoch first.
+# OWNER_ENROLLMENT_DERIVATION_MISSING: no subject/epoch registry or activation producer.
 # GATE_INSTALL_MISSING: manifest generator is not a fresh protected-package installer.
+# OPENSHELL_BINARY_PROVENANCE_MISSING: no pinned host binary install/rebuild route.
+# GUEST_IMAGE_INPUTS_MISSING: builder exists, but its guest/exec.py input does not.
 # SANDBOX_PRODUCER_MISSING: ensure-sandbox.sh only checks an existing bound sandbox.
 # NODE_STATE_MISSING: no fresh provider/state/targets/linux-openshell overlay recipe.
 # OWNER_APPROVAL_REQUIRED: only the owner's existing review/decide_review may approve.
@@ -26,10 +27,8 @@ plan=0
 if [[ ${1-} == --plan ]]; then plan=1; shift; fi
 [[ $# -ge 1 ]] || refuse 'USAGE: spawn.sh [--plan] NODE ADMISSION_RECORD'
 node=$1
-[[ $node =~ ^[a-z][a-z0-9]*(-[a-z0-9]+)*$ && ${#node} -le 63 ]] || refuse NODE_NAME_INVALID
 [[ $# -le 2 ]] || refuse 'USAGE: spawn.sh [--plan] NODE ADMISSION_RECORD'
 admission=${2-}
-[[ -f $admission && -r $admission && -s $admission && ! -L $admission ]] || refuse ADMISSION_RECORD_REQUIRED
 
 step() { printf '\n# %s\n' "$1"; }
 command_step() {
@@ -53,10 +52,11 @@ ss -H -lntu | awk '\''function loopback(address, octets, count, i) {
   if (!loopback(address)) bad=1
 } END { if (bad) { print "REFUSED OFF_LOOPBACK_LISTENER" > "/dev/stderr"; exit 1 } }'\'''
 
-step '01 Admission — plan/NORTH-STAR.md (2026-10-12); no verifier exists here'
-gap INVITE_ADMISSION_VERIFIER_MISSING 'record presence is not authorization; verify and atomically bind redemption to this node before LXD'
+step '01 Admission — verify the compact packages/invites record against the configured root'
+[[ ${NODE_OPTIONS+x} != x ]] || refuse NODE_OPTIONS_FORBIDDEN
+member_config=$(node "${BASH_SOURCE[0]%/*}/admission.mjs" "$node" "$admission") || exit 1
 printf '# SOURCE-ONLY conditional plan; GAP lines block execution. Angle brackets are unresolved operands.\n'
-printf '# Admission path (contents never read or executed): %q\n' "$admission"
+printf '# Verified signed path; authoritative consumption and node allocation still require shared accounting.\n'
 
 step '02 Container — LXD CLI; no repository image/profile provisioning script'
 gap LXD_PROFILE_MISSING 'review image fingerprint, Ubuntu 24.04, nested rootless Podman, storage and resources; isolate networking until listener checks pass'
@@ -78,14 +78,16 @@ step '05 Source — plan/NORTH-STAR.md launcher/release equality rule'
 gap SOURCE_INSTALL_MISSING 'install a clean root-protected checkout at /opt/aukora-genesis/src and a separate manifest staging checkout, both at the reviewed full release SHA'
 inside git -C /opt/aukora-genesis/src rev-parse HEAD
 inside bash -c 'test "$(git -C /opt/aukora-genesis/src rev-parse HEAD)" = "$1" || { echo "REFUSED SOURCE_RELEASE_MISMATCH" >&2; exit 1; }' spawn '<reviewed-full-release-sha>'
+inside /usr/bin/python3 -I -S /opt/aukora-genesis/src/ops/node-spawn/install-member.py "$member_config"
 
 step '06 Build — scripts/build-dsh.py; scripts/materialize-aukora-release.py'
 inside /usr/bin/env PATH=/opt/aukora-node/bin:/usr/local/bin:/usr/bin:/bin bash -c 'cd /opt/aukora-genesis/src && /usr/bin/python3 scripts/build-dsh.py'
 inside /usr/bin/env PATH=/opt/aukora-node/bin:/usr/local/bin:/usr/bin:/bin /usr/bin/python3 /opt/aukora-genesis/src/scripts/materialize-aukora-release.py --from /opt/aukora-genesis/src/vendor/dsh --to '/opt/aukora-genesis/release-<sha7>'
 printf '# Keep that checkout at the same SHA through installation and every launch. Never use force/development/prune or preview waivers.\n'
 
-step '07 Local keys — packages/boundary-gate/bin/gate.mjs serve; host/install/gate-bootstrap.py'
-gap FRESH_KEYS_MISSING 'generate each node owner secret and receipt key inside its gate home, never copy them; protected startup already requires the new public signer epoch; no reviewed first-key route'
+step '07 Owner enrollment and local gate keys — separate authorities'
+gap OWNER_ENROLLMENT_DERIVATION_MISSING 'cannot write /etc/aukora-boundary-gate/owner-state.json: ownerRootPin derives only P-256 SPKI identity; missing trusted owner_subject/root binding, active owner_epoch registry and exact registry_sha256/activation_sha256 producers; private keys stay on the member device'
+gap FRESH_KEYS_MISSING 'generate gate-local owner-secret.json and receipt key inside its gate home, never copy them; protected startup already requires the new public signer epoch; no reviewed first-key route'
 printf '# gate.mjs creates owner-secret.json and receipt-ed25519.pem locally; neither is member owner-key enrollment. Do not bypass bootstrap to create them.\n'
 
 step '08 Custody — packages/boundary-gate/host/install/generate-manifest.py and gate-bootstrap.py'
@@ -98,14 +100,17 @@ inside /usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap chec
 inside systemctl daemon-reload
 inside /opt/aukora-genesis/src/host/auma-local-deny/install.sh
 
-step '09 Podman — host/systemd/aukora-auma-podman.service calls openshell/podman-service.sh'
+step '09 Podman — host/systemd/aukora-auma-podman.service calls openshell/podman-service.sh with no arguments'
 inside systemctl enable --now aukora-auma-podman.service
 step '10 Gateway — host/systemd/aukora-openshell-gateway.service calls openshell/gateway.sh'
+gap OPENSHELL_BINARY_PROVENANCE_MISSING 'require reviewed /usr/bin/openshell and openshell-gateway 0.1.2 with custody patches; SETUP names Genesis lab 6fa70cd, but gives no pinned pilot binary installer or rebuild'
 printf '# gateway.sh generates this node mTLS locally; its port setting does not prove the bind address. Keep networking isolated.\n'
 inside systemctl enable --now aukora-openshell-gateway.service
 inside bash -c "$listener_check"
-step '11 Sandbox — host/openshell/ensure-sandbox.sh and sandbox-inventory.py'
-gap SANDBOX_PRODUCER_MISSING 'qualified workspace mount producer, guest image and protected registration/profile/inventory required; --bootstrap-profile always refuses; SETUP creation text is stale'
+step '11 Guest and sandbox — existing image builder, then admission-only ensure-sandbox.sh'
+gap GUEST_IMAGE_INPUTS_MISSING 'guest-image/build.sh exists but release/plugins/aukora-openshell-confinement/guest/exec.py and its producer are absent; review NVIDIA Ubuntu base/apt provenance too'
+inside sudo -n -u auma -H /usr/local/lib/aukora-boundary/openshell/guest-image/build.sh /opt/aukora-node/bin/node '/opt/aukora-genesis/release-<sha7>/plugins/aukora-openshell-confinement/guest/exec.py' '/opt/aukora-genesis/release-<sha7>/packages/ptc-runtime/ptc-runtime-node/lib/process.js'
+gap SANDBOX_PRODUCER_MISSING 'qualified workspace mount producer and root-protected openshell-workspace.json/openshell-inventory.json required; --bootstrap-profile always refuses; SETUP and builder recreation comments are stale'
 inside systemctl enable --now aukora-auma-sandbox.service
 
 step '12 Gate and host state — host/systemd/aukora-boundary-gate.service calls gate-bootstrap serve'
