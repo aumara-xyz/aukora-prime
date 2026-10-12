@@ -239,8 +239,10 @@ test('materializer changes exactly two Kira names and retains the original rows/
   // both Kira rows/config and the proposal socket remain unchanged.
   // Reviewed receipt carry: only ledger.mjs and receipts.mjs join RELEASE_IMPORT_FILES;
   // the Kira rows/config and proposal socket remain unchanged.
+  // Reviewed face freshness: preflight binds source/output hashes; copied bundles/manifests must match it;
+  // both Kira rows/config and the proposal socket remain unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    'ca310bb643c395b938f234449bb95c1eed7f929d4a33163da87b7ee0c5ccd767')
+    '8f11a5a8c92d880fc156c8ce4e8aee6a796b18cfc1c11512eafea8e341506356')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 

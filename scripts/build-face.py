@@ -20,8 +20,7 @@ Outputs land in `plugins/aukora-face/<name>/lib/{index.js,client.js}` and are wh
 materializer carries into a release. A face that does not compile is reported by name
 and the build exits non-zero; nothing half-built is copied back.
 """
-import argparse, hashlib, json, os, re, shutil, subprocess, sys
-from datetime import datetime, timezone
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -167,7 +166,32 @@ def assert_pinned_unchanged(before):
                 added or 'nothing', removed or 'nothing'))
 
 
-def clone_pinned():
+def verify_pinned_sources():
+    """Require archive source bytes with only the declared patches before compiling faces."""
+    pin = json.loads((ROOT / 'upstream-dsh.json').read_text())
+    archive = ROOT / 'vendor/dsh-source.tar.gz'
+    if not archive.is_file() or hashlib.sha256(archive.read_bytes()).hexdigest() != pin['archiveSha256']:
+        raise SystemExit('face-harness-archive-mismatch: supply the pinned vendor/dsh-source.tar.gz')
+    with tarfile.open(archive) as snapshot:
+        expected = {Path(*Path(member.name).parts[1:]).as_posix(): snapshot.extractfile(member).read()
+                    for member in snapshot.getmembers() if member.isfile()}
+    for declared in sorted(pin.get('localPatches', []), key=lambda patch: patch['file']):
+        patch = ROOT / declared['file']
+        if not patch.is_file() or hashlib.sha256(patch.read_bytes()).hexdigest() != declared['sha256']:
+            raise SystemExit(f'face-harness-patch-mismatch: {declared["file"]}')
+        for edit in json.loads(patch.read_text())['edits']:
+            relative = edit['path']
+            original = expected.get(relative, b'').decode()
+            if original.count(edit['find']) != edit.get('occurrences', 1):
+                raise SystemExit(f'face-harness-patch-mismatch: {declared["file"]}: {relative}')
+            expected[relative] = original.replace(edit['find'], edit['replace']).encode()
+    for relative, content in expected.items():
+        path = PINNED / relative
+        if not path.is_file() or path.read_bytes() != content:
+            raise SystemExit(f'face-harness-source-mismatch: {relative}; rebuild the pinned harness')
+
+
+def clone_pinned(fresh=False):
     """Clone the pinned tree, and re-clone when the pin has moved.
 
     The overlay is reused between runs because cloning is the slow part, but a reused
@@ -180,10 +204,11 @@ def clone_pinned():
                               '--verify-built', '--source', str(PINNED)], capture_output=True, text=True)
     if checked.returncode:
         sys.exit((checked.stderr or checked.stdout).strip() or 'harness-build-binding-refused: verifier failed')
+    verify_pinned_sources()
     pin = hashlib.sha256((PINNED / '.dsh-build/pinned-harness-build.json').read_bytes()).hexdigest()
     marker = OVERLAY / PIN_MARKER
     if OVERLAY.exists():
-        if marker.is_file() and marker.read_text().strip() == pin:
+        if not fresh and marker.is_file() and marker.read_text().strip() == pin:
             return
         shutil.rmtree(OVERLAY)
     OVERLAY.parent.mkdir(exist_ok=True)
@@ -245,13 +270,57 @@ def place_faces(names):
     solution.write_text(text.replace('"references": [\n', '"references": [\n' + refs, 1))
 
 
+def normalize_overlay_css():
+    """Use repository-relative CSS filenames so checkout paths cannot change class hashes."""
+    preset = OVERLAY / 'packages/client/tsdown.client.ts'
+    original = (PINNED / 'packages/client/tsdown.client.ts').read_text()
+    needle = 'filename: fileId'
+    if original.count(needle) != 3:
+        raise SystemExit('face-css-preset-mismatch: expected three pinned CSS filename inputs')
+    preset.write_text(original.replace(needle, "filename: relative(REPOSITORY_ROOT, fileId).split(sep).join('/')"))
+
+
+def verify_dependency_lock():
+    """Refuse dependency versions or peer resolutions outside the pinned lock."""
+    check = r'''
+const fs = require('node:fs');
+const path = require('node:path');
+const { createRequire } = require('node:module');
+const [source, overlay] = process.argv.slice(1);
+const yaml = createRequire(path.join(source, 'package.json'))('js-yaml');
+const pinned = yaml.load(fs.readFileSync(path.join(source, 'pnpm-lock.yaml'), 'utf8'));
+const built = yaml.load(fs.readFileSync(path.join(overlay, 'pnpm-lock.yaml'), 'utf8'));
+const canonical = value => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+for (const section of ['packages', 'snapshots']) {
+  if (!pinned[section] || !built[section] || JSON.stringify(canonical(pinned[section])) !== JSON.stringify(canonical(built[section]))) {
+    console.error(`face-dependency-lock-mismatch: ${section} changed outside pinned dependencies`);
+    process.exit(1);
+  }
+}
+'''
+    checked = run(['node', '-e', check, str(PINNED), str(OVERLAY)], ROOT, check=False)
+    if checked.returncode:
+        raise SystemExit(checked.stdout.strip() or 'face-dependency-lock-mismatch: verifier failed')
+
+
 def install():
     env = {'CI': 'true', 'LEFTHOOK': '0', 'PATH': subprocess.os.environ.get('PATH', ''),
            'HOME': subprocess.os.environ.get('HOME', '')}
     # Not frozen: the lockfile in the clone gains our packages. The pinned lockfile is untouched.
-    out = run(['pnpm', 'install', '--no-frozen-lockfile', '--prefer-offline'], OVERLAY, env=env, check=False)
+    print('FACE STEP install: pnpm install --offline --no-frozen-lockfile (overlay only)', flush=True)
+    out = run(['pnpm', 'install', '--offline', '--no-frozen-lockfile'], OVERLAY, env=env, check=False)
     if out.returncode != 0:
         sys.exit(f'face-install-failed:\n{out.stdout[-3000:]}')
+    verify_dependency_lock()
+
+
+def build_environment():
+    """Keep caller compiler overrides out of emitted bytes."""
+    env = {key: os.environ[key] for key in ('PATH', 'HOME') if key in os.environ}
+    env.update({'CI': 'true', 'LEFTHOOK': '0', 'NODE_ENV': 'production',
+                'TZ': 'UTC', 'LC_ALL': 'C', 'SOURCE_DATE_EPOCH': '0'})
+    return env
 
 
 def type_build(name):
@@ -260,12 +329,19 @@ def type_build(name):
     # A face with separate client and host projects is judged by its client half; the
     # host half is reported separately so a broken host does not hide a working surface.
     targets = [pkg / 'tsconfig.client.json'] if (pkg / 'tsconfig.client.json').exists() else [pkg]
-    out = run(['node', '--max-old-space-size=4096', str(tsc), '-b', *map(str, targets)], OVERLAY, check=False)
+    print(f'FACE STEP typecheck: {name} (harness tsc -b, client then host)', flush=True)
+    out = run(['node', '--max-old-space-size=4096', str(tsc), '-b', *map(str, targets)],
+              OVERLAY, env=build_environment(), check=False)
     errors = [line for line in out.stdout.splitlines() if 'error TS' in line]
+    if out.returncode and not errors:
+        errors.append(f'face-typecheck-failed: {name} client exited {out.returncode}: {out.stdout[-1000:]}')
     host_errors = []
     if (pkg / 'tsconfig.host.json').exists():
-        host = run(['node', str(tsc), '-b', str(pkg / 'tsconfig.host.json')], OVERLAY, check=False)
+        host = run(['node', str(tsc), '-b', str(pkg / 'tsconfig.host.json')],
+                   OVERLAY, env=build_environment(), check=False)
         host_errors = [line for line in host.stdout.splitlines() if 'error TS' in line]
+        if host.returncode and not host_errors:
+            host_errors.append(f'face-typecheck-failed: {name} host exited {host.returncode}: {host.stdout[-1000:]}')
         # **THE EMIT MUST PARSE, AND tsc WILL NOT TELL YOU WHEN IT DOES NOT.** A composite project emits `.js`
         # as well as `.d.ts`, and it is possible to produce a file that is not JavaScript while printing no
         # `error TS` line at all. Measured on this repository: an unbalanced brace in `auma-live/http.ts` made
@@ -276,7 +352,8 @@ def type_build(name):
         # is NOT a failure; only exit 1 is.
         emitted = pkg / 'lib/types'
         if emitted.exists():
-            parsed = run(['node', str(ROOT / 'scripts/face-parse-check.mjs'), str(emitted)], ROOT, check=False)
+            parsed = run(['node', str(ROOT / 'scripts/face-parse-check.mjs'), str(emitted)],
+                         ROOT, env=build_environment(), check=False)
             if parsed.returncode == 1:
                 host_errors.extend(
                     f'emitted-file-does-not-parse: {line.strip()}'
@@ -287,11 +364,24 @@ def type_build(name):
 
 def bundle(name):
     pkg = OVERLAY / f'packages/client/aukora-face-{name}'
-    out = run([str(OVERLAY / 'node_modules/.bin/tsdown')], pkg, check=False)
-    built = pkg / 'lib/client.js'
-    if out.returncode != 0 or not built.exists():
+    print(f'FACE STEP bundle: {name} (package bundle script: tsdown)', flush=True)
+    environment = json.loads((PINNED / '.dsh-build/client-build-environment.json').read_text())['environment']
+    env = build_environment()
+    env.update(environment)
+    out = run([str(OVERLAY / 'node_modules/.bin/tsdown')], pkg, env=env, check=False)
+    if out.returncode != 0:
         return None, out.stdout[-2000:]
+    for item in bundle_outputs(name):
+        if not (pkg / 'lib' / item).is_file():
+            return None, f'face-output-missing: {name}/lib/{item}'
     return pkg / 'lib', ''
+
+
+def bundle_outputs(name):
+    """Require the client bundle and every declared host entry."""
+    config = (FACE / name / 'tsdown.config.ts').read_text()
+    entries = re.findall(r"['\"]lib/types/([a-zA-Z0-9_-]+\.js)['\"]", config)
+    return tuple(sorted(set(('index.js', 'client.js', *entries))))
 
 
 def src_digest(name):
@@ -303,20 +393,20 @@ def src_digest(name):
             "<relpath>\n<sha256 of the file's bytes>\n"
         srcDigest = sha256 over the concatenation, hex
 
-    Inputs include `src/**`, shipped `vendor/**`, package.json and tsdown.config.ts. Vendored modules can
-    be compiled into the bundle, so their bytes and licenses must participate in freshness too.
-    A digest over a SUBSET would be worse than none: it would report fresh for a face whose real input changed.
+    Inputs include source, assets, vendor files, compiler configs, the builder and harness pin.
     """
     pkg = FACE / name
     inputs = sorted(
         p.relative_to(pkg).as_posix()
-        for directory in ('src', 'vendor') for p in (pkg / directory).rglob('*') if p.is_file()
+        for directory in ('src', 'assets', 'vendor') for p in (pkg / directory).rglob('*') if p.is_file()
         and not any(p.match(pattern) for pattern in FACE_IGNORE_FILES)
         and not any(parent.match(pattern) for parent in p.relative_to(pkg).parents for pattern in FACE_IGNORE_DIRS)
     )
-    for extra in ('package.json', 'tsdown.config.ts'):
+    for extra in ('package.json', 'tsdown.config.ts', 'tsconfig.json', 'tsconfig.client.json', 'tsconfig.host.json'):
         if (pkg / extra).is_file():
             inputs.append(extra)
+    inputs.extend(['../tsdown.client.ts', '../../../scripts/build-face.py',
+                   '../../../scripts/build-face-bundles.sh', '../../../upstream-dsh.json'])
     if name == 'aumlok':
         # Identity reuses the Messages decoder/parser. Measure their actual source and
         # the vendored decoder's license/pin as inputs to this bundle, without copying them.
@@ -329,6 +419,18 @@ def src_digest(name):
         inner = hashlib.sha256((pkg / rel).read_bytes()).hexdigest()
         outer.update(f'{rel}\n{inner}\n'.encode())
     return outer.hexdigest(), sorted(inputs)
+
+
+def build_record(name):
+    """Bind source membership and bytes to every emitted bundle's bytes."""
+    digest, inputs = src_digest(name)
+    outputs = {}
+    for item in bundle_outputs(name):
+        path = FACE / name / 'lib' / item
+        if not path.is_file():
+            raise SystemExit(f'face-output-missing: {name}/lib/{item}')
+        outputs[item] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {'formatVersion': 2, 'face': name, 'srcDigest': digest, 'files': inputs, 'outputs': outputs}
 
 
 def strip_home_paths(path):
@@ -370,30 +472,28 @@ def strip_home_paths(path):
 HOME_PATH = re.compile(r'\\0dsh-css:(?:[A-Za-z]:)?/(?:[^\s"\'`]*/)+')
 
 
-def copy_back(name, lib):
+def copy_back(name, lib, inputs):
     """Write the outputs into the face's lib, and print `FACE WROTE <repo path>` for each file written.
 
     scripts/aukora/self-change.mjs reads those lines: only files this build wrote are shown in the approval as one
     `generated:` line; any other changed file under lib is shown in full.
     """
     dst = FACE / name / 'lib'
+    if src_digest(name) != inputs:
+        raise SystemExit(f'face-source-changed-during-build: {name}')
     dst.mkdir(exist_ok=True)
-    for item in ('index.js', 'client.js', 'invariant.js'):
-        if (lib / item).exists():
-            shutil.copy2(lib / item, dst / item)
-            strip_home_paths(dst / item)
-            print(f'FACE WROTE {(dst / item).relative_to(ROOT).as_posix()}')
-    # WHAT THIS LIB WAS BUILT FROM, WRITTEN BESIDE IT. A bundle with no record cannot be told from a bundle built
-    # from month-old source: it compiles, it serves, and every court that reads `src/` passes over it. Measured
-    # twice tonight — the blocked-on-Peter flag sat in src and not in lib for five rounds.
-    digest, inputs = src_digest(name)
-    (dst / '.build-inputs.json').write_text(json.dumps({
-        'face': name,
-        'srcDigest': digest,
-        'files': inputs,
-        'builtAt': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-    }, indent=2) + '\n')
+    (dst / '.build-inputs.json').unlink(missing_ok=True)
+    for item in bundle_outputs(name):
+        shutil.copy2(lib / item, dst / item)
+        strip_home_paths(dst / item)
+        print(f'FACE WROTE {(dst / item).relative_to(ROOT).as_posix()}')
+    record = build_record(name)
+    if (record['srcDigest'], record['files']) != inputs:
+        raise SystemExit(f'face-source-changed-during-build: {name}')
+    (dst / '.build-inputs.json').write_text(json.dumps(record, indent=2) + '\n')
     print(f'FACE WROTE {(dst / ".build-inputs.json").relative_to(ROOT).as_posix()}')
+    for item, digest in record['outputs'].items():
+        print(f'SHA256 {digest}  {(dst / item).relative_to(ROOT).as_posix()}')
 
 
 def main():
@@ -406,19 +506,22 @@ def main():
     # instead of the refusal it measures.
     assert_not_symlinked()
     before = pinned_manifest(PINNED)
-    if a.fresh and OVERLAY.exists():
-        shutil.rmtree(OVERLAY)
     names = tuple(a.only) or FACES
     for n in names:
+        if n not in FACES:
+            sys.exit(f'face-unknown: {n}')
         if n in DEFERRED:
             sys.exit(f'face-deferred: {n}: {DEFERRED[n]}')
-    clone_pinned()
+    print('FACE STEP verify and clone: pinned harness receipt, patch set and artifact bytes', flush=True)
+    clone_pinned(fresh=a.fresh)
+    inputs = {n: src_digest(n) for n in names}
     # Every buildable face is PLACED even when only some are BUILT: they depend on each
     # other by workspace name, and a workspace missing one of them fails the install
     # rather than the build, which reads as a tooling fault instead of a missing package.
     place_faces(tuple(n for n in FACES if n not in DEFERRED))
+    normalize_overlay_css()
     install()
-    report, failed = {}, []
+    report, failed, built = {}, [], {}
     for n in names:
         errors, host_errors = type_build(n)
         if errors:
@@ -437,11 +540,18 @@ def main():
             failed.append(n)
             report[n] = {'host-only': host_errors}
             continue
-        copy_back(n, lib)
+        built[n] = lib
         report[n] = {'built': str(FACE / n / 'lib/client.js'), 'host': host_errors}
+    assert_pinned_unchanged(before)
+    if not failed:
+        for n in names:
+            if src_digest(n) != inputs[n]:
+                raise SystemExit(f'face-source-changed-during-build: {n}')
+        for n, lib in built.items():
+            copy_back(n, lib, inputs[n])
     for n, r in report.items():
         if 'built' in r:
-            print(f'FACE BUILT {n}: {r["built"]}')
+            print(f'FACE {"BUILT" if not failed else "UNPUBLISHED"} {n}: {r["built"]}')
             continue
         kind = 'bundle' if 'bundle' in r else 'host' if 'host-only' in r else 'client'
         print(f'FACE FAILED {n}: {kind}')

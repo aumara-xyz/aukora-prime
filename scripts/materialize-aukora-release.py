@@ -19,6 +19,7 @@ be launched, not the tree it was copied from.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import plistlib
 import re
@@ -916,6 +917,33 @@ def carry_worker_box(target: Path) -> None:
                 queue.append(dependency)
 
 
+def assert_face_bundles_current() -> dict:
+    """Refuse missing provenance or changed face inputs/outputs before copying a release."""
+    spec = importlib.util.spec_from_file_location('face_build', ROOT / 'scripts/build-face.py')
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    builder.FACE = FACE
+    records = {}
+    for face in FACE_PACKAGES:
+        manifest = FACE / face / 'lib/.build-inputs.json'
+        if not manifest.is_file():
+            fail(f'face-build-manifest-missing: {face}; run scripts/build-face-bundles.sh')
+        try:
+            record = json.loads(manifest.read_text())
+        except (OSError, ValueError):
+            fail(f'face-build-manifest-invalid: {face}; run scripts/build-face-bundles.sh')
+        if (not isinstance(record, dict) or record.get('formatVersion') != 2
+                or record.get('face') != face):
+            fail(f'face-build-manifest-invalid: {face}; run scripts/build-face-bundles.sh')
+        expected = builder.build_record(face)
+        if record.get('srcDigest') != expected['srcDigest'] or record.get('files') != expected['files']:
+            fail(f'face-bundle-source-stale: {face}; run scripts/build-face-bundles.sh')
+        if record.get('outputs') != expected['outputs']:
+            fail(f'face-bundle-output-mismatch: {face}; run scripts/build-face-bundles.sh')
+        records[face] = record
+    return records
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--from', dest='source', type=Path, default=ROOT / 'vendor/dsh')
@@ -935,6 +963,7 @@ def main() -> int:
                              'measures the guard without cutting a release.')
     args = parser.parse_args()
     assert_harness_clean(args.source.resolve())
+    face_builds = assert_face_bundles_current()
 
     # ── THE BYTES MUST BE A COMMIT'S BYTES ──────────────────────────────────────────────────────
     # `artifact-record.mjs` writes `producer.genesisCommit = git rev-parse HEAD` and takes the
@@ -1047,19 +1076,25 @@ def main() -> int:
     # face is a CLIENT plugin — its host half is a few lines, and everything a person
     # sees is the browser bundle the harness serves out of this directory. Two manifest
     # facts make a package one: `dsh.client.platform: web` and an `exports["./client"]`.
-    # The bundles are build output, so a face that was never built stops materialization
-    # here rather than producing a release whose rows point at nothing.
+    # The preflight binds these bundles to their current source inputs and output bytes.
     for face in FACE_PACKAGES:
         face_src = FACE / face
-        bundle = face_src / 'lib/client.js'
-        if not bundle.is_file():
-            fail(f'face-not-built: {bundle} is missing; run scripts/build-face.py first')
         face_out = target / f'plugins/aukora-face-{face}'
         (face_out / 'lib').mkdir(parents=True, exist_ok=True)
         shutil.copy2(face_src / 'package.json', face_out / 'package.json')
-        for name in ('index.js', 'client.js', 'invariant.js'):
-            if (face_src / 'lib' / name).is_file():
-                shutil.copy2(face_src / 'lib' / name, face_out / 'lib' / name)
+        for name in (*face_builds[face]['outputs'], '.build-inputs.json'):
+            shutil.copy2(face_src / 'lib' / name, face_out / 'lib' / name)
+            copied = face_out / 'lib' / name
+            expected = face_builds[face]['outputs'].get(name)
+            if expected and hashlib.sha256(copied.read_bytes()).hexdigest() != expected:
+                fail(f'face-bundle-output-mismatch: {face}/{name} changed during materialization')
+            if name == '.build-inputs.json':
+                try:
+                    copied_record = json.loads(copied.read_text())
+                except (OSError, ValueError):
+                    copied_record = None
+                if copied_record != face_builds[face]:
+                    fail(f'face-build-manifest-changed: {face} changed during materialization')
         # A face may carry `disclosure-policy.json` beside `lib/`: the default Auma Live's disclosure checkpoint reads from
         # `<lib>/../disclosure-policy.json`. Without it a release reads NO policy and refuses every turn ("nothing authorised").
         # It is covered by the `plugins/aukora-face-*/disclosure-policy.json` host pattern in scripts/artifacts-coverage.json.
