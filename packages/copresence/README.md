@@ -9,6 +9,26 @@ Two standalone checkers and their data, copied unchanged from `aumara-xyz/aukora
 
 `node packages/copresence/check.mjs` runs both over every vector and fixture and compares each outcome.
 
-The page that makes receipts (the portal) is not here yet, and nothing in this repository calls these checkers yet.
-Say plainly: a valid receipt is evidence that two keys signed the same moment after two screens exchanged light; it is
-not proof that a person was present or who they were, and it grants nothing. Single use is the caller's job.
+`receiver.mjs` calls the frozen checkers as subprocesses. `receiveReceipt(receipt, options)` requires `now`
+(caller Unix seconds) and `store`; optional `maxAge` defaults to 300 seconds, with 5 seconds of future slack.
+`expectedText` enables intent verification; `expectedAsker` and `expectedApprover` require it. The result is only
+`{core, keys: {A, B, asker?, approver?}, t_B, textDigest?}`; the core is recomputed, never trusted from the input.
+`store.consume(core)` must atomically return true exactly once, false on replay, and throw on storage failure.
+`createFileStore(directory)` uses an existing caller-owned durable local directory, exclusive empty digest-named
+markers and file/directory fsync. Keep that directory across restarts; do not prune or roll it back.
+`createMemoryStore()` is for tests and has no restart durability. Every caller must share the same durable store.
+Only core digests reach the store. Location fields are stripped and ignored. The frozen file-based checkers need
+private transient sanitized receipt files, removed in `finally`; `scratchDir` selects their parent (default OS
+temporary directory). A process crash can leave scratch behind; use a private volatile scratch directory when
+receipt retention is unacceptable. No location is written there. `node packages/copresence/receiver.test.mjs` tests
+the receiving library with fixtures and disposable keys.
+
+`verifyDeviceBinding(receipt, {...options, memberPubkey, deviceKey, event})` verifies the self-ceremony. The expected
+intent is `aukora-device:v1:<memberPubkey>` (64 hex, normalized lowercase); `deviceKey` must be the approver's P-256
+key. The member signs a NIP-01 kind-1 event with empty tags and content
+`aukora-device:v1:<memberPubkey>:<core>` using `plugins/aukora-nostr/lib/event.mjs`. Both checks precede consumption.
+The caller decides whether this is a new member and whether to enroll the device; this library grants nothing.
+
+The portal and enrollment integration are not here. A valid receipt is evidence two keys signed the same moment
+after two screens exchanged light; a video call can pass the light check. It is not proof of presence or of a
+unique person. Single use is the receiving store's claim, not something an offline receipt proves.
