@@ -716,3 +716,15 @@ test('LIVE (AUKORA_BUZZ_LIVE=1): against a real Buzz relay, a mention reaches th
   const reply = seen.find(m => m.text === 'I am here.')
   assert.equal(reply.author, publicKeyOf(auma)); assert.equal(reply.reply_to, heard[0].id)
 })
+
+test('the door imports no harness package, and builds the woken message itself: plugin provenance, user role, fresh id, frozen', () => {
+  // In a release a plugin under plugins/ cannot resolve `@deepseek-ai/*`; an import of one left the wake dead in staging.
+  const source = fs.readFileSync(new URL('../plugins/aukora-buzz-door/lib/index.mjs', import.meta.url), 'utf8')
+  const code = source.split('\n').filter(line => !line.trimStart().startsWith('//')).join('\n')
+  assert(!/from\s+['"]@deepseek-ai\/|import\(\s*['"]@deepseek-ai\//u.test(code), 'no static or dynamic import of a harness package')
+  const a = wakeMessage('hello'), b = wakeMessage('hello')
+  assert.deepEqual(a.source, { kind: 'plugin', plugin: 'aukora-buzz-door', form: 'relay' })
+  assert.equal(a.role, 'user'); assert.deepEqual(a.content, [{ type: 'text', text: 'hello' }])
+  assert.match(a.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u); assert.notEqual(a.id, b.id)
+  assert(Object.isFrozen(a) && Object.isFrozen(a.content) && Object.isFrozen(a.content[0]) && Object.isFrozen(a.source))
+})

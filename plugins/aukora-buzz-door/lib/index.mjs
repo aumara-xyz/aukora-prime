@@ -350,8 +350,17 @@ export function pickAgent(agents, sessionId) {
   return typeof sessionId === 'string' && sessionId !== '' ? agents.get(sessionId) ?? null : null
 }
 
+// THIS FILE IMPORTS NO HARNESS PACKAGE. A plugin mounted from a composition row resolves bare specifiers from its own
+// directory, and in a release `@deepseek-ai/*` resolves only inside the harness's own packages (measured for
+// plugins/aukora-aumlok/lib/service.mjs, and again for this plugin in staging on 2026-10-12, where importing
+// `@deepseek-ai/dsh-llm` failed and no turn could start). So the message is built here in the shape the harness's
+// createUserMessage gives it: the input plus role 'user' and a fresh id, frozen.
+const deepFreeze = value => {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) { Object.freeze(value); for (const v of Object.values(value)) deepFreeze(v) }
+  return value
+}
 export function wakeMessage(text) {
-  return { content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: name, form: 'relay' } }
+  return deepFreeze({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: name, form: 'relay' }, role: 'user', id: randomUUID() })
 }
 
 export function apply(ctx, config = {}) {
@@ -371,8 +380,7 @@ export function apply(ctx, config = {}) {
   const deliver = async text => {
     const agent = pickAgent(ctx.agents, settings.sessionId)
     if (agent === null) throw new Error('configured Buzz session unavailable')
-    const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
-    await agent.followup(createUserMessage(wakeMessage(text)))
+    await agent.followup(wakeMessage(text))
   }
   const tick = createWaker({ door, deliver, log: line => console.info(line) })
   ctx.effect(() => {
