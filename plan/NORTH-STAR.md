@@ -416,3 +416,7 @@ A release directory was built from `main` (`6a63831`) on the pilot host with `--
 This is the first time the path release composition -> Kira -> OpenViking has run anywhere. What it does not show: Auma using recalled notes in a turn (no model was involved), the live release doing it (the live release predates the fix and selects text search), or recall quality beyond one synthetic sentence.
 
 Two things an operator must get right, found the hard way and now in `plugins/aukora-kira/README.md`: run with the backend's environment (`DSH_HOME`, `AUKORA_SUPPORT_ROOT`, no `AUKORA_STATE`). The probe now prints Kira's own refusal name instead of one opaque code.
+
+### 2026-10-12 night: after a restart the door reopens its own session: RAN in staging
+
+Staging rolled to `0356b04` (gate package upgraded, stand-in owner key, floor OK). Then: a new session and a throwaway owner and channel, harness restarted, **no client opened the session**, a mention posted: `handed_by_door=true turn_started=true`. The turn again stopped at the missing model key. Before this commit the same sequence produced `configured Buzz session unavailable` until a client opened the session. NOT RUN: the live harness; a reply (no model key in staging).
