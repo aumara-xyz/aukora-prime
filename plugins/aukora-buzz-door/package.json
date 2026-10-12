@@ -1,0 +1,9 @@
+{
+  "name": "@aukora/dsh-plugin-buzz-door",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Auma on the node's own Buzz relay: a channel message that mentions her key wakes a turn as data; buzz_read and buzz_post; her key stays with the host.",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "license": "AGPL-3.0-or-later"
+}
