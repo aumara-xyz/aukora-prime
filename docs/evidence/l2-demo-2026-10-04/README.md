@@ -16,10 +16,11 @@ What happened, live on the pilot (times UTC+8):
     node verify.mjs
 
 It checks against `gate-ed25519.pub` (fingerprint `6cdce2bbeb7b725c`): the receipt's Ed25519 signature over its
-exact bytes; every ledger entry's hash (sha256 of `[seq, at, event, proposal, target, base_sha, new_sha, detail, prev]`)
-and Ed25519 signature; the chain from #1 (`prev = "GENESIS"`) with no missing entry; and that the signed apply
-entry matches the receipt. Changing any byte of the receipt, its signature or an entry, or removing an entry, makes
-it print `NOT VERIFIED`.
+JSON bytes after removing one trailing newline; every ledger entry's hash (sha256 of
+`[seq, at, event, proposal, target, base_sha, new_sha, detail, prev]`) and Ed25519 signature; the chain from #1
+(`prev = "GENESIS"`) with no missing entry inside the export; and that the signed apply entry matches the receipt.
+The verifier checks signed receipt bytes and covered ledger fields. Ledger export formatting is not authenticated.
+Whole-ledger completeness requires a separately retained anchor.
 
 ## The head anchor (dropping entries off the end is detectable)
 

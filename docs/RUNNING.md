@@ -1,3 +1,5 @@
+> Historical Genesis account. This is not the current Prime runtime or installation guide. See [README.md](../README.md) and [ARCHITECTURE.md](../ARCHITECTURE.md).
+
 # Running AUKORA Genesis on your Mac
 
 For the coding agent a friend points at this repository. NOT VERIFIED means nobody has run that step end to end on a fresh Mac.
@@ -8,7 +10,7 @@ For the coding agent a friend points at this repository. NOT VERIFIED means nobo
 - Measured on one Mac only: Apple M4, 16 GB, macOS 26.1, Node 22.23.0, and it runs under memory pressure there. Voice and OpenViking need Apple Silicon. Other Macs: NOT VERIFIED.
 - The agent runs as your macOS user. Full-access sessions are not confined by Seatbelt; the action gate is an in-process check, not isolation.
 - Your approval key is a software key in the app's state folder. Any process running as you can read it. A click is recorded, not proven.
-- Your seven Aumlok words are shown once and are your identity. They have about 34 bits and can be guessed offline.
+- The legacy identity key derives from a public handle and seven words ([derivation](../plugins/aukora-aumlok/lib/derive-v3.mjs)). It does not establish who the human is. The pair has about 34 bits and can be guessed offline.
 - Auma Live sends each turn to OpenRouter under your key and keeps transcripts unreviewed. The local voice process only hears and speaks.
 - Owner-only, not in the repo: his extra overlays (lanes, live tools, voice path, OpenViking link), his approved plugin set, his Airlock account, his memories and keys. `self-change` and `advance` push the owner's `main`; `become` replaces the installed app. Don't run them.
 - In the tree: the faces, Kira memory, Aumlok, Aura, the action gate, and the apps Auma Live (and Canvas), Auma Lingwa, Zeta Harp and Dakini Code. Lingwa, Zeta Harp and Dakini Code are static pages the app serves. Luminara is gone.

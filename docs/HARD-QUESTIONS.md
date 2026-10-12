@@ -1,3 +1,5 @@
+> Historical Genesis account. This is not the current Prime runtime or installation guide. See [README.md](../README.md) and [ARCHITECTURE.md](../ARCHITECTURE.md).
+
 # Hard questions
 
 Every file and line below was opened and checked on 2026-09-27 against the tree of archive commit `1c569f8aa`

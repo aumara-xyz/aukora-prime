@@ -29,15 +29,13 @@ preferred with `/32` stripped, SSH user `aukora`, CLI hangs without TTY (stdin=D
 
 Nine receipted model generations, gen-10 → gen-18, burned on H200s: Qwen3.8-27B base +
 LoRA adapters, 18 GB of adapters backed up on this Mac (`~/<BACKUP_NAME>/`,
-gen-1 through gen-18 verified present today). Three certified laws came out of those
+gen-1 through gen-18 verified present today). Three reported patterns came out of those
 burns: **erosion** (corpus-only fine-tuning erodes byte-recitation), **restoration**
 (the FP engraving gate restores it in one epoch), and the **two-part protocol**
 (corpus epochs + live engraving refresh = line-best families AND held recitations —
 gen-18 hit 18/18 idempotent-recovery + 4/4 recitations).
 
-**Why it's sci-fi:** this is a *breeding program for minds* with papers-grade discipline —
-every generation receipted, every law certified by measurement, the whole bloodline on
-disk. Almost nobody in the industry versions their models like livestock with papers.
+These patterns describe the reported generations and checks above, not general laws.
 **Honest limit:** the recitation grader uses trimmed equality + prefix matching, not
 byte-exact memory; gen-19 (rows 0/1 recovery) is preregistered, unburned.
 
@@ -51,9 +49,8 @@ suboptimal-baseline points, 4/5 total, 0 worse — no overclaim.
 knob for rows 0/1. Graded only against the future burn. If it hits, a machine predicted
 its own training outcome in advance, on record, for a tenth of a cent.
 
-**Why it's sci-fi:** a system dreaming about its own past to predict its own future —
-with the prediction locked before the outcome exists so nobody can cheat. That's not a
-metaphor; it's a JSON file with a timestamp.
+The report describes a JSON prediction with a timestamp. Independent custody and
+immutable preregistration are not established here.
 
 ## PART 4 — THE JUDGES (System-1 bench)
 

@@ -4,6 +4,8 @@
 
 ## The owner's standing rule: work lands on main, on GitHub, every time
 
+This rule is for the owner's own sessions and takes precedence over CONTRIBUTING.md's branch-and-PR route for outside contributors.
+
 Peter's rule, added 2026-10-12 after 72 commits were found on one Mac and nowhere else. It overrides any habit of
 branching and waiting.
 

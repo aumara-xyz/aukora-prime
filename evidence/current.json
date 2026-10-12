@@ -1,8 +1,8 @@
 {
  "schema": "aukora-current-evidence/v1",
- "updated_at": "2026-10-10T06:02:11Z",
+ "updated_at": "2026-10-12",
  "revisions": {
-  "source": "d7de692f98942023485403f9a03be828c01450e9",
+  "source": "70d180f38bdd701c3c25e0e4f196fd82dbe3e091",
   "main_observed": {
    "sha": "03adf90c40225e823b1bf0282aff1be2728e9f69",
    "at": "2026-10-04T16:00:00Z (integration tree before this evidence commit; SOURCE, ahead of the deployment)"
@@ -41,7 +41,7 @@
    "id": "pilot",
    "claim": "Separate-user Linux pilot runs the Genesis-derived runtime, the boundary gate, the OpenShell gateway and sandbox, the relay and the desktop owner route.",
    "status": "RECORDED",
-   "basis": "Runtime readback from the owner's machine, 2026-10-10 05:56 and 06:02 UTC: eight AUKORA service units active on a Nebius VM; Genesis runtime release 3673b98, boundary gate, OpenShell 0.1.2 gateway and sandbox, and relay each under a separate account; only SSH listening off loopback; desktop owner app attached through a loopback forward",
+   "basis": "Runtime readback from the owner's machine, 2026-10-10 05:56 and 06:02 UTC: eight AUKORA service units active on a Nebius VM; Genesis runtime release 3673b98, boundary gate, OpenShell 0.1.2 gateway and sandbox, and HTTP relay under separate accounts; memory shared the runtime account; only SSH listening off loopback; desktop owner app attached through a loopback forward",
    "references": [
     {
      "path": "ARCHITECTURE.md",
@@ -59,7 +59,7 @@
    "id": "pilot-mounted",
    "claim": "The pilot runtime mounts the action gate and Kira memory.",
    "status": "REPORTED",
-   "basis": "Peter reports live release 3673b98. The 2026-10-10 readback saw the runtime process and its composition-gate plugin import; it did not exercise the action gate or Kira",
+   "basis": "Peter reports live release 3673b98. The 2026-10-10 readback saw the runtime process and its composition-gate plugin import; it did not exercise the action gate or Kira. The October 12 plan correction reports the memory service up and one saved note without indexing or search",
    "references": [
     {
      "path": "ARCHITECTURE.md",
@@ -68,10 +68,50 @@
     {
      "path": "evidence/pilot/2026-10-10-readback.md",
      "label": "readback record"
+    },
+    {
+     "path": "plan/NORTH-STAR.md",
+     "label": "October 12 corrections"
     }
    ],
-   "limit": "Not read back. A running runtime does not show that every tool request is mediated or that memory is saved, indexed or recalled. Host file fences and a source guard do not establish complete mediation or containment.",
-   "evidence_at": "2026-10-05T12:41:00Z"
+   "limit": "Memory indexing, search and recall are not demonstrated. The October 10 readback did not exercise the action gate or Kira. Host file fences and a source guard do not establish complete mediation or containment.",
+   "evidence_at": "2026-10-12 (plan correction; no rerun)"
+  },
+  {
+   "id": "buzz",
+   "claim": "October 12 records Buzz relay deployment on the pilot and channel messages from Peter's Mac.",
+   "status": "RECORDED",
+   "basis": "Later North Star entries report the separate loopback Buzz Nostr relay and Mac desktop channel messages",
+   "references": [
+    {
+     "path": "plan/NORTH-STAR.md",
+     "label": "October 12 records"
+    },
+    {
+     "path": "ops/buzz-relay/README.md",
+     "label": "relay install source"
+    }
+   ],
+   "limit": "Auma's reply route remains unqualified. The relay was recorded open to node logins and tunnel users. Invites are NOT BUILT. The pinned Buzz fork is private; this task did not inspect it or contact the pilot.",
+   "evidence_at": "2026-10-12"
+  },
+  {
+   "id": "buzz-staging",
+   "claim": "A release built from main at 22b9c0d started in the pilot's staging container; the Buzz door was mounted but unconfigured.",
+   "status": "RECORDED",
+   "basis": "North Star records staging approval by its stand-in owner key, a passed release-floor check and an interface returning HTTP 401 without a token",
+   "references": [
+    {
+     "path": "plan/NORTH-STAR.md",
+     "label": "later staging record"
+    },
+    {
+     "path": "plugins/aukora-buzz-door/lib/index.mjs",
+     "label": "door source"
+    }
+   ],
+   "limit": "Staging only; the live harness was unchanged. The door reported unavailable without a key or configuration. A wake and Auma answering through Buzz were NOT RUN. This is a retained operator record, not a new runtime observation.",
+   "evidence_at": "2026-10-12 about 11:15 UTC"
   },
   {
    "id": "l2",
@@ -230,10 +270,14 @@
   },
   {
    "id": "profile",
-   "claim": "The latest reported full NEXT source-profile run had 61 PASS / 1 FAIL / 4 UNPERFORMED.",
+   "claim": "The October 12 full NEXT source-profile report records 62 PASS / 0 FAIL / 13 UNPERFORMED at 8f186df.",
    "status": "RECORDED",
-   "basis": "Local 4381ca3 / zipper account retained in historical README",
+   "basis": "North Star records a Mac run with Node 24.11.1; the suite verdict was UNPERFORMED",
    "references": [
+    {
+     "path": "plan/NORTH-STAR.md",
+     "label": "October 12 source-profile report"
+    },
     {
      "path": "docs/archive/README-before-audit-surface.md",
      "label": "original account"
@@ -243,7 +287,7 @@
      "label": "immutable history"
     }
    ],
-   "limit": "full-owner-recovery failed; PostgreSQL and three unreviewed memory support jobs did not run. This is not current-head execution or GitHub CI evidence."
+   "limit": "This is not current-head execution or GitHub CI evidence. The earlier 61 PASS / 1 FAIL / 4 UNPERFORMED account remains historical; no product acceptance follows from either report."
   },
   {
    "id": "memory-experiment",
@@ -323,14 +367,15 @@
   }
  ],
  "unperformed": [
-  "Current complete NEXT source profile (./prime verify); latest reported failed run remains historical.",
+  "Current complete NEXT source profile (./prime verify); the October 12 report at 8f186df remains a retained observation.",
   "External PostgreSQL/current C-D distinct-UID product acceptance.",
-  "Complete current containment/policy acceptance, including inherited guest descriptors; the supplied e337397 runtime/gate readback is already recorded. No live host or egress probe runs in this offline profile.",
+  "Complete current containment/policy acceptance, including inherited guest descriptors; the historical e337397 collector and October 10 pilot runtime 3673b98 readbacks are recorded separately. No live host or egress probe runs in this offline profile.",
   "Guest-external execution identity, resource enforcement and complete cleanup/absence.",
   "Real owner passkey enrollment, protected root/key custody and human attendance.",
   "Scoped-key Aura collector and cold-record Kira recall acceptance; only the INTERIM collector runs.",
   "Protected NEXT service joins, live paid inference/budget qualification and browser/rendered owner acceptance.",
-  "External ledger-anchor freshness/completeness; offline L2 check validates only the retained signed prefix."
+  "External ledger-anchor freshness/completeness; offline L2 check validates only the retained signed prefix.",
+  "Auma answering through Buzz; invite implementation and membership enforcement."
  ],
  "frontdoor": {
   "version": 1,
@@ -360,6 +405,40 @@
      {
       "path": "tests/aukora-plugin-set-trusted-verifier.test.mjs",
       "label": "existing release check"
+     }
+    ]
+   },
+   {
+    "claim_id": "buzz",
+    "name": "Buzz Nostr relay",
+    "role": "Separate loopback relay beside the node's HTTP message service",
+    "code": [
+     {
+      "path": "ops/buzz-relay/README.md",
+      "label": "install source"
+     }
+    ],
+    "checks": [
+     {
+      "path": "plan/NORTH-STAR.md",
+      "label": "dated pilot and Mac records"
+     }
+    ]
+   },
+   {
+    "claim_id": "buzz-staging",
+    "name": "Buzz door in staging",
+    "role": "Host plugin for channel reads, wakes and replies; mounted without configuration",
+    "code": [
+     {
+      "path": "plugins/aukora-buzz-door/lib/index.mjs",
+      "label": "door source"
+     }
+    ],
+    "checks": [
+     {
+      "path": "plan/NORTH-STAR.md",
+      "label": "dated staging record"
      }
     ]
    },
@@ -450,7 +529,7 @@
    {
     "claim_id": "pilot-mounted",
     "name": "Action gate",
-    "role": "Routes tool requests through configured guard/policy before effects",
+    "role": "Routes harness tool-registry calls through configured guard/policy before effects",
     "code": [
      {
       "path": "plugins/aukora-action-gate/lib/index.mjs",
@@ -543,7 +622,7 @@
    {
     "claim_id": "pilot-mounted",
     "name": "Kira",
-    "role": "Mounted remembered/signed note and recall source",
+    "role": "Memory plugin source for remembered notes, signed proposals and recall",
     "code": [
      {
       "path": "plugins/aukora-kira/README.md",
@@ -556,7 +635,7 @@
       "label": "recall source check"
      }
     ],
-    "limit": "Pilot memory is recorded, not an owner-approved NEXT save. Replacement collector and genuine per-note Aura association remain pending."
+    "limit": "The October 12 plan reports one saved note without indexing, search or demonstrated recall. This is not an owner-approved NEXT save. Replacement collector and per-note Aura association remain pending."
    },
    {
     "claim_id": "next",
@@ -626,7 +705,7 @@
   ]
  },
  "observations": {
-  "scope": "Retained operator results supplied to this docs lane, plus one read-only pilot runtime readback on 2026-10-10 made from the owner's machine. No containment, admission or egress probe ran. Internal transport identifiers are deliberately omitted.",
+  "scope": "Retained operator records, including the October 10 readback from the owner's machine and later October 12 Buzz, memory and staging reports in plan/NORTH-STAR.md. No runtime probe ran for this documentation update. Internal transport identifiers are omitted.",
   "floor": {
    "runtime_revision": "e33739780c09406d875336683053218a8a968051",
    "evidence_at": "2026-10-04T10:44:52Z",
@@ -770,6 +849,7 @@
     "owner enrollment"
    ],
    "independent": false
-  }
+  },
+  "previous_documentation_source_account": "d7de692f98942023485403f9a03be828c01450e9"
  }
 }

@@ -1,3 +1,5 @@
+> Historical Genesis account. This is not the current Prime runtime or installation guide. See [README.md](README.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+
 # ARCHIVE — what was removed on 2026-09-27, and where it still lives
 
 On 2026-09-27 this tree was cut down to what the running app, its release path and its cold checks use.

@@ -1,3 +1,5 @@
+> Historical Genesis account. This is not the current Prime runtime or installation guide. See [README.md](../README.md) and [ARCHITECTURE.md](../ARCHITECTURE.md).
+
 # It writes the code. You hold the key.
 
 AUKORA Genesis is a desktop AI where the software that proposes an action is not the authority that permits it. On its governed approval paths, the owner approves exact bytes with a software key held in the Airlock that the agent cannot read; a kernel decides; every governed decision is receipted and can be checked cold, from an empty directory.

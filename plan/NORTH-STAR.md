@@ -1,3 +1,5 @@
+Earlier entries preserve historical reports. Later dated corrections in [NORTH-STAR.md](NORTH-STAR.md) supersede their status.
+
 > Copied 2026-10-04 from Peter's PRIME-NORTH-STAR.md; verbatim except one redaction marked [REDACTED: ...]; status tags (RAN / SOURCE / NOT YET) added 2026-10-04 with that day's truth on Nebius (live at the SHA in the latest Room line).
 
 # AUKORA PRIME — NORTH STAR (replaces archived MASTER-PLAN-v4 as the front page)
