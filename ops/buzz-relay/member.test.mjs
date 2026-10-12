@@ -154,7 +154,9 @@ test('key read uses one no-follow descriptor and stays stable after path replace
   let opens = 0
   const mock = t.mock.method(fs, 'openSync', (name, flags, ...rest) => {
     const fd = originalOpen(name, flags, ...rest)
-    if (name === f.keyFile && typeof flags === 'number') {
+    // On Linux the loader opens the key through its held parent descriptor (/proc/self/fd/<n>/<name>).
+    const viaDescriptor = typeof name === 'string' && name.startsWith('/proc/self/fd/') && name.endsWith('/' + path.basename(f.keyFile))
+    if ((name === f.keyFile || viaDescriptor) && typeof flags === 'number' && !(flags & fs.constants.O_DIRECTORY)) {
       opens++; assert(flags & fs.constants.O_NOFOLLOW); assert(flags & fs.constants.O_NONBLOCK)
       fs.renameSync(f.keyFile, f.keyFile + '.old')
       fs.writeFileSync(f.keyFile, randomSecretKey(), { mode: 0o600 })

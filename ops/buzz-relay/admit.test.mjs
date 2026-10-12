@@ -329,7 +329,8 @@ test('store files reject symlinks, hardlinks, broad modes and changed ownership'
   const f = fixture(t), claim = pair(f), original = fs.fstatSync
   const keyInodes = new Set(f.people.map(person => fs.statSync(person.keyFile).ino))
   const mock = t.mock.method(fs, 'fstatSync', fd => {
-    const st = original(fd); if (!keyInodes.has(st.ino)) st.uid = process.getuid() + 999; return st
+    // Store FILES change owner; the key loader's held parent directories are left as they are.
+    const st = original(fd); if (!keyInodes.has(st.ino) && !st.isDirectory()) st.uid = process.getuid() + 999; return st
   })
   await rejects(() => admit({ ...f.options, ...claim }, { ...f.deps, sender: async () => accepted }), REFUSE.STORE)
   mock.mock.restore()
