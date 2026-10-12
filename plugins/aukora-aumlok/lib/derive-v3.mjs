@@ -1,52 +1,5 @@
-/**
- * AUMLOK v3 — the HANDLE and the seven words together are the key.
- *
- * THE PHRASE IS NOT THE KEY; THE ROOT IS DERIVED FROM IT, AND FROM THE HANDLE. **The seven words carry
- * about 14.3 bits on their own and the handle is PUBLIC, so the PAIR is worth about 34.14 bits — and that
- * is the number that matters, because there is no root without both.** (This header said "about 14 bits"
- * until AUMLOK-114; *the phrase's own figure is the smaller half of a number a reader would take as the
- * whole, which is the understatement that made the entitlement look stronger than it is.*) The pair is
- * stretched deliberately:
- *
- *     salt     = utf8("aumlok-kdf-v1") ‖ 0x00 ‖ utf8(NFKC(handle).toLowerCase())
- *     password = utf8(normalisePhrase(phrase))
- *     key      = scrypt(password, salt, 64, seconds per guess)
- *              -> ed25519Seed = key[0..32), mlDsa65Seed = key[32..64)
- *              -> Ed25519 + ML-DSA-65 public keys -> rootId
- *
- * The same handle and the same seven words therefore give the same root on ANY machine, and that IS
- * the recovery: the pair is the identity and the way back at once. On a new machine the handle is
- * typed FIRST and the seven words after it, because the handle is half of the key rather than a label
- * on it.
- *
- * THE CONTRACT IS PINNED AS `aumlok-kdf-v1`, AND ITS NAME IS ITS OWN FIRST FIELD. The owner's reason, on
- * 2026-09-23, is the whole of it: "nobody has bound, so this is the only free moment". Once one person
- * has bound, a byte moved here does not fail loudly — it silently derives a DIFFERENT ROOT from the
- * same handle and the same words, which is an identity and its only way back, quietly replaced. So
- * `AUMLOK_KDF_ID` is both the contract's version and the first bytes of its preimage, and
- * `tests/aukora-aumlok-kdf-pin.test.mjs` holds the bytes against a vector computed from this text
- * alone and goes red on a one-byte change to the domain string, the separator, the normalisation or
- * the field order.
- *
- * THERE IS NO SECOND DOOR. A handle-less derivation is not a weaker derivation, it is a DIFFERENT
- * identity, so `deriveRootFromPhrase(words)` alone refuses by name rather than answering: a caller
- * that forgot the handle must not receive a root that looks exactly like success. (That is the
- * fail-closed direction deliberately: absent, here, is not a ceiling to proceed under — it is half the
- * key missing. The handle's SHAPE, by contrast, is a usage fault and is refused as one.)
- *
- * THE HANDLE IS PUBLIC AND IS NOT A SECRET. It is recorded in the public record, where it is what a
- * NIP-05 `name@domain` local part is read from; uniqueness is a question for discovery and never a
- * gate on binding, which is why nothing in this module consults a registry or a directory.
- *
- * CANONICAL DECISIONS, RE-HOMED RATHER THAN REINVENTED (specs/0049; they lived in `custody.mjs`, which
- * v3 deletes): `rootId = sha256(JSON{suite, ed25519, mlDsa65})` and
- * `genesisRef = sha256("aumlok-genesis-aura-ref:" + rootId + "|" + boundAt)[0:24]`. The suite string is
- * the donor's, unchanged, so a root derived here is the same root the rest of the system already
- * agrees about.
- *
- * THE PHRASE IS NEVER RETURNED, STORED OR LOGGED BY THIS MODULE. Callers receive seeds and public
- * keys; the only thing that ever holds the words is the person, and the surface that shows them once.
- */
+// The v3 handle salt and scrypt parameters are unchanged; new generated phrases carry 7 × 11 = 77 bits.
+// Legacy acrostics remain weak. A public handle contributes no secret entropy.
 import { createHash, createPrivateKey, createPublicKey, scryptSync } from 'node:crypto'
 import { normalizePhrase } from './ceremony-verify.mjs'
 import { generateCorrespondingMlDsa65Keypair } from './pq-generator.mjs'
@@ -288,9 +241,8 @@ export async function deriveRootFromPhrase(phrase, options = {}) {
 }
 
 /**
- * Seconds per guess, MEASURED on this machine rather than asserted. The honest bits are the pair's
- * own entropy (the generator court measures the phrase's half); this number is what an attacker pays
- * per guess.
+ * Measure the configured scrypt cost on this machine. This is not attacker throughput;
+ * generation supplies the phrase entropy and the public handle supplies none.
  *
  * IT USES A FIXED MEASUREMENT HANDLE, which is named as such above: this answers what one guess costs,
  * not what anybody's root is, and a cost probe that could not run without a person's handle is a cost

@@ -123,34 +123,6 @@ export const CEILING_TEXTS = Object.freeze({
     + 'IMMEDIATE parent directory are measured the same way (owner, and no group or other permission bits) '
     + 'before the channel is announced; a writable grandparent, ACLs and the rest of the ancestor chain are '
     + 'not measured, so this bounds the channel\'s custody and does not establish it',
-  // ── **PETER DECIDED TO DISCLOSE THIS NOW AND REDESIGN IT AFTER THE SHARE (AUMLOK-113)** ────────────────
-  //
-  // REVIEWER ROW 8. The root key is derived from the seven acrostic words plus a handle that is PUBLIC, and the
-  // pair is worth about 34.14 bits (`themed-entropy.mjs:23-33` sets that floor; the 64-bit floor was retired).
-  // **A scrypt work factor of about one second per guess is a real cost and not a large one:** 2^34 guesses at
-  // 1 s each is roughly 545 core-years, **and the search parallelises perfectly — it is a dictionary, not a
-  // password, and every guess is independent.**
-  //
-  // **THE DESIGN LAW SAYS THE PHRASE NEVER DERIVES THE KEY, AND THIS IS WHERE IT DOES.** `derive-v3.mjs` takes
-  // the words and the handle and scrypts them into the root, so the words are not a presence check over a key
-  // held elsewhere — they ARE the key's whole secret. **Anyone who photographs the phrase, or finds it in a
-  // backup, rebuilds the root offline, on their own machine, with no access to this one.**
-  //
-  // **THE ACROSTIC STAYS**, by Peter's ruling: seven typeable tokens are the property the ceremony exists for,
-  // and what changes is WHAT THE WORDS RELEASE rather than how they read. That redesign — the seven tokens
-  // gating a random root, or a secret of at least 128 bits kept on paper or in the device — is LATER. **Until it
-  // lands, this ceiling is the number**, which is why it is disclosed rather than deferred.
-  //
-  // **AND THE WORDS ABOVE WERE CHOSEN AGAINST THIS FILE'S OWN BAN (AUMLOK-115).** The first version phrased the
-  // redesign in the retired v2 vocabulary, and `tests/aukora-aumlok-v3-no-v2.test.mjs` went red on all three
-  // hits — **correctly: one of them was the v2 concept written out in the exact spelling the ban exists to
-  // catch, inside a comment only ever meant to describe a redesign.** A ban is not satisfied by meaning it
-  // differently; **the spelling is what carries the concept into the next reader's head.**
-  //
-  // **AND THE FIRST REPAIR OF THIS COMMENT WAS ITSELF A HIT**, because it quoted the banned spelling in order to
-  // explain the ban — *an instrument that writes down the words it hunts is one more place those words live*,
-  // which is this very file's rule three paragraphs up. The explanation now names the concept and not the
-  // spelling, and the court is what said so.
   // ── **THE OWNER'S SIGNING SEED DOES NOT REQUIRE THE OWNER (AUMLOK-115, SECURITY)** ──────────────────────
   //
   // MEASURED, NOT REPEATED. `record-v3.mjs` keeps the machine seed two ways and **NEITHER ASKS THE PERSON FOR
@@ -177,10 +149,11 @@ export const CEILING_TEXTS = Object.freeze({
     + 'A presence-bound custody is designed and spiked; switching to it changes the live key and the binding, so '
     + 'it is the owner\'s call',
   ROOT_KEY_OFFLINE_GUESSABLE:
-    'the root key is derived from the seven words PLUS A PUBLIC HANDLE: about 34.14 bits, public salt, about '
-    + '1 second per guess with scrypt. 2^34 guesses is roughly 545 core-years and the search PARALLELISES, so '
-    + 'the phrase is the whole secret: whoever has it rebuilds the root OFFLINE, with no access to this '
-    + 'machine. The acrostic stays; what it unlocks is being redesigned',
+    'new generated phrases: seven independent uniform words from 2048, 7 * log2(2048) = 77 bits; '
+    + 'the public handle adds no secret bits. scrypt N=131072,r=8,p=5,keyLen=64; at 1 second per guess, '
+    + '2^76 guesses on average is about 2.39e15 core-years (parallel work, not an attack benchmark). '
+    + 'Legacy phrase, weak: older acrostic lists are about 14.3 or 34.14 bits, not 77. '
+    + 'A chosen phrase has no measured random entropy. Whoever has the phrase and handle rebuilds the root offline',
   SUCCESSION_UNMEASURED:
     'the observer-succession court (UNOWNABLE-CORE.md section 5) is a separate prerequisite and is UNMEASURED',
   NO_IDENTITY_BINDING:

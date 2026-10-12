@@ -191,7 +191,66 @@ reviewer checks is the digest that runs. Every static single-quoted `from` impor
 `pq-generator.mjs` also dynamically imports the vendored, pinned `@noble/post-quantum` closure in
 `lib/vendor/noble-ml-dsa` (see its `PROVENANCE.md`), which that arm does not scan.
 
+## Seven words: source inventory and migration
+
+New phrases use `lib/ceremony-phrase.mjs`: seven independent, uniform draws with replacement
+from one 2,048-word BIP-39 list, using the platform CSPRNG. Thus
+`7 × log2(2048) = 77 bits`; the public handle contributes no secret entropy.
+The ten languages and pinned list hashes are in
+[`lib/vendor/bip39-wordlists/manifest.json`](lib/vendor/bip39-wordlists/manifest.json).
+They were copied offline from `@scure/bip39` 2.0.1 with its MIT license. These are
+seven-word Aumlok phrases, not BIP-39 wallet mnemonics or checksums. NFKD spelling and
+Japanese ideographic spaces are accepted; an unknown word is named in the refusal.
+
+The existing v3 salt and scrypt remain `aumlok-kdf-v1`, N=131072, r=8, p=5,
+64 output bytes and maxmem=256 MiB. The algorithm's memory term is `128 × N × r = 128 MiB`.
+At one second per guess, a uniform phrase needs `2^76` guesses on average, about
+`2.394 × 10^15` years on one such worker; multiply by the measured seconds per guess
+and divide by parallel workers. This is arithmetic, not a hardware benchmark or a
+77-bit claim for words chosen by a person. A local macOS run under Node 24.11.1
+(three samples) measured 0.858250 seconds per guess: `2^76 × 0.858250 / 31557600 ≈
+2.055 × 10^15` serial core-years on that measured worker. This does not measure an
+attacker's hardware or the cost of checking any separately retained fast fingerprint.
+Existing ASCII phrase/handle pairs retain
+their derived keys. Old acrostics remain accepted and are labelled **legacy phrase, weak**.
+
+The inventory below refers to the pre-change revision `2a605d3706328ae46718cfe0c836178646c67342`:
+
+| Location at that revision | Vocabulary and selection |
+|---|---|
+| `lib/derive-v3.mjs:5` | Claimed about 14.3 bits for the phrase and 34.14 for the pair. A public handle does not supply the difference; these were two different generators. |
+| `lib/ceremony-phrase.mjs:29–110` | 18 anchors; 94 root, 88 unite and 80 rise words, in 25 letter buckets each (2–4 words). A fixed anchor/root/root/unite/unite/rise/rise acrostic used a random byte modulo each pool length, excluded repeats, and had a fixed fallback. Enumerating its output probabilities gives 14.3401 bits of min-entropy. |
+| `apps/aukora-desktop/aumlok-draw.mjs:149,236,295` | `crypto.randomInt` chose one of 150 anchors, then six words restricted by its initials and the NATURE/NATURE/PEOPLE/PEOPLE/SPIRIT/SPIRIT grammar, excluding repeats. `data/aumlok-themes.json` contained 683/1,198/677 entries. |
+| `lib/themed-entropy.mjs:24,353` | Historical pool estimate `log2(150) + 26.913519 = 34.142338` bits; best alternative letter gate 36.310947. This estimate assumed uniform bucket choices and did not model rejection of repeated words. |
+| `lib/ceilings.mjs:129,180`, `lib/ceremony-verify.mjs:52,59`, `lib/index.mjs:191` | Repeated the old strength estimates. Historical data provenance retains its dated figures. |
+| Both face source trees, `src/client/AumlokSurface.tsx:316` | Requested a draw through `control-projection.ts:123`, `binding-bridge.ts:177`, then desktop `aumlok-bridge.mjs:618`; no separate face RNG. The mirror is `plugins/aukora-face/aumlok`. |
+
+The older candidate files `data/theme-nature.json`, `theme-people.json` and
+`theme-spirit.json` contain 8,656, 19,157 and 9,260 entries. They are historical harvest
+inputs, not the active vocabulary. The EFF safety fixture contains 7,773 words and
+their codes (the original 7,776 minus three removed entries). Small legacy tables
+remain for compatibility validation and historical inventory; new generation does not use them.
+
+Read-only `git log -S` and historical-source measurements in the Genesis checkout found
+the remembered stronger version: `a2520b0b6` measured **60.461383 bits** over 1,364
+drawable anchors, with 8,445/18,155/8,578 themed entries. It exists on
+`origin/cursor/aumlok-drop-theme-c75d`, not the Genesis main revision `9572138ef`
+imported by Prime's squash `c358ac7`. Subsequent commits on that branch narrowed the
+pools: `4d07844b5` measured 39.718075 bits and `51e74cbeb` 33.576950.
+On the older main lineage, `245990b74` measured 58.983292 and refused below its 64-bit
+floor; `1118a94c5` retired that floor, then `80772f29e` applied commonness and
+pleasantness filters and reached 34.142338. Earlier still, `efd97b44f` added an
+independent seven-word EFF generator (`7 × log2(7776) = 90.474 bits`);
+`3a5574346` removed it and both list copies in favor of the small acrostic.
+These source/history findings do not establish which version was installed or used.
+
 ## Reviewing it
+
+The seven-word changes are checked with `node --test tests/aukora-aumlok-words.test.mjs`
+and `node tests/aukora-aumlok-words.test.mjs --mutate`, plus the language and UI tests.
+The face source and its mirror were changed together; the compiled face bundles were
+not rebuilt (this clone has no built `vendor/dsh`). No installed-app or Linux run is
+claimed for this change. Historical commands below describe earlier checks.
 
 ```bash
 node tests/aukora-aumlok.test.mjs            # 137 arms (run 2026-09-26 at 674fae6bf)

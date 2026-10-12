@@ -185,17 +185,9 @@ export {
 export {
   PHRASE_BANDS,
   PHRASE_TABLES,
-  // ── **`generateAcrosticPhrase` IS NO LONGER RE-EXPORTED (AUMLOK-113)** ────────────────────────────────
-  //
-  // REVIEWER ROW 8: *"the 14.3-bit generator is still exported"*. **A generator is an INVITATION.** A caller
-  // reaching into this package for `generateAcrosticPhrase` gets seven words worth ~14.3 bits and — on this
-  // design — a root key. Its presence on the public surface says the cheap phrase is a thing this library
-  // offers, which is the sentence the entropy ceiling exists to contradict.
-  //
-  // **THE FUNCTION STAYS IN `ceremony-phrase.mjs` AND ITS COURTS STILL DRIVE IT.** The acrostic is Peter's to
-  // keep; what is withdrawn is the PUBLIC OFFER, not the capability. Deleting the implementation would break
-  // the ceremony this ruling preserves, and the redesign is what changes WHAT THE WORDS RELEASE — a word chosen
-  // against this lane's own ban, which the first draft of this comment tripped.
+  PHRASE_LANGUAGES,
+  generatePhrase,
+  validatePhrase,
 } from './ceremony-phrase.mjs'
 
 export {

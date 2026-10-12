@@ -94,7 +94,7 @@ cpSync(join(ROOT, 'plugins'), join(releaseDir, 'plugins'), { recursive: true })
 // ── the disposable binding, written by the shipped ceremony ──────────────────────────────────────
 const controllerDir = join(scratch, 'controller')
 mkdirSync(controllerDir, { recursive: true, mode: 0o700 })
-const TEST_WORDS = Object.freeze(['harbor', 'lantern', 'quiet', 'meadow', 'copper', 'vessel', 'thistle'])
+const TEST_WORDS = Object.freeze(['corals', 'cliff', 'oasis', 'ring', 'amity', 'light', 'summit'])
 const TEST_HANDLE = 'disposable-roundtrip'
 await organ.bindV3({
   handle: TEST_HANDLE,

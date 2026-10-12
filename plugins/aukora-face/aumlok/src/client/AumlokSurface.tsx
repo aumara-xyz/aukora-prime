@@ -1,27 +1,4 @@
-/**
- * The AUMLOK screen: the ceremony, the status, and nothing else.
- *
- * THE CEREMONY RUNS HERE. Plan §3: the Aumlok screen in the app IS the surface — there is no separate
- * window and no separate page to open, nothing to start first, and the same compact layout always.
- * Everything on this screen is READ or TYPED; it holds no key and approves nothing, because approval
- * stays with a separate signer process on a Unix socket. The single write-shaped control here is the
- * ceremony itself, and even that only asks the shell for the seven words and hands them back: this
- * application derives no root, writes no record and keeps no phrase.
- *
- * ONE LAYOUT, THREE STATES, DRAWN AS PETER DREW IT (2026-09-23 14:19). The gold anchor card sits on
- * top with SIX gold rounded letter boxes in a row — one per letter of the anchor, dots once a binding
- * exists, never a letter afterwards — and the six themed rows sit under it in the three bands, green
- * then blue then purple, each row a small gold rounded box holding that word's first letter and the
- * word beside it. The numbers are there and quiet. The badge is above them: UNBOUND with empty tiles
- * and "Give me my phrase", BOUND with dots, the receipt and "Your Aumlok is bound".
- *
- * THE WORDS ARE SHOWN ONCE AND LEAVE AS THE TILES TURN OVER. They arrive from the shell for display,
- * live only in this component's state while they are on the screen, and are gone the moment the tiles
- * accept input — a screen that showed them while accepting them would be reading the phrase back to
- * the person who is meant to be remembering it. Nothing here logs, stores or transmits them, and the
- * system copy-paste buffer is never touched. The step between typing them back and binding with them
- * is Peter's own warning, and the box that must be ticked before Bind is live.
- */
+// The ceremony displays seven words once and requires a confirmed type-back before binding.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
   HostObservable,
@@ -29,6 +6,7 @@ import type {
   PropsLocale,
   PropsRuntime,
 } from '@deepseek-ai/dsh-client-ui-slots'
+import { AUMLOK_PHRASE_LANGUAGES, phraseStrengthKey } from './binding-bridge.ts'
 import type {
   AumlokCeremonyIntent,
   AumlokCeremonyResult,
@@ -79,7 +57,7 @@ export interface AumlokSurfaceInjected {
   /** Whether the desktop shell exposes the two ceremony verbs on this page at all. */
   ceremonyAvailable: boolean
   /** Ask the shell for one phrase, shown once, and report what came back. */
-  drawPhrase: (intent: AumlokCeremonyIntent) => Promise<AumlokDrawnPhrase>
+  drawPhrase: (intent: AumlokCeremonyIntent, language?: string) => Promise<AumlokDrawnPhrase>
   /** Hand the typed words back, and report the shell's verdict. */
   submitPhrase: (intent: AumlokCeremonyIntent, words: readonly string[],
     handle?: string) => Promise<AumlokCeremonyResult>
@@ -103,11 +81,7 @@ function emptyTyped(): string[] {
   return TILE_POSITIONS.map(() => '')
 }
 
-/**
- * ONE OF THE ANCHOR CARD'S SIX BOXES. A letter while the words are on the screen, a dot once they are
- * a binding, and nothing at all before then — the three faces are decided by `aumlokAnchorBoxes`, so a
- * box cannot invent a fourth.
- */
+/** Render one placeholder from the tile state; the revealed first word is rendered whole. */
 function AnchorBox({ box, index }: { box: AumlokAnchorBox; index: number }) {
   return (
     <span className={css.anchorBox} data-aumlok-anchor-box={index} data-aumlok-anchor-box-kind={box.kind}>
@@ -116,12 +90,7 @@ function AnchorBox({ box, index }: { box: AumlokAnchorBox; index: number }) {
   )
 }
 
-/**
- * WHAT ONE THEMED ROW SHOWS. There is one body per face and no others: an empty slot, dots where a
- * bound phrase is never shown, the drawn word for the one beat it is on the screen, and the input that
- * takes it back. The face itself comes from `aumlokTileFace`, so no row can invent a state the layout
- * does not have.
- */
+/** Render the word only during reveal, then accept its type-back or mask the bound phrase. */
 function TileBody({
   face,
   position,
@@ -158,7 +127,7 @@ function TileBody({
           data-aumlok-tile-input={position}
           value={value}
           onChange={event => { onType(position, event.target.value) }}
-          aria-label={t('tile.input').replace('{position}', String(position))}
+          aria-label={t('tile.input').replace('{position}', String(position + 1))}
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}
@@ -193,10 +162,8 @@ function PhraseBand({
         {band.positions.map(position => (
           <div className={css.phraseRow} data-aumlok-token={position} key={position}>
             {/* The number is optional and quiet, and it is never read out: it is an aid to the eye. */}
-            <span className={css.position} aria-hidden="true">{position}</span>
-            {/* THE SMALL GOLD BOX, holding this word's FIRST letter and nothing once the words are
-                gone: the six initials spell the anchor, so a bound row that kept them would publish
-                the phrase one letter at a time. */}
+            <span className={css.position} aria-hidden="true">{position + 1}</span>
+            {/* Hide the initial whenever the word itself is hidden. */}
             <span className={css.initialBox} data-aumlok-initial-box={position} aria-hidden="true">
               {aumlokWordInitial(face, words?.[position])}
             </span>
@@ -250,6 +217,7 @@ export function AumlokSurface({
   // held in this component's state for the same reason the words are — because the person is typing it
   // — and it is passed to the shell exactly as typed.
   const [handle, setHandle] = useState('')
+  const [language, setLanguage] = useState('en')
   const [busy, setBusy] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
   const [outcome, setOutcome] = useState<AumlokCeremonyResult | undefined>(undefined)
@@ -277,13 +245,7 @@ export function AumlokSurface({
   // and nowhere else. `busy` is one of its three inputs because a draw already in flight cannot be
   // asked for a second time.
   const redraw = aumlokRedraw({ state, beat, busy })
-  // X8: ON A NEW MACHINE THE HANDLE COMES FIRST, THEN THE SEVEN WORDS. `canDraw` is that order as a
-  // decision rather than a disabled-looking button: `begin` refuses to ask the shell for words until
-  // what is in the field can be a handle, so a ceremony cannot start with half of its key missing.
-  // WHAT THE HANDLE BLOCK SHOWS: what the person typed on a machine that is not bound yet, and the
-  // name the RECORD publishes on one that is (Y2). The published handle wins wherever it exists,
-  // because it is the binding's own fact; the typed one is what carries the field before there is a
-  // record to read.
+  // Require a valid public handle before drawing; show the bound handle from the record.
   const boundHandle = projection.status === 'connected' ? projection.control.handle : undefined
   const shownHandle = typeof boundHandle === 'string' && boundHandle.length > 0
     ? boundHandle
@@ -303,9 +265,7 @@ export function AumlokSurface({
   // phrase: the screen then says only that no result came back, and a refresh that failed leaves the
   // binding it was replacing exactly as it was.
   const begin = (intent: AumlokCeremonyIntent): void => {
-    // THE ORDER X8 ASKS FOR, ENFORCED WHERE IT MATTERS. On a new machine the handle is typed first; a
-    // draw that happened before it would be a ceremony whose key is half missing, and the shell would
-    // refuse it later with a name a person could do nothing with at this point.
+    // Refuse a draw until the required handle is valid and any refresh uses a different handle.
     if (busy || !active || !handleGate.canDraw || sameHandle) return
     const generation = ++ceremonyGeneration.current
     setBusy(true)
@@ -313,7 +273,7 @@ export function AumlokSurface({
     setAcknowledged(false)
     if (intent === 'refresh') setRefreshing(true)
     void (async () => {
-      const drawn = await drawPhrase(intent).catch((): AumlokDrawnPhrase => ({ ok: false }))
+      const drawn = await drawPhrase(intent, language).catch((): AumlokDrawnPhrase => ({ ok: false }))
       if (generation !== ceremonyGeneration.current) return
       setBusy(false)
       if (!drawn.ok || drawn.words === undefined) {
@@ -473,12 +433,11 @@ export function AumlokSurface({
         {t(busy ? 'runtime.binding.busy' : changingHandle && beat === 'none' ? 'surface.action.drawNew' : action)}
       </button>
       {state !== 'unbound' ? <p className={css.handleHint}>{t('surface.handle.together')}</p> : null}
-      {/* ONE REFUSAL, AND IT CARRIES NO CONTENT: not which word was wrong, not how many
-          matched. A refusal that narrowed the answer would be an oracle for anyone who can
-          read this screen. */}
+      {/* A list-membership refusal names only the first invalid word; a mismatch reveals no matching positions. */}
       {outcome === undefined || outcome.ok ? null : (
         <p className={css.ceremonyRefusal} data-aumlok-binding-refused="true">
           {t('runtime.binding.failed')}
+          {outcome.invalidWord === undefined ? null : <span>{' '}{t('phrase.wordUnknown').replace('{word}', outcome.invalidWord)}</span>}
           {outcome.reason === undefined ? null : (
             <>
               {' '}
@@ -516,6 +475,18 @@ export function AumlokSurface({
 
         <div className={css.composition}>
           <section className={css.phraseStage} aria-label={t('phrase.label')}>
+            {state !== 'bound' || changingHandle ? <label className={css.handleLabel}>
+              {t('phrase.language')}
+              <select data-aumlok-phrase-language value={language} disabled={busy || beat !== 'none'}
+                onChange={event => { if (!busy && beat === 'none') setLanguage(event.target.value) }}>
+                {AUMLOK_PHRASE_LANGUAGES.map(item => <option key={item.tag} value={item.tag}>{item.name}</option>)}
+              </select>
+            </label> : null}
+            <p className={css.handleHint} data-aumlok-phrase-strength>
+              {t(state === 'bound'
+                ? phraseStrengthKey(projection.status === 'connected' ? projection.control.phraseLegacy : undefined)
+                : 'phrase.strength.new')}
+            </p>
             {/* A new binding needs a handle before the phrase is drawn; a bound handle is read-only. */}
             {handleGate.ask ? (
               <div className={css.handleField} data-aumlok-handle>
@@ -551,9 +522,7 @@ export function AumlokSurface({
                 </div>
               </Card>
             ) : null}
-            {/* THE GOLD ANCHOR CARD, WITH SIX BOXES IN IT. Six because the anchor is a six-letter
-                word: `aumlokAnchorBoxes` answers a letter while the words are on the screen, a dot
-                once a binding exists, and nothing before either. */}
+            {/* Show the first word whole during reveal; keep fixed placeholders when hidden. */}
             <div
               className={css.anchorToken}
               data-aumlok-token={AUMLOK_ANCHOR_POSITION}
@@ -565,11 +534,7 @@ export function AumlokSurface({
                 <span>{t('anchor.detail')}</span>
               </span>
               <span className={css.anchorBoxes}>
-                {/* Y5'S REVEAL MARKER, AND WHY A MARKER IS NEEDED AT ALL. The six boxes below only
-                    exist at the face where a letter belongs in them, so the mount IS the arrival and
-                    CSS settles them in without script. This span is what makes "the words are on the
-                    screen" a fact a court or a probe can read, and it is emitted only while they are:
-                    `display: contents` means it costs the layout nothing. */}
+                {/* The reveal marker exists only while the words are visible. */}
                 {face === 'word' ? <span data-aumlok-reveal="words" aria-hidden="true" /> : null}
                 {face === 'input' ? (
                   <input
@@ -578,13 +543,15 @@ export function AumlokSurface({
                     data-aumlok-anchor-input
                     value={typed[AUMLOK_ANCHOR_POSITION] ?? ''}
                     onChange={event => { onType(AUMLOK_ANCHOR_POSITION, event.target.value) }}
-                    aria-label={t('tile.input').replace('{position}', String(AUMLOK_ANCHOR_POSITION))}
+                    aria-label={t('tile.input').replace('{position}', String(AUMLOK_ANCHOR_POSITION + 1))}
                     autoComplete="off"
                     autoCapitalize="none"
                     spellCheck={false}
                   />
+                ) : face === 'word' ? (
+                  <span className={css.tileWord} data-aumlok-first-word>{words?.[AUMLOK_ANCHOR_POSITION]}</span>
                 ) : (
-                  aumlokAnchorBoxes(face, words?.[AUMLOK_ANCHOR_POSITION]).map((box, index) => (
+                  aumlokAnchorBoxes(face, undefined).map((box, index) => (
                     <AnchorBox box={box} index={index} key={index} />
                   ))
                 )}

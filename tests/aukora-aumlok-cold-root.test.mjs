@@ -406,7 +406,7 @@ mkdirSync(CUSTODY_DIR, { recursive: true })
  */
 const FORBIDDEN_ROOT_SEED = 'root-seed-v3.json'
 /** Seven words drawn from the SHIPPED lists, so the real ceremony's own validation accepts them. */
-const CUSTODY_WORDS = Object.freeze(['canyon', 'outlet', 'lend', 'ladies', 'action', 'routing', 'meadow'])
+const CUSTODY_WORDS = Object.freeze(['corals', 'cliff', 'oasis', 'ring', 'amity', 'light', 'summit'])
 const CUSTODY_HANDLE = 'cold.root.custody'
 const CUSTODY_AT = '2026-09-23T17:02:00Z'
 

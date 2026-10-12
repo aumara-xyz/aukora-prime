@@ -120,9 +120,9 @@ export class AumlokControlProjectionService extends Service {
    * @param intent - draw for a first binding, or for a refresh of a bound one.
    * @returns the seven words, or the shell's own refusal.
    */
-  async drawPhrase(intent: AumlokCeremonyIntent): Promise<AumlokDrawnPhrase> {
+  async drawPhrase(intent: AumlokCeremonyIntent, language = 'en'): Promise<AumlokDrawnPhrase> {
     if (this.ceremony === undefined) return { ok: false, reason: 'aumlok:no-ceremony-bridge' }
-    return drawAumlokPhrase(this.ceremony, intent)
+    return drawAumlokPhrase(this.ceremony, intent, language)
   }
 
   /**

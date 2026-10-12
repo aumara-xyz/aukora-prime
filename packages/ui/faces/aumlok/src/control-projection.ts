@@ -108,6 +108,8 @@ export interface AumlokControlProjection {
    * and the bound screen shows no locked field rather than an empty one.
    */
   readonly handle?: string
+  readonly phraseLanguage?: string
+  readonly phraseLegacy?: boolean
   /** Terminal state of the active head. A revoked subject still HAS a subject. */
   readonly revoked: boolean
   /** `did:key` of the Ed25519 approval key registered in the active control. */

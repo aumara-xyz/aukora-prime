@@ -110,7 +110,7 @@ try {
   assert.equal(drawn.ok, true)
   const wrong = [...drawn.words.slice(0, 6), drawn.words[6] === 'wrongword' ? 'otherword' : 'wrongword']
   const submit = words => shell.call('SUBMIT', { intent: 'bind', words, handle })
-  assert.deepEqual(verdict(await submit(wrong)), { ok: false, reason: DRAW_REFUSE.PHRASE_MISMATCH, drawSpent: true })
+  assert.deepEqual(verdict(await submit(wrong)), { ok: false, reason: 'aumlok:phrase-word-unknown', drawSpent: true })
   assert.deepEqual(verdict(await submit(drawn.words)), { ok: false, reason: DRAW_REFUSE.NO_PENDING_DRAW, drawSpent: true })
   drawn = await shell.call('DRAW', 'bind')
   assert.deepEqual(verdict(await submit(['Bad'])), { ok: false, reason: DRAW_REFUSE.PHRASE_SHAPE, drawSpent: true })

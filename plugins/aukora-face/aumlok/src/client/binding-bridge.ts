@@ -1,48 +1,20 @@
-/**
- * The desktop shell's ceremony bridge, read defensively and never relied upon.
- *
- * THE CEREMONY OWNS THE PHRASE, AND THIS FILE TOUCHES NONE OF IT. In v3 the ceremony is the AUMLOK
- * screen itself: the seven words are shown once, typed back word by word, and the root is derived from
- * them. The shell's part is to DRAW the words where the word lists live, to carry the typed words to
- * the process that can write a record, and to answer with a verdict. This module never keeps, logs or
- * displays a phrase, never touches the system copy-paste buffer, and returns the drawn words to its
- * caller rather than holding them anywhere of its own.
- *
- * TWO VERBS, AND THEY ARE THE WHOLE OF THE CROSSING. `draw` brings the seven words from the shell to
- * this page for display; `submit` takes the typed words back. Nothing else about a phrase crosses, and
- * the shell's reply to a submit carries no phrase material at all — only whether the ceremony
- * completed and, when it did not, a short reason of the shell's own.
- *
- * THERE IS NO WINDOW HERE, AND NO THIRD CEREMONY. v2 had a verb that opened a separate window holding
- * signing open for a fixed period, and this file used to read it. v3 removed that window with the rest
- * of the custody model, so a bridge carrying no `draw` and no `submit` is a shell with no v3 ceremony
- * in it: this reader then returns undefined and the screen renders no ceremony control at all, rather
- * than a control that would open something §3 says does not exist.
- *
- * WHY A SHAPE CHECK INSTEAD OF A TRUSTED GLOBAL. The preload bridge belongs to the Electron shell, not
- * to this package: `window.aukoraAumlok` is UNDEFINED when the page is opened in a plain browser, and
- * the surface must then render no ceremony control at all rather than a button that cannot work. Even
- * when a value is present it is checked function by function, because this code runs against a shell
- * written by someone else and a half-mounted bridge would otherwise fail at click time instead of at
- * load time.
- *
- * There is no Node API here and none may be added: this is browser-side code.
- */
-
-/** What one submit resolves to, exactly as the preload contracts to provide. */
+// The face carries seven words and their language through the desktop bridge; it draws no words.
 export interface AumlokCeremonyResult {
   readonly ok: boolean
   /** The shell's own short machine-readable refusal. Shown verbatim, never replaced. */
   readonly reason?: string
   /** Only a new draw can be submitted after the shell consumes these words. */
   readonly drawSpent?: true
+  readonly invalidWord?: string
 }
 
 /** What one draw resolves to: the seven words, shown once, or the shell's own refusal. */
 export interface AumlokDrawnPhrase {
   readonly ok: boolean
-  /** The seven words, in order, anchor first. Present only on a completed draw. */
+  /** The seven independent words, in order. Present only on a completed draw. */
   readonly words?: readonly string[]
+  readonly language?: string
+  readonly entropyBits?: 77
   /** The shell's own short machine-readable refusal. Shown verbatim, never replaced. */
   readonly reason?: string
 }
@@ -50,11 +22,11 @@ export interface AumlokDrawnPhrase {
 /** The preload bridge, narrowed to the verbs this screen may ask for. */
 export interface AumlokCeremonyBridge {
   /**
-   * Draw the seven words for one ceremony, in order, anchor first.
+   * Draw seven words in the chosen language.
    * @param intent - which ceremony is being started.
    * @returns whether the words were drawn, and the shell's own reason when they were not.
    */
-  draw(intent: AumlokCeremonyIntent): Promise<unknown>
+  draw(intent: AumlokCeremonyIntent, language?: string): Promise<unknown>
   /**
    * Hand the typed words back, and resolve when the ceremony finishes.
    *
@@ -72,8 +44,16 @@ export interface AumlokCeremonyBridge {
 /** Which ceremony the operator asked for. */
 export type AumlokCeremonyIntent = 'bind' | 'refresh'
 
-/** The only shape a word of a phrase can have: lower case, and short. */
-const WORD = /^[a-z]{1,32}$/u
+/** Generated words contain only bounded Unicode letters and combining marks. */
+const WORD = /^[\p{L}\p{M}]{1,64}$/u
+
+export const AUMLOK_PHRASE_LANGUAGES = Object.freeze([
+  { tag: 'en', name: 'English' }, { tag: 'es', name: 'Español' },
+  { tag: 'fr', name: 'Français' }, { tag: 'it', name: 'Italiano' },
+  { tag: 'pt', name: 'Português' }, { tag: 'cs', name: 'Čeština' },
+  { tag: 'ja', name: '日本語' }, { tag: 'ko', name: '한국어' },
+  { tag: 'zh-Hans', name: '简体中文' }, { tag: 'zh-Hant', name: '繁體中文' },
+])
 
 /** The plan's phrase is seven words, and a draw that is not seven words is not a phrase. */
 const PHRASE_LENGTH = 7
@@ -102,7 +82,7 @@ export function readAumlokCeremonyBridge(page?: unknown): AumlokCeremonyBridge |
   // time, which is the same doctrine as the `available` flag above.
   if (!isFunction(record['draw']) || !isFunction(record['submit'])) return undefined
   return {
-    draw: intent => (record['draw'] as AumlokCeremonyBridge['draw']).call(candidate, intent) as Promise<unknown>,
+    draw: (intent, language) => (record['draw'] as AumlokCeremonyBridge['draw']).call(candidate, intent, language) as Promise<unknown>,
     submit: (intent, words, handle) =>
       (record['submit'] as AumlokCeremonyBridge['submit'])
         .call(candidate, intent, words, handle) as Promise<unknown>,
@@ -118,10 +98,8 @@ function readReason(value: unknown): string | undefined {
 /**
  * Narrow one drawn phrase without inventing words the shell did not draw.
  *
- * A value that is not seven lower-case words is reported as a FAILURE, not as a success: a screen that
- * showed six words, or a word with a capital in it, would be showing something that is not a phrase,
- * and the person would type back what they were shown. The shell's own reason is carried through when
- * it gave one, so the screen quotes the shell rather than paraphrasing it.
+ * Require seven bounded Unicode words and the shared generator's language and strength metadata.
+ * Carry the shell's refusal when no phrase was drawn.
  * @param value - the resolved value of a draw call.
  * @returns the seven words, or a failure carrying no words.
  */
@@ -133,7 +111,9 @@ export function parseAumlokDrawnPhrase(value: unknown): AumlokDrawnPhrase {
   const words = record['words']
   if (!Array.isArray(words) || words.length !== PHRASE_LENGTH) return { ok: false }
   if (!words.every(word => typeof word === 'string' && WORD.test(word))) return { ok: false }
-  return { ok: true, words: words.map(word => String(word)) }
+  const language = record['language']
+  if (!AUMLOK_PHRASE_LANGUAGES.some(item => item.tag === language) || record['entropyBits'] !== 77) return { ok: false }
+  return { ok: true, words: words.map(word => String(word)), language: language as string, entropyBits: 77 }
 }
 
 /**
@@ -150,7 +130,9 @@ export function parseAumlokCeremonyResult(value: unknown): AumlokCeremonyResult 
   const ok = record['ok'] === true
   const reason = readReason(record['reason'])
   const spent = record['drawSpent'] === true ? { drawSpent: true as const } : {}
-  return reason === undefined ? { ok, ...spent } : { ok, reason, ...spent }
+  const invalidWord = typeof record['invalidWord'] === 'string' && record['invalidWord'].length > 0 && record['invalidWord'].length <= 64
+    ? { invalidWord: record['invalidWord'] } : {}
+  return reason === undefined ? { ok, ...spent, ...invalidWord } : { ok, reason, ...spent, ...invalidWord }
 }
 
 /**
@@ -165,6 +147,7 @@ export function parseAumlokCeremonyResult(value: unknown): AumlokCeremonyResult 
 export async function drawAumlokPhrase(
   bridge: AumlokCeremonyBridge,
   intent: AumlokCeremonyIntent,
+  language = 'en',
 ): Promise<AumlokDrawnPhrase> {
   try {
     // A CLOSED SWITCH, AND THE DEFAULT REFUSES. The verbs are named per ceremony, so a third ceremony
@@ -174,7 +157,7 @@ export async function drawAumlokPhrase(
     switch (intent) {
       case 'bind':
       case 'refresh':
-        return parseAumlokDrawnPhrase(await bridge.draw(intent))
+        return parseAumlokDrawnPhrase(await bridge.draw(intent, language))
       default: return { ok: false, reason: 'aumlok:ceremony-intent-unknown' }
     }
   } catch {
@@ -213,4 +196,8 @@ export async function submitAumlokPhrase(
   } catch {
     return { ok: false }
   }
+}
+
+export function phraseStrengthKey(legacy: unknown): 'phrase.strength.new' | 'phrase.strength.legacy' {
+  return legacy === false ? 'phrase.strength.new' : 'phrase.strength.legacy'
 }

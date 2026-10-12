@@ -1,70 +1,4 @@
-/**
- * AUMLOK v3 — the themed buckets, the entropy they carry, and the 64-bit floor.
- *
- * WHAT THIS FILE IS. The seven words are the identity and the recovery (plan §1-§2). Word 0 is the
- * ANCHOR, a six-letter word drawn uniformly from the shipped anchor list. Words 1-6 are themed
- * acrostic words: positions 0-1 NATURE (band ROOT, of the earth), 2-3 PEOPLE (band UNITE, of each
- * other), 4-5 SPIRIT (band RISE, of what lifts), each word drawn uniformly from the bucket of its
- * position's theme for the anchor's letter at that position. This module measures what that
- * generator actually carries and refuses to let it run below the plan's floor.
- *
- * THE ARITHMETIC, STATED SO NOBODY HAS TO INFER IT (Symbiote's estimator, `ceremony.ts:72-77`):
- *
- *     bits = log2(A) + MIN over anchors w in A of  Σ  log2( s(theme(i), w[i]) )
- *                                              i=0..5
- *
- *   A          = the usable anchor pool: six-letter words all of whose letters are anchor letters.
- *   s(t, l)    = the number of words in theme t's bucket for letter l (the shipped count, measured).
- *   log2(A)    = the bits spent choosing the anchor uniformly from A.
- *   log2(s)    = the bits spent choosing that position's themed word uniformly from its bucket.
- *   MIN over A = the GUARANTEED figure — the weakest anchor the generator can emit. Not an average,
- *                not a per-draw figure: the worst case the generator actually carries (the most
- *                likely output is the smallest-bucket anchor).
- *
- * MEASURED FIGURES (asserted by tests/aukora-aumlok-packaging.test.mjs): bits=34.14 ceiling=36.31 floor=none anchors=150 gate=12
- *
- * THE SHIPPED FIGURE IS BELOW WHAT THE PLAN PROMISED, AND THE 64-BIT FLOOR IS RETIRED RATHER THAN MET.
- * MEASURED at HEAD: `generatorMinEntropy()` = 34.142 bits at the weakest drawable anchor and
- * `entropyCeiling()` = 36.311 at best, over 150 anchors whose used letters are `abcdefghlmoprstuvw`,
- * with `MIN_WORDS_PER_BUCKET` = 12. The floor does not refuse and cannot: `REFUSAL_ENTROPY_BELOW_FLOOR`
- * is `aumlok:entropy-below-floor-retired`, `measure()` returns `floorBits: null, meetsFloor: null`, and
- * `formatEntropyLine()` prints `(floor RETIRED — not gated)`. 34.14 is below the plan's 60 and far below
- * the 64 the floor named, so the honest statement is that this data does not reach either figure and no
- * court is pretending otherwise.
- *
- * THIS PARAGRAPH WAS WRONG BY A WHOLE HARVEST, AND IT IS WORTH SAYING HOW WRONG. It read "30,692 words:
- * NATURE 8,656 / PEOPLE 17,753 / SPIRIT 4,283 … 510 drawable anchors over abcdefghlmprstw … min bucket
- * 127 … 58.9833 bits", and a court went red on a byte count because nobody had compared the comment to
- * the data. The shipped buckets hold 683 NATURE / 1,196 PEOPLE / 658 SPIRIT words over 18 letters, the
- * largest NATURE bucket is 88 words, and two NATURE rows therefore cannot contribute the ~17 bits that
- * 58.98 would need. The figures above are now read by a court that parses this line and compares every
- * one of them to what the module computes, so the doc cannot drift from the data again in silence.
- *
- * WHAT WOULD RAISE IT IS WORDS, not a lower floor, not a padded bucket, not a dropped letter — and the
- * choice between raising the word count, dropping the acrostic letter rule, or stating 34 bits plainly
- * belongs to the owner of the design rather than to this module. `entropyCeiling()` is the measurement
- * that will say when a change actually reaches a figure.
- *
- * THE LETTER RULE. A letter is ADMISSIBLE when it has at least MIN_WORDS_PER_BUCKET (100) words in
- * EVERY one of the three themes. Every letter of every usable anchor must be admissible (a thin
- * letter would make the phrase undrawable on the donor's `continue outer` path). Among admissible
- * letters the generator keeps the FLOOR-MAXIMISING subset: dropping an admissible letter costs its
- * share of log2(A) but can raise the worst bucket, so `anchorLetters` is chosen by search and the
- * refusal fires if the result is still under the floor. Nothing is padded to reach a count and no
- * threshold is lowered: a letter that cannot reach 100 in all three themes is excluded.
- *
- * THE ANCHOR LIST IS RE-FILTERED WITH THE LETTERS, AND IT HAS TO BE. `generatorMinEntropy()` is the
- * MINIMUM over ALL drawable anchors, so ONE anchor carrying a pool-less letter would collapse the
- * floor for every phrase the generator can emit. `data/aumlok-anchors.json` therefore ships only
- * words whose every letter clears the gate against the MERGED buckets (4,043 -> 906; letters
- * j k n o q u v x y z leave the anchor alphabet, x because it has no bucket at all).
- *
- * NO NUMBER HERE IS HARDCODED. Counts are read from `data/aumlok-themes.json` (the shipped buckets),
- * the anchor pool from `data/aumlok-anchors.json` when it is present and from the reference
- * dictionary otherwise. The only constants are the plan's floor, the letter rule, and the pin.
- *
- * @module @aukora/dsh-plugin-aumlok/themed-entropy
- */
+// Historical acrostic inventory only; new generation uses ceremony-phrase.mjs (7 * log2(2048) = 77 bits).
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -463,7 +397,7 @@ export function assertEntropyFloor(bits = generatorMinEntropy(), detail) {
 export function formatEntropyLine(measured = measure()) {
   const where = measured.dataPresent ? measured.dataPath : `${measured.dataPath} (ABSENT)`
   return (
-    `PHRASE_ENTROPY: ${measured.bits.toFixed(2)} bits (floor RETIRED — not gated) · anchors ` +
+    `LEGACY PHRASE, WEAK: ${measured.bits.toFixed(2)} bits (historical acrostic inventory) · anchors ` +
     `${measured.anchorCount} from ${measured.anchorSource} · letters ${measured.anchorLetters.join('') || 'none'} · ` +
     `weakest anchor ${measured.limitingAnchor ?? 'none'} · buckets ${where}`
   )

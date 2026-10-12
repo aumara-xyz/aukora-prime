@@ -90,7 +90,7 @@ export function apply(ctx: ClientContext): void {
         // THE TWO HALVES OF ONE CROSSING, AND THE HANDLE THAT SALTS THE KEY CROSSES WITH THEM (X8):
         // the shell draws the words, the screen shows them once, and the typed words — and the public
         // handle — go back the same way. None of it is kept here.
-        drawPhrase: intent => scope.aumlokControlProjection.drawPhrase(intent),
+        drawPhrase: (intent, language) => scope.aumlokControlProjection.drawPhrase(intent, language),
         submitPhrase: (intent, words, handle) =>
           scope.aumlokControlProjection.submitPhrase(intent, words, handle),
         // WHAT FLIPS THE SCREEN. After a ceremony completes, the same loader that serves

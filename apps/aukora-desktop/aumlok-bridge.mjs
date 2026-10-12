@@ -615,7 +615,9 @@ export function installApprovalBridge(deps) {
         }
       }
       if (!fromApplication(event)) return { ok: false, reason: DRAW_REFUSE.FORBIDDEN_SENDER }
-      const result = await draw.draw(event.sender, intent, getReleaseDir())
+      const { library } = await context()
+      if (!fromApplication(event)) return { ok: false, reason: DRAW_REFUSE.FORBIDDEN_SENDER }
+      const result = await draw.draw(event.sender, intent, getReleaseDir(), { library, language: payload?.language ?? 'en' })
       if (!fromApplication(event)) {
         draw.forget()
         return { ok: false, reason: DRAW_REFUSE.FORBIDDEN_SENDER }

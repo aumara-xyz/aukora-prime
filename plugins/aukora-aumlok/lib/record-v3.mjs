@@ -45,6 +45,7 @@ import { chmodSync, closeSync, existsSync, fchmodSync, fstatSync, lstatSync, mkd
 import { join } from 'node:path'
 
 import { assertHandle, deriveGenesisRef } from './derive-v3.mjs'
+import { PHRASE_LANGUAGES } from './ceremony-phrase.mjs'
 // THE SUBJECT DERIVATION IS THE PORTED ONE, not a second hash of the same idea: a record whose
 // projection hashed its genesis differently from `genesis.mjs` would name an identity that Deep's own
 // reader does not.
@@ -135,10 +136,11 @@ function keychainAccount() {
  * @returns {Readonly<object>} the v3 record.
  */
 export function buildRecordV3({ root, boundAt, epoch = 0, receipt = null, genesisRef, genesis,
-  machines, revokedMachines, succession, handle } = /** @type {never} */ ({})) {
+  machines, revokedMachines, succession, handle, phraseLanguage, phraseLegacy } = /** @type {never} */ ({})) {
   if (typeof root?.rootId !== 'string' || !/^[0-9a-f]{64}$/u.test(root.rootId)) {
     throw new RootCustodyError('buildRecordV3 needs a root with a 64-hex rootId')
   }
+  const phraseMetadata = readPhraseMetadata({ phraseLanguage, phraseLegacy })
   const ref = genesisRef ?? genesis?.genesisRef ?? deriveGenesisRef({ rootId: root.rootId, boundAt })
   return Object.freeze({
     version: 3,
@@ -154,6 +156,7 @@ export function buildRecordV3({ root, boundAt, epoch = 0, receipt = null, genesi
       // here malformed would be a record whose published name is not the one its salt used, so the
       // shape is enforced rather than trusted.
       ...(handle === undefined ? {} : { handle: assertHandle(handle) }),
+      ...phraseMetadata,
       // THE MACHINE LISTS APPEAR WHEN A CALLER SUPPLIES THEM, AND NOT OTHERWISE. A record written by
       // the ceremony always carries both, because the ceremony always derives machine 0 and passes it.
       // A pre-machine fixture that passes neither keeps the SEVEN-field shape those fixtures and their
@@ -377,13 +380,24 @@ export function isRecordV3(record) {
     && typeof record.publicRoot?.rootId === 'string' && /^[0-9a-f]{64}$/u.test(record.publicRoot.rootId))) {
     return false
   }
-  if (record.publicRoot.handle === undefined) return true
   try {
-    assertHandle(record.publicRoot.handle)
+    if (record.publicRoot.handle !== undefined) assertHandle(record.publicRoot.handle)
+    readPhraseMetadata(record.publicRoot)
     return true
   } catch {
     return false
   }
+}
+
+/** Read optional display metadata without changing any key or signing preimage. */
+function readPhraseMetadata({ phraseLanguage, phraseLegacy }) {
+  if (phraseLanguage === undefined && phraseLegacy === undefined) return {}
+  if (!PHRASE_LANGUAGES.some(({ tag }) => tag === phraseLanguage) || typeof phraseLegacy !== 'boolean') {
+    const error = new RootCustodyError('aumlok:phrase-metadata-malformed: language and legacy flag must be valid together')
+    error.code = 'aumlok:phrase-metadata-malformed'
+    throw error
+  }
+  return { phraseLanguage, phraseLegacy }
 }
 
 /**
@@ -429,6 +443,7 @@ export function recordProjection(record) {
     // THE PUBLIC HANDLE, WHEN THE RECORD CARRIES ONE, and no key at all when it does not: a
     // handle-less record projects exactly the shape its courts already read.
     ...(root.handle === undefined ? {} : { handle: root.handle }),
+    ...readPhraseMetadata(root),
   })
 }
 
@@ -537,11 +552,11 @@ export const RECORD_CONTROL_FIELDS = Object.freeze([
  * that stops a private half riding along — so a caller that wants to ADMIT calls
  * {@link controlFieldsOfRecordV3Projection} first and hands that narrowed value over. What these two
  * fields are for is the SCREEN: `boundAt` is the one field a person reads as "when did I do this" and
- * `handle` is the public name half of the key, and both were carried by this read before it started
+ * `handle` is the public KDF salt, and both were carried by this read before it started
  * answering with control fields. Dropping them to satisfy a closed parser two layers away would have
  * been the strictness of one consumer deciding what every other consumer may see.
  */
-export const RECORD_CONTROL_EXTRA_FIELDS = Object.freeze(['boundAt', 'handle'])
+export const RECORD_CONTROL_EXTRA_FIELDS = Object.freeze(['boundAt', 'handle', 'phraseLanguage', 'phraseLegacy'])
 
 /**
  * Narrow a projector's answer to EXACTLY the seven control fields, or throw.
@@ -714,5 +729,6 @@ export function projectRecordV3Control({ record, machinePublicKeyHex = null, cus
     // exactly as `recordProjection` does it, so a record bound before X8 keeps the shape it had.
     boundAt: root.boundAt,
     ...(root.handle === undefined ? {} : { handle: root.handle }),
+    ...readPhraseMetadata(root),
   })
 }

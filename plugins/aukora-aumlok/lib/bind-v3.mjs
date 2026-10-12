@@ -39,9 +39,8 @@ import { lstatSync } from 'node:fs'
 import { join } from 'node:path'
 import { LOCAL_AUMLOK_CONTROL_FILENAME } from './store.mjs'
 
-import { assertHandle, deriveRootFromPhrase, requireHandle } from './derive-v3.mjs'
-// THE SHAPE OF A WORD, FROM THE MODULE THAT OWNS IT.
-import { WORD_PATTERN } from './themed-entropy.mjs'
+import { deriveRootFromPhrase, requireHandle } from './derive-v3.mjs'
+import { validatePhrase } from './ceremony-phrase.mjs'
 import { buildGenesisV3 } from './genesis-v3.mjs'
 import { deriveMachineKeyV3 } from './machine-key-v3.mjs'
 import {
@@ -104,15 +103,6 @@ export class BindV3Error extends TypeError {
   }
 }
 
-/** The only shape a word of the phrase may have when it arrives here: lower case, 4 to 9 letters. */
-// THE WORD SHAPE IS THE ORGAN'S, NOT A SECOND COPY OF IT. This file used to spell the regex itself, and so
-// did the drawer and the two harvest scripts — four places writing one rule, which is four places to change
-// when the width moves and four chances for three of them to be updated. It is imported now, so widening
-// `WORD_PATTERN` is ONE edit and `tests/aukora-word-shape.test.mjs` holds the copies that remain (the
-// drawer's, because the shell does not import the organ; the two Python shapes, because Python cannot).
-const WORD = WORD_PATTERN
-/** The plan's phrase: one anchor and six words. */
-const PHRASE_LENGTH = 7
 /** 32 bytes of hex, which is what `buildGenesisV3` requires and what makes two installations differ. */
 const NONCE = /^[0-9a-f]{64}$/u
 
@@ -142,15 +132,16 @@ function errnoSuffix(cause) {
  * the record's own bytes instead of trusting a string the record asserts about itself.
  *
  * @param {object} input - the handle, the phrase, where to bind, and the moment.
- * @param {string} input.handle - the person's PUBLIC handle: half of the key (X8). Checked for shape
+ * @param {string} input.handle - the person's PUBLIC handle, used as the KDF salt. Checked for shape
  *   here, before any key work, and REFUSED BY NAME when it is absent or cannot be a handle.
- * @param {readonly string[]} input.words - the seven typed words, in order, anchor first.
+ * @param {readonly string[]} input.words - the seven typed words, in order.
+ * @param {string} [input.phraseLanguage='en'] - the selected BIP-39 language tag.
  * @param {string} input.directory - the controller directory the composition declares.
  * @param {string} input.boundAt - the moment of binding, ISO 8601, stored in the record.
  * @param {'file'} [input.custodian] - file custody; other custodians are refused before writing.
  * @returns {Promise<Readonly<object>>} the record, the projection, and what was written and kept.
  */
-export async function bindV3({ handle, words, directory, boundAt, custodian } = /** @type {never} */ ({})) {
+export async function bindV3({ handle, words, phraseLanguage = 'en', directory, boundAt, custodian } = /** @type {never} */ ({})) {
   if (typeof directory !== 'string' || directory.length === 0) {
     throw new BindV3Error(BIND_REFUSE.DIRECTORY_ABSENT,
       'a binding needs the controller directory to write into, and this launch resolved none: the '
@@ -171,31 +162,15 @@ export async function bindV3({ handle, words, directory, boundAt, custodian } = 
   // two names for one fact is how a refusal stops being recognisable on a screen.
   const normalizedHandle = requireHandle(handle)
   refuseIfBound(directory)
-  // THE WORDS ARE CHECKED BEFORE ANY KEY WORK, so a malformed submit costs no scrypt seconds and the
-  // refusal cannot be reached by a shape the face would never have sent.
-  const offered = Array.isArray(words) ? words : null
-  if (offered === null || offered.length !== PHRASE_LENGTH
-    || !offered.every(word => typeof word === 'string' && WORD.test(word))) {
-    throw new BindV3Error(BIND_REFUSE.PHRASE_MALFORMED,
-      `a binding needs ${String(PHRASE_LENGTH)} lower-case words of 4 to 9 letters, anchor first`)
+  // Validate the selected dictionary before any key work or write.
+  if (!Array.isArray(words) || words.length !== 7 || !words.every(word => typeof word === 'string')) {
+    throw new BindV3Error(BIND_REFUSE.PHRASE_MALFORMED, 'a binding needs seven words')
   }
-
-  // THE PHRASE IS JOINED ONCE, HERE, AND THE JOINED STRING IS NOT KEPT. `normalizePhrase` inside the
-  // KDF folds any of space, underscore and hyphen to one separator, so the seven words are the phrase
-  // whichever of those the surface used between them. THE HANDLE GOES IN BESIDE IT AS THE SALT.
-  // ── **THE ENTROPY OF THE THING BEING DERIVED, PRINTED WHERE IT IS DERIVED (AUMLOK-113)** ────────────────
-  //
-  // REVIEWER ROW 8, DISCLOSED BY PETER'S RULING: this path is the one that turns seven words and a PUBLIC handle
-  // into the root key, and **the pair is worth about 34.14 bits.** A reader of this output is watching a root key
-  // come into existence and is entitled to know what it is worth before anything is written.
-  //
-  // **AND THE LAW IT BREAKS IS THE REASON IT MUST BE SAID HERE RATHER THAN IN A DESIGN NOTE.** The project's own
-  // statement is that the phrase never derives the key — a presence check over a secret held elsewhere. **This
-  // line is where that is untrue**: the words ARE the secret, so a photograph of them, or a backup, is the root.
-  console.log('CEILING: ROOT_KEY_OFFLINE_GUESSABLE — about 34.14 bits from the seven words plus a PUBLIC '
-    + 'handle, public salt, roughly 1 second per guess. Whoever has the phrase rebuilds the root OFFLINE, with '
-    + 'no access to this machine. The acrostic stays; what it unlocks is being redesigned.')
-  const root = await deriveRootFromPhrase(offered.join('-'), { handle: normalizedHandle })
+  const validated = validatePhrase(words.join(' '), { language: phraseLanguage })
+  console.log(validated.legacy
+    ? 'CEILING: legacy phrase, weak — older generators have about 14.3 or 34.14 bits; the public handle adds no secret entropy.'
+    : 'CEILING: 77 bits when generated uniformly (7 × 11); chosen words are not measured; the public handle adds no secret entropy.')
+  const root = await deriveRootFromPhrase(validated.phrase, { handle: normalizedHandle })
   const genesis = buildGenesisV3({ root, genesisNonce: randomBytes(32).toString('hex') })
   if (!NONCE.test(genesis.genesisNonce)) {
     // A GUARD ON OUR OWN OUTPUT, not on a caller's: a genesis whose nonce is not the shape the subject
@@ -215,6 +190,8 @@ export async function bindV3({ handle, words, directory, boundAt, custodian } = 
     // handle to type first, and what a NIP-05 `name@domain` local part comes from; it is not a secret
     // and it is not a uniqueness claim.
     handle: normalizedHandle,
+    phraseLanguage: validated.language,
+    phraseLegacy: validated.legacy,
     machines: [{ index: machine.machineIndex, ed25519: machine.ed25519PublicKeyHex }],
   })
 

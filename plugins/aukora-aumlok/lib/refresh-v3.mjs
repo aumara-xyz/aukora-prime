@@ -72,7 +72,7 @@ export const HANDOVER_SIGNING_DOMAIN = 'aukora:aumlok-handover-signature:v3'
  * The exact fields of one handover line, and nothing else. A closed record or it is not a handover.
  *
  * `handle` IS IN THE SIGNED SET AND IS OPTIONAL, WHICH IS NOT A CONTRADICTION. It is signed when the
- * record being handed over carries one, because the handle is HALF THE KEY (`aumlok-kdf-v1`): a chain
+ * record being handed over carries one, because the handle salts the KDF (`aumlok-kdf-v1`): a chain
  * whose published handle can be edited between epochs is a chain that can tell a person to type the
  * wrong handle on a new machine and derive a different root from the same seven words. It is OPTIONAL
  * because the disposable fixtures derive from a seed rather than a person's handle and publish none —
@@ -248,7 +248,7 @@ export function buildHandoverV3({ record, oldRoot, newRoot, handoverAt } = /** @
   }
   const subject = subjectOfRecord(record)
   // THE HANDLE IS CARRIED, NOT RE-DERIVED, AND IT IS INSIDE THE SIGNED BYTES. `aumlok-kdf-v1` salts
-  // the KDF with `NFKC(handle).toLowerCase()`, so the handle is half of the key: a handover signed only
+  // the KDF with `NFKC(handle).toLowerCase()`, so the handle is an input to derivation: a handover signed only
   // over the two root ids would still verify after someone edited the record's published handle, and
   // the person following it on a new machine would type a handle that derives a root nobody signed for.
   const handle = record.publicRoot.handle === undefined ? undefined : assertHandle(record.publicRoot.handle)
@@ -358,7 +358,7 @@ export function verifySuccessionV3({ record } = /** @type {never} */ ({})) {
     if (!isHandoverShape(link)) return refuse(REFRESH_REFUSE.SUCCESSION_BROKEN)
     if (link.subject !== subject) return refuse(REFRESH_REFUSE.SUCCESSION_SUBJECT_MOVED)
     if (link.genesisRef !== record.publicRoot.genesisRef) return refuse(REFRESH_REFUSE.SUCCESSION_SUBJECT_MOVED)
-    // THE HANDLE IS HALF THE KEY, SO IT IS HALF THE CHAIN. Every link must carry the handle the record
+    // THE HANDLE SALTS THE KDF AND IS CARRIED BY THE CHAIN. Every link must carry the handle the record
     // publishes, exactly — an absent one and a different one are both refusals by name, because either
     // tells the person following this chain on a new machine to salt their words with something the
     // handover never signed. This is also what makes the handle TAMPER-EVIDENT: it is inside
@@ -421,7 +421,7 @@ function readRecordIn(directory) {
  *   written: object, kept: object}>} the new record and everything that produced it.
  */
 export function refreshBindingV3({ directory, oldRoot, newRoot, refreshedAt, expectSubject,
-  genesisNonce } = /** @type {never} */ ({})) {
+  genesisNonce, phraseLanguage, phraseLegacy } = /** @type {never} */ ({})) {
   if (typeof directory !== 'string' || directory.length === 0) {
     throw new RefreshV3Error(REFRESH_REFUSE.RECORD_MALFORMED, 'a refresh needs the directory to refresh')
   }
@@ -443,7 +443,7 @@ export function refreshBindingV3({ directory, oldRoot, newRoot, refreshedAt, exp
   }
   const handover = buildHandoverV3({ record, oldRoot, newRoot, handoverAt: refreshedAt })
   // THE HANDLE IS CARRIED, NOT RE-DERIVED, AND NOT RE-CHOSEN. `aumlok-kdf-v1` salts the KDF with it,
-  // so it is HALF THE KEY: the plan refreshes the WORDS, never the name, and a record whose published
+  // so the plan refreshes the WORDS, never the name, and a record whose published
   // handle silently became absent (the defect this line fixes — before it, `handle` was simply not
   // passed here and one refresh dropped it from the record, from `recordProjection` and from
   // `loadLocalAumlokPublicControl`) or silently became a different one is a record whose owner cannot
@@ -502,6 +502,8 @@ export function refreshBindingV3({ directory, oldRoot, newRoot, refreshedAt, exp
     machines: [{ index: machine.machineIndex, ed25519: machine.ed25519PublicKeyHex }],
     ...(revokedMachines.length === 0 ? {} : { revokedMachines }),
     succession,
+    phraseLanguage,
+    phraseLegacy,
     ...(carriedHandle === undefined ? {} : { handle: carriedHandle }),
   })
   const written = writeRecordV3({ record: next, directory })

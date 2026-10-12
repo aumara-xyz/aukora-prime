@@ -1,3 +1,4 @@
+import { AUMLOK_PHRASE_LANGUAGES } from './binding-bridge.ts'
 /**
  * THE v3 RECORD, AS THE WIRE ACTUALLY CARRIES IT.
  *
@@ -108,7 +109,7 @@ export const AUMLOK_RECORD_CONTROL_PROJECTION_FIELDS = [
  * `aumlok-control-projection:unrecognised` — a machine that had just bound read UNBOUND, which is the
  * exact defect U6 exists to catch, arrived at from the other side.
  */
-export const AUMLOK_CONTROL_CARRIED_RECORD_FIELDS = ['boundAt', 'handle'] as const
+export const AUMLOK_CONTROL_CARRIED_RECORD_FIELDS = ['boundAt', 'handle', 'phraseLanguage', 'phraseLegacy'] as const
 
 /**
  * The record's own fields the ORGAN'S CONTROL PROJECTION carries, and the one it makes optional.
@@ -148,7 +149,7 @@ export function isAumlokRecordControlProjection(input: unknown): boolean {
 }
 
 /** The one field a v3 record carries only sometimes: the public handle X8 salts the key with. */
-export const AUMLOK_RECORD_OPTIONAL_FIELDS = ['handle'] as const
+export const AUMLOK_RECORD_OPTIONAL_FIELDS = ['handle', 'phraseLanguage', 'phraseLegacy'] as const
 
 /**
  * The domain this screen shows for a v3 record.
@@ -282,6 +283,7 @@ export function parseAumlokRecordControlProjection(input: unknown): Readonly<Aum
     custodyClass: CUSTODY_CLASS,
     boundAt: boundAt as string | number,
     ...(typeof handle === 'string' ? { handle } : {}),
+    ...phraseMetadata(record),
   })
 }
 
@@ -454,5 +456,15 @@ export function parseAumlokRecordProjection(input: unknown): Readonly<AumlokCont
     // AND THE PUBLIC NAME, for the screen that must show what it is bound to. It is the record's own
     // field, passed through unchanged.
     ...(typeof handle === 'string' ? { handle } : {}),
+    ...phraseMetadata(record),
   })
+}
+
+function phraseMetadata(record: Record<string, unknown>): { phraseLanguage?: string; phraseLegacy?: boolean } {
+  const { phraseLanguage, phraseLegacy } = record
+  if (phraseLanguage === undefined && phraseLegacy === undefined) return {}
+  if (!AUMLOK_PHRASE_LANGUAGES.some(item => item.tag === phraseLanguage) || typeof phraseLegacy !== 'boolean') {
+    throw new TypeError('aumlok-record-projection: invalid phrase language or legacy flag')
+  }
+  return { phraseLanguage: phraseLanguage as string, phraseLegacy }
 }

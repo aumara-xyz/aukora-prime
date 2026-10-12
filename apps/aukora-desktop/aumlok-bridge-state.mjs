@@ -431,7 +431,7 @@ export function resolveAumlokDirectory(patchPaths) {
  */
 export async function loadOrganLibrary(releaseDir) {
   const modules = {}
-  for (const name of ['derive-v3.mjs', 'record-v3.mjs', 'store.mjs', 'bind-v3.mjs', 'owner-signer.mjs']) {
+  for (const name of ['derive-v3.mjs', 'record-v3.mjs', 'store.mjs', 'bind-v3.mjs', 'owner-signer.mjs', 'ceremony-phrase.mjs']) {
     const modulePath = join(releaseDir, 'plugins', 'aukora-aumlok', 'lib', name)
     if (!existsSync(modulePath)) {
       const error = new Error(`${APPROVAL_REFUSE.NO_LIBRARY}: ${modulePath} is not in this release`)
