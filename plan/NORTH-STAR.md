@@ -60,3 +60,108 @@ Only Peter says "done". Safety lives inside AUKORA (no GitHub enforcement). Noth
 family in the Honey Pot map ends either in Prime main, or on the map with the reason it was dropped.
 Reference papers: docs/AUKORA-GOLDEN-BOUNDARY.md (Genesis).
 What Prime takes from the field (Hermes, goose, OpenClaw, harness-security research): plan/FIELD-DISTILL.md (directions, not claims).
+
+---
+
+ADDED 2026-10-12 (Peter's direction that day; written by the Buzz builder session). Nothing above is changed.
+Status words as above, plus: RAN-MAC = ran on Peter's Mac only, not on Nebius.
+
+ONE REPO, ONE PLAN: this repository (aumara-xyz/aukora-prime, public) is where everything ends up, and this file is
+the plan Peter steers by. Other repositories are sources to absorb from, not second homes. "Prime main" means this
+repository's main; an older private repository with a similar name (last pushed 2026-10-03) is not it.
+Live on Nebius today: release 3673b98, a commit of this repository, under the old service name `aukora-genesis`.
+Main is ahead of it (63 files at 4d59ad8); the safe way to bring the pilot up to main is NOT YET named or checked.
+
+THE NETWORK UNDER THE NODE: BUZZ.
+The harness and Cordis stay: they are the node. Buzz (block/buzz, Apache-2.0: a Nostr relay with channels, threads,
+search, media, workflows, agents as members, and desktop and phone apps that pair by scanning) goes underneath as the
+network. Its relay runs on the node; Auma joins it as a member; people reach the node from Buzz's own apps today and
+from Aukora's interface later. Approvals stay with the boundary gate; Buzz carries the signed results so others can
+check them. Nothing in Prime is replaced.
+- Why it fits: [SOURCE, in the live release] plugins/aukora-nostr already gives each node a Nostr identity bound to
+  the Aumlok key, contacts with safety numbers, NIP-17/NIP-44 private messages, a relay client with NIP-42 sign-in,
+  and a phone-approval verifier. It has no relay of its own (its defaults are public relays). Buzz is that relay,
+  owned by the node.
+- [RAN, read-only look at the pilot 2026-10-12] aukora-nostr ships in the live release but is NOT in its plugin set
+  and has no state on the pilot: it is source there, not running. The pilot's `aukora-relay` service is not a Nostr
+  relay: it is a small token-authenticated HTTP message API (/v1/messages) for headless clients, so it and Buzz do
+  not overlap.
+- [NOT YET, unchecked] whether aukora-nostr can join a Buzz channel (NIP-29 groups) as is, or only exchange private
+  messages (Buzz's relay does carry NIP-17 gift wraps); mounting it means a new owner-approved plugin set.
+- Several nodes can run side by side with one person playing every user: the cheapest test of the network.
+
+WHAT THE BUZZ WORK ADDED (in the private fork aumara-xyz/aukora-buzz; see its AUKORA-PLAN.md and shim/README.md):
+- [RAN-MAC, real Touch ID] an agent's shell command held until the owner's sealed key approves it; the signed
+  approval published in the channel; a stranger verifies it with the engine's single-file verifier (aumlok-id b5b6ca8).
+  This is the "later: passkey/Touch ID on his Mac [NOT YET]" line above, built for Buzz; it is not yet joined to the
+  pilot's gate, which signs with its own key. Which key signs on the pilot is an open decision.
+- [RAN-MAC, real Touch ID] Buzz's own workflow approval step released only by the owner key.
+- [RAN-MAC, real Touch ID] standing bounds: one signature lets an agent work in one folder with no touch per command,
+  enforced by the macOS sandbox (writes only in the folder, no network). A convenience line, not containment.
+- [RAN-MAC, real Touch ID] goal loop: an agent keeps working until an owner-written check passes.
+- [RAN-MAC, real Touch ID] Prime Agent (Prime Intellect's open-source agent; unrelated to Aukora Prime) running in
+  Buzz on DeepSeek and held by the same gate, through a per-tool-call hook patched into it.
+- [RAN-MAC, test keys] a refusal by the owner closes the rest of the turn; a receipt checker for bounds.
+- On the Mac there is no containment: the agent runs as the owner. The claim "a refusal holds even when the agent
+  tries another route" can only be made on Linux, on the floor described above.
+
+WHAT CONTACT ADDED (aumara-xyz/aukora-contact):
+- [RAN, Mac + iPhone] two screens exchange light and both sign the moment (the light handshake only).
+- [NOT YET on devices] approving an exact text on the phone; sound and motion senses.
+- [RAN-MAC, test receipts] a co-presence receipt riding beside a Buzz grant as evidence that grants nothing.
+- [RAN, outside any repository] a graded-task loop: one model writes, one attacks, hidden tests decide (62 runs).
+- [SOURCE] a recursive-language-model harness with known defects; never run inside Buzz.
+This is the human-to-human invitation: a person is let in by meeting another person.
+
+CORRECTIONS TO STATUS ABOVE, as of 2026-10-12 (from the Genesis lead's read; nobody re-ran these that day):
+- KIRA / OpenViking: the service is up; the one recorded saved note is saved but not indexed and not searchable.
+  Recall is not shown.
+- AURA: the anchor publisher runs on the owner's Mac; which side signs and which holds the ledger is unchecked.
+- Cordis: the harness runs on the Cordis host; Prime's Cordis tool provider is unmounted.
+- OpenShell: 10-04 FAIL stands (34 denied, 1 allowed, through inherited sockets). 10-06 staging: guest 33 denied /
+  0 allowed; host-as-auma 44 / 6 with six exceptions the owner accepted. No probe on 10-12.
+- Not in any running product: First Echo, the one-use kernel decide(), governed recall, the membrane write guard,
+  Pentora (display), Laya (lab result: escalate only, 13.5% false alarms), the WASM cell ("a relay, not a sandbox").
+- The H200 lab node is stopped and is not needed until Ornith is the model.
+
+ORDER FROM HERE (each step ends with a check someone runs; only Peter says "done"):
+1. Pilot healthy from the owner's Mac (owner bridge reconnected 2026-10-12); name and check the safe path to bring
+   the pilot up to main.
+2. Buzz relay on the pilot under its own Linux user, loopback only.
+3. Auma joins the relay as a member through aukora-nostr; a message from Buzz's phone app reaches her and her
+   reply comes back.
+4. One owner approval path: the gate on the node decides; the owner's touch on his own device is what releases it;
+   the signed result lands in the channel and a stranger verifies it. THE DEMO: phone -> Auma -> held -> touch ->
+   receipt -> verified.
+5. Standing bounds enforced by the floor (separate user + OpenShell) instead of the macOS sandbox, then the test
+   that matters: deny, the agent tries other routes, all refused, by an independent tester.
+6. A builder agent (Prime Agent) works from this file inside those bounds, one step at a time, each with an
+   owner-written check; pushes and deploys ask the owner. This is where the owner stops prompting and only approves.
+7. One memory, decided by test: Buzz's agent notes, Kira for what the owner signed, OpenViking for recall.
+8. Co-presence on a grant with real devices (can happen at any time).
+9. Wave 1 above (wire every SOURCE-only organ), then the Honey Pot absorb order, into this repository.
+10. A second node joins by invitation; a person on it verifies an approval from the first.
+11. The front door: "Go Sovereign" (a hosted node, first week covered, then handed to its owner; later anyone
+    hosts their own), invitations by co-presence, then the phone app and Bitchat, then spatial and AR interfaces.
+
+HONEY POT, as its keeper reported on 2026-10-12 from the 10-04 map (not re-run; Prime has moved since):
+- The index has 110 families; the Prime absorb list has 73 lines (15 "no" + 58 "partial", none "yes"). Across the
+  110: 9 yes, 73 partial, 28 no. "Yes" means files present, not wired or running. The gap between 110 and 73 is
+  not reconciled.
+- Top gems in the map's order (ran in the installed app first): path-law/read-fence (aukora-seed paths, law, guard),
+  phi-guard (action-gate policy and kernel), OpenViking, the approval popup with its signer and stranger verifiers,
+  release/build scripts, caged worker and workspace patch, the authority kernel, the Aura chain, governed recall,
+  loopback doors. This is not the absorb order, which starts with foundations.
+- Most at risk of being forgotten: path-law/read-fence and phi-guard (Prime has nothing equivalent); the cross-node
+  relay from the lab (in no repository); conversation-safety-rails and organism (source only); drift sentinels;
+  and about 72 commits in a local checkout of the older private Prime repository that never reached GitHub.
+- Messaging families: nostr-messaging (#57), cross-node-federation (#58), aumlok-identity (#33, prerequisite for
+  both), conversation-safety-rails (#61). Buzz under the node is how #57 and #58 get a relay of their own.
+
+OWNER DECISIONS OPEN: which key signs on the pilot; the go to change anything on the pilot; whether the Apache fork
+loading the AGPL engine by path is acceptable (a question for counsel) and where the Buzz code finally lives;
+which model runs the builder agent.
+
+SAY PLAINLY TO ANYONE SHOWN THIS: an approval proves a key signed exact bytes after a biometric match on one device,
+not a unique person. "Used once" is kept by the gate that counted, not provable offline. A co-presence receipt is
+evidence and grants nothing. Buzz is Block's; this is built on a fork and has not been sent to them.
