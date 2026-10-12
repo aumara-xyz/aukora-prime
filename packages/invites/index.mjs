@@ -122,6 +122,30 @@ function grantFor(root, member, grant, now) {
   return { root, member, id: grant.id, allotment: value.allotment, sequence: value.sequence }
 }
 
+// Availability verifies signed ancestry and current accounting without consuming an invite.
+export function verifyAvailable({ root, invite, chain = [], state, now }) {
+  ;({ root, invite, chain, now } = snapshot({ root, invite, chain, now }))
+  clock(now)
+  if (!Array.isArray(chain) || chain.length > 127) refuse(REFUSE.CHAIN)
+  const value = invitation(invite, root)
+  const inviter = chain.length ? verifyRecord({ root, record: { chain } }).member : root
+  if (invite.pubkey !== inviter) refuse(REFUSE.CHAIN)
+  if (chain.length && invite.created_at + MAX_CLOCK_SKEW_SECONDS < chain.at(-1).redemption.created_at) refuse(REFUSE.TIME)
+  if (now < value.issuedAt) refuse(REFUSE.TIME)
+  if (now >= value.expiresAt) refuse(REFUSE.EXPIRED)
+  if (typeof state?.transaction !== 'function') refuse(REFUSE.STATE)
+  return state.transaction(tx => {
+    for (const prior of chain) {
+      const admitted = tx.admission(root, prior.redemption.pubkey)
+      if (!admitted || admitted.inviteId !== prior.invite.id
+        || admitted.redemptionId !== prior.redemption.id || admitted.inviter !== prior.invite.pubkey) refuse(REFUSE.UNADMITTED)
+    }
+    if (tx.consumed(invite.id)) refuse(REFUSE.REPLAY)
+    if (tx.count(root, inviter) >= (tx.grant(root, inviter)?.allotment ?? 3)) refuse(REFUSE.ALLOTMENT)
+    return { available: true, invite_id: invite.id }
+  })
+}
+
 export function verifyAdmission({ root, invite, redemption, chain = [], state, now, grant }) {
   ;({ root, invite, redemption, chain, now, grant } = snapshot({ root, invite, redemption, chain, now, grant }))
   clock(now)
@@ -194,6 +218,7 @@ function store(database) {
             if (!hex(inviteId)) refuse(REFUSE.STATE)
             return run('INSERT OR IGNORE INTO consumed VALUES (?)', inviteId).changes === 1
           },
+          consumed(inviteId) { check(); if (!hex(inviteId)) refuse(REFUSE.STATE); return Boolean(get('SELECT 1 FROM consumed WHERE inviteId = ?', inviteId)) },
           record(entry) {
             check()
             if (!fields(entry, ['root', 'inviteId', 'redemptionId', 'inviter', 'member'])

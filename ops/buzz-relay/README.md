@@ -79,3 +79,49 @@ On a CLOSED relay owned by the signing key, this keeps out keys nobody vouched f
 Invites are bearer codes: another valid key can redeem first. The append-only file contains compact admissions;
 the database retains signed chains for recovery. Local tests use a bridge stand-in; they do not establish live relay
 closure, idempotence, owner custody, store rollback resistance or enforcement in the installed application.
+
+## Invite admission HTTP service
+
+`admission-server.mjs` wraps that engine for [node-spawn](../node-spawn/README.md). `POST /preflight` receives
+`{root, invite, chain}` and verifies availability without spending. `POST /redeem` adds the signed `redemption`;
+it returns `{admitted:true, record}` only after durable spending and the relay owner's signed kind-9030 member add.
+The same signed redemption returns the same committed record on retry; a different redemption of a spent invite
+is refused. Refusals return non-200 `{code}` without request bytes. Both routes require `application/json`, reject
+unknown fields and bounded/slow bodies, and return `cache-control: no-store`. Fixed-window limits apply to the
+socket's remote address and globally. Logs contain the invite id and outcome; the service stores no private key
+in its admission graph. The service user can read its own key file.
+Defaults are 256 KiB per body, five seconds per request, and 30 requests per address / 300 globally per minute.
+
+Nothing in this section has been installed or run against a real closed relay. The repository's admission tests
+use throwaway keys and a fake relay bridge. They do not prove real relay closure or membership idempotence, owner
+custody, unique people, host containment, public TLS, or resistance to an operator restoring an older store.
+
+On Linux, use a full Prime checkout and Node **24.11.1**. The owner must first choose the relay owner key and close
+the relay with that public key using the procedure above. The admission service needs that same owner key in a
+file private to its own user; this is a separate custody decision from closing the relay, whose operator flow
+keeps the owner's private key on the owner's machine. Do not transfer a production key without that decision.
+
+```
+export PATH=$HOME/.local/node-v24.11.1/bin:$PATH
+bash ops/buzz-relay/install.sh --with-admission
+# Owner-authorized provisioning: install the existing owner key, without printing its bytes.
+sudo install -o aukora-admission -g aukora-admission -m 0600 /absolute/private/owner.key /var/lib/aukora-admission/owner.key
+sudo systemctl enable --now aukora-admission.service
+bash /usr/local/lib/aukora-buzz/check.sh --admission
+```
+
+The opt-in installer creates `aukora-admission`, its 0700 state directory, copies the module import closure and
+Node executable into root-owned `/usr/local/lib/aukora-buzz`, and installs the
+[`units/aukora-admission.service`](units/aukora-admission.service) template. It never creates or copies an owner
+key, enables the unit, or starts/restarts a service. Without `--with-admission`, admission installation is skipped.
+The unit sets HOME to `/var/lib/aukora-admission`, a 0077 umask, a writable state path, no capabilities, and loopback
+network restrictions; the key is loaded with the engine's isolated-file loader. Preserve the store across restarts;
+the pending outbox is recovered using the same owner and relay. A lost acknowledgement may resend a member add.
+
+The default listener is `127.0.0.1:3100`. TLS termination belongs to the operator's reverse proxy, which should
+forward only `/preflight` and `/redeem` to that loopback address without logging bodies. The service neither serves
+TLS nor trusts forwarding headers for address accounting: callers behind one proxy share its address limit.
+For a direct non-loopback bind, the CLI requires both `--host ADDRESS` and `--behind-tls-proxy`; the flag records
+operator intent and does not prove TLS. Such a deployment also needs an explicitly reviewed unit override for its
+loopback IP restrictions. Node-spawn must use the operator's HTTPS endpoint (or its existing explicit loopback
+transport option for local tests). The owner decides key custody, closure, proxy configuration and activation.

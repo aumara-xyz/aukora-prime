@@ -5,7 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { createInvite, redeemInvite, verifyAdmission, verifyRecord, createDatabaseStore, REFUSE as INVITE_REFUSE } from '../../packages/invites/index.mjs'
+import { createInvite, redeemInvite, verifyAvailable, verifyAdmission, verifyRecord, createDatabaseStore, REFUSE as INVITE_REFUSE } from '../../packages/invites/index.mjs'
+import { canonicalJson } from '../../packages/contracts/src/json.mjs'
 import { gateCall, loadKey, RELAY_HTTP } from '../../plugins/aukora-buzz-door/lib/index.mjs'
 import { publicKeyOf, isHex32 } from '../../plugins/aukora-nostr/lib/event.mjs'
 import { createMemberClient, REFUSE as MEMBER_REFUSE } from './member.mjs'
@@ -23,6 +24,7 @@ const seconds = () => Math.floor(Date.now() / 1000)
 const compact = (root, invite, redemption) => ({ root, inviteId: invite.id, redemptionId: redemption.id,
   inviter: invite.pubkey, member: redemption.pubkey })
 const json = value => JSON.stringify(value)
+const recordIds = record => record.chain.map(({ invite, redemption }) => [invite.id, redemption.id])
 
 function syncDirectory(directory) {
   const fd = fs.openSync(directory, 'r')
@@ -138,17 +140,41 @@ async function deliver(ctx, row) {
   return { member: entry.member, record }
 }
 
-// Exact incomplete requests resume at their committed decision, even after expiry; completed requests are replays.
-export async function admit(options, deps = {}) {
+export function preflight(options, deps = {}) {
+  let request
+  try { request = structuredClone(options) } catch { throw fail(REFUSE.INPUT) }
+  const { invite, chain = [] } = request ?? {}
+  if (!invite || !Array.isArray(chain)) throw fail(REFUSE.INPUT)
+  const ctx = context(request, deps), { store, root } = ctx
+  try {
+    if (request.root !== root) throw fail(INVITE_REFUSE.NETWORK)
+    const pending = store.db.prepare('SELECT 1 FROM delivery WHERE done = 0').get()
+    if (pending) throw fail(REFUSE.PENDING)
+    return verifyAvailable({ root, invite, chain, state: store.state, now: (deps.now ?? seconds)() })
+  } finally { store.close() }
+}
+
+async function admitRequest(options, deps, idempotent) {
   let request
   try { request = structuredClone(options) } catch { throw fail(REFUSE.INPUT) }
   const { invite, redemption, chain = [] } = request ?? {}
   if (!invite || !redemption || !Array.isArray(chain)) throw fail(REFUSE.INPUT)
   const ctx = context(request, deps), { store, root, onStage } = ctx
   try {
+    if (idempotent && request.root !== root) throw fail(INVITE_REFUSE.NETWORK)
     const record = { chain: [...chain, { invite, redemption }] }
     verifyRecord({ root, record })
     const existing = store.db.prepare('SELECT * FROM delivery WHERE inviteId = ?').get(invite.id)
+    if (idempotent && existing) {
+      if (existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)
+      if (canonicalJson(recordIds(JSON.parse(existing.record))) !== canonicalJson(recordIds(record))) throw fail(INVITE_REFUSE.CHAIN)
+      if (existing.done) {
+        const stored = checkedRecord(store, root, existing)
+        appendAdmissions(store)
+        return { member: stored.entry.member, record: stored.record }
+      }
+      return await deliver(ctx, existing)
+    }
     if (existing) {
       if (existing.done || existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)
       if (existing.record !== json(record)) throw fail(INVITE_REFUSE.CHAIN)
@@ -169,6 +195,12 @@ export async function admit(options, deps = {}) {
     return await deliver(ctx, store.db.prepare('SELECT * FROM delivery WHERE inviteId = ?').get(invite.id))
   } finally { store.close() }
 }
+
+// Exact incomplete CLI requests resume; completed CLI requests refuse replay.
+export function admit(options, deps = {}) { return admitRequest(options, deps, false) }
+
+// HTTP retries return the same completed signed record without another relay command.
+export function admitIdempotent(options, deps = {}) { return admitRequest(options, deps, true) }
 
 export async function resume(options, deps = {}) {
   const ctx = context(options, deps)

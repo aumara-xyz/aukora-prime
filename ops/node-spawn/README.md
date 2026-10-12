@@ -43,8 +43,8 @@ receives `{root, invite, chain}` and returns HTTP 200
 spending and closed-relay admission. Known refusals return non-200 `{code}`.
 Redirects refuse. Returned ancestry, offer, redemption and generated key must
 match exactly. HTTPS authenticates this authority; signed ancestry alone does
-not prove spending or relay admission. This change does not implement or deploy
-that server. It must share one trusted store and the existing
+not prove spending or relay admission. The [admission service](../buzz-relay/README.md#invite-admission-http-service)
+implements that server in source; installed operation remains unqualified. It shares one trusted store and the existing
 `ops/buzz-relay/admit.mjs` outbox. The relay owner's key stays at the relay.
 There is one closed community relay; this command installs none. The door's
 existing loopback route needs a separately supplied transport to that relay.

@@ -1,12 +1,41 @@
 #!/usr/bin/env bash
-# Check relay health and recorded closure intent; failed close attempts require operator action.
+# Checks relay health, recorded closure intent and opt-in admission service listeners.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="${1:-full}"
-case "$MODE" in full|--health|--watch) ;; *) echo "usage: check.sh [--health|--watch]" >&2; exit 2 ;; esac
+case "$MODE" in full|--health|--watch|--admission) ;; *) echo "usage: check.sh [--health|--watch|--admission]" >&2; exit 2 ;; esac
 fail=0
 say() { printf '%s  %s\n' "$1" "$2"; [ "$1" = PASS ] || fail=1; }
 ROOT=/var/lib/aukora-buzz
+if [ "$MODE" = --admission ]; then
+  [ "$(systemctl is-active aukora-admission.service)" = active ] \
+    && say PASS 'aukora-admission.service active' || say FAIL 'aukora-admission.service not active'
+  UID_ADMISSION=$(id -u aukora-admission) || exit 1
+  admission_port=0 off_loopback=0
+  if LISTEN=$(sudo ss -ltnpH) && [ -n "$LISTEN" ]; then
+    while read -r line; do
+      socket=$(printf '%s\n' "$line" | awk '{print $4}')
+      for pid in $(printf %s "$line" | grep -oE 'pid=[0-9]+' | cut -d= -f2); do
+        owner=$(sudo stat -c %u "/proc/$pid" 2>/dev/null) || owner=unknown
+        [ "$owner" = "$UID_ADMISSION" ] || continue
+        case "$socket" in 127.*:*|\[::1\]:*) ;; *) off_loopback=1 ;; esac
+        [ "$socket" != 127.0.0.1:3100 ] || admission_port=$((admission_port + 1))
+      done
+    done <<< "$LISTEN"
+    [ "$off_loopback" = 0 ] && [ "$admission_port" = 1 ] \
+      && say PASS 'aukora-admission listens only on loopback, port 3100' || say FAIL 'aukora-admission listener not proved'
+  else
+    say FAIL 'aukora-admission listeners unavailable'
+  fi
+  PORT=$(sudo cat "$ROOT/node.env" | bash "$HERE/read-setting.sh" PORT) || exit 1
+  MEMBER="$HERE/member/ops/buzz-relay/member.mjs"
+  [ -f "$MEMBER" ] || MEMBER="$HERE/member.mjs"
+  NODE="$HERE/node-v24.11.1/node"
+  [ -x "$NODE" ] || NODE=node
+  "$NODE" "$MEMBER" verify-closed --relay "http://localhost:${PORT}" >/dev/null 2>&1 \
+    && say PASS 'admission relay closed' || say FAIL 'admission relay closure not proved'
+  exit "$fail"
+fi
 closed_intent=0 close_failed=0 watch_stopped=0
 sudo test ! -e "$ROOT/closed" || closed_intent=1
 sudo test ! -e "$ROOT/close-failed" || close_failed=1

@@ -3,10 +3,10 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
-import { admit, resume, runCli, REFUSE } from './admit.mjs'
+const { admit, admitIdempotent, preflight, resume, runCli, REFUSE } = await import(process.env.AUKORA_ADMIT_MODULE ?? './admit.mjs')
 import { createMemberClient, verifyClosed, REFUSE as MEMBER } from './member.mjs'
 import { createInvite, redeemInvite, TTL_SECONDS, REFUSE as INVITES } from '../../packages/invites/index.mjs'
 import { publicKeyOf, randomSecretKey, verifyEvent, signEvent } from '../../plugins/aukora-nostr/lib/event.mjs'
@@ -18,8 +18,28 @@ const TEST = fileURLToPath(import.meta.url)
 const accepted = { accepted: true, event_id: 'ab'.repeat(32), kind: 9030 }
 const auraAck = { ok: true, seq: 1, hash: 'cd'.repeat(32) }
 const rejects = (fn, code) => assert.rejects(fn, error => error.code === code)
+const actualStats = { fstatSync: fs.fstatSync, lstatSync: fs.lstatSync }
+const protectedContexts = new WeakSet()
+
+// Writable checkout ancestors stand in for protected installed paths; fixture modes remain real.
+function protectedAncestors(t) {
+  const identities = []
+  for (let directory = HERE; ; directory = path.dirname(directory)) {
+    const st = actualStats.lstatSync(directory)
+    if (st.mode & 0o022) identities.push(`${st.dev}:${st.ino}`)
+    if (directory === '/') break
+  }
+  const patch = st => { if (st?.isDirectory() && identities.includes(`${st.dev}:${st.ino}`)) st.mode &= ~0o022; return st }
+  if (!protectedContexts.has(t)) {
+    protectedContexts.add(t)
+    for (const name of ['fstatSync', 'lstatSync']) t.mock.method(fs, name, (...args) => patch(actualStats[name](...args)))
+  }
+  return `const ancestors=${JSON.stringify(identities)};
+for(const name of ['fstatSync','lstatSync']){const original=fs[name];fs[name]=(...args)=>{const st=original(...args);if(st?.isDirectory()&&ancestors.includes(st.dev+':'+st.ino))st.mode&=~0o022;return st}};`
+}
 
 function fixture(t) {
+  const parentSetup = protectedAncestors(t)
   const home = fs.mkdtempSync(path.join(HERE, '.admit-test-'))
   fs.chmodSync(home, 0o700)
   const keys = path.join(home, 'keys'); fs.mkdirSync(keys, { mode: 0o700 })
@@ -32,7 +52,7 @@ function fixture(t) {
   const now = Math.floor(Date.now() / 1000)
   const keyOptions = { home, deniedRoots: [] }
   t.after(() => fs.rmSync(home, { recursive: true, force: true }))
-  return { home, storeDir, people, now, keyOptions,
+  return { home, storeDir, people, now, keyOptions, parentSetup,
     options: { keyFile: people[0].keyFile, storeDir }, deps: { keyOptions, now: () => now } }
 }
 
@@ -116,6 +136,76 @@ test('root admits A, A vouches for B, and the owner alone sends signed member ad
   assert.deepEqual(b.errors, [])
   const output = JSON.stringify({ requests: b.requests, records: lines(f) })
   for (const person of f.people) assert(!output.includes(person.key))
+})
+
+test('HTTP availability never spends and binds owner root plus completed authoritative ancestry', async t => {
+  const previousMask = process.umask(0o002)
+  try {
+    const f = fixture(t), claim = pair(f), root = f.people[0].pubkey
+    const options = { ...f.options, root, invite: claim.invite, chain: [] }
+    const deps = { ...f.deps, sender: async () => assert.fail('preflight reached relay') }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      assert.deepEqual(preflight(options, deps), { available: true, invite_id: claim.invite.id })
+      assert.deepEqual(counts(f), { consumed: 0, admissions: 0 })
+    }
+    assert.equal(fs.statSync(f.storeDir).mode & 0o777, 0o700)
+    for (const name of ['lock.sqlite', 'admissions.sqlite', 'admissions.jsonl']) assert.equal(fs.statSync(path.join(f.storeDir, name)).mode & 0o777, 0o600)
+    assert.throws(() => preflight({ ...options, root: f.people[2].pubkey }, deps), error => error.code === INVITES.NETWORK)
+    assert.throws(() => preflight({ ...options, root: undefined }, deps), error => error.code === INVITES.NETWORK)
+    const result = await admitIdempotent({ ...options, redemption: claim.redemption }, { ...f.deps, sender: async () => accepted })
+    assert.throws(() => preflight(options, deps), error => error.code === INVITES.REPLAY)
+    const second = pair(f, 1, 2)
+    assert.deepEqual(preflight({ ...f.options, root, invite: second.invite, chain: result.record.chain }, deps), { available: true, invite_id: second.invite.id })
+    await assert.rejects(() => admitIdempotent({ ...f.options, root, ...second, chain: result.record.chain }, { ...f.deps,
+      onStage: stage => { if (stage === 'spent') throw new Error('interrupted') }, sender: async () => accepted }))
+    assert.throws(() => preflight({ ...f.options, root, invite: pair(f, 0, 3).invite, chain: [] }, deps), error => error.code === REFUSE.PENDING)
+    assert.deepEqual(counts(f), { consumed: 2, admissions: 2 })
+  } finally { process.umask(previousMask) }
+})
+
+test('HTTP completed and pending retries bind the signed redemption id and chain despite field order', async t => {
+  const f = fixture(t), claim = pair(f), root = f.people[0].pubkey
+  const options = { ...f.options, root, ...claim, chain: [] }
+  let sends = 0
+  const deps = { ...f.deps, sender: async () => { sends++; return accepted } }
+  const result = await admitIdempotent(options, deps)
+  const reordered = Object.fromEntries(Object.entries(claim.redemption).reverse())
+  assert.deepEqual(await admitIdempotent({ ...options, redemption: reordered }, { ...deps, now: () => f.now + TTL_SECONDS + 1 }), result)
+  const resigned = redeemInvite({ invite: claim.invite, secretKey: f.people[1].key, now: f.now })
+  assert.equal(resigned.id, claim.redemption.id); assert.notEqual(resigned.sig, claim.redemption.sig)
+  assert.deepEqual(await admitIdempotent({ ...options, redemption: resigned }, deps), result)
+  await rejects(() => admitIdempotent({ ...options, redemption: { ...resigned, sig: '00'.repeat(64) } }, deps), INVITES.SIGNATURE)
+  assert.equal(sends, 1); assert.equal(lines(f).length, 1); assert.deepEqual(counts(f), { consumed: 1, admissions: 1 })
+  const other = redeemInvite({ invite: claim.invite, secretKey: f.people[2].key, now: f.now })
+  await rejects(() => admitIdempotent({ ...options, redemption: other }, deps), INVITES.REPLAY)
+  const changedId = redeemInvite({ invite: claim.invite, secretKey: f.people[1].key, now: f.now + 1 })
+  await rejects(() => admitIdempotent({ ...options, redemption: changedId }, deps), INVITES.REPLAY)
+  await rejects(() => admitIdempotent({ ...options, root: f.people[2].pubkey }, deps), INVITES.NETWORK)
+  await rejects(() => admit(options, deps), INVITES.REPLAY)
+  const journal = path.join(f.storeDir, 'admissions.jsonl'), bytes = fs.readFileSync(journal)
+  fs.writeFileSync(journal, Buffer.concat([bytes, Buffer.from('changed history\n')]))
+  await rejects(() => admitIdempotent(options, deps), REFUSE.STORE)
+  assert.equal(sends, 1)
+  fs.writeFileSync(journal, bytes)
+  const second = pair(f, 1, 2), next = { ...f.options, root, ...second, chain: result.record.chain }
+  await assert.rejects(() => admitIdempotent(next, { ...deps, onStage: stage => {
+    if (stage === 'spent') throw new Error('interrupted')
+  } }))
+  const changedChain = structuredClone(result.record.chain)
+  changedChain[0].redemption = redeemInvite({ invite: claim.invite, secretKey: f.people[1].key, now: f.now + 1 })
+  await rejects(() => admitIdempotent({ ...next, chain: changedChain }, deps), INVITES.CHAIN)
+  const canonicalRetry = { ...next, invite: Object.fromEntries(Object.entries(second.invite).reverse()),
+    chain: result.record.chain.map(entry => ({ redemption: Object.fromEntries(Object.entries(entry.redemption).reverse()), invite: entry.invite })) }
+  assert.deepEqual((await admitIdempotent(canonicalRetry, deps)).record.chain, [...result.record.chain, second])
+  const resignedChain = result.record.chain.map(entry => ({
+    invite: signEvent(structuredClone(entry.invite), f.people[0].key),
+    redemption: redeemInvite({ invite: entry.invite, secretKey: f.people[1].key, now: f.now }),
+  }))
+  const resignedLeaf = redeemInvite({ invite: second.invite, secretKey: f.people[2].key, now: f.now })
+  assert.deepEqual(resignedChain.map(entry => [entry.invite.id, entry.redemption.id]), result.record.chain.map(entry => [entry.invite.id, entry.redemption.id]))
+  assert.deepEqual((await admitIdempotent({ ...next, chain: resignedChain, redemption: resignedLeaf }, deps)).record.chain,
+    [...result.record.chain, second])
+  assert.equal(sends, 2); assert.deepEqual(counts(f), { consumed: 2, admissions: 2 })
 })
 
 test('three redeemed invites exhaust A; fourth, expired, replayed, unadmitted and forged redemptions never reach the relay', async t => {
@@ -222,7 +312,8 @@ test('each abrupt process exit resumes durable intent in spend, log, send order'
     await t.test(stage, async t => {
       const f = fixture(t), claim = pair(f), config = path.join(f.home, 'crash.json'), effects = path.join(f.home, 'effects.jsonl')
       fs.writeFileSync(config, JSON.stringify({ ...f.options, ...claim, keyOptions: f.keyOptions, now: f.now, stage, effects }))
-      const script = `import fs from 'node:fs'; import { admit } from ${JSON.stringify(new URL('./admit.mjs', import.meta.url).href)};
+      const script = `import fs from 'node:fs'; import { admit } from ${JSON.stringify(new URL(process.env.AUKORA_ADMIT_MODULE ?? './admit.mjs', import.meta.url).href)};
+${f.parentSetup}
 const cfg=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));
 await admit({keyFile:cfg.keyFile,storeDir:cfg.storeDir,invite:cfg.invite,redemption:cfg.redemption},{keyOptions:cfg.keyOptions,now:()=>cfg.now,
 sender:async command=>{fs.appendFileSync(cfg.effects,JSON.stringify(command)+'\\n');return ${JSON.stringify(accepted)}},
@@ -454,9 +545,20 @@ test('CLI permits no secret arguments, isolation overrides or reflected exceptio
   for (const word of ['issue', 'redeem', 'admit', 'resume']) assert(out[0].includes(word))
 })
 
-test('admission protections fail under mutation', { skip: process.env.AUKORA_ADMIT_MUTATIONS !== '1' }, () => {
+test('admission protections fail under mutation', { skip: process.env.AUKORA_ADMIT_MUTATIONS !== '1' }, async () => {
   const source = fs.readFileSync(SOURCE, 'utf8')
   const mutations = [
+    ['HTTP root binding', 'if (idempotent && request.root !== root) throw fail(INVITE_REFUSE.NETWORK)', ''],
+    ['preflight root binding', 'if (request.root !== root) throw fail(INVITE_REFUSE.NETWORK)', ''],
+    ['preflight pending', 'if (pending) throw fail(REFUSE.PENDING)', ''],
+    ['preflight verifier', 'return verifyAvailable({ root, invite, chain, state: store.state, now: (deps.now ?? seconds)() })', 'return { available: true, invite_id: invite.id }'],
+    ['HTTP exact signed binding', 'if (existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)', ''],
+    ['HTTP exact signed chain', 'if (canonicalJson(recordIds(JSON.parse(existing.record))) !== canonicalJson(recordIds(record))) throw fail(INVITE_REFUSE.CHAIN)', ''],
+    ['HTTP canonical retry', 'canonicalJson(recordIds(JSON.parse(existing.record))) !== canonicalJson(recordIds(record))', 'existing.record !== json(record)'],
+    ['HTTP ancestor ids', 'const recordIds = record => record.chain.map(({ invite, redemption }) => [invite.id, redemption.id])', 'const recordIds = record => [record.chain.at(-1).invite.id, record.chain.at(-1).redemption.id]'],
+    ['HTTP retry signatures', '    verifyRecord({ root, record })\n    const existing', '    const existing'],
+    ['HTTP completed no resend', 'if (existing.done) {', 'if (false) {'],
+    ['HTTP completed journal', 'const stored = checkedRecord(store, root, existing)\n        appendAdmissions(store)', 'const stored = checkedRecord(store, root, existing)'],
     ['Aura required recording', 'if (ctx.gateSocket !== undefined) {', 'if (false) {'],
     ['Aura digest-only payload', "digest_sha256: createHash('sha256').update(json(record)).digest('hex')", "digest_sha256: createHash('sha256').update(json(record)).digest('hex'), record"],
     ['Aura exact record digest', ".update(json(record)).digest('hex')", ".update(json(entry)).digest('hex')"],
@@ -512,6 +614,8 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
     ['CLI error redaction', 'err(codes.includes(error?.code) ? error.code : REFUSE.INPUT)', 'err(error.message)'],
   ]
   const targets = [
+    [['preflight root binding', 'preflight pending', 'preflight verifier'], 'HTTP availability'],
+    [['HTTP root binding', 'HTTP exact signed binding', 'HTTP exact signed chain', 'HTTP canonical retry', 'HTTP ancestor ids', 'HTTP retry signatures', 'HTTP completed no resend', 'HTTP completed journal'], 'HTTP completed'],
     [['Aura required recording', 'Aura digest-only payload', 'Aura exact record digest'], 'Aura admission digest'],
     [['Aura positive acknowledgement', 'Aura integer sequence', 'Aura positive sequence', 'Aura hash acknowledgement', 'Aura refusal surface'], 'Aura admission failures'],
     [['Aura configured socket'], 'Aura admission configured socket'],
@@ -530,28 +634,34 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
   ]
   const env = { ...process.env, AUKORA_ADMIT_MUTATIONS: '0', AUKORA_BUZZ_LIVE: '0' }
   delete env.NODE_TEST_CONTEXT
-  const run = pattern => spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...(pattern ? ['--test-name-pattern', pattern] : []), TEST], {
-    cwd: path.resolve(HERE, '../..'), encoding: 'utf8', timeout: 30_000, env,
+  const run = (pattern, module) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', ...(pattern ? ['--test-name-pattern', pattern] : []), TEST], {
+      cwd: path.resolve(HERE, '../..'), env: { ...env, ...(module ? { AUKORA_ADMIT_MODULE: module } : {}) },
+    })
+    let stdout = '', stderr = ''
+    const timer = setTimeout(() => child.kill('SIGKILL'), 10000)
+    child.stdout.on('data', bytes => { stdout += bytes })
+    child.stderr.on('data', bytes => { stderr += bytes })
+    child.on('error', reject)
+    child.on('close', status => { clearTimeout(timer); resolve({ status, stdout, stderr }) })
   })
-  const baseline = run()
+  const baseline = await run()
   assert(baseline.status === 0 && /# fail 0/u.test(baseline.stdout), 'unmodified mutation baseline must pass')
-  const interrupted = () => { fs.writeFileSync(SOURCE, source); process.exit(130) }
-  process.once('SIGINT', interrupted); process.once('SIGTERM', interrupted)
-  try {
-    for (const [name, before, after] of mutations) {
+  const check = async ([name, before, after], index) => {
+    const file = path.join(HERE, `.admit-mutant-${process.pid}-${index}.mjs`)
+    try {
       assert(source.includes(before), `mutation anchor: ${name}`)
       const pattern = targets.find(([names]) => names.includes(name))?.[1]
       assert(pattern, `mutation test target: ${name}`)
-      fs.writeFileSync(SOURCE, source.replace(before, after))
-      const result = run(pattern)
-      assert(result.status === 1 && /# fail [1-9]/u.test(result.stdout), `mutation survived or did not run: ${name}`)
+      fs.writeFileSync(file, source.replace(before, after))
+      const result = await run(pattern, new URL(file, 'file:').href)
+      assert(result.status === 1 && /# fail [1-9]/u.test(result.stdout), `mutation survived or did not run: ${name}\n${result.stdout}\n${result.stderr}`)
+      assert.doesNotMatch(result.stdout + result.stderr, /SyntaxError/u)
       console.log(`mutation ${name}: KILLED`)
-    }
-    console.log(`mutations ${mutations.length}/${mutations.length} KILLED`)
-  } finally {
-    fs.writeFileSync(SOURCE, source)
-    process.removeListener('SIGINT', interrupted); process.removeListener('SIGTERM', interrupted)
+    } finally { fs.rmSync(file, { force: true }) }
   }
+  for (let index = 0; index < mutations.length; index += 4) await Promise.all(mutations.slice(index, index + 4).map((mutation, offset) => check(mutation, index + offset)))
+  console.log(`mutations ${mutations.length}/${mutations.length} KILLED`)
 })
 
 test('LIVE root to A to B, quota and refusals against the closed loopback relay', {

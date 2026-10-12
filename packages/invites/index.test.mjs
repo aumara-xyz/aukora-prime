@@ -19,6 +19,7 @@ const pubs = keys.map(publicKeyOf)
 const root = pubs[0]
 const directory = dirname(fileURLToPath(import.meta.url))
 const moduleUrl = new URL('./index.mjs', import.meta.url).href
+const { verifyAvailable, createMemoryStore: createAvailabilityStore } = await import(process.env.AUKORA_AVAILABLE_MODULE ?? moduleUrl)
 const refusal = (fn, code) => assert.throws(fn, error => error?.code === code)
 const signed = (event, changes = {}, key = keys[0]) => signEvent({ ...event, ...changes }, key)
 const content = (event, changes, key = keys[0]) => signed(event, {
@@ -51,6 +52,111 @@ function row(invite, redemption) {
   return { root, inviteId: invite.id, redemptionId: redemption.id,
     inviter: invite.pubkey, member: redemption.pubkey }
 }
+function availabilityState(t) { const state = createAvailabilityStore(); t.after(() => state.close()); return state }
+
+test('availability verifies current state without spending and refuses spent, fourth, unknown and expired offers', t => {
+  const state = availabilityState(t), first = pair()
+  const check = (invite = first.invite, chain = [], now = NOW, selected = state) => verifyAvailable({ root, invite, chain, state: selected, now })
+  for (let attempt = 0; attempt < 3; attempt++) assert.deepEqual(check(), { available: true, invite_id: first.invite.id })
+  assert.equal(state.transaction(tx => tx.count(root, root)), 0)
+  assert.equal(state.transaction(tx => tx.consumed(first.invite.id)), false)
+  const admitted = verifyAdmission({ root, ...first, state, now: NOW })
+  refusal(() => check(), REFUSE.REPLAY)
+  const child = pair(1, 2)
+  assert.deepEqual(check(child.invite, admitted.record.chain), { available: true, invite_id: child.invite.id })
+  const empty = availabilityState(t)
+  refusal(() => check(child.invite, admitted.record.chain, NOW, empty), REFUSE.UNADMITTED)
+  const otherAncestry = pair(0, 1)
+  refusal(() => check(child.invite, [otherAncestry]), REFUSE.UNADMITTED)
+  const otherRedemption = redeemInvite({ invite: first.invite, secretKey: keys[1], now: NOW + 1 })
+  refusal(() => check(child.invite, [{ invite: first.invite, redemption: otherRedemption }]), REFUSE.UNADMITTED)
+  for (const field of ['inviteId', 'redemptionId', 'inviter']) {
+    const divergent = { transaction: callback => state.transaction(tx => callback({ ...tx,
+      admission: (...args) => ({ ...tx.admission(...args), [field]: pubs[9] }),
+    })) }
+    refusal(() => check(child.invite, admitted.record.chain, NOW, divergent), REFUSE.UNADMITTED)
+  }
+  refusal(() => check(child.invite), REFUSE.CHAIN)
+  refusal(() => check(first.invite, [], NOW + TTL_SECONDS), REFUSE.EXPIRED)
+  refusal(() => check(first.invite, [], NOW - 1), REFUSE.TIME)
+  for (const member of [2, 3]) admit(state, 0, member)
+  const fourth = pair(0, 4)
+  refusal(() => check(fourth.invite), REFUSE.ALLOTMENT)
+  assert.equal(state.transaction(tx => tx.consumed(fourth.invite.id)), false)
+  assert.equal(state.transaction(tx => tx.count(root, root)), 3)
+  const limited = availabilityState(t)
+  verifyAdmission({ root, ...first, state: limited, now: NOW, grant: grant(1) })
+  refusal(() => check(fourth.invite, [], NOW, limited), REFUSE.ALLOTMENT)
+})
+
+test('availability checks signature, chain bounds, chronology, network and state', t => {
+  const state = availabilityState(t), first = pair()
+  const check = options => verifyAvailable({ root, invite: first.invite, chain: [], state, now: NOW, ...options })
+  refusal(() => check({ invite: { ...first.invite, sig: '00'.repeat(64) } }), REFUSE.SIGNATURE)
+  refusal(() => check({ root: pubs[9] }), REFUSE.NETWORK)
+  for (const chain of [null, Array(128).fill(first)]) refusal(() => check({ chain }), REFUSE.CHAIN)
+  refusal(() => check({ state: null }), REFUSE.STATE)
+  const future = pair(0, 1, NOW + MAX_CLOCK_SKEW_SECONDS + 1)
+  verifyAdmission({ root, ...future, state, now: future.invite.created_at })
+  refusal(() => check({ invite: pair(1, 2).invite, chain: [future] }), REFUSE.TIME)
+  let escaped
+  state.transaction(tx => { escaped = tx; refusal(() => tx.consumed('free text'), REFUSE.STATE) })
+  refusal(() => escaped.consumed(first.invite.id), REFUSE.STATE)
+})
+
+test('availability bounds an offer plus full ancestry to 128 links', t => {
+  const state = availabilityState(t), chain = [], deepKeys = Array.from({ length: 129 }, (_, index) => (index + 1).toString(16).padStart(64, '0'))
+  for (let index = 0; index < 128; index++) {
+    const invite = createInvite({ root, secretKey: deepKeys[index], now: NOW })
+    chain.push({ invite, redemption: redeemInvite({ invite, secretKey: deepKeys[index + 1], now: NOW }) })
+  }
+  const invite = createInvite({ root, secretKey: deepKeys[128], now: NOW })
+  refusal(() => verifyAvailable({ root, invite, chain, state, now: NOW }), REFUSE.CHAIN)
+})
+
+test('availability guard-removal mutations are detected', { skip: process.env.AUKORA_AVAILABLE_MUTATIONS !== '1' }, async () => {
+  const source = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8')
+  const mutations = [
+    ['chain-bound', '!Array.isArray(chain) || chain.length > 127', '!Array.isArray(chain)'],
+    ['inviter', 'if (invite.pubkey !== inviter) refuse(REFUSE.CHAIN)', ''],
+    ['chronology', 'if (chain.length && invite.created_at + MAX_CLOCK_SKEW_SECONDS < chain.at(-1).redemption.created_at) refuse(REFUSE.TIME)', ''],
+    ['early', 'if (now < value.issuedAt) refuse(REFUSE.TIME)', ''],
+    ['expiry', 'if (now >= value.expiresAt) refuse(REFUSE.EXPIRED)', ''],
+    ['authority-invite', 'admitted.inviteId !== prior.invite.id', 'false'],
+    ['authority-redemption', 'admitted.redemptionId !== prior.redemption.id', 'false'],
+    ['authority-inviter', 'admitted.inviter !== prior.invite.pubkey', 'false'],
+    ['spent', 'if (tx.consumed(invite.id)) refuse(REFUSE.REPLAY)', ''],
+    ['quota', 'if (tx.count(root, inviter) >= (tx.grant(root, inviter)?.allotment ?? 3)) refuse(REFUSE.ALLOTMENT)', ''],
+    ['cached-grant', 'tx.grant(root, inviter)?.allotment ?? 3', '3'],
+    ['consumed-handle', 'consumed(inviteId) { check();', 'consumed(inviteId) {'],
+    ['consumed-id', "consumed(inviteId) { check(); if (!hex(inviteId)) refuse(REFUSE.STATE);", 'consumed(inviteId) { check();'],
+  ]
+  const run = async ([name, before, after]) => {
+    assert(source.includes(before), `mutation anchor: ${name}`)
+    const file = join(directory, `.available-mutant-${process.pid}-${name}.mjs`)
+    writeFileSync(file, source.replace(before, after))
+    const env = { ...process.env, AUKORA_AVAILABLE_MUTATIONS: '0', AUKORA_AVAILABLE_MODULE: new URL(file, 'file:').href }
+    delete env.NODE_TEST_CONTEXT
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const pattern = name === 'chain-bound' ? '^availability bounds' : '^availability (verifies|checks)'
+        const child = spawn(process.execPath, ['--test', '--test-reporter=tap', '--test-name-pattern', pattern, fileURLToPath(import.meta.url)], { env })
+        let stdout = '', stderr = ''
+        const timer = setTimeout(() => child.kill('SIGKILL'), 10000)
+        child.stdout.on('data', bytes => { stdout += bytes })
+        child.stderr.on('data', bytes => { stderr += bytes })
+        child.on('error', reject)
+        child.on('close', status => { clearTimeout(timer); resolve({ status, stdout, stderr }) })
+      })
+      assert.equal(result.status, 1, `mutation survived or crashed: ${name}\n${result.stdout}\n${result.stderr}`)
+      assert.match(result.stdout, /# fail [1-9]/u, `no failed test: ${name}`)
+      assert.doesNotMatch(result.stdout + result.stderr, /SyntaxError/u)
+      console.log(`availability mutation ${name}: KILLED`)
+    } finally { rmSync(file, { force: true }) }
+  }
+  for (let index = 0; index < mutations.length; index += 3) await Promise.all(mutations.slice(index, index + 3).map(run))
+  console.log(`availability mutations ${mutations.length}/${mutations.length} KILLED`)
+})
 
 test('events use dedicated kinds, random 128-bit bearer codes, and only protocol fields', () => {
   assert.deepEqual([INVITE_KIND, REDEMPTION_KIND, GRANT_KIND], [39701, 39702, 39703])
