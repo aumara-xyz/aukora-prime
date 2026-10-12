@@ -52,7 +52,7 @@ const fetch = async (url, options = {}) => {
   const u = new URL(url), body = options.body ? JSON.parse(options.body) : {}, uri = u.searchParams.get('uri')
   if (u.pathname === '/health') return Response.json({ healthy: true })
   let result
-  if (u.pathname === '/api/v1/content/write') { files.set(body.uri, body.content); writes.push(body.uri); result = {} }
+  if (u.pathname === '/api/v1/content/write') { files.set(body.uri, body.content); writes.push(body.uri); result = { vector_status: 'complete' } }
   else if (u.pathname === '/api/v1/content/read') {
     if (!files.has(uri)) return Response.json({ status: 'error' }, { status: 404 })
     result = files.get(uri)
@@ -80,7 +80,7 @@ await arm('current-scheme parent acks and a forced nonzero multibyte part surviv
   // Sanitized current-scheme fixture: every part ack carries the PARENT hash.
   // This shape is valid; a part hash must never be compared to this field.
   writeFileSync(ackFile, `${JSON.stringify(Object.fromEntries(documents.map(part => [part.uri,
-    { ids: [note.id], contentHash: note.contentHash, storageTier: 'content' }])))}\n`)
+    { ids: [note.id], contentHash: note.contentHash, storageTier: 'content', vectorStatus: 'complete' }])))}\n`)
   selected = documents.find(part => part.start >= 384)
   assert.ok(selected)
   assert.notEqual(selected.content, note.statement.slice(selected.start, selected.end), 'UTF8 byte offsets differ from JavaScript character offsets')

@@ -11,6 +11,7 @@ User=aukora-host
 Group=aukora-host
 WorkingDirectory=/var/lib/aukora-host/state/workspace
 Environment=HOME=/var/lib/aukora-host
+Environment=AUKORA_OPENVIKING_HOME=/var/lib/aukora-host/openviking
 Environment="AUKORA_VIKING_DOOR_KEY_FILE=@EXISTING_PRIVATE_DOOR_KEY_FILE@"
 UMask=0077
 ExecStart=@NODE_PATH@ @SOURCE_ROOT@/scripts/kira/viking-door.mjs --installed --support-root /var/lib/aukora-host --port 8766

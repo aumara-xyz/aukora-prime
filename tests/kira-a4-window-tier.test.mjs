@@ -43,7 +43,7 @@ const fakeFetch = async (url, options = {}) => {
   const parsed = new URL(url)
   if (parsed.pathname === '/health') return { ok: true, status: 200, async json() { return { healthy: true } } }
   if (parsed.pathname === '/api/v1/fs/ls') return response(200, [...files.keys()])
-  if (parsed.pathname === '/api/v1/content/write') return response(200, {})
+  if (parsed.pathname === '/api/v1/content/write') return response(200, { vector_status: 'complete' })
   if (parsed.pathname === '/api/v1/content/read') { const uri = parsed.searchParams.get('uri'); return response(200, statementFor(uri.includes('/governed/') ? `kira:${uri.split('/').pop().slice(0, -3)}` : `rem:${uri.split('rem-').pop().slice(0, -3)}`)) }
   if (parsed.pathname === '/api/v1/fs' && options.method === 'DELETE') { files.delete(parsed.searchParams.get('uri')); return response(200, {}) }
   if (parsed.pathname === '/api/v1/search/find') {

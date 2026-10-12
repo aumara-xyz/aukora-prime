@@ -101,6 +101,7 @@ const SEMANTIC_FAILURES = new Set([
   'no-openviking-home', 'openviking-not-installed', 'openviking-url-not-on-this-machine',
   'openviking-root-key-empty', 'openviking-models-off-machine', 'openviking-config-unreadable',
   'openviking-not-configured', 'openviking-unhealthy', 'openviking-unreachable', 'semantic-recall-failed',
+  'openviking-auth-refused', 'openviking-index-pending',
 ])
 const SEMANTIC_CALLS = new Set(['content-write', 'search', 'other', 'unknown'])
 const semanticFailureDetails = semantic => {

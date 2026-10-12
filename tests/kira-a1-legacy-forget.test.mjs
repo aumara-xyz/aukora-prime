@@ -35,7 +35,7 @@ const makeServer = (uris, { deleteFails = false } = {}) => {
     const parsed = new URL(url)
     if (parsed.pathname === '/health') return { ok: true, status: 200, async json() { return { healthy: true } } }
     if (parsed.pathname === '/api/v1/fs/ls') return response(200, [...files])
-    if (parsed.pathname === '/api/v1/content/write') return response(200, {})
+    if (parsed.pathname === '/api/v1/content/write') return response(200, { vector_status: 'complete' })
     if (parsed.pathname === '/api/v1/fs' && options.method === 'DELETE') {
       const target = parsed.searchParams.get('uri')
       attempts.push(target)

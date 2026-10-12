@@ -9,7 +9,7 @@ import { registerHooks } from 'node:module'
 
 const mutantAt = process.argv.indexOf('--mutant')
 const mutant = mutantAt < 0 ? null : process.argv[mutantAt + 1]
-assert(mutantAt < 0 || ['drop-projection', 'guess-embedding', 'truncate-before-dedup'].includes(mutant), 'unknown or missing mutant')
+assert(mutantAt < 0 || ['drop-projection', 'guess-embedding', 'truncate-before-dedup', 'drop-named-refusal'].includes(mutant), 'unknown or missing mutant')
 let applied = false
 if (mutant) registerHooks({ load(url, context, next) {
   const loaded = next(url, context)
@@ -18,11 +18,13 @@ if (mutant) registerHooks({ load(url, context, next) {
   if (url !== new URL(`../plugins/aukora-kira/lib/${file}`, import.meta.url).href) return loaded
   const source = typeof loaded.source === 'string' ? loaded.source : Buffer.from(loaded.source).toString('utf8')
   const before = mutant === 'drop-projection' ? 'failures: answer.failures'
-    : mutant === 'guess-embedding' ? "  cause: 'unknown',\n" : 'semantic.failures.slice(0, 64)'
+    : mutant === 'guess-embedding' ? "  cause: 'unknown',\n"
+      : mutant === 'drop-named-refusal' ? "  'openviking-auth-refused', 'openviking-index-pending',\n" : 'semantic.failures.slice(0, 64)'
   assert.equal(source.split(before).length - 1, mutant === 'drop-projection' ? 2 : 1, 'actual production anchor must match')
   applied = true
   const replacement = mutant === 'drop-projection' ? 'failures: undefined'
-    : mutant === 'guess-embedding' ? "  cause: 'embedding-call',\n" : 'semantic.failures.slice(0, 8)'
+    : mutant === 'guess-embedding' ? "  cause: 'embedding-call',\n"
+      : mutant === 'drop-named-refusal' ? '' : 'semantic.failures.slice(0, 8)'
   return { ...loaded, source: source.replaceAll(before, replacement) }
 } })
 const { recallDiagnostics, recalledContextLine } = await import('../plugins/aukora-kira/lib/injection.mjs')
@@ -47,7 +49,7 @@ function fixture(syncBatch = 2) {
     if (path === '/health') return Response.json({ healthy: true })
     const body = options.body ? JSON.parse(options.body) : {}
     let result
-    if (path === '/api/v1/content/write') { files.set(body.uri, body.content); result = {} }
+    if (path === '/api/v1/content/write') { files.set(body.uri, body.content); result = { vector_status: 'complete' } }
     else if (path === '/api/v1/content/read') result = files.get(new URL(url).searchParams.get('uri'))
     else if (path === '/api/v1/search/find') result = { memories: [...files.keys()].map(uri => ({ uri, score: .8 })) }
     else throw new Error(`unexpected fixture route ${path}`)
@@ -70,13 +72,22 @@ test('failed content write survives successful search and tracked-memory project
   assert.deepEqual(stored.index.failed, ['index-write-failed'])
   assert.deepEqual(stored.index.failures, [failure('content-write', 500)])
   const answer = await recall(run.memory)
-  assert.equal(answer.semantic.available, true)
+  assert.equal(answer.semantic.available, false)
+  assert.equal(answer.semantic.reason, 'openviking-index-pending')
+  assert.equal(answer.degraded, true)
+  assert.equal(answer.notes.length, 1)
   assert.deepEqual(answer.semantic.failures, [failure('content-write', 500)])
   assert.equal(run.memory.read().notes.length, 1, 'index failure must preserve the captured note')
   const text = header(answer)
-  assert.match(text, /Semantic: available=1, unavailable=0/u)
+  assert.match(text, /Semantic: available=0, unavailable=1/u)
   assert.match(text, /call=content-write, upstream=unknown, HTTP=500/u)
   assert.doesNotMatch(text, /embedding-call|PRIVATE-ERROR|scratch\.invalid|inert-fixture/u)
+})
+
+test('named authentication and pending-index reasons survive injection diagnostics', () => {
+  for (const reason of ['openviking-auth-refused', 'openviking-index-pending']) {
+    assert.equal(recallDiagnostics({ semantic: { available: false, reason } }).semantic.reason, reason)
+  }
 })
 
 test('search failure keeps its route while collapsed embedding text remains unknown', async () => {

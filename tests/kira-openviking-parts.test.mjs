@@ -48,7 +48,7 @@ const fakeFetch = async (url, options = {}) => {
   if (u.pathname === '/api/v1/content/write') {
     if (Buffer.byteLength(body.content, 'utf8') > MAX_EMBEDDING_CONTENT_BYTES || rejected.has(body.uri))
       return Response.json({ status: 'error' }, { status: 400 })
-    files.set(body.uri, body.content); result = {}
+    files.set(body.uri, body.content); result = { vector_status: 'complete' }
   } else if (u.pathname === '/api/v1/content/read') {
     if (!files.has(uri)) return Response.json({ status: 'error' }, { status: 404 })
     result = files.get(uri)

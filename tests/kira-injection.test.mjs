@@ -844,7 +844,7 @@ const mountMemory = async (run, module = kira, { score = .9, indexedNotes = fals
     const parsed = new URL(url), uri = parsed.searchParams.get('uri')
     if (parsed.pathname === '/health') return Response.json({ healthy: true })
     let result = []
-    if (parsed.pathname === '/api/v1/content/write') { const body = JSON.parse(options.body); indexed.set(body.uri, body.content); result = {} }
+    if (parsed.pathname === '/api/v1/content/write') { const body = JSON.parse(options.body); indexed.set(body.uri, body.content); result = { vector_status: 'complete' } }
     if (parsed.pathname === '/api/v1/content/read') result = indexed.get(uri)
     if (parsed.pathname === '/api/v1/search/find') result = { memories: [...indexed.keys()].map(uri => ({ uri, score })) }
     if (options.method === 'DELETE') { indexed.delete(uri); result = {} }

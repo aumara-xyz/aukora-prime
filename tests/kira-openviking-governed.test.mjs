@@ -16,7 +16,7 @@ const fetch = async (url, options = {}) => {
   const parsed = new URL(url), uri = parsed.searchParams.get('uri')
   if (parsed.pathname === '/health') return Response.json({ healthy: true })
   let result
-  if (parsed.pathname === '/api/v1/content/write') { const body = JSON.parse(options.body); files.set(body.uri, body.content); result = {} }
+  if (parsed.pathname === '/api/v1/content/write') { const body = JSON.parse(options.body); files.set(body.uri, body.content); result = { vector_status: 'complete' } }
   else if (parsed.pathname === '/api/v1/content/read') result = files.get(uri)
   else if (parsed.pathname === '/api/v1/search/find') result = { memories: [...files].map(([uri, text]) => ({ uri, score: scores.get(text) ?? .8 })).sort((a, b) => b.score - a.score) }
   else if (parsed.pathname === '/api/v1/fs/ls') result = [...files.keys()].filter(one => one.startsWith(uri + '/'))

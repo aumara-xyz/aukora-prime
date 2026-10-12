@@ -176,6 +176,7 @@ export function createOpenVikingRecall(input) {
         headers: { 'content-type': 'application/json', 'x-api-key': config.key ?? '', 'x-openviking-account': config.account, 'x-openviking-user': config.user },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(config.timeoutMs) })
       httpStatus = response.status
+      if ([401, 403].includes(httpStatus)) throw new OpenVikingError('auth-refused', 'OpenViking key or tenant refused')
       const parsed = await response.json()
       if (!response.ok || parsed?.status !== 'ok') {
         const failure = new OpenVikingError(response.status === 404 ? 'not-found'
@@ -225,12 +226,14 @@ export function createOpenVikingRecall(input) {
   const ackValue = (uri, ids, hash, removal = null) => {
     const document = documentMetadata.get(uri)
     return { ids, contentHash: hash, ...(hash ? { statementHash: hash } : {}),
+      ...(acknowledgements[uri]?.vectorStatus === 'complete' ? { vectorStatus: 'complete' } : {}),
       ...(document ? { partHash: document.partHash, byteRange: document.byteRange } : {}),
       storageTier: uri.startsWith(`${root}/${MEMORY_STORAGE.content}/`) ? MEMORY_STORAGE.content : uri.split('/').at(-2),
       ...(removal ? { removal } : {}) }
   }
   const ack = (uri, ids, hash = uri.match(/\/content\/([0-9a-f]{64})(?:\.md|-part-[0-9]+-[0-9]+-[0-9a-f]{64}\.md)$/u)?.[1] ?? null, removal = null, contentWritten = false) => {
     const value = ids === null ? null : ackValue(uri, ids, hash, removal)
+    if (contentWritten) value.vectorStatus = 'complete'
     ackMany([[uri, value, contentWritten]])
   }
   const removeUri = async uri => {
@@ -244,7 +247,8 @@ export function createOpenVikingRecall(input) {
     ?? (uri === contentUri(config.user, hashOf(note)) || idFromUri(config.user, uri) === note.id ? { content: note.statement, contentHash: hashOf(note),
       statementHash: hashOf(note), partHash: hashOf(note), start: 0, end: Buffer.byteLength(note.statement, 'utf8'),
       byteRange: { start: 0, end: Buffer.byteLength(note.statement, 'utf8'), unit: 'utf8-bytes' }, uri } : undefined)
-  const acknowledged = entry => Boolean(entry) && entry.status !== 'quarantined'
+  const acknowledged = entry => Boolean(entry) && !['quarantined', 'pending'].includes(entry.status)
+  const indexed = entry => acknowledged(entry) && entry.vectorStatus === 'complete'
   const acknowledgementMatches = (note, uri) => {
     const entry = acknowledgements[uri], document = documentFor(note, uri)
     if (!entry || !document) return false
@@ -329,7 +333,7 @@ export function createOpenVikingRecall(input) {
       await remove(uri)
     }
     for (const [uri, notes] of grouped) if (acknowledgements[uri] && notes.some(note => !acknowledgementMatches(note, uri))) quarantineAcknowledgement(uri, notes)
-    const missing = [...grouped].filter(([uri]) => !acknowledged(acknowledgements[uri]))
+    const missing = [...grouped].filter(([uri]) => !indexed(acknowledgements[uri]))
     const priority = new Set(options.priorityHashes ?? [])
     const current = missing.filter(([, notes]) => priority.has(hashOf(notes[0])))
     const older = missing.filter(([, notes]) => !priority.has(hashOf(notes[0])))
@@ -337,16 +341,39 @@ export function createOpenVikingRecall(input) {
     // One request budget covers deletes, writes, audits and forget-race cleanup together.
     const selected = failed.length ? [] : [...current, ...older].slice(0, Math.max(0, budget - requests))
     for (const [uri, notes] of selected) {
+      if (requests >= budget) break
       try {
-        requests++
         const document = documentFor(notes[0], uri)
-        await call('POST', '/api/v1/content/write', { uri, content: document.content, mode: 'replace', wait: true,
+        // Old acknowledgements proved a write, not a vector. Verify their bytes
+        // before retrying; an index repair must never overwrite changed content.
+        if (acknowledged(acknowledgements[uri])) {
+          if (requests + 2 > budget) {
+            if (budget < 2) failed.push('index-migration-budget-too-small')
+            break
+          }
+          requests++
+          try {
+            const bytes = await call('GET', `/api/v1/content/read?uri=${encodeURIComponent(uri)}`)
+            if (!matchesDocument(notes[0], uri, bytes)) throw new OpenVikingError('content-mismatch', 'index content changed')
+          } catch (error) { if (error.code !== 'kira.semantic:not-found') throw error }
+        }
+        // Reserve the deletion target before I/O: a timeout can follow a save.
+        ackMany([[uri, { ...ackValue(uri, notes.map(note => note.id), hashOf(notes[0])), status: 'pending' }]])
+        requests++
+        const result = await call('POST', '/api/v1/content/write', { uri, content: document.content, mode: 'replace', wait: true,
           timeout: Math.max(1, Math.round(config.timeoutMs / 1000)), tags: [`contentHash=${hashOf(notes[0])}`, `content_sha256=${document.partHash}`,
             `byte_start=${document.start}`, `byte_end=${document.end}`, `storageTier=${MEMORY_STORAGE.content}`, 'source=kira-memory'] })
+        // OpenViking 0.4.21 can save bytes with HTTP 200 while embedding fails.
+        if (result?.vector_status !== 'complete') {
+          const failure = new OpenVikingError('index-incomplete', 'vector indexing incomplete')
+          failure.failure = observedFailure('/api/v1/content/write', 200)
+          throw failure
+        }
         // Keep a durable deletion target even if a forget races this write and the budget is spent.
         ack(uri, notes.map(note => note.id), undefined, null, true); written.push(uri)
       } catch (error) {
-        failed.push('index-write-failed')
+        failed.push(error.code === 'kira.semantic:auth-refused' ? 'openviking-auth-refused'
+          : error.code === 'kira.semantic:content-mismatch' ? 'index-content-mismatch' : 'index-write-failed')
         failures.push(failureOf(error))
         // A refused document remains pending, but does not stop other documents
         // in this bounded batch. An outage stops requests until the next retry.
@@ -379,10 +406,10 @@ export function createOpenVikingRecall(input) {
     if (audit.tampered.length) failed.push('index-content-mismatch')
     if (audit.requests) { latest = await ledgerNow(source); latestGroups = groupLedger(latest) }
     const latestRetained = latest.complete ? retainedOf(latest) : null
-    return { added, removed, pending: [...latestGroups.keys()].filter(uri => !acknowledged(acknowledgements[uri])).length,
+    return { added, removed, pending: [...latestGroups.keys()].filter(uri => !indexed(acknowledgements[uri])).length,
       removalPending: latestRetained ? Object.keys(acknowledgements).filter(uri => uri.startsWith(`${root}/`) && !latestGroups.has(uri)
         && !latestRetained.has(uri)).length : null,
-      indexed: Object.values(acknowledgements).filter(acknowledged).length, failed, failures, audit, requests, budget }
+      indexed: Object.values(acknowledgements).filter(indexed).length, failed, failures, audit, requests, budget }
   })
   const forget = id => inTurn(async () => {
     readAcknowledgements()
@@ -422,7 +449,8 @@ export function createOpenVikingRecall(input) {
     try { result = await call('POST', '/api/v1/search/find', { query: `${config.queryInstruction}${String(question)}`, target_uri: `${root}/${MEMORY_STORAGE.content}`, limit: config.candidates }) }
     catch (error) {
       live = await ledgerNow(source)
-      return { available: false, reason: 'semantic-recall-failed', failures: [...failures, failureOf(error)], hits: [], dropped, ledgerComplete: live.complete }
+      return { available: false, reason: error.code === 'kira.semantic:auth-refused' ? 'openviking-auth-refused' : 'semantic-recall-failed',
+        sync: synced, failures: [...failures, failureOf(error)], hits: [], dropped, ledgerComplete: live.complete }
     }
     const candidateNotes = typeof readCandidates === 'function' ? await readCandidates() : []
     // Read content concurrently, then govern everything with one latest ledger after network I/O.
@@ -498,6 +526,9 @@ export function createOpenVikingRecall(input) {
     }
     verified.sort((a, b) => b.score - a.score || String(b.note.observedAt ?? '').localeCompare(String(a.note.observedAt ?? '')) || (Number.isSafeInteger(b.note.aura?.index) ? b.note.aura.index : -1) - (Number.isSafeInteger(a.note.aura?.index) ? a.note.aura.index : -1) || a.id.localeCompare(b.id))
     const hits = verified.slice(0, Math.max(1, Math.min(50, limit)))
+    if (!hits.length && (synced.failed?.length || synced.pending > 0 || dropped.unreadable.length)) {
+      return { available: false, reason: 'openviking-index-pending', hits, dropped, diagnostics, failures, sync: synced, ledgerComplete: live.complete }
+    }
     return { available: true, hits, dropped, diagnostics, failures, threshold: config.scoreThreshold, sync: synced, ledgerComplete: live.complete }
   }
   const listLegacy = async () => {

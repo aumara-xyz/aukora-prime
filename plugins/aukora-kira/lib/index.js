@@ -43,6 +43,7 @@ import { verifyRecord } from './memory-verify.mjs'
 import { resolveMemoryIdentity } from './memory-identity.mjs'
 import { AURA_RECALL_PROVIDER, recallAuraCitations, readAuraCitationView, sameRecallRecord } from './aura-recall.mjs'
 import { parseAuraSourceProjection, referenceForAssociatedNote, sourceIdentity } from './aura-association.mjs'
+import { isAbsolute } from 'node:path'
 
 /** Direct trusted-host adapter, never a model tool or RPC method. H supplies its
  * actual completion verifier/pins; D supplies its guarded exact-row resolver.
@@ -306,9 +307,15 @@ export function readConfig(config) {
   }
   const record = /** @type {Record<string, unknown>} */ (config)
   for (const key of Object.keys(record)) {
-    if (!['retrieval', 'readOwner', 'memoryOwner', 'projectIdentity', 'maxSessions', 'autoStage'].includes(key)) {
-      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, projectIdentity, maxSessions, autoStage`)
+    if (!['retrieval', 'readOwner', 'memoryOwner', 'openVikingHome', 'projectIdentity', 'maxSessions', 'autoStage'].includes(key)) {
+      refuse('config-field-unknown', `configuration carries a field outside retrieval, readOwner, memoryOwner, openVikingHome, projectIdentity, maxSessions, autoStage`)
     }
+  }
+  // An explicit bridge home binds the mounted plugin to the service's existing configuration.
+  if (record.openVikingHome !== undefined && (record.memoryOwner === undefined
+    || typeof record.openVikingHome !== 'string' || !isAbsolute(record.openVikingHome)
+    || /[\u0000-\u001f\u007f]/u.test(record.openVikingHome))) {
+    refuse('openviking-home-invalid', 'openVikingHome requires memoryOwner and an absolute path')
   }
   if (record.autoStage !== undefined && typeof record.autoStage !== 'boolean') refuse('config-autostage', 'autoStage must be a boolean')
   const projectIdentity = record.projectIdentity === undefined ? undefined : createProjectIdentityResolver(record.projectIdentity)
@@ -363,6 +370,7 @@ export function readConfig(config) {
     return Object.freeze({
       retrieval,
       maxSessions,
+      ...(record.openVikingHome === undefined ? {} : { openVikingHome: record.openVikingHome }),
       ...(projectIdentity === undefined ? {} : { projectIdentity }),
       memoryOwner: Object.freeze({
         stateDir: identity.stateDir,
@@ -469,7 +477,7 @@ export async function apply(ctx, config, gateCaptureHost) {
   let memory, memoryConfig
   const memoryFor = () => {
     if (!normalized.memoryOwner) return undefined
-    const config = readBridgeConfig(openVikingHome(normalized.memoryOwner.stateDir))
+    const config = readBridgeConfig(normalized.openVikingHome ?? openVikingHome(normalized.memoryOwner.stateDir))
     const key = JSON.stringify(config)
     if (!memory || key !== memoryConfig) {
       memoryConfig = key

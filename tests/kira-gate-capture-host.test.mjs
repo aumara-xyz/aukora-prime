@@ -230,7 +230,7 @@ test('ordinary Kira configuration errors remain errors from actual mount', async
   await assert.rejects(f.plugin.apply(f.ctx, existingConfig), error => error === rejected)
 })
 
-test('materializer changes exactly two Kira names and retains the original rows/config/socket', async () => {
+test('materializer keeps both host mounts, reviewed Kira configuration and proposal socket', async () => {
   const bytes = await readFile(new URL('../scripts/materialize-aukora-release.py', import.meta.url))
   const source = bytes.toString('utf8'), entry = './plugins/aukora-kira/lib/gate-capture-host.mjs'
   assert.equal(source.split(entry).length - 1, 2)
@@ -241,8 +241,10 @@ test('materializer changes exactly two Kira names and retains the original rows/
   // the Kira rows/config and proposal socket remain unchanged.
   // Reviewed face freshness: preflight binds source/output hashes; copied bundles/manifests must match it;
   // both Kira rows/config and the proposal socket remain unchanged.
+  // Reviewed OpenViking opt-in: an absolute --kira-openviking-home adds only
+  // openVikingHome to all three Kira configs; default rows and socket are unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '8f11a5a8c92d880fc156c8ce4e8aee6a796b18cfc1c11512eafea8e341506356')
+    '8bf978b33e39e6604a6b794d693fae8677d00bc2e0b2d6e103f82de9e2553fe4')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
@@ -299,7 +301,9 @@ async function createAcceptedEFixture() {
     projectIdentitySource = readE(new URL('./project-identity.mjs', indexURL), 'utf8')
   } catch { throw Error('missing-dependency:accepted-kira-index-or-helper-closure') }
   // Reviewed: both recall calls now forward the composition's lexical selection.
-  assert.equal(sha(indexSource), '7e6a811979ffc4e260862a378ed247e3734a72d7ce5f62413495cbd5be08c8ac',
+  // Reviewed OpenViking home config validation/normalization and explicit-home precedence;
+  // capture and association paths are unchanged. node:path stays the actual builtin below.
+  assert.equal(sha(indexSource), 'acd46aa42a94393aa1f4777052bfa80166fa74546f0dbf1889d213a50b2f9108',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')
@@ -395,6 +399,7 @@ async function createAcceptedEFixture() {
   try {
     const rewritten = indexSource.replace(/import\s*\{([\s\S]*?)\}\s*from\s*(['"])([^'"]+)\2/gu,
       (statement, bindings, _quote, specifier) => {
+        if (specifier === 'node:path') return statement
         if (specifier === './aura-association.mjs') return statement.replace(specifier, associationURL)
         if (specifier === './aura-recall.mjs') return statement.replace(specifier, recallURL)
         if (specifier === './recall-state.mjs') return statement.replace(specifier, recallStateURL)
