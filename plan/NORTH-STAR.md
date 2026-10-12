@@ -283,3 +283,17 @@ STEP 3 STATE, evening of 2026-10-12:
 - The live gate's signed ledger (read 10-12): 1,814 entries since 10-03, among them 21 proposals, 21 decisions, 17
   applied, 1 rejected, 30 relay posts by Auma with their intents, 828 self-checks. The owner's approvals from the
   app are there, and its head is anchored to the `ledger-anchor` branch (latest anchor seen 10-12 18:26 +0800).
+- [RAN in the pilot's STAGING container only, 2026-10-12 about 11:40 UTC] the door, from an installed release,
+  against the node's own gate and relay. main at a9a597b went through the whole loop there (fetch, materialize,
+  approval raised and approved with the staging owner key at ledger sequence 183, floor moved, launcher source
+  moved to the same commit, harness restarted and active). Then plugins/aukora-buzz-door/checks/installed-accept.mjs,
+  run as the harness user against release-a9a597b, 11 of 11: the relay is reachable from the node; the tools
+  register with the row's configuration; a mention from a key that is not admitted starts no turn; buzz_post from
+  another session is refused; the stranger's message is still readable as data; a mention from the admitted key is
+  handed to the named session once, with plugin provenance and the words as one quoted string; a post from that
+  session is accepted, the second is rate-limited, and the gate's ledger verifies and holds the intent and the
+  completion (sequence 186, 187).
+  The run before it, on release-22b9c0d, FAILED three rows: the door imported a harness package, which a plugin
+  cannot resolve in a release, so no turn could start (fixed in a9a597b).
+  What this does not show: a model. The session was a recorder; what Auma does with what she is handed is NOT RUN.
+  The relay was still open; the keys and the channel were throwaway. Nothing on the live harness was changed.
