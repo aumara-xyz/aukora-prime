@@ -22,6 +22,10 @@
 #   configuration; existing host units do not constitute a fresh-node installer.
 set -euo pipefail
 
+case ${1-} in
+  --linux|--dry-run) exec bash "${BASH_SOURCE[0]%/*}/linux.sh" "$@" ;;
+esac
+
 refuse() { printf 'REFUSED %s\n' "$1" >&2; exit 1; }
 plan=0
 if [[ ${1-} == --plan ]]; then plan=1; shift; fi
