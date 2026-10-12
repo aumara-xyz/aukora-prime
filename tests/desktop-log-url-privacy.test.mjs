@@ -2,12 +2,14 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { installDesktopLog } from '../apps/aukora-desktop/desktop-log.mjs'
 
 test('renderer failure diagnostics omit URL credentials and retain failure context', () => {
-  const scratch = mkdtempSync('/tmp/aukora-desktop-log-test-')
+  const scratch = mkdtempSync(join(tmpdir(), 'aukora-desktop-log-test-'))
   const app = new EventEmitter()
   const levels = ['log', 'info', 'warn', 'error']
   const consoleBefore = Object.fromEntries(levels.map(level => [level, console[level]]))
@@ -45,7 +47,7 @@ test('renderer failure diagnostics omit URL credentials and retain failure conte
 })
 
 test('launch diagnostics redact startup credentials while private boot transports retain them', () => {
-  const scratch = mkdtempSync('/tmp/aukora-launch-url-test-')
+  const scratch = mkdtempSync(join(tmpdir(), 'aukora-launch-url-test-'))
   try {
     // Execute only the existing URL helpers, record serialization and stdout statement.
     // The launcher entry point, provenance checks and child launch never execute.
@@ -72,6 +74,7 @@ write = next(node for node in tree.body if isinstance(node, ast.Expr)
 announce = next(node for node in tree.body if isinstance(node, ast.If)
                 and isinstance(node.test, ast.Name) and node.test.id == 'url')
 namespace = {'re': re, 'json': json, 'os': os, 'time': time,
+             'a': SimpleNamespace(foreground=False),
              'base': Path(sys.argv[2]), 'child': SimpleNamespace(pid=64281),
              'startup_timeout': 20, 'readiness': 'ready: the child printed its URL inside the window'}
 exec(compile(ast.Module(body=helpers, type_ignores=[]), '<launcher URL helpers>', 'exec'), namespace)

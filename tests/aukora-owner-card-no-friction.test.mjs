@@ -51,7 +51,13 @@ test('gate fact: "plugin set unchanged since your approval of <release>" only wh
   assert.ok(spec.plain(prev, same).length > 400 && spec.plain(prev, same).length <= 600, 'needs the 600-char from_to bound')
 })
 
-test('gate + adapter: review v2 has no tier; a plain Approve applies with no typed confirmation; the long fact reaches the card', async () => {
+test('gate + adapter: review v2 has no tier; a plain Approve applies with no typed confirmation; the long fact reaches the card', async t => {
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-run-'))
+  t.after(() => fs.rmSync(runDir, { recursive: true, force: true }))
+  if (Buffer.byteLength(path.join(runDir, 'owner.sock')) >= (process.platform === 'linux' ? 108 : 104)) {
+    t.skip('UNPERFORMED: temporary path exceeds the Unix socket path limit')
+    return
+  }
   const clock = { t: Date.UTC(2026, 9, 4, 7) }, home = tmpHome(), owner = loadOwnerSecret(home)
   rotateBearer(home, owner, () => clock.t)
   // A test target whose from->to is the real (long) plugin-set fact line, applied through the normal owner path.
@@ -59,8 +65,14 @@ test('gate + adapter: review v2 has no tier; a plain Approve applies with no typ
   const longTarget = { ...accentTarget, entry: 'test-long', plain: () => targetsMod.pluginSetTarget('/x', { releasesRoot: '/nonexistent', floorFile: path.join(home, 'release-floor.json') }).plain(approval(R1, h('a'), h('c')), approval(R2, h('a'), h('d'))) }
   const store = memoryStore({ [ACCENT]: accent('#00BFFF'), [LONG]: accent('#111111') })
   const gate = createGate({ home, owner, targets: { [ACCENT]: accentTarget, [LONG]: longTarget }, store, now: () => clock.t })
+  t.after(() => { gate.close(); fs.rmSync(home, { recursive: true, force: true }) })
   gate.startup({ pid: 1 })
-  const srv = await serveGate(gate, { runDir: fs.mkdtempSync(path.join(os.tmpdir(), 'nf-run-')), ownerHttpPort: 0 })
+  let srv
+  try { srv = await serveGate(gate, { runDir, ownerHttpPort: 0 }) } catch (error) {
+    if (error.syscall !== 'listen' || !['EPERM', 'EACCES'].includes(error.code)) throw error
+    t.skip(`UNPERFORMED: Unix socket listen refused (${error.code})`)
+    return
+  }
   try {
     const r = gate.ownerOps.review({ id: gate.proposeOps.propose({ target: ACCENT, content: accent('#1E90FF'), why: 'TEST', claimed_base: gate.proposeOps.read({ target: ACCENT }).sha256, session: 's' }).id })
     assert.equal(r.version, 2); assert.equal(Object.hasOwn(r, 'tier'), false)

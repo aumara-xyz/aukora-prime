@@ -272,16 +272,6 @@ try {
   } finally {
     for (const [name, value] of Object.entries(before)) { if (value === undefined) delete process.env[name]; else process.env[name] = value }
   }
-  assert.equal(checked.passed, true, checked.failure)
-  const line = /^checks: TOTAL 1\/1 passed on this exact tree \(base harness; [^)]+\)$/mu
-  assert.match(checked.summary, line)
-  assert.equal(checked.composition, 'product 1 lines, proof 0 lines')
-  const output = evidenceOutput(evidence)
-  assert.doesNotMatch(output, /^(?:AUKORA_|GIT_|NODE_OPTIONS=|NODE_PATH=|PERL5LIB=)/mu)
-  assert.doesNotMatch(output, /no-precard-tools-here|no-precard-home-here/u)
-  removedMaterialization(output)
-  console.log('PASS exact candidate tree, clean environment, full evidence and temporary cleanup')
-
   const sources = Object.fromEntries(['self-change', 'advance'].map(name => [name, fs.readFileSync(join(root, 'scripts', 'aukora', `${name}.mjs`), 'utf8')]))
   for (const [name, source] of Object.entries(sources)) {
     const start = source.indexOf('// PRECARD CHECK:'), end = source.indexOf('// PRECARD CHECK END', start)
@@ -291,6 +281,27 @@ try {
     assert.equal(source.split('await precardCheck(').length, 2, `${name}: exactly one check call`)
     assert.ok(end < source.indexOf('content.length > MAX_SHOWN_CHARS'), `${name}: final card length checked after summary`)
   }
+  console.log('PASS source ordering: one precard check before signer, consumption and final card-size check')
+  const gitTempRefusal = "precard checks refused: git rev-parse refused: git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead"
+  const gitTempUnavailable = (platform, failure) => platform === 'darwin' && failure === gitTempRefusal
+  assert.equal(gitTempUnavailable('darwin', gitTempRefusal), true)
+  for (const [platform, failure] of [['linux', gitTempRefusal], ['darwin', gitTempRefusal + '\nwarning: refname is ambiguous'], ['darwin', 'other Git failure']])
+    assert.equal(gitTempUnavailable(platform, failure), false)
+  if (gitTempUnavailable(process.platform, checked.failure)) {
+    assert.equal(checked.passed, false, 'the environmental Git warning must still refuse admission')
+    untouched()
+    console.log('UNPERFORMED: precard Git fixtures require DARWIN_USER_TEMP_DIR; sandbox confstr lookup was refused')
+    process.exitCode = 2
+  } else {
+  assert.equal(checked.passed, true, checked.failure)
+  const line = /^checks: TOTAL 1\/1 passed on this exact tree \(base harness; [^)]+\)$/mu
+  assert.match(checked.summary, line)
+  assert.equal(checked.composition, 'product 1 lines, proof 0 lines')
+  const output = evidenceOutput(evidence)
+  assert.doesNotMatch(output, /^(?:AUKORA_|GIT_|NODE_OPTIONS=|NODE_PATH=|PERL5LIB=)/mu)
+  assert.doesNotMatch(output, /no-precard-tools-here|no-precard-home-here/u)
+  removedMaterialization(output)
+  console.log('PASS exact candidate tree, clean environment, full evidence and temporary cleanup')
 
   async function advance(target, source = sources.advance, timeoutMs = 20_000) {
     const home = join(scratch, `advance-${sequence++}`), support = join(home, 'support')
@@ -399,6 +410,7 @@ try {
   console.log(`PASS self-change commits with the restaged reason (${staged})`)
 }
 console.log('PASS precard gate focused test')
+  }
 } finally {
   clearTimeout(deadline)
   fs.rmSync(scratch, { recursive: true, force: true })

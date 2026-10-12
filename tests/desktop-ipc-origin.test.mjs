@@ -1,6 +1,5 @@
 // One focused bridge check: actual source, synthetic Electron frames, no Electron/app/signer import.
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -14,7 +13,6 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const bridgePath = 'apps/aukora-desktop/aumlok-bridge.mjs'
 const source = readFileSync(join(root, bridgePath), 'utf8')
 const main = readFileSync(join(root, 'apps/aukora-desktop/main.mjs'), 'utf8')
-const original = execFileSync('/usr/bin/git', ['-C', root, 'show', `499dcd8218304ad4df897c8e828342fd467b2805:${bridgePath}`], { encoding: 'utf8' })
 const pinExpression = main.match(/applicationOrigin: ([^,\n]+),/u)?.[1]
 assert.ok(pinExpression, 'caller did not supply an origin contract')
 const ownedOrigin = 'http://127.0.0.1:3187'
@@ -159,8 +157,11 @@ console.log('PASS ANSWER revalidates after daemon await; navigated frame cannot 
 
 // The production gates, removed one at a time, make the refusal assertions fail.
 const gate = (text, name) => text.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`, 'u'))?.[0]
-for (const name of ['fromApplication', 'fromApproval']) {
-  const mutant = source.replace(gate(source, name), gate(original, name))
+for (const [name, contents] of [['fromApplication', 'getWindow()?.webContents'], ['fromApproval', 'approval?.webContents']]) {
+  const original = gate(source, name)
+  assert.ok(original, `missing ${name} mutation target`)
+  const mutant = source.replace(original,
+    `  function ${name}(event) { return currentIpcFrame(event, ${contents}) !== null }`)
   assert.notEqual(mutant, source)
   const f = fixture(mutant)
   if (name === 'fromApplication') {
@@ -174,6 +175,6 @@ for (const name of ['fromApplication', 'fromApproval']) {
     assert.throws(() => assert.equal(result.ok, false), assert.AssertionError)
     await f.handlers.get(APPROVAL_CHANNELS.ANSWER)(event(contents), { challenge: 'mutant-question', approve: false }); await pending
   }
-  f.bridge.dispose(); console.log(`EXPECTED FAILURE with published identity-only ${name}: origin refusal assertion fails`)
+  f.bridge.dispose(); console.log(`EXPECTED FAILURE with frame-only ${name}: origin refusal assertion fails`)
 }
 console.log('NOT VERIFIED: installed Electron/app, real signer/daemon/ceremony/approval. All effects are fixture stubs; no live state, keys, sockets or OS settings were accessed. Already-started ceremony effects are not rolled back on navigation.')

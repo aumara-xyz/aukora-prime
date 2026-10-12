@@ -28,7 +28,7 @@ import { mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync
   lstatSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import './noble-map.mjs' // resolves the box's @noble/* to this repository's committed closure
@@ -44,6 +44,7 @@ const names = [
 ]
 let passed = 0
 let failed = 0
+let unperformed = 0
 let checkRemoval = null
 let oracleReason = null
 // Arm indices that have a kill-proof. Populated where the probes are declared, read by the
@@ -52,10 +53,16 @@ const armsWithProbe = new Set([0, 1, 2, 3, 4, 5])
 const observations = []
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const oneLine = error => String(error?.message ?? error).replace(/\s+/gu, ' ')
+const listenUnavailable = error => error.syscall === 'listen' && ['EPERM', 'EACCES'].includes(error.code)
 
 async function arm(index, run) {
   try {
     let detail = await run()
+    if (detail?.unperformed) {
+      unperformed++
+      console.log(`UNPERFORMED ${index + 1} ${names[index]}: ${detail.unperformed}`)
+      return
+    }
     if (checkRemoval !== null && armsWithProbe.has(index)) {
       checkRemoval(index)
       detail = `${detail}; guard removal -> FAIL ${index + 1}`
@@ -326,6 +333,9 @@ if (startupFailure !== null) {
       mint(f, args, { signingKey: keyPair().privateKey })))
 
     await arm(6, async () => {
+      for (const code of ['EPERM', 'EACCES']) assert.equal(listenUnavailable({ syscall: 'listen', code }), true)
+      for (const error of [{ syscall: 'listen', code: 'EADDRINUSE' }, { syscall: 'listen', code: 'EINVAL' }, { syscall: 'open', code: 'EPERM' }, {}])
+        assert.equal(listenUnavailable(error), false)
       const f = fixture(7)
       const workspace = join(f.directory, 'workspace')
       mkdirSync(workspace, { mode: 0o700 })
@@ -370,7 +380,7 @@ if (startupFailure !== null) {
       let predicted
       const issuerCalls = []
       const issuerErrors = []
-      const socketPath = join(f.directory, 'i.sock')
+      const socketPath = relative(process.cwd(), join(f.directory, 'i.sock'))
       const sockets = new Set()
       const server = createServer(socket => {
         sockets.add(socket)
@@ -403,10 +413,15 @@ if (startupFailure !== null) {
         })
       })
       try {
-        await new Promise((resolve, reject) => {
-          server.once('error', reject)
-          server.listen(socketPath, resolve)
-        })
+        try {
+          await new Promise((resolve, reject) => {
+            server.once('error', reject)
+            server.listen(socketPath, resolve)
+          })
+        } catch (error) {
+          if (!listenUnavailable(error)) throw error
+          return { unperformed: `temporary issuer listen refused (${error.code}); real v5 route not verified` }
+        }
         const background = []
         const dispatch = broker.brokerDispatch({ ...f.options,
           expectedActivationDigest: activationDigest, rendererId: hash('temporary renderer'),
@@ -443,11 +458,6 @@ if (startupFailure !== null) {
         assert.equal(broker.readSettlementHead(f.stateDir), 1)
         assert.equal(nonces.openNonceBook(f.stateDir).set.size, 1)
         return `v5 SETTLED; predicted = receipt = disk SHA-256 ${predicted.contentSha256}`
-      } catch (error) {
-        if (error?.code === 'EPERM' || error?.code === 'EACCES') {
-          throw new Error(`blocked: temporary issuer socket unavailable (${error.code}); real v5 route not verified`)
-        }
-        throw error
       } finally {
         for (const socket of sockets) socket.destroy()
         if (server.listening) await new Promise(resolve => server.close(resolve))
@@ -585,5 +595,5 @@ if (startupFailure !== null) {
   }
 }
 
-console.log(`broker-grant: ${passed} passed, ${failed} failed`)
-process.exitCode = failed ? 1 : 0
+console.log(`broker-grant: ${passed} passed, ${failed} failed${unperformed ? `, ${unperformed} unperformed` : ''}`)
+process.exitCode = failed ? 1 : unperformed ? 2 : 0

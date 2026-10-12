@@ -15,7 +15,8 @@ const FAIL_CLOSED = 'aukora-genesis-failclosed.service'
 const BOOTSTRAP = '/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-package'
 const RUNTIME_BOOTSTRAP = '/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-runtime'
 const SELF_CHECK = '/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs --run /run/aukora-gate --gate-home /home/aukora-gate --target-root /var/lib/aukora-boundary/targets --release-parent /opt/aukora-genesis --forbid-write /opt/aukora-boundary-gate/bin/gate.mjs --forbid-write /usr/local/lib/aukora-boundary/sbx-exec'
-const GENESIS_SELF_CHECK = SELF_CHECK + ' --forbid-write /opt/aukora-boundary-gate/bin/plugin-set-approval.mjs --forbid-write /opt/aukora-boundary-gate/bin/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/plugin-set-canon.mjs --forbid-write /opt/aukora-boundary-gate/src/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/operator-data.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/plugin-set-content.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/trusted-verifier-pins.json --forbid-write /opt/aukora-boundary-gate/src/vendor/signer-epochs.mjs --forbid-write /etc/aukora-boundary-gate/signer-epochs.json --forbid-write /etc/aukora-boundary-gate/gate-package-manifest.json --forbid-write /usr/local/lib/aukora-boundary/gate-bootstrap'
+const RETRY_CHECK = '/usr/local/lib/aukora-boundary/selfcheck-with-retry -- '
+const GENESIS_SELF_CHECK = SELF_CHECK.replace('/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs ', RETRY_CHECK) + ' --forbid-write /opt/aukora-boundary-gate/bin/plugin-set-approval.mjs --forbid-write /opt/aukora-boundary-gate/bin/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/plugin-set-canon.mjs --forbid-write /opt/aukora-boundary-gate/src/release-floor.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/operator-data.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/plugin-set-content.mjs --forbid-write /opt/aukora-boundary-gate/src/vendor/trusted-verifier-pins.json --forbid-write /opt/aukora-boundary-gate/src/vendor/signer-epochs.mjs --forbid-write /etc/aukora-boundary-gate/signer-epochs.json --forbid-write /etc/aukora-boundary-gate/gate-package-manifest.json --forbid-write /usr/local/lib/aukora-boundary/gate-bootstrap'
 const GENESIS_FLOOR = '/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap floor check --release-dir ${AUKORA_RELEASE_DIR} --approval-state-root ${AUKORA_APPROVAL_ROOT}'
 const GENESIS_LAUNCH = '/usr/bin/python3 scripts/launch-dsh.py --release ${AUKORA_RELEASE_DIR} --state-root /home/aukora-host/genesis/state --port 18735 --foreground --node /opt/aukora-node/bin/node --approval-state-root ${AUKORA_APPROVAL_ROOT} --approved-record-sha ${AUKORA_RECORD_SHA} --patch ${AUKORA_RELEASE_DIR}/aukora-composition.patch.yml --patch ${AUKORA_RELEASE_DIR}/linux-openshell.patch.yml'
 const LOADERS = ['NODE_OPTIONS', 'NODE_PATH', 'PYTHONPATH', 'PYTHONHOME', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT']
@@ -156,7 +157,7 @@ function model(source) {
   }
   function launchGenesis(prechecksPass, { bootstrapPass = true, manifestVersion = 2 } = {}) {
     const prechecks = u[GENESIS].all('Service', 'ExecStartPre')
-    const firstNode = prechecks.findIndex(command => command.startsWith('/opt/aukora-node/bin/node '))
+    const firstNode = prechecks.findIndex(command => command.startsWith('/opt/aukora-node/bin/node ') || command.startsWith(RETRY_CHECK))
     const beforeNode = firstNode === -1 ? prechecks : prechecks.slice(0, firstNode)
     if (!bootstrapAllows(beforeNode, bootstrapPass, manifestVersion)) return
     state.genesisNodeChecks++
@@ -195,7 +196,7 @@ test('SOURCE_ONLY Genesis retains every existing precheck, launch argument and r
   const u = units(sources())[GENESIS]
   assert.deepEqual(u.all('Service', 'ExecStartPre'), [BOOTSTRAP, RUNTIME_BOOTSTRAP, GENESIS_SELF_CHECK, GENESIS_FLOOR])
   assert.deepEqual(u.all('Service', 'ExecStartPre').filter(command => command !== RUNTIME_BOOTSTRAP),
-    [BOOTSTRAP, GENESIS_SELF_CHECK, GENESIS_FLOOR], 'all three original prechecks stay verbatim and ordered')
+    [BOOTSTRAP, GENESIS_SELF_CHECK, GENESIS_FLOOR], 'package, retry-wrapped selfcheck and floor stay ordered with exact arguments')
   assert.equal(u.one('Service', 'ExecStart'), GENESIS_LAUNCH)
   assert.deepEqual(u.words('Unit', 'Wants'), ['aukora-boundary-gate.service', 'aukora-auma-sandbox.service'])
   assert.deepEqual(u.words('Unit', 'After'), ['network-online.target', 'aukora-boundary-gate.service', 'aukora-auma-sandbox.service', LATCH, FIREWALL])
@@ -371,6 +372,8 @@ test('SOURCE_ONLY modeled periodic command and bootstrap failures stop Genesis w
 test('SOURCE_ONLY targeted guards reject mutants; lifecycle/profile mutants also expose modeled failures', async t => {
   const original = sources()
   const cases = [
+    ['bypass Genesis spaced retry', GENESIS, RETRY_CHECK, '/opt/aukora-node/bin/node /opt/aukora-boundary-gate/bin/selfcheck.mjs ', () => {}],
+    ['duplicate startup RemainAfterExit', LATCH, 'RemainAfterExit=yes\n', 'RemainAfterExit=yes\nRemainAfterExit=yes\n', () => {}],
     ['remove BindsTo', GENESIS, 'BindsTo=' + LATCH + ' ' + FIREWALL + '\n', 'BindsTo=' + FIREWALL + '\n', changed => {
       const m = model(changed); m.start(); m.deactivateLatch()
       assert.equal(m.state.active.has(GENESIS), true, 'bound-unit loss must now leave an unsafe running runtime')

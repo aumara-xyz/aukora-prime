@@ -52,11 +52,15 @@ console.log('\nAUMLOK — the owner socket boundary: what the kernel refuses\n')
 console.log('  CEILING: one uid is used, so the KERNEL\'s traversal check is measured and the ACCOUNT\n'
   + '           arrangement is NOT. The two-uid arm waits for the `aukora-owner` account.\n')
 
+if (Buffer.byteLength(join(tmpdir(), 'aukora-ingress-XXXXXX', 'no-traverse', 'settle.sock')) >= (process.platform === 'linux' ? 108 : 104)) {
+  console.log('UNPERFORMED: temporary path exceeds the Unix socket path limit')
+  process.exit(2)
+}
 const scratch = mkdtempSync(join(tmpdir(), 'aukora-ingress-'))
 chmodSync(scratch, 0o700)
 
 /** One unix socket inside `dirName`, with the directory and socket modes asked for. */
-function serve(label, dirMode, socketMode) {
+async function serve(label, dirMode, socketMode) {
   const dir = join(scratch, label)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const socketPath = join(dir, 'settle.sock')
@@ -72,7 +76,14 @@ function serve(label, dirMode, socketMode) {
     socket.end('ok\n')
   })
   server.on('error', () => {})
-  server.listen(socketPath)
+  try {
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve) })
+  } catch (error) {
+    if (error.syscall !== 'listen' || !['EPERM', 'EACCES'].includes(error.code)) throw error
+    rmSync(scratch, { recursive: true, force: true })
+    console.log(`UNPERFORMED: Unix socket listen refused (${error.code})`)
+    process.exit(2)
+  }
   chmodSync(socketPath, socketMode)
   chmodSync(dir, dirMode)
   return { dir, socketPath, server }
@@ -125,10 +136,10 @@ function permissionArm(label, check) {
     + `${process.env.AUKORA_COURT_UID === undefined ? '' : ' (uid faked by AUKORA_COURT_UID)'}\n`)
 }
 
-const open = serve('open', 0o700, 0o660)
-const closed = serve('closed', 0o700, 0o660)
-const noTraverse = serve('no-traverse', 0o700, 0o660)
-const noWrite = serve('no-write', 0o700, 0o660)
+const open = await serve('open', 0o700, 0o660)
+const closed = await serve('closed', 0o700, 0o660)
+const noTraverse = await serve('no-traverse', 0o700, 0o660)
+const noWrite = await serve('no-write', 0o700, 0o660)
 chmodSync(noTraverse.dir, 0o000)
 chmodSync(noWrite.dir, 0o500)
 
