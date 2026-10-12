@@ -89,7 +89,7 @@ const MUTANTS = Object.freeze({
   },
   'tier-from-file': {
     file: 'plugins/aukora-kira/lib/tracked-memory.mjs',
-    from: "...note.origin?.metadata, tier: 'remembered', contentHash: hash,",
+    from: '...note.origin?.metadata, tier: MEMORY_TIER.remembered, contentHash: hash,',
     to: '...note.origin?.metadata, tier: note.tier, contentHash: hash,',
     arm: ARMS.tier,
   },
@@ -139,18 +139,21 @@ if (argv[0] === '--red') {
   const indent = text => text.trimEnd().split('\n').map(line => `    ${line}`).join('\n')
   const plain = run([])
   process.stdout.write(`plain (no revert): exit ${String(plain.status)}\n${indent(plain.out)}\n\n`)
-  let caught = 0
+  let caught = 0, unavailable = 0
   const mutants = Object.entries(MUTANTS).filter(([, mutant]) => !pluginOnly || !mutant.file.endsWith('.py'))
   for (const [name, mutant] of mutants) {
     const child = run(['--mutant', name])
     const red = child.status !== 0 && child.out.includes(`FAIL  ${mutant.arm}`)
+    const unperformed = child.status === 2 && child.out.includes(`UNPERFORMED ${mutant.arm}:`)
     if (red) caught += 1
-    process.stdout.write(`revert ${name} (${mutant.file}): exit ${String(child.status)} — ${red ? 'CAUGHT' : 'NOT CAUGHT'}: "${mutant.arm}"\n${indent(child.out)}\n\n`)
+    if (unperformed) unavailable += 1
+    process.stdout.write(`revert ${name} (${mutant.file}): exit ${String(child.status)} — ${red ? 'CAUGHT' : unperformed ? 'UNPERFORMED' : 'NOT CAUGHT'}: "${mutant.arm}"\n${indent(child.out)}\n\n`)
   }
   const total = mutants.length
-  const ok = plain.status === 0 && caught === total
-  process.stdout.write(`KIRA MEMORY LIVE PATH RED ARM: plain ${plain.status === 0 ? 'passed' : 'FAILED'}; ${String(caught)}/${String(total)} reverts turned their arm red — ${ok ? 'OK' : 'NOT OK'}\n`)
-  process.exit(ok ? 0 : 1)
+  const failed = ![0, 2].includes(plain.status) || caught + unavailable !== total
+  const incomplete = plain.status === 2 || unavailable > 0
+  process.stdout.write(`KIRA MEMORY LIVE PATH RED ARM: plain ${plain.status === 0 ? 'passed' : plain.status === 2 ? 'UNPERFORMED' : 'FAILED'}; ${String(caught)}/${String(total)} reverts turned their arm red; ${unavailable} unperformed — ${failed ? 'NOT OK' : incomplete ? 'UNPERFORMED' : 'OK'}\n`)
+  process.exit(failed ? 1 : incomplete ? 2 : 0)
 }
 
 // ── --mutant <name>: revert ONE fix in memory, before any subject module loads ───────────────────────────────────────
@@ -183,12 +186,18 @@ const load = path => import(pathToFileURL(join(ROOT, path)).href)
 
 let failures = 0
 let passed = 0
+let unperformed = 0
 async function arm(name, body) {
   try {
     await body()
     passed += 1
     process.stdout.write(`  ok    ${name}\n`)
   } catch (error) {
+    if (error?.code === 'kira-test-harness-unavailable') {
+      unperformed += 1
+      process.stdout.write(`  UNPERFORMED ${name}: ${error.message}\n`)
+      return
+    }
     failures += 1
     process.stdout.write(`  FAIL  ${name}\n        ${String(error?.message ?? error).split('\n').slice(0, 3).join(' | ').slice(0, 400)}\n`)
   }
@@ -222,7 +231,7 @@ try {
       const common = spawnSync('git', ['-C', ROOT, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).stdout?.trim() ?? ''
       const candidates = [option('--dsh'), process.env.AUKORA_DSH_SOURCE, join(ROOT, 'vendor/dsh'), common === '' ? undefined : join(dirname(common), 'vendor/dsh')]
       const dsh = candidates.find(one => typeof one === 'string' && one !== '' && existsSync(join(one, 'apps/cli/lib/bin.js')))
-      assert.ok(dsh !== undefined, `no built harness found (tried ${candidates.filter(Boolean).join(', ')}); pass --dsh <built vendor/dsh>`)
+      if (dsh === undefined) throw Object.assign(new Error('no built harness found; pass --dsh <built vendor/dsh>'), { code: 'kira-test-harness-unavailable' })
       const release = join(work, 'releases', 'r')
       mkdirSync(dirname(release), { recursive: true })
       const materializer = join(ROOT, 'scripts/materialize-aukora-release.py')
@@ -678,7 +687,8 @@ try {
   if (dirname(work) === resolve(tmpdir()) && basename(work).startsWith('kira-memory-live-path-')) rmSync(work, { recursive: true, force: true })
 }
 
-const total = passed + failures
+const total = passed + failures + unperformed
 const expected = (runRelease ? 1 : 0) + (runPlugin ? 7 : 0)
-process.stdout.write(`KIRA MEMORY LIVE PATH: ${failures === 0 && total === expected ? 'GREEN' : 'RED'} — ${String(passed)}/${String(total)} arms\n`)
-process.exit(failures === 0 && total === expected ? 0 : 1)
+const failed = failures > 0 || total !== expected
+process.stdout.write(`KIRA MEMORY LIVE PATH: ${failed ? 'RED' : unperformed ? 'UNPERFORMED' : 'GREEN'} — ${String(passed)}/${String(total)} arms; ${unperformed} unperformed\n`)
+process.exit(failed ? 1 : unperformed ? 2 : 0)

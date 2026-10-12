@@ -1093,11 +1093,19 @@ const inspectedDshBytes = {
   // Compiled pinned base with the declared logger-exporter-disposer backport.
   'vendor/cordis/lib/index.js': '6a9394c0877ff45218818c6e815edd038f8057e1a1deb390a8d43ec81c57691e',
 };
-for (const [path, expected] of Object.entries(inspectedDshBytes)) {
-  const actualPath = join(dshRoot, path);
-  assert(existsSync(actualPath), `UNPERFORMED: bound host dependency absent: ${path}; pass --dsh or AUKORA_DSH_SOURCE`);
-  assert.equal(createHash('sha256').update(readFileSync(actualPath)).digest('hex'), expected,
-    `dependency-binding: inspected DSH bytes changed: ${path}`);
+try {
+  for (const [path, expected] of Object.entries(inspectedDshBytes)) {
+    const actualPath = join(dshRoot, path);
+    assert(existsSync(actualPath), `UNPERFORMED: bound host dependency absent: ${path}; pass --dsh or AUKORA_DSH_SOURCE`);
+    assert.equal(createHash('sha256').update(readFileSync(actualPath)).digest('hex'), expected,
+      `dependency-binding: inspected DSH bytes changed: ${path}`);
+  }
+} catch (error) {
+  // Missing host bytes are unperformed; mismatched bytes remain failures.
+  if (!(error instanceof assert.AssertionError)
+    || !error.message.startsWith('UNPERFORMED: bound host dependency absent: ')) throw error;
+  console.error(error.message);
+  process.exit(2);
 }
 console.log('CHECKED declared DSH pin and six inspected source/compiled/lock byte identities');
 const { ToolRuntime, assertSupportedJsonSchema } = await import(pathToFileURL(hostToolsPath).href);

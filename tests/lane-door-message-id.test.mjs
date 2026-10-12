@@ -64,6 +64,16 @@ function send(door, body) {
   })
 }
 
+async function openDoor(deps) {
+  try { return await installLaneDoor(deps) }
+  catch (error) {
+    if (error.syscall !== 'listen' || error.address !== '127.0.0.1' || !['EPERM', 'EACCES'].includes(error.code)) throw error
+    console.log(`UNPERFORMED lane-door-message-id: loopback listen refused (${error.code}); ${arms}/4 arms ran`)
+    if (process.argv.includes('--mutate')) console.log('UNPERFORMED lane-door-message-id mutation: requires the loopback arms')
+    process.exit(2)
+  }
+}
+
 const scratch = openScratch({ label: 'lane-door-id' })
 const stateRoot = scratch.root
 const file = laneDoorMessagesPath(stateRoot)
@@ -71,7 +81,7 @@ console.log('lane door: the prompted id is recorded')
 
 // ── ACCEPTED: the harness took the prompt, so its request id is written down ──────────────────────────────────────
 const accepted = stubBackend(true)
-let door = await installLaneDoor({ stateRoot, backendUrl: 'http://127.0.0.1:9/?token=stub', fetchImpl: accepted.fetchImpl })
+let door = await openDoor({ stateRoot, backendUrl: 'http://127.0.0.1:9/?token=stub', fetchImpl: accepted.fetchImpl })
 const reply = await send(door, { session: SESSION, origin: 'fable', text: 'please run the suite' })
 await door.dispose()
 const promptCall = accepted.sent.find(one => one.path === '/api/session/prompt')
@@ -98,7 +108,7 @@ arm('Kira excludes the message by its source.rpcId even with the text prefix gon
 
 // ── REFUSED: the harness did not take it, so nothing is written ──────────────────────────────────────────────────
 const refused = stubBackend(false)
-door = await installLaneDoor({ stateRoot, backendUrl: 'http://127.0.0.1:9/?token=stub', fetchImpl: refused.fetchImpl })
+door = await openDoor({ stateRoot, backendUrl: 'http://127.0.0.1:9/?token=stub', fetchImpl: refused.fetchImpl })
 await send(door, { session: SESSION, origin: 'fable', text: 'this one is refused' })
 await door.dispose()
 arm('a prompt the harness refused adds no id', () => {
