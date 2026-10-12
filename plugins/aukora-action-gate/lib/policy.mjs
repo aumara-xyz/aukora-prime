@@ -284,6 +284,8 @@ export const DEFAULT_ALLOW_TOOLS = Object.freeze([
   'aukora_workspace_patch',
   // PROPOSE-ONLY boundary-gate tool (plugins/aukora-auma-theme): the owner's popup decides; it has no approve path.
   'aukora_gate_propose',
+  // EYE host tool: photographs the app-owned window; its desktop receiver fences private surfaces.
+  'aukora_see',
 ])
 
 /**

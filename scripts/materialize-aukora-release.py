@@ -1358,6 +1358,8 @@ def main() -> int:
         '    # its own. `inject: [goals, agents]`, so it waits for both rather than running half-mounted.\n'
         '    - id: aukora-goal-resume\n'
         '      name: ./plugins/aukora-goal-resume/lib/index.mjs\n'
+        '      config:\n'
+        "        stateDir: !!js dshHomePath('goal-resume-state')\n"
         '    # ── PRIVACY (alpha-15): private conversations stay on this computer ─────────────────────────────\n'
         '    # The egress audit (gaps 1, 10, 15) found `session-log-deepseek` ON BY DEFAULT, uploading the ENTIRE\n'
         '    # session log — every message, tool call and result, plus the cwd — as `dsh_session_log` on every\n'
@@ -1812,7 +1814,7 @@ def main() -> int:
         '# Mounts ONLY aukora-aumlok, which injects nothing and therefore activates in any profile.\n'
         '- insert:\n'
         '    - id: aukora-aumlok\n'
-        '      name: ./plugins/aukora-aumlok/lib/index.mjs\n')
+        '      name: ./plugins/aukora-aumlok/lib/service.mjs\n')
 
     # THE ACTION GATE'S MOUNT, carried at the release root because the loader anchors an inserted row's relative
     # `name` BESIDE THE PATCH FILE (app-boot `anchorInsertedPluginNames`), so `./plugins/aukora-action-gate/...`

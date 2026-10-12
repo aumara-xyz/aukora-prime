@@ -243,8 +243,10 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // both Kira rows/config and the proposal socket remain unchanged.
   // Reviewed OpenViking opt-in: an absolute --kira-openviking-home adds only
   // openVikingHome to all three Kira configs; default rows and socket are unchanged.
+  // Reviewed wiring diff: goal-resume gains its deployment stateDir and the
+  // optional Aumlok row targets service.mjs; both Kira rows/config and socket are unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '8bf978b33e39e6604a6b794d693fae8677d00bc2e0b2d6e103f82de9e2553fe4')
+    '992022c55c6c9dcc9c1212afe917f767194d67ba31a16c38b079b00fb989118d')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 

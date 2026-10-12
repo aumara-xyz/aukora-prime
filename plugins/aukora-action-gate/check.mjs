@@ -98,6 +98,10 @@ ctx.tools.register(standIn('mcp__fixture__write', { uri: { type: 'string', requi
 ctx.tools.register(standIn('aukora_self_change', { why: { type: 'string', required: true }, worktree: { type: 'string', required: true },
   paths: { type: 'array', items: { type: 'string' } }, preview: { type: 'boolean' } }))
 ctx.tools.register(standIn('unapproved_fixture_tool', { note: { type: 'string' } }))
+ctx.tools.register(standIn('aukora_see', {
+  x: { type: 'integer' }, y: { type: 'integer' }, width: { type: 'integer' }, height: { type: 'integer' },
+  scale: { type: 'number' }, note: { type: 'string' },
+}))
 ctx.tools.register(standIn('mcp__fixture__patch_file', {
   type: 'object', properties: { path: { type: 'string' } }, required: ['path'],
 }))
@@ -148,8 +152,8 @@ for (const call of calls) call.group = 'existing protections'
 // All command strings below are inert input to stand-ins. No shell, interpreter or git command is launched.
 const quoted = value => `'${String(value).replaceAll("'", "'\\''")}'`
 const protectedTarget = 'plugins/aukora-action-gate/lib/policy.mjs'
-const shellCall = (group, label, expect, command, workdir) => calls.push({
-  group, label, expect, name: 'bash',
+const shellCall = (group, label, expect, command, workdir, says) => calls.push({
+  group, label, expect, says, name: 'bash',
   arguments: { command, description: `Fixture: ${label}`, ...workdir === undefined ? {} : { workdir } },
 })
 const writers = [
@@ -205,13 +209,13 @@ for (const [label, command] of [
   ['chmod separate reference is read only', `chmod --reference ${quoted(protectedTarget)} notes.txt`],
   ['quoted command is data', `printf '%s' ${quoted(`rm ${protectedTarget}`)}`],
   ['command name is exact', `fixture-rm ${quoted(protectedTarget)}`],
-  ['rm dynamic target remains unseen', 'rm "$TARGET"'],
   ['python option end', `python3 -- -c${quoted(`open(${JSON.stringify(protectedTarget)}, 'w')`)}`],
   ['python script arguments', `python3 fixture.py -c${quoted(`open(${JSON.stringify(protectedTarget)}, 'w')`)}`],
   ['python module arguments', `python3 -m fixture -c${quoted(`open(${JSON.stringify(protectedTarget)}, 'w')`)}`],
   ['python warning argument', `python3 -W ${quoted(`-copen(${JSON.stringify(protectedTarget)}, 'w')`)} -c pass`],
   ['node option end', `node -- -e ${quoted(`require('node:fs').writeFileSync(${JSON.stringify(protectedTarget)}, 'x')`)}`],
 ]) shellCall('literal target false-positive controls', label, 'allow', command)
+shellCall('undetermined shell targets', 'rm dynamic target is refused', 'deny', 'rm "$TARGET"', undefined, 'write:undetermined-target')
 for (const [label, command] of writers.filter(([name]) => ['cp', 'mv', 'install', 'ditto', 'rsync', 'ln'].includes(name))) {
   shellCall('directory destinations', `${label} to .`, 'allow', command('.'))
   shellCall('directory destinations', `${label} to repo root`, 'allow', command(repo))
@@ -221,7 +225,7 @@ shellCall('directory destinations', 'ln preserves protected basename', 'deny', `
 shellCall('everyday shell syntax and temporary output', 'redirect to /dev/null', 'allow', 'printf x >/dev/null 2>&1')
 shellCall('everyday shell syntax and temporary output', 'tee to /dev/null', 'allow', 'printf x | tee /dev/null')
 shellCall('everyday shell syntax and temporary output', 'literal TMPDIR file', 'allow', `printf x >${quoted(join(tmpdir(), 'aukora-check-output.txt'))}`)
-shellCall('everyday shell syntax and temporary output', 'TMPDIR variable remains unseen', 'allow', 'printf x >"$TMPDIR/aukora-check-output.txt"')
+shellCall('undetermined shell targets', 'TMPDIR expansion is refused', 'deny', 'printf x >"$TMPDIR/aukora-check-output.txt"', undefined, 'write:undetermined-target')
 shellCall('everyday shell syntax and temporary output', '/private/tmp file', 'allow', 'printf x >/private/tmp/aukora-check-output.txt')
 shellCall('everyday shell syntax and temporary output', 'quoted redirect is data', 'allow', `printf '%s' '> ${protectedTarget}'`)
 shellCall('everyday shell syntax and temporary output', 'heredoc body is data', 'allow', `cat <<'EOF' >notes.txt\nprintf x >${protectedTarget}\nEOF`)
@@ -272,8 +276,10 @@ calls.push(
   { group: 'kernel decides', label: 'new governing patch', expect: 'deny', says: 'authority:governing-code', kernelCode: 'sacred_target', name: 'mcp__fixture__patch_file', arguments: { path: protectedTarget } },
   ...['cordis_define', 'cordis_run'].map(name => ({ group: 'kernel decides', label: name, expect: 'deny', says: 'authority:live-code', kernelCode: 'sacred_target', name, arguments: {} })),
 )
-calls.push({ group: 'trusted tool name', label: 'aukora_self_change, under the overlay\'s allowTools', expect: 'allow', name: 'aukora_self_change',
+calls.push({ group: 'trusted tool name', label: 'aukora_self_change without a trusted worktreesRoot', expect: 'deny', says: 'path:unresolvable', name: 'aukora_self_change',
   arguments: { why: 'fix a typo', worktree: 'fix-typo', paths: ['plugins/aukora-action-gate/lib/policy.mjs'], preview: true } })
+calls.push({ group: 'trusted tool name', label: 'aukora_see, under the overlay\'s allowTools', expect: 'allow', kernelCode: 'allowed', name: 'aukora_see',
+  arguments: { x: 0, y: 0, width: 2, height: 2, scale: 1, note: 'synthetic app view' } })
 // CONTAINMENT: the scripts that move governing code are RUN only through the trusted tool or the owner; reading them is fine.
 const TOOL = 'aukora_self_change'
 for (const [label, expect, command, says] of [

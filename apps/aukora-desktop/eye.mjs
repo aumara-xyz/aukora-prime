@@ -574,6 +574,11 @@ export async function installEyeDoor(deps) {
         say(`eye: refused ${EYE_REFUSE.APPROVAL_OPEN}`)
         return refuse(res, 423, EYE_REFUSE.APPROVAL_OPEN)
       }
+      // A bind phrase opened during the capture must not leave as pixels either.
+      if (isDrawPending()) {
+        say(`eye: refused ${EYE_REFUSE.BIND_SURFACE_OPEN}`)
+        return refuse(res, 423, EYE_REFUSE.BIND_SURFACE_OPEN)
+      }
       const fitted = fitToCeiling(captured, Math.max(1, Math.round(maxWidth * scale)))
       const png = fitted.image.toPNG()
       const source = captured.getSize()
