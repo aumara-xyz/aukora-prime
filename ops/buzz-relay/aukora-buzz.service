@@ -1,0 +1,17 @@
+[Unit]
+Description=AUKORA: Buzz relay with its own Postgres and Redis (rootless pod, loopback only)
+After=network-online.target user@.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=aukora-buzz
+Group=aukora-buzz
+WorkingDirectory=/var/lib/aukora-buzz
+ExecStart=/usr/local/lib/aukora-buzz/up.sh
+ExecStop=/usr/local/lib/aukora-buzz/down.sh
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
