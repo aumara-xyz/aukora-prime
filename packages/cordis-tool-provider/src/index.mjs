@@ -80,12 +80,15 @@ export function createCordisToolProvider(options = {}) {
     apply(ctx) {
       if (mounted) throw refusal('UNAVAILABLE','A provider factory can mount only once')
       if (typeof ctx?.provide!=='function' || typeof ctx?.effect!=='function'
-          || typeof ctx.tools?.register!=='function') throw refusal('UNAVAILABLE','Pinned Cordis/tools lifecycle required')
+          || !ctx.fiber || typeof ctx.tools?.register!=='function') throw refusal('UNAVAILABLE','Pinned Cordis/tools lifecycle required')
       mounted = true
+      const own = ctx.fiber
       let active = true, pending = false, reserveAttempted = false, cleanup
+      // Captured own-fiber state closes admission before Cordis effect cleanup; 2 is ACTIVE in the pin.
+      const live = () => active && own.uid != null && own.state === 2
       const lifetime = new AbortController()
       const checkpoint = signal => {
-        if (!active) throw refusal('REVOKED','Probe provider disposed')
+        if (!live()) throw refusal('REVOKED','Probe provider disposed')
         if (!admissible()) throw refusal('UNAVAILABLE','Qualified private authority/executor configuration required')
         if (signal?.aborted) throw refusal('CANCELLED','Probe invocation cancelled')
       }
@@ -100,8 +103,8 @@ export function createCordisToolProvider(options = {}) {
 
       const service = Object.freeze({
         proposal:operation,
-        availability:()=>({state:active&&admissible()?'awaiting_authority':'unavailable',
-          disposed:!active,executor:configured?executor.availability():null}),
+        availability:()=>({state:live()&&admissible()?'awaiting_authority':'unavailable',
+          disposed:!live(),executor:configured?executor.availability():null}),
         async invoke(args = {}, callerSignal) {
           closed(args,[])
           if (callerSignal!==undefined && !(callerSignal instanceof AbortSignal)) throw refusal('INVALID','AbortSignal required')

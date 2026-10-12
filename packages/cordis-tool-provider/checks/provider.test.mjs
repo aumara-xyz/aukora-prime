@@ -95,6 +95,41 @@ test('retained service/tool references refuse after disposal; cleanup requested 
   assert.equal(f.calls.length,0);assert.equal(count(f,'create'),0)
 })
 
+test('missing own fiber refuses registration',()=>{
+  let registrations=0
+  const ctx={effect:()=>{registrations++},provide:()=>{registrations++},tools:{register:()=>{registrations++}}}
+  assert.throws(()=>createCordisToolProvider().apply(ctx),{code:'UNAVAILABLE'})
+  assert.equal(registrations,0)
+})
+
+// Translated from the owner's mediator sync-arms: admission closes before cleanup runs.
+for(const phase of ['unawaited disposal','null uid','missing uid','inactive state','old generation']) {
+  test(`${phase}: captured own fiber refuses before approval retrieval`,async t=>{
+    let approvalReads=0
+    const f=providerFixture({readApproval:()=>{approvalReads++}});t.after(()=>f.cleanup())
+    const p=ready(f),invoke=p.service.invoke,execute=p.tool.execute
+    assert.equal(p.service.availability().state,'awaiting_authority')
+    let disposing
+    if(phase==='unawaited disposal')disposing=p.dispose()
+    if(phase==='null uid')p.fiber.uid=null
+    if(phase==='missing uid')delete p.fiber.uid
+    if(phase==='inactive state')p.fiber.state=5
+    if(phase==='old generation') {
+      await p.dispose()
+      p.fiber.uid='synthetic-provider';p.fiber.state=2
+    }
+    // A live caller/replacement context cannot stand in for the captured owner.
+    p.ctx.fiber={uid:'synthetic-caller',state:2}
+    const checks=[assert.rejects(invoke(),{code:'REVOKED'}),assert.rejects(execute({},{}),{code:'REVOKED'})]
+    assert.equal(approvalReads,0)
+    assert.equal(p.service.availability().state,'unavailable')
+    assert.equal(p.service.availability().disposed,true)
+    await Promise.all(checks);await disposing
+    assert.equal(f.calls.length,0);assert.equal(count(f,'create'),0)
+    await p.dispose()
+  })
+}
+
 test('revoked qualification refuses a captured invocation before reading approval',async t=>{
   const f=setup(t),p=ready(f);f.qualify(false)
   await assert.rejects(p.service.invoke(),{code:'UNAVAILABLE'})

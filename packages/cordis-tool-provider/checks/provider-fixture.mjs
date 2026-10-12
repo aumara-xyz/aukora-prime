@@ -19,9 +19,13 @@ export function gate() {
   return {entered,release,wait:async()=>{enter();await blocked}}
 }
 export function mounted(plugin) {
-  const effects=[],services={},tools=[]
-  plugin.apply({effect:body=>effects.push(body()),provide:(key,value)=>{services[key]=value},tools:{register:tool=>tools.push(tool)}})
-  return {service:services[SERVICE_NAME],tool:tools[0],dispose:()=>Promise.all(effects.map(fn=>fn()))}
+  const effects=[],services={},tools=[],fiber={uid:'synthetic-provider',state:2}
+  const ctx={fiber,effect:body=>effects.push(body()),provide:(key,value)=>{services[key]=value},tools:{register:tool=>tools.push(tool)}}
+  plugin.apply(ctx)
+  return {ctx,fiber,service:services[SERVICE_NAME],tool:tools[0],dispose:()=>{
+    fiber.uid=null;fiber.state=5
+    return Promise.resolve().then(()=>Promise.all(effects.map(fn=>fn())))
+  }}
 }
 export function providerFixture(hooks={}) {
   const root=mkdtempSync(join(realpathSync(tmpdir()),'prime-cordis-provider-'))

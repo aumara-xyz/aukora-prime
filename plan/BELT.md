@@ -17,7 +17,7 @@ licence is unstated or proprietary, the code is the owner's own and the licence 
 | # | family | verdict | size | the reviewer's reason | state |
 |--:|---|---|---|---|---|
 | 2 | state-root/backup | PORT | S | Runnable, but destructive overlap and incomplete manifests prohibit copying as-is. | open |
-| 5 | cordis-plugins | PORT | S | Reproduced narrow synchronous-disposal gap; Prime already has most lifecycle controls. | open |
+| 5 | cordis-plugins | PORT | S | Reproduced narrow synchronous-disposal gap; Prime already has most lifecycle controls. | DONE (ported; see the commit that changed this row) |
 | 6 | durable-workflow | PORT | M | Useful restart/idempotency semantics; Convex conflicts with Prime’s PostgreSQL stack. | open |
 | 7 | lane-send leftover | PORT | S | Missing client, but repeated-verb bypass and unbounded sending need repair. | DONE (ported; see the commit that changed this row) |
 | 8 | agent-engine-binding | PORT | S | 22 reconciliation tests pass; retain comparator, exclude automatic-approval client. | DONE (ported; see the commit that changed this row) |

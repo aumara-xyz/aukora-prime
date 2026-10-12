@@ -103,6 +103,43 @@ test('real pinned Cordis/DSH and actual C/F; synthetic approvals and MOCKED qual
   }
 
   const { providerFixture } = await import('./provider-fixture.mjs')
+  await t.test('unawaited disposal refuses cached, bound, extracted, raw and fresh handles before approval retrieval',async()=>{
+    let approvalReads=0
+    const fixture=providerFixture({readApproval:()=>{approvalReads++}}),ctx=new Context(),held={}
+    let promptFiber,toolsFiber,providerFiber,dependentFiber
+    try {
+      fixture.propose()
+      promptFiber=await ctx.plugin(SystemPrompt)
+      toolsFiber=await ctx.plugin(ToolRuntime)
+      providerFiber=await ctx.plugin(fixture.makePlugin())
+      dependentFiber=await ctx.plugin(Object.assign(function dependent(caller) {
+        const h=caller.get(SERVICE_NAME),bound=h.invoke.bind(h),extracted=h.invoke
+        // ctx.provide publishes a frozen plain object; traceable handles expose their original.
+        const raw=h[Symbol.for('cordis.original')]??h
+        assert.ok(Object.isFrozen(raw))
+        Object.assign(held,{
+          cached:()=>h.invoke(),bound:()=>bound(),extracted:()=>extracted(),
+          raw:()=>raw.invoke(),fresh:()=>caller.get(SERVICE_NAME).invoke(),
+        })
+      },{inject:[SERVICE_NAME]}))
+      const service=ctx.get(SERVICE_NAME),tool=ctx.tools.get(TOOL_NAME)
+      for(const call of Object.values(held))await assert.rejects(call,{code:'UNAUTHORIZED'})
+      assert.equal(approvalReads,5)
+      const disposing=providerFiber.dispose()
+      // Launch every arm at t0, before yielding to Cordis cleanup.
+      const checks=Object.entries(held).map(([name,call])=>assert.rejects(call,{code:'REVOKED'},name))
+      checks.push(assert.rejects(tool.execute({},{}),{code:'REVOKED'}))
+      assert.equal(approvalReads,5)
+      assert.equal(service.availability().disposed,true)
+      await Promise.all(checks);await disposing
+      for(const name of ['cached','bound','extracted','raw'])await assert.rejects(held[name],{code:'REVOKED'})
+      assert.equal(fixture.calls.length,0)
+      assert.equal(fixture.protocol.calls.filter(([method])=>method==='create').length,0)
+    } finally {
+      await dependentFiber?.dispose();await providerFiber?.dispose()
+      await toolsFiber?.dispose();await promptFiber?.dispose();await fixture.cleanup()
+    }
+  })
   for (const outcome of ['completed', 'outcome_unknown']) {
     await t.test(`real DSH pipeline and actual C/F preserve ${outcome}; MOCKED SDK and runtime qualification`, async () => {
       const fixture = providerFixture(outcome === 'outcome_unknown' ? { protocol: { trailerFailure: true } } : {})
