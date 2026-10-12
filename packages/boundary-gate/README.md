@@ -35,6 +35,31 @@ a hash-chained, signed SQLite ledger with append-only triggers (`bin/gate.mjs ve
 global and per target: 1 pending, 3 per 10 minutes, 60 s cooldown after a reject, 10 minute dedupe of a
 rejected result.
 
+### Optional owner-key enforcement (source only)
+
+On Linux, `bin/gate.mjs serve` now selects the owner-key protocol when the fixed
+`/etc/aukora-boundary-gate/owner-state.json` exists at startup. It contains only the
+eight public active-state fields specified in [owner-key](../owner-key/README.md).
+The file and every ancestor must be root-owned, non-symlink and not group/other
+writable; the file must be regular and single-link. There is no path override.
+Its protected presence requires enforcement even if the gate-owned database is
+replaced. The existing signed database latch also prevents removing the reader
+from restoring legacy approval while that history remains. Invalid or lost state
+refuses; a fresh install with no state retains the legacy ceremony above.
+
+The operator must separately approve enrollment, install the public state and
+restart through the reviewed package/bootstrap path. This source change installs
+nothing. The current desktop gate adapter accepts only v2 reviews; the reserved
+v3 bridge exists, but its native signer refuses signing. Enabling the file before
+that join is qualified disables approval from the current popup. The v3 receipt
+is still gate-signed Ed25519, with a reference to the separate P-256 owner proof
+instead of gate-held HMAC evidence; the old `verify-receipt` CLI only accepts v2.
+The owner must decide the key, device/custody, enrollment and public pin, activation,
+and loss/revocation/rotation/recovery policy. These source fixtures establish no
+enrollment, biometric match, Linux custody or deployment. A biometric-gated signature
+proves a key signed after a match on one device, not which person; the signature
+alone does not attest that match. Root and protected installed code remain trusted.
+
 ## The boundary
 
 The allowlist (`src/targets.mjs`) has two targets. The plugin-set approval `plugins/aukora-plugin-set/approval.json`
