@@ -800,3 +800,4 @@
 {"seq":1780,"head":"595fb3dd76456e5071b73578c9439f294df2b0b9f53503c61c21b5850cd67fe5","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-12T06:41:30.544Z","anchored_at":"2026-10-12T06:42:08Z"}
 {"seq":1782,"head":"df8cef8b9f92b3ebefd5d401d667cec37baf042e7632c7a9162ef97d3de53274","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-12T06:56:30.623Z","anchored_at":"2026-10-12T06:57:11Z"}
 {"seq":1784,"head":"38105e9605e6d237ce028190ee870e6aa684059dc0252a795637e9500e84c8ab","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-12T07:11:30.637Z","anchored_at":"2026-10-12T07:12:22Z"}
+{"seq":1786,"head":"1fd5dc4ed51f8697067506f45cec35be15f65fee8c5d1086f55bedaadd21dfe9","gate_fp":"6cdce2bbeb7b725c","entry_at":"2026-10-12T07:26:30.700Z","anchored_at":"2026-10-12T07:27:22Z"}
