@@ -22,6 +22,11 @@ const variants = {
     "row = db.prepare('SELECT window_start_ms,used FROM propose_budget WHERE singleton=1').get()", 'row = null', 'durable budget'],
   owner: ['gate.mjs', 'decide_review: (a, approver) => decideReview(a, approver)',
     'decide_review: (a, approver) => { chargePropose(); return decideReview(a, approver) }', 'durable budget'],
+  ledgerLock: ['ledger.mjs', 'const ownTransaction = !db.isTransaction', 'const ownTransaction = false', 'ledger append'],
+  ledgerDeferred: ['ledger.mjs', "if (ownTransaction) db.exec('BEGIN IMMEDIATE')", "if (ownTransaction) db.exec('BEGIN DEFERRED')", 'ledger append'],
+  ledgerNested: ['ledger.mjs', 'const ownTransaction = !db.isTransaction', 'const ownTransaction = true', 'ledger append'],
+  ledgerCommit: ['ledger.mjs', "if (ownTransaction) db.exec('COMMIT')", "db.exec('COMMIT')", 'ledger append'],
+  ledgerRollback: ['ledger.mjs', "if (ownTransaction) db.exec('ROLLBACK')", '', 'ledger append'],
   bytes: ['ledger.mjs', "if (Buffer.byteLength(encoded, 'utf8') > LEDGER_DETAIL_MAX_BYTES) fail()", '', 'new audit bytes'],
   depth: ['ledger.mjs', '|| depth > 16', '', 'new audit bytes'],
   provenance: ['gate.mjs', "return { ok: true, verification: 'caller-reported-unverified' }", 'return { ok: true, verification: \'verified\' }', 'selfcheck claims'],
@@ -42,7 +47,7 @@ if (selected) {
 }
 
 const { createGate } = await import('../src/gate.mjs')
-const { boundedLedgerJson, entryBody, sha256, LEDGER_DETAIL_MAX_BYTES } = await import('../src/ledger.mjs')
+const { boundedLedgerJson, createLedger, loadOrCreateKey, entryBody, sha256, LEDGER_DETAIL_MAX_BYTES } = await import('../src/ledger.mjs')
 const { lineServer } = await import('../src/server.mjs')
 const { accentTarget, accent, tmpHome, memoryStore } = await import('./support/fixture.mjs')
 const { ownerAuthorizationSigningBytes } = await import('../../owner-key/src/authorization.mjs')
@@ -188,6 +193,60 @@ test('cross-process durable budget shares one admission row under concurrent ref
     for (const c of children) if (c.child.exitCode === null) c.child.kill('SIGTERM')
     f.gate.close()
   }
+})
+
+test('ledger append locks the head before a competing process can claim its sequence', () => {
+  const home = tmpHome(), gate = createGate({ home, store: memoryStore() }), before = count(gate)
+  const childCode = `
+    import { DatabaseSync } from 'node:sqlite';
+    const { createLedger, loadOrCreateKey }=await import(process.argv[1]);
+    const db=new DatabaseSync(process.argv[2]+'/gate.db');
+    try {
+      const entry=createLedger(db,loadOrCreateKey(process.argv[2])).append('contender');
+      process.stdout.write(JSON.stringify({appended:true,seq:entry.seq}));
+    } catch(e) { process.stdout.write(JSON.stringify({appended:false,errcode:e.errcode})); }
+    finally { db.close(); }`
+  const env = { ...process.env }; delete env.NODE_OPTIONS; delete env.NODE_PATH
+  let attempts = 0
+  const ledger = createLedger(gate.db, loadOrCreateKey(home), () => {
+    // The contender runs after this append reads the head and before it inserts.
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', childCode,
+      new URL('../src/ledger.mjs', import.meta.url).href, home], { env, encoding: 'utf8', timeout: 5000 })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(r.stdout), { appended: false, errcode: 5 }, `ledger head ${before} must stay locked`)
+    attempts++
+    return '2026-10-05T12:00:00.000Z'
+  })
+  try {
+    const first = ledger.append('first')
+    assert.equal(attempts, 1)
+    assert.equal(first.seq, before + 1)
+    const next = gate.append('next')
+    assert.equal(next.seq, first.seq + 1)
+    assert.equal(next.prev, first.hash)
+    assert.equal(count(gate), before + 2)
+    assert.equal(gate.verify().ok, true)
+  } finally { gate.close() }
+})
+
+test('ledger append preserves caller transactions and releases its own failed transaction', () => {
+  const gate = createGate({ home: tmpHome(), store: memoryStore() }), before = gate.verify()
+  try {
+    gate.db.exec('BEGIN IMMEDIATE')
+    assert.doesNotThrow(() => gate.append('caller-owned'))
+    assert.equal(gate.db.isTransaction, true, 'append cannot commit its caller transaction')
+    assert.throws(() => gate.append('x'.repeat(129)), /field exceeds bound/)
+    assert.equal(gate.db.isTransaction, true, 'append cannot roll back its caller transaction')
+    assert.equal(count(gate), before.entries + 1)
+    gate.db.exec('ROLLBACK')
+    assert.deepEqual(gate.verify(), before)
+    assert.throws(() => gate.append('x'.repeat(129)), /field exceeds bound/)
+    assert.equal(gate.db.isTransaction, false, 'failed standalone append must release the writer lock')
+    assert.deepEqual(gate.verify(), before)
+    assert.equal(gate.append('after-failure').seq, before.entries + 1)
+    assert.equal(gate.db.isTransaction, false)
+    assert.equal(gate.verify().ok, true)
+  } finally { gate.close() }
 })
 
 test('new audit bytes/tree/fields are bounded before signing and retained valid bytes stay exact', () => {

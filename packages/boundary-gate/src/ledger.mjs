@@ -279,15 +279,24 @@ export function createLedger(db, key, iso = () => new Date().toISOString()) {
       return v
     }
     const detail = f.detail === undefined ? null : boundedLedgerJson(f.detail)
-    const last = db.prepare('SELECT seq, hash FROM ledger ORDER BY seq DESC LIMIT 1').get()
-    const e = { seq: (last?.seq ?? 0) + 1, at: field(iso(), 64, false), event: field(event, 128, false),
-      proposal: field(f.proposal ?? null, 128), target: field(f.target ?? null, 512),
-      base_sha: field(f.base_sha ?? null, 128), new_sha: field(f.new_sha ?? null, 128), detail, prev: last?.hash ?? 'GENESIS' }
-    const body = entryBody(e)
-    if (Buffer.byteLength(body, 'utf8') > LEDGER_BODY_MAX_BYTES) throw new Error('ledger entry refused: body exceeds byte bound')
-    e.hash = sha256(body); e.sig = sign(null, Buffer.from(e.hash, 'hex'), key.priv).toString('base64')
-    db.prepare('INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(e.seq, e.at, e.event, e.proposal, e.target, e.base_sha, e.new_sha, e.detail, e.prev, e.hash, e.sig)
-    return e
+    // Serialize head selection and insertion; retain any caller-owned transaction.
+    const ownTransaction = !db.isTransaction
+    if (ownTransaction) db.exec('BEGIN IMMEDIATE')
+    try {
+      const last = db.prepare('SELECT seq, hash FROM ledger ORDER BY seq DESC LIMIT 1').get()
+      const e = { seq: (last?.seq ?? 0) + 1, at: field(iso(), 64, false), event: field(event, 128, false),
+        proposal: field(f.proposal ?? null, 128), target: field(f.target ?? null, 512),
+        base_sha: field(f.base_sha ?? null, 128), new_sha: field(f.new_sha ?? null, 128), detail, prev: last?.hash ?? 'GENESIS' }
+      const body = entryBody(e)
+      if (Buffer.byteLength(body, 'utf8') > LEDGER_BODY_MAX_BYTES) throw new Error('ledger entry refused: body exceeds byte bound')
+      e.hash = sha256(body); e.sig = sign(null, Buffer.from(e.hash, 'hex'), key.priv).toString('base64')
+      db.prepare('INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(e.seq, e.at, e.event, e.proposal, e.target, e.base_sha, e.new_sha, e.detail, e.prev, e.hash, e.sig)
+      if (ownTransaction) db.exec('COMMIT')
+      return e
+    } catch (error) {
+      if (ownTransaction) db.exec('ROLLBACK')
+      throw error
+    }
   }
   function checkedCompletion(supplied) {
     const result = completedGateResult(supplied)
