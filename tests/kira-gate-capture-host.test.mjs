@@ -298,7 +298,8 @@ async function createAcceptedEFixture() {
     recallStateSource = readE(new URL('./recall-state.mjs', indexURL), 'utf8')
     projectIdentitySource = readE(new URL('./project-identity.mjs', indexURL), 'utf8')
   } catch { throw Error('missing-dependency:accepted-kira-index-or-helper-closure') }
-  assert.equal(sha(indexSource), '220058c00b9ec10b5567042429351027500192f41d34fdea842acb55c54eb13e',
+  // Reviewed: both recall calls now forward the composition's lexical selection.
+  assert.equal(sha(indexSource), '7e6a811979ffc4e260862a378ed247e3734a72d7ce5f62413495cbd5be08c8ac',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')

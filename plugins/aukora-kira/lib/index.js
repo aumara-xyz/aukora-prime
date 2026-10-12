@@ -519,7 +519,8 @@ export async function apply(ctx, config, gateCaptureHost) {
   const rememberedFor = async (listNotes, text, agent, preTurn = false, report = { dropped: 0, reasons: {} }, lexical = false) => {
     const store = memoryFor()
     if (!store) return recallRemembered(listNotes, text, 5)
-    const result = await store.recall({ question: text, context: recallContext(agent), lexical })
+    const result = await store.recall({ question: text, context: recallContext(agent),
+      lexical: normalized.retrieval === 'lexical' || lexical })
     Object.assign(report, result.memory)
     return result
   }
@@ -601,7 +602,7 @@ export async function apply(ctx, config, gateCaptureHost) {
             // the current session store also refuses stale objects after a remount and lookalike metadata.
             const hostSession = typeof session?.id === 'string' && ctx.sessions?.get?.(session.id) === session ? session : undefined
             const result = await memoryFor().recall({ question: typeof question === 'string' ? question : question?.text ?? '',
-              context: hostSession ? recallContext({ session: hostSession }) : {} })
+              context: hostSession ? recallContext({ session: hostSession }) : {}, lexical: normalized.retrieval === 'lexical' })
             // D's protected host reader owns the root subject and the actual note/source association.
             // A missing reader affects provenance, not the existence of tracked memory.
             const currentRecords = async () => {

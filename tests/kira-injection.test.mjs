@@ -852,7 +852,7 @@ const mountMemory = async (run, module = kira, { score = .9, indexedNotes = fals
   }
   globalThis.fetch = scratchFetch
   const ctx = context ?? observingContext()
-  await module.apply(ctx, { projectIdentity: run.projectIdentityConfig,
+  await module.apply(ctx, { retrieval: 'lexical', projectIdentity: run.projectIdentityConfig,
     memoryOwner: { stateDir: join(run.home, 'kira-memory'), subject: SUBJECT,
     permittedPrivacy: ['local'], approvalFile: join(run.home, 'a.json'), grantFile: join(run.home, 'g.json') } })
   globalThis.fetch = priorFetch
@@ -871,14 +871,14 @@ const mountMemory = async (run, module = kira, { score = .9, indexedNotes = fals
     return text
   }
 }
-await arm('mounted semantic supplier passes live journal states', async broken => {
-  const run = await memoryFixture(false, 'OWNER-SEMANTIC-STAGED report remains DATA.', '')
+await arm('mounted lexical supplier passes live journal states', async broken => {
+  const run = await memoryFixture(false, 'handoff status OWNER-LEXICAL-STAGED report remains DATA.', '')
   const module = broken ? await moduleWithRevert('index.js',
     [['const verdict = preTurnRecallFilter(note, context)', 'const verdict = { ok: true }'],
       ['if (preTurn && !preTurnRecallFilter(note, { now: new Date().toISOString(), states: live.states, ...recallContext(agent) }).ok) return []', 'if (false) return []']]) : kira
   const recall = await mountMemory(run, module)
   const note = run.notes.find(one => one.attributedTo === 'owner')
-  assert.match(await recall(), /OWNER-SEMANTIC-STAGED/u)
+  assert.match(await recall(), /OWNER-LEXICAL-STAGED/u)
   for (const [op, state] of [['supersede', 'superseded'], ['expire', 'expired'], ['archive', 'archived']]) {
     moveNote(run, note, op)
     assert.equal(run.deps.liveRemembered().states.get(note.id), state)
@@ -887,7 +887,7 @@ await arm('mounted semantic supplier passes live journal states', async broken =
     assert.match(text, new RegExp(`${state}-not-recallable`, 'u'))
   }
   moveNote(run, note, 'restore')
-  assert.match(await recall(), /OWNER-SEMANTIC-STAGED/u)
+  assert.match(await recall(), /OWNER-LEXICAL-STAGED/u)
 })
 await arm('mounted remembered supplier filters live journal states', async broken => {
   const run = await memoryFixture(false, 'handoff status next step OWNER-WIRING-FINDING', '')
@@ -923,17 +923,17 @@ await arm('mounted remembered availability counts only post-filter notes', async
   assert.ok(!text.includes('OWNER-AVAILABILITY-FINDING'))
 })
 await arm('mounted eligible remembered corpus remains readable when the question misses', async broken => {
-  const run = await memoryFixture(false, 'The project handoff OWNER-QUERY-MISS-FINDING is staged for tomorrow.', '')
+  const run = await memoryFixture(false, 'Cerulean sphinx OWNER-QUERY-MISS-FINDING guards velvet lanterns.', '')
   const module = broken ? await moduleWithRevert('index.js',
     "byId.size > 0 ? 'found' : 'empty'", "snippets.length > 0 ? 'found' : 'empty'") : kira
-  // Only semantic relevance changes in this fixture. The owned journal and its scope remain intact.
-  const recall = await mountMemory(run, module, { score: .01, indexedNotes: true })
+  // No opening query shares a lexical term; the owned journal and its scope remain intact.
+  const recall = await mountMemory(run, module, { indexedNotes: true })
   const text = await recall()
   assert.match(text, /readable store holds records; no query matches or eligible items/u)
-  assert.match(text, /below-threshold=/u)
+  assert.match(text, /Query: eligible returned records=0\./u)
   assert.match(text, /remembered: readable\/found attempts=[1-9][0-9]*, readable\/empty attempts=0, unavailable attempts=0/u,
     'each query must describe its eligible corpus independently of final publication')
-  assert.ok(!text.includes('OWNER-QUERY-MISS-FINDING'), 'a below-threshold note must remain excluded')
+  assert.ok(!text.includes('OWNER-QUERY-MISS-FINDING'), 'a note without lexical overlap must remain excluded')
   assert.doesNotMatch(text, /holds no record for this scope/u)
 })
 
@@ -950,7 +950,7 @@ const staleRecallFacts = 'return normalizeRecallState({ ...final, availability: 
 for (const change of ['expire', 'missing', 'corrupt']) {
   await arm(`mounted query miss refreshes final corpus after ${change}`, async broken => {
     const marker = `OWNER-FINAL-${change.toUpperCase()}-FINDING`
-    const run = await memoryFixture(false, `The project handoff ${marker} is staged for tomorrow.`, '')
+    const run = await memoryFixture(false, `Cerulean sphinx ${marker} guards velvet lanterns.`, '')
     const changes = [[
       'const policy = readOwnerPolicy(await owner.describe())\n    const live = memoryFor().read()',
       'const policy = readOwnerPolicy(await owner.describe().then(async policy => { await globalThis.__kiraInjectionFinalPolicy?.(answers); return policy }))\n    const live = memoryFor().read()',
@@ -975,7 +975,7 @@ for (const change of ['expire', 'missing', 'corrupt']) {
       changed = true
     }
     try {
-      const recall = await mountMemory(run, module, { score: .01, indexedNotes: true })
+      const recall = await mountMemory(run, module, { indexedNotes: true })
       const text = await recall()
       assert.equal(priorAvailability, 'found', 'the query initially sees an eligible corpus')
       assert.equal(priorSnippets, 0, 'the query already misses before publication')
@@ -1375,7 +1375,7 @@ await arm('fresh project capture remains DATA without automatic report reinjecti
   assert.match(injection.recalledContextLine(empty, projectRecent([], policy, projectScopeOf(run.agent, run.projectIdentity), new Map(), { unreadable: 1 })), /PROJECT STATE: unavailable/u)
 })
 await arm('actual captured model reports stay available as DATA and out of mounted pre-step messages', async broken => {
-  const run = await memoryFixture(false, 'OWNER-TIER-CONTROL remains readable.', 'MODEL-TIER-REPORT stays explicit DATA.')
+  const run = await memoryFixture(false, 'handoff status OWNER-TIER-CONTROL remains readable.', 'handoff status MODEL-TIER-REPORT stays explicit DATA.')
   let module = kira
   if (broken) {
     const frame = await moduleWithRevert('memory-frame.mjs',
