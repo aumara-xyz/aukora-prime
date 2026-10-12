@@ -19,7 +19,7 @@ licence is unstated or proprietary, the code is the owner's own and the licence 
 | 2 | state-root/backup | PORT | S | Runnable, but destructive overlap and incomplete manifests prohibit copying as-is. | open |
 | 5 | cordis-plugins | PORT | S | Reproduced narrow synchronous-disposal gap; Prime already has most lifecycle controls. | open |
 | 6 | durable-workflow | PORT | M | Useful restart/idempotency semantics; Convex conflicts with Prime’s PostgreSQL stack. | open |
-| 7 | lane-send leftover | PORT | S | Missing client, but repeated-verb bypass and unbounded sending need repair. | open |
+| 7 | lane-send leftover | PORT | S | Missing client, but repeated-verb bypass and unbounded sending need repair. | DONE (ported; see the commit that changed this row) |
 | 8 | agent-engine-binding | PORT | S | 22 reconciliation tests pass; retain comparator, exclude automatic-approval client. | open |
 | 10 | inference-providers | SUPERSEDED |  | Prime has the same lane with newer reservation and worker handling. | no action |
 | 11 | local-model-inference | PORT | S | Recoverable bounded proposer utilities; pinned experiment reports NO_SIGNAL. | open |
