@@ -183,6 +183,168 @@ Courts assert them on the accepting paths of `verify-identity`, `approve-operati
 the signer's stdout. `rehearse-rotation`, `bind-overlay` and `verify-repoint` print none. `verify-approval`
 prints the ceilings carried in the receipt, which the signature does not cover.
 
+## Offline guesses and the node limit
+
+`derive-v3.mjs` derives both root seeds on the member's device from the normalized phrase
+and `aumlok-kdf-v1` + NUL + normalized handle. An attacker with the handle and any oracle
+below can repeat that computation without contacting a node. A public handle adds **zero
+secret bits**; the statement in the derivation header that it raises 14.3 bits to 34.14 is
+incorrect. Derivation bytes have not changed.
+
+Two phrase sources exist. `lib/ceremony-phrase.mjs` retains the 18-anchor generator whose
+header states about 14.3 bits; `lib/index.mjs` no longer exports its draw function. The desktop
+uses `apps/aukora-desktop/aumlok-draw.mjs` and the shipped `data/aumlok-themes.json` instead.
+`lib/themed-entropy.mjs` measures **34.142338 bits for that data's phrase alone**, with no
+handle input. That estimator is a minimum-entropy calculation over bucket sizes, not a
+count of equiprobable outputs or a measured attack time; duplicate removal and user choice
+need their own distribution analysis. The desktop drawer should remain the supported
+ceremony; the retained generator must not become a second enrollment path.
+
+The implemented scrypt parameters are `N=2^17=131072`, `r=8`, `p=5`, output 64 bytes,
+`maxmem=256*1024*1024`. The main working array is
+`128*N*r = 128*131072*8 = 134217728 bytes = 128 MiB`; `maxmem=256 MiB` is an allocation
+limit, not a throughput or dollar-price measurement. Five calls to the existing public
+synthetic benchmark on 2026-10-12, Node **v24.11.1**, Apple M4, macOS arm64, measured
+`s=1.2944057418 seconds/guess`. Reproduce without any owner's phrase or handle:
+
+```sh
+export PATH=$HOME/.local/node-v24.11.1/bin:$PATH
+node --input-type=module -e 'import {measureKdfSecondsPerGuess} from "./plugins/aukora-aumlok/lib/derive-v3.mjs"; console.log(await measureKdfSecondsPerGuess({samples:5}))'
+```
+
+Expected output has `samples: 5, N: 131072, r: 8, p: 5` and a machine-dependent
+`secondsPerGuess`. This measures the KDF only. With an exposed Ed25519 root key, a guess
+also needs Ed25519 public-key derivation; testing only a rootId requires ML-DSA public-key
+derivation too. Neither extra cost is included. These numbers do not measure optimized
+attack hardware, concurrent-worker throughput, Linux performance, or rented-hardware price.
+
+For a worker costing `c` dollars/hour: `g=1/s=0.7725552875 guesses/second`,
+`g/c=0.7725552875/c guesses/second per dollar/hour of capacity`, and
+`3600*g/c=2781.199035/c guesses/dollar`. Taking **c=$1/worker-hour as an illustrative
+normalization, not a market price**, gives 2781.199 guesses/dollar. For `P` independent
+workers at the same measured speed, divide elapsed time by `P`; total worker cost stays
+constant. Memory bandwidth and hardware determine whether that scaling is achieved.
+
+| Assumed search space | Full enumeration `M*s` | Uniform expected search `(M/2)*s` | Expected cost at illustrative $1/worker-hour |
+|---|---:|---:|---:|
+| Known handle, `M=2^14.3=20,171.070` phrase candidates | 26,109.549 s = 7.253 hours | 13,054.774 s = 3.626 hours | $3.626 |
+| Unknown handle, **assumed** `M=2^34=17,179,869,184` phrase/handle pairs | 22,237,721,315 s = 704.671 years | 11,118,860,658 s = 352.335 years | $3,088,572.405 |
+
+A year here is 365.25 days. These are the requested search-space scenarios, not measured
+candidate distributions: min-entropy alone does not establish uniform expected search.
+There is no source measurement giving an unknown handle 19.7 additional secret bits, so
+`2^34` must not be claimed merely because the handle is unknown. Handles appear in public
+records; discovering one removes its search dimension. The themed-data figure and the
+legacy 14.3-bit figure concern different generators.
+
+Public verification oracles in these repository formats are:
+
+- `local-control.json` version 3 and `recordProjection()`: `publicRoot.rootId`,
+  `publicRoot.ed25519` or `publicRoot.mlDsa65`; `publicRoot.handle` supplies the salt.
+- Genesis `initialRootKeySetId`, the v3 public-control projection's `activeControlDigest`,
+  and a v3 `aukora:approval-receipt:v1`'s `activeControlDigest`: each identifies that rootId.
+- `aukora:aumlok-handover:v3`: `fromRootId`, `toRootId`, or its `signerKeyHex` and signature
+  over `handoverSigningBytes`; the statement also includes the handle when present.
+- Root-class `signOperation()` output: `publicKeyHex`, or its signature and the exact
+  `aukora:aumlok-root-class:v3` request bytes (`act`, `subject`, `epoch`).
+- Controller `machines[].{index,ed25519}` and `aukora:aumlok-machine-answer:v3`
+  `by.{machineIndex,ed25519,keyId}`: derive the candidate root, then its machine Ed25519 key
+  with `aumlok-machine-kdf-v1` and the index; compare the key or verify the signed bytes.
+- A machine-signed `aukora:nostr-identity-binding:v1`: its `statement.handle`, document-level
+  `signerKeyDid` and signature provide a check when the machine index is known or guessed (first bind is 0).
+
+A modern subject digest alone omits the genesis nonce needed to recompute it. An independently
+generated Nostr event key alone is not a phrase-root oracle. An oracle need not include a
+signature when it already contains a comparable root or deterministic machine public key.
+
+`lib/attempt-limit.mjs` is a node-side library for counting presentations per claimed subject
+in a durable store. It does not run inside `derive-v3.mjs`, and this change does not mount an
+enrollment endpoint. The materializer already carries this plugin's `lib` and `data` and
+mounts `lib/service.mjs`, but supplies no controller directory in its default composition
+row: that service reports `aumlok:adapter-unbound` until configured. Its current methods
+project and admit control; they do not call the attempt limiter. A node needs an authenticated
+possession challenge, a trusted enrolled-root lookup, protected attempt-state ownership, and
+an endpoint that uses this limiter before recognition. Merely matching a public key is not
+proof that the presenting device holds its private key. An attacker can also consume the
+online allowance for another subject; recovery and denial-of-service policy remain decisions.
+
+Owner decisions remain: increase independently generated word entropy; require a second
+factor that an offline attacker cannot reconstruct; use a hardware-held signing key with a
+recovery procedure; or split recovery authority across parties with a stated threshold,
+collusion and loss policy. A five-guess node lockout does not replace any of these decisions.
+
+> The arithmetic in the section above was written before new phrases became seven words from 2,048 (77 bits; see "Seven words" below). It describes the two LEGACY generators, which are no longer used to make a phrase.
+
+## Node presentation limit (library only)
+
+Import `lib/attempt-limit.mjs` directly under Node v24.11.1. `openAttemptLimiter({file,
+rootForSubject, initialize})` uses a dedicated SQLite file; `initialize: true` explicitly
+creates its schema. Reopening without that option refuses missing state. The synchronous
+node-owned lookup returns the current pinned `rootId` for a canonical `aukora:1:<64 hex>`
+subject, or `undefined`. It must use the stored genesis lineage and current control record,
+not treat the subject suffix as the current rootId. Devices supply only `{subject, rootId}`
+to `present()`; they must not choose the lookup, clock, store, or policy.
+
+Defaults are `limit: 5`, `baseMs: 60000`, `maxMs: 3600000`. The fifth failure locks for
+60 seconds; each failure after expiry doubles the interval up to one hour. Locked requests
+do not extend the deadline. Successful recognition preserves failure history, because
+anyone can replay a public root. Policy is stored and must match on reopen. State updates
+serialize across processes and commit before a verdict; storage errors refuse. A persisted
+last-seen clock prevents clock rollback from shortening an interval.
+
+Unknown subjects, malformed roots, wrong roots, locks, and operational failures return
+exactly `{ok:false, reason:'aumlok:enrollment-refused'}`, without existence, counter or
+retry-time fields. Unknown subjects receive the same counters. This is response-shape
+non-disclosure, not a measurement of network or lookup timing. Recognition returns
+`{ok:true, recognized:true, authority:'none'}`; it creates no device or permission.
+
+An operator can run this disposable probe as `aukora-host` from a materialized release,
+using Node v24.11.1 and a writable local temporary directory:
+
+```sh
+umask 077
+node --input-type=module <<'JS'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openAttemptLimiter } from './plugins/aukora-aumlok/lib/attempt-limit.mjs'
+const directory = mkdtempSync(join(tmpdir(), 'aumlok-attempt-probe-'))
+const subject = 'aukora:1:' + 'a'.repeat(64), rootId = 'b'.repeat(64)
+let clock = 1000000, limiter
+const options = { file: join(directory, 'attempts.sqlite'), now: () => clock,
+  rootForSubject: claimed => claimed === subject ? rootId : undefined }
+try {
+  limiter = openAttemptLimiter({ ...options, initialize: true })
+  console.log('BEFORE', limiter.present({ subject, rootId }).ok)
+  for (let n = 0; n < 5; n++) limiter.present({ subject, rootId: 'c'.repeat(64) })
+  limiter.close()
+  limiter = openAttemptLimiter(options)
+  console.log('LOCKED_AFTER_REOPEN', limiter.present({ subject, rootId }).reason)
+  clock += 60000
+  const result = limiter.present({ subject, rootId })
+  console.log('AFTER_INTERVAL', result.ok, result.authority)
+} finally { limiter?.close(); rmSync(directory, { recursive: true, force: true }) }
+JS
+```
+
+Expected output: `BEFORE true`, `LOCKED_AFTER_REOPEN aumlok:enrollment-refused`,
+`AFTER_INTERVAL true none` (Node may also print its SQLite experimental warning).
+This probe uses synthetic public values and an injected clock; it does not enroll an owner
+or show that a mounted node route calls the limiter. Regression and mutation checks are
+`node tests/aukora-aumlok-attempt-limit.test.mjs --mutate` from this checkout.
+
+For a real route, provision one persistent database outside the release directory, in a
+directory accessible only to its trusted node service, with umask 077. Every worker for
+that node must use the same file. Do not recreate or restore older attempt state on restart.
+SQLite assumes local filesystem locking and sync semantics; NFS, power-loss behavior,
+same-UID tampering, malicious storage rollback, and multiple nodes sharing one allowance
+are not established here. The `aukora-host` process can itself rewrite its own store; use
+a separate authority process if that process is an adversary. Rate limits on total traffic
+and new subjects are still needed to bound database growth. A mounted challenge and
+owner-authorization route, state provisioning, operator recovery, and Linux acceptance
+remain unperformed. The existing adapter should consume this library when that route is
+implemented; no second identity or derivation implementation is needed.
+
 ## No build step
 
 The modules under `lib/` are the shipped bytes. Nothing transpiles or bundles them, so the digest a
@@ -253,15 +415,16 @@ not rebuilt (this clone has no built `vendor/dsh`). No installed-app or Linux ru
 claimed for this change. Historical commands below describe earlier checks.
 
 ```bash
-node tests/aukora-aumlok.test.mjs            # 137 arms (run 2026-09-26 at 674fae6bf)
-node tests/aukora-aumlok.test.mjs --mutate   # 143 arms: five mutation arms plus 'no mutation was missed'
-node tests/aukora-aumlok-signer.test.mjs     # 93 arms over real Unix sockets (99 with --mutate)
-node tests/aukora-aumlok-approve.test.mjs    # 41 arms: correspondence, the artifact, the gate
-AUKORA_DSH_RELEASE=<release> node tests/aukora-aumlok-mount.test.mjs   # 22 arms, a real DSH boot
+node tests/aukora-aumlok-cold-root.test.mjs
+node tests/aukora-aumlok-verify.test.mjs
+node tests/aukora-aumlok-fresh-bind.test.mjs
+node tests/aukora-aumlok-attempt-limit.test.mjs --mutate
 ```
 
-The mount suite is the one that needed a host: it boots a disposable DSH profile over a release,
-lets the **real Cordis loader** load `lib/service.mjs` from an absolute composition path, and has a
+The previously documented `aukora-aumlok`, signer, approve and mount test files are absent
+from this checkout; their historical arm counts are not current results. The historical
+mount suite booted a disposable DSH profile over a release,
+let the **real Cordis loader** load `lib/service.mjs` from an absolute composition path, and had a
 second plugin with `inject = ['aumlokControl']` consume it. Its negative control mounts the same
 consumer with no aumlok row — Cordis withholds an unsatisfied dependency, so the consumer does not
 activate and its report is absent. Because the mount row configures no `capabilities`, the consumer's
