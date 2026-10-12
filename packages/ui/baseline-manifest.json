@@ -14,7 +14,7 @@
     "documents",
     "settings"
   ],
-  "source_asset_policy": "366 selected files retain exact donor bytes; one Apps source file has a comment-only publication privacy adaptation; adapters live outside faces/",
+  "source_asset_policy": "Historical donor inventory with reviewed current source pins: three conversation rails reflect 0548eaf and voice-sidecar.ts reflects 01bfc673 (mirrored d6866997); the existing organism comment-only privacy adaptation is retained. Checked-in bundles and build records remain historical, without new compilation; adapters live outside faces/",
   "public_main_observed": "645d3213b8aede3b544269b4224ae09df06b0a42",
   "pending_items": [
     {
@@ -840,8 +840,8 @@
     {
       "source": "plugins/aukora-face/apps/src/auma-live/claims-packet.ts",
       "path": "faces/apps/src/auma-live/claims-packet.ts",
-      "bytes": 25058,
-      "sha256": "86995cf938b9716a70dbbe21e44f4767c0014902c0849c6c4d56d01b78fb1e86",
+      "bytes": 26101,
+      "sha256": "b2ce27be2921d2a46d95204fb0d812a80465f4f6abda0257096e7d57af14ff29",
       "role": "source"
     },
     {
@@ -882,8 +882,8 @@
     {
       "source": "plugins/aukora-face/apps/src/auma-live/honesty.ts",
       "path": "faces/apps/src/auma-live/honesty.ts",
-      "bytes": 4597,
-      "sha256": "191420e257e0b9b56df16a4ef02b6aa119a4aca19f934a6218c7e2b400a41752",
+      "bytes": 4683,
+      "sha256": "09701200a112713814d1d6763d326b017695c9d963d2a5c78d55db2935e884a0",
       "role": "source"
     },
     {
@@ -1050,8 +1050,8 @@
     {
       "source": "plugins/aukora-face/apps/src/auma-live/turn-trust.ts",
       "path": "faces/apps/src/auma-live/turn-trust.ts",
-      "bytes": 4130,
-      "sha256": "8107d438ac616e65fb2a30f06b37155290607b4eb1bdef96e91c116772814956",
+      "bytes": 4147,
+      "sha256": "000e0cdacd00b08924bc2c7193211037e603fd49d2ffe24d7dc4c4b7e70227d6",
       "role": "source"
     },
     {
@@ -1064,8 +1064,8 @@
     {
       "source": "plugins/aukora-face/apps/src/auma-live/voice-sidecar.ts",
       "path": "faces/apps/src/auma-live/voice-sidecar.ts",
-      "bytes": 7998,
-      "sha256": "f1d96a982ef63748e33c51c6f21ebded4b4bb22734a05ad3ce09e75447b17a17",
+      "bytes": 9199,
+      "sha256": "f479e06495504340a525803cdc1a825b11f3572ea63eed40d0ae6bcc38ee93bf",
       "role": "source"
     },
     {

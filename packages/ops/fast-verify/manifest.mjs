@@ -85,7 +85,7 @@ export const CASES = freeze([
     "pins": [
       {
         "path": "packages/ui/baseline-manifest.json",
-        "sha256": "a3e519151fce2e2280a1ed921f94f2bf358a96db3f3e6e4d87016eee5b0677c9"
+        "sha256": "afb4c00640ec98e750bbe5e01b545c53ca21a8eacda4f9a8560b0fecab75fd0f"
       }
     ],
     "args": [],
