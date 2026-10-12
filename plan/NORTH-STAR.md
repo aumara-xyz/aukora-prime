@@ -424,3 +424,13 @@ Staging rolled to `0356b04` (gate package upgraded, stand-in owner key, floor OK
 ### 2026-10-13 early: the Aura snapshot behind the Pentora page: RAN in staging
 
 Staging on `1fdffae` (rolled, stand-in owner approval, floor OK). The route the Aura Coherence page reads: without sign-in 401; POST 405; signed in 200 with `no-store`, a snapshot naming three sources. The gate ledger has a verified head; Kira's and the code chain's heads are reported **absent** (`kira-head-not-exposed`, `code-head-not-exposed`), not invented. After the door acceptance added three signed ledger entries (240 to 243) the snapshot's head changed. Installed door acceptance passed on this release as well. NOT RUN: the page in a browser (nobody has looked at the picture move); so "Aura is the cohesion of all actions" is today a picture of the gate ledger only. Feeding it Kira's head and the code chain's head is the next step for that page.
+
+### 2026-10-13 early: a review of the night's work, six defects, all fixed; staging on `3854a3b`
+
+A read-only review of `17b5ce0..1fdffae` demonstrated six defects with small scripts (first attempt was blocked by the model provider's content filter; plain "correctness review" wording went through). Fixed: the eye (`cf85d26`; `aukora_see` is denied again, which corrects my earlier landing that allowed it), the door's unbounded wait and the invite's order-dependent comparison (`5d7efb7`), the memory probe and the project mapping file (`8984fe0`). The fixed probe RAN on the pilot against the real OpenViking, 6 of 6, in a probe-only namespace, scratch left empty. Its macOS fallback did not work over real HTTP, so the probe is Linux-only now and says so.
+
+RAN in staging on `3854a3b`: roll with gate package upgrade and stand-in approval; restart with no client, mention starts a turn; installed door acceptance PASS; Aura route 401 / 405 / 200.
+
+Also tonight: 111 checks that nothing ran are registered (`fd41bcf`); six found red or unfit are listed in `plan/CHECKS-INVENTORY.md` and not registered. A worker's rewrite of the harness build format was NOT landed (it would force every harness to be rebuilt); it is in `plan/PROPOSAL-harness-build-identity.md` for Peter. `./prime verify` ran to completion on the Mac: 64 PASS, 0 FAIL, 12 UNPERFORMED.
+
+Way of working that paid for itself: run new tests on the pilot (Linux, Ubuntu's umask 002) before pushing. It caught the mounts test needing the harness archive, three node-spawn tests, two unfit registrations and the probe's HTTP path, none of which the Mac or a worker's sandbox showed.
