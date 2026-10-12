@@ -4,6 +4,8 @@
 // imitate the gate's result line, claim "no change", name the wrong colour, use gate/approval wording,
 // impersonate a person or team, repeat pressure words, or hide text (non-ASCII, leetspeak, scrambled or
 // spaced letters) all produce warnings. The model's note is never trusted; it is sanitised and displayed apart.
+import { DISPLAY_MAX_BYTES, scanAuthorityDisplay } from './authority-display.mjs'
+
 export const NOTE_MAX = 120
 export const NEAR_RGB = 48                         // 'NEAR' warning radius (Euclidean RGB distance)
 
@@ -74,7 +76,8 @@ export function noteMeta(w) {
   const raw = String(w); const n = [...raw].filter(c => !/[\x20-\x7e\t\n\r]/.test(c)).length
   if (!n) return { nonascii: 0 }
   const b = Buffer.from(raw, 'utf8'); const cap = b.subarray(0, 192)
-  return { nonascii: n, raw_bytes: b.length, hexdump: cap.toString('hex').replace(/(..)/g, '$1 ').trim() + (b.length > cap.length ? ` ... (+${b.length - cap.length} bytes)` : '') }
+  return { nonascii: n, authority_display: raw.isWellFormed() && b.length <= DISPLAY_MAX_BYTES ? scanAuthorityDisplay(raw).receipt : null,
+    raw_bytes: b.length, hexdump: cap.toString('hex').replace(/(..)/g, '$1 ').trim() + (b.length > cap.length ? ` ... (+${b.length - cap.length} bytes)` : '') }
 }
 const LEET = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '8': 'b', '@': 'a', '$': 's', '!': 'i', '|': 'l', '+': 't' }
 // common English words that merely CONTAIN 'gate'/'host'/'system' are removed before normalising
@@ -110,6 +113,7 @@ export function cardWarnings(s, oldText, newText, note, meta = { nonascii: 0 }) 
   const baseAccent = s?.accentOf ? s.accentOf(oldText) : null, newAccent = s?.accentOf ? s.accentOf(newText) : null
   const n = (note || '').toLowerCase(), oldName = colorName(baseAccent), newName = colorName(newAccent)
   if (meta?.nonascii) W.push(`NOTE contained ${meta.nonascii} non-ASCII/invisible characters (lookalike, invisible, bidi or styled text). They were removed${note ? '' : ' - nothing readable was left'}; the raw bytes are in the hex dump. Treat the note as hostile.`)
+  if (meta?.authority_display?.action === 'refuse') W.push('NOTE failed the authority-display scan (invisible text or a confusable authority word); its sanitized text is model commentary and grants no authority.')
   if (s?.accentOf && newAccent) {
     // G6004: display-name collision is a HARD warning
     const core = (x) => x.replace(/\([^)]*\)/g, '').trim()   // ignore explanatory parentheticals like "(stock accent, NOT gold)"

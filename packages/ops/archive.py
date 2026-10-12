@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic Prime packages and DATA-ONLY export recovery staging. No network."""
+"""Deterministic packages, private byte snapshots and data-only recovery staging."""
 import argparse
 import hashlib
 import io
@@ -19,6 +19,8 @@ MAX_FILES = 200000
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 SENSITIVE = re.compile(r"(^|/)(\.git|\.ssh|\.aws|\.env(?:\..*)?|credentials|id_(?:rsa|ed25519)|.*\.(?:pem|key|p12|pfx))($|/)", re.I)
 AUTHORITY = re.compile(r"(^|/)(authority-state|nonce-book|spent-grants|signer-state|private-memory)(/|$)", re.I)
+SNAPSHOT_MANIFEST = "prime-state-snapshot.json"
+SNAPSHOT_DOMAIN = b"aukora-prime:state-snapshot:v1\0"
 
 class Refusal(ValueError):
     pass
@@ -312,6 +314,150 @@ def restore(archive, into, expected_digest, expected_archive=None, release=False
     return {"status": "STAGED", "into": str(target), "artifact_digest": expected_digest,
             "authority_restored": False, "activation": "NOT_PERFORMED", "memory_semantics": "PENDING_D_COLD_VERIFY" if not release else "NOT_APPLICABLE"}
 
+def snapshot_label(label):
+    if not isinstance(label, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", label):
+        raise Refusal("INVALID_SNAPSHOT_LABEL")
+    return label
+
+def snapshot_tree(root, into=None):
+    # Descriptor-relative traversal copies custody bytes without following links.
+    rows, total = [], 0
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    def walk(fd, prefix, output):
+        nonlocal total
+        before = os.fstat(fd)
+        for name in sorted(os.listdir(fd)):
+            if CONTROL.search(name) or "\\" in name:
+                raise Refusal("INVALID_SNAPSHOT_PATH")
+            rel = f"{prefix}/{name}" if prefix else name
+            st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            dest = output / name if output is not None else None
+            row = {"path": rel}
+            if len(rows) >= MAX_FILES:
+                raise Refusal("SNAPSHOT_BUDGET_EXCEEDED")
+            if stat.S_ISLNK(st.st_mode):
+                target = os.readlink(name, dir_fd=fd)
+                row.update(type="l", target=target)
+                if dest is not None:
+                    dest.symlink_to(target)
+            elif stat.S_ISDIR(st.st_mode):
+                row.update(type="d", mode=0o700 if dest is not None else stat.S_IMODE(st.st_mode))
+                if dest is not None:
+                    dest.mkdir(mode=0o700)
+                rows.append(row)
+                child = os.open(name, directory_flags, dir_fd=fd)
+                try:
+                    walk(child, rel, dest)
+                finally:
+                    os.close(child)
+                continue
+            elif stat.S_ISREG(st.st_mode):
+                size, h = 0, hashlib.sha256()
+                source = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+                with os.fdopen(source, "rb") as handle:
+                    opened = os.fstat(handle.fileno())
+                    if (opened.st_dev, opened.st_ino, opened.st_mode) != (st.st_dev, st.st_ino, st.st_mode):
+                        raise Refusal("SNAPSHOT_SOURCE_CHANGED")
+                    writer = None
+                    try:
+                        if dest is not None:
+                            writer = os.fdopen(os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb")
+                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                            size += len(chunk)
+                            total += len(chunk)
+                            if total > LIMIT:
+                                raise Refusal("SNAPSHOT_BUDGET_EXCEEDED")
+                            h.update(chunk)
+                            if writer is not None:
+                                writer.write(chunk)
+                        if writer is not None:
+                            writer.flush()
+                            os.fsync(writer.fileno())
+                        after = os.fstat(handle.fileno())
+                        if size != opened.st_size or (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns):
+                            raise Refusal("SNAPSHOT_SOURCE_CHANGED")
+                    finally:
+                        if writer is not None:
+                            writer.close()
+                row.update(type="f", size=size, sha256=h.hexdigest(), mode=0o600 if dest is not None else stat.S_IMODE(st.st_mode))
+            else:
+                raise Refusal("SNAPSHOT_SPECIAL_FILE")
+            rows.append(row)
+        after = os.fstat(fd)
+        if (before.st_mtime_ns, before.st_ctime_ns) != (after.st_mtime_ns, after.st_ctime_ns):
+            raise Refusal("SNAPSHOT_SOURCE_CHANGED")
+    fd = os.open(root, directory_flags)
+    try:
+        walk(fd, "", Path(into) if into is not None else None)
+    finally:
+        os.close(fd)
+    return sorted(rows, key=lambda r: r["path"])
+
+def snapshot(state, into, label):
+    snapshot_label(label)
+    safe_io_path(state); safe_io_path(into)
+    state, into = Path(state), Path(into)
+    if state.is_symlink() or not state.is_dir():
+        raise Refusal("ROOT_MUST_BE_REAL_DIRECTORY")
+    root, target = state.resolve(strict=True), into.resolve()
+    if root == target or root in target.parents or target in root.parents:
+        raise Refusal("SNAPSHOT_PATHS_OVERLAP")
+    if os.path.lexists(into):
+        raise Refusal("SNAPSHOT_DESTINATION_EXISTS")
+    # Exclusive private creation never removes an existing destination or source.
+    target.mkdir(mode=0o700)
+    payload = target / "state"
+    payload.mkdir(mode=0o700)
+    rows = snapshot_tree(root, payload)
+    if snapshot_tree(payload) != rows:
+        raise Refusal("SNAPSHOT_COPY_MISMATCH")
+    value = {"schema": "prime-state-snapshot-v1", "label": label, "entries": rows, "restore_authority": False}
+    data = canonical(value)
+    if len(data) > 64 * 1024**2:
+        raise Refusal("INVALID_SNAPSHOT_MANIFEST")
+    # A failed copy leaves no completion manifest; verification still needs a retained digest.
+    fd = os.open(target / SNAPSHOT_MANIFEST, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return {"status": "SNAPSHOTTED", "snapshot_digest": digest(SNAPSHOT_DOMAIN + data),
+            "entries": len(rows), "authority_restored": False, "claim": "BYTES_ONLY"}
+
+def verify_snapshot(snapshot_path, expected_digest):
+    if not isinstance(expected_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+        raise Refusal("INDEPENDENT_EXPECTED_DIGEST_REQUIRED")
+    safe_io_path(snapshot_path)
+    root = Path(snapshot_path)
+    st = root.lstat()
+    if not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o700 or st.st_uid != os.getuid():
+        raise Refusal("SNAPSHOT_ROOT_MUST_BE_PRIVATE_DIRECTORY")
+    root = root.resolve(strict=True)
+    if set(os.listdir(root)) != {"state", SNAPSHOT_MANIFEST}:
+        raise Refusal("SNAPSHOT_CLOSURE_MISMATCH")
+    fd = os.open(root / SNAPSHOT_MANIFEST, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        st = os.fstat(handle.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or stat.S_IMODE(st.st_mode) != 0o600 or st.st_size > 64 * 1024**2:
+            raise Refusal("INVALID_SNAPSHOT_MANIFEST")
+        data = handle.read(64 * 1024**2 + 1)
+    if len(data) > 64 * 1024**2:
+        raise Refusal("INVALID_SNAPSHOT_MANIFEST")
+    if digest(SNAPSHOT_DOMAIN + data) != expected_digest:
+        raise Refusal("SNAPSHOT_DIGEST_MISMATCH")
+    value = json.loads(data)
+    if not isinstance(value, dict):
+        raise Refusal("INVALID_SNAPSHOT_MANIFEST")
+    label = snapshot_label(value.get("label"))
+    payload = root / "state"
+    if stat.S_IMODE(payload.lstat().st_mode) != 0o700:
+        raise Refusal("SNAPSHOT_ROOT_MUST_BE_PRIVATE_DIRECTORY")
+    rows = snapshot_tree(payload)
+    if value != {"schema": "prime-state-snapshot-v1", "label": label, "entries": rows, "restore_authority": False}:
+        raise Refusal("SNAPSHOT_CLOSURE_MISMATCH")
+    return {"status": "VERIFIED", "snapshot_digest": expected_digest, "entries": len(rows),
+            "authority_restored": False, "claim": "BYTES_ONLY"}
+
 def main():
     parser = argparse.ArgumentParser()
     subs = parser.add_subparsers(dest="command", required=True)
@@ -322,6 +468,13 @@ def main():
     pack.add_argument("--version", required=True)
     pack.add_argument("--commit", required=True)
     pack.add_argument("--recipe", required=True)
+    snap = subs.add_parser("snapshot", help="Private byte copy; no database consistency or authority restore")
+    snap.add_argument("--state", required=True)
+    snap.add_argument("--to", required=True)
+    snap.add_argument("--label", required=True)
+    check = subs.add_parser("verify-snapshot", help="Check bytes against an independently retained digest")
+    check.add_argument("--snapshot", required=True)
+    check.add_argument("--expected-digest", required=True)
     for command in ("verify", "restore", "stage-release"):
         p = subs.add_parser(command)
         p.add_argument("--archive", required=True)
@@ -337,6 +490,10 @@ def main():
         elif args.command == "verify":
             value = verify(args.archive, args.expected_digest, args.expected_archive_sha256)
             result = {"status": "VERIFIED", "artifact_digest": value["artifact_digest"], "kind": value["kind"], "files": len(value["files"]), "claim": "BYTES_ONLY"}
+        elif args.command == "snapshot":
+            result = snapshot(args.state, args.to, args.label)
+        elif args.command == "verify-snapshot":
+            result = verify_snapshot(args.snapshot, args.expected_digest)
         else:
             result = restore(args.archive, args.into, args.expected_digest, args.expected_archive_sha256, args.command == "stage-release")
         print(json.dumps(result, sort_keys=True))
