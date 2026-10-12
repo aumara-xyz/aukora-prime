@@ -86,8 +86,15 @@ check them. Nothing in Prime is replaced.
   and has no state on the pilot: it is source there, not running. The pilot's `aukora-relay` service is not a Nostr
   relay: it is a small token-authenticated HTTP message API (/v1/messages) for headless clients, so it and Buzz do
   not overlap.
-- [NOT YET, unchecked] whether aukora-nostr can join a Buzz channel (NIP-29 groups) as is, or only exchange private
-  messages (Buzz's relay does carry NIP-17 gift wraps); mounting it means a new owner-approved plugin set.
+- [RAN-MAC 2026-10-12, test keys, plugin code unchanged at b887061, Buzz relay built from the fork] aukora-nostr
+  against a Buzz relay on the same machine: it connects and signs in (NIP-42); a private message it wraps and
+  publishes is accepted, the recipient fetches it, opens it and proves the sender; a stranger asking for the
+  recipient's messages is refused by the relay. ONE DIFFERENCE: NIP-17 stamps wraps with a random time up to two
+  days back, and Buzz's relay refuses any event more than 15 minutes from its clock, so the plugin's normal send
+  is refused ("event timestamp too far from server time"); stamped with the current time it works. Either the
+  relay lets kind 1059 be older, or the plugin stamps "now" for this relay. Not decided.
+- [NOT YET, unchecked] joining a Buzz channel (NIP-29 groups: kind 9 with an `h` tag and membership), which
+  aukora-nostr does not do today; mounting the plugin on the pilot means a new owner-approved plugin set.
 - Several nodes can run side by side with one person playing every user: the cheapest test of the network.
 
 WHAT THE BUZZ WORK ADDED (in the private fork aumara-xyz/aukora-buzz; see its AUKORA-PLAN.md and shim/README.md):
