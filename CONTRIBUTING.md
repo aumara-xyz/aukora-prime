@@ -26,6 +26,6 @@ Preserve failed results, immutable release references, source provenance and ori
 - Keep disabled joins and Proposed directions visible. In particular, retained-memory restore, the separated private phase adapter and OpenShell runtime qualification cannot be inferred from same-process fixtures or Cordis lifecycle disposal.
 
 
-Edit shared face source in `plugins/aukora-face`; `packages/ui/faces` preserves byte-identical frozen NEXT snapshots. Run `node scripts/audit/check-face-copies.mjs` to expose drift. Do not remove snapshots, rebuild or change mounts as a documentation cleanup. [Current evidence maintenance](evidence/README.md) is the source for generated status tables.
+Edit shared face source in `plugins/aukora-face`; `packages/ui/faces` preserves byte-identical frozen NEXT snapshots. Changing a frozen file requires a reviewed diff and a moved pin through the pin's reconciliation mechanism. Run `node scripts/audit/check-face-copies.mjs` to expose drift. Do not remove snapshots, rebuild or change mounts as a documentation cleanup. [Current evidence maintenance](evidence/README.md) is the source for generated status tables.
 
 Security guard comments state the invariant, threat and reason. Put historical incidents and rationale in a scoped ADR under `plan/`, without private session/machine details. Keep changes out of files owned by another active worker; the integrator reconciles allocations. A comment can change artifact digests even when executable behavior is unchanged.

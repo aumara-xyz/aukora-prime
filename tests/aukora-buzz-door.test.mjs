@@ -453,8 +453,8 @@ test('session and provenance: plugin relay source, posting only for the configur
   assert.equal(parse(await f.tools.post.execute({ text: 'allowed' }, CALLER)).state, 'POSTED')
 })
 
-test('publication ambiguity: lost, oversized, malformed and unreadable responses query once; absence stays UNKNOWN with id', async t => {
-  for (const fault of ['network', 'oversized', 'malformed', 'unreadable']) {
+test('publication ambiguity: lost, oversized, malformed, unreadable and wrong-id acknowledgements query once; absence stays UNKNOWN with id', async t => {
+  for (const fault of ['network', 'oversized', 'malformed', 'unreadable', 'missing-id', 'wrong-id', 'case-id']) {
     for (const saved of [true, false]) {
       const b = await bridge(t), key = randomSecretKey(), phases = [], filters = []; let event
       const door = createDoor({ getKey: () => key, channel: CHANNEL, baseUrl: b.baseUrl, gate: async (_s, _op, a) => phases.push(a),
@@ -465,6 +465,9 @@ test('publication ambiguity: lost, oversized, malformed and unreadable responses
           if (fault === 'network') throw new Error('lost response')
           if (fault === 'oversized') return new Response('x'.repeat(1_048_577))
           if (fault === 'malformed') return new Response('{')
+          if (fault === 'missing-id') return new Response(JSON.stringify({ accepted: true }))
+          if (fault === 'wrong-id') return new Response(JSON.stringify({ accepted: true, event_id: 'f'.repeat(64) }))
+          if (fault === 'case-id') return new Response(JSON.stringify({ accepted: true, event_id: event.id.toUpperCase() }))
           return { ok: true, body: { async *[Symbol.asyncIterator]() { throw new Error('stream closed') } } }
         } })
       const result = parse(await createDoorTools(door, { sessionId: SESSION }).post.execute({ text: fault }, CALLER))

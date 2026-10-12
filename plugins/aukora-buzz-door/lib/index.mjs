@@ -12,6 +12,7 @@
 // nor a Buzz signature is an approval; approval remains with the gate. This plugin does not restrict session tools.
 // buzz_post_receipt requires an isolated gatePublicKeyFile; only the named session may post its gate-fetched,
 // applied v2 receipt after signature verification. It shares the post limiter and Aura recording path.
+// bin/verify-channel-receipt.mjs is a checkout-only stranger checker, omitted from releases and their plugin-set records.
 // Missing/invalid config or key leaves apply inert; missing sessionId disables waking and posting. Linux host only.
 // Transport is signed NIP-98 HTTP polling. Private messages and Aumlok binding are not implemented here.
 import { createHash, createPublicKey, randomUUID } from 'node:crypto'
@@ -245,7 +246,7 @@ export function createDoor({ getKey, channel, ownerPubkey = null, admit = [], ba
     let data
     try { data = await relayPost(baseUrl, '/events', event, key, { fetchImpl, now }) } catch { /* outcome is ambiguous after dispatch */ }
     if (data?.accepted === false) throw new Error('buzz relay explicitly refused the message')
-    if (data?.accepted !== true) {
+    if (data?.accepted !== true || data.event_id !== event.id) {
       let found = false
       try { found = (await query({ ids: [event.id], kinds: [CHAT_KIND], '#h': [channel], limit: 1 })).some(e => e.id === event.id) } catch { /* a failed lookup proves no absence */ }
       if (!found) return { state: 'UNKNOWN', id: event.id, bytes }

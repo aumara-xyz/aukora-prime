@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Checks local event and ledger exports against independently supplied door, channel, gate key and head anchors.
+// Run from a checkout; this stranger checker is deliberately absent from releases and their plugin-set records.
 import fs from 'node:fs'
 import { verifyChannelReceipt, MAX_RECEIPT_EVENT_BYTES, MAX_RECEIPT_LEDGER_BYTES, RECEIPT_REFUSE } from '../lib/receipt.mjs'
 

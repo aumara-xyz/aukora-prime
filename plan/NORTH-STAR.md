@@ -172,9 +172,10 @@ OWNER DECISIONS OPEN: which key signs on the pilot; the go to change anything on
 loading the AGPL engine by path is acceptable (a question for counsel) and where the Buzz code finally lives;
 which model runs the builder agent.
 
-SAY PLAINLY TO ANYONE SHOWN THIS: an approval proves a key signed exact bytes after a biometric match on one device,
-not a unique person. "Used once" is kept by the gate that counted, not provable offline. A co-presence receipt is
-evidence and grants nothing. Buzz is Block's; this is built on a fork and has not been sent to them.
+SAY PLAINLY TO ANYONE SHOWN THIS: a legacy gate-signed approval proves the gate key signed the bound bytes; it does
+not prove a biometric match, owner-key custody or a unique person. "Used once" is kept by the gate that counted,
+not provable offline. A co-presence receipt is evidence and grants nothing. Buzz is Block's; this is built on a
+fork and has not been sent to them.
 
 STEP 2, 2026-10-12 (written by the builder session in this repository; nothing above is changed):
 - OWNER GO: Peter wrote "nebius go" to the builder on 2026-10-12, first-hand. It covers step 2: a new user and a new
@@ -278,8 +279,8 @@ STEP 3 STATE, evening of 2026-10-12:
   be the same commit.
   Also seen: an LXD snapshot of that container freezes it and copies every file (about 13 minutes, 15 GB); it was
   interrupted and the container resumed part-way, so the snapshot `pre-buzz-door-20261012` is NOT a trustworthy
-  rollback point. The rollback point is /root/pre-buzz-door-backup-20261012-1102 inside the container (gate state,
-  approvals, units) and release.env.pre-22b9c0d. Staging's floor is now 22b9c0d; going back needs a fresh approval
+  rollback point. The rollback point is a protected backup inside the staging container (gate state, approvals,
+  units) and its saved pre-release environment file. Staging's floor is now 22b9c0d; going back needs a fresh approval
   from the staging owner key. The live harness was active and untouched throughout.
   [NOT RUN] a wake in staging: needs the relay reachable from the container, her key and door.json, and a session.
 - The live gate's signed ledger (read 10-12): 1,814 entries since 10-03, among them 21 proposals, 21 decisions, 17
@@ -364,3 +365,17 @@ STEP 3 STATE, evening of 2026-10-12:
 - [SEEN on the pilot host, read only] the deploy history is there as scripts and logs, one set per release, and a
   driver that gives the agent a turn with a real model without the desktop app, by an admin reading the launch
   token. That is how staging's Auma can be woken through the door once a release from main starts there.
+
+CORRECTIONS, night of 2026-10-12 (source status; no new installed observation):
+- "[NOT BUILT] No invite code, redemption, count or membership check exists": `d16c4fe` added signed invites,
+  redemption and quota checks; `463770b` joined invite spending to the relay owner's admission tool.
+- Node-spawn "refuses at the three steps that have no script: admission by invite, fresh owner-key enrollment,
+  sandbox provisioning": `ef10e6c` added signed admission-record verification before any container operation and
+  narrowed the later refusals. A fresh installed node, authoritative shared admission accounting and complete
+  enrollment/sandbox provisioning remain unqualified.
+- The rails' six gaps "are kept as twelve known-failing cases": `0548eaf` repaired them in source and made those
+  cases pass; `9270be2` reconciled the source pins. Neither commit rebuilt the face bundles.
+- "Still running when this was written: invites, the receipt-in-the-channel pieces, the documentation pass":
+  these landed in `d16c4fe` (invites), `2ab9e85` (receipt format/checker), `e6ea06e` (door receipt tool), and
+  `d06c5da` (documentation). Source presence does not establish a model wake, deployed invite admission or a live
+  receipt round trip.

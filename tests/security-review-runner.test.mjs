@@ -294,7 +294,7 @@ test('shell runner executes the same mandatory checks exactly once', () => {
 })
 
 test('actual extracted shell child classifies performed, skipped, partial, todo and failed TAP', () => {
-  for (const [name, status, code] of [['pass', 'PASS', 0], ['skip', 'SKIP', 3], ['partial', 'UNPERFORMED', 2], ['todo', 'UNPERFORMED', 2], ['fail', 'FAIL', 1]]) {
+  for (const [name, status, code] of [['pass', 'PASS', 0], ['skip', 'UNPERFORMED', 2], ['partial', 'UNPERFORMED', 2], ['todo', 'UNPERFORMED', 2], ['fail', 'FAIL', 1]]) {
     const command = [process.execPath, ...nodeArgs(name)].map(quote).join(' ')
     const result = shellChild(name, command, 'tap')
     assert.equal(result.status, status, name); assert.equal(result.child.status, code, result.row)

@@ -188,6 +188,7 @@ run_check() {
         open my $output, "<", "$prefix.log" or die "read log: $!";
         my $last = "(no output)";
         my (@tail, $private, %totals, %seen);
+        my $tap_gap = "";
         my $reported_failure = 0;
         my ($named_unperformed, $plain_failure) = (0, 0);
         my ($unit_tests, $unit_skipped, $unit_expected, $unit_unexpected, $unit_ok) = (undef, 0, 0, 0, 0);
@@ -252,6 +253,7 @@ run_check() {
                 /(?:password|secret|token|authorization|cookie|api[_-]?key|private[_-]?key)[a-z0-9_-]*\s*["\x27]?\s*[:=]/iu ||
                 /^\s*["\x27]?[A-Z][A-Z0-9_]*["\x27]?\s*[:=]/u;
             $_ = substr($_, 0, 512);
+            $tap_gap = $1 if $tap_gap eq "" && /# ((?:SKIP|TODO)\b[^\n]*)/;
             $last = $_ if /\S/;
             if (/\S/) { push @tail, $_; shift @tail if @tail > 32 }
         }
@@ -289,10 +291,9 @@ run_check() {
                     $disposition = "FAIL"; $reason = "inconsistent TAP totals";
                 } elsif ($totals{tests} == 0) {
                     $disposition = "UNPERFORMED"; $reason = "zero reported tests";
-                } elsif ($totals{skipped} == $totals{tests}) {
-                    $disposition = "SKIP"; $reason = "all reported tests skipped";
                 } elsif ($totals{skipped} > 0 || $totals{todo} > 0) {
                     $disposition = "UNPERFORMED"; $reason = "reported skipped or todo tests";
+                    $reason .= ": $tap_gap" if $tap_gap ne "";
                 }
             }
         } elsif ($format eq "unittest") {
@@ -392,21 +393,21 @@ check 'node tests/aukora-auma-theme.test.mjs'
 check 'node tests/aukora-relay-auma.test.mjs'
 check 'node tests/aukora-buzz-door.test.mjs'
 check 'node tests/aukora-buzz-door-release.test.mjs'
-check 'node --test tests/aukora-buzz-door-receipt.test.mjs'
-check 'node --test tests/aukora-buzz-door-post-receipt.test.mjs'
-check 'node --test ops/buzz-relay/test.mjs'
-check 'node --test plugins/aukora-kira/turn-provenance.test.mjs'
-check 'node --test ops/node-spawn/test.mjs'
-check 'node --test ops/buzz-relay/member.test.mjs'
-check 'node --test ops/buzz-relay/close.test.mjs'
-check 'node --test ops/buzz-relay/admit.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-buzz-door-receipt.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/aukora-buzz-door-post-receipt.test.mjs'
+check_tap 'node --test --test-reporter=tap ops/buzz-relay/test.mjs'
+check_tap 'node --test --test-reporter=tap plugins/aukora-kira/turn-provenance.test.mjs'
+check_tap 'node --test --test-reporter=tap ops/node-spawn/test.mjs'
+check_tap 'node --test --test-reporter=tap ops/buzz-relay/member.test.mjs'
+check_tap 'node --test --test-reporter=tap ops/buzz-relay/close.test.mjs'
+check_tap 'node --test --test-reporter=tap ops/buzz-relay/admit.test.mjs'
 check 'node packages/copresence/check.mjs'
 check 'node packages/boundary-gate/checks/authority-display.mjs --mutations'
 check 'node tests/ops-state-snapshot.test.mjs --mutate'
 check_tap 'node --test --test-reporter=tap packages/boundary-gate/checks/note.mjs'
 check 'node packages/boundary-gate/checks/owner-state.mjs --mutations'
 check_tap 'node --test --test-reporter=tap packages/boundary-gate/checks/owner-state-bin.mjs'
-check 'node --test packages/invites/index.test.mjs'
+check_tap 'node --test --test-reporter=tap packages/invites/index.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-subprocess-env-scrub.test.mjs'
 check_tap 'node --test --test-reporter=tap packages/cordis-tool-provider/checks/cordis.test.mjs'
 check_tap 'node --test --test-reporter=tap packages/cordis-tool-provider/checks/provider.test.mjs'
@@ -454,7 +455,7 @@ check 'node tests/kira-continuity-metrics.test.mjs'
 check 'node tests/kira-memory-live-path.test.mjs --plugin-only'
 check 'node tests/kira-memory-law.test.mjs'
 check 'node tests/kira-memory-reader.test.mjs'
-check 'node tests/kira-openviking-recall.test.mjs --red'
+check 'node tests/kira-openviking-recall.test.mjs && { output=$(node tests/kira-openviking-recall.test.mjs --mutant retry-success-reset 2>&1); code=$?; if [ "$code" -eq 1 ] && printf "%s\n" "$output" | grep -q "^  FAIL retry counter saturation at 20"; then printf "%s\n" "PASS retry-success-reset control failed as required"; else printf "%s\n" "$output" "FAIL recall control expected retry-success-reset assertion, exit $code"; exit 1; fi; }'
 check 'node tests/broker-grant.test.mjs'
 check 'node tests/aukora-auma-live-fresh-install.test.mjs --mutate'
 check 'python3 plugins/aukora-face/apps/vendor/auma-live/voice/test_aurora_prompt.py'

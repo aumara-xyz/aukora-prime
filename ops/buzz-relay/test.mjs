@@ -37,6 +37,8 @@ if (name === 'systemctl') {
   process.exit(0)
 }
 if (name === 'podman') {
+  if (args[0] === 'pod' && args[1] === 'exists') process.exit(Number(env.POD_EXISTS_STATUS || 0))
+  if (args[0] === 'pod' && args[1] === 'stop') process.exit(Number(env.POD_STOP_STATUS || 0))
   if (args[0] === 'pod' && args[1] === 'inspect') {
     if (env.POD_ABSENT === '1') process.exit(1)
     console.log(args.at(-1) === '{{.InfraContainerID}}' ? 'a'.repeat(64) : env.POD_BINDING || '127.0.0.1:3000->3000/tcp ')
@@ -61,7 +63,7 @@ function fixture(t) {
   for (const pid of ['4321', '9876']) mkdirSync(join(root, 'proc', pid, 'fd'), { recursive: true })
   symlinkSync('pipe:[12345]', join(root, 'proc/4321/fd/3'))
   symlinkSync('pipe:[12345]', join(root, 'proc/9876/fd/5'))
-  for (const file of ['up.sh', 'check.sh', 'install.sh', 'read-setting.sh', 'check-port.sh', 'prepare-secrets.sh', 'write-settings.sh']) {
+  for (const file of ['up.sh', 'down.sh', 'check.sh', 'install.sh', 'read-setting.sh', 'check-port.sh', 'prepare-secrets.sh', 'write-settings.sh']) {
     writeFileSync(join(root, file), readFileSync(join(here, file), 'utf8')
       .replaceAll('/var/lib/aukora-buzz', state).replaceAll('/proc/', `${root}/proc/`))
   }
@@ -90,6 +92,18 @@ function fixture(t) {
 function parse(setting, input) {
   return spawnSync('bash', [join(here, 'read-setting.sh'), setting], { input, encoding: 'utf8' })
 }
+
+test('stop distinguishes an absent pod from inspection errors and propagates stop failures', t => {
+  for (const [exists, stop, expected] of [[0, 0, 0], [1, 0, 0], [2, 0, 2], [125, 0, 125], [0, 125, 125]]) {
+    const f = fixture(t)
+    const result = f.run('down.sh', [], { POD_EXISTS_STATUS: String(exists), POD_STOP_STATUS: String(stop) })
+    assert.equal(result.status, expected, `exists=${exists}, stop=${stop}: ${result.stderr}`)
+    assert.deepEqual(f.calls().filter(([name]) => name === 'podman'), [
+      ['podman', 'pod', 'exists', 'aukora-buzz'],
+      ...(exists === 0 ? [['podman', 'pod', 'stop', '-t', '20', 'aukora-buzz']] : []),
+    ])
+  }
+})
 
 test('settings accept only canonical local images and safe numeric ports', () => {
   for (const port of ['1', '03000', '32767', '61000', '65535']) {

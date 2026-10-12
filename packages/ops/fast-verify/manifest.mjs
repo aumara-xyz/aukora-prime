@@ -1758,7 +1758,7 @@ export const CASES = freeze([
       },
       {
         "path": "packages/memory/src/codecs.mjs",
-        "sha256": "aa1aa3c2e654a879bb5aa86beb5a1040fdfc62ebc38f59e6b594972526650bec"
+        "sha256": "e4e29cdeff05abf88cb414786e4eb378847cfb26881a54720e04ba8453561151"
       },
       {
         "path": "packages/memory/src/control-retention.mjs",
@@ -1801,7 +1801,7 @@ export const CASES = freeze([
       },
       {
         "path": "packages/memory/src/codecs.mjs",
-        "sha256": "aa1aa3c2e654a879bb5aa86beb5a1040fdfc62ebc38f59e6b594972526650bec"
+        "sha256": "e4e29cdeff05abf88cb414786e4eb378847cfb26881a54720e04ba8453561151"
       }
     ]
   },
@@ -1835,7 +1835,7 @@ export const CASES = freeze([
       },
       {
         "path": "packages/memory/src/codecs.mjs",
-        "sha256": "aa1aa3c2e654a879bb5aa86beb5a1040fdfc62ebc38f59e6b594972526650bec"
+        "sha256": "e4e29cdeff05abf88cb414786e4eb378847cfb26881a54720e04ba8453561151"
       },
       {
         "path": "packages/memory/src/owner-serialization.mjs",

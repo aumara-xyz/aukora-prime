@@ -44,7 +44,7 @@ function fixture({ state = applied(), log = { entries: [logEntry()] }, gatePubli
     const event = JSON.parse(init.body)
     assert(isValidEvent(event))
     events.push(event); sequence.push('relay:post')
-    return new Response(JSON.stringify({ accepted: true }))
+    return new Response(JSON.stringify({ accepted: true, event_id: event.id }))
   }
   const door = createDoor({ getKey: () => key, channel, ...(omitKey ? {} : { gatePublicKey }), gateSocket: '/run/aukora-gate/gate.sock', gate, fetchImpl, now: () => clock })
   const tools = createDoorTools(door, { sessionId })

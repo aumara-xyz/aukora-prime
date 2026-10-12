@@ -16,6 +16,8 @@ const environment = { ...process.env, GIT_NO_LAZY_FETCH: '1' }
 for (const key of ['NODE_OPTIONS', 'NODE_TEST_CONTEXT', 'AUKORA_TEST_KIRA_SOURCE', 'AUKORA_TEST_AURA_SOURCE']) delete environment[key]
 const footer = (pass = 46, arms = 46, failed = 0, pending = 2, dsh = 'UNPERFORMED') =>
   `  ${pass}/${arms} arms passed, ${failed} failed; ${pending} unperformed checks; DSH source dispatch ${dsh}; installed profile UNPERFORMED.`
+const tap = (pass = 0, skipped = 0, todo = 0) =>
+  `# tests ${pass + skipped + todo}\n# pass ${pass}\n# fail 0\n# cancelled 0\n# skipped ${skipped}\n# todo ${todo}`
 const registrations = text => text.split('\n').filter(line => /^check(?:_tap|_unittest|_darwin|_injection)? '/u.test(line))
 assert.equal(registrations(source).length, 105, 'preserve every existing fixed registration')
 assert.equal(registrations(source).filter(line => line.includes(command)).length, 1)
@@ -89,6 +91,10 @@ const cases = [
   ['named nested-sandbox refusal remains unperformed', { output: 'CAGED WORKER: NOT RUN (nested sandbox - denials here would prove nothing; exit 2)', exit: 2 }, 'UNPERFORMED', 2],
   ['empty parenthesized reason remains failure', { output: 'CAGED WORKER: NOT RUN ()', exit: 2 }, 'FAIL', 1],
   ['unperformed marker must be a complete word', { output: 'UNPERFORMEDNESS: fixture', exit: 2 }, 'FAIL', 1],
+  ['missing TAP totals cannot pass', { format: 'tap', output: 'completed' }, 'UNPERFORMED', 2],
+  ['zero TAP tests cannot pass', { format: 'tap', output: tap() }, 'UNPERFORMED', 2],
+  ['all skipped TAP tests remain unperformed', { format: 'tap', output: tap(0, 1) }, 'UNPERFORMED', 2],
+  ['all todo TAP tests remain unperformed', { format: 'tap', output: tap(0, 0, 1) }, 'UNPERFORMED', 2],
 ]
 
 function checkCase(name, row, status, exit, text = source) {
@@ -135,6 +141,47 @@ function checkMutationDispatch(text = source) {
 checkMutationDispatch()
 console.log('PASS mutation dispatch: actual lane registration requests mutations; no swallowed file flags')
 
+function checkTapRegistrations(text = source) {
+  const rows = registrations(text)
+  const row = rows.find(line => line.includes('tests/aukora-buzz-door-receipt.test.mjs'))
+  const match = row?.match(/^check(_tap)? '([^']+)'$/u)
+  assert(match, 'retain the receipt test registration')
+  for (const directive of ['skip', 'todo']) {
+    const result = run([{ file: 'tests/aukora-buzz-door-receipt.test.mjs', runCommand: match[2],
+      format: match[1] ? 'tap' : 'plain',
+      body: `import test from 'node:test'; test('unavailable fixture', { ${directive}: 'fixture dependency unavailable' }, () => {});\n` }], text)
+    assert.equal(result.status, 2, `actual ${directive}-only Node registration must be unperformed`)
+    assert.deepEqual(result.counts, [0, 1, 0, 0, 0, 1])
+    assert.match(result.output, /fixture dependency unavailable/u, 'preserve the reported gap reason')
+  }
+  for (const row of rows.filter(line => /\bnode --test(?: |$)/u.test(line))) {
+    assert.match(row, /^check_tap '/u, 'every Node test registration requires totals')
+    assert.match(row, /\bnode --test --test-reporter=tap /u, 'every Node test registration emits readable totals')
+  }
+}
+checkTapRegistrations()
+console.log('PASS TAP registrations: actual skipped/todo-only children remain unperformed with their reason')
+
+function checkRecallControl(text = source) {
+  const rows = registrations(text).filter(line => line.includes('tests/kira-openviking-recall.test.mjs'))
+  assert.equal(rows.length, 1)
+  const invocation = rows[0].match(/^check '([^']+)'$/u)?.[1]
+  assert(invocation, 'retain the recall control registration')
+  const marker = '  FAIL retry counter saturation at 20: successful retry must reset the failure counter'
+  for (const [name, baseline, mutant, output, expected] of [
+    ['expected assertion fails', 0, 1, marker, 0],
+    ['negative control stays green', 0, 0, marker, 1],
+    ['unrelated control failure', 0, 1, 'FAIL unrelated fixture failure', 1],
+    ['baseline failure', 1, 1, marker, 1],
+  ]) {
+    const result = run([{ file: 'tests/kira-openviking-recall.test.mjs', runCommand: invocation,
+      body: `const args = process.argv.slice(2); const mutant = args[0] === '--mutant' && args[1] === 'retry-success-reset'; console.log(mutant ? ${JSON.stringify(output)} : 'baseline fixture'); process.exit(mutant ? ${mutant} : ${baseline});\n` }], text)
+    assert.equal(result.status, expected, name)
+  }
+}
+checkRecallControl()
+console.log('PASS recall control: expected assertion must fail; green, unrelated failure and failed baseline are rejected')
+
 const laneSource = readFileSync(new URL('./lane-send.test.mjs', import.meta.url), 'utf8')
 const laneHere = new URL('.', import.meta.url).pathname
 const guard = "if (mutationRequested && mutationsCaught === 0) {\n    process.exitCode = 1\n    assert.fail('LANE_SEND_MUTATIONS_NOT_RUN')\n  }"
@@ -154,18 +201,25 @@ assert.throws(() => checkEmptyMutationCourt(zeroCourt.replace(guard, '')), { cod
 console.log('KILLED zero-mutation guard removal (empty requested court otherwise exits zero)')
 
 const controls = [
-  ['green unperformed row', '$disposition = "UNPERFORMED"; $reason = "reported unperformed injection checks";', '$disposition = "PASS"; $reason = "reported unperformed injection checks";', () => checkCase(...cases[0])],
+  ['green unperformed row', '$disposition = "UNPERFORMED"; $reason = "reported unperformed injection checks";', '$disposition = "PASS"; $reason = "reported unperformed injection checks";', text => checkCase(...cases[0], text)],
   ['drop aggregate unperformed', 'if [ "$skipped" -ne 0 ] || [ "$unperformed" -ne 0 ]; then exit 2; fi', 'if [ "$skipped" -ne 0 ]; then exit 2; fi', checkAggregate],
   ['drop aggregate failure precedence', 'if [ "$failed" -ne 0 ]; then exit 1; fi', 'if false; then exit 1; fi', checkAggregate],
-  ['drop reported failure guard', 'if ($court_failure || $reported_failure) {', 'if (0) {', () => checkCase(...cases[6])],
-  ['drop unique footer guard', '$court_reports != 1 || $court_invalid', '0 || $court_invalid', () => checkCase(...cases[10])],
-  ['drop explicit command binding', 'die "injection command" unless $command eq "node tests/kira-injection.test.mjs --mutate" && $run eq $command;', '# removed command binding', () => checkCase(...cases[19])],
-  ['drop execution argv binding', '$run eq $command', '1', () => checkCase(...cases[21])],
+  ['drop reported failure guard', 'if ($court_failure || $reported_failure) {', 'if (0) {', text => checkCase(...cases[6], text)],
+  ['drop unique footer guard', '$court_reports != 1 || $court_invalid', '0 || $court_invalid', text => checkCase(...cases[10], text)],
+  ['drop explicit command binding', 'die "injection command" unless $command eq "node tests/kira-injection.test.mjs --mutate" && $run eq $command;', '# removed command binding', text => checkCase(...cases[19], text)],
+  ['drop execution argv binding', '$run eq $command', '1', text => checkCase(...cases[21], text)],
   ['drop mutation request', 'AUKORA_LANE_SEND_MUTATE=1 ', '', checkMutationDispatch],
-  ['drop plain reason requirement', '$named_unperformed && ', '', () => checkCase(...cases[24])],
-  ['drop plain failure precedence', '!$plain_failure && ', '', () => checkCase(...cases[25])],
-  ['drop exact marker', String.raw`UNPERFORMED\b`, 'UNPERFORMED', () => checkCase(...cases[29])],
-  ['drop parenthesized reason', String.raw`[^) \t][^)\n]*`, String.raw`[^)\n]*`, () => checkCase(...cases[28])],
+  ['drop plain reason requirement', '$named_unperformed && ', '', text => checkCase(...cases[24], text)],
+  ['drop plain failure precedence', '!$plain_failure && ', '', text => checkCase(...cases[25], text)],
+  ['drop exact marker', String.raw`UNPERFORMED\b`, 'UNPERFORMED', text => checkCase(...cases[29], text)],
+  ['drop parenthesized reason', String.raw`[^) \t][^)\n]*`, String.raw`[^)\n]*`, text => checkCase(...cases[28], text)],
+  ['restore default reporter registration', "check_tap 'node --test --test-reporter=tap tests/aukora-buzz-door-receipt.test.mjs'", "check 'node --test tests/aukora-buzz-door-receipt.test.mjs'", checkTapRegistrations],
+  ['drop zero TAP guard', '$totals{tests} == 0', '0', text => checkCase(...cases[31], text)],
+  ['drop skipped/todo TAP guard', '$totals{skipped} > 0 || $totals{todo} > 0', '0', text => checkCase(...cases[32], text)],
+  ['drop TAP gap reason', '$reason .= ": $tap_gap" if $tap_gap ne "";', '', checkTapRegistrations],
+  ['restore ignored recall flag', '--mutant retry-success-reset', '--red', checkRecallControl],
+  ['drop recall control exit check', '[ "$code" -eq 1 ]', 'true', checkRecallControl],
+  ['drop recall control assertion check', 'grep -q "^  FAIL retry counter saturation at 20"', 'cat >/dev/null', checkRecallControl],
 ]
 if (process.argv.includes('--mutate')) {
   for (const [name, before, after, inspect] of controls) {
@@ -173,11 +227,7 @@ if (process.argv.includes('--mutate')) {
     const mutated = source.replace(before, after)
     let caught = false
     try {
-      if (inspect === checkAggregate || inspect === checkMutationDispatch) inspect(mutated)
-      else {
-        const position = name === 'drop exact marker' ? 29 : name === 'drop parenthesized reason' ? 28 : name === 'drop plain reason requirement' ? 24 : name === 'drop plain failure precedence' ? 25 : name === 'drop reported failure guard' ? 6 : name === 'drop unique footer guard' ? 10 : name === 'drop explicit command binding' ? 19 : name === 'drop execution argv binding' ? 21 : 0
-        checkCase(...cases[position], mutated)
-      }
+      inspect(mutated)
     } catch (error) {
       assert.equal(error.code, 'ERR_ASSERTION', 'mutant must be killed by its disposition assertion, not an execution accident')
       caught = true
@@ -186,4 +236,4 @@ if (process.argv.includes('--mutate')) {
     console.log(`KILLED ${name}`)
   }
 }
-console.log(`check-shell-status: ${cases.length + 5} cases PASS; ${1 + (process.argv.includes('--mutate') ? controls.length : 0)} controls killed; 105 registrations retained; synthetic child/actual runner only; no fixture deletes`)
+console.log(`check-shell-status: ${cases.length + 7} cases PASS; ${1 + (process.argv.includes('--mutate') ? controls.length : 0)} controls killed; 105 registrations retained; synthetic child/actual runner only; no fixture deletes`)
