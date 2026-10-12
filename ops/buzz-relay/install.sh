@@ -23,14 +23,18 @@ if ! id "$U" >/dev/null 2>&1 && sudo ss -ltnH | awk '{print $4}' | grep -qE ":${
   echo "port ${PORT} is already in use on this machine" >&2; exit 1
 fi
 
+# An account of this name that this script did not make is someone else's: leave it alone.
+if id "$U" >/dev/null 2>&1 && { [ "$(getent passwd "$U" | cut -d: -f6)" != "$ROOT" ] || ! sudo test -f "$ROOT/node.env"; } \
+   && ! sudo test -d "$ROOT/src"; then
+  echo "an account named $U already exists and was not made by this script" >&2; exit 1
+fi
 if ! id "$U" >/dev/null 2>&1; then
   sudo useradd --system --create-home --home-dir "$ROOT" --shell /usr/sbin/nologin "$U"
 fi
 # Rootless Podman needs a subordinate id range; take the next free 65536 block.
-if ! grep -q "^$U:" /etc/subuid; then
-  NEXT=$(awk -F: 'BEGIN{m=100000} {e=$2+$3; if (e>m) m=e} END{print m}' /etc/subuid /etc/subgid)
-  sudo usermod --add-subuids "${NEXT}-$((NEXT + 65535))" --add-subgids "${NEXT}-$((NEXT + 65535))" "$U"
-fi
+NEXT=$(awk -F: 'BEGIN{m=100000} {e=$2+$3; if (e>m) m=e} END{print m}' /etc/subuid /etc/subgid)
+grep -q "^$U:" /etc/subuid || sudo usermod --add-subuids "${NEXT}-$((NEXT + 65535))" "$U"
+grep -q "^$U:" /etc/subgid || sudo usermod --add-subgids "${NEXT}-$((NEXT + 65535))" "$U"
 sudo loginctl enable-linger "$U"
 sudo chmod 0750 "$ROOT"
 sudo -u "$U" mkdir -p "$ROOT/data/postgres" "$ROOT/data/redis" "$ROOT/data/git" "$ROOT/src"
@@ -40,7 +44,10 @@ sudo -u "$U" env ROOT="$ROOT" OWNER="$OWNER" PORT="$PORT" bash -s <<'EOS'
 set -euo pipefail
 umask 077
 cd "$ROOT"
-if [ ! -f postgres.env ]; then
+# All three secret files are made together; a partial set is refused rather than regenerated over live data.
+have=0; for f in postgres.env redis.env relay-secrets.env; do [ -s "$f" ] && have=$((have + 1)); done
+if [ "$have" != 0 ] && [ "$have" != 3 ]; then echo "incomplete secret files in $ROOT; not regenerating" >&2; exit 1; fi
+if [ "$have" = 0 ]; then
   PG=$(openssl rand -hex 24); RD=$(openssl rand -hex 24)
   printf 'POSTGRES_DB=buzz\nPOSTGRES_USER=buzz\nPOSTGRES_PASSWORD=%s\nPGDATA=/var/lib/postgresql/data/pgdata\n' "$PG" > postgres.env
   printf 'REDIS_PASSWORD=%s\n' "$RD" > redis.env
@@ -52,6 +59,8 @@ if [ ! -f postgres.env ]; then
   } > relay-secrets.env
 fi
 # Settings that are not secret; rewritten on every install so the repository stays the source.
+# A relay that was closed stays closed with the same owner unless a new owner is named.
+if [ -z "$OWNER" ] && [ -f relay.env ]; then OWNER=$(sed -n 's/^RELAY_OWNER_PUBKEY=//p' relay.env); fi
 {
   echo 'BUZZ_BIND_ADDR=0.0.0.0:3000'
   echo 'BUZZ_HEALTH_PORT=8080'
@@ -75,6 +84,6 @@ sudo -u "$U" sh -c 'mkdir -p ~/.config/containers && printf "unqualified-search-
 
 sudo install -d -m 0755 "$LIB"
 sudo install -m 0755 "$HERE/up.sh" "$HERE/down.sh" "$HERE/build.sh" "$HERE/check.sh" "$LIB/"
-sudo install -m 0644 "$HERE/aukora-buzz.service" /etc/systemd/system/aukora-buzz.service
+sed "s/@UID@/$(id -u "$U")/g" "$HERE/aukora-buzz.service" | sudo install -m 0644 /dev/stdin /etc/systemd/system/aukora-buzz.service
 sudo systemctl daemon-reload
 echo "installed: user $U, state $ROOT, unit aukora-buzz.service (not started), port 127.0.0.1:${PORT}"

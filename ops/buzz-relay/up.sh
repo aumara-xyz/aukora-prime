@@ -14,6 +14,9 @@ cd "$ROOT"
 . "$ROOT/image.env"
 
 podman pod exists "$POD" || podman pod create --name "$POD" -p "127.0.0.1:${PORT}:3000" >/dev/null
+# A pod left from an earlier setting must publish exactly this loopback port, or we do not start in it.
+PUB=$(podman pod inspect "$POD" --format '{{range $k, $v := .InfraConfig.PortBindings}}{{range $v}}{{.HostIP}}:{{.HostPort}}->{{$k}} {{end}}{{end}}')
+[ "$PUB" = "127.0.0.1:${PORT}->3000/tcp " ] || { echo "pod $POD publishes '$PUB', expected 127.0.0.1:${PORT}->3000/tcp; remove the pod and start again" >&2; exit 1; }
 
 run() {
   local name="$1"; shift
@@ -23,9 +26,10 @@ run() {
 
 run buzz-postgres --env-file "$ROOT/postgres.env" \
   -v "$ROOT/data/postgres:/var/lib/postgresql/data" docker.io/library/postgres:17-alpine
-# Redis reads its settings from stdin so the password is never in a process's arguments.
+# Redis reads its settings from stdin so the password is never in a process's arguments; the image's own
+# entrypoint still drops to its redis user.
 run buzz-redis --env-file "$ROOT/redis.env" -v "$ROOT/data/redis:/data" docker.io/library/redis:7-alpine \
-  sh -c 'printf "appendonly yes\nrequirepass %s\n" "$REDIS_PASSWORD" | exec redis-server -'
+  sh -c 'printf "appendonly yes\nrequirepass %s\n" "$REDIS_PASSWORD" | exec docker-entrypoint.sh redis-server -'
 
 for _ in $(seq 1 60); do
   podman exec buzz-postgres pg_isready -U buzz -d buzz >/dev/null 2>&1 && break
