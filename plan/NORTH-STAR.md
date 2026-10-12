@@ -263,3 +263,23 @@ STEP 3 STATE, evening of 2026-10-12:
 - THE DEMO needs no new key work: Auma proposes one harmless action from a Buzz message, the gate holds it, Peter
   approves in the popup he already has, the door posts the gate's signed receipt in the channel, a stranger
   verifies it with the existing script. The owner's Touch ID signature is the upgrade after.
+- [RAN in the pilot's STAGING container only, 2026-10-12 about 11:15 UTC] a release built from main started.
+  main at 22b9c0d was materialized there with the 10-04 script; staging's gate raised the plugin-set approval, the
+  staging stand-in owner key approved it (ledger sequence 169), the approval was installed and the release floor
+  moved to release-22b9c0d; the floor check passed; the staging harness started on it with the plugin set enforced
+  and its interface answers (401 without a token). The door is mounted and reports itself unavailable, as written,
+  because no key or config has been placed: the other plugins registered as before.
+  FIRST ATTEMPT FAILED and is the lesson for the live switch: the unit runs the launcher from the source checkout
+  beside the releases, and that checkout was still at 3673b98, so the old launcher refused the new release
+  ("release-verification-failed: FAIL artifact integrity", three restarts, then failed). Checking the source
+  checkout out at the release's own commit, as the 10-04 script does, fixed it. The launcher and the release must
+  be the same commit.
+  Also seen: an LXD snapshot of that container freezes it and copies every file (about 13 minutes, 15 GB); it was
+  interrupted and the container resumed part-way, so the snapshot `pre-buzz-door-20261012` is NOT a trustworthy
+  rollback point. The rollback point is /root/pre-buzz-door-backup-20261012-1102 inside the container (gate state,
+  approvals, units) and release.env.pre-22b9c0d. Staging's floor is now 22b9c0d; going back needs a fresh approval
+  from the staging owner key. The live harness was active and untouched throughout.
+  [NOT RUN] a wake in staging: needs the relay reachable from the container, her key and door.json, and a session.
+- The live gate's signed ledger (read 10-12): 1,814 entries since 10-03, among them 21 proposals, 21 decisions, 17
+  applied, 1 rejected, 30 relay posts by Auma with their intents, 828 self-checks. The owner's approvals from the
+  app are there, and its head is anchored to the `ledger-anchor` branch (latest anchor seen 10-12 18:26 +0800).
