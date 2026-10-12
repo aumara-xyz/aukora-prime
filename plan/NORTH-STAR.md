@@ -342,3 +342,25 @@ STEP 3 STATE, evening of 2026-10-12:
   hardening proposals; the file fence's check-then-open race reproduced and kept as four failing cases.
 - OWED: ./prime verify on a quiet machine (it timed out in places under load: 58 PASS where it had been 62);
   one gate check that fails intermittently under load; the face bundles; a wake with a real model.
+- WHAT A CHANGE TO THE HARNESS PATCH SET COSTS, found on the pilot the night of 2026-10-12. Commit 87f71c4 added one
+  harness patch. On the real machine that one line had three consequences no test here had shown:
+  1. [RAN in staging] the release build refused: "harness-patch-set-mismatch", because the built harness there was
+     made with the old patch set. The pilot keeps its own build and deploy scripts on the host (the ones that
+     built every release since 10-03); following them, the harness was rebuilt for main in a fresh checkout
+     beside the old one (about three minutes, niced; exit 0, the new patch verified in the built files), and the
+     old build checkout was put back where it was. Staging was pointed at the new build and materialized main.
+  2. [RAN in staging] the release was approved and its floor moved, and then the harness would not start:
+     "REFUSED: launcher-hash:upstream-dsh.json". The gate's root-installed manifest pins six launcher inputs, one
+     of them the file that lists the patches.
+  3. [RAN in staging] upgrading the gate package to match was refused twice: the manifest generator reads only
+     staged copies ("staging-installed-path"), and then "launcher-source-pin": the gate's bootstrap source
+     hard-codes the hash of that same file, and of the owner-key package's files, and neither pin had been moved
+     by the commits that changed them. Nothing in this repository compares those pins with the real files.
+  The old gate package was restored automatically, the previous release (a9a597b) was approved again with the
+  staging owner key (ledger sequence 202) and staging's harness is up on it. The live harness was untouched.
+  So today's main cannot start on a node until the bootstrap's pins are reviewed and moved and the gate package
+  is installed with them: that is the designed cost of changing what the launcher trusts, and a test that makes
+  the drift visible in CI is being added.
+- [SEEN on the pilot host, read only] the deploy history is there as scripts and logs, one set per release, and a
+  driver that gives the agent a turn with a real model without the desktop app, by an admin reading the launch
+  token. That is how staging's Auma can be woken through the door once a release from main starts there.
