@@ -33,6 +33,8 @@ for _ in $(seq 1 60); do
 done
 podman exec buzz-postgres pg_isready -U buzz -d buzz >/dev/null
 
+# The relay keeps no state of its own in the container; make it fresh so a changed setting or image takes effect.
+podman rm -f buzz-relay >/dev/null 2>&1 || true
 run buzz-relay --env-file "$ROOT/relay.env" --env-file "$ROOT/relay-secrets.env" \
   -v "$ROOT/data/git:/data/git:U" "$IMAGE"
 
