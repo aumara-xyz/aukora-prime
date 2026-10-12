@@ -32,6 +32,43 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+// Private pixels stay latched until their owning window is destroyed; promise completion is not paint evidence.
+export function createPrivateSurfaceFence() {
+  let generation = 0n
+  let lastCode = null
+  const visible = new Map()
+  const codes = Object.freeze({ bind: 'eye.bind-surface-open', approval: 'eye.approval-open',
+    lane: 'eye.approval-open', owner: 'eye.approval-open', touchid: 'eye.approval-open',
+    dialog: 'eye.approval-open' })
+  return Object.freeze({
+    privateSurface(kind, create, paintOwner = null) {
+      if (kind === 'application') return create()
+      if (!Object.hasOwn(codes, kind)) throw Object.assign(new Error('Unknown private surface'), { code: 'eye.private-surface-unknown' })
+      const id = Symbol(kind)
+      visible.set(id, codes[kind])
+      generation += 1n
+      lastCode = codes[kind]
+      const surface = create()
+      const owner = paintOwner ?? (kind === 'lane' ? surface : null)
+      // Destroying a child view does not prove that its pixels left the parent's compositor.
+      // Native sheets expose no destruction witness, so their latch lasts until process exit.
+      owner?.on?.('closed', () => {
+        if (owner.isDestroyed?.() === true) visible.delete(id)
+      })
+      return surface
+    },
+    getPrivateSurfaceState() {
+      const codes = [...visible.values()]
+      return Object.freeze({ generation, lastCode, code: codes.includes('eye.approval-open')
+        ? 'eye.approval-open' : codes[0] ?? null })
+    },
+  })
+}
+
+const privateSurfaces = createPrivateSurfaceFence()
+export const privateSurface = privateSurfaces.privateSurface
+export const getPrivateSurfaceState = privateSurfaces.getPrivateSurfaceState
+
 /** The route that returns a picture of the window. */
 export const EYE_ROUTE = '/eye/capture'
 /** The route that returns the accessibility tree, with a stable ref per node. */
@@ -285,6 +322,7 @@ export async function installEyeDoor(deps) {
    * asks for one the bridge does not have.
    */
   const isDrawPending = deps.isDrawPending ?? (() => false)
+  const privateState = deps.getPrivateSurfaceState ?? getPrivateSurfaceState
   /** Refs from the most recent snapshot, so an act can name what the caller was shown. */
   const refs = new Map()
   const token = randomBytes(32).toString('base64url')
@@ -479,6 +517,8 @@ export async function installEyeDoor(deps) {
   }
 
   const handler = async (req, res) => {
+    // Read on arrival, before body I/O: a surface that opens and closes during either await still refuses.
+    const started = privateState()
     // A REFUSAL MUST NOT OUTRUN THE REQUEST BODY. Answering before the caller has finished writing closes
     // the socket underneath the reply, and the caller sees an aborted response instead of the named
     // refusal — measured on /eye/act, where an unauthorised POST came back with no body at all. Only the
@@ -532,6 +572,11 @@ export async function installEyeDoor(deps) {
       say(`eye: refused ${EYE_REFUSE.UNAUTHORIZED}`)
       return deny(401, EYE_REFUSE.UNAUTHORIZED)
     }
+    if (started.code !== null) return deny(423, started.code)
+    const privateRefusal = () => {
+      const current = privateState()
+      return started.code ?? current.code ?? (current.generation !== started.generation ? current.lastCode : null)
+    }
     // THE APPROVAL WINDOW IS OUT OF BOUNDS WHILE IT IS OPEN. It is the one window whose answer is a
     // secret about to become a signature, so the door closes for as long as it exists rather than
     // trusting a caller not to aim at it.
@@ -565,6 +610,8 @@ export async function installEyeDoor(deps) {
 
     try {
       const captured = await window.webContents.capturePage(rect ?? undefined)
+      const privateCode = privateRefusal()
+      if (privateCode !== null) return refuse(res, 423, privateCode)
       // THE FENCE IS READ AGAIN HERE, AND THAT IS THE POINT OF THIS LINE. The check at the top of the
       // handler is separated from these pixels by two awaits — the body read and the capture itself — so
       // a window that was closed when the request was judged can be open by the time the picture exists.
@@ -582,6 +629,9 @@ export async function installEyeDoor(deps) {
       const fitted = fitToCeiling(captured, Math.max(1, Math.round(maxWidth * scale)))
       const png = fitted.image.toPNG()
       const source = captured.getSize()
+      // Encoding can also run callbacks; the last fence and response write have no asynchronous gap.
+      const finalCode = privateRefusal()
+      if (finalCode !== null) return refuse(res, 423, finalCode)
       res.writeHead(200, {
         'content-type': 'image/png',
         'content-length': png.length,
@@ -596,7 +646,7 @@ export async function installEyeDoor(deps) {
       // A capture failure is the window's, not the caller's; the message is safe (it names a
       // window state, never a header) but the code is what a caller branches on.
       say(`eye: refused ${EYE_REFUSE.CAPTURE_FAILED}`)
-      return refuse(res, 500, EYE_REFUSE.CAPTURE_FAILED, String(error?.message ?? error))
+      return refuse(res, 500, EYE_REFUSE.CAPTURE_FAILED)
     }
   }
 

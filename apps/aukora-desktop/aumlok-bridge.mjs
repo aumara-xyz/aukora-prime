@@ -27,6 +27,7 @@
 // reachable is answered in ONE place, and the shell asks that place.
 import { ownerDaemonStatus } from '../../plugins/aukora-owner-daemon/lib/detect.mjs'
 import { submitProposal, settleBytesFor } from '../../plugins/aukora-owner-daemon/lib/client.mjs'
+import { privateSurface } from './eye.mjs'
 
 /**
  * THE REFUSAL THAT REPLACES AN IN-PROCESS SETTLE, and there is no fallback by design.
@@ -480,7 +481,7 @@ export function installApprovalBridge(deps) {
     delete options.parent
     delete options.modal
     delete options.backgroundColor
-    const view = new WebContentsView(options)
+    const view = privateSurface('approval', () => new WebContentsView(options), win)
     // A VIEW IS WHITE UNTIL TOLD OTHERWISE, and the sheet's scrim is translucent: without this the app behind was replaced by
     // a white page (2026-09-27, "it's going to blind people at night"). Transparent, so the app shows through the dark tint.
     view.setBackgroundColor('#00000000')
@@ -617,7 +618,7 @@ export function installApprovalBridge(deps) {
       if (!fromApplication(event)) return { ok: false, reason: DRAW_REFUSE.FORBIDDEN_SENDER }
       const { library } = await context()
       if (!fromApplication(event)) return { ok: false, reason: DRAW_REFUSE.FORBIDDEN_SENDER }
-      const result = await draw.draw(event.sender, intent, getReleaseDir(), { library, language: payload?.language ?? 'en' })
+      const result = await privateSurface('bind', () => draw.draw(event.sender, intent, getReleaseDir(), { library, language: payload?.language ?? 'en' }), getWindow())
       if (!fromApplication(event)) {
         draw.forget()
         return { ok: false, reason: DRAW_REFUSE.FORBIDDEN_SENDER }

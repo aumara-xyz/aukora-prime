@@ -79,8 +79,6 @@
           - kira_*
           # PROPOSE-ONLY gate tool (plugins/aukora-auma-theme): opens the owner's popup, can never approve.
           - aukora_gate_propose
-          # EYE host tool (plugins/aukora-eye): photographs the app-owned window; the desktop receiver fences private surfaces.
-          - aukora_see
           # AUMA relay host tools (plugins/aukora-relay-auma): read newest <=20; post plain chat <=2000 bytes, rate-limited, recorded in Aura.
           - relay_read
           - relay_post

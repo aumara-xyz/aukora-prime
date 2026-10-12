@@ -8,6 +8,7 @@ import { Script } from 'node:vm'
 import { APPROVAL_CHANNELS, APPROVAL_REFUSE } from '../apps/aukora-desktop/aumlok-bridge-state.mjs'
 import { DRAW_REFUSE } from '../apps/aukora-desktop/aumlok-draw.mjs'
 import { backendStatus } from '../apps/aukora-desktop/backend-status.mjs'
+import { privateSurface } from '../apps/aukora-desktop/eye.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const bridgePath = 'apps/aukora-desktop/aumlok-bridge.mjs'
@@ -70,7 +71,7 @@ function fixture(text = source, applicationOrigin = ownedOrigin, here = '/dispos
   const code = text.replace(/^import[^]*?from ['"][^'"]+['"];?\s*$/gmu, '')
     .replace(/^export \{[^]*?\} from ['"][^'"]+['"];?\s*$/gmu, '').replace(/\bexport (?=(?:const|function))/gu, '')
   const install = new Script(`${code}\ninstallApprovalBridge`).runInNewContext({
-    URL, URLSearchParams, Number, join, pathToFileURL,
+    URL, URLSearchParams, Number, join, pathToFileURL, privateSurface,
     APPROVAL_CHANNELS, APPROVAL_REFUSE, DRAW_REFUSE,
     loadOrganLibrary: async () => { calls.push('context'); await interrupt('context'); return {} },
     resolveAumlokDirectory: () => ({ directory: '/disposable/controller' }),

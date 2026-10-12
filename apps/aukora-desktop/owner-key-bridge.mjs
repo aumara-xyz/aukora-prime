@@ -5,6 +5,7 @@ import { ownerAuthorization, ownerAuthorizationText, ownerAuthorizationPreview,
   verifyOwnerAuthorization, ownerAuthorizationOwnerState, ownerAuthorizationGatePin,
   ownerAuthorizationGateReview, verifyOwnerAuthorizationGateReceipt } from '../../packages/owner-key/src/authorization.mjs'
 import { randomUUID } from 'node:crypto'
+import { privateSurface } from './eye.mjs'
 
 export function createOwnerKeyBridge({ presentOwnerAction, expectations, nowSeconds = () => Math.floor(Date.now() / 1000) } = {}) {
   if (typeof presentOwnerAction !== 'function') throw Object.assign(new Error('Native owner action unavailable'), { code: 'owner-key:native-unavailable' })
@@ -17,7 +18,7 @@ export function createOwnerKeyBridge({ presentOwnerAction, expectations, nowSeco
       pending = true
       try {
         const request = ownerKeyRequest(supplied), wire = ownerKeyRequestText(request)
-        const reply = await presentOwnerAction(Object.freeze({ wire, preview: ownerKeyPreview(request) }))
+        const reply = await privateSurface('owner', () => presentOwnerAction(Object.freeze({ wire, preview: ownerKeyPreview(request) })))
         if (reply?.status === 'cancelled') return Object.freeze({ status: 'cancelled', grants_authority: false })
         if (reply?.status !== 'signed') return Object.freeze({ status: 'unavailable', reason: 'owner-key:native-unavailable', grants_authority: false })
         const proof = reply.proof
@@ -45,8 +46,8 @@ export function createOwnerAuthorizationBridge({ presentOwnerAction, expectation
       pending = true
       try {
         const authorization = ownerAuthorization(supplied), wire = ownerAuthorizationText(authorization)
-        const reply = await presentOwnerAction(Object.freeze({ kind: 'owner-authorization', wire,
-          preview: ownerAuthorizationPreview(authorization) }))
+        const reply = await privateSurface('owner', () => presentOwnerAction(Object.freeze({ kind: 'owner-authorization', wire,
+          preview: ownerAuthorizationPreview(authorization) })))
         if (reply?.status === 'cancelled') return Object.freeze({ status: 'cancelled', grants_authority: false })
         if (reply?.status !== 'signed') return Object.freeze({ status: 'unavailable',
           reason: reply?.reason === 'owner-key:secure-custody-join-unavailable'

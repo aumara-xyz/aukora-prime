@@ -15,6 +15,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { privateSurface } from './eye.mjs'
 import { acquireAppendLock, appendEntry, readVerifiedChain, releaseAppendLock } from '../../plugins/aukora-box/aukora/aura/record.mjs'
 import {
   PRESENCE_REASONS, presenceEnrollment, recordPresenceEnrollment, storeApprovalPresence, verifyApprovalPresence,
@@ -99,8 +100,8 @@ export function createDesktopPresence(supportRoot, { helper = helperPath, run: r
         if (process.platform === 'darwin' && timeout >= 250) {
           const digest = createHash('sha256').update(signingBytes).digest('hex')
           try {
-            stdout = String((await run(['sign', digest, oneLine(operation?.kind, 64) || 'operation',
-              oneLine(operation?.reason, 160) || `digest ${digest.slice(0, 16)}`], timeout)).stdout ?? '').trim()
+            stdout = String((await privateSurface('touchid', () => run(['sign', digest, oneLine(operation?.kind, 64) || 'operation',
+              oneLine(operation?.reason, 160) || `digest ${digest.slice(0, 16)}`], timeout))).stdout ?? '').trim()
           } catch { stdout = '' }
         }
         if (stdout === '') outcome = 'no-evidence'

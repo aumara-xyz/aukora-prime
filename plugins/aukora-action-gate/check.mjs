@@ -278,7 +278,7 @@ calls.push(
 )
 calls.push({ group: 'trusted tool name', label: 'aukora_self_change without a trusted worktreesRoot', expect: 'deny', says: 'path:unresolvable', name: 'aukora_self_change',
   arguments: { why: 'fix a typo', worktree: 'fix-typo', paths: ['plugins/aukora-action-gate/lib/policy.mjs'], preview: true } })
-calls.push({ group: 'trusted tool name', label: 'aukora_see, under the overlay\'s allowTools', expect: 'allow', kernelCode: 'allowed', name: 'aukora_see',
+calls.push({ group: 'unapproved capture tool', label: 'aukora_see, under the overlay\'s allowTools', expect: 'deny', says: 'authority:tool-not-approved', kernelCode: 'policy_no_match', name: 'aukora_see',
   arguments: { x: 0, y: 0, width: 2, height: 2, scale: 1, note: 'synthetic app view' } })
 // CONTAINMENT: the scripts that move governing code are RUN only through the trusted tool or the owner; reading them is fine.
 const TOOL = 'aukora_self_change'

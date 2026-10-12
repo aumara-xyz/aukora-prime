@@ -7,7 +7,6 @@
 import { app, BrowserWindow, WebContentsView, shell, session, dialog, ipcMain, nativeTheme } from 'electron'
 import { join, dirname, isAbsolute, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { writeFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { startHarness, spawnedPid, stopSpawned, startRestartWatchdog } from './supervisor.mjs'
 import { resolveTarget } from './resolve.mjs'
@@ -15,7 +14,7 @@ import { externalSchemeAllowed, loopbackOnly, permissionAllowed } from './url-po
 import { backendStatus, frontendFromBundleUrl, redactTokens, safeOrigin, pruneOwnedAuthCookies, INTERFACE_STATE_SCRIPT } from './backend-status.mjs'
 import { installApprovalBridge, loadOrganLibrary, resolveAumlokDirectory, signingSessionSource } from './aumlok-bridge.mjs'
 import { defaultAumlokDirectory } from './install-settings.mjs'
-import { installEyeDoor } from './eye.mjs'
+import { installEyeDoor, privateSurface, getPrivateSurfaceState } from './eye.mjs'
 import { installLaneDoor } from './lane-door.mjs'
 // THE CARD SURFACE'S SHELL HALF. The decisions live in `lane-card-window.mjs` (pure, courtable); this
 // file only wires them to Electron, the way it does for the approval bridge.
@@ -75,7 +74,7 @@ let attach = null
 let composition = { releaseDir: null, patchPaths: [], stateRoot: null }
 
 function createWindow(ses, status) {
-  const window = new BrowserWindow({
+  const window = privateSurface('application', () => new BrowserWindow({
     width: 1560, height: 960, minWidth: 480, minHeight: 420,
     backgroundColor: BACKGROUND, title: status.title,
     icon: join(here, 'icons', 'icon.png'),
@@ -89,7 +88,7 @@ function createWindow(ses, status) {
       // them. See `aumlok-bridge-preload.cjs`.
       webSecurity: true, webviewTag: false, preload: join(here, 'aumlok-bridge-preload.cjs'),
     },
-  })
+  }))
   // THE TITLE IS THE SHELL'S, AND THIS IS WHY. The page is the backend's own client
   // and would otherwise name the window whatever it likes — including, on a page this
   // shell did not start, whatever somebody else likes. Preventing the update leaves the
@@ -102,10 +101,9 @@ function createWindow(ses, status) {
     // Parse, never prefix-match: `http://127.0.0.1:1@evil.example/` starts with the
     // loopback prefix and resolves to evil.example, which a prefix test would have
     // opened inside this window. loopbackOnly is the same check used on the page URL.
-    try {
-      loopbackOnly(url)
-      return { action: 'allow' }
-    } catch { /* not ours to render; fall through to the external decision */ }
+    // Renderer-created windows have no reviewed private-surface lifecycle.
+    try { loopbackOnly(url); return { action: 'deny' } }
+    catch { /* not ours to render; fall through to the external decision */ }
     if (externalSchemeAllowed(url)) shell.openExternal(url).catch(() => {})
     return { action: 'deny' }
   })
@@ -132,10 +130,15 @@ function createWindow(ses, status) {
     void observeInterface().catch(() => console.error('aukora-desktop: interface observation failed'))
     const capture = process.env.AUKORA_DESKTOP_CAPTURE
     if (capture) {
+      const started = getPrivateSurfaceState()
       const settle = Number(process.env.AUKORA_DESKTOP_CAPTURE_DELAY_MS ?? 0)
       if (settle > 0) await new Promise(r => setTimeout(r, settle))
+      if (started.code !== null) return
       const image = await window.webContents.capturePage()
-      await writeFile(capture, image.toPNG())
+      const png = image.toPNG()
+      const current = getPrivateSurfaceState()
+      if (current.code !== null || current.generation !== started.generation) return
+      writeFileSync(capture, png, { flag: 'wx', mode: 0o600 })
       console.log(`aukora-desktop: captured ${capture}`)
     }
   })
@@ -189,7 +192,7 @@ function fail(message) {
   // person's screen and blocking there until somebody clicks it — which is exactly
   // what happened, repeatedly, on a desktop that was in use. The log line above is
   // the whole refusal in that mode; the box exists for a person who double-clicked.
-  if (!process.env.AUKORA_DESKTOP_NO_DIALOG) dialog.showErrorBox('AUKORA could not start', message)
+  if (!process.env.AUKORA_DESKTOP_NO_DIALOG) privateSurface('dialog', () => dialog.showErrorBox('AUKORA could not start', message))
   app.exit(1)
 }
 
@@ -349,7 +352,7 @@ app.whenReady().then(async () => {
           openSurface: view => {
             if (view === null) return
             if (cardWindow !== null && !cardWindow.isDestroyed?.()) return
-            cardWindow = new BrowserWindow(laneCardWindowOptions(join(here, 'lane-card-preload.cjs')))
+            cardWindow = privateSurface('lane', () => new BrowserWindow(laneCardWindowOptions(join(here, 'lane-card-preload.cjs'))))
             cardWindow.on('closed', () => { cardWindow = null })
             cardWindow.loadFile(join(here, 'lane-card.html'))
             cardWindow.once('ready-to-show', () => {
