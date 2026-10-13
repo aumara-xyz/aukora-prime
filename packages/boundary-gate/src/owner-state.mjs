@@ -66,7 +66,7 @@ export function passkeySetupReader(file) {
   return read
 }
 
-// Claim secrets go only to an exclusive root-private file, never stdout or a URL.
+// Only the claim digest is persisted; the mint caller receives the secret once.
 export function mintPasskeyClaim({ file, claimFile, gate, node, origin, binding, nowMs = Date.now() }) {
   if (process.getuid?.() !== 0) throw refuse('passkey-claim-root-required')
   if (![file, claimFile].every(f => path.isAbsolute(f)) || file === claimFile) throw refuse('passkey-setup-path')
@@ -83,7 +83,6 @@ export function mintPasskeyClaim({ file, claimFile, gate, node, origin, binding,
     try { fs.fchmodSync(fd, mode); fs.writeFileSync(fd, bytes); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
     const d = fs.openSync(path.dirname(f), 'r'); try { fs.fsyncSync(d) } finally { fs.closeSync(d) }
   }
-  write(claimFile, claim + '\n', 0o600)
   write(file, JSON.stringify(setup) + '\n', 0o640)
-  return { minted: true, expires_at_ms: setup.expires_at_ms }
+  return { minted: true, expires_at_ms: setup.expires_at_ms, claim }
 }

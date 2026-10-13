@@ -185,14 +185,56 @@ try {
   reset()
   const provider = () => ({modifyRecord:async (_key,mutate) => { const current=parseDocument(readFileSync(file,'utf8')).toJS().records['client-connection/browser-session']; return await mutate(current) ?? current }})
   const before = await BrowserAuth.create({},provider(),1)
+  const launch = new URL(before.authenticatedUrl('https://node.example.test'))
   let cookie
-  before.authorizeIndex({method:'GET',url:new URL(before.authenticatedUrl('https://node.example.test')).pathname+new URL(before.authenticatedUrl('https://node.example.test')).search,headers:{host:'node.example.test'}},{writeHead:(_status,headers)=>{cookie=headers['set-cookie']},end:()=>{}})
+  before.authorizeIndex({method:'GET',url:launch.pathname+launch.search,headers:{host:'node.example.test'}},{writeHead:(_status,headers)=>{cookie=headers['set-cookie']},end:()=>{}})
   const request = {headers:{host:'node.example.test',cookie:cookie.split(';')[0]}}
   assert.equal(before.isAuthenticated(request),true)
+  const restarted = await BrowserAuth.create({},provider(),1)
+  assert.equal(restarted.isAuthenticated(request),true,'normal restart preserves unexpired cookies')
+  let refusalStatus, refusalHeaders, refusalBody
+  restarted.authorizeIndex({method:'GET',url:launch.pathname+launch.search,headers:{host:'node.example.test'}},{writeHead:(status,headers)=>{refusalStatus=status;refusalHeaders=headers},end:body=>{refusalBody=body}})
+  assert.equal(refusalStatus,401)
+  assert.equal(refusalBody,'dsh web authentication required; reopen the URL printed by dsh web.\n')
+  assert.equal(refusalHeaders['set-cookie'],undefined)
+  assert.equal(refusalHeaders.location,undefined)
+  const unit='{ path=/usr/bin/python3 ; argv[]=/usr/bin/python3 scripts/launch-dsh.py --release /opt/release --state-root /home/aukora-host/genesis/state --foreground ; ignore_errors=no ; }'
+  const unitState = (load,active,exec=unit) => ({status:0,stdout:'LoadState='+load+'\nActiveState='+active+'\nExecStart='+exec+'\n'})
+  const absent = unitState('not-found','inactive','')
+  const select = states => m.harnessService(argv => states[argv.at(-1)] ?? absent)
+  let selected
+  assert.doesNotThrow(()=>{selected=select({'aukora-browser.service':unitState('loaded','active'),'aukora-genesis.service':unitState('loaded','inactive')})})
+  assert.equal(selected.unit,'aukora-browser.service')
+  assert.equal(selected.credentialsFile,'/home/aukora-host/genesis/state/home/.credentials.yaml')
+  assert.equal(select({'aukora-browser.service':unitState('loaded','active')}).unit,'aukora-browser.service')
+  assert.equal(select({'aukora-genesis.service':unitState('loaded','active')}).unit,'aukora-genesis.service')
+  assert.throws(()=>select({}),/SESSION_SERVICE_ACTIVE_UNIT_REFUSED/)
+  assert.throws(()=>select({'aukora-browser.service':unitState('loaded','inactive')}),/SESSION_SERVICE_ACTIVE_UNIT_REFUSED/)
+  assert.throws(()=>select({'aukora-browser.service':unitState('loaded','active'),'aukora-genesis.service':unitState('loaded','active')}),/SESSION_SERVICE_ACTIVE_UNIT_REFUSED/)
+  assert.throws(()=>select({'aukora-browser.service':{status:1,stdout:unitState('loaded','active').stdout}}),/SESSION_SERVICE_CONFIG_UNVERIFIED/)
+  for (const invalid of [{status:0,stdout:'LoadState=loaded\nActiveState=active\n'}, {status:0,stdout:'LoadState=loaded\nLoadState=loaded\nActiveState=active\n'},unitState('not-found','active'),unitState('not-found','inactive'),unitState('masked','inactive'),unitState('loaded','activating'),unitState('loaded','deactivating')]) {
+    assert.throws(()=>select({'aukora-browser.service':invalid}),/SESSION_SERVICE_STATE_UNVERIFIED/)
+  }
+  assert.throws(()=>select({'aukora-browser.service':unitState('loaded','active',unit.replace('scripts/launch-dsh.py','other.py'))}),/SESSION_SERVICE_CONFIG_REFUSED/)
+  for (const [action,result] of [['stop',{status:1}],['start',{status:1}],['inactive',{status:0,stdout:'inactive'}],['inactive',{status:3,stdout:'active'}],['active',{status:3,stdout:'active'}],['active',{status:0,stdout:'inactive'}]]) {
+    const unavailable=m.harnessService(argv=>argv[0] === 'show' ? (argv.at(-1) === 'aukora-browser.service' ? unitState('loaded','active') : absent) : result)
+    assert.equal(unavailable.lifecycle[action](),false,action+' must verify systemctl result')
+  }
+  const serviceCalls=[]
+  let active=true
+  const service=m.harnessService(argv=>{
+    serviceCalls.push(argv)
+    if (argv[0] === 'show') return argv.at(-1) === 'aukora-browser.service' ? unitState('loaded','active') : absent
+    assert.equal(argv[1],'aukora-browser.service','lifecycle must control the selected internet harness')
+    if (argv[0] === 'stop') {active=false;return {status:0}}
+    if (argv[0] === 'start') {active=true;return {status:0}}
+    assert.equal(argv[0],'is-active')
+    return {status:active?0:3,stdout:active?'active\n':'inactive\n'}
+  })
   const calls=[]
   const lifecycle={stop:()=>{calls.push('stop');return true},inactive:()=>{calls.push('inactive');return true},start:()=>{calls.push('start');return true},active:()=>{calls.push('active');return true}}
-  m.revokeAll(file,parseDocument,lifecycle,false)
-  assert.deepEqual(calls,['stop','inactive','start','active'])
+  assert.doesNotThrow(()=>m.revokeAll(file,parseDocument,service.lifecycle,false))
+  assert.deepEqual(serviceCalls,[['show','--property=LoadState,ActiveState,ExecStart','aukora-browser.service'],['show','--property=LoadState,ActiveState,ExecStart','aukora-genesis.service'],['stop','aukora-browser.service'],['is-active','aukora-browser.service'],['start','aukora-browser.service'],['is-active','aukora-browser.service']])
   const changed = parseDocument(readFileSync(file,'utf8')).toJS()
   assert.notEqual(changed.records['client-connection/browser-session'].payload.secret,record.payload.secret)
   assert.deepEqual(changed.refs,data.refs)
@@ -206,7 +248,6 @@ try {
   assert.throws(()=>m.validateInvocation('v24.11.1','darwin',0,args),/SESSION_ROOT_LINUX_REQUIRED/)
   assert.throws(()=>m.validateInvocation('v24.11.1','linux',501,args),/SESSION_ROOT_LINUX_REQUIRED/)
   assert.throws(()=>m.validateInvocation('v24.11.1','linux',0,[]),/SESSION_ARGUMENTS_REFUSED/)
-  const unit='{ path=/usr/bin/python3 ; argv[]=/usr/bin/python3 scripts/launch-dsh.py --release /opt/release --state-root /home/aukora-host/genesis/state --foreground ; ignore_errors=no ; }'
   assert.equal(m.credentialsForUnit(unit),'/home/aukora-host/genesis/state/home/.credentials.yaml')
   assert.throws(()=>m.credentialsForUnit(unit.replace('/home/aukora-host/genesis/state','/home/other/state')),/SESSION_SERVICE_CONFIG_REFUSED/)
   assert.throws(()=>m.credentialsForUnit(unit.replace('scripts/launch-dsh.py','other.py')),/SESSION_SERVICE_CONFIG_REFUSED/)
@@ -231,7 +272,7 @@ try {
   reset(); let switched=false
   const raceParser=(...args)=>{const doc=parseDocument(...args);return {errors:doc.errors,toJS:()=>doc.toJS(),setIn:(...args)=>{doc.setIn(...args);renameSync(file,file+'.old');reset();switched=true},toString:()=>String(doc)}}
   assert.throws(()=>m.rotateSecret(file,raceParser,false),/SESSION_FILE_CHANGED/);assert.equal(switched,true)
-  console.log('PASS pinned harness session revocation: old loaded key accepts; stop/rotate/restart activation rejects prior cookie; unrelated credentials preserved')
+  console.log('PASS pinned harness session revocation: detected browser/genesis unit; old launch token 401; normal restart preserves cookie; stop/rotate/restart activation rejects prior cookie; unrelated credentials preserved')
 } finally {rmSync(scratch,{recursive:true,force:true})}
 `
 
@@ -264,6 +305,19 @@ test('root session rotation uses the pinned harness format and requires restart,
     ['service state root', 'argv[index + 1] !== STATE_ROOT', 'false'],
     ['one state root', "argv.filter(value => value === '--state-root').length !== 1", 'false'],
     ['actual credentials path', "return join(STATE_ROOT, 'home/.credentials.yaml')", "return join(STATE_ROOT, '.credentials.yaml')"],
+    ['browser service discovery', "const UNITS = ['aukora-browser.service', 'aukora-genesis.service']", "const UNITS = ['aukora-genesis.service']"],
+    ['service inspection', 'if (result.status !== 0)', 'if (false)'],
+    ['complete service state', "rows.length !== 3 || Object.keys(properties).sort().join(',') !== 'ActiveState,ExecStart,LoadState'", 'false'],
+    ['installed service', "properties.LoadState !== 'loaded'", 'false'],
+    ['missing unit consistency', " && properties.ExecStart === ''", ''],
+    ['stable service state', "!['active', 'inactive', 'failed'].includes(properties.ActiveState)", 'false'],
+    ['only active service', "if (properties.ActiveState === 'active')", 'if (true)'],
+    ['unique active service', 'if (targets.length !== 1)', 'if (false)'],
+    ['selected lifecycle unit', 'const { unit, credentialsFile } = targets[0]', "const { credentialsFile } = targets[0]; const unit = 'aukora-genesis.service'"],
+    ['service stop verified', "stop: () => run(['stop', unit]).status === 0", 'stop: () => true'],
+    ['service start verified', "start: () => run(['start', unit]).status === 0", 'start: () => true'],
+    ['service inactive verified', "return result.status === 3 && result.stdout.trim() === 'inactive'", 'return true'],
+    ['service active verified', "return result.status === 0 && result.stdout.trim() === 'active'", 'return true'],
     ['code directory nonwritable', '(info.mode & 0o022)\n    || (rootOnly', 'false\n    || (rootOnly'],
     ['code closure recursion', 'protectedCodeTree(path, rootOnly)', 'void path'],
     ['stop', 'if (!lifecycle.stop())', 'if (false)'],

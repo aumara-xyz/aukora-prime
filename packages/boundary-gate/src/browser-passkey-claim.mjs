@@ -8,7 +8,6 @@ import { mintPasskeyClaim, passkeySetup, readProtectedJson } from './owner-state
 
 export const BROWSER_BINDING_RECORD = '/home/aukora-host/genesis/state/aumlok-binding/local-control.json'
 const SETUP = '/etc/aukora-boundary-gate/passkey-setup.json'
-const CLAIM = '/var/lib/aukora-browser/passkey-claim.txt'
 const DB = '/home/aukora-gate/gate.db'
 const JOIN = '/etc/aukora-boundary-gate/browser-join.json'
 const DROPIN = '/etc/systemd/system/aukora-boundary-gate.service.d/browser-owner.conf'
@@ -76,13 +75,18 @@ export function checkBrowserPasskeySelection(db) {
       && db.prepare('SELECT failed FROM owner_passkey_ceremony WHERE singleton=1').get()?.failed)) fail('enrollment-closed')
 }
 
-export function savedBrowserPasskeyClaim(setup, claim, expected, nowMs = Date.now()) {
+export function browserPasskeySetupSelection(setup, expected, nowMs = Date.now()) {
   setup = passkeySetup(setup)
   if (setup.gate !== expected.gate || setup.node !== expected.node || setup.origin !== expected.origin
     || JSON.stringify(setup.binding) !== JSON.stringify(expected.binding)) fail('setup-changed')
   if (nowMs >= setup.expires_at_ms) fail('claim-expired')
-  if (!/^[A-Za-z0-9_-]{43}\n$/u.test(claim) || hash(claim.trim()) !== setup.claim_sha256) fail('claim-changed')
-  return claim.trim()
+  return setup
+}
+
+export function mintedBrowserPasskeyClaim(setup, claim, expected, nowMs = Date.now()) {
+  setup = browserPasskeySetupSelection(setup, expected, nowMs)
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(claim) || hash(claim) !== setup.claim_sha256) fail('claim-changed')
+  return claim
 }
 
 export async function mintBrowserPasskeyClaim({ ownerOrigin, appOrigin, release }) {
@@ -99,22 +103,12 @@ export async function mintBrowserPasskeyClaim({ ownerOrigin, appOrigin, release 
   const db = new DatabaseSync(DB, { readOnly: true })
   try {
     checkBrowserPasskeySelection(db)
-    if (!present(SETUP)) {
-      if (present(CLAIM)) fail('claim-without-setup')
-      mintPasskeyClaim({ file: SETUP, claimFile: CLAIM, ...expected })
+    if (present(SETUP)) {
+      browserPasskeySetupSelection(readProtectedJson(SETUP), expected)
+      fail('claim-already-minted')
     }
-    const claimInfo = fs.lstatSync(CLAIM)
-    if (!claimInfo.isFile() || claimInfo.isSymbolicLink() || claimInfo.uid !== 0 || claimInfo.nlink !== 1
-      || (claimInfo.mode & 0o077) || claimInfo.size !== 44) fail('claim-unprotected')
-    const fd = fs.openSync(CLAIM, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
-    let claim
-    try {
-      const opened = fs.fstatSync(fd)
-      if (opened.dev !== claimInfo.dev || opened.ino !== claimInfo.ino || !opened.isFile() || opened.uid !== 0
-        || opened.nlink !== 1 || (opened.mode & 0o077) || opened.size !== 44) fail('claim-unprotected')
-      claim = fs.readFileSync(fd, 'utf8')
-    } finally { fs.closeSync(fd) }
-    const code = savedBrowserPasskeyClaim(readProtectedJson(SETUP), claim, expected)
+    const { claim } = mintPasskeyClaim({ file: SETUP, claimFile: '/var/lib/aukora-browser/passkey-claim.txt', ...expected })
+    const code = mintedBrowserPasskeyClaim(readProtectedJson(SETUP), claim, expected)
     return ownerOrigin + '/owner/enroll#claim=' + code
   } finally { db.close() }
 }

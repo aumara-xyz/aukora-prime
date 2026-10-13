@@ -204,11 +204,21 @@ test('launcher accepts only the exact root-file HTTPS hostname and passes only i
   }
 })
 
-function render(args = []) {
-  return spawnSync(python, ['-I', '-S', renderPath, '--app-host', 'node.example.test',
+function render(args = [], source = renderPath) {
+  return spawnSync(python, ['-I', '-S', source, '--app-host', 'node.example.test',
     '--owner-host', 'owner.example.test', '--harness-port', '28735', '--owner-port', '28736',
     '--claim-port', '28737', ...args],
   { encoding: 'utf8' })
+}
+
+function assertHttpCaddy(text, host) {
+  const start = text.indexOf(`http://${host} {\n`)
+  assert.notEqual(start, -1, host)
+  const block = text.slice(start, text.indexOf('\n}', start) + 2)
+  assert.match(block, /@launch_token query token=\*/u, `${host}: HTTP token query matcher`)
+  assert.match(block, /handle @launch_token \{\n\t\trespond 404\n\t\}/u, `${host}: HTTP token refusal`)
+  assert.ok(block.includes(`handle {\n\t\tredir https://${host}{path} permanent\n\t}`), `${host}: path-only redirect`)
+  assert.doesNotMatch(block, /\{uri\}|\{query\}|http\.request\.uri/u, `${host}: no query in redirect`)
 }
 
 function assertCaddy(text) {
@@ -219,6 +229,9 @@ function assertCaddy(text) {
   assert.match(text, /^http:\/\/owner\.example\.test \{/mu)
   assert.match(text, /^:80, :443 \{/mu)
   assert.match(text, /Strict-Transport-Security "max-age=31536000"/u)
+  assert.doesNotMatch(text, /includeSubDomains/u, 'subdomain HSTS is opt-in')
+  assertHttpCaddy(text, 'node.example.test')
+  assertHttpCaddy(text, 'owner.example.test')
   assert.match(text, /request_body \{\s+max_size 8MB/u)
   assert.equal(text.match(/reverse_proxy 127\.0\.0\.1:/gu)?.length, 3)
   assert.match(text, /handle @claim \{\s+reverse_proxy 127\.0\.0\.1:28737 \{/u)
@@ -271,6 +284,12 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
     ['owner frame refusal', 'header X-Frame-Options "DENY"', 'header X-Removed-Frame "ALLOW"'],
     ['closed unknown hosts', ':80, :443 {', ':80 {'],
     ['public launch token refused', 'handle @launch_token {\n\t\trespond 404', 'handle @launch_token {\n\t\trespond 200'],
+    ['HTTP app token matcher', 'http://node.example.test {\n\t@launch_token query token=*', 'http://node.example.test {\n\t@launch_token query removed=*'],
+    ['HTTP owner token matcher', 'http://owner.example.test {\n\t@launch_token query token=*', 'http://owner.example.test {\n\t@launch_token query removed=*'],
+    ['HTTP app token refusal', 'http://node.example.test {\n\t@launch_token query token=*\n\thandle @launch_token {\n\t\trespond 404', 'http://node.example.test {\n\t@launch_token query token=*\n\thandle @launch_token {\n\t\trespond 200'],
+    ['HTTP owner token refusal', 'http://owner.example.test {\n\t@launch_token query token=*\n\thandle @launch_token {\n\t\trespond 404', 'http://owner.example.test {\n\t@launch_token query token=*\n\thandle @launch_token {\n\t\trespond 200'],
+    ['HTTP app drops query', 'redir https://node.example.test{path} permanent', 'redir https://node.example.test{uri} permanent'],
+    ['HTTP owner drops query', 'redir https://owner.example.test{path} permanent', 'redir https://owner.example.test{uri} permanent'],
     ['returning signin route', '/__aukora/signin /__aukora/signin.js', '/removed/signin /removed/signin.js'],
     ['signout route', '/__aukora/signout', '/removed/signout'],
     ['claim upstream separated', 'handle @claim {\n\t\treverse_proxy 127.0.0.1:28737', 'handle @claim {\n\t\treverse_proxy 127.0.0.1:28736'],
@@ -296,6 +315,12 @@ spec = importlib.util.spec_from_file_location('render_under_test', source)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 template = source.with_name('Caddyfile.template').read_text()
+nodes = [{'name':'single','app_host':'node.example.test','owner_host':'owner.example.test','harness_port':28735,'owner_port':28736,'claim_port':28737}]
+assert 'Strict-Transport-Security "max-age=31536000"' in module._render_nodes(template, nodes)
+assert 'includeSubDomains' not in module._render_nodes(template, nodes)
+assert 'Strict-Transport-Security "max-age=31536000; includeSubDomains"' in module._render_nodes(template, nodes, hsts_include_subdomains=True)
+assert 'includeSubDomains' not in module.render(template, 'node.example.test', 'owner.example.test', 28735, 28736, 28737)
+assert 'Strict-Transport-Security "max-age=31536000; includeSubDomains"' in module.render(template, 'node.example.test', 'owner.example.test', 28735, 28736, 28737, hsts_include_subdomains=True)
 for value in ['127.0.0.1', 'node.example.123']:
     try: module.hostname(value)
     except module.argparse.ArgumentTypeError: pass
@@ -345,6 +370,9 @@ test('renderer refuses numeric authorities and colliding broker upstreams', t =>
     ['globally unique ports', 'if len(node_ports) != 3 or ports & node_ports:', 'if len(node_ports) != 3:'],
     ['unique node names', 'or NODE_NAME.fullmatch(name) is None or name in names):', 'or NODE_NAME.fullmatch(name) is None or False):'],
     ['root-owned nodes file', 'or info.st_uid != required_uid', 'or False'],
+    ['subdomain HSTS defaults off', 'def _render_nodes(template, nodes, hsts_include_subdomains=False):', 'def _render_nodes(template, nodes, hsts_include_subdomains=True):'],
+    ['subdomain HSTS opt-in render', '"; includeSubDomains" if hsts_include_subdomains else ""', '""'],
+    ['subdomain HSTS single-node passthrough', 'hsts_include_subdomains=hsts_include_subdomains)', 'hsts_include_subdomains=False)'],
   ]
   const scratch = mkdtempSync(join(tmpdir(), 'aukora-ingress-render-mutants-'))
   writeFileSync(join(scratch, 'Caddyfile.template'), readFileSync(templatePath))
@@ -369,7 +397,33 @@ test('renderer refuses numeric authorities and colliding broker upstreams', t =>
   const missingMutant = spawnSync(python, args.map(value => value === renderPath ? missingGuard : value), { encoding: 'utf8' })
   assert.doesNotMatch(missingMutant.stderr, /single-node mode requires all five host and port flags/u)
   t.diagnostic('MUTATION CAUGHT renderer required single-node flags')
-  t.diagnostic(`MUTATION renderer protections: ${mutations.length}/${mutations.length} killed`)
+  t.diagnostic(`MUTATION renderer protections: ${mutations.length + 1}/${mutations.length + 1} killed`)
+})
+
+test('subdomain HSTS requires the explicit render flag', t => {
+  const optedIn = render(['--hsts-include-subdomains'])
+  assert.equal(optedIn.status, 0, optedIn.stderr)
+  assert.match(optedIn.stdout, /Strict-Transport-Security "max-age=31536000; includeSubDomains"/u)
+  const source = readFileSync(renderPath, 'utf8')
+  const scratch = mkdtempSync(join(tmpdir(), 'aukora-ingress-hsts-mutants-'))
+  writeFileSync(join(scratch, 'Caddyfile.template'), readFileSync(templatePath))
+  const mutations = [
+    ['CLI subdomain HSTS passthrough', '_render_nodes(template, nodes, hsts_include_subdomains=arguments.hsts_include_subdomains)',
+      '_render_nodes(template, nodes)', ['--hsts-include-subdomains'],
+      text => assert.match(text, /Strict-Transport-Security "max-age=31536000; includeSubDomains"/u)],
+    ['CLI subdomain HSTS defaults off', 'parser.add_argument("--hsts-include-subdomains", action="store_true")',
+      'parser.add_argument("--hsts-include-subdomains", action="store_true", default=True)', [], assertCaddy],
+  ]
+  for (const [name, before, after, args, court] of mutations) {
+    assert.equal(source.split(before).length, 2)
+    const file = join(scratch, `${name.replaceAll(' ', '-')}.py`)
+    writeFileSync(file, source.replace(before, after), { mode: 0o600 })
+    const mutant = render(args, file)
+    assert.equal(mutant.status, 0, mutant.stderr)
+    assert.throws(() => court(mutant.stdout), assert.AssertionError, `surviving mutant: ${name}`)
+    t.diagnostic(`MUTATION CAUGHT renderer ${name}`)
+  }
+  t.diagnostic(`MUTATION renderer HSTS CLI protections: ${mutations.length}/${mutations.length} killed`)
 })
 
 const nodesCliCourt = String.raw`
@@ -401,6 +455,8 @@ function assertNodeCaddy(text, node, sibling) {
   assert.match(block, new RegExp(`\\thandle \\{\\s+reverse_proxy 127\\.0\\.0\\.1:${node.harness_port}`))
   assert.match(block, new RegExp(`header X-Frame-Options "DENY"\\s+reverse_proxy 127\\.0\\.0\\.1:${node.owner_port}`))
   assert.match(block, /handle @launch_token \{\n\t\trespond 404\n\t\}/u)
+  assertHttpCaddy(block, node.app_host)
+  assertHttpCaddy(block, node.owner_host)
   for (const header of ['Origin', 'Cookie', 'Sec-Fetch-Dest', 'Sec-Fetch-Mode', 'Sec-Fetch-Site', 'Sec-Fetch-User']) {
     assert.doesNotMatch(block, new RegExp(`header_up -?${header}\\b`, 'u'), `${node.name}: ${header}`)
   }
@@ -426,11 +482,19 @@ test('multi-node render keeps each sibling hostname on its own ports and check c
   assertNodeCaddy(text, nodes[1], nodes[0])
   assert.equal(text.match(/^:80, :443 \{/gmu)?.length, 1)
   assert.match(text, /Strict-Transport-Security "max-age=31536000"/u)
+  assert.doesNotMatch(text, /includeSubDomains/u)
   assert.match(text, /request_body \{\s+max_size 8MB/u)
 
   const checked = run(['--check', renderedPath, '--nodes', nodesPath])
   assert.equal(checked.status, 0, checked.stderr)
   assert.match(checked.stdout, /^PASS ingress: rendered file matches 2 nodes$/mu)
+
+  const optedIn = run(['--nodes', nodesPath, '--hsts-include-subdomains'])
+  assert.equal(optedIn.status, 0, optedIn.stderr)
+  assert.match(optedIn.stdout, /Strict-Transport-Security "max-age=31536000; includeSubDomains"/u)
+  const mismatchedHsts = run(['--check', renderedPath, '--nodes', nodesPath, '--hsts-include-subdomains'])
+  assert.notEqual(mismatchedHsts.status, 0, 'default-off rendering must not pass an opt-in check')
+  assert.match(mismatchedHsts.stderr, /INGRESS_RENDERED_MISMATCH/u)
 
   writeFileSync(renderedPath, text.replace('127.0.0.1:29735', '127.0.0.1:28735'))
   const crossed = run(['--check', renderedPath, '--nodes', nodesPath])

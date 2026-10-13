@@ -2,7 +2,10 @@
 import contextlib
 import importlib.util
 import io
+import json
+import os
 from pathlib import Path
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
@@ -43,6 +46,7 @@ def exercise(text=TEXT, failure=None, link=LINK, group='skgate:x:123:'):
     with contextlib.ExitStack() as stack:
         for name, value in {
             'root_check': lambda: step('root'),
+            'discard_passkey_claim': lambda: step('discard'),
             'installed': lambda: step('installed', {'revision': 'a' * 40}),
             'bootstrap': lambda *args: step(('bootstrap',) + args[:2]),
             'run': run, 'sockets': lambda: step('sockets'),
@@ -69,8 +73,8 @@ class PasskeyClaim(unittest.TestCase):
                 initialize(w, text)
                 accept = w.m.accept
 
-                def dispatch(phase):
-                    value = accept('passkey' if phase == 'after' else phase)
+                def dispatch(phase, checks=None):
+                    value = accept('passkey' if phase == 'after' else phase, checks)
                     if phase == 'after':
                         assert ('run', 'PASSKEY_ACCEPTANCE_REFUSED') in w.events
                     return value
@@ -89,7 +93,7 @@ class PasskeyClaim(unittest.TestCase):
     def test_activation_and_only_owner_link(self):
         events, output = exercise()
         self.assertEqual(output, LINK)
-        self.assertEqual(events[:4], ['root', 'installed', ('bootstrap', 'check-package'), ('bootstrap', 'floor', 'check')])
+        self.assertEqual(events[:5], ['root', 'discard', 'installed', ('bootstrap', 'check-package'), ('bootstrap', 'floor', 'check')])
         command = next(e for e in events if isinstance(e, tuple) and e and e[0] == '/opt/aukora-node/bin/node')
         self.assertEqual(command[1:], ('/opt/aukora-boundary-gate/bin/browser-passkey-claim.mjs',
             '--owner-origin', 'https://owner.example.test', '--app-origin', 'https://app.example.test',
@@ -99,6 +103,7 @@ class PasskeyClaim(unittest.TestCase):
         self.assertIn('--passkey-setup /etc/aukora-boundary-gate/passkey-setup.json', write[2])
         self.assertNotIn('--owner-page', write[2])
         self.assertNotIn('--browser-join', write[2])
+        self.assertIn('ExecStartPre=+/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py discard-passkey-claim', write[2])
         self.assertLess(events.index('PASSKEY_CONFIG_REFUSED'), events.index(write))
         self.assertLess(events.index(write), events.index('SYSTEMD_REFUSED'))
         self.assertLess(events.index('SYSTEMD_REFUSED'), events.index('PASSKEY_START_REFUSED'))
@@ -110,7 +115,7 @@ class PasskeyClaim(unittest.TestCase):
         self.assertEqual(chown[2], {'follow_symlinks': False})
 
     def test_failures_refuse_before_printing_link(self):
-        for failure in ['root', 'installed', ('bootstrap', 'check-package'), ('bootstrap', 'floor', 'check'),
+        for failure in ['root', 'discard', 'installed', ('bootstrap', 'check-package'), ('bootstrap', 'floor', 'check'),
                         'PASSKEY_CLAIM_REFUSED', 'GROUP_MISSING', 'custody', 'PASSKEY_CONFIG_REFUSED',
                         'SYSTEMD_REFUSED', 'PASSKEY_START_REFUSED', 'sockets', 'PASSKEY_GATE_INACTIVE']:
             with self.subTest(failure=failure), self.assertRaises(ValueError):
@@ -128,6 +133,7 @@ class PasskeyClaim(unittest.TestCase):
         function = TEXT[begin:end]
         mutations = [
             ('    root_check()\n', '', 'root'), ('value = installed()', "value = {'revision': 'a' * 40}", 'installed'),
+            ('    discard_passkey_claim()\n', '', 'discard'),
             ("bootstrap('check-package')", '', ('bootstrap', 'check-package')),
             ("bootstrap('floor', 'check', '--release-dir', release, '--approval-state-root', approval)", '', ('bootstrap', 'floor', 'check')),
             ("if re.fullmatch(re.escape(owner_public + '/owner/enroll#claim=') + r'[A-Za-z0-9_-]{43}\\n', link) is None:", 'if False:', 'link'),
@@ -157,6 +163,77 @@ class PasskeyClaim(unittest.TestCase):
             else:
                 self.fail('mutation survived: ' + before)
         print('SOURCE-ONLY browser passkey activation mutations: %d/%d killed' % (killed, len(mutations)))
+
+    def sweep(self, text=TEXT, state='unused', unsafe=False):
+        scratch = SOURCE.parents[3] / '.runtime/passkey-sweep'
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as folder:
+            folder = Path(folder)
+            claim = folder / 'passkey-claim.txt'
+            claim.write_text('x' * 43 + '\n')
+            setup = folder / 'passkey-setup.json'
+            setup.write_text(json.dumps({'claim_sha256': 'a' * 64, 'state': state}))
+            m = load(text.replace("Path('/var/lib/aukora-browser/passkey-claim.txt')", 'Path(' + repr(str(claim)) + ')'))
+            syncs, parents, opens = [], [], []
+            original_open, original_fsync = os.open, os.fsync
+
+            def protect(parent, directory=False):
+                parents.append((parent, directory))
+                if unsafe:
+                    raise ValueError('BROWSER_CUSTODY_INVALID')
+
+            def opened(parent, flags):
+                opens.append((parent, flags))
+                return original_open(parent, flags)
+
+            def sync(fd):
+                self.assertTrue(m.stat.S_ISDIR(os.fstat(fd).st_mode))
+                syncs.append(fd)
+                original_fsync(fd)
+
+            with patch.object(m, 'root_check'), patch.object(m, 'model_status'), patch.object(m, 'protected', side_effect=protect), \
+                    patch.object(m.os, 'open', side_effect=opened), patch.object(m.os, 'fsync', side_effect=sync):
+                if unsafe:
+                    with self.assertRaisesRegex(ValueError, 'CUSTODY_INVALID'):
+                        m.main(['discard-passkey-claim'])
+                    self.assertTrue(claim.exists())
+                    return
+                m.main(['discard-passkey-claim'])
+                self.assertFalse(claim.exists(), state)
+                self.assertEqual(setup.read_text(), json.dumps({'claim_sha256': 'a' * 64, 'state': state}))
+                self.assertEqual(parents, [(p, True) for p in [folder, *folder.parents]])
+                self.assertEqual(len(syncs), 1)
+                self.assertEqual(opens, [(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)])
+                m.main(['discard-passkey-claim'])
+                self.assertEqual(len(syncs), 1, 'absent legacy file is a no-op')
+
+    def test_legacy_raw_claim_removed_before_use_after_use_expiry_and_crash_restart(self):
+        for state in ['unused', 'used', 'expired', 'crash-before-cleanup']:
+            self.sweep(state=state)
+        self.sweep(unsafe=True)
+        self.assertEqual(TEXT.count('ExecStartPre=+/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py discard-passkey-claim'), 2)
+
+    def test_legacy_sweep_mutations(self):
+        mutations = [
+            ('    claim.unlink()', '    pass', lambda text: self.sweep(text)),
+            ('        os.fsync(fd)', '        pass', lambda text: self.sweep(text)),
+            ('        protected(parent, True)', '        pass', lambda text: self.sweep(text, unsafe=True)),
+            ('os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW', 'os.O_RDONLY | os.O_DIRECTORY', lambda text: self.sweep(text)),
+            ("elif options.action == 'discard-passkey-claim':", 'elif False:', lambda text: self.sweep(text)),
+        ]
+        for before, after, check in mutations:
+            begin = TEXT.index('def discard_passkey_claim():')
+            head, tail = TEXT[:begin], TEXT[begin:]
+            self.assertIn(before, tail)
+            with self.assertRaises(AssertionError):
+                check(head + tail.replace(before, after, 1))
+        for occurrence in [0, 1]:
+            line = 'ExecStartPre=+/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py discard-passkey-claim'
+            pieces = TEXT.split(line)
+            mutant = line.join(pieces[:occurrence + 1]) + line.join(pieces[occurrence + 1:])
+            with self.assertRaises(AssertionError):
+                self.assertEqual(mutant.count(line), 2)
+        print('SOURCE-ONLY legacy passkey sweep mutations: 7/7 killed')
 
 
 if __name__ == '__main__':

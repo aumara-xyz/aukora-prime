@@ -66,6 +66,14 @@ class BrowserInstaller(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root)
 
+    def test_legacy_passkey_claim_directory_refuses(self):
+        claim = self.root / 'passkey-claim.txt'
+        claim.mkdir()
+        selected = lambda value: claim if value == '/var/lib/aukora-browser/passkey-claim.txt' else Path(value)
+        with patch.object(M, 'Path', side_effect=selected), patch.object(M, 'protected'):
+            rejects(M.discard_passkey_claim, 'PASSKEY_CLAIM_DIRECTORY')
+        self.assertTrue(claim.is_dir())
+
     def test_usage_every_option(self):
         valid = ['install', '--inputs', str(self.root), '--checkout-sha256', 'a' * 64,
                  '--revision', 'a' * 40, '--node-sha256', 'b' * 64, '--dependencies-sha256', 'c' * 64,
@@ -747,6 +755,7 @@ def guard_mutations():
         'validate_model_key': ['test_model_key_input_refusals_and_prompt'],
         'read_model_key': ['test_model_key_input_refusals_and_prompt'],
         'model_store_key': ['test_model_key_custody_and_store_refusals'],
+        'discard_passkey_claim': ['test_legacy_passkey_claim_directory_refuses'],
         'main': ['test_usage_every_option', 'test_profile_rules_and_service_preflight'],
         'evidence_custody': ['test_evidence_reads_bound_public_sources'],
         'evidence_json': ['test_evidence_reads_bound_public_sources'],

@@ -632,8 +632,27 @@ def rotate_owner_link():
     print('BROWSER_OWNER_LINK_ROTATED; retrieve bearer through the private operator route')
 
 
+def discard_passkey_claim():
+    # Remove legacy cleartext before the gate starts, regardless of claim state.
+    claim = Path('/var/lib/aukora-browser/passkey-claim.txt')
+    try:
+        info = claim.lstat()
+    except FileNotFoundError:
+        return
+    for parent in [claim.parent, *claim.parent.parents]:
+        protected(parent, True)
+    need(not stat.S_ISDIR(info.st_mode), 'PASSKEY_CLAIM_DIRECTORY')
+    claim.unlink()
+    fd = os.open(claim.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def passkey_claim():
     root_check()
+    discard_passkey_claim()
     value = installed()
     release, approval = release_paths(value)
     bootstrap('check-package')
@@ -660,6 +679,7 @@ def passkey_claim():
     passkey_service = '''[Service]
 ExecStart=
 ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap serve --home /home/aukora-gate --run /run/aukora-gate --target-root /var/lib/aukora-boundary/targets --port 17792 --gid GROUP --time-zone Asia/Makassar --journal-id aukora-gate-pilot --passkey-setup /etc/aukora-boundary-gate/passkey-setup.json
+ExecStartPre=+/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py discard-passkey-claim
 '''.replace('GROUP', group)
     config.write(Path('/etc/systemd/system/aukora-boundary-gate.service.d') / 'browser-owner.conf', passkey_service.encode(), Path('/'))
     run(['systemctl', 'daemon-reload'], 'SYSTEMD_REFUSED')
@@ -694,6 +714,7 @@ if (setup.gate !== createHash('sha256').update(signer.export({ type: 'spki', for
     dropin = '''[Service]
 ExecStart=
 ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap serve --home /home/aukora-gate --run /run/aukora-gate --target-root /var/lib/aukora-boundary/targets --port 17792 --gid GROUP --time-zone Asia/Makassar --journal-id aukora-gate-pilot --passkey-setup /etc/aukora-boundary-gate/passkey-setup.json --browser-join /etc/aukora-boundary-gate/browser-join.json
+ExecStartPre=+/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py discard-passkey-claim
 '''.replace('GROUP', group)
     config.write(Path('/etc/systemd/system/aukora-boundary-gate.service.d/browser-owner.conf'), dropin.encode(), Path('/'))
     run(['systemctl', 'daemon-reload'], 'SYSTEMD_REFUSED')
@@ -1000,7 +1021,7 @@ class Parser(argparse.ArgumentParser):
 
 def main(args):
     parser = Parser(add_help=False)
-    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'passkey-claim', 'enable-owner-signin', 'model-key'])
+    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'passkey-claim', 'discard-passkey-claim', 'enable-owner-signin', 'model-key'])
     parser.add_argument('--inputs')
     parser.add_argument('--app-host')
     parser.add_argument('--owner-host')
@@ -1035,6 +1056,9 @@ def main(args):
         rotate_owner_link()
     elif options.action == 'passkey-claim':
         passkey_claim()
+    elif options.action == 'discard-passkey-claim':
+        root_check()
+        discard_passkey_claim()
     elif options.action == 'enable-owner-signin':
         enable_owner_signin()
     elif options.action == 'model-key':

@@ -57,7 +57,7 @@ async function world(exercise, text = source, changes = {}) {
     if (files.has(setupFile) || files.has(claimFile)) throw new Error('exclusive-create')
     files.set(setupFile, JSON.stringify({ version: 1, kind: 'aukora-gate-passkey-setup/v1', gate: args.gate, node: args.node,
       origin: args.origin, rp_id: new URL(args.origin).hostname, binding: args.binding, claim_sha256: hash(code), expires_at_ms: Date.now() + 300000 }))
-    files.set(claimFile, code + '\n'); events.push(['mint'])
+    events.push(['mint']); return { minted: true, claim: code }
   }
   const mocks = {
     realpathSync(file) { return (w.alias && file === recordFile) || (w.releaseAlias && file === '/synthetic/release') ? '/synthetic/alias' : file === '/synthetic/alias' ? '/synthetic/release' : file },
@@ -93,8 +93,11 @@ test('browser-passkey-claim derives exact public control and prints a single own
   assert.deepEqual(current, { subject: control.subject, control_digest: control.activeControlDigest,
     approval_key_did: control.approvalKeyDid, authorization_epoch: 1, source_sha256: hash(read.bytes) })
   assert.deepEqual(w.reads, [[recordFile, 32768]])
-  const first = await mint(m), second = await mint(m)
-  assert.equal(first, origin + '/owner/enroll#claim=' + 'x'.repeat(43)); assert.equal(second, first)
+  const first = await mint(m)
+  assert.equal(first, origin + '/owner/enroll#claim=' + 'x'.repeat(43))
+  await assert.rejects(() => mint(m), /claim-already-minted/)
+  assert.equal(w.files.has(claimFile), false)
+  assert.ok([...w.files.values()].every(bytes => !bytes.includes('x'.repeat(43))))
   assert.equal(w.events.filter(([event]) => event === 'mint').length, 1)
   const setup = JSON.parse(w.files.get(setupFile)), gate = setup.gate
   assert.equal(setup.node, hash('aukora-browser-node/v1\0' + gate)); assert.equal(setup.rp_id, 'owner.example.test')
@@ -122,11 +125,11 @@ test('root, exact public record, complete control, expiry and unchanged claim bi
       assert.throws(() => m.browserBindingSnapshot(read, () => ({ ...projectRecordV3Control({ record }), ...changed })), /binding-record/)
     const snapshot = m.browserBindingSnapshot(read, projectRecordV3Control), expected = { gate: 'c'.repeat(64), node: 'd'.repeat(64), origin, binding: m.browserPasskeyBinding(snapshot, origin, appOrigin) }
     const setup = { version: 1, kind: 'aukora-gate-passkey-setup/v1', ...expected, rp_id: 'owner.example.test', claim_sha256: hash('x'.repeat(43)), expires_at_ms: 1000 }
-    assert.equal(m.savedBrowserPasskeyClaim(setup, 'x'.repeat(43) + '\n', expected, 999), 'x'.repeat(43))
-    assert.throws(() => m.savedBrowserPasskeyClaim(setup, 'x'.repeat(43) + '\n', expected, 1000), /claim-expired/)
+    assert.equal(m.mintedBrowserPasskeyClaim(setup, 'x'.repeat(43), expected, 999), 'x'.repeat(43))
+    assert.throws(() => m.mintedBrowserPasskeyClaim(setup, 'x'.repeat(43), expected, 1000), /claim-expired/)
     for (const change of [{ node: 'e'.repeat(64) }, { gate: 'e'.repeat(64) }, { origin: 'https://other.example.test' }, { binding: { ...expected.binding, identity: { ...expected.binding.identity, subject: 'aukora:1:' + 'e'.repeat(64) } } }])
-      assert.throws(() => m.savedBrowserPasskeyClaim(setup, 'x'.repeat(43) + '\n', { ...expected, ...change }, 999), /setup-changed/)
-    assert.throws(() => m.savedBrowserPasskeyClaim(setup, 'z'.repeat(43) + '\n', expected, 999), /claim-changed/)
+      assert.throws(() => m.mintedBrowserPasskeyClaim(setup, 'x'.repeat(43), { ...expected, ...change }, 999), /setup-changed/)
+    assert.throws(() => m.mintedBrowserPasskeyClaim(setup, 'z'.repeat(43), expected, 999), /claim-changed/)
   })
 })
 
@@ -135,17 +138,8 @@ test('enrollment and browser join selections cannot be replaced, including retai
     await world(m => assert.rejects(() => mint(m), /browser-join-selected|enrollment-closed/), source, changes)
   for (const [file, value] of [[joinFile, '{}'], [dropinFile, 'serve --browser-join /selected']])
     await world((m, w) => { w.files.set(file, value); return assert.rejects(() => mint(m), /browser-join-selected/) })
-  await world((m, w) => { w.files.set(claimFile, 'x'.repeat(43) + '\n'); return assert.rejects(() => mint(m), /claim-without-setup/) })
 })
 
-test('saved claim has private root custody, one link, no aliases and the same protected descriptor', async () => {
-  for (const changes of [{ uid: 501 }, { mode: 0o644 }, { nlink: 2 }, { size: 45 }, { isFile: () => false }, { isSymbolicLink: () => true }])
-    await world(m => assert.rejects(() => mint(m), /claim-unprotected/), source, { claimMetadata: changes })
-  for (const changes of [{ uid: 501 }, { mode: 0o644 }, { nlink: 2 }, { size: 45 }, { isFile: () => false }, { ino: 99 }, { dev: 99 }])
-    await world(m => assert.rejects(() => mint(m), /claim-unprotected/), source, { openedMetadata: changes })
-  await world(m => assert.rejects(() => mint(m), { code: 'ELOOP' }), source, { noFollow: true })
-  await world(m => assert.rejects(() => mint(m), { code: 'EAGAIN' }), source, { nonblock: true })
-})
 
 if (process.argv.includes('--mutations')) test('browser-passkey-claim guard mutations fail their focused assertions', async t => {
   const mutations = [
@@ -158,9 +152,9 @@ if (process.argv.includes('--mutations')) test('browser-passkey-claim guard muta
     ['record alias', 'fs.realpathSync(BROWSER_BINDING_RECORD) !== BROWSER_BINDING_RECORD', 'false', m => assert.rejects(() => m.readCurrentBinding(), /binding-alias/), { alias: true }],
     ['record bound', '{ maxBytes: 32768 }', '{ maxBytes: 65536 }', async (m, w) => { await m.readCurrentBinding(); assert.deepEqual(w.reads, [[recordFile, 32768]]) }],
     ['control revoked', 'p.revoked !== false', 'false', m => assert.throws(() => m.browserBindingSnapshot(read, () => ({ ...projectRecordV3Control({ record }), revoked: true })), /binding-record/)],
-    ['expiry', 'nowMs >= setup.expires_at_ms', 'false', async (m, w) => { await mint(m); const setup=JSON.parse(w.files.get(setupFile)); assert.throws(() => m.savedBrowserPasskeyClaim(setup,w.files.get(claimFile),setup,setup.expires_at_ms),/claim-expired/) }],
-    ['setup selection', 'JSON.stringify(setup.binding) !== JSON.stringify(expected.binding)', 'false', async (m, w) => { await mint(m); const setup=JSON.parse(w.files.get(setupFile)); assert.throws(() => m.savedBrowserPasskeyClaim(setup,w.files.get(claimFile),{...setup,binding:{}},Date.now()),/setup-changed/) }],
-    ['claim hash', 'hash(claim.trim()) !== setup.claim_sha256', 'false', async (m, w) => { await mint(m); const setup=JSON.parse(w.files.get(setupFile)); assert.throws(() => m.savedBrowserPasskeyClaim(setup,'z'.repeat(43)+'\n',setup,Date.now()),/claim-changed/) }],
+    ['expiry', 'nowMs >= setup.expires_at_ms', 'false', async (m, w) => { await mint(m); const setup=JSON.parse(w.files.get(setupFile)); assert.throws(() => m.mintedBrowserPasskeyClaim(setup,'x'.repeat(43),setup,setup.expires_at_ms),/claim-expired/) }],
+    ['setup selection', 'JSON.stringify(setup.binding) !== JSON.stringify(expected.binding)', 'false', async (m, w) => { await mint(m); const setup=JSON.parse(w.files.get(setupFile)); assert.throws(() => m.mintedBrowserPasskeyClaim(setup,'x'.repeat(43),{...setup,binding:{}},Date.now()),/setup-changed/) }],
+    ['claim hash', 'hash(claim) !== setup.claim_sha256', 'false', async (m, w) => { await mint(m); const setup=JSON.parse(w.files.get(setupFile)); assert.throws(() => m.mintedBrowserPasskeyClaim(setup,'z'.repeat(43),setup,Date.now()),/claim-changed/) }],
     ['join configuration', 'present(JOIN)', 'false', (m,w) => { w.files.set(joinFile,'{}'); return assert.rejects(() => mint(m),/browser-join-selected/) }],
     ['join service', "present(DROPIN) && fs.readFileSync(DROPIN, 'utf8').includes('--browser-join')", 'false', (m,w) => { w.files.set(dropinFile,'serve --browser-join /selected'); return assert.rejects(() => mint(m),/browser-join-selected/) }],
     ['join database', "db.prepare('SELECT 1 FROM owner_browser_config LIMIT 1').get()", 'false', m => assert.rejects(() => mint(m),/browser-join-selected/), {table:true,selected:true}],
@@ -168,12 +162,7 @@ if (process.argv.includes('--mutations')) test('browser-passkey-claim guard muta
     ['enrollment state', "db.prepare('SELECT state_text FROM owner_passkey WHERE singleton=1').get()?.state_text", 'false', m => assert.rejects(() => mint(m),/enrollment-closed/), {state:'{}'}],
     ['failed ceremony', "db.prepare('SELECT failed FROM owner_passkey_ceremony WHERE singleton=1').get()?.failed", 'false', m => assert.rejects(() => mint(m),/enrollment-closed/), {failed:true}],
     ['release path', 'path.resolve(release) !== release', 'false', m => assert.rejects(() => mint(m,{release:'/synthetic/release/../release'}),/release-path/)],
-    ['claim orphan', 'if (present(CLAIM))', 'if (false)', (m,w) => { w.files.set(claimFile,'x'.repeat(43)+'\n'); return assert.rejects(() => mint(m),/claim-without-setup/) }],
-    ['claim custody', 'claimInfo.uid !== 0', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {claimMetadata:{uid:501}}],
-    ['opened custody', 'opened.uid !== 0', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {openedMetadata:{uid:501}}],
-    ['opened identity', 'opened.ino !== claimInfo.ino', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {openedMetadata:{ino:99}}],
-    ['no follow', ' | fs.constants.O_NOFOLLOW', '', m => assert.rejects(() => mint(m),{code:'ELOOP'}), {noFollow:true}],
-    ['nonblocking', ' | fs.constants.O_NONBLOCK', '', m => assert.rejects(() => mint(m),{code:'EAGAIN'}), {nonblock:true}],
+    ['no reprint', "fail('claim-already-minted')", '', async (m,w) => { await mint(m); await assert.rejects(() => mint(m), /claim-already-minted/); assert.equal(w.files.has(claimFile),false) }],
     ['node identity', "hash('aukora-browser-node/v1\\0' + gate)", "'a'.repeat(64)", async (m,w) => {await mint(m);const setup=JSON.parse(w.files.get(setupFile));assert.equal(setup.node,hash('aukora-browser-node/v1\0'+setup.gate))}],
     ['node version', "process.version !== 'v24.11.1'", 'false', m => assert.rejects(() => mint(m),/node-version/), {version:'v24.11.2'}],
     ['release alias', 'fs.realpathSync(release) !== release', 'false', m => assert.rejects(() => mint(m),/release-path/), {releaseAlias:true}],
@@ -186,19 +175,9 @@ if (process.argv.includes('--mutations')) test('browser-passkey-claim guard muta
     ['snapshot epoch safe', '!Number.isSafeInteger(p.epoch)', 'false', m => assert.throws(() => m.browserBindingSnapshot(read, () => ({ ...projectRecordV3Control({ record }), epoch:0.5 })), /binding-record/)],
     ['snapshot epoch nonnegative', 'p.epoch < 0', 'false', m => assert.throws(() => m.browserBindingSnapshot(read, () => ({ ...projectRecordV3Control({ record }), epoch:-1 })), /binding-record/)],
     ['snapshot epoch increment safe', 'p.epoch >= Number.MAX_SAFE_INTEGER', 'false', m => assert.throws(() => m.browserBindingSnapshot(read, () => ({ ...projectRecordV3Control({ record }), epoch:Number.MAX_SAFE_INTEGER })), /binding-record/)],
-    ['claim type', '!claimInfo.isFile()', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {claimMetadata:{isFile:()=>false}}],
-    ['claim symlink', 'claimInfo.isSymbolicLink()', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {claimMetadata:{isSymbolicLink:()=>true}}],
-    ['claim links', 'claimInfo.nlink !== 1', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {claimMetadata:{nlink:2}}],
-    ['claim mode', '(claimInfo.mode & 0o077)', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {claimMetadata:{mode:0o644}}],
-    ['claim size', 'claimInfo.size !== 44', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {claimMetadata:{size:45}}],
-    ['opened type', '!opened.isFile()', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {openedMetadata:{isFile:()=>false}}],
-    ['opened links', 'opened.nlink !== 1', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {openedMetadata:{nlink:2}}],
-    ['opened mode', '(opened.mode & 0o077)', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {openedMetadata:{mode:0o644}}],
-    ['opened size', 'opened.size !== 44', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {openedMetadata:{size:45}}],
-    ['opened device', 'opened.dev !== claimInfo.dev', 'false', m => assert.rejects(() => mint(m),/claim-unprotected/), {openedMetadata:{dev:99}}],
-    ['selected gate', 'setup.gate !== expected.gate', 'false', async (m,w) => {await mint(m);const s=JSON.parse(w.files.get(setupFile));assert.throws(()=>m.savedBrowserPasskeyClaim(s,w.files.get(claimFile),{...s,gate:'e'.repeat(64)},Date.now()),/setup-changed/)}],
-    ['selected node', 'setup.node !== expected.node', 'false', async (m,w) => {await mint(m);const s=JSON.parse(w.files.get(setupFile));assert.throws(()=>m.savedBrowserPasskeyClaim(s,w.files.get(claimFile),{...s,node:'e'.repeat(64)},Date.now()),/setup-changed/)}],
-    ['selected origin', 'setup.origin !== expected.origin', 'false', async (m,w) => {await mint(m);const s=JSON.parse(w.files.get(setupFile));assert.throws(()=>m.savedBrowserPasskeyClaim(s,w.files.get(claimFile),{...s,origin:'https://other.example.test'},Date.now()),/setup-changed/)}],
+    ['selected gate', 'setup.gate !== expected.gate', 'false', async (m,w) => {await mint(m);const s=JSON.parse(w.files.get(setupFile));assert.throws(()=>m.mintedBrowserPasskeyClaim(s,'x'.repeat(43),{...s,gate:'e'.repeat(64)},Date.now()),/setup-changed/)}],
+    ['selected node', 'setup.node !== expected.node', 'false', async (m,w) => {await mint(m);const s=JSON.parse(w.files.get(setupFile));assert.throws(()=>m.mintedBrowserPasskeyClaim(s,'x'.repeat(43),{...s,node:'e'.repeat(64)},Date.now()),/setup-changed/)}],
+    ['selected origin', 'setup.origin !== expected.origin', 'false', async (m,w) => {await mint(m);const s=JSON.parse(w.files.get(setupFile));assert.throws(()=>m.mintedBrowserPasskeyClaim(s,'x'.repeat(43),{...s,origin:'https://other.example.test'},Date.now()),/setup-changed/)}],
     ['app origin retained', "'root-selected-existing-browser-binding/v1:' + appOrigin", "'root-selected-existing-browser-binding/v1'", async (m,w) => {await mint(m);const s=JSON.parse(w.files.get(setupFile));assert.equal(s.binding.identity_provenance.approval_reference,'root-selected-existing-browser-binding/v1:'+appOrigin)}],
   ]
   let killed = 0

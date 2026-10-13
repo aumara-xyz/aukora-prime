@@ -241,6 +241,7 @@ not upgrade an older installation or reapprove its release.
 
 ```bash
 # Local host: mint immediately before the owner is ready (five-minute expiry).
+# Stdout is the secret enrollment link: do not capture it in logs or transcripts.
 lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py passkey-claim
 # Give the one printed owner-hostname link through the private operator route.
 # Owner: open it, touch to create the credential, touch again to prove possession.
@@ -262,26 +263,36 @@ or enrolled. The RP ID is **exactly `OWNER_HOST`**, never the app hostname or it
 parent domain. The setup pins the existing subject, control digest and record
 hash; it is a root-selected snapshot, not proof of the phrase ceremony's consent.
 
-The command creates the setup and private saved claim exclusively, sets gate
+The command creates the digest-only setup exclusively, sets gate
 read access to setup, verifies it as the gate user, and installs a protected
 passkey-only service drop-in. It restarts the gate, waits for both sockets and
 checks the service is active before printing **only**
 `https://OWNER_HOST/owner/enroll#claim=…`. Keep that link
-private; do not log it. The page removes the fragment before requests, retains
+private; do not log it. The raw code is returned only by this first mint and is
+never written to disk by the command. The lower-level gate `mint-passkey-claim`
+command also returns its code on stdout; that stdout is a secret. Both newly
+generated browser-node passkey drop-ins run a root startup step that removes any
+legacy `passkey-claim.txt` before enrollment is exposed, including after a crash;
+it removes the file regardless of whether the old claim is used or expired.
+Existing installed drop-ins require the owner's upgrade route to acquire this
+step; direct generic gate starts do not install it.
+The page removes the fragment before requests, retains
 it in that origin's tab session storage until success, and automatically requests
 creation followed by possession. It does not require pasting a claim or a third
 subject-binding touch. Bearer approvals are disabled as soon as this mode starts,
 including before enrollment completes; the retained gate latch prevents downgrade.
 
 To recover an interrupted ceremony **before its original five-minute expiry**,
-run the same `node.py passkey-claim` command above as root. It redelivers the
-saved claim after restarting the gate; then reopen that link or reload the same
-tab. A tab reload while the original gate process is still running does not
-resume the reserved ceremony. The secret claim resumes
+use the originally printed link or the same browser tab, after restarting the
+gate through the private operator route. The mint command refuses to reprint
+an existing claim; only its digest remains on the node. A tab reload while the
+original gate process is still running does not resume the reserved ceremony.
+The secret claim resumes
 the same enrollment ID and registration/possession stage. Once registration is
 retained, only possession resumes; another credential cannot replace it. The
-root command can redeliver the same unexpired claim if activation was interrupted;
-it never mints a replacement setup. Completed or cryptographically failed
+command never mints a replacement setup. Losing the original link and tab,
+including an interrupted activation before the first print, requires an explicit
+recovery policy. Completed or cryptographically failed
 ceremonies remain closed, including across restart. An expired unfinished claim
 requires an explicit recovery policy; do not delete protected state, reset the
 floor or downgrade to the bearer page.

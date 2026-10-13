@@ -105,7 +105,7 @@ def load_nodes(path, required_uid=0):
             os.close(descriptor)
 
 
-def _render_nodes(template, nodes):
+def _render_nodes(template, nodes, hsts_include_subdomains=False):
     if template.count(NODE_BEGIN) != 1 or template.count(NODE_END) != 1:
         raise ValueError("INGRESS_TEMPLATE_INCOMPLETE")
     prefix, remainder = template.split(NODE_BEGIN)
@@ -123,16 +123,19 @@ def _render_nodes(template, nodes):
         }.items():
             block = block.replace(marker, value)
         blocks.append(block)
-    result = prefix + "".join(blocks) + suffix
+    result = (prefix + "".join(blocks) + suffix).replace(
+        "__HSTS_INCLUDE_SUBDOMAINS__", "; includeSubDomains" if hsts_include_subdomains else "")
     if re.search(r"__[A-Z_]+__", result):
         raise ValueError("INGRESS_TEMPLATE_INCOMPLETE")
     return result
 
 
-def render(template, app_host, owner_host, harness_port, owner_port, claim_port):
+def render(template, app_host, owner_host, harness_port, owner_port, claim_port,
+           hsts_include_subdomains=False):
     return _render_nodes(template, [{"name": "single", "app_host": app_host,
                                      "owner_host": owner_host, "harness_port": harness_port,
-                                     "owner_port": owner_port, "claim_port": claim_port}])
+                                     "owner_port": owner_port, "claim_port": claim_port}],
+                         hsts_include_subdomains=hsts_include_subdomains)
 
 
 def write_output(path, payload):
@@ -162,6 +165,7 @@ def main():
     parser.add_argument("--nodes", type=Path)
     parser.add_argument("--check", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--hsts-include-subdomains", action="store_true")
     arguments = parser.parse_args()
     single = (arguments.app_host, arguments.owner_host, arguments.harness_port,
               arguments.owner_port, arguments.claim_port)
@@ -178,7 +182,7 @@ def main():
             parser.error("--check cannot be combined with --output")
         nodes = load_nodes(arguments.nodes)
     template = Path(__file__).with_name("Caddyfile.template").read_text(encoding="utf-8")
-    payload = _render_nodes(template, nodes)
+    payload = _render_nodes(template, nodes, hsts_include_subdomains=arguments.hsts_include_subdomains)
     if arguments.check is not None:
         try:
             actual = arguments.check.read_text(encoding="utf-8")

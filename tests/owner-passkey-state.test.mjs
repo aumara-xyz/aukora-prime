@@ -5,6 +5,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { createGate } from '../packages/boundary-gate/src/gate.mjs'
+import { fixture } from './owner-passkey-gate.test.mjs'
 
 const sourceUrl = new URL('../packages/boundary-gate/src/owner-state.mjs', import.meta.url)
 const source = fs.readFileSync(sourceUrl, 'utf8')
@@ -113,23 +115,49 @@ test('only root mints a claim; same path, unprotected parents and collisions cre
   assert.throws(() => mint(module, same, { claimFile: FILE }), { code: 'passkey-setup-path' }); noWrites(same)
   const unsafe = world({ present: false }); unsafe.nodes.get('/root').mode = 0o777
   assert.throws(() => mint(module, unsafe), { code: 'owner-state-unprotected' }); noWrites(unsafe)
-  const collision = world({ present: false }); collision.put(CLAIM, 'existing private claim')
-  assert.throws(() => mint(module, collision), { code: 'EEXIST' }); assert.equal(collision.nodes.has(FILE), false)
-  assert.equal(collision.nodes.get(CLAIM).bytes.toString(), 'existing private claim')
+  const collision = world({ present: false }); collision.put(FILE, 'existing setup')
+  assert.throws(() => mint(module, collision), { code: 'EEXIST' }); assert.equal(collision.nodes.has(CLAIM), false)
+  assert.equal(collision.nodes.get(FILE).bytes.toString(), 'existing setup')
 })
-test('minted secret is confined to an exclusive 0600 file; only its digest enters the durable 0640 setup', () => {
-  const w = world({ present: false }), result = mint(module, w)
-  const claim = w.nodes.get(CLAIM).bytes.toString().trim(), selected = JSON.parse(w.nodes.get(FILE).bytes.toString())
+test('mint returns the secret once and persists only its digest in an exclusive synced setup', () => {
+  const w = world({ present: false }), result = mint(module, w), claim = result.claim
+  const selected = JSON.parse(w.nodes.get(FILE).bytes.toString())
   assert.match(claim, /^[A-Za-z0-9_-]{43}$/u)
-  assert.deepEqual(result, { minted: true, expires_at_ms: 1791072300000 })
-  assert.equal(selected.claim_sha256, hash(claim)); assert.equal(w.nodes.get(CLAIM).mode, 0o600); assert.equal(w.nodes.get(FILE).mode, 0o640)
-  assert.equal(JSON.stringify(result).includes(claim), false); assert.equal(JSON.stringify(selected).includes(claim), false)
-  for (const file of [CLAIM, FILE]) {
-    const entry = w.events.find(([event, target]) => event === 'open' && target === file)
-    assert.ok((entry[2] & fs.constants.O_EXCL) && (entry[2] & fs.constants.O_NOFOLLOW))
-    assert.ok(w.events.some(([event, target]) => event === 'sync' && target === file))
+  assert.deepEqual(result, { minted: true, expires_at_ms: 1791072300000, claim })
+  assert.equal(selected.claim_sha256, hash(claim)); assert.equal(w.nodes.get(FILE).mode, 0o640)
+  assert.equal(w.nodes.has(CLAIM), false)
+  assert.ok([...w.nodes.values()].every(node => !node.bytes.toString().includes(claim)))
+  assert.throws(() => mint(module, w), { code: 'EEXIST' })
+  const entry = w.events.find(([event, target]) => event === 'open' && target === FILE)
+  assert.ok((entry[2] & fs.constants.O_EXCL) && (entry[2] & fs.constants.O_NOFOLLOW))
+  assert.deepEqual(w.events.filter(([event]) => event === 'sync'), [['sync', FILE], ['sync', '/etc/aukora-boundary-gate']])
+})
+
+test('the minted digest verifies through real enrollment; use, expiry and restart retain no raw code', t => {
+  for (const finish of [true, false]) {
+    let result, storage
+    const f = fixture(t, options => {
+      const selected = options.readPasskeySetup()
+      if (!result) {
+        storage = world({ present: false })
+        result = mint(module, storage, { gate: selected.gate, node: selected.node, origin: selected.origin,
+          binding: selected.binding, nowMs: selected.expires_at_ms - 300000 })
+        selected.claim_sha256 = hash(result.claim)
+      }
+      return createGate(options)
+    })
+    f.claim = result.claim
+    const noRaw = () => {
+      assert.equal(storage.nodes.has(CLAIM), false)
+      assert.ok([...storage.nodes.values()].every(node => !node.bytes.toString().includes(f.claim)))
+      assert.ok(!fs.readFileSync(path.join(f.home, 'gate.db')).includes(Buffer.from(f.claim)))
+    }
+    noRaw()
+    if (finish) assert.equal(f.enroll().enrolled, true)
+    else { f.clock = f.setup.expires_at_ms; assert.throws(() => f.enroll(), /claim-expired/) }
+    noRaw(); f.restart(); noRaw()
+    assert.throws(() => f.enroll(), finish ? /enrollment-closed/ : /claim-expired/)
   }
-  assert.equal(w.events.filter(([event]) => event === 'sync').length, 4, 'both files and parent directories are synced')
 })
 
 test('new setup and mint guard mutations fail their focused checks', async t => {
@@ -162,8 +190,8 @@ test('new setup and mint guard mutations fail their focused checks', async t => 
     ['distinct-output-paths', 'file === claimFile', 'false', m => {
       const w = world({ present: false }); assert.throws(() => mint(m, w, { claimFile: FILE }), { code: 'passkey-setup-path' }); noWrites(w)
     }],
-    ['exclusive-claim-file', ' | fs.constants.O_EXCL', '', m => {
-      const w = world({ present: false }); w.put(CLAIM, 'existing private claim'); assert.throws(() => mint(m, w), { code: 'EEXIST' })
+    ['exclusive-setup-file', ' | fs.constants.O_EXCL', '', m => {
+      const w = world({ present: false }); w.put(FILE, 'existing setup'); assert.throws(() => mint(m, w), { code: 'EEXIST' })
     }],
     ['root-output-ancestors', "while (true) { protectedNode(fs.lstatSync(p), true); if (p === '/') break; p = path.dirname(p) }",
       "while (false) {}", m => {
@@ -176,16 +204,17 @@ test('new setup and mint guard mutations fail their focused checks', async t => 
         .every(entry => entry[2] & fs.constants.O_NOFOLLOW))
     }],
     ['file-and-parent-sync', 'fs.fsyncSync(fd)', 'void fd', m => {
-      const w = world({ present: false }); mint(m, w); assert.equal(w.events.filter(([event]) => event === 'sync').length, 4)
+      const w = world({ present: false }); mint(m, w); assert.equal(w.events.filter(([event]) => event === 'sync').length, 2)
     }],
     ['parent-directory-sync', 'fs.fsyncSync(d)', 'void d', m => {
-      const w = world({ present: false }); mint(m, w); assert.equal(w.events.filter(([event]) => event === 'sync').length, 4)
+      const w = world({ present: false }); mint(m, w); assert.equal(w.events.filter(([event]) => event === 'sync').length, 2)
     }],
-    ['claim-private-mode', "write(claimFile, claim + '\\n', 0o600)", "write(claimFile, claim + '\\n', 0o640)", m => {
-      const w = world({ present: false }); mint(m, w); assert.equal(w.nodes.get(CLAIM).mode, 0o600)
+    ['raw-claim-not-stored', "  write(file, JSON.stringify(setup) + '\\n', 0o640)",
+      "  write(claimFile, claim + '\\n', 0o600)\n  write(file, JSON.stringify(setup) + '\\n', 0o640)", m => {
+      const w = world({ present: false }); mint(m, w); assert.equal(w.nodes.has(CLAIM), false)
     }],
-    ['secret-not-returned', 'return { minted: true, expires_at_ms: setup.expires_at_ms }', 'return { minted: true, expires_at_ms: setup.expires_at_ms, claim }', m => {
-      const w = world({ present: false }); assert.deepEqual(mint(m, w), { minted: true, expires_at_ms: 1791072300000 })
+    ['claim-only-first-mint', ' | fs.constants.O_EXCL', '', m => {
+      const w = world({ present: false }); mint(m, w); assert.throws(() => mint(m, w), { code: 'EEXIST' })
     }],
   ]
   for (const [label, before, after, exercise] of mutations) await t.test(label, async () => {
@@ -193,4 +222,5 @@ test('new setup and mint guard mutations fail their focused checks', async t => 
     const mutant = await load(source.replace(before, after))
     assert.throws(() => exercise(mutant), assert.AssertionError, 'guard removal must fail: ' + label)
   })
+  t.diagnostic(`SOURCE-ONLY passkey setup mutations: ${mutations.length}/${mutations.length} KILLED; 0 SURVIVED`)
 })

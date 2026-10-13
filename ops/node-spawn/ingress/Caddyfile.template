@@ -2,7 +2,7 @@
 # Only the configured application and owner hosts reach loopback services.
 
 (aukora_headers) {
-	header Strict-Transport-Security "max-age=31536000"
+	header Strict-Transport-Security "max-age=31536000__HSTS_INCLUDE_SUBDOMAINS__"
 	header X-Content-Type-Options "nosniff"
 	header Referrer-Policy "no-referrer"
 	request_body {
@@ -68,11 +68,23 @@ https://__OWNER_HOST__ {
 }
 
 http://__APP_HOST__ {
-	redir https://__APP_HOST__{uri} permanent
+	@launch_token query token=*
+	handle @launch_token {
+		respond 404
+	}
+	handle {
+		redir https://__APP_HOST__{path} permanent
+	}
 }
 
 http://__OWNER_HOST__ {
-	redir https://__OWNER_HOST__{uri} permanent
+	@launch_token query token=*
+	handle @launch_token {
+		respond 404
+	}
+	handle {
+		redir https://__OWNER_HOST__{path} permanent
+	}
 }
 # END AUKORA NODE
 

@@ -310,7 +310,7 @@ class HarnessCookieExchange:
         self.authority = authority
         self.harness_port = harness_port
 
-    def __call__(self):
+    def _launch_token(self):
         descriptor = _protected_file(self.launch_file, require_root=None)
         try:
             payload = os.read(descriptor, 4097)
@@ -328,22 +328,36 @@ class HarnessCookieExchange:
                 or url.path != "/" or url.fragment or len(query) != 1
                 or query[0][0] != "token" or not query[0][1]):
             raise ClaimRefusal("HARNESS_DESCRIPTOR_INVALID", 502)
+        return query[0][1]
+
+    def _exchange(self, token):
         connection = http.client.HTTPConnection("127.0.0.1", self.harness_port, timeout=5)
         try:
-            connection.request("GET", f"/?token={urllib.parse.quote(query[0][1])}", headers={
+            connection.request("GET", f"/?token={urllib.parse.quote(token)}", headers={
                 "Host": self.authority,
                 "Origin": self.public_origin,
                 "Sec-Fetch-Site": "same-origin",
             })
             response = connection.getresponse()
-            response.read(1024)
+            body = response.read(1024)
             cookie = response.getheader("Set-Cookie")
             location = response.getheader("Location")
         except OSError as error:
             raise ClaimRefusal("HARNESS_EXCHANGE_UNAVAILABLE", 502) from error
         finally:
             connection.close()
-        if (response.status != 303 or location != "/" or not isinstance(cookie, str)
+        return response.status, body, cookie, location
+
+    def __call__(self):
+        token = self._launch_token()
+        status, body, cookie, location = self._exchange(token)
+        # Retry one changed launch token inside the already-spent claim.
+        if (status == 401 and body == b"dsh web authentication required; reopen the URL printed by dsh web.\n"
+                and cookie is None and location is None):
+            current_token = self._launch_token()
+            if current_token != token:
+                status, body, cookie, location = self._exchange(current_token)
+        if (status != 303 or location != "/" or not isinstance(cookie, str)
                 or not cookie.startswith(cookie_name(self.authority) + "=") or "\r" in cookie or "\n" in cookie
                 or "; Secure" not in cookie or "; HttpOnly" not in cookie
                 or "; SameSite=Strict" not in cookie):

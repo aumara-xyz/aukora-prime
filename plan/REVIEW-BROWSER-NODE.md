@@ -278,3 +278,27 @@ The reviewer's verdict: ship to a test node whose binding directory is fresh and
 more than that. RAN ON A NODE (rehearsal `aukora-r1`, stand-in approval, real browser over HTTPS): the app
 booted, the binding screen opened by itself, session creation, session listing and file upload answered 403
 `browser-node:binding-required`, and the after-approval acceptance passed in its unbound mode.
+
+## Independent review of the sign-in path (Grok, read-only, 2026-10-14)
+
+Verified against `13ff8248cb35c72445249d20db4770c4dba6e508` and these working-tree
+repairs, without relying on the review's line numbers. Read the named ingress,
+browser installer and enrollment source, the pinned harness archive and its
+read-only built `BrowserAuth`/request-trust implementation. This is SOURCE ONLY;
+no remote machine, installed unit, Caddy listener or real browser was changed.
+
+| Finding | Reviewer's label | Status |
+| --- | --- | --- |
+| 1. Sign-out leaves the harness session alive | CONFIRMED | OPEN: pinned `BrowserAuth` verifies an unexpired HMAC without a session registry or revoke API. Sign-out clears only this browser's cookie and does not close upgraded sockets. A copied cookie works until absolute expiry, at most one day, or until the fixed revocation command stops the serving unit, rotates its signing secret and restarts it. An ordinary restart preserves the key and cookie. Use HTTPS links on a dedicated parent domain and disclose this limit to the test user. |
+| 2. Revocation helper targets the wrong service | CONFIRMED | FIXED IN SOURCE: inspect loaded/active browser and legacy genesis units, require exactly one verified serving unit, validate its launcher/state root and bind stop/rotation/restart checks to it. Real pinned cookie verification accepts the old cookie before rotation and refuses it after reactivation with the rotated key; systemctl itself is a fixture here. |
+| 3. Raw passkey enrollment code remains on disk | CONFIRMED | FIXED IN SOURCE: mint persists only the verification digest and returns the secret once; an existing setup cannot reprint it. The mint command's stdout is secret. New codes are absent from files and retained gate state after use, expiry and restart. Browser-node passkey drop-ins run a root startup sweep that removes and directory-syncs the legacy cleartext file regardless of use/expiry, including after a crash. Old installed drop-ins and direct generic gate starts need the updated browser-node activation route; source changes do not upgrade them. Lost first output requires an owner recovery decision. |
+| 4. HTTP redirect carries a token query onward | CONFIRMED | FIXED IN SOURCE: both HTTP hosts answer `token` queries with 404; all other redirects use only the path, dropping every query because unknown parameters can hold secrets. Claim codes remain in fragments, and the mint instructions identify stdout as secret. A token already sent over HTTP has already crossed the wire; use HTTPS links only. |
+| 5. HSTS and SameSite do not isolate siblings under a shared parent | CONFIRMED policy; SUSPECT practical break | OPEN: `SameSite=Strict` still attaches the app cookie to same-site requests targeting the app; pinned request trust accepts missing Origin after its Host fence. No state-changing sibling GET was traced. `__Host-`/no Domain keeps cookies off sibling servers but does not block sibling-initiated requests. Use a dedicated registrable parent with no untrusted siblings or model-authored active content. HSTS `--hsts-include-subdomains` is an explicit render option, default off for shared zones; it covers descendants of each configured host, not their common parent or siblings. |
+| 6. Restart during exchange strands an already-spent code | CONFIRMED | FIXED IN SOURCE: preserve spend-before-exchange, recognize the pinned harness's exact token-refusal response, reread the descriptor once and retry only a changed token within the already-spent claim. Never un-spend; transport/other refusals do not retry. A second restart or unavailable descriptor can still require a new claim. |
+| 7. Atomic replace may lack directory fsync | CONFIRMED crash safety; SUSPECT power loss | NOT A DEFECT at this revision: `ClaimStore._write` already fsyncs the containing directory after `os.replace`, before exchange. The injected `os.fsync` regression checks file/replace/directory order and kills removal of the directory sync. It proves the call/order, not power-loss behavior of a deployed filesystem. |
+
+The remaining observations hold in the inspected source: exact host/port routing
+with a closed catch-all; fixed sign-in fallback and `/` harness redirect;
+Transfer-Encoding refusal, one request per broker connection, and CR/LF cookie
+refusal. These checks do not prove safe internet deployment, root containment,
+hardware passkey custody, sibling-host isolation or installed revocation.

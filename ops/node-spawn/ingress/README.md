@@ -12,7 +12,8 @@ three loopback ports must be globally unique. A hostname's generated site blocks
 contain only that node's ports; no rule may let one node's hostname reach a
 sibling node's harness, owner page or claim broker. App cookies use the
 `__Host-` prefix, `Path=/`, `Secure`, and no `Domain`, so they are host-only and
-sibling hostnames cannot share them. One closed catch-all follows all named sites.
+are not sent to sibling servers. Same-site requests from a sibling to the app
+can still attach the app cookie. One closed catch-all follows all named sites.
 
 Use Node `v24.11.1` for the repository build. Caddy and LXD run on the existing
 Ubuntu host; the claim broker runs as root inside the unprivileged C1 container.
@@ -149,18 +150,32 @@ sudo python3 ops/node-spawn/ingress/render.py --check /etc/caddy/Caddyfile \
    records and retained data according to owner policy. Do not delete another
    node's container, profile, ports, origins or state.
 
+HSTS defaults to `max-age=31536000` on each HTTPS hostname. Render with
+`--hsts-include-subdomains` only when all descendants of both configured hosts
+are dedicated to HTTPS; leave it off for shared zones. It covers descendants
+of the host sending the header, not its parent or siblings. This renderer
+does not serve or pin the registrable parent domain.
+
 The named HTTPS sites use Caddy's automatic certificates. The template has no
 access-log directive, bounds request bodies, preserves Host, Origin, Cookie and
 Fetch Metadata, supports WebSocket upgrades and unbuffered SSE, replaces all
-client-supplied forwarding headers, refuses any public `token` query, and aborts
+client-supplied forwarding headers, refuses app `token` queries on HTTPS and
+both hosts' `token` queries on HTTP, and aborts
 unmatched hosts. The owner host adds `X-Frame-Options: DENY`; the gate's policy
 supplies `frame-ancestors 'none'`. The proxy preserves the gate's Content-Security-Policy
 so its hash-pinned passkey script can run; it supplies no replacement policy.
+Other HTTP requests redirect only their path to the fixed HTTPS host, dropping
+every query string because unknown query names may also contain secrets.
+A token in an initial HTTP request has already crossed the network in cleartext;
+the 404 prevents forwarding it onward. Use only HTTPS links.
 
 ## Mint and use one claim
 
 After Peter approves the initial card through the separate owner page, start
 and check the node, then mint one link as root inside C1:
+
+The mint command's stdout is the secret. Disable shell transcripts and do not
+capture, log or share its output beyond giving the link directly to the owner.
 
 ```sh
 lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/start.sh
@@ -195,8 +210,10 @@ Give the printed claim link directly to Peter. Do not pipe it to a log or put it
 ticket. Its code is in the URL fragment, so browsers do not send it in the URL;
 the page removes the fragment and posts a bounded same-origin body. The store
 contains only its SHA-256 digest. A valid attempt is durably marked spent before
-the private harness exchange, so a failed exchange does not revive it. Mint a
-new link if that happens.
+the private harness exchange. If the harness returns its exact launch-token
+refusal, the broker reads the descriptor once more and retries only if its
+token changed. It never un-spends the claim. Mint a new link if that bounded
+retry fails, or if the descriptor or exchange is unavailable.
 
 ## Returning sign-in and sign-out
 
@@ -222,15 +239,22 @@ its active app connections when signing out.
 The pinned harness has no per-session registry or revoke API. It caches the
 signing secret at activation and stores it in `DSH_HOME/.credentials.yaml`,
 `records['client-connection/browser-session']`, a version-1 grant. Restart alone
-retains that secret and does not revoke cookies. The separate existing
-`revoke-sessions.mjs` helper is fixed to `aukora-genesis.service`; it cannot
-operate on this installer's `aukora-browser.service` and requires a reviewed
-adaptation before use on a browser node. On its original service the helper stops
-`aukora-genesis.service`, requires it to be inactive, rotates only that grant's
+retains that secret and does not revoke cookies. `revoke-sessions.mjs` inspects
+the installed `aukora-browser.service` and legacy `aukora-genesis.service`,
+requires exactly one active, loaded harness with the expected launcher and
+state root, and refuses ambiguous or unverifiable state. It stops that unit,
+requires it to be inactive, rotates only that grant's
 secret with an atomic private write, then starts the service and requires it
 to be active. Stopping also drops active connections. If rotation or restart
 fails, repair the named refusal before reopening the app; the command never
 prints the signing secret or other credentials.
+
+On the browser node, run as root with the reviewed built harness directory:
+
+```sh
+/opt/aukora-node/bin/node /opt/aukora-genesis/src/ops/node-spawn/ingress/revoke-sessions.mjs \
+  --harness-root "$REVIEWED_HARNESS_ROOT"
+```
 
 The helper requires a complete reviewed build root and reuses its
 existing `yaml` dependency from `packages/credentials/credentials-local`.
@@ -269,7 +293,25 @@ three high ports and the container addresses must be unreachable. After Peter us
 claim, browser storage must show a `__Host-dsh-auth-*` cookie with `Secure`, `HttpOnly`
 and `SameSite=Strict`; repeating the same link must be refused.
 
-## Limits
+## What this does not protect against
+
+Sign-out is local to that browser: it clears its cookie, leaves a copied cookie
+usable until its absolute expiry (at most one day), and does not close upgraded
+sockets. The pinned harness has no per-session revocation. The fixed revocation
+command above stops the serving unit and rotates its signing secret before
+restart, invalidating every previous cookie and dropping active connections.
+An ordinary restart alone retains the key and does not revoke cookies.
+
+Use a dedicated registrable parent domain, with no untrusted sibling hosts or
+model-authored active content. `SameSite=Strict` treats app and owner siblings
+under one registrable domain as the same site. The pinned harness rejects a
+foreign Origin but permits its absence after checking Host, so a same-site GET
+can carry the app cookie. No state-changing GET was traced in this review;
+that does not establish safety of the whole GET surface. `__Host-` keeps the
+cookie off sibling servers and prevents parent-domain cookie shadowing; it
+does not stop sibling-initiated requests to the app. HSTS on the app does not
+pin the owner or another sibling. Expose a test user only on a dedicated parent,
+using HTTPS links and with these sign-out and cookie-copy limits understood.
 
 This does not prove a fresh C1 exists, that Peter opened it, that the binding or
 WebAuthn ceremonies work, that the owner understood an approval, or that the

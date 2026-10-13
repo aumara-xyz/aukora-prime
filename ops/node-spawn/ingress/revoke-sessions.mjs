@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
 const RECORD = 'client-connection/browser-session'
-const UNIT = 'aukora-genesis.service'
+const UNITS = ['aukora-browser.service', 'aukora-genesis.service']
 const STATE_ROOT = '/home/aukora-host/genesis/state'
 const refuse = code => { throw new Error(code) }
 
@@ -116,6 +116,38 @@ export function credentialsForUnit(source) {
   return join(STATE_ROOT, 'home/.credentials.yaml')
 }
 
+export function harnessService(run) {
+  const targets = []
+  for (const unit of UNITS) {
+    const result = run(['show', '--property=LoadState,ActiveState,ExecStart', unit])
+    if (result.status !== 0) refuse('SESSION_SERVICE_CONFIG_UNVERIFIED')
+    const rows = result.stdout.trim().split('\n')
+    const properties = Object.fromEntries(rows.map(row => {
+      const equals = row.indexOf('=')
+      return [row.slice(0, equals), row.slice(equals + 1)]
+    }))
+    if (rows.length !== 3 || Object.keys(properties).sort().join(',') !== 'ActiveState,ExecStart,LoadState') {
+      refuse('SESSION_SERVICE_STATE_UNVERIFIED')
+    }
+    if (properties.LoadState === 'not-found' && properties.ActiveState === 'inactive' && properties.ExecStart === '') continue
+    if (properties.LoadState !== 'loaded' || !['active', 'inactive', 'failed'].includes(properties.ActiveState)) {
+      refuse('SESSION_SERVICE_STATE_UNVERIFIED')
+    }
+    if (properties.ActiveState === 'active') {
+      targets.push({ unit, credentialsFile: credentialsForUnit(properties.ExecStart) })
+    }
+  }
+  if (targets.length !== 1) refuse('SESSION_SERVICE_ACTIVE_UNIT_REFUSED')
+  const { unit, credentialsFile } = targets[0]
+  const lifecycle = {
+    stop: () => run(['stop', unit]).status === 0,
+    inactive: () => { const result = run(['is-active', unit]); return result.status === 3 && result.stdout.trim() === 'inactive' },
+    start: () => run(['start', unit]).status === 0,
+    active: () => { const result = run(['is-active', unit]); return result.status === 0 && result.stdout.trim() === 'active' },
+  }
+  return { unit, credentialsFile, lifecycle }
+}
+
 function main() {
   const arguments_ = process.argv.slice(2)
   validateInvocation(process.version, process.platform, process.geteuid(), arguments_)
@@ -127,20 +159,10 @@ function main() {
   protectedPath(yamlPath)
   protectedCodeTree(dirname(dirname(yamlPath)))
   const { parseDocument } = require(yamlPath)
-  const configuration = spawnSync('/usr/bin/systemctl', ['show', '--property=ExecStart', '--value', UNIT], {
-    encoding: 'utf8', timeout: 10000, env: { PATH: '/usr/bin:/bin', LANG: 'C' },
-  })
-  if (configuration.status !== 0) refuse('SESSION_SERVICE_CONFIG_UNVERIFIED')
-  const credentialsFile = credentialsForUnit(configuration.stdout)
-  const run = command => spawnSync('/usr/bin/systemctl', [command, UNIT], {
+  const run = arguments_ => spawnSync('/usr/bin/systemctl', arguments_, {
     encoding: 'utf8', timeout: 30000, env: { PATH: '/usr/bin:/bin', LANG: 'C' },
   })
-  const lifecycle = {
-    stop: () => run('stop').status === 0,
-    inactive: () => { const result = run('is-active'); return result.status === 3 && result.stdout.trim() === 'inactive' },
-    start: () => run('start').status === 0,
-    active: () => { const result = run('is-active'); return result.status === 0 && result.stdout.trim() === 'active' },
-  }
+  const { credentialsFile, lifecycle } = harnessService(run)
   revokeAll(credentialsFile, parseDocument, lifecycle)
   process.stdout.write('SESSION_SECRET_ROTATED_HARNESS_RESTARTED\n')
 }
