@@ -148,6 +148,25 @@
       "next": "Observe Auma using permitted recalled notes after an owner-approved release switch; measure partial-index behavior and retrieval quality."
     },
     {
+      "name": "Kira OpenViking indexing",
+      "description": "A bounded queue writes Kira index parts as byte-stable OpenViking resources, verifies returned bytes and reports failures by reason without exposing note text.",
+      "code": [
+        "scripts/kira/viking-sync.mjs"
+      ],
+      "state": "SOURCE only",
+      "basis": "The post-noon messages describe mismatches at about one note in nine, then record the real-node diagnosis that every observed mismatch was the expected part plus a 41-to-43-byte OpenViking 0.4.21 fields trailer. The source now writes parts as resources and lets other queue entries proceed while one waits, but that commit explicitly says the changed sync was NOT RUN on the node; it records no post-change indexed, pending or failed counts.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "plugins/aukora-kira/README.md"
+      ],
+      "command": "node --test tests/kira-viking-sync.test.mjs tests/kira-viking-sync-queue.test.mjs",
+      "commandPaths": [
+        "tests/kira-viking-sync.test.mjs",
+        "tests/kira-viking-sync-queue.test.mjs"
+      ],
+      "next": "Run the resource-writing sync on the real node and retain its exact indexed, pending and per-reason failed counts."
+    },
+    {
       "name": "Kira operator-declared projects",
       "description": "A protected operator map assigns workspace aliases to declared projects so model-controlled paths cannot invent memory scope.",
       "code": [
@@ -177,8 +196,8 @@
         "plugins/aukora-aumlok/lib/bind-v3.mjs",
         "plugins/aukora-aumlok/lib/record-v3.mjs"
       ],
-      "state": "SOURCE only",
-      "basis": "The morning note labels the new generator Mac/CI tested and not yet on an app screen. The 77-bit figure applies to independent uniform draws, not legacy acrostics or user-edited phrases; the public handle adds no secret entropy. Real pilot owner-root enrollment is unqualified.",
+      "state": "RAN on a real node",
+      "basis": "A stand-in-approved rehearsal instance was opened from a real browser over HTTPS; the binding screen generated a throwaway phrase and accepted its retyping. The final Bind action and the owner's own binding were not run. Later commits changed automatic first-run opening after diagnosing failures on a rehearsal node, but explicitly leave the corrected path unperformed in a browser at those revisions. The 77-bit figure applies to independent uniform draws, not legacy acrostics or user-edited phrases; the public handle adds no secret entropy.",
       "evidence": [
         "plan/MORNING-2026-10-13.md",
         "plugins/aukora-aumlok/README.md",
@@ -190,7 +209,7 @@
         "tests/aukora-aumlok-language.test.mjs",
         "tests/aukora-aumlok-fresh-bind.test.mjs"
       ],
-      "next": "Qualify the actual enrollment, custody, recovery and revocation ceremony; phrase strength and valid signatures do not prove a unique human."
+      "next": "Have the owner complete the final Bind action on one fresh node in a real browser; phrase strength and valid signatures do not prove a unique human."
     },
     {
       "name": "Aumlok guess limit",
@@ -218,8 +237,8 @@
         "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx",
         "apps/aukora-desktop/aumlok-approval.html"
       ],
-      "state": "RAN in staging",
-      "basis": "The latest October 13 staging report records a real browser showing a settled Aura Pentora with 3 of 3 sources. The owner-card display has separate source checks; the image authenticates and authorizes nothing.",
+      "state": "SOURCE only",
+      "basis": "An earlier October 13 staging run showed the prior Aura Coherence screen with a settled Pentora and 3 of 3 sources. The current revision redesigns that screen with the shared app surface, source cards and visible reactions to advancing records; its commit records source suites only and explicitly says the redesigned screen was not viewed installed. The owner-card display has separate source checks; the image authenticates and authorizes nothing.",
       "evidence": [
         "plan/NORTH-STAR.md",
         "plan/MORNING-2026-10-13.md"
@@ -230,7 +249,7 @@
         "tests/aura-pentora-motion.test.mjs",
         "tests/aura-pentora-sharing.test.mjs"
       ],
-      "next": "Observe live movement on a named release and compare the full underlying heads; visual similarity is not proof of record truth or complete coverage."
+      "next": "Open the redesigned Aura Coherence screen on one named installed release and observe one real source-head advance; visual similarity is not proof of record truth or complete coverage."
     },
     {
       "name": "Minimal verifier",
@@ -428,6 +447,27 @@
       "next": "Run on the received revision with the documented prerequisites and retain its output; this proves the scoped temporary boot, not installation or containment."
     },
     {
+      "name": "Browser ingress",
+      "description": "A closed Caddy front door separates app and owner origins, rejects launch tokens on public addresses and can render isolated host-to-port routes for several nodes.",
+      "code": [
+        "ops/node-spawn/ingress/Caddyfile.template",
+        "ops/node-spawn/ingress/render.py",
+        "ops/node-spawn/ingress/claim.py"
+      ],
+      "state": "RAN on a real node",
+      "basis": "One rehearsal node was reached from a real browser over HTTPS and the commit messages record public-address refusals for no cookie, cross-site requests, a foreign Origin and launch-token queries. Later source changes add a __Host- session cookie, broker deadlines and multi-node rendering; those commits record tests only. Two nodes behind one web server and the later cookie in a real browser were explicitly not run.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "ops/node-spawn/ingress/README.md"
+      ],
+      "command": "node --test tests/browser-ingress.test.mjs tests/browser-ingress-harness.test.mjs",
+      "commandPaths": [
+        "tests/browser-ingress.test.mjs",
+        "tests/browser-ingress-harness.test.mjs"
+      ],
+      "next": "Put two real nodes behind one web server and prove each hostname cannot reach the other node's ports."
+    },
+    {
       "name": "Browser node",
       "description": "The browser-node procedure creates an unprivileged container from a stock image, builds the pinned harness offline, materializes a relay-free release, generates gate keys, holds the harness for first approval, and wires one-time sign-in over HTTPS itself.",
       "code": [
@@ -437,7 +477,7 @@
         "ops/node-spawn/browser/start.sh"
       ],
       "state": "RAN on a real node",
-      "basis": "Run by the builder on the test machine on October 13 and recorded in that day's commit messages and plan/NORTH-STAR.md: a fresh container created from committed code with no network; an offline harness build; release materialization; fresh gate keys; before-approval acceptance PASS. The owner approved a release through the gate's page with his own click on three successive fresh builds (ledger sequence 5 on each fresh gate); each started and passed the after-approval acceptance. On the last build a stand-in approved a REHEARSAL instance through the same page: after-approval acceptance PASS including the one-use claim exchange; a one-time link signed a real browser in over HTTPS with a Secure one-day session; the full app loaded; the binding screen rendered UNBOUND, generated a throwaway phrase and accepted its retyping. From outside: no cookie 401, cross-site 403, foreign Origin 403, launch-token query 404. NOT RUN: the final Bind step in a browser, the owner's own binding, a real passkey, a model reply, a reboot, any second node. The approval is a bearer link plus typed confirmation, not a device key.",
+      "basis": "Run by the builder on the test machine on October 13 and recorded in that day's commit messages and plan/NORTH-STAR.md: a fresh container created from committed code with no network; an offline harness build; release materialization; fresh gate keys; before-approval acceptance PASS. The owner approved through the gate page on three successive fresh builds; each started and passed after-approval acceptance. On the last build a stand-in approved a REHEARSAL instance: a one-time link signed a real browser in over HTTPS, the app loaded, and the binding screen generated a throwaway phrase and accepted its retyping. Later commits add a host-only cookie, passkey enrollment, model-key installation, public evidence and automatic first-run opening, but explicitly leave their corresponding real-node/browser runs unperformed. NOT RUN: the final Bind step in a browser, the owner's own binding, a passkey with a real authenticator, a model reply, voice, a reboot or a second owner-bound node. The observed approvals used a bearer page plus typed confirmation, not a device key.",
       "evidence": [
         "plan/CHECK-2026-10-13.md",
         "plan/NORTH-STAR.md",
@@ -452,7 +492,29 @@
         "tests/browser-node-owner.test.mjs",
         "tests/browser-release-profile.test.mjs"
       ],
-      "next": "A fresh node the owner approves once and binds himself; then passkey approval on that node."
+      "next": "Have the owner complete the final Bind action on one fresh node in a real browser."
+    },
+    {
+      "name": "Live voice",
+      "description": "The Auma Live socket accepts authenticated same-origin public upgrades, while a root command installs a lock-verified Linux speech runtime from pre-staged inputs.",
+      "code": [
+        "plugins/aukora-face/apps/src/auma-live/voice-sidecar.ts",
+        "plugins/aukora-face/apps/vendor/auma-live/source/voice/install.py",
+        "ops/node-spawn/browser/node.py"
+      ],
+      "state": "SOURCE only",
+      "basis": "The voice commit records 87 of 87 source tests plus face, release and security checks. Voice remains disabled by default. The Linux runtime, a microphone, a model and a spoken reply were explicitly not run on any node.",
+      "evidence": [
+        "plan/VOICE-LIVE.md",
+        "plan/NORTH-STAR.md"
+      ],
+      "command": "node --test tests/auma-live-voice-public.test.mjs tests/voice-linux-runtime.test.mjs tests/voice-sidecar-optional.test.mjs",
+      "commandPaths": [
+        "tests/auma-live-voice-public.test.mjs",
+        "tests/voice-linux-runtime.test.mjs",
+        "tests/voice-sidecar-optional.test.mjs"
+      ],
+      "next": "Install the pinned speech runtime on one node and observe one authenticated microphone-to-spoken-reply turn."
     },
     {
       "name": "One-command example start",
@@ -507,7 +569,7 @@
       ]
     },
     {
-      "text": "Kira's mounted source constructs tracked memory and the OpenViking bridge, applies operator project scope and exposes kira.head. The pilot-host scratch probe exercised release composition → Kira → real OpenViking; it did not show Auma consuming recall in a live turn. The newest project-map observation is likewise a scratch-copy probe, with a map installed for the candidate release.",
+      "text": "Kira's mounted source constructs tracked memory and the OpenViking bridge, applies operator project scope and exposes kira.head. The pilot-host scratch probe exercised release composition → Kira → real OpenViking; it did not show Auma consuming recall in a live turn. The project-map observation is likewise a scratch-copy probe. The later byte-stable resource indexing change has source tests but no recorded post-change node run.",
       "paths": [
         "plugins/aukora-kira/lib/index.js",
         "plugins/aukora-kira/lib/tracked-memory.mjs",
@@ -518,7 +580,7 @@
       ]
     },
     {
-      "text": "The settings face injects kira.head, asks the gate for a verified log head through the carried Buzz transport and checks the release artifact-record digest. Aura Coherence derives its Pentora from the resulting snapshot. Those three sources are combined for a display; their histories are not merged. The code source is an artifact record, and the action history remains a distinct unsigned chain. Staging showed this join with 3/3 present; the live c603bbf signed-in probe served the snapshot route, but the page was viewed in a browser only in staging.",
+      "text": "The settings face injects kira.head, asks the gate for a verified log head through the carried Buzz transport and checks the release artifact-record digest. Aura Coherence derives its Pentora from the resulting snapshot. Those three sources are combined for a display; their histories are not merged. The code source is an artifact record, and the action history remains a distinct unsigned chain. Staging showed the earlier screen with 3/3 present; the live c603bbf signed-in probe served the snapshot route. The current redesigned screen has not been viewed installed according to its commit message.",
       "paths": [
         "plugins/aukora-face/settings/src/index.ts",
         "plugins/aukora-face/settings/src/aura/snapshot-reader.ts",

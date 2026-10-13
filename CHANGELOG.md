@@ -4,7 +4,9 @@
 
 - Checked revision `0427da2` with Node 24.11.1: the security profile had 0 failures and 11 unperformed rows; the registered offline suite exposed a sandboxed network crash, a load-sensitive timeout that passed on rerun and a supplied stale build prerequisite that failed instead of reporting unperformed.
 - Ran all 61 top-level test files added that day and recorded the loopback, built-input and timeout limits in [the dated check](plan/CHECK-2026-10-13.md).
-- Added the browser-node status from commit-message evidence without promoting the unrecorded second approval or successful start. Browser sign-in, binding, a real passkey, after-approval acceptance and a model reply remain unperformed.
+- Added the browser-node status from the earlier commit-message checkpoint without promoting the then-unrecorded second approval or successful start.
+- Reconciled the later messages through `38004c5`: retained the three owner-approved fresh builds and the stand-in rehearsal browser run through phrase retyping; added ingress and voice status; and separated historical staging Aura from the unviewed redesign.
+- Did not promote three absent runtime claims: the resource-writing Kira sync has no recorded post-change node counts, the redesigned Aura screen was not viewed installed, and the corrected automatic first-run open was not rerun in a browser at those revisions. Final Bind, the owner's own binding, a real authenticator, a model reply, voice and a second owner-bound node remain unperformed.
 
 ## Private NEXT — 2 October 2026
 

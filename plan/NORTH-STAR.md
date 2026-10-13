@@ -526,3 +526,57 @@ the binding screen needing the node's origin as release bytes; SSH listening ins
 NOT RUN: the final Bind step in a browser; the owner's own binding; passkey approval; a model reply; voice; a second node.
 Open from review (plan/REVIEW-BROWSER-NODE.md): a signed-in but unbound session keeps general RPC access (the pinned
 harness has no hook to restrict it); four fixes are written and parked because they change the harness cookie patch.
+
+### 2026-10-13 checker, evening: later source landed; the recorded browser run has not advanced through Bind
+
+This update reads every commit message from 12:00 through `38004c5`; it does not add a machine observation. The
+retained browser-node run remains: owner approval on three fresh builds, and a separate REHEARSAL instance approved
+by a stand-in, signed in from a real browser over HTTPS, loading the app and reaching the binding screen through
+phrase generation and retyping. Later commits add the `__Host-` public cookie, resumable passkey enrollment, model-key
+installation, public acceptance evidence, multi-node ingress rendering and automatic first-run opening. Their own
+messages do not record those later paths running on a node. The first-run commits record diagnosis on a rehearsal
+node, including one visit in a real browser where the screen did not open, then explicitly say the corrected revisions
+were not run in a browser on a node. NOT RUN remains: final Bind in a browser, the owner's own binding, a passkey with
+a real authenticator, a model reply, voice and a second owner-bound node.
+
+The post-noon Kira messages describe mismatches at about one note in nine, then record a real-node diagnosis: every
+observed OpenViking 0.4.21 mismatch was the expected index part plus a 41-to-43-byte fields trailer. Source now writes
+those parts as resources and lets other queue entries proceed while a failed or deferred entry waits. The change's
+message says NOT RUN on the node and gives no post-change indexed, pending or failed counts, so no completed indexing
+claim is made here and the approximate one-in-nine observation is not presented as an exact count.
+
+Aura's earlier screen was seen in staging with 3 of 3 sources. The later redesigned shared-surface screen is SOURCE
+only at this checkpoint: its message records the Aura, face-copy and UI suites and says nobody viewed it installed.
+Ingress reached one rehearsal browser over HTTPS; the two-node renderer and later host-only cookie have source tests,
+not a two-real-node run. Voice is likewise SOURCE only: 87 of 87 tests are recorded, while the Linux runtime,
+microphone, model and spoken reply were not run on a node.
+
+The browser review now has findings 1, 3, 4 and 5 fixed in source only. Finding 2 remains OPEN: an unbound authenticated
+session retains general RPC access; the described change is parked without a recorded node rehearsal.
+
+Diff-support limit: the external-machine/browser RAN statements in `c043a31`, `09157b7`, `048fe7e`, `c449dfe`,
+`5d8052a`, `08b6fba`, `ebf46eb`, `dc44ab9`, `bc780e7`, `10ebe61`, `eead4f8` and `38004c5` are supported here by
+their commit messages only; their diffs contain source, tests or status prose, not an independently retained machine
+record that proves the observation. The source-test RAN lines name present tests and relevant changes; this audit found
+no message that names a missing test.
+
+### 2026-10-13, night: builder's report of real runs after the checker's cut-off
+
+The checker above rightly kept three items at SOURCE because no commit message recorded them as run. These are
+the builder's observations on the test machine, by its own report unless a record is named:
+
+- Kira indexing after parts moved to resources: the sync on the pilot's real store ended `indexed=903 pending=1
+  failed=2` (one missing object, one unreachable transport), from a previous stall at 687 with 93 mismatches.
+  The live pilot release still reads the old index.
+- First-run open: on a rehearsal node (`aukora-r1`, stand-in approval) at `38004c5`, a real browser signed in
+  with a one-time claim over HTTPS and the binding screen opened by itself beneath the harness notice, with its
+  explanation visible. It took three looks at a real node to get there; each earlier attempt passed its tests.
+- Two nodes behind one web server: C1 (waiting for the owner) and R1 answered on their own hostnames; R1 passed
+  the after-approval acceptance including the one-use claim exchange and a host-only (`__Host-`) cookie.
+- Evidence: `evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json` is the first record collected from a
+  node; `scripts/audit/browser-node-evidence.mjs` verifies its receipt signature, approval bindings, signed apply
+  row and floor binding offline. It is a rehearsal record with a stand-in approval, and it is unsigned.
+- Aura's redesigned screen was seen rendered in staging (`0427da2`), not on the pilot.
+
+Still NOT RUN: the final Bind step in a browser; the owner's own binding of a fresh node; passkey with a real
+authenticator; a model reply on a browser node; voice; a second owner-bound node.

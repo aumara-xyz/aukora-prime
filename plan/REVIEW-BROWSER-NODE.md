@@ -1,37 +1,38 @@
 # Browser-node correctness review
 
-Revision: `1437a70833dc8dd3048d7cc9d91a100f488c4a34` (`work`, equal to
-`origin/main` when reviewed). This is a source review with disposable in-process
-probes. I did not inspect a deployed Caddy, browser, authenticator, container,
-DNS, certificate, firewall, journal, or relay. Loopback `listen()` was refused by
-the sandbox with `EPERM`.
+Original review revision: `1437a70833dc8dd3048d7cc9d91a100f488c4a34`.
+Status updated from commit messages through `38004c5159500b23ffaefb5df8c98e3ee4150e9f`;
+the update is not a new inspection of a deployed Caddy, browser, authenticator,
+container, DNS, certificate, firewall, journal or relay. The original review's
+loopback `listen()` probe was refused by the sandbox with `EPERM`.
 
-## Repair status — 2026-10-13 working tree
+## Repair status — 2026-10-13 evening
 
-This is source-only status on `work` over `71367ac`; no C1 process, browser,
-authenticator or relay was changed or observed.
+These labels use only the audited commit messages. **FIXED IN SOURCE** does not
+mean the change ran on a node. No finding below has a later **RAN ON A NODE**
+claim in those messages.
 
 | Finding | Current status and scope |
 | --- | --- |
-| 1 · interrupted enrollment | **FIXED on current main before this rebase.** Commit `c2c291c` replaced the parked implementation with the browser `passkey-claim` switch-over. The gate retains the request and accepted registration, restarts into the same enrollment ID and stage while the original claim is live, and keeps completed or failed enrollment closed. This rebase therefore skips the parked `enrollment-resume.mjs`, gate/page rewrites and their old tests. Expired unfinished setup still requires an owner recovery policy. |
-| 2 · unbound general RPC | **OPEN.** The pinned harness still has no supported global request-policy/binding-state hook. The archive-backed test records authenticated unbound access through both general RPC dispatch paths; that is a documentation control, not a protection. |
-| 3 · cookie prefix | **FIXED in this working tree.** The harness patch now mints and parses `__Host-dsh-auth-*` for a public HTTPS authority while preserving unprefixed, non-Secure cookies for loopback HTTP. The claim broker, signout, browser-node acceptance path and tests use the same authority-derived name. Existing public cookies require sign-in again after installation. Per-session server revocation remains open. |
-| 4 · slow broker connections | **FIXED in this working tree.** The claim broker applies absolute five-second header and ten-second body deadlines, closes after one request, and admits at most 32 connection threads. Current Caddy host/header forwarding fixes remain intact; installed proxy behavior is not qualified here. |
-| 5 · transient invitation delivery | **FIXED in this working tree.** Transport, Aura, malformed acknowledgements and unqualified remote refusals remain pending for the exact spent redemption. Each resume run is bounded to three attempts and durable exponential backoff caps at 30 seconds. Only local invalid-command refusal is terminal; legacy broad terminal rows reopen without releasing their invitation. |
+| 1 · interrupted enrollment | **FIXED IN SOURCE.** Commit `c2c291c` retains the request and accepted registration across a gate restart while the original claim is live. Its recorded run used a software authenticator; no real authenticator, browser or installed node was run. Expired unfinished setup still requires an owner recovery policy. |
+| 2 · unbound general RPC | **OPEN.** A change is described as parked and unrehearsed; the audited commit messages do not record it landing or running on a node. The committed archive-backed test still records authenticated unbound access through both general RPC dispatch paths, so documentation is not a protection. |
+| 3 · cookie prefix | **FIXED IN SOURCE.** Commit `c45fcf0` makes the public HTTPS cookie `__Host-dsh-auth-*`; its message records ingress/session/source checks and explicitly says the cookie was not run in a real browser on a node. Existing public cookies require sign-in again after installation. Per-session server revocation remains open. |
+| 4 · slow broker connections | **FIXED IN SOURCE.** Commit `c45fcf0` adds absolute header and body deadlines plus a connection cap. Its message records source checks, not installed proxy behavior. |
+| 5 · transient invitation delivery | **FIXED IN SOURCE.** Commit `c45fcf0` keeps the same redemption pending through bounded retry after transient relay failure. Its message records source checks, not a real closed-relay retry. |
 
-Changing the pinned harness patch makes the nine canonical face build records,
-their frozen copies and `packages/ui/baseline-manifest.json` stale. They are
-intentionally not edited here because this clone cannot rebuild the harness.
-Materialization already reports `face-bundle-source-stale`. The current copy,
-baseline and security-review checks still pass because all three retained layers
-are consistently old. After the canonical rebuild, copy equality (and therefore
-security review) will be red until the frozen copies move; after that copy, the
-baseline check will be red until its file records are refreshed.
+Commit `c45fcf0` says the harness and all nine face bundles were rebuilt and
+their records and frozen copies refreshed after the cookie patch. That is a
+source/build claim, not an installed-node observation.
 
 These source changes do not prove safe Internet ingress, real passkey custody,
 live cookie behavior, installed limits, relay idempotence or runtime containment.
 
-## CONFIRMED
+## Original review evidence at `1437a70`
+
+The details below preserve why the findings were opened. The evening status
+table above supersedes their repair state.
+
+### CONFIRMED
 
 1. **A reserved passkey claim can permanently strand a fresh node.** The gate
    durably changes `fresh` to `reserved`, but keeps the ceremony only in a
@@ -51,7 +52,7 @@ live cookie behavior, installed limits, relay idempotence or runtime containment
    add an owner/operator-authorized expiry reset from `reserved` to `fresh` that
    is impossible after `state_text` exists; test crash at each enrollment stage.
 
-## PLAUSIBLE
+### PLAUSIBLE
 
 1. **The four pieces are not one protected bootstrap.** A claim creates an
    ordinary harness session; the pinned host connection admits an authenticated
@@ -104,7 +105,7 @@ live cookie behavior, installed limits, relay idempotence or runtime containment
    transport/Aura/unknown states pending with capped exponential retry and an
    explicit owner-authorized abandon/reissue operation.
 
-## NOT A DEFECT
+### NOT A DEFECT
 
 - **Claim reuse/races and state files held.** Disposable script
   `tmp/review-browser-claim.py` (deleted) imported the real `claim.py`, used two
