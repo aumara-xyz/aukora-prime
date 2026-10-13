@@ -111,7 +111,7 @@ const card = [`RELEASE ID   ${a.release}  (${a.release_dir})`, `PLUGIN SET   ${a
 if (cmd === 'show') { console.log(card); process.exit(0) }
 if (cmd === 'raise') {
   const r = await call(path.join(o.run, 'owner.sock'), 'raise', { target: PLUGIN_SET_TARGET, content,
-    why: `Admit the AUKORA plugin set of release ${a.release.slice(0, 7)} (set ${a.plugin_set.slice(0, 16)}...). Raised by the operator; only the owner approves.` })
+    why: 'Review the installed release described below.' })
   let floor = null; try { floor = readFloor(o.floor) } catch {}
   console.log(card); if (isRollback(floor, a.release)) console.log(`ROLLBACK     ${a.release_dir} is below the release floor ${floor.release_dir}; the owner card says so`)
   console.log(`PENDING      ${r.id}  expires ${new Date(r.expires).toISOString()}  (waits for the owner; nothing applied)`)

@@ -13,7 +13,7 @@ export const PAGE_APPROVER = 'owner via gate approval page (bearer token, typed 
 export const PAGE_REJECTER = 'owner via gate approval page (bearer token)'
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const chip = (h) => isHex(h) ? `<span class=chip style="background:${esc(h.toUpperCase())}"></span>` : `<span class="chip dflt" title="app default: stock accent, unknown colour"></span>`
-const CSS = 'body{font:15px/1.5 system-ui;margin:0;background:#111;color:#eee;padding:16px}.card{background:#1b1b1b;border:1px solid #444;border-radius:10px;padding:12px;margin:12px 0}.h{color:#6cf;font-weight:700;font-size:12px}.plain{font-size:18px;margin:6px 0}.after{font-weight:700;color:#fd6}.sw{margin:8px 0;font-size:16px}.chip{display:inline-block;width:44px;height:28px;border-radius:6px;border:2px solid #fff;vertical-align:middle;margin:0 4px}.chip.dflt{background:repeating-linear-gradient(45deg,#555 0 6px,#999 6px 12px)}.swt{font-size:12px;color:#aaa}.warn{background:#3a1010;border:2px solid #f44;border-radius:8px;padding:6px 10px;margin:8px 0}.wh{color:#f88;font-weight:700}.warn li{margin:2px 0}.nowarn{color:#888;font-size:12px}.note{background:#2a2a1a;border:1px dashed #776;border-radius:8px;padding:8px;margin:8px 0;white-space:pre-wrap}.nh{color:#cc6;font-size:12px;font-weight:700}.hex{font:12px monospace;color:#bbb;margin-top:4px}.btns form{display:inline}button{font-size:16px;padding:10px 18px;border-radius:8px;border:0;margin-top:8px}.ap,.ap1{background:#2a7;color:#fff}.ap1{opacity:.8}.rj{background:#a33;color:#fff}.confirm{margin-top:10px;padding:8px;border:1px solid #2a7;border-radius:8px}.confirm input{font:16px monospace;padding:6px;margin:6px 0}div{word-break:break-all}.msg{color:#6f6}'
+const CSS = ':root{color-scheme:dark;--bg:#0b0d18;--surface:rgba(38,43,54,.72);--border:rgba(255,255,255,.1);--text:#e8eaed;--secondary:#b8bcc4;--muted:#8b9099;--cyan:#96b4ff;--gold:#e0b76a;--mint:#81d4b4;--violet:#c4aaff;--red:#f2555a;--radius:14px}*{box-sizing:border-box}body{font:15px/1.55 system-ui;margin:0;min-height:100vh;padding:clamp(20px,5vw,64px) 18px;background:radial-gradient(900px 620px at 20% -10%,rgba(129,212,180,.1),transparent 60%),radial-gradient(850px 620px at 90% 105%,rgba(196,170,255,.12),transparent 60%),var(--bg);color:var(--text)}main{width:min(760px,100%);margin:auto}.mast{margin:0 0 24px}.brand{display:inline-block;margin:0;background:linear-gradient(90deg,var(--mint),var(--cyan),var(--violet),var(--gold));background-clip:text;-webkit-background-clip:text;color:transparent;font-size:clamp(30px,7vw,52px);letter-spacing:.12em;line-height:1}.mast p{margin:8px 0 0;color:var(--secondary)}.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:clamp(20px,4vw,32px);margin:16px 0;box-shadow:0 24px 80px #0005,inset 0 1px #ffffff08;backdrop-filter:blur(18px)}.card h2{margin:0 0 8px;font-size:clamp(23px,4vw,31px);line-height:1.2;letter-spacing:-.025em}.h{color:var(--cyan);font-weight:700;font-size:12px;letter-spacing:.08em}.plain{color:var(--secondary);margin:14px 0}.after{font-weight:650;color:var(--gold);margin:12px 0}.sw{margin:12px 0;font-size:16px}.chip{display:inline-block;width:44px;height:28px;border-radius:8px;border:2px solid #fff;vertical-align:middle;margin:0 4px}.chip.dflt{background:repeating-linear-gradient(45deg,#555 0 6px,#999 6px 12px)}.swt{font-size:12px;color:var(--muted)}.warn{background:rgba(242,85,90,.08);border:1px solid rgba(242,85,90,.48);border-radius:var(--radius);padding:10px 14px;margin:14px 0}.wh{color:#f98b8f;font-weight:700}.warn li{margin:4px 0}.nowarn{color:var(--muted);font-size:12px}.fingerprints{margin:16px 0;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:#08091070;color:var(--secondary);font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;cursor:text;user-select:all}.fingerprints div{display:grid;grid-template-columns:minmax(92px,auto) 1fr;gap:12px}.fingerprints b{color:var(--gold);font-weight:600}.fingerprints code{font:inherit;color:var(--text);overflow-wrap:anywhere}.meta{color:var(--muted);font-size:12px}.note{background:rgba(224,183,106,.05);border:1px solid rgba(224,183,106,.25);border-radius:var(--radius);padding:12px 14px;margin:14px 0;white-space:pre-wrap;overflow-wrap:anywhere}.nh{color:var(--gold);font-size:12px;font-weight:700}.hex{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--secondary);margin-top:6px}.btns{display:flex;flex-wrap:wrap;gap:10px}.btns form{display:inline}button{font:600 15px system-ui;padding:10px 18px;border-radius:var(--radius);border:1px solid transparent;margin-top:8px;cursor:pointer}.ap,.ap1{background:rgba(150,180,255,.12);border-color:rgba(150,180,255,.45);color:var(--cyan)}.ap1{opacity:.88}.rj{background:transparent;border-color:rgba(242,85,90,.42);color:#f98b8f}button:focus-visible,input:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}.confirm{margin-top:16px;padding:16px;border:1px solid rgba(150,180,255,.45);border-radius:var(--radius);background:rgba(150,180,255,.05)}.confirm label{display:block}.confirm input{display:block;width:100%;font:16px ui-monospace,SFMono-Regular,Menlo,monospace;padding:10px 12px;margin:10px 0 4px;border:1px solid var(--border);border-radius:10px;background:#08091080;color:var(--text)}.ttl{color:var(--gold);font-size:12px}.msg{padding:12px 14px;border:1px solid rgba(129,212,180,.34);border-radius:var(--radius);background:rgba(129,212,180,.07);color:var(--mint)}.empty{color:var(--secondary)}@media(max-width:520px){.fingerprints div{display:block}.fingerprints b{display:block;margin-top:6px}.btns form,.btns button{width:100%}}'
 
 export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM_TTL_MS } = {}) {
   const { owner, now } = gate
@@ -22,33 +22,53 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
   const resultLabel = (p, v) => accentTarget(p)
     ? v.new_accent === 'default' ? 'default' : '#' + String(v.new_accent ?? '').replace(/^#/, '') : p.new_sha
   const resultKind = (p) => accentTarget(p) ? 'result colour' : 'result SHA-256'
+  const releaseCard = (p) => {
+    if (p.target !== 'plugins/aukora-plugin-set/approval.json') return null
+    try {
+      const value = JSON.parse(gate.blobText(p.new_sha))
+      if (value?.kind !== 'aukora-plugin-set-approval/v1' || !/^[0-9a-f]{40}$/.test(value.release) ||
+        !/^[0-9a-f]{64}$/.test(value.plugin_set) || !/^[0-9a-f]{64}$/.test(value.operation) || !/^[0-9a-f]{64}$/.test(value.record)) return null
+      return value
+    } catch { return null }
+  }
+  const fingerprintHtml = (p, release) => {
+    const rows = release ? [['release', release.release], ['plugin set', release.plugin_set], ['operation', release.operation], ['release record', release.record]] : []
+    rows.push(['current SHA-256', p.base_sha], ['result SHA-256', p.new_sha])
+    return `<div class=fingerprints tabindex=0 title="Click once to select these exact fingerprints" aria-label="Exact fingerprints; click once to select all">${rows.map(([label, value]) => `<div><b>${label}</b><code>${esc(value)}</code></div>`).join('')}</div>`
+  }
+  const appliedNext = (p) => {
+    const release = releaseCard(p)
+    return release ? `Release ${release.release.slice(0, 7)} is approved. Next, the operator installs this exact approval and starts the node; this page did not start it.` : 'The exact change is now applied; its signed receipt is in the gate ledger.'
+  }
 
   function pageHtml(msg, confirmFor) {
     const items = gate.pendingRows().map(p => {
       const v = gate.cardView(p)
+      const release = releaseCard(p)
+      const heading = release ? `Start release ${release.release.slice(0, 7)} on this node` : v.plain
       const hid = `<input type=hidden name=k value="${esc(owner.bearer)}"><input type=hidden name=id value="${esc(p.id)}"><input type=hidden name=base value="${esc(p.base_sha)}"><input type=hidden name=new value="${esc(p.new_sha)}">`
       let step2 = ''
       if (confirmFor && confirmFor.id === p.id) step2 = `<form method=POST action=/act class=confirm>${hid}<input type=hidden name=nonce value="${esc(confirmFor.nonce)}">
-      <div><b>Step 2 of 2.</b> Type the ${resultKind(p)} <b>${esc(resultLabel(p, v))}</b> exactly to confirm (Enter/Space/Tab alone cannot approve):</div>
-      <input name=typed autocomplete=off spellcheck=false placeholder="type ${esc(resultLabel(p, v).replace(/^#/, ''))}" aria-label="type the ${resultKind(p)} to confirm">
+      <label for=typed-confirm><b>Step 2 of 2.</b> Paste the ${resultKind(p)} <b>${esc(resultLabel(p, v))}</b> into the box below; this step expires in 2 minutes.</label>
+      <input id=typed-confirm name=typed autocomplete=off spellcheck=false placeholder="paste ${esc(resultLabel(p, v).replace(/^#/, ''))}" aria-label="paste the ${resultKind(p)} to confirm" aria-describedby=confirm-limit>
+      <div class=ttl id=confirm-limit>2-minute limit from the start of step 2. Enter, Space, or Tab alone cannot approve.</div>
       <button name=a value=confirm class=ap tabindex=-1>Confirm apply ${esc(resultLabel(p, v))}</button></form>`
-      return `<div class=card data-id="${esc(p.id)}"><div class=h>HOST-VERIFIED (gate)</div>
-      <div class=plain>${esc(v.plain)}</div>
+      return `<div class=card data-id="${esc(p.id)}"><h2>${esc(heading)}</h2><div class=h>HOST-VERIFIED BY THE BOUNDARY GATE</div>
+      ${release ? `<div class=plain>${esc(v.plain)}</div>` : ''}
       <div class=after>${esc(v.after_apply)}</div>
       ${accentTarget(p) ? `<div class=sw>${chip(v.base_accent)} BEFORE ${esc(v.base_accent ?? '?')} ${esc(colorName(v.base_accent))} <span class=arr>&rarr;</span> ${chip(v.new_accent)} AFTER ${esc(v.new_accent ?? '?')} ${esc(colorName(v.new_accent))}</div>` : ''}
       <div class=swt>${esc(v.swatch ?? '')}</div>
       ${v.warnings.length ? `<div class=warn><div class=wh>GATE WARNINGS (${v.warnings.length})</div><ul>${v.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : '<div class=nowarn>gate warnings: none</div>'}
-      <div>target: <b>${esc(p.target)}</b></div>
-      <div>proposal ${esc(p.id)} · expires ${esc(new Date(p.expires).toLocaleTimeString('en-GB', { timeZone }))} ${esc(timeZone)}</div>
-      <div>current sha256 ${esc(p.base_sha)}</div><div>result&nbsp; sha256 ${esc(p.new_sha)}</div>
+      ${fingerprintHtml(p, release)}
+      <div class=meta>Target <b>${esc(p.target)}</b> · proposal ${esc(p.id)} · expires ${esc(new Date(p.expires).toLocaleTimeString('en-GB', { timeZone }))} ${esc(timeZone)}</div>
       <div class=note><div class=nh>MODEL NOTE (unverified)</div>${esc(v.note_display)}${v.note_meta?.hexdump ? `<div class=hex>raw note bytes (${esc(v.note_meta.raw_bytes)}): ${esc(v.note_meta.hexdump)}</div>` : ''}</div>
       <div class=btns><form method=POST action=/act class=rjf>${hid}<button name=a value=reject class=rj>Reject</button></form>
       <form method=POST action=/act class=apf>${hid}<button name=a value=approve-step1 class=ap1 tabindex=-1>Approve&hellip; (step 1 of 2)</button></form></div>${step2}</div>`
     }).join('\n')
     return `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Boundary gate — owner approval</title>
   <style>${CSS}</style>
-  <h2>Boundary gate — owner approval</h2><p>This page is served directly by the gate, not by the harness. Only items below are gate-verified. Approve takes two steps and a typed confirmation.</p>
-  ${msg ? `<p class=msg>${esc(msg)}</p>` : ''}${items || '<p>No pending proposals.</p>'}`
+  <main><header class=mast><h1 class=brand>AUKORA</h1><p>Boundary gate · owner approval</p></header>
+  ${msg ? `<p class=msg role=status>${esc(msg)}</p>` : ''}${items || '<p class=empty>No pending proposals.</p>'}</main>`
   }
 
   // Pure form handler (used by the HTTP server and by checks). Returns { status, body }.
@@ -78,7 +98,7 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
         try {
           const rv = gate.ownerOps.review({ id })
           const r = gate.ownerOps.decide_review({ id, base_sha: rv.base_sha, new_sha: rv.new_sha, review_challenge: rv.review_challenge, outcome: 'allowed-once' }, PAGE_APPROVER)
-          msg = r.applied ? `APPLIED ${p.target} — ledger #${r.ledger_seq}` : `not applied: ${r.message}`
+          msg = r.applied ? `APPLIED ${p.target} — ledger #${r.ledger_seq}. ${appliedNext(p)}` : `not applied: ${r.message}`
         } catch (e) { msg = `not applied: ${String(e?.message ?? e).slice(0, 200)}` }
       }
     } else msg = 'unknown action; nothing done'

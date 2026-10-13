@@ -21,6 +21,7 @@ const mutations = {
   bearer: ['../packages/boundary-gate/src/owner-page.mjs', [["if (!bearerOk(owner, f.get('k'), now))", 'if (false)']]],
   nonce: ['../packages/boundary-gate/src/owner-page.mjs', [["if (!c || c.id !== id || c.base !== p.base_sha || c.new !== p.new_sha || now() > c.exp)", 'if (false)']]],
   hashes: ['../packages/boundary-gate/src/owner-page.mjs', [["else if (p.base_sha !== f.get('base') || p.new_sha !== f.get('new'))", 'else if (false)']]],
+  claim: ['../packages/boundary-gate/src/card.mjs', [['if (IMPERSONATION.test(nn))', 'if (false)']]],
   enrolled: ['../packages/boundary-gate/src/gate.mjs', [['function ownerAuthorizationRequired() {', 'function ownerAuthorizationRequired() { return false;']]],
   approver: ['../packages/boundary-gate/src/plugin-set-canon.mjs', [["pin.approver !== 'owner via gate approval page (bearer token, typed 2-step confirm)'", 'false']]],
 }
@@ -120,7 +121,7 @@ function approved(f) {
 
 test('first bearer approval signs the exact release and plugin set; only its verified floor permits boot', t => {
   const f = fixture(t), html = f.page.act(f.form('approve-step1')).body
-  assert.match(html, new RegExp(`Type the result SHA-256 <b>${f.proposal.new_sha}</b>`))
+  assert.match(html, new RegExp(`Paste the result SHA-256 <b>${f.proposal.new_sha}</b>`))
   assert.match(html, /first plugin-set approval on this gate/)
   assert.doesNotMatch(html, /type the result colour/)
   assert.equal(readFloor(f.floorFile), null)
@@ -134,6 +135,39 @@ test('first bearer approval signs the exact release and plugin set; only its ver
   assert.throws(() => advanceFloor(floor, verified), { code: 'release-floor-not-newer' })
   assert.doesNotThrow(() => runtime.verifySetApproval({ record: f.record, receipt: input.approval, pin: input.pin }), 'the runtime verifier accepts the same honest page label')
   assert.throws(() => runtime.verifySetApproval({ record: f.record, receipt: input.approval, pin: { ...input.pin, approver: 'owner via some other page' } }), { code: 'plugin-set-approver-not-pinned' })
+})
+
+test('release page uses the AUKORA surface and keeps exact approval facts selectable without script', t => {
+  const f = fixture(t), html = f.page.pageHtml(''), release = JSON.parse(f.content)
+  const heading = `Start release ${release.release.slice(0, 7)} on this node`
+  assert.ok(html.indexOf(heading) < html.indexOf('HOST-VERIFIED BY THE BOUNDARY GATE'))
+  assert.match(html, /--bg:#0b0d18;--surface:rgba\(38,43,54,\.72\);--border:rgba\(255,255,255,\.1\)/u)
+  assert.match(html, /--cyan:#96b4ff;--gold:#e0b76a;--mint:#81d4b4;--violet:#c4aaff;--red:#f2555a;--radius:14px/u)
+  assert.match(html, /linear-gradient\(90deg,var\(--mint\),var\(--cyan\),var\(--violet\),var\(--gold\)\)/u)
+  assert.match(html, /class=fingerprints tabindex=0 title="Click once to select these exact fingerprints"/u)
+  assert.match(html, /\.fingerprints\{[^}]*user-select:all/u)
+  for (const value of [f.proposal.base_sha, f.proposal.new_sha, release.release, release.plugin_set, release.operation, release.record]) assert.match(html, new RegExp(value))
+  assert.doesNotMatch(html, /<script\b|<(?:img|link)\b[^>]*(?:src|href)=/iu)
+  let status, headers, body
+  f.page.handler({ method: 'GET', url: '/?k=' + f.owner.bearer }, {
+    writeHead: (value, fields) => { status = value; headers = fields }, end: value => { body = value },
+  })
+  assert.equal(status, 200); assert.equal(body, html)
+  assert.equal(headers['x-frame-options'], 'DENY')
+  assert.match(headers['content-security-policy'], /default-src 'none'/u)
+  assert.match(headers['content-security-policy'], /frame-ancestors 'none'/u)
+  const step2 = f.page.act(f.form('approve-step1')).body
+  assert.match(step2, /this step expires in 2 minutes/u)
+  assert.match(step2, /2-minute limit from the start of step 2/u)
+})
+
+test('the actual operator release note is warning-free while a claimed approval still warns', async () => {
+  const { cardWarnings } = await load('../packages/boundary-gate/src/card.mjs')
+  const source = fs.readFileSync(new URL('../packages/boundary-gate/bin/plugin-set-approval.mjs', import.meta.url), 'utf8')
+  const match = /why: '([^']+)' \}\)/u.exec(source)
+  assert.ok(match, 'approval raise carries one static operator note')
+  assert.deepEqual(cardWarnings({}, '', '', match[1]), [])
+  assert.ok(cardWarnings({}, '', '', 'Already approved by the owner.').some(warning => warning.startsWith('NOTE claims prior approval')))
 })
 
 test('wrong digest, missing step one, spent nonce, expired nonce and changed displayed hashes perform no write', t => {
@@ -188,6 +222,12 @@ test('theme confirmation retains its existing colour semantics', t => {
   const f = fixture(t, { theme: true }), nonce = f.step1()
   assert.match(f.page.act(f.form('confirm', { nonce, typed: '#123abc' })).body, /APPLIED plugins\/auma-theme\/theme.json/)
   assert.equal(f.store.writes, 1)
+})
+
+test('applied release page says what the operator does next', t => {
+  const f = fixture(t), nonce = f.step1()
+  const result = f.page.act(f.form('confirm', { nonce, typed: f.proposal.new_sha }))
+  assert.match(result.body, /Release abcdef0 is approved\. Next, the operator installs this exact approval and starts the node; this page did not start it\./u)
 })
 
 test('the trusted verifier refuses other bearer-page approver names even with valid gate signatures', t => {
