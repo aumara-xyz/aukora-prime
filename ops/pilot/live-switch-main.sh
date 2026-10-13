@@ -290,8 +290,13 @@ systemctl start aukora-boundary-gate
 for ((i=0; i<20; i++)); do active aukora-boundary-gate && break; sleep 1; done
 active aukora-boundary-gate || refuse GATE_START_FAILED
 phase approval-install
+# The harness user reads its own approval at the floor check and at every start. This script runs under a strict
+# mask, so the approval folders and the records written into them are made readable explicitly (found in the first
+# staging rehearsal of this version: the floor check refused with EACCES and the switch restored).
+install -d -o root -g root -m 0755 "$ROOT/etc/aukora-approvals/$C" "$A" "$A/gate-state"
 boot approval recover-cache --release-dir "$REL" --operation "$OP" --out "$A/gate-state" > "$B/approval.log" 2>&1 || boot approval install --release-dir "$REL" --operation "$OP" --out "$A/gate-state" > "$B/approval.log" 2>&1 || refuse APPROVAL_INSTALL_FAILED
 grep -q '^INSTALLED' "$B/approval.log" || refuse APPROVAL_INSTALL_FAILED
+chmod -R u+rwX,go+rX,go-w "$ROOT/etc/aukora-approvals/$C"
 phase floor
 sudo -u aukora-host "${CLEAN[@]}" "$PYTHON" -I -S "$L/gate-bootstrap" floor check --release-dir "$REL" --approval-state-root "$A" > "$B/floor.log" 2>&1 || refuse FLOOR_CHECK_FAILED
 phase drain
