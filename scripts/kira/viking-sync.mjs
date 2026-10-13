@@ -23,9 +23,22 @@ function failureRow(value) {
   if (Number.isSafeInteger(value.attempts) && value.attempts >= 0) row.attempts = value.attempts
   if (Number.isFinite(value.nextRetryAt) && value.nextRetryAt >= 0) row.nextRetryAt = value.nextRetryAt
   if (value.capped === true) row.capped = true
+  if (['acknowledgement', 'content-bytes', 'document', 'note-content-hash', 'part-hash'].includes(value.comparison)) row.comparison = value.comparison
+  for (const name of ['expectedBytes', 'actualBytes']) {
+    if ((Number.isSafeInteger(value[name]) && value[name] >= 0) || value[name] === 'unknown') row[name] = value[name]
+  }
+  if ((Number.isSafeInteger(value.firstDiffByte) && value.firstDiffByte >= -1) || value.firstDiffByte === 'unknown') row.firstDiffByte = value.firstDiffByte
   return row
 }
 const eligible = report => Number.isSafeInteger(report.retryable) ? count(report.retryable) : count(report.pending)
+const failureCounts = report => {
+  const counts = new Map()
+  for (const value of report.recordFailures ?? []) {
+    const row = failureRow(value)
+    if (row) counts.set(row.reason, (counts.get(row.reason) ?? 0) + 1)
+  }
+  return [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([reason, total]) => `${reason}:${total}`).join(',') || 'none'
+}
 
 export function syncArgs(argv) {
   if (![1, 3].includes(argv.length) || (argv.length === 3 && argv[1] !== '--max-minutes')) fail('usage')
@@ -54,7 +67,8 @@ export function syncTransport(config, signal, request = globalThis.fetch) {
 }
 
 export function syncLine(report, final = false) {
-  return `${final ? 'kira-viking-sync' : 'progress'}: indexed=${count(report.indexed)} pending=${count(report.pending)} failed=${ids(report.failedIds).length}`
+  const line = `${final ? 'kira-viking-sync' : 'progress'}: indexed=${count(report.indexed)} pending=${count(report.pending)} failed=${ids(report.failedIds).length}`
+  return final ? `${line} failure-reasons=${failureCounts(report)}` : line
 }
 
 export function syncFailureLine(value, skipped = false) {

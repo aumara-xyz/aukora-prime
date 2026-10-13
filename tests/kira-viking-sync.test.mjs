@@ -20,14 +20,15 @@ const changes = {
   'time-bound': [toolUrl, "if (!Number.isFinite(maxMinutes) || maxMinutes <= 0 || maxMinutes > 1440) fail('max-minutes-invalid')", "if (false) fail('max-minutes-invalid')"],
   'usage': [toolUrl, "if (![1, 3].includes(argv.length) || (argv.length === 3 && argv[1] !== '--max-minutes')) fail('usage')", "if (false) fail('usage')"],
   'id-filter': [toolUrl, "typeof id === 'string' && ID.test(id)", 'true'],
-  'count-output': [toolUrl, "return `${final ? 'kira-viking-sync' : 'progress'}: indexed=${count(report.indexed)} pending=${count(report.pending)} failed=${ids(report.failedIds).length}`", 'return JSON.stringify(report)'],
+  'count-output': [toolUrl, "const line = `${final ? 'kira-viking-sync' : 'progress'}: indexed=${count(report.indexed)} pending=${count(report.pending)} failed=${ids(report.failedIds).length}`", 'const line = JSON.stringify(report)'],
+  'failure-summary': [toolUrl, "return final ? `${line} failure-reasons=${failureCounts(report)}` : line", 'return line'],
   'delete-stale': [bridgeUrl, 'options.removeStale !== false && live.complete', 'live.complete'],
   'delete-race': [bridgeUrl, 'options.removeStale !== false && latest.complete && requests < budget && !failed.length', 'latest.complete && requests < budget && !failed.length'],
   'partial-semantic': [bridgeUrl, '!hits.length && searchableNotes === 0 &&', '!hits.length &&'],
   'partial-state': [bridgeUrl, "answer.coverage?.partial ? 'undetermined' : 'empty'", "'empty'"],
   'partial-ceiling': [bridgeUrl, 'ceiling: answer.coverage?.partial\n', 'ceiling: false\n'],
   'indexed-integrity': [bridgeUrl, 'if (matches.some(note => !matchesDocument(note, uri, bytes))) {', 'if (false) {'],
-  'quarantine-preserved': [bridgeUrl, "if (options.preserveQuarantined === true && acknowledgements[uri]?.status === 'quarantined') throw new OpenVikingError('content-mismatch', 'index acknowledgement quarantined')", 'void 0'],
+  'quarantine-preserved': [bridgeUrl, "if (options.preserveQuarantined === true && acknowledgements[uri]?.status === 'quarantined') {", 'if (false) {'],
   'store-incomplete': [toolUrl, 'if (!finalStore.complete) {', 'if (false) {'],
   'release-contained': [toolUrl, "if (suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix)) fail('release-file-outside')", "if (false) fail('release-file-outside')"],
   'release-supported': [toolUrl, "if (OPERATOR_SYNC_VERSION !== 2) fail('release-sync-unsupported')", "if (false) fail('release-sync-unsupported')"],
@@ -52,6 +53,8 @@ const changes = {
   'shared-pending': [bridgeUrl, "...(acknowledgements[uri]?.status === 'pending' ? { status: 'pending' } : {}),", ''],
   'successful-retry-cleared': [bridgeUrl, 'delete value.retry', 'void value.retry'],
   'audit-before-drain': [toolUrl, 'verifyAcknowledged: before === 0', 'verifyAcknowledged: true'],
+  'raw-integrity-read': [bridgeUrl, 'const readContentPath = uri => `/api/v1/content/read?uri=${encodeURIComponent(uri)}&raw=true`', 'const readContentPath = uri => `/api/v1/content/read?uri=${encodeURIComponent(uri)}`'],
+  'mismatch-diagnostics': [bridgeUrl, ".map(id => ({ id, reason: 'index-content-mismatch', ...mismatchFields(mismatch) }))", ".map(id => ({ id, reason: 'index-content-mismatch' }))"],
 }
 let applied = 0
 if (mutant) {
@@ -68,7 +71,7 @@ if (mutant) {
 }
 const { syncArgs, syncTransport, syncLine, syncFailureLine, syncRelease } = await import(toolUrl)
 const { createOpenVikingRecall, contentUri, contentDocuments, semanticNotes } = await import(bridgeUrl)
-const { createTrackedMemory } = await import('../plugins/aukora-kira/lib/tracked-memory.mjs')
+const { createTrackedMemory, contentHash } = await import('../plugins/aukora-kira/lib/tracked-memory.mjs')
 const { MAX_EMBEDDING_CONTENT_BYTES } = await import('../plugins/aukora-kira/lib/memory-input-bounds.mjs')
 const subject = `aukora:1:${'35'.repeat(32)}`, canary = 'SYNTHETIC-NOTE-DO-NOT-PRINT'
 const config = { configured: true, url: 'http://127.0.0.1:49671', account: 'scratch', user: 'scratch', key: 'inert-synthetic', syncBatch: 1 }
@@ -78,7 +81,7 @@ async function check(name, action) {
   if (mutant) {
     const group = ['release-absolute', 'time-bound', 'usage'].includes(mutant) ? 'arguments'
       : ['delete-transport', 'remote-endpoint', 'request-outside'].includes(mutant) ? 'transport'
-        : ['id-filter', 'count-output', 'failure-token', 'failure-http-status', 'failure-attempts', 'failure-retry-time'].includes(mutant) ? 'output'
+        : ['id-filter', 'count-output', 'failure-summary', 'failure-token', 'failure-http-status', 'failure-attempts', 'failure-retry-time'].includes(mutant) ? 'output'
           : ['delete-stale', 'delete-race'].includes(mutant) ? 'stale'
             : mutant === 'quarantine-preserved' ? 'quarantined'
               : mutant === 'store-incomplete' ? 'incomplete'
@@ -94,17 +97,18 @@ async function check(name, action) {
                                   : mutant === 'incomplete-coverage' ? 'incomplete-coverage'
                                     : ['interactive-busy', 'interactive-busy-audit'].includes(mutant) ? 'interactive-flight'
                                       : ['shared-retry', 'shared-pending', 'successful-retry-cleared'].includes(mutant) ? 'shared'
-                                        : mutant === 'audit-before-drain' ? 'audit-drain' : 'partial'
+                                        : mutant === 'audit-before-drain' ? 'audit-drain'
+                                          : ['raw-integrity-read', 'mismatch-diagnostics'].includes(mutant) ? 'exact' : 'partial'
     if (!name.startsWith(group)) return
   }
   await action(); passed++; process.stdout.write(`PASS ${name}\n`)
 }
 function fixture() {
   const files = new Map(), calls = [], rejected = new Set()
-  let writes = 0, down = false, onWrite, searchEmpty = false, vectorStatus = 'complete'
+  let writes = 0, down = false, onWrite, searchEmpty = false, vectorStatus = 'complete', visibleProject = value => value
   const fetch = async (url, options = {}) => {
     const parsed = new URL(url), body = options.body ? JSON.parse(options.body) : {}, uri = parsed.searchParams.get('uri')
-    calls.push({ method: options.method ?? 'GET', path: parsed.pathname })
+    calls.push({ method: options.method ?? 'GET', path: parsed.pathname, raw: parsed.searchParams.get('raw') })
     if (down) throw new Error(canary)
     if (parsed.pathname === '/health') return Response.json({ healthy: true })
     let result
@@ -113,13 +117,14 @@ function fixture() {
       files.set(body.uri, body.content); writes++; await onWrite?.(); result = { vector_status: vectorStatus }
     } else if (parsed.pathname === '/api/v1/content/read') {
       if (!files.has(uri)) return Response.json({ status: 'error' }, { status: 404 })
-      result = files.get(uri)
+      result = parsed.searchParams.get('raw') === 'true' ? files.get(uri) : visibleProject(files.get(uri))
     } else if (options.method === 'DELETE') { files.delete(uri); result = {} }
     else if (parsed.pathname === '/api/v1/search/find') result = { memories: searchEmpty ? [] : [...files.keys()].map(uri => ({ uri, score: .9 })) }
     else throw new Error('unexpected synthetic request')
     return Response.json({ status: 'ok', result })
   }
-  return { files, calls, rejected, fetch, get writes() { return writes }, set down(value) { down = value }, set onWrite(value) { onWrite = value }, set searchEmpty(value) { searchEmpty = value }, set vectorStatus(value) { vectorStatus = value } }
+  return { files, calls, rejected, fetch, get writes() { return writes }, set down(value) { down = value }, set onWrite(value) { onWrite = value },
+    set searchEmpty(value) { searchEmpty = value }, set vectorStatus(value) { vectorStatus = value }, set visibleProject(value) { visibleProject = value } }
 }
 function syntheticRelease(stateDir, bridgeConfig = config) {
   const release = join(work, `release-${++releaseCount}`)
@@ -165,14 +170,83 @@ try {
     const value = syncLine({ indexed: 7, pending: 11, failedIds: [canary, `rem:${'a'.repeat(64)}`], statement: canary, subject: canary, key: canary })
     assert.equal(value, 'progress: indexed=7 pending=11 failed=1'); assert.ok(!value.includes(canary))
     const id = `rem:${'a'.repeat(64)}`
+    assert.equal(syncLine({ indexed: 7, pending: 2, failedIds: [id], recordFailures: [
+      { id, reason: 'index-content-mismatch' }, { id: `rem:${'b'.repeat(64)}`, reason: 'http-422' },
+    ] }, true), 'kira-viking-sync: indexed=7 pending=2 failed=1 failure-reasons=http-422:1,index-content-mismatch:1')
     assert.equal(syncFailureLine({ id: canary, reason: 'timeout' }), null)
     assert.equal(syncFailureLine({ id, reason: 'vector-status-failed', httpStatus: 200, vectorStatus: 'failed', attempts: 2, nextRetryAt: 70_000, capped: true, text: canary }),
       `failed-id: ${id} reason=vector-status-failed httpStatus=200 vectorStatus=failed attempts=2 nextRetryAt=70000 capped=true`)
     assert.equal(syncFailureLine({ id, reason: 'content-hash-mismatch' }, true), `skipped-id: ${id} reason=content-hash-mismatch`)
     for (const invalid of [
-      { reason: canary, vectorStatus: canary, httpStatus: 999, attempts: -1, nextRetryAt: -1 },
-      { reason: canary, vectorStatus: canary, httpStatus: 0, attempts: 1.5, nextRetryAt: Infinity },
+      { reason: canary, vectorStatus: canary, httpStatus: 999, attempts: -1, nextRetryAt: -1, comparison: canary },
+      { reason: canary, vectorStatus: canary, httpStatus: 0, attempts: 1.5, nextRetryAt: Infinity,
+        expectedBytes: canary, actualBytes: canary, firstDiffByte: canary },
     ]) assert.equal(syncFailureLine({ id, ...invalid, statement: canary, key: canary }), `failed-id: ${id} reason=index-failed`)
+  })
+  await check('exact raw verification preserves CRLF, trailing whitespace, Unicode bytes and bounded chunks', async () => {
+    const run = fixture(), stateDir = join(work, 'exact-fixtures'), store = createTrackedMemory({ stateDir, subject })
+    const texts = [
+      'Aukora preserves Cafe\u0301, 星 and 🌒 exactly across CRLF.\r\nThe second line retains spaces.  \r\n',
+      'The observatory preserves a long non-ASCII calibration span: e\u0301 星🌒.\r\n'.repeat(28) + 'Trailing bytes stay here.  ',
+    ]
+    await store.rememberBatch(texts.map((text, index) => ({ text, from: `fixture-${index}` })))
+    run.visibleProject = text => text.normalize('NFC').replaceAll('\r\n', '\n').trimEnd()
+    const notes = store.read().notes, release = syntheticRelease(stateDir)
+    const report = await syncRelease({ release, maxMinutes: 1 }, { request: run.fetch })
+    assert.equal(report.ok, true); assert.equal(report.pending, 0); assert.deepEqual(report.failedIds, [])
+    assert.ok(run.calls.filter(call => call.path === '/api/v1/content/read').every(call => call.raw === 'true'))
+    for (const note of notes) {
+      const documents = contentDocuments(config.user, note)
+      assert.equal(documents.map(document => document.content).join(''), note.statement)
+      assert.ok(documents.every(document => Buffer.byteLength(document.content, 'utf8') <= MAX_EMBEDDING_CONTENT_BYTES))
+      for (const document of documents) assert.equal(run.files.get(document.uri), document.content)
+    }
+    assert.ok(contentDocuments(config.user, notes.find(note => note.statement.length > 1000)).length > 1)
+  })
+  await check('exact store truncation and older bytes remain mismatches with content-free offsets', async () => {
+    const run = fixture(), stateDir = join(work, 'exact-mismatch'), store = createTrackedMemory({ stateDir, subject })
+    const texts = [
+      'The telescope stores Café 星🌒 without dropping the final byte.  ',
+      'The current calibration replaces an older indexed copy under this capture identifier.',
+    ]
+    await store.rememberBatch(texts.map((text, index) => ({ text, from: `mismatch-${index}` })))
+    const notes = store.read().notes, release = syntheticRelease(stateDir)
+    assert.equal((await syncRelease({ release, maxMinutes: 1 }, { request: run.fetch })).ok, true)
+    const firstUri = contentUri(config.user, notes[0].contentHash), secondUri = contentUri(config.user, notes[1].contentHash)
+    const firstStored = run.files.get(firstUri), older = 'The older indexed calibration has different exact bytes.'
+    run.files.set(firstUri, firstStored.slice(0, -1)); run.files.set(secondUri, older)
+    const report = await syncRelease({ release, maxMinutes: 1 }, { request: run.fetch })
+    assert.equal(report.ok, false); assert.equal(report.reason, 'index-failed')
+    assert.deepEqual(report.failedIds, notes.map(note => note.id).sort())
+    const truncated = report.recordFailures.find(row => row.id === notes[0].id)
+    assert.deepEqual({ comparison: truncated.comparison, expectedBytes: truncated.expectedBytes, actualBytes: truncated.actualBytes, firstDiffByte: truncated.firstDiffByte }, {
+      comparison: 'content-bytes', expectedBytes: Buffer.byteLength(firstStored), actualBytes: Buffer.byteLength(firstStored.slice(0, -1)),
+      firstDiffByte: Buffer.byteLength(firstStored.slice(0, -1)),
+    })
+    const prior = report.recordFailures.find(row => row.id === notes[1].id)
+    assert.equal(prior.comparison, 'content-bytes'); assert.equal(prior.expectedBytes, Buffer.byteLength(notes[1].statement))
+    assert.equal(prior.actualBytes, Buffer.byteLength(older)); assert.ok(prior.firstDiffByte >= 0)
+    assert.equal(syncLine(report, true), 'kira-viking-sync: indexed=2 pending=0 failed=2 failure-reasons=index-content-mismatch:2')
+    for (const row of report.recordFailures) {
+      const line = syncFailureLine(row)
+      assert.match(line, /reason=index-content-mismatch comparison=content-bytes expectedBytes=\d+ actualBytes=\d+ firstDiffByte=\d+/u)
+      assert.ok(!texts.some(text => line.includes(text))); assert.ok(!line.includes(older))
+    }
+  })
+  await check('changed notes between snapshots use a new content URI without confusing the older indexed copy', async () => {
+    const run = fixture(), stateDir = join(work, 'changed-snapshot'), store = createTrackedMemory({ stateDir, subject })
+    await store.remember({ text: 'The observatory calibration originally records Café 星🌒.', from: 'race-fixture' })
+    const original = store.read().notes[0], changedStatement = 'The observatory calibration now records Cafe\u0301 星🌘.  '
+    const changed = { ...original, statement: changedStatement, contentHash: contentHash(changedStatement) }
+    const initial = { entries: new Map([[original.id, original]]), complete: true }
+    const latest = { entries: new Map([[changed.id, changed]]), complete: true }
+    const bridge = createOpenVikingRecall({ stateDir, config, fetch: run.fetch })
+    const raced = await bridge.sync(() => latest, { snapshot: initial, budget: 8, removeStale: false })
+    assert.equal(raced.failedIds.length, 0); assert.equal(raced.pending, 1)
+    const settled = await bridge.sync(() => latest, { budget: 8, removeStale: false })
+    assert.equal(settled.failedIds.length, 0); assert.equal(settled.pending, 0)
+    assert.equal(run.files.get(contentUri(config.user, original.contentHash)), original.statement)
+    assert.equal(run.files.get(contentUri(config.user, changed.contentHash)), changed.statement)
   })
   await check('contained release store import refuses a symlink escaping the release', async () => {
     const release = syntheticRelease(join(work, 'escape-state')), path = join(release, 'plugins/aukora-kira/lib/tracked-memory.mjs')
@@ -435,6 +509,10 @@ try {
     const bridge = createOpenVikingRecall({ stateDir, config, fetch: run.fetch }), written = run.writes
     const report = await bridge.sync(() => store.ledger(), { budget: 8, removeStale: false, preserveQuarantined: true })
     assert.deepEqual(report.failed, ['index-content-mismatch']); assert.deepEqual(report.failedIds, [note.id])
+    assert.deepEqual({ comparison: report.recordFailures[0].comparison, expectedBytes: report.recordFailures[0].expectedBytes,
+      actualBytes: report.recordFailures[0].actualBytes, firstDiffByte: report.recordFailures[0].firstDiffByte }, {
+      comparison: 'acknowledgement', expectedBytes: Buffer.byteLength(note.statement), actualBytes: 'unknown', firstDiffByte: 'unknown',
+    })
     assert.equal(run.writes, written); assert.equal(run.files.get(uri), 'Synthetic changed index bytes require investigation.')
   })
   await check('incomplete stores never report complete indexing or expose refused note bodies', async () => {

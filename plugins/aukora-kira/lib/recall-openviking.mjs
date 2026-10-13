@@ -128,6 +128,17 @@ const observedFailure = (path, httpStatus = null) => ({
   httpStatus: Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
 })
 const failureOf = error => error?.failure ?? { call: 'unknown', cause: 'unknown', httpStatus: null }
+const COMPARISONS = new Set(['acknowledgement', 'content-bytes', 'document', 'note-content-hash', 'part-hash'])
+const mismatchFields = value => {
+  const fields = {}
+  if (COMPARISONS.has(value?.comparison)) fields.comparison = value.comparison
+  for (const name of ['expectedBytes', 'actualBytes']) {
+    if ((Number.isSafeInteger(value?.[name]) && value[name] >= 0) || value?.[name] === 'unknown') fields[name] = value[name]
+  }
+  if ((Number.isSafeInteger(value?.firstDiffByte) && value.firstDiffByte >= -1) || value?.firstDiffByte === 'unknown') fields.firstDiffByte = value.firstDiffByte
+  return fields
+}
+const readContentPath = uri => `/api/v1/content/read?uri=${encodeURIComponent(uri)}&raw=true`
 
 /** URI identity is the SHA-256 of the exact UTF-8 capture bytes, never a title or summary. */
 export function contentUri(user, hash) {
@@ -269,7 +280,7 @@ export function createOpenVikingRecall(input) {
     const retry = { attempts, nextRetryAt: now() + Math.min(900_000, 30_000 * 2 ** (attempts - 1)), capped: attempts >= 5,
       reason: error.reason ?? (error.code === 'kira.semantic:content-mismatch' ? 'index-content-mismatch' : 'index-write-failed'),
       httpStatus: failureOf(error).httpStatus, ...(error.vectorStatus ? { vectorStatus: error.vectorStatus } : {}),
-      failure: failureOf(error) }
+      ...mismatchFields(error), failure: failureOf(error) }
     ackMany([[uri, { ...(acknowledgements[uri] ?? ackValue(uri, notes.map(note => note.id), hashOf(notes[0]))), retry }]])
   }
   const acknowledgementMatches = (note, uri) => {
@@ -292,26 +303,41 @@ export function createOpenVikingRecall(input) {
         previous: Object.fromEntries(['contentHash', 'statementHash', 'partHash', 'byteRange'].filter(key => entry[key] !== undefined).map(key => [key, entry[key]])),
         expected: { statementHash: hashOf(notes[0]), partHash: document.partHash, byteRange: document.byteRange } } }]])
   }
-  const matchesDocument = (note, uri, bytes) => {
+  const compareDocument = (note, uri, bytes) => {
     const document = documentFor(note, uri)
-    return document !== undefined && verifyContentHash(note.statement, hashOf(note)).ok
-      && document.content === bytes && document.partHash === sha256Hex(bytes)
-      && (!acknowledgements[uri] || (acknowledged(acknowledgements[uri]) && acknowledgementMatches(note, uri)))
+    const expected = Buffer.from(document?.content ?? note.statement, 'utf8')
+    const actual = Buffer.from(typeof bytes === 'string' ? bytes : '', 'utf8')
+    let firstDiffByte = -1
+    const shared = Math.min(expected.length, actual.length)
+    for (let offset = 0; offset < shared; offset++) if (expected[offset] !== actual[offset]) { firstDiffByte = offset; break }
+    if (firstDiffByte === -1 && expected.length !== actual.length) firstDiffByte = shared
+    const detail = comparison => ({ comparison, expectedBytes: expected.length, actualBytes: actual.length, firstDiffByte })
+    if (document === undefined) return detail('document')
+    if (!verifyContentHash(note.statement, hashOf(note)).ok) return detail('note-content-hash')
+    if (firstDiffByte !== -1) return detail('content-bytes')
+    if (document.partHash !== sha256Hex(bytes)) return detail('part-hash')
+    if (acknowledgements[uri] && (!acknowledged(acknowledgements[uri]) || !acknowledgementMatches(note, uri))) return detail('acknowledgement')
+    return null
   }
+  const matchesDocument = (note, uri, bytes) => compareDocument(note, uri, bytes) === null
+  const contentMismatch = (message, detail) => Object.assign(new OpenVikingError('content-mismatch', message), mismatchFields(detail))
   const auditAcknowledged = async (grouped, budget = config.syncBatch) => {
     const uris = Object.keys(acknowledgements).filter(uri => grouped.has(uri) && acknowledged(acknowledgements[uri]))
-    const unreadable = [], tampered = [], failed = [], failures = [], failedIds = new Set()
+    const unreadable = [], tampered = [], mismatches = [], failed = [], failures = [], failedIds = new Set()
     const count = Math.min(uris.length, syncBudget(budget))
     let requests = 0
     for (let i = 0; i < count; i++) {
       const uri = uris[(auditOffset + i) % uris.length]
       try {
         requests++
-        const bytes = await call('GET', `/api/v1/content/read?uri=${encodeURIComponent(uri)}`)
+        const bytes = await call('GET', readContentPath(uri))
         if (typeof bytes !== 'string') { ack(uri, null); unreadable.push(uri) }
-        else if (grouped.get(uri).some(note => !matchesDocument(note, uri, bytes))) tampered.push(uri)
-        else if (acknowledgements[uri]?.contentHash == null) ack(uri,
-          [...new Set([...idsOf(acknowledgements[uri]), ...grouped.get(uri).map(note => note.id)])], hashOf(grouped.get(uri)[0]))
+        else {
+          const mismatch = grouped.get(uri).map(note => compareDocument(note, uri, bytes)).find(Boolean)
+          if (mismatch) { tampered.push(uri); mismatches.push({ uri, ids: grouped.get(uri).map(note => note.id), ...mismatch }) }
+          else if (acknowledgements[uri]?.contentHash == null) ack(uri,
+            [...new Set([...idsOf(acknowledgements[uri]), ...grouped.get(uri).map(note => note.id)])], hashOf(grouped.get(uri)[0]))
+        }
       } catch (error) {
         if (error.code === 'kira.semantic:not-found') { ack(uri, null); unreadable.push(uri) }
         else {
@@ -322,7 +348,7 @@ export function createOpenVikingRecall(input) {
       }
     }
     auditOffset = uris.length ? (auditOffset + requests) % uris.length : 0
-    return { unreadable, tampered, failed, failures, failedIds: [...failedIds], requests }
+    return { unreadable, tampered, mismatches, failed, failures, failedIds: [...failedIds], requests }
   }
   const groupLedger = live => {
     const grouped = new Map()
@@ -375,8 +401,12 @@ export function createOpenVikingRecall(input) {
     for (const [uri, notes] of selected) {
       if (requests >= budget) break
       try {
-        if (options.preserveQuarantined === true && acknowledgements[uri]?.status === 'quarantined') throw new OpenVikingError('content-mismatch', 'index acknowledgement quarantined')
         const document = documentFor(notes[0], uri)
+        if (options.preserveQuarantined === true && acknowledgements[uri]?.status === 'quarantined') {
+          const bytes = Buffer.byteLength(document.content, 'utf8')
+          throw contentMismatch('index acknowledgement quarantined', { comparison: 'acknowledgement', expectedBytes: bytes,
+            actualBytes: 'unknown', firstDiffByte: 'unknown' })
+        }
         // Old acknowledgements proved a write, not a vector. Verify their bytes
         // before retrying; an index repair must never overwrite changed content.
         if (acknowledged(acknowledgements[uri])) {
@@ -386,8 +416,9 @@ export function createOpenVikingRecall(input) {
           }
           requests++
           try {
-            const bytes = await call('GET', `/api/v1/content/read?uri=${encodeURIComponent(uri)}`)
-            if (!matchesDocument(notes[0], uri, bytes)) throw new OpenVikingError('content-mismatch', 'index content changed')
+            const bytes = await call('GET', readContentPath(uri))
+            const mismatch = compareDocument(notes[0], uri, bytes)
+            if (mismatch) throw contentMismatch('index content changed', mismatch)
           } catch (error) { if (error.code !== 'kira.semantic:not-found') throw error }
         }
         // Reserve the deletion target before I/O: a timeout can follow a save.
@@ -454,9 +485,10 @@ export function createOpenVikingRecall(input) {
       for (const note of notes) failedIds.add(note.id)
       if (!failures.some(failure => failure.call === retry.failure?.call && failure.httpStatus === retry.failure?.httpStatus)) failures.push(retry.failure)
       if (!failed.length) failed.push('index-write-failed')
-      return notes.map(note => ({ id: note.id, reason: retry.reason, httpStatus: retry.httpStatus,
+      return notes.map(note => ({ id: note.id, reason: retry.reason, httpStatus: retry.httpStatus, ...mismatchFields(retry),
         ...(retry.vectorStatus ? { vectorStatus: retry.vectorStatus } : {}), attempts: retry.attempts, nextRetryAt: retry.nextRetryAt, capped: retry.capped }))
-    })
+    }).concat((audit.mismatches ?? []).flatMap(({ ids, ...mismatch }) => ids
+      .map(id => ({ id, reason: 'index-content-mismatch', ...mismatchFields(mismatch) }))))
     return { added, removed, pending: pendingGroups.length,
       retryable: pendingGroups.filter(eligible).length, deferred: pendingGroups.filter(group => !eligible(group)).length, recordFailures,
       failedUris: [...failedUris],
@@ -544,7 +576,7 @@ export function createOpenVikingRecall(input) {
       const named = idFromUri(config.user, uri)
       const ids = byUri.get(uri) ?? (named && live.entries.has(named) ? [named] : [])
       if (!uri.startsWith(`${root}/`) || !ids.length) return { uri, ids: [], unmapped: true }
-      try { return { uri, ids, score, bytes: await call('GET', `/api/v1/content/read?uri=${encodeURIComponent(uri)}`) } }
+      try { return { uri, ids, score, bytes: await call('GET', readContentPath(uri)) } }
       catch (error) { return { uri, ids, unreadable: true, unavailable: error.code !== 'kira.semantic:not-found', failure: failureOf(error) } }
     }))
     live = await ledgerNow(source)
@@ -621,7 +653,7 @@ export function createOpenVikingRecall(input) {
   }
   const readContent = uri => {
     if (!String(uri).startsWith(`viking://user/${config.user}/memories/`)) throw new Error('memory-legacy-uri-out-of-scope')
-    return call('GET', `/api/v1/content/read?uri=${encodeURIComponent(uri)}`)
+    return call('GET', readContentPath(uri))
   }
   return Object.freeze({ configured, reason: config.reason, available, sync, forget, recall, listLegacy, readContent })
 }
