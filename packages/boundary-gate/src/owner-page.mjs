@@ -18,7 +18,10 @@ const CSS = 'body{font:15px/1.5 system-ui;margin:0;background:#111;color:#eee;pa
 export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM_TTL_MS } = {}) {
   const { owner, now } = gate
   const confirms = new Map()   // nonce -> { id, base, new, exp } (single use; memory only)
-  const resultLabel = (v) => v.new_accent === 'default' ? 'default' : '#' + String(v.new_accent ?? '').replace(/^#/, '')
+  const accentTarget = (p) => typeof gate.targets[p.target]?.accentOf === 'function'
+  const resultLabel = (p, v) => accentTarget(p)
+    ? v.new_accent === 'default' ? 'default' : '#' + String(v.new_accent ?? '').replace(/^#/, '') : p.new_sha
+  const resultKind = (p) => accentTarget(p) ? 'result colour' : 'result SHA-256'
 
   function pageHtml(msg, confirmFor) {
     const items = gate.pendingRows().map(p => {
@@ -26,13 +29,13 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
       const hid = `<input type=hidden name=k value="${esc(owner.bearer)}"><input type=hidden name=id value="${esc(p.id)}"><input type=hidden name=base value="${esc(p.base_sha)}"><input type=hidden name=new value="${esc(p.new_sha)}">`
       let step2 = ''
       if (confirmFor && confirmFor.id === p.id) step2 = `<form method=POST action=/act class=confirm>${hid}<input type=hidden name=nonce value="${esc(confirmFor.nonce)}">
-      <div><b>Step 2 of 2.</b> Type the result <b>${esc(resultLabel(v))}</b> exactly to confirm (Enter/Space/Tab alone cannot approve):</div>
-      <input name=typed autocomplete=off spellcheck=false placeholder="type ${esc(resultLabel(v).replace(/^#/, ''))}" aria-label="type the result colour to confirm">
-      <button name=a value=confirm class=ap tabindex=-1>Confirm apply ${esc(resultLabel(v))}</button></form>`
+      <div><b>Step 2 of 2.</b> Type the ${resultKind(p)} <b>${esc(resultLabel(p, v))}</b> exactly to confirm (Enter/Space/Tab alone cannot approve):</div>
+      <input name=typed autocomplete=off spellcheck=false placeholder="type ${esc(resultLabel(p, v).replace(/^#/, ''))}" aria-label="type the ${resultKind(p)} to confirm">
+      <button name=a value=confirm class=ap tabindex=-1>Confirm apply ${esc(resultLabel(p, v))}</button></form>`
       return `<div class=card data-id="${esc(p.id)}"><div class=h>HOST-VERIFIED (gate)</div>
       <div class=plain>${esc(v.plain)}</div>
       <div class=after>${esc(v.after_apply)}</div>
-      <div class=sw>${chip(v.base_accent)} BEFORE ${esc(v.base_accent ?? '?')} ${esc(colorName(v.base_accent))} <span class=arr>&rarr;</span> ${chip(v.new_accent)} AFTER ${esc(v.new_accent ?? '?')} ${esc(colorName(v.new_accent))}</div>
+      ${accentTarget(p) ? `<div class=sw>${chip(v.base_accent)} BEFORE ${esc(v.base_accent ?? '?')} ${esc(colorName(v.base_accent))} <span class=arr>&rarr;</span> ${chip(v.new_accent)} AFTER ${esc(v.new_accent ?? '?')} ${esc(colorName(v.new_accent))}</div>` : ''}
       <div class=swt>${esc(v.swatch ?? '')}</div>
       ${v.warnings.length ? `<div class=warn><div class=wh>GATE WARNINGS (${v.warnings.length})</div><ul>${v.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : '<div class=nowarn>gate warnings: none</div>'}
       <div>target: <b>${esc(p.target)}</b></div>
@@ -61,11 +64,13 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
     else if (a === 'reject') { const r = gate.ownerOps.reject({ id }, PAGE_REJECTER); msg = `rejected: ${r.message}` }
     else if (a === 'approve-step1') {
       if (p.state !== 'pending') msg = `proposal is ${p.state}`
-      else { const nonce = randomBytes(16).toString('base64url'); confirms.set(nonce, { id, base: p.base_sha, new: p.new_sha, exp: now() + confirmTtlMs }); confirmFor = { id, nonce }; msg = 'Step 2: type the result colour below to confirm. Nothing has been applied.' }
+      else { const nonce = randomBytes(16).toString('base64url'); confirms.set(nonce, { id, base: p.base_sha, new: p.new_sha, exp: now() + confirmTtlMs }); confirmFor = { id, nonce }; msg = `Step 2: type the ${resultKind(p)} below to confirm. Nothing has been applied.` }
     } else if (a === 'confirm') {
       const n = String(f.get('nonce')); const c = confirms.get(n); confirms.delete(n)
       const s = gate.targets[p.target]
-      const want = (s?.accentOf?.(gate.blobText(p.new_sha)) ?? '').replace(/^#/, '').toUpperCase(), typed = String(f.get('typed') ?? '').trim().replace(/^#/, '').toUpperCase()
+      const color = typeof s?.accentOf === 'function'
+      const want = color ? (s.accentOf(gate.blobText(p.new_sha)) ?? '').replace(/^#/, '').toUpperCase() : p.new_sha
+      const input = String(f.get('typed') ?? '').trim(), typed = color ? input.replace(/^#/, '').toUpperCase() : input
       if (!c || c.id !== id || c.base !== p.base_sha || c.new !== p.new_sha || now() > c.exp) msg = 'not applied: confirmation expired or invalid - start again with Approve (step 1).'
       else if (!want || typed !== want) msg = `not applied: typed confirmation "${typed.slice(0, 20)}" does not match the result. Nothing changed.`
       else {

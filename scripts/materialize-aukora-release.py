@@ -541,7 +541,7 @@ def held_overlay_rows() -> str:
     return '\n' + text.rstrip('\n') + '\n'
 
 
-def action_gate_overlay(with_legacy_relay: bool = False) -> str:
+def action_gate_overlay(with_legacy_relay: bool = False, browser_node: bool = False) -> str:
     """Allow the legacy relay tools only for an explicit legacy release."""
     text = (ROOT / 'overlays' / 'action-gate.patch.yml').read_text(encoding='utf-8')
     if with_legacy_relay:
@@ -552,6 +552,9 @@ def action_gate_overlay(with_legacy_relay: bool = False) -> str:
                             + '          # AUMA relay host tools (plugins/aukora-relay-auma): read newest <=20; post plain chat <=2000 bytes, rate-limited, recorded in Aura.\n'
                             + '          - relay_read\n'
                             + '          - relay_post\n')
+    if browser_node:
+        text = re.sub(r'^          - (?:buzz_read|buzz_post|buzz_post_receipt)\n', '', text, flags=re.M)
+        text = re.sub(r'^        worktreesRoot:.*\n', '', text, flags=re.M)
     return text
 
 
@@ -570,15 +573,121 @@ def legacy_relay_rows(with_legacy_relay: bool = False) -> str:
     )
 
 
-def composition_gate_policy(with_legacy_relay: bool = False) -> dict:
+def buzz_door_rows(browser_node: bool = False) -> str:
+    """The browser-only profile has no Buzz door."""
+    if browser_node:
+        return ''
+    return (
+        '    - id: aukora-buzz-door\n'
+        '      name: ./plugins/aukora-buzz-door/lib/index.mjs\n'
+        '      config:\n'
+        "        keyFile: !!js process.env.HOME + '/.config/aukora-buzz/auma.key'\n"
+        '        gateSocket: /run/aukora-gate/gate.sock\n'
+        '        workspaceRoots:\n'
+        "          - !!js process.env.HOME + '/workspaces'\n"
+        "        configFile: !!js process.env.HOME + '/.config/aukora-buzz/door.json'\n"
+    )
+
+
+BROWSER_DISABLED_ROWS = (
+    'tool-bash', 'tool-pwsh', 'persistent-shell', 'pty', 'terminal-bash', 'terminal-pwsh',
+    'persistent-bash', 'persistent-pwsh', 'tool-jobs', 'terminal-controller',
+    'tool-fs', 'tool-fs-search', 'tool-skill', 'skill-filesystem', 'agent-instructions',
+    'workspace-files', 'file-reference-local', 'file-upload', 'present',
+    'subagent-spawn-in-process', 'subagent-fork-in-process', 'subagent-codex', 'subagent-claude-code',
+    'delegation', 'tool-subagent-control', 'tool-subagent-list-agents', 'tool-subagent',
+    'tool-subagent-fork', 'tool-subagent-codex', 'tool-subagent-claude-code',
+    'ptc-runtime', 'workflow-ptc', 'tool-workflow', 'tool-ralph', 'tool-cordis', 'tool-web',
+    'mcp-resources', 'mcp-client', 'mcp-client-kira-memory', 'aukora-caged-worker', 'aukora-eye',
+)
+BROWSER_REFUSAL_ENTRY = 'plugins/aukora-action-gate/lib/browser-refusal.mjs'
+BROWSER_REFUSAL_SOURCE = '''// Refuse every model tool call in the browser screen profile.
+export const name = 'aukora-browser-refusal'
+export const inject = ['tools']
+export function apply(ctx) {
+  ctx.effect(() => ctx.tools.guard(() => 'browser-node:effect-providers-disabled'))
+}
+'''
+
+
+def browser_node_options(browser_node: bool, with_legacy_relay: bool, development: bool) -> None:
+    """Browser releases cannot restore relay, HMR or an unreviewed composition overlay."""
+    if browser_node and with_legacy_relay:
+        fail('browser-node:legacy-relay')
+    if browser_node and development:
+        fail('browser-node:development')
+    if browser_node and os.environ.get('AUKORA_COMPOSITION_OVERLAY', '').strip():
+        fail('browser-node:composition-overlay')
+
+
+def browser_node_rows(browser_node: bool = False) -> str:
+    """Disable the pinned shell, file, network and delegation providers."""
+    if not browser_node:
+        return ''
+    return ('\n' + ''.join(f'- id: {name}\n  disabled: true\n' for name in BROWSER_DISABLED_ROWS)
+            + '- insert:\n    - id: aukora-browser-refusal\n'
+            + f'      name: ./{BROWSER_REFUSAL_ENTRY}\n')
+
+
+def restrict_browser_preset(text: str) -> str:
+    """Preset-local providers are disabled before their standing scope mounts."""
+    lines = text.splitlines(keepends=True)
+    for index in range(len(lines) - 1, -1, -1):
+        match = re.fullmatch(r'(\s*)- id: ([\w-]+)\s*\n?', lines[index])
+        if not match or match[2] not in BROWSER_DISABLED_ROWS:
+            continue
+        indent = len(match[1])
+        stop = index + 1
+        while stop < len(lines):
+            following = lines[stop]
+            if following.strip() and not following.lstrip().startswith('#') and len(following) - len(following.lstrip()) <= indent:
+                break
+            stop += 1
+        disabled = [i for i in range(index + 1, stop)
+                    if re.match(r'^' + ' ' * (indent + 2) + r'disabled:', lines[i])]
+        if len(disabled) > 1:
+            fail('browser-node:preset-disabled-duplicate')
+        row = ' ' * (indent + 2) + 'disabled: true\n'
+        if disabled:
+            lines[disabled[0]] = row
+        else:
+            lines.insert(index + 1, row)
+    return ''.join(lines)
+
+
+def install_browser_profile(target: Path) -> None:
+    """Bind disabled release-local presets into a covered profile marker."""
+    presets = {}
+    for preset in sorted(target.rglob('agent.cordis.yml')):
+        if preset.is_symlink():
+            fail('browser-node:preset-symlink')
+        preset.write_text(restrict_browser_preset(preset.read_text(encoding='utf-8')), encoding='utf-8')
+        presets[preset.relative_to(target).as_posix()] = sha256(preset)
+    if not presets:
+        fail('browser-node:presets-missing')
+    refusal = target / BROWSER_REFUSAL_ENTRY
+    refusal.parent.mkdir(parents=True, exist_ok=True)
+    refusal.write_text(BROWSER_REFUSAL_SOURCE, encoding='utf-8')
+    profile = {'formatVersion': 1, 'kind': 'aukora-browser-node-profile', 'relay': False, 'buzz': False,
+               'disabledRows': list(BROWSER_DISABLED_ROWS), 'presets': presets,
+               'refusalEntry': BROWSER_REFUSAL_ENTRY, 'refusalSha256': sha256(refusal)}
+    (target / 'browser-node-profile.patch.yml').write_text(
+        '# aukora-browser-node-profile ' + json.dumps(profile, separators=(',', ':'), sort_keys=True) + '\n',
+        encoding='utf-8')
+
+
+def composition_gate_policy(with_legacy_relay: bool = False, browser_node: bool = False) -> dict:
     """The recorded plugin set excludes the unmounted legacy relay by default."""
     policy = json.loads((GATE / 'policy.json').read_text(encoding='utf-8'))
     if not with_legacy_relay:
         policy['pluginSet'] = [name for name in policy['pluginSet'] if name != 'aukora-relay-auma']
+    if browser_node:
+        policy['pluginSet'] = [name for name in policy['pluginSet'] if name != 'aukora-buzz-door']
+        policy['pluginSet'] = sorted(policy['pluginSet'] + ['aukora-browser-refusal'])
     return policy
 
 
-def action_gate_rows(with_legacy_relay: bool = False) -> str:
+def action_gate_rows(with_legacy_relay: bool = False, browser_node: bool = False) -> str:
     """The action gate, IN the release's default composition, taken from overlays/action-gate.patch.yml.
 
     A fresh install lists only `aukora-composition.patch.yml`, and the rows `core_mount_rows` writes
@@ -594,7 +703,7 @@ def action_gate_rows(with_legacy_relay: bool = False) -> str:
     id (vendor/loader/src/config/group.ts `update`), so the second `aukora-action-gate` insert
     replaces the first rather than mounting a second guard.
     """
-    rows = [line for line in action_gate_overlay(with_legacy_relay).splitlines()
+    rows = [line for line in action_gate_overlay(with_legacy_relay, browser_node).splitlines()
             if not line.lstrip().startswith('#')]
     while rows and rows[0].strip() == '':
         rows.pop(0)
@@ -1012,6 +1121,9 @@ def main() -> int:
     parser.add_argument('--with-legacy-relay', action='store_true',
                         help='mount the deprecated HTTP relay plugin and allow relay_read/relay_post; '
                              'retains the existing key, gate and workspace configuration.')
+    parser.add_argument('--browser-node', action='store_true',
+                        help='omit relay and Buzz; disable pinned shell/file/network/delegation providers, '
+                             'including preset-local providers. Does not establish process containment.')
     parser.add_argument('--kira-openviking-home', type=Path,
                         help='existing OpenViking home containing aukora-bridge.json, ov.conf and root.key; '
                              'for the Linux service use /var/lib/aukora-host/openviking. '
@@ -1032,6 +1144,7 @@ def main() -> int:
                              'record. This is how tests/aukora-materialize-clean-tree.test.mjs '
                              'measures the guard without cutting a release.')
     args = parser.parse_args()
+    browser_node_options(args.browser_node, args.with_legacy_relay, args.development)
     kira_openviking_config(args.kira_openviking_home, 8)
     kira_project_mapping_config(args.kira_project_map, 8)
     assert_harness_clean(args.source.resolve())
@@ -1230,7 +1343,7 @@ def main() -> int:
         if (GATE / name).is_file():
             shutil.copy2(GATE / name, gate_out / name)
     if not args.with_legacy_relay:
-        (gate_out / 'policy.json').write_text(json.dumps(composition_gate_policy(), indent=2) + '\n',
+        (gate_out / 'policy.json').write_text(json.dumps(composition_gate_policy(browser_node=args.browser_node), indent=2) + '\n',
                                              encoding='utf-8')
     # The governed demonstration module travels too, so the release can SHOW admission rather
     # than only describe it, and so its bytes can be bound by a grant that a reader can check.
@@ -1352,6 +1465,8 @@ def main() -> int:
     # Lane sources: shipped so their bytes are covered and tamper-evident. NOT mounted by this
     # patch, so an unprovisioned profile cannot reach them through the release's own composition.
     for plugin in LANE_PLUGINS:
+        if args.browser_node and plugin in ('aukora-relay-auma', 'aukora-buzz-door'):
+            continue
         source_plugin = ROOT / 'plugins' / plugin
         if not source_plugin.is_dir():
             fail(f'missing-lane-plugin: {source_plugin}')
@@ -1472,7 +1587,7 @@ def main() -> int:
         '  disabled: true\n'
         '\n'
         + core_mount_rows('')
-        + action_gate_rows(args.with_legacy_relay)
+        + action_gate_rows(args.with_legacy_relay, args.browser_node)
         + held_overlay_rows()
         + hmr_row +
         '- insert:\n'
@@ -1647,15 +1762,7 @@ def main() -> int:
         + '      config:\n'
         + '        proposeSocket: /run/aukora-gate/gate.sock\n'
         + legacy_relay_rows(args.with_legacy_relay)
-        # The door reads its protected configuration file inside the harness.
-        + '    - id: aukora-buzz-door\n'
-        + '      name: ./plugins/aukora-buzz-door/lib/index.mjs\n'
-        + '      config:\n'
-        + "        keyFile: !!js process.env.HOME + '/.config/aukora-buzz/auma.key'\n"
-        + '        gateSocket: /run/aukora-gate/gate.sock\n'
-        + '        workspaceRoots:\n'
-        + "          - !!js process.env.HOME + '/workspaces'\n"
-        + "        configFile: !!js process.env.HOME + '/.config/aukora-buzz/door.json'\n"
+        + buzz_door_rows(args.browser_node)
         + '    - id: aukora-kira\n'
         + '      name: ./plugins/aukora-kira/lib/gate-capture-host.mjs\n'
         + '      config:\n'
@@ -1700,6 +1807,7 @@ def main() -> int:
         + '      name: ./plugins/aukora-eye/lib/index.js\n'
         + '      config:\n'
         + "        stateDir: !!js dshHomePath('eye-state')\n"
+        + browser_node_rows(args.browser_node)
     )
 
     # ── aura-81 (3): THE CUT FAILS WHEN THE COMPOSED KIRA SUBJECT IS NOT `aukora:1:<64hex>` ──────────
@@ -1875,8 +1983,10 @@ def main() -> int:
     # (`action_gate_rows`), so a fresh install needs nothing more; this copy is kept for a deployment that
     # already lists `<release>/action-gate.patch.yml`, where applying the same rows again is harmless.
     shutil.copy2(ROOT / 'overlays' / 'action-gate.patch.yml', target / 'action-gate.patch.yml')
-    if args.with_legacy_relay:
-        (target / 'action-gate.patch.yml').write_text(action_gate_overlay(True), encoding='utf-8')
+    if args.with_legacy_relay or args.browser_node:
+        (target / 'action-gate.patch.yml').write_text(
+            action_gate_overlay(args.with_legacy_relay, args.browser_node) + browser_node_rows(args.browser_node),
+            encoding='utf-8')
     # The same, for the Seatbelt provider swap. Carrying the file mounts nothing; a deployment lists it to mount it.
     shutil.copy2(ROOT / 'overlays' / 'seatbelt.patch.yml', target / 'seatbelt.patch.yml')
     shutil.copy2(ROOT / 'overlays' / 'caged-worker.patch.yml', target / 'caged-worker.patch.yml')
@@ -1911,9 +2021,10 @@ def main() -> int:
         'ThrottleInterval': 10,
     }))
 
-
     strip = strip_release(target)
     strip_path = target / 'strip-manifest.json'
+    if args.browser_node:
+        install_browser_profile(target)
 
     # THE RELEASE'S OWN IMPORTS MUST RESOLVE INSIDE IT, checked AFTER the strip because the strip is what deleted `scripts/lib`.
     gaps = release_import_gaps(target)

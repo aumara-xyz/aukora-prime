@@ -603,6 +603,7 @@ check 'node packages/ops/check-unregistered.mjs packages/ops/check-external-stat
 check_tap 'node --test --test-reporter=tap packages/ops/check-unregistered.test.mjs'
 check 'node scripts/audit/runtime-claims.mjs --check'
 check_tap 'node --test --test-reporter=tap tests/runtime-claims.test.mjs'
+check_tap 'AUKORA_BROWSER_CREATE_FAST=1 node --test --test-reporter=tap tests/browser-node*.test.mjs tests/browser-release-profile.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/runtime-pilot-export.test.mjs'
 check 'node packages/ops/owner-save-pilot/v1/check-metadata.mjs'
 check 'node packages/ops/owner-save-pilot/v1/check-source.mjs --contracts-root "$PWD/packages/contracts/src"'

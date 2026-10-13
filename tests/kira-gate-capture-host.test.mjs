@@ -249,8 +249,11 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // projectIdentityFile to the three Kira rows; no map is read or provisioned.
   // Reviewed legacy relay default: only its mount, tool allow-list and copied
   // plugin inventory become opt-in; both Kira rows/config and proposal socket are unchanged.
+  // Reviewed browser-node opt-in: omits relay/Buzz bytes and rows, disables effect providers
+  // in host/preset scopes and records the global all-tool refusal before the artifact record.
+  // Both Kira rows/config, proposal socket and ordinary release defaults remain unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    'f9715e026453e38560c2e715ef28881537af7911b49bc05a788d728b3d608626')
+    'f877282f8b0bbdcb4b13495b4c84b361337b79481234c1a9c6a0e5b294322408')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 

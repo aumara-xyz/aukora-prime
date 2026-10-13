@@ -132,7 +132,9 @@ export function verifyGateSetApproval({ record, approval, pin }) {
   const operationDigest = operationDigestOf(content)
   const { setDigest, count } = checkPluginSetRecord(record)
   if (pin === null || typeof pin !== 'object' || pin.kind !== GATE_PIN_KIND || typeof pin.gatePubkeyPem !== 'string' || !/^[0-9a-f]{16}$/u.test(String(pin.gatePubkeyFp))
-    || pin.target !== GATE_PLUGIN_SET_TARGET || typeof pin.approver !== 'string' || !pin.approver.startsWith('owner via owner.sock')) {
+    || pin.target !== GATE_PLUGIN_SET_TARGET || typeof pin.approver !== 'string'
+    || (!pin.approver.startsWith('owner via owner.sock')
+      && pin.approver !== 'owner via gate approval page (bearer token, typed 2-step confirm)')) {
     throw refuse('plugin-set-approver-not-pinned', 'the gate pin does not name a gate key, the plugin-set target and the owner-channel approver')
   }
   const receipt = approval?.receipt

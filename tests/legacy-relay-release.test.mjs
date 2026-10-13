@@ -39,7 +39,7 @@ ns.update(target=target, gate_out=gate_out, LANE_PLUGINS=('aukora-relay-auma',))
 for node in main.body:
     carry = isinstance(node, ast.For) and isinstance(node.iter, ast.Name) and node.iter.id == 'LANE_PLUGINS'
     gate_copy = isinstance(node, ast.For) and isinstance(node.iter, ast.Tuple) and any(isinstance(n, ast.Constant) and n.value == 'policy.json' for n in node.iter.elts)
-    relay_choice = isinstance(node, ast.If) and ast.unparse(node.test) in ('args.with_legacy_relay', 'not args.with_legacy_relay')
+    relay_choice = isinstance(node, ast.If) and ast.unparse(node.test) in ('args.with_legacy_relay', 'not args.with_legacy_relay', 'args.with_legacy_relay or args.browser_node')
     overlay_copy = isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == 'copy2' and any(isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.endswith('.patch.yml') for n in ast.walk(node))
     if carry or gate_copy or relay_choice or overlay_copy:
         exec(compile(ast.Module(body=[node], type_ignores=[]), path, 'exec'), ns)
