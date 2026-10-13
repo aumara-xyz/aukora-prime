@@ -7,7 +7,7 @@ import { embeddingParts } from './memory-input-bounds.mjs'
 
 /** The method name every semantic answer carries. */
 export const SEMANTIC_METHOD = 'openviking-semantic'
-export const OPERATOR_SYNC_VERSION = 1
+export const OPERATOR_SYNC_VERSION = 2
 
 /** IDs accepted by the two semantic ledgers. Anything else is never indexed or shown. */
 const NOTE_ID = /^rem:[0-9a-f]{64}$/u
@@ -150,6 +150,7 @@ export function createOpenVikingRecall(input) {
   const syncBudget = value => Number.isInteger(value) && value >= 0 ? Math.min(8, value) : 8
   const configured = config.configured === true
   const doFetch = input.fetch ?? globalThis.fetch
+  const now = input.now ?? Date.now
   const root = `viking://user/${config.user}/memories/kira`
   const acknowledgementFile = input.stateDir ? `${input.stateDir}/remembered/index/ack.json` : null
   let acknowledgements = {}
@@ -163,19 +164,24 @@ export function createOpenVikingRecall(input) {
     }
   }
   let serial = Promise.resolve()
-  const inTurn = task => { const next = serial.then(task); serial = next.catch(() => {}); return next }
+  let turns = 0
+  const inTurn = task => {
+    turns++
+    const next = serial.then(task).finally(() => { turns-- })
+    serial = next.catch(() => {}); return next
+  }
   const ledgerNow = async source => {
     const value = typeof source === 'function' ? await source() : source
     const entries = value?.entries instanceof Map ? value.entries : new Map([...(value?.ambient ?? []), ...(value?.governed ?? [])])
     return { ...value, entries, complete: value?.complete === true }
   }
   const hashOf = note => note.contentHash
-  const call = async (method, path, body) => {
+  const call = async (method, path, body, timeoutMs = config.timeoutMs) => {
     let httpStatus = null
     try {
       const response = await doFetch(`${config.url}${path}`, { method, redirect: 'error',
         headers: { 'content-type': 'application/json', 'x-api-key': config.key ?? '', 'x-openviking-account': config.account, 'x-openviking-user': config.user },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(config.timeoutMs) })
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(timeoutMs) })
       httpStatus = response.status
       if ([401, 403].includes(httpStatus)) throw new OpenVikingError('auth-refused', 'OpenViking key or tenant refused')
       const parsed = await response.json()
@@ -189,6 +195,9 @@ export function createOpenVikingRecall(input) {
     } catch (error) {
       const failure = error instanceof OpenVikingError ? error : new OpenVikingError('unreachable', 'index request failed')
       failure.failure = observedFailure(path, httpStatus)
+      failure.reason = ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout'
+        : httpStatus === 413 ? 'content-too-large' : httpStatus >= 400 ? `http-${httpStatus}`
+          : error?.code === 'kira.semantic:content-mismatch' ? 'index-content-mismatch' : 'transport-unreachable'
       throw failure
     }
   }
@@ -228,13 +237,15 @@ export function createOpenVikingRecall(input) {
     const document = documentMetadata.get(uri)
     return { ids, contentHash: hash, ...(hash ? { statementHash: hash } : {}),
       ...(acknowledgements[uri]?.vectorStatus === 'complete' ? { vectorStatus: 'complete' } : {}),
+      ...(acknowledgements[uri]?.retry ? { retry: acknowledgements[uri].retry } : {}),
+      ...(acknowledgements[uri]?.status === 'pending' ? { status: 'pending' } : {}),
       ...(document ? { partHash: document.partHash, byteRange: document.byteRange } : {}),
       storageTier: uri.startsWith(`${root}/${MEMORY_STORAGE.content}/`) ? MEMORY_STORAGE.content : uri.split('/').at(-2),
       ...(removal ? { removal } : {}) }
   }
   const ack = (uri, ids, hash = uri.match(/\/content\/([0-9a-f]{64})(?:\.md|-part-[0-9]+-[0-9]+-[0-9a-f]{64}\.md)$/u)?.[1] ?? null, removal = null, contentWritten = false) => {
     const value = ids === null ? null : ackValue(uri, ids, hash, removal)
-    if (contentWritten) value.vectorStatus = 'complete'
+    if (contentWritten) { value.vectorStatus = 'complete'; delete value.retry; delete value.status }
     ackMany([[uri, value, contentWritten]])
   }
   const removeUri = async uri => {
@@ -250,6 +261,17 @@ export function createOpenVikingRecall(input) {
       byteRange: { start: 0, end: Buffer.byteLength(note.statement, 'utf8'), unit: 'utf8-bytes' }, uri } : undefined)
   const acknowledged = entry => Boolean(entry) && !['quarantined', 'pending'].includes(entry.status)
   const indexed = entry => acknowledged(entry) && entry.vectorStatus === 'complete'
+  // Failed documents remain pending; only later bounded retries may resend them.
+  const retryReady = (uri, options) => !acknowledgements[uri]?.retry || (options.retryKnownBad !== false
+    && acknowledgements[uri].retry.attempts < 5 && acknowledgements[uri].retry.nextRetryAt <= now())
+  const recordFailure = (uri, notes, error) => {
+    const attempts = Math.min(5, (acknowledgements[uri]?.retry?.attempts ?? 0) + 1)
+    const retry = { attempts, nextRetryAt: now() + Math.min(900_000, 30_000 * 2 ** (attempts - 1)), capped: attempts >= 5,
+      reason: error.reason ?? (error.code === 'kira.semantic:content-mismatch' ? 'index-content-mismatch' : 'index-write-failed'),
+      httpStatus: failureOf(error).httpStatus, ...(error.vectorStatus ? { vectorStatus: error.vectorStatus } : {}),
+      failure: failureOf(error) }
+    ackMany([[uri, { ...(acknowledgements[uri] ?? ackValue(uri, notes.map(note => note.id), hashOf(notes[0]))), retry }]])
+  }
   const acknowledgementMatches = (note, uri) => {
     const entry = acknowledgements[uri], document = documentFor(note, uri)
     if (!entry || !document) return false
@@ -327,7 +349,7 @@ export function createOpenVikingRecall(input) {
     const live = await ledgerNow(options.snapshot ?? source), grouped = groupLedger(live), retained = retainedOf(live)
     const budget = syncBudget(options.budget ?? config.syncBatch)
     let added = 0, removed = 0, requests = 0
-    const failed = [], failures = [], written = [], failedIds = new Set()
+    const failed = [], failures = [], written = [], failedIds = new Set(), failedUris = new Set()
     const remove = async uri => {
       requests++
       try { await removeUri(uri); ack(uri, null); removed++ }
@@ -345,8 +367,11 @@ export function createOpenVikingRecall(input) {
     // New captures get the first bounded batch; a large old outbox cannot starve this turn.
     // One request budget covers deletes, writes, audits and forget-race cleanup together.
     const skipped = new Set(options.skipIds ?? [])
-    const selected = failed.length ? [] : [...current, ...older].filter(([, notes]) => !notes.every(note => skipped.has(note.id)))
+    const skippedUris = new Set(options.skipUris ?? [])
+    const eligible = ([uri, notes]) => retryReady(uri, options) && !skippedUris.has(uri) && !notes.every(note => skipped.has(note.id))
+    const selected = failed.length ? [] : [...current, ...older].filter(eligible)
       .slice(0, Math.max(0, budget - requests))
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1, Math.min(60_000, Math.trunc(options.timeoutMs))) : config.timeoutMs
     for (const [uri, notes] of selected) {
       if (requests >= budget) break
       try {
@@ -366,27 +391,30 @@ export function createOpenVikingRecall(input) {
           } catch (error) { if (error.code !== 'kira.semantic:not-found') throw error }
         }
         // Reserve the deletion target before I/O: a timeout can follow a save.
-        ackMany([[uri, { ...ackValue(uri, notes.map(note => note.id), hashOf(notes[0])), status: 'pending' }]])
+        const retry = acknowledgements[uri]?.retry
+        ackMany([[uri, { ...ackValue(uri, notes.map(note => note.id), hashOf(notes[0])), status: 'pending', ...(retry ? { retry } : {}) }]])
         requests++
         const result = await call('POST', '/api/v1/content/write', { uri, content: document.content, mode: 'replace', wait: true,
-          timeout: Math.max(1, Math.round(config.timeoutMs / 1000)), tags: [`contentHash=${hashOf(notes[0])}`, `content_sha256=${document.partHash}`,
-            `byte_start=${document.start}`, `byte_end=${document.end}`, `storageTier=${MEMORY_STORAGE.content}`, 'source=kira-memory'] })
+          timeout: Math.max(1, Math.round(timeoutMs / 1000)), tags: [`contentHash=${hashOf(notes[0])}`, `content_sha256=${document.partHash}`,
+            `byte_start=${document.start}`, `byte_end=${document.end}`, `storageTier=${MEMORY_STORAGE.content}`, 'source=kira-memory'] }, timeoutMs)
         // OpenViking 0.4.21 can save bytes with HTTP 200 while embedding fails.
         if (result?.vector_status !== 'complete') {
           const failure = new OpenVikingError('index-incomplete', 'vector indexing incomplete')
           failure.failure = observedFailure('/api/v1/content/write', 200)
+          failure.vectorStatus = ['failed', 'skipped', 'queued', 'pending'].includes(result?.vector_status) ? result.vector_status : 'unknown'
+          failure.reason = `vector-status-${failure.vectorStatus}`
           throw failure
         }
         // Keep a durable deletion target even if a forget races this write and the budget is spent.
         ack(uri, notes.map(note => note.id), undefined, null, true); written.push(uri)
       } catch (error) {
         for (const note of notes) failedIds.add(note.id)
+        failedUris.add(uri)
         failed.push(error.code === 'kira.semantic:auth-refused' ? 'openviking-auth-refused'
           : error.code === 'kira.semantic:content-mismatch' ? 'index-content-mismatch' : 'index-write-failed')
         failures.push(failureOf(error))
-        // A refused document remains pending, but does not stop other documents
-        // in this bounded batch. An outage stops requests until the next retry.
-        if (error.code !== 'kira.semantic:refused' || ![400, 413, 422].includes(error.httpStatus)) break
+        recordFailure(uri, notes, error)
+        // Failed documents stay pending without stopping the remaining batch.
       }
     }
     // One latest snapshot after the entire async batch protects forget races without an N-by-N store scan.
@@ -409,7 +437,7 @@ export function createOpenVikingRecall(input) {
       const ids = alive.map(note => note.id)
       ack(uri, latest.complete ? ids : [...new Set([...idsOf(acknowledgements[uri]), ...ids])]); added++
     }
-    const audit = options.verifyAcknowledged && !failed.length
+    const audit = options.verifyAcknowledged
       ? await auditAcknowledged(latestGroups, budget - requests) : { unreadable: [], tampered: [], failed: [], requests: 0 }
     requests += audit.requests; failed.push(...audit.failed); failures.push(...(audit.failures ?? []))
     for (const id of audit.failedIds ?? []) failedIds.add(id)
@@ -420,7 +448,18 @@ export function createOpenVikingRecall(input) {
     if (audit.requests) { latest = await ledgerNow(source); latestGroups = groupLedger(latest) }
     const latestRetained = latest.complete ? retainedOf(latest) : null
     const pendingGroups = [...latestGroups].filter(([uri]) => !indexed(acknowledgements[uri]))
+    const recordFailures = pendingGroups.flatMap(([uri, notes]) => {
+      const retry = acknowledgements[uri]?.retry
+      if (!retry) return []
+      for (const note of notes) failedIds.add(note.id)
+      if (!failures.some(failure => failure.call === retry.failure?.call && failure.httpStatus === retry.failure?.httpStatus)) failures.push(retry.failure)
+      if (!failed.length) failed.push('index-write-failed')
+      return notes.map(note => ({ id: note.id, reason: retry.reason, httpStatus: retry.httpStatus,
+        ...(retry.vectorStatus ? { vectorStatus: retry.vectorStatus } : {}), attempts: retry.attempts, nextRetryAt: retry.nextRetryAt, capped: retry.capped }))
+    })
     return { added, removed, pending: pendingGroups.length,
+      retryable: pendingGroups.filter(eligible).length, deferred: pendingGroups.filter(group => !eligible(group)).length, recordFailures,
+      failedUris: [...failedUris],
       pendingIds: [...new Set(pendingGroups.flatMap(([, notes]) => notes.map(note => note.id)))], failedIds: [...failedIds],
       removalPending: latestRetained ? Object.keys(acknowledgements).filter(uri => uri.startsWith(`${root}/`) && !latestGroups.has(uri)
         && !latestRetained.has(uri)).length : null,
@@ -457,7 +496,14 @@ export function createOpenVikingRecall(input) {
       return { available: false, reason: up.reason, hits: [], dropped, ledgerComplete: live.complete }
     }
     let synced
-    try { synced = await sync(source, { budget: config.syncBatch, snapshot: live }) }
+    try {
+      // Interactive search never waits behind an in-flight indexing batch.
+      if (turns > 0) {
+        readAcknowledgements()
+        synced = { pending: [...groupLedger(live).keys()].filter(uri => !indexed(acknowledgements[uri])).length,
+          failed: [], failures: [], skipped: true, reason: 'index-sync-in-flight' }
+      } else synced = await sync(source, { budget: config.syncBatch, snapshot: live, retryKnownBad: false })
+    }
     catch { synced = { failed: ['index-sync-failed'], failures: [failureOf(null)] } }
     const failures = [...(synced.failures ?? [])]
     let result
@@ -529,7 +575,7 @@ export function createOpenVikingRecall(input) {
       .map(note => [note.id, note]))
     // A rebuilt index may return no hits at all. Probe a bounded rotating acknowledgement batch;
     // missing documents become durable retries, while changed bytes stay withheld, never overwritten.
-    if (reads.length === 0) {
+    if (reads.length === 0 && turns === 0) {
       const audit = await inTurn(() => auditAcknowledged(groupLedger(live)))
       failures.push(...(audit.failures ?? []))
       dropped.unreadable.push(...audit.unreadable); dropped.tampered.push(...audit.tampered)
@@ -545,7 +591,7 @@ export function createOpenVikingRecall(input) {
     const eligible = [...filtered.values()].filter(note => memoryQuality(note.statement).keep)
     const indexedNotes = eligible.filter(note => contentDocuments(config.user, note).every(document => indexed(acknowledgements[document.uri]))).length
     const searchableNotes = eligible.filter(note => contentDocuments(config.user, note).some(document => indexed(acknowledgements[document.uri]))).length
-    const coverage = { indexed: indexedNotes, total: eligible.length, partial: synced.pending > 0 || dropped.unreadable.length > 0
+    const coverage = { indexed: indexedNotes, total: eligible.length, partial: !live.complete || synced.pending > 0 || dropped.unreadable.length > 0
       || indexedNotes < eligible.length, ...(searchableNotes > indexedNotes ? { partialSpans: searchableNotes - indexedNotes } : {}) }
     if (!hits.length && searchableNotes === 0 && (synced.failed?.length || synced.pending > 0 || dropped.unreadable.length)) {
       return { available: false, reason: 'openviking-index-pending', hits, dropped, diagnostics, failures, sync: synced, ledgerComplete: live.complete }

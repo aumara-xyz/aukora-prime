@@ -11,10 +11,10 @@ import { createOpenVikingHttpFixture, loopbackListenUnavailable } from './suppor
 const mutations = {
   'vector-success': ['recall-openviking.mjs', "result?.vector_status !== 'complete'", 'false'],
   'auth-refusal': ['recall-openviking.mjs', '[401, 403].includes(httpStatus)', 'false'],
-  'pending-fallback': ['recall-openviking.mjs', '!hits.length && (synced.failed?.length || synced.pending > 0 || dropped.unreadable.length)', 'false'],
+  'pending-fallback': ['recall-openviking.mjs', '!hits.length && searchableNotes === 0 && (synced.failed?.length || synced.pending > 0 || dropped.unreadable.length)', 'false'],
   'legacy-retry': ['recall-openviking.mjs', "acknowledged(entry) && entry.vectorStatus === 'complete'", 'acknowledged(entry)'],
   'legacy-integrity': ['recall-openviking.mjs', '!matchesDocument(notes[0], uri, bytes)', 'false'],
-  'pending-deletion': ['recall-openviking.mjs', "ackMany([[uri, { ...ackValue(uri, notes.map(note => note.id), hashOf(notes[0])), status: 'pending' }]])", 'void 0'],
+  'pending-deletion': ['recall-openviking.mjs', "ackMany([[uri, { ...ackValue(uri, notes.map(note => note.id), hashOf(notes[0])), status: 'pending', ...(retry ? { retry } : {}) }]])", 'void 0'],
   'migration-budget': ['recall-openviking.mjs', "if (budget < 2) failed.push('index-migration-budget-too-small')", 'void 0'],
   'home-used': ['index.js', 'normalized.openVikingHome ?? openVikingHome(normalized.memoryOwner.stateDir)', 'openVikingHome(normalized.memoryOwner.stateDir)'],
   'home-absolute': ['index.js', '!isAbsolute(record.openVikingHome)', 'false'],
@@ -47,10 +47,19 @@ if (child) {
           { retrieval: 'lexical', readOwner: { module: './reader.mjs' }, openVikingHome: '/absolute' },
         ]) assert.throws(() => kira.readConfig(config), { code: 'kira.config:openviking-home-invalid' })
         result = { checked: true }
-      } else if (input.action === 'forget-index') {
+      } else if (['forget-index', 'sync-index'].includes(input.action)) {
         const { createOpenVikingRecall, readBridgeConfig } = await import('../plugins/aukora-kira/lib/recall-openviking.mjs')
-        result = await createOpenVikingRecall({ stateDir: input.config.memoryOwner.stateDir,
-          config: readBridgeConfig(input.config.openVikingHome) }).forget(input.text)
+        const bridge = createOpenVikingRecall({ stateDir: input.config.memoryOwner.stateDir,
+          config: readBridgeConfig(input.config.openVikingHome), now: () => input.at })
+        if (input.action === 'forget-index') result = await bridge.forget(input.text)
+        else {
+          const { createTrackedMemory } = await import('../plugins/aukora-kira/lib/tracked-memory.mjs')
+          const memory = createTrackedMemory(input.config.memoryOwner)
+          for (let batch = 0; batch < 100; batch++) {
+            result = await bridge.sync(() => memory.ledger(), { budget: 8, removeStale: false, timeoutMs: 60_000 })
+            if (result.retryable === 0) break
+          }
+        }
       } else {
         const tools = new Map(), services = new Map()
         const ctx = { tools: { register: tool => tools.set(tool.name, tool) }, sessions: new Map(),
@@ -109,7 +118,7 @@ if (child) {
   writeFileSync(join(home, 'ov.conf'), JSON.stringify({ embedding: { dense: { provider: 'openai', api_base: 'http://127.0.0.1:1934/v1' } } }))
   const config = { retrieval: 'lexical', openVikingHome: home,
     memoryOwner: { stateDir, subject: `aukora:1:${'3c'.repeat(32)}`, permittedPrivacy: ['local'] } }
-  const run = (action, text) => new Promise((resolve, reject) => {
+  const run = (action, text, extra = {}) => new Promise((resolve, reject) => {
     const env = { ...process.env, AUKORA_ROOM_LOG: join(root, 'absent-room'), AUKORA_OPENVIKING_HOME: join(root, 'wrong-default') }
     delete env.AUKORA_STATE; delete env.AUKORA_SUPPORT_ROOT; delete env.NODE_OPTIONS
     const processChild = fork(fileURLToPath(import.meta.url), ['--child', ...(mutant ? ['--mutant', mutant] : [])], { env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
@@ -118,7 +127,7 @@ if (child) {
     processChild.on('message', message => { result = message.result; error += message.error ?? ''; completed = true })
     processChild.on('error', reject)
     processChild.on('exit', code => code === 0 && completed ? resolve(result) : reject(Error(error || `worker exit ${code}`)))
-    processChild.send({ action, text, config })
+    processChild.send({ action, text, config, ...extra })
   })
   let passed = 0
   const check = async (name, action) => { await action(); passed++; console.log(`PASS ${name}`) }
@@ -144,12 +153,14 @@ if (child) {
       assert.equal(recalled.snippets[0].text, statement)
       writeFileSync(join(home, 'root.key'), 'synthetic-key')
     })
-    await check('HTTP 200 failed, skipped and queued vectors stay pending; successful save retries in a fresh process', async () => {
+    await check('HTTP 200 failed, skipped and queued vectors defer without interactive retries; a later sync repairs them', async () => {
       for (const status of ['failed', 'skipped', 'queued', undefined]) {
         controls.vectorStatus = status
         const saved = await run('remember', `The cobalt telescope is beside orchard number ${passed}-${status}.`)
         assert.equal(saved.remembered, 1); assert.ok(saved.index.pending > 0); assert.ok(saved.index.failed.includes('index-write-failed'))
+        const before = calls.filter(call => call.path === '/api/v1/content/write').length
         const recalled = await run('recall', 'cobalt telescope')
+        assert.equal(calls.filter(call => call.path === '/api/v1/content/write').length, before)
         assert.equal(recalled.retrieval.degraded, true)
         // While something is unindexed, recall by meaning either has nothing indexed to search (named reason) or
         // searches what is indexed and says the coverage is partial. It never claims a complete search.
@@ -159,13 +170,17 @@ if (child) {
         assert.ok(recalled.snippets.length > 0)
       }
       controls.vectorStatus = 'complete'
+      assert.equal((await run('sync-index', undefined, { at: Date.now() + 900_001 })).pending, 0)
       const recovered = await run('recall', question)
       assert.equal(recovered.remembered.index.pending, 0); assert.equal(recovered.snippets[0].text, statement)
     })
-    await check('slow indexing stays saved and pending after client timeout', async () => {
+    await check('a timed-out interactive write remains pending and succeeds under the independent operator timeout', async () => {
       controls.slow = true; bridge.timeoutMs = 40; writeBridge()
       const saved = await run('remember', 'The amber sundial stands beside a shaded pond.')
       assert.equal(saved.remembered, 1); assert.ok(saved.index.pending > 0); assert.ok(saved.index.failed.length)
+      assert.equal(saved.index.recordFailures[0].reason, 'timeout')
+      const recovered = await run('sync-index', undefined, { at: Date.now() + 900_001 })
+      assert.equal(recovered.pending, 0); assert.equal(recovered.failed.length, 0)
       controls.slow = false; bridge.timeoutMs = 1000; writeBridge()
       assert.equal((await run('recall', question)).remembered.index.pending, 0)
     })

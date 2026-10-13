@@ -106,14 +106,17 @@ try {
     assert.equal(reply.notes[0].text, old); assert.equal(reply.method, 'openviking-semantic'); assert.ok(reads > 0)
   })
   await arm('durable retry survives index failure and process recreation without duplicating captures', async () => {
+    let clock = Date.now()
+    memory = createTrackedMemory({ stateDir, subject, config, fetch: fakeFetch, now: () => clock })
     down = true
     const input = turn('owner', 'A blue telescope stands upstairs.', 3)
     const result = await memory.captureTurn(input)
     assert.equal(result.remembered, 1); assert.ok(result.index.pending > 0)
-    memory = createTrackedMemory({ stateDir, subject, config, fetch: fakeFetch })
+    memory = createTrackedMemory({ stateDir, subject, config, fetch: fakeFetch, now: () => clock })
     const duplicate = await memory.captureTurn(input)
     assert.equal(duplicate.remembered, 0)
     down = false
+    clock += 30_001
     await memory.retry()
     assert.equal(memory.read().notes.length, files.size)
     const bridge = createOpenVikingRecall({ config, fetch: fakeFetch })
@@ -122,20 +125,23 @@ try {
     assert.ok(snapshots <= 3, `recall read ${snapshots} ledgers for ${files.size} notes`)
   })
   await arm('bounded retries prioritize the current capture before an old backlog', async () => {
-    const queued = createTrackedMemory({ stateDir: join(root, 'queued'), subject, config: { ...config, syncBatch: 2 }, fetch: fakeFetch })
+    let clock = Date.now()
+    const queued = createTrackedMemory({ stateDir: join(root, 'queued'), subject, config: { ...config, syncBatch: 2 }, fetch: fakeFetch, now: () => clock })
     down = true
     for (let i = 0; i < 5; i++) await queued.remember({ text: `The queued old finding is ${i}.` })
     down = false
+    clock += 30_001
     const current = await queued.captureTurn(turn('agent', 'The current final finding must be indexed first.', 91), { attributedTo: 'agent', scope: 'owner' })
     assert.equal(current.index.added, 2); assert.equal(current.index.pending, 4)
     assert.ok(files.has(`viking://user/scratch/memories/kira/content/${current.notes[0].contentHash}.md`))
     const retry = await queued.retry()
     assert.equal(retry.added, 2); assert.equal(retry.pending, 2)
+    clock = Math.max(clock + 30_001, retry.nextRetryAt)
     assert.equal((await queued.retry()).pending, 0)
     assert.equal(queued.read().notes.length, 6)
     for (const note of queued.read().notes) files.delete(`viking://user/scratch/memories/kira/content/${note.contentHash}.md`)
   })
-  await arm('retry counter saturation at 20 still schedules and durably recovers after store and bridge recreation', async () => {
+  await arm('retry counter saturation at 20 still schedules and resets after a deferred document recovers', async () => {
     const retryState = join(root, 'retry-saturation'), statement = 'A painted wooden weather vane stands beside the orchard.'
     const retryConfig = { ...config, syncBatch: 2, retryBaseMs: 30_000 }
     const uri = `viking://user/scratch/memories/kira/content/${contentHash(statement)}.md`
@@ -154,22 +160,20 @@ try {
       assert.equal(new Set([...first.ids, ...second.ids]).size, 2)
       const ids = store.read().notes.map(note => note.id).sort(), chain = JSON.stringify(memoryChain(retryState))
       const retryPath = join(retryState, 'remembered/index/retry.json')
-      let due
-      for (let attempt = 1; attempt <= 21; attempt++) {
-        const before = writes, result = await store.retry()
-        assert.equal(result.skipped, false, `attempt ${attempt} must still run`)
-        assert.equal(result.failures, Math.min(attempt, 20))
-        assert.equal(result.pending, 1); assert.equal(result.requests, 1)
-        assert.equal(writes, before + 1)
-        assert.equal(result.nextRetryAt - clock, Math.min(900_000, 30_000 * 2 ** (result.failures - 1)))
-        const durable = JSON.parse(readFileSync(retryPath, 'utf8'))
-        assert.equal(durable.failures, result.failures); assert.equal(durable.leaseUntil, 0)
-        assert.equal(durable.nextRetryAt, result.nextRetryAt)
-        assert.deepEqual(store.read().notes.map(note => note.id).sort(), ids)
-        assert.equal(JSON.stringify(memoryChain(retryState)), chain)
-        assert.equal(files.has(uri), false)
-        due = result.nextRetryAt; clock = due
-      }
+      const initialWrites = writes
+      assert.equal(initialWrites, 1, 'shared content must not be resent during document backoff')
+      const saturated = { failures: 20, nextRetryAt: clock + 900_000, leaseUntil: 0 }
+      writeFileSync(retryPath, JSON.stringify(saturated) + '\n')
+      clock = saturated.nextRetryAt
+      const result = await store.retry()
+      assert.equal(result.skipped, false); assert.equal(result.failures, 20)
+      assert.equal(result.pending, 1); assert.equal(result.requests, 1); assert.equal(writes, initialWrites + 1)
+      assert.equal(result.nextRetryAt - clock, 900_000)
+      const durable = JSON.parse(readFileSync(retryPath, 'utf8'))
+      assert.equal(durable.failures, 20); assert.equal(durable.leaseUntil, 0); assert.equal(durable.nextRetryAt, result.nextRetryAt)
+      assert.deepEqual(store.read().notes.map(note => note.id).sort(), ids)
+      assert.equal(JSON.stringify(memoryChain(retryState)), chain); assert.equal(files.has(uri), false)
+      const due = result.nextRetryAt
       // A recreated store and bridge observe the durable deadline, then resume without
       // a reset, force, deletion, or another capture when the provider recovers.
       store = make(); down = false; clock = due - 1

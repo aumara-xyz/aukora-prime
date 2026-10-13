@@ -55,9 +55,11 @@ function fixture(syncBatch = 2) {
     else throw new Error(`unexpected fixture route ${path}`)
     return Response.json({ status: 'ok', result })
   }
-  const memory = createTrackedMemory({ stateDir: join(root, String(++fixtureId)), subject: `aukora:1:${'3c'.repeat(32)}`,
-    config: { configured: true, url: 'http://scratch.invalid', user: 'scratch', account: 'scratch', key: 'inert-fixture', syncBatch }, fetch })
-  return { memory, failures, calls }
+  const memoryOptions = { stateDir: join(root, String(++fixtureId)), subject: `aukora:1:${'3c'.repeat(32)}`,
+    config: { configured: true, url: 'http://scratch.invalid', user: 'scratch', account: 'scratch', key: 'inert-fixture', syncBatch }, fetch }
+  const memory = createTrackedMemory(memoryOptions)
+  return { memory, failures, calls,
+    savePending: inputs => createTrackedMemory({ ...memoryOptions, config: { configured: false } }).rememberBatch(inputs) }
 }
 const recall = memory => memory.recall({ question: 'blue telescope' })
 const remember = memory => memory.remember({ text: 'The blue telescope stands beside the orchard.', from: 'scratch' })
@@ -71,12 +73,14 @@ test('failed content write survives successful search and tracked-memory project
   assert.equal(stored.remembered, 1)
   assert.deepEqual(stored.index.failed, ['index-write-failed'])
   assert.deepEqual(stored.index.failures, [failure('content-write', 500)])
+  run.calls.length = 0
   const answer = await recall(run.memory)
   assert.equal(answer.semantic.available, false)
   assert.equal(answer.semantic.reason, 'openviking-index-pending')
   assert.equal(answer.degraded, true)
   assert.equal(answer.notes.length, 1)
   assert.deepEqual(answer.semantic.failures, [failure('content-write', 500)])
+  assert.equal(run.calls.includes('/api/v1/content/write'), false, 'known-bad content must not delay interactive recall')
   assert.equal(run.memory.read().notes.length, 1, 'index failure must preserve the captured note')
   const text = header(answer)
   assert.match(text, /Semantic: available=0, unavailable=1/u)
@@ -111,7 +115,7 @@ test('write and search failures both remain visible without changing request bud
   run.calls.length = 0
   const answer = await recall(run.memory)
   assert.deepEqual(answer.semantic.failures, [failure('content-write', 413), failure('search', 503)])
-  assert.deepEqual(run.calls, ['/health', '/api/v1/content/write', '/api/v1/search/find'])
+  assert.deepEqual(run.calls, ['/health', '/api/v1/search/find'])
   assert.match(header(answer), /call=content-write, upstream=unknown, HTTP=413/u)
   assert.match(header(answer), /call=search, upstream=unknown, HTTP=503/u)
 })
@@ -119,7 +123,7 @@ test('write and search failures both remain visible without changing request bud
 test('a full eight-write refusal batch cannot hide the following search failure', async () => {
   const run = fixture(8)
   run.failures.set('/api/v1/content/write', { status: 413 })
-  await run.memory.rememberBatch(Array.from({ length: 8 }, (_, i) => ({
+  await run.savePending(Array.from({ length: 8 }, (_, i) => ({
     text: `The blue telescope stands beside orchard number ${i}.`, from: 'scratch',
   })))
   assert.equal(run.memory.read().notes.length, 8)

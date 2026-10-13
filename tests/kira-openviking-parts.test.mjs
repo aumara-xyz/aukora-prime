@@ -3,7 +3,7 @@
  * provider stand-in. This does not qualify installed tokenization or embeddings. */
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const mutantAt = process.argv.indexOf('--mutant')
@@ -11,8 +11,9 @@ const mutant = mutantAt < 0 ? null : process.argv[mutantAt + 1] ?? 'embedding-do
 const mutations = {
   'embedding-document-unbounded': ['uri, content: document.content, mode:', 'uri, content: notes[0].statement, mode:'],
   'embedding-span-unchecked': ['if (matches.some(note => !matchesDocument(note, uri, bytes))) {', 'if (false) {'],
-  'refused-document-starves': ['for (const [uri, notes] of selected) {\n      try {', 'for (const [uri, notes] of selected) {\n      if (failed.length) break\n      try {'],
-  'outage-continues': ["if (error.code !== 'kira.semantic:refused' || ![400, 413, 422].includes(error.httpStatus)) break", 'if (false) break'],
+  'refused-document-starves': ['for (const [uri, notes] of selected) {\n      if (requests >= budget) break', 'for (const [uri, notes] of selected) {\n      if (requests >= budget || failed.length) break'],
+  'outage-stops-batch': ['recordFailure(uri, notes, error)', "recordFailure(uri, notes, error)\n        if (error.code === 'kira.semantic:unreachable') break"],
+  'failed-document-retried-immediately': ['acknowledgements[uri].retry.nextRetryAt <= now()', 'true'],
   'shared-capture-deleted': ['if (remaining.length) ack(uri, remaining, entry?.contentHash ?? null)', 'if (false) ack(uri, remaining, entry?.contentHash ?? null)'],
   'incomplete-shrinks-shared-capture': ['const ids = latest.complete ? liveIds : [...new Set([...idsOf(prior), ...liveIds])]', 'const ids = liveIds'],
   'written-incomplete-shrinks': ['ack(uri, latest.complete ? ids : [...new Set([...idsOf(acknowledgements[uri]), ...ids])]); added++', 'ack(uri, ids); added++'],
@@ -118,30 +119,43 @@ await arm('chunk hits bind exact span and original identity, reject tampering an
   assert.equal(forged.notes.length, 0); assert.equal(forged.droppedUnmapped, 2)
   assert.deepEqual(memoryChain(join(root, 'store')), chainBefore)
 })
-await arm('a refused document does not starve the bounded batch; an outage stops requests and retains pending work', async () => {
+await arm('failed documents defer independently while every remaining span keeps advancing within the request budget', async () => {
   const notes = [...store.ledger().entries.values()]
-  const bridgeState = join(root, 'refused'), bridge = createOpenVikingRecall({ stateDir: bridgeState, config, fetch: fakeFetch })
+  let clock = Date.parse('2026-10-05T00:00:00Z')
+  const live = { entries: new Map(notes.map(note => [note.id, note])), complete: true }
+  const bridgeState = join(root, 'refused'), bridge = createOpenVikingRecall({ stateDir: bridgeState, config, fetch: fakeFetch, now: () => clock })
   rejected.add(documents[0].uri)
-  const begin = calls.length, first = await bridge.sync({ entries: new Map(notes.map(note => [note.id, note])), complete: true })
+  const begin = calls.length, first = await bridge.sync(live)
   assert.equal(first.requests, 8); assert.equal(first.added, 7); assert.ok(first.failed.includes('index-write-failed'))
   assert.equal(calls.slice(begin).filter(one => one.path === '/api/v1/content/write').length, 8)
   const acksBefore = readFileSync(join(bridgeState, 'remembered/index/ack.json'), 'utf8')
   offline = true
-  const offlineStart = calls.length, outage = await bridge.sync({ entries: new Map(notes.map(note => [note.id, note])), complete: true })
-  assert.equal(outage.requests, 1); assert.equal(calls.length - offlineStart, 1); assert.ok(outage.pending > 0)
-  assert.equal(readFileSync(join(bridgeState, 'remembered/index/ack.json'), 'utf8'), acksBefore)
+  const offlineStart = calls.length, outage = await bridge.sync(live)
+  assert.equal(outage.requests, 8); assert.equal(calls.length - offlineStart, 8); assert.ok(outage.pending > 0)
+  assert.ok(calls.slice(offlineStart).every(call => call.uri !== documents[0].uri), 'a failed span must not starve later spans of the same note')
+  assert.notEqual(readFileSync(join(bridgeState, 'remembered/index/ack.json'), 'utf8'), acksBefore)
+  assert.equal(outage.recordFailures.find(record => record.reason === 'http-400').attempts, 1)
   offline = false; rejected.clear()
+  clock += 30_001
+  const recovered = createOpenVikingRecall({ stateDir: bridgeState, config, fetch: fakeFetch, now: () => clock })
+  let pending = outage.pending
+  for (let retry = 0; pending && retry < documents.length; retry++) pending = (await recovered.sync(live)).pending
+  assert.equal(pending, 0)
   for (const status of [503, 500, 429, 401, 403]) {
     offlineStatus = status
-    const start = calls.length, unavailable = await bridge.sync({ entries: new Map(notes.map(note => [note.id, note])), complete: true })
-    assert.equal(unavailable.requests, 1); assert.equal(calls.length - start, 1)
-    assert.equal(readFileSync(join(bridgeState, 'remembered/index/ack.json'), 'utf8'), acksBefore)
+    const unavailableBridge = createOpenVikingRecall({ stateDir: join(root, `unavailable-${status}`), config, fetch: fakeFetch, now: () => clock })
+    const start = calls.length
+    let unavailable = await unavailableBridge.sync(live)
+    assert.equal(unavailable.requests, 8); assert.equal(calls.length - start, 8)
+    for (let batch = 0; unavailable.retryable > 0 && batch < documents.length; batch++) unavailable = await unavailableBridge.sync(live)
+    assert.equal(unavailable.retryable, 0)
+    assert.equal(unavailable.pending, documents.length); assert.equal(unavailable.added, 0)
+    assert.ok(unavailable.recordFailures.every(record => record.httpStatus === status && record.attempts === 1))
+    const deferredStart = calls.length, deferred = await unavailableBridge.sync(live)
+    assert.equal(deferred.requests, 0); assert.equal(calls.length, deferredStart)
+    assert.equal(deferred.deferred, documents.length)
   }
   offlineStatus = 0
-  const recovered = createOpenVikingRecall({ stateDir: bridgeState, config, fetch: fakeFetch })
-  let pending = outage.pending
-  for (let retry = 0; pending && retry < documents.length; retry++) pending = (await recovered.sync({ entries: new Map(notes.map(note => [note.id, note])), complete: true })).pending
-  assert.equal(pending, 0)
   // A removal outage must also stop new writes in the same request budget.
   const other = createTrackedMemory({ stateDir: join(root, 'other'), subject, config, fetch: fakeFetch })
   await other.remember({ text: 'The second observatory keeps independent records of its calibration schedule.', from: 'agent', scope: 'owner' })
@@ -184,4 +198,5 @@ await arm('forgetting one shared capture preserves the surviving capture and its
   }
 })
 if (mutant) assert.equal(mutated, 1, 'the control must execute the actual bridge mutation')
-process.stdout.write(`kira-openviking-parts: ${passed}/4 PASS; scratch fixture retained at ${root}\n`)
+rmSync(root, { recursive: true, force: true })
+process.stdout.write(`kira-openviking-parts: ${passed}/4 PASS (synthetic state and transport only)\n`)
