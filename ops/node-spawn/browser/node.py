@@ -924,7 +924,9 @@ def evidence_record(checks):
     receipt, _ = evidence_json(approval / 'gate-state/plugin-set-approval.json', 'APPROVAL_CACHE')
     floor, _ = evidence_json(Path('/etc/aukora-approvals/release-floor.json'), 'RELEASE_FLOOR')
     plugins, _ = evidence_json(release / '.dsh-build/plugin-set.json', 'PLUGIN_SET')
-    need(plugins.get('release', {}).get('commit') == value['revision'], 'EVIDENCE_REVISION_MISMATCH')
+    # A real plugin-set record names no revision (kind, counts, set digest and artifacts only); the signed
+    # floor does, in full, and is what a start checks, so the installed revision is bound to that.
+    need(floor.get('release') == value['revision'], 'EVIDENCE_REVISION_MISMATCH')
     artifact_sha256 = evidence_digest(release / '.dsh-build/genesis-artifacts.json')
     public_key = pin['gatePubkeyPem']
     need(gate_signer() == public_key, 'EVIDENCE_SIGNER_MISMATCH')

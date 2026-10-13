@@ -12,3 +12,13 @@ before committing here. Keep the signer fingerprint separately for comparison.
 The exporter includes no hostname, address, origin, private key, bearer, cookie,
 claim link, journal or command output. A valid failed-observation prefix ends in
 FAIL; later checks were not run. Do not turn a fixture into a real-run row.
+
+## Records
+
+- `2026-10-13-rehearsal-r1-38004c5.json`: collected from a REHEARSAL node (`aukora-r1`) on the test machine at
+  revision `38004c5`, after-approval phase, 22 checks PASS. Its approval was made by a stand-in through the gate's
+  page (the receipt's approver label says which channel), not by the owner, and the node was never bound.
+  `node scripts/audit/browser-node-evidence.mjs evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json`
+  verifies the receipt signature, the approval bindings, the signed apply row and the floor binding, and lists
+  what it cannot verify. The exporter that wrote it was the working copy later committed with this record
+  (run from outside the node's installed checkout, which was one revision older).

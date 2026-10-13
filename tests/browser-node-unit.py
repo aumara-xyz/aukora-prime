@@ -379,8 +379,8 @@ m.main(["model-key"])
                  dependencies='3' * 64, harness='4' * 64, app_host='PRIVATE_APP_HOST', owner_host='PRIVATE_OWNER_HOST')}
         sources = {'plugin-set-approver.json': {'gatePubkeyPem': 'public fixture PEM'},
                    'plugin-set-approval.json': {'receipt': {'v': 2, 'kind': 'change'}},
-                   'release-floor.json': {'signer_key_sha256': '5' * 64},
-                   'plugin-set.json': {'setDigest': '6' * 64, 'release': {'commit': 'a' * 40}}}
+                   'release-floor.json': {'signer_key_sha256': '5' * 64, 'release': 'a' * 40},
+                   'plugin-set.json': {'setDigest': '6' * 64}}
         def read(file, label):
             result = sources[file.name]
             return result, json.dumps(result).encode()
@@ -403,9 +403,9 @@ m.main(["model-key"])
             self.assertIn((Path(M.NODE),), [call.args for call in custody.call_args_list])
             checker = M.CHECKOUT / 'scripts/audit/browser-node-evidence.mjs'
             self.assertIn((checker,), [call.args for call in custody.call_args_list])
-            sources['plugin-set.json']['release']['commit'] = 'b' * 40
+            sources['release-floor.json']['release'] = 'b' * 40
             rejects(lambda: M.evidence_record(checks), 'EVIDENCE_REVISION_MISMATCH')
-            sources['plugin-set.json']['release']['commit'] = 'a' * 40
+            sources['release-floor.json']['release'] = 'a' * 40
             ping.return_value = 'rotated public fixture PEM'
             rejects(lambda: M.evidence_record(checks), 'EVIDENCE_SIGNER_MISMATCH')
             ping.return_value = 'public fixture PEM'
@@ -434,7 +434,7 @@ m.main(["model-key"])
             'dependencies': '3' * 64, 'harness': '4' * 64}}
         plugin_files = {f'plugins/synthetic/file-{index:04d}.mjs': '6' * 64 for index in range(630)}
         plugin_set = {'kind': 'aukora-plugin-set/v1', 'setDigest': '5' * 64,
-            'release': {'commit': revision}, 'files': plugin_files}
+            'files': plugin_files}
         artifact_entries = [{'path': f'plugins/synthetic/{index:05d}-' + 'p' * 44, 'sha256': '7' * 64}
                             for index in range(15700)]
         artifact_bytes = json.dumps({'artifacts': artifact_entries}, separators=(',', ':')).encode()
@@ -447,7 +447,7 @@ m.main(["model-key"])
             state / 'installed.json': json.dumps(installed).encode(),
             gate_state / 'plugin-set-approver.json': json.dumps({'gatePubkeyPem': 'public fixture PEM'}).encode(),
             gate_state / 'plugin-set-approval.json': json.dumps({'receipt': {'v': 2}}).encode(),
-            self.root / 'release-floor.json': json.dumps({'signer_key_sha256': '9' * 64}).encode(),
+            self.root / 'release-floor.json': json.dumps({'signer_key_sha256': '9' * 64, 'release': revision}).encode(),
             build / 'plugin-set.json': json.dumps(plugin_set).encode(),
             build / 'genesis-artifacts.json': artifact_bytes,
             release / 'strip-manifest.json': strip_bytes,
