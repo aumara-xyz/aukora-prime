@@ -79,7 +79,9 @@ class BrowserInstaller(unittest.TestCase):
                         valid + ['--phase', 'before'], valid[:-1], ['start', 'extra'], ['verify-profile'],
                         ['status', '--release', '/opt/aukora-genesis/release-aaaaaaa'],
                         ['status', '--prompt'], ['remove', '--remove'], ['model-key', '--prompt', '--remove'],
-                        ['model-key', 'SECRET_MUST_NOT_BE_AN_ARGUMENT']]:
+                        ['model-key', 'SECRET_MUST_NOT_BE_AN_ARGUMENT'],
+                        ['accept', '--phase', 'before', '--evidence'], ['accept', '--phase', 'passkey', '--evidence'],
+                        ['start', '--evidence']]:
                 rejects(lambda: M.main(bad), 'USAGE')
             for index in (4, 6, 8, 10):
                 args = valid.copy()
@@ -346,6 +348,107 @@ m.main(["model-key"])
         self.assertEqual(stdout.decode(), 'MODEL_KEY_SET provider=deepseek sha256='
                          + hashlib.sha256(secret.encode()).hexdigest()[:12] + '\n')
         self.assertEqual(stderr, b'')
+    def test_evidence_reads_bound_public_sources(self):
+        file = self.root / 'record.json'
+        file.write_text('{"public":true}')
+        with patch.object(M, 'protected') as custody:
+            self.assertEqual(M.evidence_json(file), ({'public': True}, b'{"public":true}'))
+            self.assertEqual(custody.call_args_list[-1].args, (file,))
+            self.assertEqual([call.args for call in custody.call_args_list[:-1]], [(parent, True) for parent in file.parents])
+            file.write_text('{}' + ' ' * (4 * 1024 * 1024 - 1))
+            rejects(lambda: M.evidence_json(file), 'EVIDENCE_INPUT_LIMIT')
+        file.write_text('{}')
+        def custody(path, directory=False):
+            if path == file.parent:
+                raise ValueError('BROWSER_CUSTODY_INVALID')
+        with patch.object(M, 'protected', side_effect=custody):
+            rejects(lambda: M.evidence_json(file), 'CUSTODY_INVALID')
+
+    def test_evidence_projection_revision_and_public_schema(self):
+        value = {'revision': 'a' * 40, 'inputs': dict(checkout='1' * 64, node='2' * 64,
+                 dependencies='3' * 64, harness='4' * 64, app_host='PRIVATE_APP_HOST', owner_host='PRIVATE_OWNER_HOST')}
+        sources = {'plugin-set-approver.json': {'gatePubkeyPem': 'public fixture PEM'},
+                   'plugin-set-approval.json': {'receipt': {'v': 2, 'kind': 'change'}},
+                   'release-floor.json': {'signer_key_sha256': '5' * 64},
+                   'plugin-set.json': {'setDigest': '6' * 64},
+                   'aukora-release.json': {'tipSha': 'a' * 40}, 'genesis-artifacts.json': {'artifacts': []}}
+        def read(file):
+            result = sources[file.name]
+            return result, json.dumps(result).encode()
+        with patch.object(M, 'installed', return_value=value), patch.object(M, 'evidence_json', side_effect=read), patch.object(M, 'protected') as custody, \
+                patch.object(M, 'gate_signer', return_value='public fixture PEM') as ping, \
+                patch.object(M.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')) as verifier:
+            checks = [{'name': 'root_platform', 'status': 'FAIL'}]
+            raw = M.evidence_record(checks)
+            record = json.loads(raw)
+            self.assertNotIn('PRIVATE_', raw)
+            self.assertEqual(record['installer_inputs'], {name: value['inputs'][name] for name in ('checkout', 'node', 'dependencies', 'harness')})
+            self.assertEqual(record['release']['record_sha256'], hashlib.sha256(read(Path('genesis-artifacts.json'))[1]).hexdigest())
+            self.assertEqual(record['checks'], checks)
+            self.assertIsNone(record['record_signature'])
+            self.assertEqual(list(record['approval']['receipt']), ['v', 'kind'])
+            self.assertEqual(verifier.call_args.kwargs['input'], raw.encode())
+            self.assertEqual(verifier.call_args.args[0][-1], '--stdin-container')
+            self.assertIn((Path(M.NODE),), [call.args for call in custody.call_args_list])
+            checker = M.CHECKOUT / 'scripts/audit/browser-node-evidence.mjs'
+            self.assertIn((checker,), [call.args for call in custody.call_args_list])
+            sources['aukora-release.json']['tipSha'] = 'b' * 40
+            rejects(lambda: M.evidence_record(checks), 'EVIDENCE_REVISION_MISMATCH')
+            sources['aukora-release.json']['tipSha'] = 'a' * 40
+            ping.return_value = 'rotated public fixture PEM'
+            rejects(lambda: M.evidence_record(checks), 'EVIDENCE_SIGNER_MISMATCH')
+            ping.return_value = 'public fixture PEM'
+            verifier.return_value.returncode = 1
+            rejects(lambda: M.evidence_record(checks), 'EVIDENCE_PUBLIC_SCHEMA_REFUSED')
+            verifier.return_value.returncode = 2
+            self.assertEqual(json.loads(M.evidence_record(checks))['checks'], checks)
+            def unsafe(file, *args):
+                if file == checker:
+                    M.refuse('CUSTODY_INVALID')
+            custody.side_effect = unsafe
+            rejects(lambda: M.evidence_record(checks), 'CUSTODY_INVALID')
+
+    def test_evidence_gate_ping_is_bounded_read_only_and_public(self):
+        response = json.dumps({'ok': True, 'result': {'ok': True, 'pubkey_fp': 'a' * 16, 'pubkey_pem': 'public fixture PEM'}}).encode() + b'\n'
+        class Connection:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def settimeout(self, value): pass
+            def connect(self, path): self.path = path
+            def sendall(self, value): self.request = value
+            def recv(self, limit):
+                result, self.response = self.response, b'\n'
+                return result
+        connection = Connection()
+        with patch.object(M.socket, 'socket', return_value=connection), patch.object(M.time, 'monotonic', return_value=0):
+            connection.response = response
+            self.assertEqual(M.gate_signer(), 'public fixture PEM')
+            self.assertEqual(connection.path, '/run/aukora-gate/gate.sock')
+            self.assertEqual(connection.request, b'{"op":"ping","args":{}}\n')
+            for connection.response in [b'', b' ' * 4097 + b'\n']:
+                rejects(M.gate_signer, 'EVIDENCE_GATE_PING_LIMIT')
+            for value in [{'ok': False, 'result': {}}, {'ok': True, 'result': {'ok': False, 'pubkey_fp': 'a', 'pubkey_pem': 'key'}},
+                          {'ok': True, 'result': {'ok': True, 'pubkey_fp': 'a', 'pubkey_pem': 'key', 'private': 'PRIVATE'}}]:
+                connection.response = json.dumps(value).encode() + b'\n'
+                rejects(M.gate_signer, 'EVIDENCE_GATE_PING_INVALID')
+            with patch.object(M.time, 'monotonic', side_effect=[0, 6]):
+                rejects(M.gate_signer, 'EVIDENCE_GATE_PING_DEADLINE')
+
+    def test_evidence_hides_output_and_preserves_failure(self):
+        def observe(phase, checks):
+            print('PRIVATE_COMMAND_OUTPUT')
+            checks.append({'name': 'root_platform', 'status': 'FAIL'})
+            raise ValueError('PRIVATE_FAILURE')
+        with patch.object(M, 'root_check'), patch.object(M, 'accept', side_effect=observe), \
+                patch.object(M, 'evidence_record', side_effect=lambda checks: json.dumps({'checks': checks})), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            rejects(lambda: M.accept_evidence('before'), 'EVIDENCE_PHASE_INVALID')
+            rejects(lambda: M.accept_evidence('after'), 'ACCEPTANCE_FAILED')
+            self.assertNotIn('PRIVATE_', output.getvalue())
+            self.assertEqual(json.loads(output.getvalue()), {'checks': [{'name': 'root_platform', 'status': 'FAIL'}]})
+        with patch.object(M, 'root_check', side_effect=ValueError('BROWSER_ROOT_REQUIRED')), patch.object(M, 'evidence_record') as record:
+            rejects(lambda: M.accept_evidence('after'), 'ROOT_REQUIRED')
+            record.assert_not_called()
 
     def test_sockets_waits_for_both(self):
         with patch.object(M.Path, 'is_socket', return_value=False), patch.object(M.time, 'sleep') as sleep:
@@ -552,6 +655,10 @@ def guard_mutations():
         'read_model_key': ['test_model_key_input_refusals_and_prompt'],
         'model_store_key': ['test_model_key_custody_and_store_refusals'],
         'main': ['test_usage_every_option', 'test_profile_rules_and_service_preflight'],
+        'evidence_json': ['test_evidence_reads_bound_public_sources'],
+        'evidence_record': ['test_evidence_projection_revision_and_public_schema'],
+        'accept_evidence': ['test_evidence_hides_output_and_preserves_failure'],
+        'gate_signer': ['test_evidence_gate_ping_is_bounded_read_only_and_public'],
     }
     pipeline_methods = {
         'checked_inputs': ['test_each_input_digest'], 'installed': ['test_install_record_is_closed_and_revision_checked'],
@@ -590,6 +697,39 @@ def guard_mutations():
         M = original_module
         assert result.failures or result.errors, 'named refusal removal survived: %s:%s' % (function, call.lineno)
     print('SOURCE-ONLY browser named Python refusals: %d/%d removals killed' % (len(guards), len(guards)))
+    controls = [
+        ('input privacy', "{name: value['inputs'][name] for name in ('checkout', 'node', 'dependencies', 'harness')}", "dict(value['inputs'])", 'test_evidence_projection_revision_and_public_schema'),
+        ('source parent custody', '    for parent in file.parents:\n        protected(parent, True)\n', '', 'test_evidence_reads_bound_public_sources'),
+        ('output privacy', 'with contextlib.redirect_stdout(io.StringIO()):', 'with contextlib.nullcontext():', 'test_evidence_hides_output_and_preserves_failure'),
+        ('failure status', '    if failed:\n', '    if False:\n', 'test_evidence_hides_output_and_preserves_failure'),
+        ('evidence root', "    root_check()\n    checks = []", "    checks = []", 'test_evidence_hides_output_and_preserves_failure'),
+        ('verifier custody', '    for file in (Path(NODE), verifier):\n        for parent in file.parents:\n            protected(parent, True)\n        protected(file)\n', '', 'test_evidence_projection_revision_and_public_schema'),
+    ]
+    for label, before, after, method in controls:
+        assert TEXT.count(before) == 1, label
+        result = unittest.TestResult()
+        M = load(TEXT.replace(before, after))
+        with contextlib.redirect_stdout(io.StringIO()):
+            BrowserInstaller(method).run(result)
+        M = original_module
+        assert result.failures, 'evidence removal survived: ' + label
+    print('SOURCE-ONLY browser evidence exporter mutations: %d/%d killed' % (len(controls), len(controls)))
+    observations = [
+        ("            checks.append({'name': name, 'status': 'FAIL'})", "            checks.append({'name': name, 'status': 'PASS'})"),
+        ("                checks[-1]['status'] = 'PASS'", "                pass"),
+        ("    if checks:\n        checks[-1]['status'] = 'PASS'", "    if checks:\n        pass"),
+    ]
+    for before, after in observations:
+        assert TEXT.count(before) == 1
+        mutated = TEXT.replace(before, after)
+        old = pipeline.World.__init__
+        def initialize(world, text=None):
+            old(world, mutated)
+        result = unittest.TestResult()
+        with patch.object(pipeline.World, '__init__', initialize), contextlib.redirect_stdout(io.StringIO()):
+            pipeline.Pipeline('test_public_authority_claim_acceptance_guards').run(result)
+        assert result.failures, 'observation status removal survived'
+    print('SOURCE-ONLY browser evidence observation mutations: 3/3 killed')
 
 
 def root_mutant(m):

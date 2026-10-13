@@ -4,7 +4,10 @@ import argparse
 import ast
 import errno
 import getpass
+import contextlib
+from datetime import datetime, timezone
 import hashlib
+import io
 import importlib.util
 import ipaddress
 import json
@@ -14,6 +17,7 @@ import pwd
 import re
 import secrets
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -729,11 +733,21 @@ def listeners(text):
     return endpoints
 
 
-def accept(phase):
+def accept(phase, checks=None):
+    def checkpoint(name):
+        if checks is not None:
+            if checks:
+                checks[-1]['status'] = 'PASS'
+            checks.append({'name': name, 'status': 'FAIL'})
+
+    checkpoint('root_platform')
     root_check()
+    checkpoint('installation_record')
     value = installed()
     release, approval = release_paths(value)
+    checkpoint('browser_profile')
     profile(release)
+    checkpoint('users_modes')
     for name, group in [('aukora-host', 'aukora-host'), ('aukora-gate', 'skgate')]:
         row = run(['getent', 'passwd', name], 'USER_MISSING').strip().split(':')
         need(len(row) == 7 and row[5] == '/home/' + name and row[6] == '/usr/sbin/nologin'
@@ -744,6 +758,7 @@ def accept(phase):
         if name == 'aukora-gate':
             for file in ('owner-secret.json', 'receipt-ed25519.pem'):
                 protected(Path(row[5]) / file, uid=int(row[2]), private=True)
+    checkpoint('package_custody')
     for path in (Path('/opt/aukora-boundary-gate'), Path('/opt/owner-key'), Path('/opt/authority'),
                  Path('/opt/contracts'), Path('/opt/aukora-aumlok'), Path('/opt/aukora-node'), CHECKOUT, release):
         for folder, dirs, files in os.walk(path, followlinks=False):
@@ -754,14 +769,19 @@ def accept(phase):
                     # pnpm hard-links the built harness's dependencies from its root-private store;
                     # owner and mode are still required there, a single link is not.
                     protected(entry, entry.is_dir(), linked=entry.is_relative_to(CHECKOUT / 'vendor/dsh'))
+    checkpoint('node_version')
     need(run([NODE, '--version'], 'NODE_INVALID').strip() == 'v24.11.1', 'NODE_VERSION_MISMATCH')
+    checkpoint('package_pins')
     bootstrap('check-package')
     bootstrap('check-runtime')
+    checkpoint('gate_sockets')
     sockets()
+    checkpoint('signer_pin')
     run(['runuser', '-u', 'aukora-gate', '--', NODE, str(CHECKOUT / 'ops/node-spawn/configure.mjs'),
          'signer', '/home/aukora-gate/receipt-ed25519.pem', '/etc/aukora-boundary-gate/signer-epochs.json'], 'SIGNER_REFUSED')
     epochs = json.loads(Path('/etc/aukora-boundary-gate/signer-epochs.json').read_text())
     print('GATE_SIGNER_SHA256 ' + epochs['epochs'][-1]['gate_pubkey_sha256'])
+    checkpoint('loopback_listeners')
     endpoints = listeners(run(['ss', '-ltn'], 'LISTENERS_UNAVAILABLE'))
     if phase == 'before':
         need(not Path('/etc/aukora-approvals/release-floor.json').exists(), 'ALREADY_APPROVED')
@@ -777,16 +797,22 @@ def accept(phase):
         need(not Path('/home/aukora-host/genesis/state/launch-url.json').exists(), 'UNAPPROVED_DESCRIPTOR')
         print('PASS | harness refuses before approval')
     else:
+        checkpoint('approved_floor')
         bootstrap('floor', 'check', '--release-dir', release, '--approval-state-root', approval)
+        checkpoint('harness_service')
         run(['systemctl', 'is-active', '--quiet', 'aukora-browser.service'], 'HARNESS_INACTIVE')
         need('127.0.0.1:18735' in endpoints, 'HARNESS_LISTENER_MISSING')
+        checkpoint('signed_in_ui')
         print(run(['runuser', '-u', 'aukora-host', '--', NODE, str(CHECKOUT / 'ops/pilot/ui-probe.mjs')], 'UI_PROBE_REFUSED').strip())
+        checkpoint('plugin_load')
         invocation = run(['systemctl', 'show', '-p', 'InvocationID', '--value', 'aukora-browser.service'], 'JOURNAL_UNAVAILABLE').strip()
         need(bool(re.fullmatch(r'[0-9a-f]{32}', invocation)), 'JOURNAL_UNAVAILABLE')
         journal = run(['journalctl', '--no-pager', '-o', 'cat', '_SYSTEMD_INVOCATION_ID=' + invocation], 'JOURNAL_UNAVAILABLE')
         need(not re.search(r'^aukora-[a-z-]+ \(file://.*\): Error', journal, re.M), 'PLUGIN_LOAD_FAILED')
+        checkpoint('claim_service')
         run(['systemctl', 'is-active', '--quiet', 'aukora-browser-claim.service'], 'CLAIM_INACTIVE')
         need('127.0.0.1:18736' in endpoints, 'CLAIM_LISTENER_MISSING')
+        checkpoint('public_origins')
         claim = module(CHECKOUT / 'ops/node-spawn/ingress/claim.py')
         try:
             public_origin, authority = claim.read_origin_file(Path('/etc/aukora/public-origin'))
@@ -815,8 +841,10 @@ def accept(phase):
             finally:
                 connection.close()
 
+        checkpoint('anonymous_session')
         status, _, _ = request(18735, 'GET', '/')
         need(status == 401, 'ANONYMOUS_HARNESS_ACCEPTED')
+        checkpoint('claim_exchange')
         link = run(['/usr/bin/python3', '-I', '-S', str(CHECKOUT / 'ops/node-spawn/ingress/claim.py'),
                     'mint', '--public-origin-file', '/etc/aukora/public-origin',
                     '--state-file', '/var/lib/aukora-browser/claims.json'], 'CLAIM_MINT_REFUSED')
@@ -825,14 +853,17 @@ def accept(phase):
         code = match[1].encode('ascii')
         status, headers, payload = request(18736, 'POST', claim.CLAIM_PATH, code)
         need(status == 204 and not payload, 'CLAIM_EXCHANGE_REFUSED')
+        checkpoint('claim_cookie')
         cookies = [value for name, value in headers if name.lower() == 'set-cookie']
         need(len(cookies) == 1, 'CLAIM_COOKIE_INVALID')
         try:
             cookie = claim.bounded_cookie(cookies[0], authority, time.time()).split(';', 1)[0]
         except claim.ClaimRefusal:
             refuse('CLAIM_COOKIE_INVALID')
+        checkpoint('public_session')
         status, _, payload = request(18735, 'GET', '/', cookie=cookie)
         need(status == 200 and bool(payload), 'PUBLIC_SESSION_REFUSED')
+        checkpoint('claim_replay')
         status, headers, payload = request(18736, 'POST', claim.CLAIM_PATH, code)
         need(status == 403 and payload == b'CLAIM_SPENT\n'
              and not any(name.lower() == 'set-cookie' for name, _ in headers), 'CLAIM_REPLAY_ACCEPTED')
@@ -842,6 +873,90 @@ def accept(phase):
             print(run([NODE, str(CHECKOUT / 'ops/node-spawn/browser/passkey-acceptance.mjs')],
                       'PASSKEY_ACCEPTANCE_REFUSED').strip())
     print('PASS | users modes package pins and loopback listeners')
+    if checks:
+        checks[-1]['status'] = 'PASS'
+
+
+def evidence_json(file):
+    for parent in file.parents:
+        protected(parent, True)
+    protected(file)
+    with file.open('rb') as source:
+        raw = source.read(4 * 1024 * 1024 + 1)
+    need(len(raw) <= 4 * 1024 * 1024, 'EVIDENCE_INPUT_LIMIT')
+    return json.loads(raw), raw
+
+
+def evidence_record(checks):
+    # Export only public approval proofs, digests and named check outcomes.
+    value = installed()
+    release, approval = release_paths(value)
+    pin, _ = evidence_json(approval / 'gate-state/plugin-set-approver.json')
+    receipt, _ = evidence_json(approval / 'gate-state/plugin-set-approval.json')
+    floor, _ = evidence_json(Path('/etc/aukora-approvals/release-floor.json'))
+    plugins, _ = evidence_json(release / '.dsh-build/plugin-set.json')
+    metadata, _ = evidence_json(release / '.dsh-build/aukora-release.json')
+    _, artifact_bytes = evidence_json(release / '.dsh-build/genesis-artifacts.json')
+    need(metadata.get('tipSha') == value['revision'], 'EVIDENCE_REVISION_MISMATCH')
+    public_key = pin['gatePubkeyPem']
+    need(gate_signer() == public_key, 'EVIDENCE_SIGNER_MISMATCH')
+    # The verifier derives the full fingerprint from this public key and binds it to the floor.
+    record = {'kind': 'aukora-browser-node-evidence/v1', 'phase': 'after',
+              'observed_at': datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+              'release': {'revision': value['revision'], 'record_sha256': hashlib.sha256(artifact_bytes).hexdigest(),
+                          'plugin_set_sha256': plugins['setDigest']},
+              'signer': {'public_key_pem': public_key, 'sha256': floor['signer_key_sha256']},
+              'approval': receipt, 'floor': floor,
+              'installer_inputs': {name: value['inputs'][name] for name in ('checkout', 'node', 'dependencies', 'harness')},
+              'checks': checks, 'record_signature': None}
+    raw = json.dumps(record, separators=(',', ':'), ensure_ascii=False).encode()
+    verifier = CHECKOUT / 'scripts/audit/browser-node-evidence.mjs'
+    for file in (Path(NODE), verifier):
+        for parent in file.parents:
+            protected(parent, True)
+        protected(file)
+    result = subprocess.run([NODE, str(verifier), '--stdin-container'],
+                            env=ENV, input=raw, capture_output=True)
+    need(result.returncode in (0, 2), 'EVIDENCE_PUBLIC_SCHEMA_REFUSED')
+    return raw.decode()
+
+
+def gate_signer():
+    # Read only the gate's public signer through its existing ping operation.
+    raw = b''
+    deadline = time.monotonic() + 5
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(5)
+        connection.connect('/run/aukora-gate/gate.sock')
+        connection.sendall(b'{"op":"ping","args":{}}\n')
+        while b'\n' not in raw:
+            remaining = deadline - time.monotonic()
+            need(remaining > 0, 'EVIDENCE_GATE_PING_DEADLINE')
+            connection.settimeout(remaining)
+            block = connection.recv(4097 - len(raw))
+            need(bool(block) and len(raw) + len(block) <= 4096, 'EVIDENCE_GATE_PING_LIMIT')
+            raw += block
+    value = json.loads(raw)
+    need(isinstance(value, dict) and set(value) == {'ok', 'result'} and value['ok'] is True
+         and isinstance(value['result'], dict) and set(value['result']) == {'ok', 'pubkey_fp', 'pubkey_pem'}
+         and value['result']['ok'] is True and isinstance(value['result']['pubkey_pem'], str), 'EVIDENCE_GATE_PING_INVALID')
+    return value['result']['pubkey_pem']
+
+
+def accept_evidence(phase):
+    need(phase == 'after', 'EVIDENCE_PHASE_INVALID')
+    root_check()
+    checks = []
+    failed = False
+    # Command output, journals, links, cookies and failure messages never enter public evidence.
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            accept(phase, checks)
+        except Exception:
+            failed = True
+    print(evidence_record(checks))
+    if failed:
+        refuse('ACCEPTANCE_FAILED')
 
 
 class Parser(argparse.ArgumentParser):
@@ -858,6 +973,7 @@ def main(args):
     for key in ('checkout-sha256', 'revision', 'node-sha256', 'dependencies-sha256'):
         parser.add_argument('--' + key)
     parser.add_argument('--phase', choices=['before', 'after', 'passkey'])
+    parser.add_argument('--evidence', action='store_true')
     parser.add_argument('--release')
     parser.add_argument('--prompt', action='store_true')
     parser.add_argument('--remove', dest='remove_model_key', action='store_true')
@@ -871,6 +987,7 @@ def main(args):
     need(not options.prompt or options.action == 'model-key', 'USAGE')
     need(not options.remove_model_key or options.action == 'model-key', 'USAGE')
     need(not (options.prompt and options.remove_model_key), 'USAGE')
+    need(not options.evidence or options.action == 'accept' and options.phase == 'after', 'USAGE')
     if options.action == 'install':
         absolute(options.inputs)
         for key in fields[1:5]:
@@ -889,7 +1006,10 @@ def main(args):
     elif options.action == 'model-key':
         model_key(options.remove_model_key, options.prompt)
     elif options.action == 'accept':
-        accept(options.phase)
+        if options.evidence:
+            accept_evidence(options.phase)
+        else:
+            accept(options.phase)
     elif options.action == 'verify-profile':
         release = absolute(options.release)
         need(bool(re.fullmatch(r'/opt/aukora-genesis/release-[0-9a-f]{7}', str(release))), 'PROFILE_RELEASE_INVALID')

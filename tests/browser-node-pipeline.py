@@ -520,13 +520,23 @@ class Pipeline(unittest.TestCase):
         for attack, code in attacks:
             with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()) as output:
                 w = self.public_world(attack)
-                self.refuses(lambda: w.m.accept('after'), code)
+                checks = []
+                self.refuses(lambda: w.m.accept('after', checks), code)
+                self.assertEqual(checks[-1]['status'], 'FAIL')
+                self.assertTrue(all(check['status'] == 'PASS' for check in checks[:-1]))
                 self.assertNotIn('PRIVATE_', output.getvalue())
                 self.assertNotIn('P' * 43, output.getvalue())
                 w.stack.close()
         w = self.public_world()
+        checks = []
         with contextlib.redirect_stdout(io.StringIO()) as output:
-            w.m.accept('after')
+            w.m.accept('after', checks)
+        self.assertEqual([check['name'] for check in checks], [
+            'root_platform', 'installation_record', 'browser_profile', 'users_modes', 'package_custody',
+            'node_version', 'package_pins', 'gate_sockets', 'signer_pin', 'loopback_listeners', 'approved_floor',
+            'harness_service', 'signed_in_ui', 'plugin_load', 'claim_service', 'public_origins',
+            'anonymous_session', 'claim_exchange', 'claim_cookie', 'public_session', 'claim_replay'])
+        self.assertEqual([check['status'] for check in checks], ['PASS'] * 21)
         self.assertIn('anonymous 401 and one-use public-authority claim cookie', output.getvalue())
         self.assertNotIn('PRIVATE_', output.getvalue())
         self.assertNotIn('P' * 43, output.getvalue())

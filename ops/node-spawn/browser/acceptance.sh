@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Read a named container and test approval-gated startup or its signed-in UI.
 set -euo pipefail
-[[ $# == 4 && $1 == --name && $3 == --phase && $2 =~ ^[A-Za-z][A-Za-z0-9-]{0,62}$ && ( $4 == before || $4 == after || $4 == passkey ) ]] || {
+[[ ( $# == 4 || $# == 6 && $5 == --evidence && -n $6 && $4 == after ) && $1 == --name && $3 == --phase && $2 =~ ^[A-Za-z][A-Za-z0-9-]{0,62}$ && ( $4 == before || $4 == after || $4 == passkey ) ]] || {
   printf 'REFUSED BROWSER_ACCEPTANCE_USAGE\n' >&2; exit 1;
 }
 # LXD 5.21 has no JSON form of "config show"; the instance API object carries the same expanded values.
@@ -26,4 +26,24 @@ try:
 except Exception:
     print("REFUSED BROWSER_ACCEPTANCE_TRANSPORT",file=sys.stderr);sys.exit(1)
 '
-exec lxc --force-local exec "$2" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py accept --phase "$4"
+if [[ $# == 4 ]]; then
+  exec lxc --force-local exec "$2" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py accept --phase "$4"
+fi
+# Preserve failed observations too; exclusive creation refuses overwrites and symlink leaves.
+lxc --force-local exec "$2" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py accept --phase after --evidence |
+  python3 -I -S -c '
+import json,os,sys
+try:
+    raw=sys.stdin.buffer.read(4*1024*1024+1)
+    assert 0<len(raw)<=4*1024*1024
+    value=json.loads(raw)
+    assert isinstance(value,dict) and value.get("kind")=="aukora-browser-node-evidence/v1"
+    assert isinstance(value.get("checks"),list)
+    value["checks"].insert(0,{"name":"host_transport","status":"PASS"})
+    raw=(json.dumps(value,separators=(",",":"),ensure_ascii=False)+"\n").encode()
+    descriptor=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(descriptor,"wb") as output:
+        output.write(raw);output.flush();os.fsync(output.fileno())
+except Exception:
+    print("REFUSED BROWSER_ACCEPTANCE_EVIDENCE_OUTPUT",file=sys.stderr);sys.exit(1)
+' "$6"

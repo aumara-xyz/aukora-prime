@@ -143,6 +143,33 @@ bash ops/node-spawn/browser/acceptance.sh --name C1 --phase after
 lxc --force-local exec C1 -- systemctl is-active aukora-browser.service
 ```
 
+To retain public evidence from an installation containing this exporter, choose
+a new local file and run:
+
+```bash
+bash ops/node-spawn/browser/acceptance.sh --name C1 --phase after --evidence "$PUBLIC_EVIDENCE"
+node scripts/audit/browser-node-evidence.mjs "$PUBLIC_EVIDENCE"
+```
+
+The export contains only release/input digests, the public signer, the original
+approval receipt and signed apply entry, the floor, UTC observation time and
+named PASS/FAIL check groups. It excludes names, addresses, origins, command
+output, journals, links, cookies and private keys. The host adds its transport
+PASS after real expanded LXD readback; the other groups run inside the container.
+The file is created exclusively with mode 0600. A failed check leaves a prefix
+ending in FAIL and a failing command status; subsequent groups did not run.
+Unsafe or unavailable proof metadata refuses export altogether.
+
+The gate has no operation for signing this caller record, so `record_signature`
+is null. Its receipt and ledger entry retain their existing signatures. The v2
+floor has **no standalone signature**: the verifier binds its release, record,
+signer, sequence and hash to the signed apply entry. Floor history/epoch and
+protected custody are not authenticated offline. Checks, time and installer
+input declarations remain unsigned. The verifier does not establish a real
+node's key ownership, actual execution, installed file bytes, latestness, full
+ledger history, human presence, identity or device custody. Review before
+committing an operator export under [browser-node evidence](../../../evidence/browser-node/README.md).
+
 `after` checks installed users/modes/pins, all three loopback proxies, exact approved
 floor, the existing signed-in UI probe and current service invocation's plugin
 load errors. It also requires the claim service, protected public origin files,
