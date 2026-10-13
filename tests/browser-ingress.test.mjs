@@ -216,11 +216,11 @@ function assertCaddy(text) {
   assert.equal(text.match(/reverse_proxy 127\.0\.0\.1:/gu)?.length, 3)
   assert.equal(text.match(/flush_interval -1/gu)?.length, 3)
   assert.equal(text.match(/header_up -X-Forwarded-\*/gu)?.length, 3)
-  for (const [header, value] of Object.entries({ Host: '{http.request.host}', Origin: '{http.request.header.Origin}',
-    Cookie: '{http.request.header.Cookie}', 'Sec-Fetch-Dest': '{http.request.header.Sec-Fetch-Dest}',
-    'Sec-Fetch-Mode': '{http.request.header.Sec-Fetch-Mode}', 'Sec-Fetch-Site': '{http.request.header.Sec-Fetch-Site}',
-    'Sec-Fetch-User': '{http.request.header.Sec-Fetch-User}' })) {
-    assert.equal(text.match(new RegExp(`header_up ${escaped(header)} ${escaped(value)}`, 'gu'))?.length, 3, header)
+  assert.equal(text.match(/header_up Host \{http\.request\.host\}/gu)?.length, 3, 'Host')
+  // Origin, Cookie and Fetch Metadata must pass through untouched. Restating one sends an EMPTY header when the
+  // browser sent none, and the node refuses an Origin that is not its own (found on the first real node).
+  for (const header of ['Origin', 'Cookie', 'Sec-Fetch-Dest', 'Sec-Fetch-Mode', 'Sec-Fetch-Site', 'Sec-Fetch-User']) {
+    assert.doesNotMatch(text, new RegExp(`header_up -?${escaped(header)}\\b`, 'u'), header)
   }
   for (const header of ['X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Proto']) {
     assert.equal(text.match(new RegExp(`header_up ${header} `, 'gu'))?.length, 3, header)
@@ -255,6 +255,7 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
     ['SSE flushing', 'flush_interval -1', 'flush_interval 1s'],
     ['forwarded stripping', 'header_up -X-Forwarded-*', 'header_up X-Forwarded-Client {http.request.header.X-Forwarded-For}'],
     ['Host preservation', 'header_up Host {http.request.host}', 'header_up Host 127.0.0.1'],
+    ['Origin untouched', 'header_up Host {http.request.host}', 'header_up Host {http.request.host}\n\t\t\theader_up Origin {http.request.header.Origin}'],
     ['owner frame refusal', 'header X-Frame-Options "DENY"', 'header X-Removed-Frame "ALLOW"'],
     ['closed unknown hosts', ':80, :443 {', ':80 {'],
     ['public launch token refused', 'handle @launch_token {\n\t\trespond 404', 'handle @launch_token {\n\t\trespond 200'],

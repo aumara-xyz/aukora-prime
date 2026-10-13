@@ -26,12 +26,8 @@ https://__APP_HOST__ {
 			header_up -Forwarded
 			header_up -X-Forwarded-*
 			header_up Host {http.request.host}
-			header_up Origin {http.request.header.Origin}
-			header_up Cookie {http.request.header.Cookie}
-			header_up Sec-Fetch-Dest {http.request.header.Sec-Fetch-Dest}
-			header_up Sec-Fetch-Mode {http.request.header.Sec-Fetch-Mode}
-			header_up Sec-Fetch-Site {http.request.header.Sec-Fetch-Site}
-			header_up Sec-Fetch-User {http.request.header.Sec-Fetch-User}
+			# Origin, Cookie and Fetch Metadata pass through untouched: restating one sets it to an empty value
+			# when the browser sent none, and the node rightly refuses an Origin that is not its own.
 			header_up X-Forwarded-For {http.request.remote.host}
 			header_up X-Forwarded-Host {http.request.host}
 			header_up X-Forwarded-Proto https
@@ -44,12 +40,8 @@ https://__APP_HOST__ {
 			header_up -Forwarded
 			header_up -X-Forwarded-*
 			header_up Host {http.request.host}
-			header_up Origin {http.request.header.Origin}
-			header_up Cookie {http.request.header.Cookie}
-			header_up Sec-Fetch-Dest {http.request.header.Sec-Fetch-Dest}
-			header_up Sec-Fetch-Mode {http.request.header.Sec-Fetch-Mode}
-			header_up Sec-Fetch-Site {http.request.header.Sec-Fetch-Site}
-			header_up Sec-Fetch-User {http.request.header.Sec-Fetch-User}
+			# Origin, Cookie and Fetch Metadata pass through untouched: restating one sets it to an empty value
+			# when the browser sent none, and the node rightly refuses an Origin that is not its own.
 			header_up X-Forwarded-For {http.request.remote.host}
 			header_up X-Forwarded-Host {http.request.host}
 			header_up X-Forwarded-Proto https
@@ -65,12 +57,8 @@ https://__OWNER_HOST__ {
 		header_up -Forwarded
 		header_up -X-Forwarded-*
 		header_up Host {http.request.host}
-		header_up Origin {http.request.header.Origin}
-		header_up Cookie {http.request.header.Cookie}
-		header_up Sec-Fetch-Dest {http.request.header.Sec-Fetch-Dest}
-		header_up Sec-Fetch-Mode {http.request.header.Sec-Fetch-Mode}
-		header_up Sec-Fetch-Site {http.request.header.Sec-Fetch-Site}
-		header_up Sec-Fetch-User {http.request.header.Sec-Fetch-User}
+		# Origin, Cookie and Fetch Metadata pass through untouched: restating one sets it to an empty value
+		# when the browser sent none, and the node rightly refuses an Origin that is not its own.
 		header_up X-Forwarded-For {http.request.remote.host}
 		header_up X-Forwarded-Host {http.request.host}
 		header_up X-Forwarded-Proto https
