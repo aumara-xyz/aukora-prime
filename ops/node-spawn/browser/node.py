@@ -20,7 +20,7 @@ STATE = Path('/var/lib/aukora-browser')
 CHECKOUT = Path('/opt/aukora-genesis/src')
 NODE = '/opt/aukora-node/bin/node'
 BOOT = '/usr/local/lib/aukora-boundary/gate-bootstrap'
-ENV = {'PATH': '/opt/aukora-node/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8',
+ENV = {'PATH': '/opt/aukora-node/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8',
        'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 PRELOAD = ('NODE_OPTIONS', 'NODE_PATH', 'PYTHONPATH', 'PYTHONHOME',
            'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT')
@@ -258,13 +258,15 @@ def install(options):
     env = dict(ENV)
     build_home = STATE / 'build-home'
     build_home.mkdir(mode=0o700)
-    env.update(HOME=str(build_home), PATH=str(tools) + ':' + ENV['PATH'], npm_config_offline='true',
+    env.update(HOME=str(build_home), PATH=str(tools) + ':' + ENV['PATH'], npm_config_offline='true', pnpm_config_offline='true', pnpm_config_store_dir=str(deps / 'store'),
+               pnpm_config_cache_dir=str(deps / 'cache'),
                npm_config_store_dir=str(deps / 'store'), CI='true', PYTHONDONTWRITEBYTECODE='1')
     fresh.work = STATE
     os.environ['PATH'] = env['PATH']
     fresh.preflight()
     need(run([str(tools / 'pnpm'), '--version'], 'PNPM_INVALID', env).strip() == pin['packageManager'].removeprefix('pnpm@'), 'PNPM_VERSION_MISMATCH')
-    fresh.run(['python3', str(checkout / 'scripts/build-dsh.py')], 'build', checkout, env)
+    # Two capped CPUs build the harness slowly; the limit is an hour, not the fresh-clone default.
+    fresh.run(['python3', str(checkout / 'scripts/build-dsh.py')], 'build', checkout, env, timeout=3600)
     fresh.verify_built(checkout / 'vendor/dsh', checkout, env)
     release = Path('/opt/aukora-genesis/release-' + options.revision[:7])
     release.parent.mkdir(mode=0o755)
