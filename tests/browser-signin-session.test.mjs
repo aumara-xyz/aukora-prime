@@ -204,7 +204,9 @@ try {
   const select = states => m.harnessService(argv => states[argv.at(-1)] ?? absent)
   // What systemd 255 really prints for a unit that does not exist: two rows, no ExecStart (seen on a real node).
   const reallyAbsent = { status: 0, stdout: 'LoadState=not-found\nActiveState=inactive\n' }
-  assert.equal(m.harnessService(argv => argv.at(-1) === 'aukora-browser.service' ? unitState('loaded','active') : reallyAbsent).unit, 'aukora-browser.service')
+  let real
+  assert.doesNotThrow(() => { real = m.harnessService(argv => argv.at(-1) === 'aukora-browser.service' ? unitState('loaded','active') : reallyAbsent) }, 'a real absent legacy unit beside the active browser unit')
+  assert.equal(real.unit, 'aukora-browser.service')
   assert.throws(() => m.harnessService(() => reallyAbsent), /SESSION_SERVICE_ACTIVE_UNIT_REFUSED/)
   let selected
   assert.doesNotThrow(()=>{selected=select({'aukora-browser.service':unitState('loaded','active'),'aukora-genesis.service':unitState('loaded','inactive')})})
