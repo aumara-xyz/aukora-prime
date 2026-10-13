@@ -236,6 +236,7 @@ export function AumlokSurface({
   const [busy, setBusy] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
   const [outcome, setOutcome] = useState<AumlokCeremonyResult | undefined>(undefined)
+  const [explanationOpen, setExplanationOpen] = useState(false)
   const ceremonyGeneration = useRef(0)
   const autoOpened = useRef(false)
   useLayoutEffect(() => {
@@ -654,9 +655,12 @@ export function AumlokSurface({
             </>}
           </section>
 
-          <details className={css.flow}>
-            <summary className={css.flowSummary}>{t('firstRun.what')}</summary>
-            <div className={css.flowBody}>
+          <Card className={css.flow} aria-labelledby="aumlok-flow-label">
+            <button type="button" className={css.flowSummary} aria-controls="aumlok-flow-body"
+              aria-expanded={explanationOpen} onClick={() => { setExplanationOpen(open => !open) }}>
+              {t('firstRun.what')}
+            </button>
+            <div id="aumlok-flow-body" className={css.flowBody} data-collapsed={!explanationOpen || undefined}>
               <SectionHeader className={css.explanationHeader}>
                 <img src="/branding/aumara-icon-96.png" width="36" height="36" alt="" />
                 <h3 id="aumlok-flow-label">{t('surface.explanation.title')}</h3>
@@ -670,7 +674,7 @@ export function AumlokSurface({
               </div>
               <p className={css.boundaryClosing}>{t('surface.explanation.closing')}</p>
             </div>
-          </details>
+          </Card>
         </div>
       </div>
 

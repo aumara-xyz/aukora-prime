@@ -166,6 +166,24 @@ async function layoutChecks(text = source) {
   })
 }
 
+async function statusContractChecks(text = source) {
+  await fixture(async f => {
+    const host = f.mount({ source: text, controller: { refresh() {
+      throw Object.assign(new Error('aumlok-local:unavailable'), { code: 'aumlok-local:unavailable' })
+    } } })
+    const publicRead = await host.request(control.AUMLOK_CONTROL_STATUS_ENDPOINT)
+    assert.equal(publicRead.status, 200)
+    assert.equal(publicRead.body.status, 'not-connected')
+    assert.equal(publicRead.body.reason, 'controller-absent')
+    assert.equal(publicRead.body.code, 'aumlok-local:unavailable')
+    const loopbackRead = await host.request(control.AUMLOK_CONTROL_STATUS_ENDPOINT, {
+      headers: { host: '127.0.0.1:2026', origin: undefined, 'sec-fetch-site': undefined },
+    })
+    assert.equal(loopbackRead.status, 404)
+    assert.deepEqual(loopbackRead.body, publicRead.body)
+  })
+}
+
 async function liveFixtureChecks(text = source) {
   await fixture(async f => {
     let host = f.mount({ source: text })
@@ -218,6 +236,10 @@ test('canonical and materialized module locations load the actual coordinator', 
   await layoutChecks()
   console.log('AUMLOK BROWSER HOST LAYOUT: PASS canonical source and flattened release dynamic coordinator import')
 })
+test('public unbound status is explicit HTTP 200 while loopback keeps HTTP 404', async () => {
+  await statusContractChecks()
+  console.log('AUMLOK BROWSER HOST STATUS: PASS authenticated public UNBOUND 200 body; loopback UNBOUND remains 404')
+})
 test('mounted full-cost ceremony writes verified identity and survives restart', async () => {
   await liveFixtureChecks()
   console.log('AUMLOK BROWSER HOST BIND: PASS production binding through mounted routes, public GET fallback, Kira subject and restart')
@@ -233,6 +255,8 @@ test('mounted host guard mutations are detected', async () => {
     ['controller directory matches', 'if (current !== undefined && current !== directory) throw new Error(\'aumlok:browser-directory-mismatch\')', '', configurationChecks],
     ['runtime layout helper selected', "aumlokRuntimeUrl('browser-binding.mjs', import.meta.url)",
       "new URL('../../../aukora-aumlok/lib/browser-binding.mjs', import.meta.url).href", layoutChecks],
+    ['public unbound status answers 200', "answer.status === 'connected' || publicRequest ? 200 : 404",
+      "answer.status === 'connected' ? 200 : 404", statusContractChecks],
   ]
   for (const [name, before, after, check] of mutations) {
     assert.ok(source.includes(before), `mutation anchor missing: ${name}`)
@@ -247,5 +271,5 @@ test('mounted host guard mutations are detected', async () => {
   assert.ok(source.includes(before))
   await assert.rejects(() => liveFixtureChecks(source.replace(before, 'readControlWithFallback(controller(), undefined)')), { name: 'AssertionError' })
   console.log('AUMLOK BROWSER HOST MUTATION: KILLED configured public-record fallback')
-  console.log('AUMLOK BROWSER HOST MUTATIONS: 9/9 KILLED; in-memory requests, no real HTTPS/browser/owner proof')
+  console.log('AUMLOK BROWSER HOST MUTATIONS: 10/10 KILLED; in-memory requests, no real HTTPS/browser/owner proof')
 })

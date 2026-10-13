@@ -18,6 +18,7 @@ type StatusFetch = (
 export class AumlokControlStatusLoader {
   private controller: AbortController | undefined
   private disposed = false
+  private readonly publicOrigin: boolean
 
   /**
    * @param projection - browser-owned validated projection service.
@@ -26,9 +27,11 @@ export class AumlokControlStatusLoader {
    */
   constructor(
     private readonly projection: AumlokControlProjectionService,
-    _connection: Pick<ConnectionHandle, 'isLoopback'>,
+    connection: Pick<ConnectionHandle, 'isLoopback'>,
     private readonly fetchStatus: StatusFetch = (input, init) => globalThis.fetch(input, init),
-  ) {}
+  ) {
+    this.publicOrigin = !connection.isLoopback
+  }
 
   private stale(controller: AbortController): boolean {
     return controller.signal.aborted
@@ -55,19 +58,26 @@ export class AumlokControlStatusLoader {
       })
       if (this.stale(controller)) return
       const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim()
-      if (response.status === 404 && mediaType === 'application/json') {
-        // The host names WHICH absence this is — no controller service in the
-        // composition, a controller mounted with no directory, or a directory that
-        // could not be read — and carries the controller's own code when there was
-        // one. Anything the parser does not recognise stays a bare absence rather
-        // than being rounded to the nearest known reason.
-        const body = parseAumlokNotConnectedBody(await response.json())
-        if (!this.stale(controller)) this.projection.disconnect(body?.reason, body?.code, body?.detail)
+      if (response.status === 404) {
+        // Older public releases used 404 for the explicit unbound state. Preserve its
+        // body when present; a public 404 without one is the same first-run signal.
+        const body = mediaType === 'application/json'
+          ? parseAumlokNotConnectedBody(await response.json())
+          : undefined
+        if (!this.stale(controller)) {
+          if (body !== undefined) this.projection.disconnect(body.reason, body.code, body.detail)
+          else if (this.publicOrigin) this.projection.disconnect('controller-absent')
+        }
         return
       }
       if (response.status !== 200 || mediaType !== 'application/json') return
       const value: unknown = await response.json()
       if (this.stale(controller)) return
+      const body = parseAumlokNotConnectedBody(value)
+      if (body !== undefined) {
+        this.projection.disconnect(body.reason, body.code, body.detail)
+        return
+      }
       this.projection.connect(value)
     } catch {
       // Absence, transport failure, and invalid JSON all mean disconnected.

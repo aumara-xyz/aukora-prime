@@ -2152,7 +2152,7 @@ function end(res, status) {
 	});
 	res.end();
 }
-function route(gate, read) {
+function route(gate, read, publicOrigin) {
 	return {
 		kind: "exact",
 		path: AUMLOK_CONTROL_STATUS_ENDPOINT,
@@ -2168,8 +2168,8 @@ function route(gate, read) {
 				return;
 			}
 			read().then((answer) => {
-				const connected = answer.status === "connected";
-				res.writeHead(connected ? 200 : 404, {
+				const publicRequest = publicOrigin !== void 0 && req.headers["host"] === new URL(publicOrigin).host;
+				res.writeHead(answer.status === "connected" || publicRequest ? 200 : 404, {
 					"cache-control": "no-store",
 					"content-type": "application/json; charset=utf-8",
 					"x-content-type-options": "nosniff"
@@ -2243,7 +2243,7 @@ function apply(ctx, config) {
 		const service = controller();
 		return service === void 0 ? directory : readConfiguredDirectory(service);
 	})), "ui-aumlok: signed live contact route");
-	ctx.effect(() => ctx.webServer.register(route(readGate, () => readControlWithFallback(controller(), directory))), "ui-aumlok: control status route");
+	ctx.effect(() => ctx.webServer.register(route(readGate, () => readControlWithFallback(controller(), directory), publicOrigin)), "ui-aumlok: control status route");
 	ctx.effect(() => ctx.webServer.register(identityRoute(readGate, () => {
 		const service = controller();
 		return service === void 0 ? directory : readConfiguredDirectory(service);

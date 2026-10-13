@@ -470,6 +470,7 @@ function end(res: StatusResponse, status: number): void {
 function route(
   gate: () => RouteGate,
   read: () => Promise<AumlokControlState>,
+  publicOrigin: string | undefined,
 ): WebRoute {
   return {
     kind: 'exact',
@@ -497,8 +498,11 @@ function route(
         // THE WIRE CARRIES THE DISCRIMINATOR THE SCREEN RENDERS. A bound machine is
         // `{status:'connected', control}` and an absent one keeps its named reason and the
         // controller's own code, which is the same object the browser store's `connect()` takes.
-        const connected = answer.status === 'connected'
-        res.writeHead(connected ? 200 : 404, {
+        const publicRequest = publicOrigin !== undefined
+          && req.headers['host'] === new URL(publicOrigin).host
+        // An authenticated browser on the configured public origin needs the explicit
+        // not-connected body to begin first-run. Loopback keeps the existing 404 contract.
+        res.writeHead(answer.status === 'connected' || publicRequest ? 200 : 404, {
           'cache-control': 'no-store',
           'content-type': 'application/json; charset=utf-8',
           'x-content-type-options': 'nosniff',
@@ -579,7 +583,8 @@ export function apply(ctx: Context, config?: unknown): void {
     () => { const service = controller(); return service === undefined ? directory : readConfiguredDirectory(service) },
   )), 'ui-aumlok: signed live contact route')
   ctx.effect(
-    () => ctx.webServer.register(route(readGate, () => readControlWithFallback(controller(), directory))),
+    () => ctx.webServer.register(route(readGate,
+      () => readControlWithFallback(controller(), directory), publicOrigin)),
     'ui-aumlok: control status route',
   )
   ctx.effect(() => ctx.webServer.register(identityRoute(readGate, () => {

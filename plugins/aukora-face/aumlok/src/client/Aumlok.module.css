@@ -1079,9 +1079,8 @@
   background: var(--aukora-surface);
   backdrop-filter: blur(18px);
 }
-.flowSummary { display: none; color: var(--aumlok-unite); cursor: pointer; font-size: 14px; font-weight: 610; }
-.flowSummary::marker { color: var(--aumlok-anchor); }
-.flow:not([open]) > .flowBody { display: block; }
+.flowSummary { display: none; width: 100%; padding: 0; border: 0; color: var(--aumlok-unite); background: transparent; cursor: pointer; font: inherit; font-size: 14px; font-weight: 610; text-align: left; }
+.flowBody { display: block; }
 .flow h3 { color: var(--dsw-alias-label-primary); font-size: clamp(28px, 3.8cqi, 37px); line-height: 1.2; letter-spacing: -0.035em; font-weight: 610; margin-bottom: 26px; }
 .boundaryArt { position: relative; width: 120px; height: 94px; margin-bottom: 24px; display: grid; place-items: center; }
 .boundaryArt span { position: absolute; width: 80px; height: 80px; border: 1px solid; border-radius: 50%; color: var(--aumlok-anchor); transform: rotate(-30deg) scaleX(0.6); box-shadow: 0 0 24px #e4be7310; }
@@ -1221,9 +1220,9 @@
   .firstRunSteps { grid-template-columns: 1fr; }
   .firstRunSteps li { padding: 8px 10px; }
   .flow { padding: 16px 18px; }
-  .flowSummary { display: list-item; }
-  .flow:not([open]) > .flowBody { display: none; }
-  .flow[open] > .flowSummary { margin-bottom: 20px; }
+  .flowSummary { display: block; }
+  .flowBody[data-collapsed] { display: none; }
+  .flowSummary[aria-expanded='true'] { margin-bottom: 20px; }
 
 }
 
