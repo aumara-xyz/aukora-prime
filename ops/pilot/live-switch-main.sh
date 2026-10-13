@@ -289,6 +289,10 @@ phase gate-start
 systemctl start aukora-boundary-gate
 for ((i=0; i<20; i++)); do active aukora-boundary-gate && break; sleep 1; done
 active aukora-boundary-gate || refuse GATE_START_FAILED
+# "active" is not "listening": on the live pilot the gate opened its sockets a moment after the unit reported active,
+# and installing the approval at once failed with ENOENT (first live run of this version). Wait for both sockets.
+for ((i=0; i<30; i++)); do [ -S "$ROOT/run/aukora-gate/gate.sock" ] && [ -S "$ROOT/run/aukora-gate/owner.sock" ] && break; sleep 1; done
+[ -S "$ROOT/run/aukora-gate/gate.sock" ] && [ -S "$ROOT/run/aukora-gate/owner.sock" ] || refuse GATE_SOCKETS_MISSING
 phase approval-install
 # The harness user reads its own approval at the floor check and at every start. This script runs under a strict
 # mask, so the approval folders and the records written into them are made readable explicitly (found in the first

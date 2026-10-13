@@ -37,6 +37,9 @@ export function fixture(config = {}) {
   chmodSync(at('/opt/aukora-genesis/src/fresh-module'), 0o755)
   chmodSync(at('/opt/aukora-genesis/src/fresh-module/index.mjs'), 0o644)
   for (const path of ['/root', '/opt/aukora-genesis/src', '/opt/aukora-genesis/release-aaaaaaa', '/opt/aukora-genesis/release-bbbbbbb', '/run/aukora-gate', '/bin']) mkdirSync(at(path), { recursive: true })
+  // The script waits for the gate's two sockets before installing an approval; the stand-in machine has them.
+  // Bound from inside the directory so the path length limit for sockets cannot matter.
+  execFileSync('/usr/bin/python3', ['-I', '-S', '-c', 'import socket\nfor n in ("gate.sock","owner.sock"):\n s=socket.socket(socket.AF_UNIX); s.bind(n); s.close()'], { cwd: at('/run/aukora-gate') })
   put(at('/home/aukora-host/genesis/state/launch-url.json'), '{"url":"http://127.0.0.1:18735/fixture"}\n', 0o600)
   put(at('/test-head'), oldCommit)
   put(at('/test-events'), '')
