@@ -15,10 +15,12 @@ const UNITS = ['aukora-browser.service', 'aukora-genesis.service']
 const STATE_ROOT = '/home/aukora-host/genesis/state'
 const refuse = code => { throw new Error(code) }
 
-export function protectedPath(path, privateFile = false, rootOnly = true) {
+export function protectedPath(path, privateFile = false, rootOnly = true, linked = false) {
   if (!isAbsolute(path) || realpathSync(path) !== path) refuse('SESSION_PATH_REFUSED')
   const info = lstatSync(path)
-  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1
+  // pnpm hard-links a built harness's dependencies from its root-private store (seen on a real node);
+  // code-tree files may therefore have several links. Owner and mode are still required of them.
+  if (!info.isFile() || info.isSymbolicLink() || (!linked && info.nlink !== 1)
     || (privateFile && (info.mode & 0o077)) || (info.mode & 0o022)) refuse('SESSION_FILE_REFUSED')
   if (rootOnly) {
     if (!privateFile && info.uid !== 0) refuse('SESSION_PATH_REFUSED')
@@ -40,7 +42,7 @@ export function protectedCodeTree(directory, rootOnly = true) {
   for (const name of readdirSync(directory)) {
     const path = join(directory, name)
     if (lstatSync(path).isDirectory()) protectedCodeTree(path, rootOnly)
-    else protectedPath(path, false, rootOnly)
+    else protectedPath(path, false, rootOnly, true)
   }
 }
 
@@ -126,7 +128,12 @@ export function harnessService(run) {
       const equals = row.indexOf('=')
       return [row.slice(0, equals), row.slice(equals + 1)]
     }))
-    if (rows.length !== 3 || Object.keys(properties).sort().join(',') !== 'ActiveState,ExecStart,LoadState') {
+    // systemd 255 omits ExecStart entirely for a unit that does not exist (seen on a real node), so an
+    // absent unit is exactly two rows; any other shape must carry all three properties.
+    const names = Object.keys(properties).sort().join(',')
+    if (rows.length === 2 && names === 'ActiveState,LoadState'
+      && properties.LoadState === 'not-found' && properties.ActiveState === 'inactive') continue
+    if (rows.length !== 3 || names !== 'ActiveState,ExecStart,LoadState') {
       refuse('SESSION_SERVICE_STATE_UNVERIFIED')
     }
     if (properties.LoadState === 'not-found' && properties.ActiveState === 'inactive' && properties.ExecStart === '') continue
@@ -153,10 +160,10 @@ function main() {
   validateInvocation(process.version, process.platform, process.geteuid(), arguments_)
   const harnessRoot = resolve(arguments_[1])
   const packageFile = join(harnessRoot, 'packages/credentials/credentials-local/package.json')
-  protectedPath(packageFile)
+  protectedPath(packageFile, false, true, true)
   const require = createRequire(packageFile)
   const yamlPath = realpathSync(require.resolve('yaml'))
-  protectedPath(yamlPath)
+  protectedPath(yamlPath, false, true, true)
   protectedCodeTree(dirname(dirname(yamlPath)))
   const { parseDocument } = require(yamlPath)
   const run = arguments_ => spawnSync('/usr/bin/systemctl', arguments_, {

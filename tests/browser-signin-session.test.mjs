@@ -202,6 +202,10 @@ try {
   const unitState = (load,active,exec=unit) => ({status:0,stdout:'LoadState='+load+'\nActiveState='+active+'\nExecStart='+exec+'\n'})
   const absent = unitState('not-found','inactive','')
   const select = states => m.harnessService(argv => states[argv.at(-1)] ?? absent)
+  // What systemd 255 really prints for a unit that does not exist: two rows, no ExecStart (seen on a real node).
+  const reallyAbsent = { status: 0, stdout: 'LoadState=not-found\nActiveState=inactive\n' }
+  assert.equal(m.harnessService(argv => argv.at(-1) === 'aukora-browser.service' ? unitState('loaded','active') : reallyAbsent).unit, 'aukora-browser.service')
+  assert.throws(() => m.harnessService(() => reallyAbsent), /SESSION_SERVICE_ACTIVE_UNIT_REFUSED/)
   let selected
   assert.doesNotThrow(()=>{selected=select({'aukora-browser.service':unitState('loaded','active'),'aukora-genesis.service':unitState('loaded','inactive')})})
   assert.equal(selected.unit,'aukora-browser.service')
@@ -307,7 +311,7 @@ test('root session rotation uses the pinned harness format and requires restart,
     ['actual credentials path', "return join(STATE_ROOT, 'home/.credentials.yaml')", "return join(STATE_ROOT, '.credentials.yaml')"],
     ['browser service discovery', "const UNITS = ['aukora-browser.service', 'aukora-genesis.service']", "const UNITS = ['aukora-genesis.service']"],
     ['service inspection', 'if (result.status !== 0)', 'if (false)'],
-    ['complete service state', "rows.length !== 3 || Object.keys(properties).sort().join(',') !== 'ActiveState,ExecStart,LoadState'", 'false'],
+    ['complete service state', "rows.length !== 3 || names !== 'ActiveState,ExecStart,LoadState'", 'false'],
     ['installed service', "properties.LoadState !== 'loaded'", 'false'],
     ['missing unit consistency', " && properties.ExecStart === ''", ''],
     ['stable service state', "!['active', 'inactive', 'failed'].includes(properties.ActiveState)", 'false'],
@@ -324,7 +328,7 @@ test('root session rotation uses the pinned harness format and requires restart,
     ['inactive', 'if (!lifecycle.inactive())', 'if (false)'],
     ['restart', 'if (!lifecycle.start())', 'if (false)'],
     ['active', 'if (!lifecycle.active())', 'if (false)'],
-    ['hardlink', '|| info.nlink !== 1', ''],
+    ['hardlink', '|| (!linked && info.nlink !== 1)', ''],
     ['private file', '(privateFile && (info.mode & 0o077))', 'false'],
     ['canonical path', 'realpathSync(path) !== path', 'false'],
     ['protected ancestry', "if (!ancestor.isDirectory() || ancestor.isSymbolicLink() || (ancestor.mode & 0o022)\n        || ![0, privateFile ? info.uid : 0].includes(ancestor.uid))", 'if (false)'],
