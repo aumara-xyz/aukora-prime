@@ -257,7 +257,7 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // Reviewed browser bootstrap: only browser rows enable webserver/gateway guards, mount the
   // required policy plugin and add its approved name; Kira rows/config/socket and ordinary defaults are unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    'd329290ada102374022c9147e747ae5251994d3a469e152aa5ac50c58e6a3705')
+    '40281f4f7d9951ba3bbf79dfcdb9b2566cb9650e87c89c25ac24c1dd8b063963')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 

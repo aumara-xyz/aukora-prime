@@ -245,7 +245,7 @@ test('only browser composition mounts admission, includes policy and opts its we
 
 test('mutations detect loss of composition mount, required policy and browser-only carrier opt-in', t => {
   const mutations = [
-    ['carrier opt-in', "+ '- id: webserver\\n  config:\\n    browserAccessGuard: true\\n'", "+ ''"],
+    ['carrier opt-in', "+ '    browserAccessGuard: true\\n'\n            + '- id: typert-gateway", "+ ''\n            + '- id: typert-gateway"],
     ['gateway opt-in', "+ '- id: typert-gateway\\n  config:\\n    browserAccessGuard: true\\n'", "+ ''"],
     ['service mount', "+ '    - id: aukora-browser-bootstrap\\n'\n            + '      name: ./plugins/aukora-action-gate/lib/browser-bootstrap.mjs\\n'", "+ ''"],
     ['required policy', "policy['pluginSet'] = sorted(policy['pluginSet'] + ['aukora-browser-bootstrap'])", 'pass'],

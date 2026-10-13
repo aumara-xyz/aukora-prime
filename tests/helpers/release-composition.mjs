@@ -94,7 +94,7 @@ function configParser({ home = '/synthetic/home', dshHome = home, cwd = root } =
     const process = Object.freeze({ env: Object.freeze({ HOME: ${JSON.stringify(home)} }), cwd: () => ${JSON.stringify(cwd)} });
     const dshHomePath = (...parts) => [${JSON.stringify(dshHome)}, ...parts].join('/');
     // The harness evaluates row config with its loader context; the synthetic one carries the web runtime's hosts.
-    const ctx = Object.freeze({ webRuntime: Object.freeze({ trustedHosts: Object.freeze([]) }) });
+    const ctx = Object.freeze({ webRuntime: Object.freeze({ trustedHosts: Object.freeze([]) }), webStartup: Object.freeze({}) });
   `, context, { timeout: 100 })
   function scalar(input) {
     const value = withoutComment(input)

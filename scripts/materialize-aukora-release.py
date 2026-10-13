@@ -650,7 +650,13 @@ def browser_node_rows(browser_node: bool = False, public_origin: str = '') -> st
     return ('\n' + ''.join(f'- id: {name}\n  disabled: true\n' for name in BROWSER_DISABLED_ROWS)
             + '- id: connection\n  config:\n    trustedHosts: !!js ctx.webRuntime.trustedHosts\n'
             + '    cookieMaxAgeDays: 1\n'
-            + '- id: webserver\n  config:\n    browserAccessGuard: true\n'
+            # A patch replaces a row's WHOLE config (seen on a rehearsal node: the web server refused to
+            # start with only the guard flag), so the pinned web server fields are restated beside it.
+            + '- id: webserver\n  config:\n'
+            + "    host: !!js ctx.webStartup.host ?? '127.0.0.1'\n"
+            + '    port: !!js ctx.webStartup.port ?? 3080\n'
+            + '    compression: gzip\n    compressionLevel: 1\n    compressionThresholdBytes: 1024\n'
+            + '    browserAccessGuard: true\n'
             + '- id: typert-gateway\n  config:\n    browserAccessGuard: true\n'
             + browser_binding_rows(public_origin)
             + '- insert:\n    - id: aukora-browser-refusal\n'
