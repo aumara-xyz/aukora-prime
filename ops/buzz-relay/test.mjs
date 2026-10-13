@@ -26,7 +26,11 @@ if (name === 'stat') { console.log(env.LISTENER_UID || '1001'); process.exit(0);
 if (name === 'find') { if (env.FIND_FAIL === '1') process.exit(1); run(['/usr/bin/find', ...args]); }
 if (name === 'sleep') process.exit(0)
 if (name === 'curl') process.exit(env.CURL_FAIL === '1' ? 1 : 0)
-if (name === 'node') process.exit(env.VERIFY_CLOSED === '1' ? 0 : 1)
+if (name === 'node') {
+  if (!args.includes('verify-closed')) run([env.REAL_NODE, ...args])
+  console.log(JSON.stringify({ state: env.VERIFY_CLOSED === '1' ? 'CLOSED' : 'OPEN', closed: env.VERIFY_CLOSED === '1' }))
+  process.exit(env.VERIFY_CLOSED === '1' ? 0 : 1)
+}
 if (name === 'redis-cli') {
   writeFileSync(env.PROBE_INPUT, readFileSync(0))
   writeFileSync(env.PROBE_ENV, JSON.stringify(Object.keys(env).filter((key) => ['REDISCLI_AUTH', 'REDIS_PASSWORD'].includes(key))))
@@ -77,7 +81,7 @@ function fixture(t, mutation) {
   for (const name of ['sudo', 'podman', 'curl', 'systemctl', 'id', 'sleep', 'timeout', 'ss', 'stat', 'find', 'redis-cli', 'node']) symlinkSync(mock, join(bin, name))
   const calls = join(root, 'calls'), redisCount = join(root, 'redis-count')
   writeFileSync(calls, ''); writeFileSync(redisCount, '0')
-  writeFileSync(join(state, 'node.env'), 'PORT=3000\n')
+  writeFileSync(join(state, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=open-acknowledged\n')
   writeFileSync(join(state, 'image.env'), `IMAGE=${image}\nSOURCE_SHA=${'a'.repeat(40)}\n`)
   mkdirSync(join(state, 'secrets'))
   writeFileSync(join(state, 'secrets/postgres-password'), `${'1'.repeat(48)}\n`)
@@ -87,7 +91,7 @@ function fixture(t, mutation) {
     run(file, args = [], extra = {}) {
       return spawnSync('bash', [join(root, file), ...args], {
         encoding: 'utf8', timeout: 20000,
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, REDIS_COUNT: redisCount, AUKORA_BUZZ_MEMORY_LIMITS: '0', ...extra },
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, REDIS_COUNT: redisCount, REAL_NODE: process.execPath, AUKORA_BUZZ_MEMORY_LIMITS: '0', ...extra },
       })
     },
     calls() { return readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); },
@@ -394,9 +398,11 @@ function checkCloseIntent(t, mutation) {
     const f = fixture(t, mutation)
     writeFileSync(join(f.state, 'closed'), 'closed\n')
     for (const state of mode === '--watch' ? ['active', 'inactive', 'activating', 'deactivating'] : ['active']) {
+      writeFileSync(join(f.state, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=open-acknowledged\n')
       const failed = f.run('check.sh', [mode], { SERVICE_STATE: state })
       assert.equal(failed.status, 1, failed.stderr)
       assert.match(failed.stdout, /FAIL  closed intent: verify-closed did not pass/)
+      writeFileSync(join(f.state, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=closed\n')
       assert.equal(f.run('check.sh', [mode], { SERVICE_STATE: state, VERIFY_CLOSED: '1' }).status, 0)
     }
     assert.equal(f.calls().some(c => c[0] === 'systemctl' && c.includes('restart')), false, 'closure failures do not restart an intentionally stopped service')
@@ -427,7 +433,7 @@ if (process.argv.includes('--mutate')) for (const [name, check, from, to] of [
   ['failed marker detection', checkCloseFailure, 'sudo test ! -e "$ROOT/close-failed" || close_failed=1', ':'],
   ['closed intent refusal', checkCloseIntent, "say FAIL 'closed intent: verify-closed did not pass; relay may be OPEN'", "say PASS 'closed intent'"],
   ['failed close refusal', checkCloseFailure, '[ "$close_failed" = 0 ] || say FAIL', '[ "$close_failed" = 0 ] || say PASS'],
-  ['stopped watch intent', checkCloseIntent, '*) [ "$closed_intent" = 1 ] || [ "$close_failed" = 1 ] || exit 0; watch_stopped=1 ;;', '*) exit 0 ;;'],
+  ['stopped watch intent', checkCloseIntent, '*) watch_stopped=1 ;;', '*) exit 0 ;;'],
 ]) test(`mutation: ${name} removal dies`, t => {
   assert.throws(() => check(t, { from, to }), error => error instanceof assert.AssertionError)
 })

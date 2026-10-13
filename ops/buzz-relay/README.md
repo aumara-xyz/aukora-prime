@@ -32,14 +32,31 @@ dump. Keep the door disabled on failure. The output gives the owner's own-machin
 public-key handoff file travels to that machine, never the owner's private key to the node.
 
 Install from a full checkout to bundle the verifier and its existing imports for installed `check.sh`.
-A successful verified close writes a root-owned `closed` marker beside `relay.env`; a rollback writes
-`close-failed`. Full, health and watch checks fail while `close-failed` exists, or if `closed` exists and
-membership refusals cannot be verified. A successful close clears `close-failed`; `close.sh --acknowledge`
-clears only that alarm. `close.sh --reopen` explicitly reopens the relay and removes only `closed`.
-With neither marker, OPEN remains informational and health/watch skip membership probes, which can store a
-synthetic note on an open relay. These markers record operator intent; the service-owned parent directory
-does not protect them from deletion by the service account. An ops-only installation without the verifier
-cannot report PASS closed.
+A successful verified close writes `INTENDED_MEMBERSHIP=closed` in `/var/lib/aukora-buzz/node.env` and a
+root-owned `closed` marker beside `relay.env`; a rollback writes `close-failed`. New installs declare
+`closed` by default. Reinstall preserves an existing declaration and leaves older installations without one
+undeclared: their checks fail until the operator closes the relay with the command above, or explicitly runs
+`bash ops/buzz-relay/close.sh --acknowledge-open` from a full checkout. That command writes
+`INTENDED_MEMBERSHIP=open-acknowledged` without changing the relay or clearing closure alarms. It acknowledges
+open access; it does not close the relay. `close.sh --reopen` explicitly reopens the relay, records
+`open-acknowledged` and removes only `closed`.
+
+Full, health and watch checks always report membership **CLOSED**, **OPEN** or **UNKNOWN**. Both `/query` and
+`/events` are probed without authentication and with a valid throwaway non-member key, concurrently with
+five-second timeouts. CLOSED requires all four refusals (authentication refusal is sufficient only for the
+unauthenticated requests; non-members must receive the relay's explicit membership refusal). OPEN requires
+an accepted query or an acknowledged event with the exact probe id. Malformed responses, unrelated refusals
+and transport failures leave the state UNKNOWN unless another probe proves OPEN. An open relay may store the
+synthetic kind-1 probe note on each check.
+
+The check fails for UNKNOWN, an undeclared or invalid intended state, or a mismatch: `closed` requires CLOSED;
+`open-acknowledged` requires OPEN. The existing five-minute watch timer reports that nonzero exit as a failed
+`aukora-buzz-watch.service`; membership alarms do not restart or reopen the relay. Health failures retain the
+watch's existing restart behavior. Checks also fail while `close-failed` exists, or if the `closed` marker
+exists and closure cannot be proved. A successful close clears `close-failed`; `close.sh --acknowledge`
+clears only that alarm. These files record operator intent; the service-owned parent directory does not
+protect them from deletion by the service account. An ops-only installation without the verifier reports
+UNKNOWN. These HTTP probes do not prove WebSocket admission, owner custody or harness wake containment.
 
 A changed port needs the pod made again (data is kept): `sudo systemctl stop aukora-buzz`, then as aukora-buzz
 `podman pod rm -f aukora-buzz`, then install and start.

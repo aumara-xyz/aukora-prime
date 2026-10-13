@@ -3,12 +3,25 @@ import assert from 'node:assert/strict'
 import { mutation, output, restored, runMutationCourt } from './pilot-switch-mutation-support.mjs'
 
 mutation('selfcheck-timer-restored', { approved: true, floorFails: true },
-  'if [ "$unit" != aukora-genesis ]; then try systemctl start "$unit"; fi',
-  'if [ "$unit" != aukora-genesis ] && [ "$unit" != aukora-selfcheck.timer ]; then try systemctl start "$unit"; fi',
+  'if [ "$unit" != aukora-genesis ]; then active "$unit" || try systemctl start "$unit"; fi',
+  'if [ "$unit" != aukora-genesis ] && [ "$unit" != aukora-selfcheck.timer ]; then active "$unit" || try systemctl start "$unit"; fi',
   (f, result, initial) => {
     assert.match(output(result), /FLOOR_CHECK_FAILED/, 'selfcheck-timer-restored')
     assert.deepEqual(f.active(), initial, 'selfcheck-timer-restored')
     restored(f, 'selfcheck-timer-restored')
+  })
+mutation('all-active-units-restored', { approved: true, stopPeer: true, floorFails: true },
+  'awk \'{print $1 " active"}\' "$B/units.active"', ':',
+  (f, result, initial) => {
+    assert.match(output(result), /FLOOR_CHECK_FAILED/, 'all-active-units-restored')
+    assert.deepEqual(f.active(), initial, 'all-active-units-restored')
+    restored(f, 'all-active-units-restored')
+  })
+mutation('active-unit-snapshot-required', { snapshotFails: true },
+  '|| refuse UNIT_SNAPSHOT_FAILED', '|| true',
+  (f, result) => {
+    assert.match(output(result), /REFUSED: UNIT_SNAPSHOT_FAILED/, 'active-unit-snapshot-required')
+    assert.equal(f.events().filter(event => event.name === 'systemctl' && event.args[0] === 'stop').length, 0, 'active-unit-snapshot-required')
   })
 mutation('port-drain-must-fail', { approved: true, portBusyOnNew: true },
   'echo PORT_NOT_DRAINED; return 1', 'echo PORT_NOT_DRAINED; return 0',

@@ -9,7 +9,7 @@ MODE=close
 ARGS=("$@")
 refuse() { echo "buzz-close:$1" >&2; exit 1; }
 case "${1:-}" in
-  --reopen|--acknowledge) [ $# = 1 ] || refuse invalid-input; MODE="${1#--}"; shift ;;
+  --reopen|--acknowledge|--acknowledge-open) [ $# = 1 ] || refuse invalid-input; MODE="${1#--}"; shift ;;
 esac
 while [ $# -gt 0 ]; do
   [ $# -ge 2 ] || refuse invalid-input
@@ -58,6 +58,22 @@ if [ "$MODE" = acknowledge ]; then
   exit 0
 fi
 PORT=$(sudo -u "$U" cat "$ROOT/node.env" | bash "$HERE/read-setting.sh" PORT) || refuse invalid-port
+write_intent() {
+  sudo -u "$U" bash -s -- "$ROOT" "$PORT" "$1" <<'EOS'
+set -euo pipefail
+umask 077
+NEXT=$(mktemp "$1/.node.env.XXXXXX")
+trap 'rm -f "$NEXT"' EXIT
+printf 'PORT=%s\nINTENDED_MEMBERSHIP=%s\n' "$2" "$3" > "$NEXT"
+chmod 0600 "$NEXT"
+mv -f "$NEXT" "$1/node.env"
+EOS
+}
+if [ "$MODE" = acknowledge-open ]; then
+  write_intent open-acknowledged || refuse open-acknowledgement-failed
+  echo 'PASS INTENDED_MEMBERSHIP=open-acknowledged; relay settings and closure alarms unchanged'
+  exit 0
+fi
 if [ "$MODE" = reopen ]; then
   sudo -u "$U" test ! -e "$ROOT/close-pending" || refuse close-pending
   sudo -u "$U" bash -s -- "$ROOT" <<'EOS' || refuse reopen-settings-failed
@@ -70,6 +86,7 @@ chmod 0600 "$NEXT"
 mv -f "$NEXT" "$1/relay.env"
 EOS
   sudo systemctl restart aukora-buzz.service >/dev/null 2>&1 || refuse reopen-restart-failed
+  write_intent open-acknowledged || refuse reopen-intent-failed
   rm -f "$ROOT/closed" || refuse reopen-marker-failed
   echo 'PASS explicit reopen; closed intent removed; any close-failed still needs --acknowledge'
   exit 0
@@ -142,10 +159,10 @@ EOS
       echo 'buzz-close:rollback-settings-failed; admin must restore the saved relay.env; keep the door disabled' >&2
     fi
     if RESULT=$("$NODE" "$HERE/member.mjs" verify-closed --relay "http://localhost:$PORT" 2>/dev/null); then
-      echo 'buzz-close:relay is CLOSED (two HTTP probes)' >&2
+      echo 'buzz-close:relay is CLOSED (unauthenticated and non-member HTTP probes)' >&2
     elif printf '%s' "$RESULT" | "$NODE" --input-type=module -e '
       import { readFileSync } from "node:fs"
-      try { const result = JSON.parse(readFileSync(0, "utf8")); process.exit([result.query, result.events].some(row => row?.status >= 200 && row.status < 300) ? 0 : 1) } catch { process.exit(1) }
+      try { const result = JSON.parse(readFileSync(0, "utf8")); process.exit(result.state === "OPEN" ? 0 : 1) } catch { process.exit(1) }
     '; then
       echo 'buzz-close:relay is OPEN; keep the door disabled' >&2
     else
@@ -165,11 +182,12 @@ for _ in $(seq 1 60); do
 done
 [ "$healthy" = 1 ] || refuse health-timeout
 "$NODE" "$HERE/member.mjs" verify-closed --relay "http://localhost:$PORT" >/dev/null 2>&1 || refuse closed-not-proved
+write_intent closed || refuse closed-intent-failed
 sudo -u "$U" rm -f "$PENDING" || refuse pending-cleanup-failed
 rm -f "$ROOT/close-failed" || refuse failure-marker-cleanup-failed
 write_marker closed || refuse closed-marker-failed
 trap - EXIT HUP INT TERM
-printf 'PASS closed (non-member refused by /query and /events). Backup: %s\n' "$BACKUP"
+printf 'PASS closed (unauthenticated and non-member refused by /query and /events). Backup: %s\n' "$BACKUP"
 cat <<'MSG'
 Channels, messages and existing channel roles are retained. The configured owner is bootstrapped into relay_members at startup; do not add that owner again.
 Existing channel members need relay admission too. The channel creator retains its channel-owner role; a different relay owner does not inherit channel authority.
@@ -179,5 +197,5 @@ AGENT_PUBKEY="$(cat agent.pubkey)"
 node ops/buzz-relay/member.mjs add --key-file "$OWNER_KEY_FILE" --pubkey "$AGENT_PUBKEY" --role member --relay "$RELAY_HTTP"
 node ops/buzz-relay/member.mjs put-user --key-file "$OWNER_KEY_FILE" --pubkey "$AGENT_PUBKEY" --channel "$CHANNEL_UUID" --role bot --relay "$RELAY_HTTP"
 Use the channel creator's key, or a key with that channel's permission, for put-user. Relay ownership alone is insufficient.
-This checks two HTTP refusals, not WebSocket admission, restored backups or harness wake containment. Keep the door disabled until owner membership commands and channel access are checked.
+This checks HTTP refusals, not WebSocket admission, restored backups or harness wake containment. Keep the door disabled until owner membership commands and channel access are checked.
 MSG

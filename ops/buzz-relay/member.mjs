@@ -1,4 +1,4 @@
-// Signs membership commands with an isolated file key; checks both HTTP routes for non-member refusal.
+// Signs membership commands with an isolated key; probes unauthenticated and non-member HTTP access.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { httpAuthHeader, loadKey, RELAY_HTTP } from '../../plugins/aukora-buzz-door/lib/index.mjs'
@@ -45,12 +45,12 @@ function commandEvent(options, key, now) {
   }, key)
 }
 
-async function post(baseUrl, route, payload, key, { fetchImpl, now }) {
+async function post(baseUrl, route, payload, key, { fetchImpl, now, timeoutMs = 10_000 }) {
   const url = baseUrl + route, body = JSON.stringify(payload)
   let res
   try {
-    res = await fetchImpl(url, { method: 'POST', body, redirect: 'error', signal: AbortSignal.timeout(10_000),
-      headers: { Authorization: httpAuthHeader({ url, body, secretKeyHex: key, now }), 'Content-Type': 'application/json' } })
+    res = await fetchImpl(url, { method: 'POST', body, redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
+      headers: { ...(key === undefined ? {} : { Authorization: httpAuthHeader({ url, body, secretKeyHex: key, now }) }), 'Content-Type': 'application/json' } })
   } catch { throw fail(REFUSE.TRANSPORT) }
   let text = ''
   try {
@@ -91,17 +91,22 @@ export async function verifyClosed({ baseUrl = RELAY_HTTP, fetchImpl = fetch, no
   const key = randomSecretKey(), pubkey = publicKeyOf(key)
   const event = signEvent({ pubkey, created_at: Math.floor(now() / 1000), kind: 1,
     tags: [], content: 'AUKORA verify-closed probe' }, key)
-  const result = {}
-  for (const [name, route, payload] of [
-    ['query', '/query', [{ kinds: [1], authors: [pubkey], limit: 1 }]], ['events', '/events', event],
-  ]) {
+  const query = [{ kinds: [1], authors: [pubkey], limit: 1 }], result = {}
+  await Promise.all([
+    ['unauthenticated_query', '/query', query, undefined], ['unauthenticated_events', '/events', event, undefined],
+    ['query', '/query', query, key], ['events', '/events', event, key],
+  ].map(async ([name, route, payload, probeKey]) => {
     try {
-      const { status, data } = await post(baseUrl, route, payload, key, { fetchImpl, now })
+      const { status, data } = await post(baseUrl, route, payload, probeKey, { fetchImpl, now, timeoutMs: 5_000 })
       const refused = status === 403 && data?.error === 'relay_membership_required' && data.accepted !== true
-      result[name] = { state: refused ? 'MEMBERSHIP_REFUSED' : 'NOT_PROVED', status }
+      const unauthenticatedRefused = probeKey === undefined && status === 401 && typeof data?.error === 'string' && data.error.length > 0 && data.accepted !== true
+      const accepted = status >= 200 && status < 300 && (route === '/query' ? Array.isArray(data) : data?.accepted === true && data.event_id === event.id)
+      result[name] = { state: refused ? 'MEMBERSHIP_REFUSED' : unauthenticatedRefused ? 'AUTHENTICATION_REFUSED' : accepted ? 'ACCEPTED' : 'NOT_PROVED', status }
     } catch (error) { result[name] = { state: 'NOT_PROVED', code: error.code } }
-  }
-  return { closed: result.query.state === 'MEMBERSHIP_REFUSED' && result.events.state === 'MEMBERSHIP_REFUSED', ...result }
+  }))
+  const closed = Object.values(result).every(row => ['MEMBERSHIP_REFUSED', 'AUTHENTICATION_REFUSED'].includes(row.state))
+  const state = closed ? 'CLOSED' : Object.values(result).some(row => row.state === 'ACCEPTED') ? 'OPEN' : 'UNKNOWN'
+  return { closed, state, ...result }
 }
 
 const HELP = `Usage: node ops/buzz-relay/member.mjs <command> [options]
@@ -114,8 +119,9 @@ const HELP = `Usage: node ops/buzz-relay/member.mjs <command> [options]
 Keys must meet the Buzz door's isolated-file rules; secret values are never CLI arguments.
 9032 requires the relay owner; 9030/9031 also allow admins within relay policy.
 9000 uses channel membership policy; being relay owner alone does not grant channel authority.
-verify-closed uses a throwaway key; an open relay may store its synthetic kind-1 note.
-It checks these two HTTP requests, not WebSocket admission, NIP-OA delegation, or wake containment.`
+verify-closed probes both routes without authentication and with a throwaway non-member key.
+It reports CLOSED, OPEN or UNKNOWN; an open relay may store its synthetic kind-1 note.
+It checks HTTP requests, not WebSocket admission, NIP-OA delegation, or wake containment.`
 
 export async function runCli(args, { out = line => console.log(line), err = line => console.error(line) } = {}) {
   try {

@@ -32,13 +32,13 @@ if (name === 'flock') process.exit(env.LOCK_FAIL === '1' ? 1 : 0)
 if (name === 'sleep') process.exit(0)
 if (name === 'timeout') run(args.slice(1))
 if (name === 'node') {
-  if (['closed', 'close-failed'].includes(args.at(-1))) run([env.REAL_NODE, '--import', env.MARKER_STUB, ...args])
+  if (['closed', 'close-failed'].includes(args.at(-1))) run([env.REAL_NODE, '--import', env.PARENT_STUB, '--import', env.MARKER_STUB, ...args])
   if (args.includes('verify-closed')) {
     if (env.VERIFY_ERROR === '1') process.exit(1)
     // Exercise the real member.mjs CLI with either route accepted in a subprocess.
-    run([env.REAL_NODE, '--import', env.FETCH_STUB, ...args])
+    run([env.REAL_NODE, '--import', env.PARENT_STUB, '--import', env.FETCH_STUB, ...args])
   }
-  run([env.REAL_NODE, ...args])
+  run([env.REAL_NODE, '--import', env.PARENT_STUB, ...args])
 }
 if (name === 'curl') process.exit(env.HEALTH_FAIL === '1' ? 1 : 0)
 if (name === 'systemctl') {
@@ -83,12 +83,32 @@ function fixture(t, mutation) {
   for (const cmd of ['sudo', 'id', 'stat', 'flock', 'sleep', 'timeout', 'node', 'curl', 'systemctl', 'podman', 'ss']) symlinkSync(mock, join(bin, cmd))
   const calls = join(root, 'calls'), restarts = join(root, 'restarts'), keyFile = join(home, 'door.key'), fetchStub = join(root, 'fetch.mjs')
   writeFileSync(fetchStub, `import { readFileSync } from 'node:fs'
-  globalThis.fetch = async url => {
+  globalThis.fetch = async (url, options) => {
     const route = new URL(url).pathname
-    const open = process.env.ACCEPT_ROUTE === route || (process.env.STATE && !readFileSync(process.env.STATE + '/relay.env', 'utf8').includes('BUZZ_REQUIRE_RELAY_MEMBERSHIP=true'))
-    return new Response(JSON.stringify(open ? { accepted: true } : { error: 'relay_membership_required' }), { status: open ? 200 : 403 })
+    const open = process.env.ACCEPT_ROUTE === route || (process.env.SIGNED_OPEN === '1' && options.headers.Authorization) || (process.env.RELAY_TEST_STATE && !readFileSync(process.env.RELAY_TEST_STATE + '/relay.env', 'utf8').includes('BUZZ_REQUIRE_RELAY_MEMBERSHIP=true'))
+    const payload = JSON.parse(options.body)
+    return new Response(JSON.stringify(open ? route === '/query' ? [] : { accepted: true, event_id: payload.id } : { error: 'relay_membership_required' }), { status: open ? 200 : 403 })
   }`)
   const markerStub = join(root, 'marker.mjs')
+  const parentStub = join(root, 'parents.mjs'), ancestors = []
+  for (let directory = here; ; directory = dirname(directory)) {
+    const st = statSync(directory)
+    if (st.mode & 0o022) ancestors.push(`${st.dev}:${st.ino}`)
+    if (directory === '/') break
+  }
+  writeFileSync(parentStub, `import fs from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
+const ancestors = ${JSON.stringify(ancestors)}
+for (const name of ['fstatSync', 'lstatSync']) {
+  const original = fs[name]
+  fs[name] = (...args) => {
+    const st = original(...args)
+    if (st?.isDirectory() && ancestors.includes(st.dev + ':' + st.ino)) st.mode &= ~0o022
+    return st
+  }
+}
+syncBuiltinESMExports()
+`)
   writeFileSync(markerStub, `import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 const log = fs.openSync(process.env.CALLS, 'a')
@@ -112,8 +132,8 @@ syncBuiltinESMExports()
     root, scripts, state, keyFile,
     run(extra = {}, args = ['--owner-pubkey', owner, '--key-file', keyFile], file = 'close.sh') {
       return spawnSync('bash', [join(scripts, file), ...args], { encoding: 'utf8', timeout: 30000,
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, STATE: state, RESTARTS: restarts,
-          DOOR_HOME: home, REAL_NODE: process.execPath, FETCH_STUB: fetchStub, MARKER_STUB: markerStub, WRITER: join(scripts, 'write-settings.sh'), ...extra } })
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, STATE: state, RELAY_TEST_STATE: state, RESTARTS: restarts,
+          DOOR_HOME: home, REAL_NODE: process.execPath, FETCH_STUB: fetchStub, MARKER_STUB: markerStub, PARENT_STUB: parentStub, WRITER: join(scripts, 'write-settings.sh'), ...extra } })
     },
     calls() { return readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) },
     backups() { return readdirSync(state).filter(n => n.startsWith('close-backup.')).map(n => join(state, n)) },
@@ -234,17 +254,46 @@ const checks = {
     for (const extra of [{}, { ACCEPT_ROUTE: '/query' }, { ACCEPT_ROUTE: '/events' }, { VERIFY_ERROR: '1' }]) {
       const f = fixture(t, m)
       writeFileSync(join(f.state, 'relay.env'), open + 'BUZZ_REQUIRE_RELAY_MEMBERSHIP=true\n')
+      writeFileSync(join(f.state, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=closed\n')
       const r = f.run(extra, [], 'check.sh')
-      assert.equal(r.status, 0, r.stderr + r.stdout)
-      assert.match(r.stdout, Object.keys(extra).length ? /OPEN  closed/ : /PASS  closed/)
-      const health = f.run(extra, ['--health'], 'check.sh'); assert.equal(health.status, 0)
-      assert.ok(!health.stdout.includes('closed'))
+      assert.equal(r.status, Object.keys(extra).length ? 1 : 0, r.stderr + r.stdout)
+      assert.match(r.stdout, extra.VERIFY_ERROR ? /membership UNKNOWN/ : extra.ACCEPT_ROUTE ? /membership OPEN/ : /PASS  membership CLOSED/)
+      const health = f.run(extra, ['--health'], 'check.sh'); assert.equal(health.status, r.status)
+      assert.match(health.stdout, /membership (CLOSED|OPEN|UNKNOWN)/)
     }
+  },
+  membership(t, m) {
+    for (const intended of ['closed', 'open-acknowledged', '']) {
+      for (const [actual, extra] of [['CLOSED', {}], ['OPEN', { SIGNED_OPEN: '1' }], ['UNKNOWN', { VERIFY_ERROR: '1' }]]) {
+        const f = fixture(t, m)
+        writeFileSync(join(f.state, 'relay.env'), open + 'BUZZ_REQUIRE_RELAY_MEMBERSHIP=true\n')
+        writeFileSync(join(f.state, 'node.env'), 'PORT=3000\n' + (intended ? `INTENDED_MEMBERSHIP=${intended}\n` : ''))
+        for (const mode of actual === 'UNKNOWN' ? [['--health'], ['--watch']] : [['--health']]) {
+          const r = f.run(extra, mode, 'check.sh')
+          const matches = (actual === 'CLOSED' && intended === 'closed') || (actual === 'OPEN' && intended === 'open-acknowledged')
+          assert.equal(r.status, matches ? 0 : 1, `${actual}/${intended || 'missing'}/${mode}: ${r.stderr}${r.stdout}`)
+          assert.match(r.stdout, new RegExp(`membership ${actual}`))
+          if (!intended) assert.match(r.stdout, /intended-membership-required:.*close\.sh --owner-pubkey.*close\.sh --acknowledge-open/)
+        }
+        assert.equal(f.restarts(), 0, 'membership alarms do not reopen or restart the relay')
+      }
+    }
+    const f = fixture(t, m), before = f.settings()
+    const r = f.run({}, ['--acknowledge-open'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(f.settings(), before); assert.equal(f.restarts(), 0)
+    assert.equal(readFileSync(join(f.state, 'node.env'), 'utf8'), 'PORT=3000\nINTENDED_MEMBERSHIP=open-acknowledged\n')
+    assert.equal(statSync(join(f.state, 'node.env')).mode & 0o777, 0o600)
+    const checked = f.run({}, ['--watch'], 'check.sh')
+    assert.equal(checked.status, 0, checked.stderr + checked.stdout)
+    assert.match(checked.stdout, /PASS  membership OPEN/)
   },
   markers(t, m) {
     const f = fixture(t, m)
     writeFileSync(join(f.state, 'close-failed'), 'close-failed\n')
     const r = f.run(); assert.equal(r.status, 0, r.stderr)
+    assert.equal(readFileSync(join(f.state, 'node.env'), 'utf8'), 'PORT=3000\nINTENDED_MEMBERSHIP=closed\n')
+    assert.equal(statSync(join(f.state, 'node.env')).mode & 0o777, 0o600)
     assert.equal(existsSync(join(f.state, 'closed')), true)
     assert.equal(readFileSync(join(f.state, 'closed'), 'utf8'), 'closed\n')
     assert.equal(statSync(join(f.state, 'closed')).mode & 0o777, 0o600)
@@ -275,6 +324,7 @@ const checks = {
     assert.equal(f.settings(), before); assert.equal(f.restarts(), restarts)
     writeFileSync(join(f.state, 'close-failed'), 'close-failed\n')
     const reopen = f.run({}, ['--reopen']); assert.equal(reopen.status, 0, reopen.stderr)
+    assert.equal(readFileSync(join(f.state, 'node.env'), 'utf8'), 'PORT=3000\nINTENDED_MEMBERSHIP=open-acknowledged\n')
     assert.equal(f.settings(), open); assert.equal(f.restarts(), restarts + 1)
     assert.equal(existsSync(join(f.state, 'closed')), false)
     assert.equal(existsSync(join(f.state, 'close-failed')), true)
@@ -313,6 +363,16 @@ const checks = {
     assert.equal(run(['', '3000']).status, 0); assert.equal(f.settings(), installed)
     assert.equal(run([owner, '3000'], { AUKORA_BUZZ_RELAY_URL: 'ws://localhost:3001' }).status, 0)
     assert.ok(f.settings().includes('RELAY_URL=ws://localhost:3001'))
+    rmSync(join(f.state, 'node.env'))
+    assert.equal(run(['', '3000']).status, 0)
+    assert.equal(readFileSync(join(f.state, 'node.env'), 'utf8'), 'PORT=3000\nINTENDED_MEMBERSHIP=closed\n')
+    assert.equal(statSync(join(f.state, 'node.env')).mode & 0o777, 0o600)
+    writeFileSync(join(f.state, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=open-acknowledged\n')
+    assert.equal(run(['', '3001']).status, 0)
+    assert.equal(readFileSync(join(f.state, 'node.env'), 'utf8'), 'PORT=3001\nINTENDED_MEMBERSHIP=open-acknowledged\n')
+    writeFileSync(join(f.state, 'node.env'), 'PORT=3000\n')
+    assert.equal(run(['', '3000']).status, 0)
+    assert.equal(readFileSync(join(f.state, 'node.env'), 'utf8'), 'PORT=3000\n', 'reinstall cannot acknowledge an existing open relay')
   },
 }
 for (const [name, check] of Object.entries(checks)) test(`close: ${name}`, t => check(t))
@@ -341,7 +401,13 @@ const mutations = [
   ['success', 'write-settings.sh', 'echo "RELAY_OWNER_PUBKEY=$OWNER"', ':'],
   ['success', 'close.sh', "trap - EXIT HUP INT TERM\nprintf 'PASS", "trap - EXIT HUP INT TERM\necho \"$AGENT\"\nprintf 'PASS"],
   ['writer', 'write-settings.sh', 'if [ -z "$OWNER" ] && [ -f relay.env ]; then OWNER=$(sed -n \'s/^RELAY_OWNER_PUBKEY=//p\' relay.env); fi', ':'],
-  ['check', 'check.sh', 'if node "$MEMBER" verify-closed --relay "http://localhost:${PORT}" >/dev/null 2>&1; then', 'if true; then'],
+  ['check', 'check.sh', 'UNKNOWN:*) say FAIL', 'UNKNOWN:*) say PASS'],
+  ['membership', 'check.sh', 'UNKNOWN:*) say FAIL', 'UNKNOWN:*) say PASS'],
+  ['membership', 'check.sh', '*) say FAIL "buzz-check:membership-mismatch:', '*) say PASS "buzz-check:membership-mismatch:'],
+  ['membership', 'member.mjs', "['query', '/query', query, key], ['events', '/events', event, key],", ''],
+  ['membership', 'close.sh', 'write_intent open-acknowledged || refuse open-acknowledgement-failed', ':'],
+  ['writer', 'write-settings.sh', 'INTENDED_MEMBERSHIP=closed', "INTENDED_MEMBERSHIP=''"],
+  ['writer', 'write-settings.sh', 'chmod 0600 "$NODE_NEXT"', 'chmod 0644 "$NODE_NEXT"'],
   ['markers', 'close.sh', 'write_marker closed || refuse closed-marker-failed', ':'],
   ['markers', 'close.sh', 'fchownSync(fd, 0, 0)', ';'],
   ['markers', 'close.sh', 'fchmodSync(fd, 0o600)', 'fchmodSync(fd, 0o644)'],
@@ -357,8 +423,12 @@ const mutations = [
   ['commands', 'close.sh', 'sudo -u "$U" test ! -e "$ROOT/close-pending" || refuse close-pending', ':'],
   ['commands', 'close.sh', 'sudo systemctl restart aukora-buzz.service >/dev/null 2>&1 || refuse reopen-restart-failed', ':'],
   ['markerSymlink', 'close.sh', 'renameSync(next, `${root}/${marker}`)', 'writeFileSync(`${root}/${marker}`, marker)'],
+  ['markers', 'close.sh', 'write_intent closed || refuse closed-intent-failed', ':'],
+  ['commands', 'close.sh', 'write_intent open-acknowledged || refuse reopen-intent-failed', ':'],
+  ['markers', 'close.sh', 'chmod 0600 "$NEXT"', 'chmod 0644 "$NEXT"'],
+  ['writer', 'write-settings.sh', 'if [ -f node.env ]; then', 'if false; then'],
 ]
-if (process.argv.includes('--mutate')) for (const [index, [name, file, from, to]] of mutations.entries()) {
+if (process.argv.includes('--mutate') || process.env.AUKORA_BUZZ_CLOSE_MUTATIONS === '1') for (const [index, [name, file, from, to]] of mutations.entries()) {
   test(`mutation ${index + 1}: ${name} protection weakened`, t => {
     assert.ok(readFileSync(join(here, file), 'utf8').includes(from), 'mutation anchor must exist')
     assert.throws(() => checks[name](t, { file, from, to }), error => error instanceof assert.AssertionError)
@@ -372,7 +442,7 @@ test('installed verifier loads its copied imports and reports closed without a c
   assert.ok(block, 'installer verifier-copy block is present')
   const options = { encoding: 'utf8', timeout: 30000, env: {
     ...process.env, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, CALLS: join(f.root, 'calls'),
-    REAL_NODE: process.execPath, FETCH_STUB: join(f.root, 'fetch.mjs'), HERE: here, LIB: lib,
+    REAL_NODE: process.execPath, FETCH_STUB: join(f.root, 'fetch.mjs'), PARENT_STUB: join(f.root, 'parents.mjs'), HERE: here, LIB: lib,
   } }
   const copied = spawnSync('bash', ['-euc', block], options)
   assert.equal(copied.status, 0, copied.stderr)
@@ -389,9 +459,10 @@ test('installed verifier loads its copied imports and reports closed without a c
     assert.ok(readFileSync(installed).equals(readFileSync(source)), `retained ${name}`)
   }
   for (const name of ['check.sh', 'read-setting.sh']) writeFileSync(join(lib, name), readFileSync(join(f.scripts, name)))
+  writeFileSync(join(f.state, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=closed\n')
   assert.equal(existsSync(join(lib, 'member.mjs')), false, 'no source-layout fallback exists')
   const checked = spawnSync('bash', [join(lib, 'check.sh')], options)
   assert.equal(checked.status, 0, checked.stderr + checked.stdout)
-  assert.match(checked.stdout, /PASS  closed/)
+  assert.match(checked.stdout, /PASS  membership CLOSED/)
   assert.ok(f.calls().some(args => args[0] === 'node' && args[1] === member && args[2] === 'verify-closed'))
 })

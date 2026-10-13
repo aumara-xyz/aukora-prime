@@ -39,12 +39,17 @@ test('real switch: approval before stop, private backup, signed-in UI and new-ru
   const result = await f.runAsync([commit], { SHELL: '/bin/bash' })
   assert.equal(result.status, 0, text(result))
   assert.match(text(result), /SWITCH_DONE/)
+  assert.ok(text(result).includes(`OLD_RELEASE=${f.at('/opt/aukora-genesis/release-aaaaaaa')}\n`))
+  assert.ok(text(result).includes(`NEW_RELEASE=${f.at('/opt/aukora-genesis/release-bbbbbbb')}\n`))
+  assert.ok(text(result).includes(`BACKUP_DIRECTORY=${f.backups()[0]}\n`))
   assertApprovalBeforeStop(f)
   assert.deepEqual(f.active(), units.toSorted())
   assert.equal(f.head(), commit)
   assert.equal(statSync(f.at('/opt/aukora-genesis/src/fresh-module')).mode & 0o777, 0o755)
   assert.equal(statSync(f.at('/opt/aukora-genesis/src/fresh-module/index.mjs')).mode & 0o777, 0o644)
   assert.match(readFileSync(f.at('/etc/aukora-genesis/release.env'), 'utf8'), /release-bbbbbbb/)
+  for (const path of ['', '/state', '/state/gate-state']) assert.equal(statSync(f.at('/etc/aukora-approvals/' + commit + path)).mode & 0o777, 0o755, 'approval directory readable by harness user under umask 002')
+  for (const path of ['/etc/aukora-approvals/' + commit + '/state/gate-state/approval.fixture', '/etc/aukora-approvals/release-floor.json']) assert.equal(statSync(f.at(path)).mode & 0o777, 0o644, 'signed public file readable by harness user under umask 002')
   const events = f.events(), start = events.findIndex(event => eventIs('systemctl', 'start')(event) && event.args.includes('aukora-genesis'))
   const probe = events.findIndex(event => event.name === 'node' && event.args.some(arg => arg.endsWith('/ui-probe.mjs')))
   const logs = events.findIndex(event => event.name === 'journalctl' && event.args.some(arg => arg.startsWith('_SYSTEMD_INVOCATION_ID=')))
@@ -53,6 +58,41 @@ test('real switch: approval before stop, private backup, signed-in UI and new-ru
   assert.equal(events[probe].args.at(-1), f.at('/home/aukora-host/genesis/state/launch-url.json'))
   assert.equal(f.backups().length, 1)
   assert.match(readFileSync(f.backups()[0] + '/state', 'utf8'), /^phase=done$/m)
+}))
+
+for (const config of [{ stopPeer: true }, { stopPeer: true, floorFails: true }]) test('real switch: every originally active unit is restored ' + JSON.stringify(config), () => withFixture(config, async f => {
+  const result = await f.runAsync()
+  assert.equal(result.status, config.floorFails ? 1 : 0, text(result))
+  assert.deepEqual(f.active(), units.toSorted())
+  assert.ok(f.events().some(event => event.name === 'systemctl' && event.args[0] === 'start' && event.args[1] === 'aukora-relay'), 'unrelated unit lost during stop is restarted')
+  assert.ok(!f.events().some(event => event.name === 'systemctl' && event.args[0] === 'start' && event.args[1] === 'openviking'), 'already active unrelated unit needs no restart')
+  if (config.floorFails) assertRestored(f)
+}))
+
+test('real switch: failed active-unit snapshot refuses before stopping', () => withFixture({ snapshotFails: true }, async f => {
+  const result = await f.runAsync()
+  assert.notEqual(result.status, 0, text(result))
+  assert.match(text(result), /UNIT_SNAPSHOT_FAILED/)
+  assert.equal(f.events().filter(eventIs('systemctl', 'stop')).length, 0)
+  assertRestored(f)
+}))
+
+test('real switch: waits for both gate sockets before approval install', () => withFixture({ socketDelay: 3 }, async f => {
+  const result = await f.runAsync()
+  assert.equal(result.status, 0, text(result))
+  const events = f.events(), gateStart = events.findIndex(event => eventIs('systemctl', 'start')(event) && event.args.includes('aukora-boundary-gate'))
+  const install = events.findIndex(event => event.name === 'python3' && event.args.some(arg => ['install', 'recover-cache'].includes(arg)))
+  assert.ok(install > gateStart)
+  assert.equal(events.slice(gateStart, install).filter(event => event.name === 'sleep').length, 3, 'gate and owner socket become available on different polls')
+  assert.equal(readFileSync(f.at('/test-socket-polls'), 'utf8'), '3')
+}))
+
+for (const missing of [true, 'gate.sock', 'owner.sock']) test('real switch: missing gate sockets ' + missing + ' failure restores without installing approval', () => withFixture({ socketsMissing: missing }, async f => {
+  const result = await f.runAsync()
+  assert.notEqual(result.status, 0, text(result))
+  assert.match(text(result), /GATE_SOCKETS_MISSING/)
+  assert.equal(f.events().filter(event => event.name === 'python3' && event.args.some(arg => ['install', 'recover-cache'].includes(arg))).length, 0)
+  assertRestored(f)
 }))
 
 test('real switch: approval timeout never stops or changes the running installation', () => withFixture({ neverApprove: true }, async f => {

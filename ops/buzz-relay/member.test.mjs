@@ -16,8 +16,27 @@ const target = publicKeyOf(randomSecretKey())
 const denial = { status: 403, data: { error: 'relay_membership_required', message: 'You must be a relay member to access this relay' } }
 const rejects = (fn, code) => assert.rejects(fn, error => error.code === code)
 const throws = (fn, code) => assert.throws(fn, error => error.code === code)
+const actualStats = { fstatSync: fs.fstatSync, lstatSync: fs.lstatSync }, protectedContexts = new WeakSet()
+
+// Only checkout ancestors stand in for protected installed parents; fixture permissions remain real.
+function protectedAncestors(t) {
+  if (protectedContexts.has(t)) return
+  protectedContexts.add(t)
+  const identities = []
+  for (let directory = HERE; ; directory = path.dirname(directory)) {
+    const st = actualStats.lstatSync(directory)
+    if (st.mode & 0o022) identities.push(`${st.dev}:${st.ino}`)
+    if (directory === '/') break
+  }
+  for (const name of ['fstatSync', 'lstatSync']) t.mock.method(fs, name, (...args) => {
+    const st = actualStats[name](...args)
+    if (st?.isDirectory() && identities.includes(`${st.dev}:${st.ino}`)) st.mode &= ~0o022
+    return st
+  })
+}
 
 function fixture(t) {
+  protectedAncestors(t)
   const home = fs.mkdtempSync(path.join(HERE, '.member-test-'))
   fs.chmodSync(home, 0o700)
   const dir = path.join(home, 'keys'); fs.mkdirSync(dir, { mode: 0o700 })
@@ -41,6 +60,14 @@ async function bridge(_t, respond = () => denial) {
     try {
       assert.equal(req.method, 'POST')
       assert.equal(req.headers.get('content-type'), 'application/json')
+      if (!req.headers.has('authorization')) {
+        data = JSON.parse(await req.text())
+        if (route === '/events') verifyEvent(data)
+        else { assert.equal(route, '/query'); assert.equal(data[0].authors.length, 1) }
+        requests.push({ route, data, auth: null })
+        const reply = respond({ route, data, auth: null })
+        return new Response(reply.raw ?? JSON.stringify(reply.data), { status: reply.status ?? 200 })
+      }
       assert.match(req.headers.get('authorization') ?? '', /^Nostr /u)
       auth = JSON.parse(Buffer.from(req.headers.get('authorization').slice(6), 'base64').toString('utf8'))
       verifyEvent(auth)
@@ -203,10 +230,11 @@ test('verify-closed probes BOTH routes with a valid disposable identity and CLI 
   const b = await bridge(t)
   for (let i = 0; i < 2; i++) assert.equal((await verifyClosed(b)).closed, true)
   assert.deepEqual(b.errors, [])
-  assert.deepEqual(b.requests.map(r => r.route), ['/query', '/events', '/query', '/events'])
-  assert.equal(b.requests[0].auth.pubkey, b.requests[1].auth.pubkey)
-  assert.notEqual(b.requests[0].auth.pubkey, b.requests[2].auth.pubkey)
-  const event = b.requests[1].data
+  assert.deepEqual(b.requests.map(r => r.route), ['/query', '/events', '/query', '/events', '/query', '/events', '/query', '/events'])
+  assert.equal(b.requests[0].auth, null); assert.equal(b.requests[1].auth, null)
+  assert.equal(b.requests[2].auth.pubkey, b.requests[3].auth.pubkey)
+  assert.notEqual(b.requests[2].auth.pubkey, b.requests[6].auth.pubkey)
+  const event = b.requests[3].data
   assert.equal(event.kind, 1); assert.deepEqual(event.tags, []); assert.equal(verifyEvent(event), true)
   const mock = t.mock.method(globalThis, 'fetch', b.fetchImpl), out = [], err = []
   assert.equal(await runCli(['verify-closed'], { out: x => out.push(x), err: x => err.push(x) }), 0)
@@ -219,13 +247,33 @@ test('acceptance of either query or event fails closure and the CLI exits nonzer
       ? { data: route === '/query' ? [] : { accepted: true, event_id: data.id } } : denial)
     const result = await verifyClosed(b)
     assert.equal(result.closed, false)
-    assert.equal(b.requests.length, 2)
+    assert.equal(result.state, 'OPEN'); assert.equal(b.requests.length, 4)
     const out = [], err = []
     const mock = t.mock.method(globalThis, 'fetch', b.fetchImpl)
     assert.equal(await runCli(['verify-closed', '--relay', b.baseUrl], { out: x => out.push(x), err: x => err.push(x) }), 1)
     assert.equal(JSON.parse(out[0]).closed, false); assert.deepEqual(err, [REFUSE.CLOSED])
     mock.mock.restore()
   }
+})
+
+test('unauthenticated refusal does not hide non-member acceptance; authentication refusal alone cannot prove membership closure', async t => {
+  const authentication = { status: 401, data: { error: 'authentication_required' } }
+  for (const [nonMemberReply, state] of [[denial, 'CLOSED'], [authentication, 'UNKNOWN'], [{ data: [] }, 'OPEN']]) {
+    const b = await bridge(t, ({ auth, route, data }) => !auth ? authentication : route === '/query' ? nonMemberReply : denial)
+    const result = await verifyClosed(b)
+    assert.equal(result.state, state)
+    assert.equal(result.closed, state === 'CLOSED')
+    assert.equal(b.requests.filter(row => row.auth).length, 2)
+    assert.equal(b.requests.filter(row => !row.auth).length, 2)
+  }
+  const malformedAck = await bridge(t, () => ({ data: { accepted: true, event_id: 'wrong' } }))
+  assert.equal((await verifyClosed(malformedAck)).state, 'UNKNOWN')
+  const refusedAck = await bridge(t, ({ route, data }) => ({ status: 403, data: route === '/query' ? [] : { accepted: true, event_id: data.id } }))
+  assert.equal((await verifyClosed(refusedAck)).state, 'UNKNOWN')
+  const timeouts = [], timeout = AbortSignal.timeout
+  t.mock.method(AbortSignal, 'timeout', ms => { timeouts.push(ms); return timeout(ms) })
+  assert.equal((await verifyClosed(await bridge(t))).state, 'CLOSED')
+  assert.deepEqual(timeouts, [5_000, 5_000, 5_000, 5_000])
 })
 
 test('unrelated refusals, malformed/large responses and outages never prove closure; the other route is still probed', async t => {
@@ -238,11 +286,12 @@ test('unrelated refusals, malformed/large responses and outages never prove clos
     { status: 403, raw: ' '.repeat(16_385) + JSON.stringify(denial.data) },
   ]) {
     const b = await bridge(t, () => reply)
-    assert.equal((await verifyClosed(b)).closed, false); assert.equal(b.requests.length, 2)
+    const result = await verifyClosed(b)
+    assert.equal(result.closed, false); assert.equal(result.state, 'UNKNOWN'); assert.equal(b.requests.length, 4)
   }
   let calls = 0
   const result = await verifyClosed({ fetchImpl: async () => { calls++; throw new Error('offline') } })
-  assert.equal(calls, 2); assert.equal(result.closed, false)
+  assert.equal(calls, 4); assert.equal(result.closed, false); assert.equal(result.state, 'UNKNOWN')
   assert.equal(result.query.code, REFUSE.TRANSPORT); assert.equal(result.events.code, REFUSE.TRANSPORT)
 })
 
@@ -286,7 +335,7 @@ test('mutation checks', { skip: process.env.AUKORA_BUZZ_MUTATIONS !== '1' }, () 
     ['usable key', '; publicKeyOf(key) } catch', ' } catch'],
     ['loopback', 'throw fail(REFUSE.URL)\n  try', '{}\n  try'],
     ['redirect', "redirect: 'error'", "redirect: 'follow'"],
-    ['abort bound', 'signal: AbortSignal.timeout(10_000)', 'signal: undefined'],
+    ['abort bound', 'signal: AbortSignal.timeout(timeoutMs)', 'signal: undefined'],
     ['NIP98', 'Authorization: httpAuthHeader({ url, body, secretKeyHex: key, now })', "Authorization: 'Nostr broken'"],
     ['response bound', 'bytes > MAX_RESPONSE_BYTES', 'false'],
     ['status rejection', 'status < 200 || status >= 300', 'false'],
@@ -297,7 +346,14 @@ test('mutation checks', { skip: process.env.AUKORA_BUZZ_MUTATIONS !== '1' }, () 
     ['denial reason', "status === 403 && data?.error === 'relay_membership_required'", 'status === 403'],
     ['contradictory acceptance', ' && data.accepted !== true', ''],
     ['throwaway key', 'const key = randomSecretKey(), pubkey', "const key = '01'.repeat(32), pubkey"],
-    ['both routes', "result.query.state === 'MEMBERSHIP_REFUSED' && result.events.state === 'MEMBERSHIP_REFUSED'", "result.query.state === 'MEMBERSHIP_REFUSED' || result.events.state === 'MEMBERSHIP_REFUSED'"],
+    ['both routes', "Object.values(result).every(row => ['MEMBERSHIP_REFUSED', 'AUTHENTICATION_REFUSED'].includes(row.state))", "Object.values(result).some(row => ['MEMBERSHIP_REFUSED', 'AUTHENTICATION_REFUSED'].includes(row.state))"],
+    ['non-member probes', "['query', '/query', query, key], ['events', '/events', event, key],", ''],
+    ['unauthenticated probes', "['unauthenticated_query', '/query', query, undefined], ['unauthenticated_events', '/events', event, undefined],", ''],
+    ['unknown is closed', ": 'UNKNOWN'\n  return { closed, state", ": 'CLOSED'\n  return { closed, state"],
+    ['authentication only unsigned', 'probeKey === undefined && status === 401', 'status === 401'],
+    ['exact probe acknowledgement', 'data.event_id === event.id', 'true'],
+    ['probe success status', 'status >= 200 && status < 300', 'true'],
+    ['probe deadline', 'timeoutMs: 5_000', 'timeoutMs: 10_000'],
     ['CLI closure exit', 'if (!result.closed) throw fail(REFUSE.CLOSED)', ''],
     ['CLI option restriction', "!['--key-file', '--pubkey', '--role', '--channel', '--relay'].includes(flag)", 'false'],
     ['CLI error redaction', 'err(Object.values(REFUSE).includes(error?.code) ? error.code : REFUSE.INPUT)', 'err(args.join(" "))'],

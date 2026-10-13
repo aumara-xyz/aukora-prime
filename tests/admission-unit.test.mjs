@@ -39,6 +39,8 @@ if (name === 'ss') { process.stdout.write(env.LISTEN || ''); process.exit(env.SS
 if (name === 'stat') { console.log(env.LISTENER_UID || '1002'); process.exit(0) }
 if (name === 'node') {
   if (args[0] === '--version') { console.log(env.NODE_VERSION || 'v24.11.1'); process.exit(0) }
+  if (!args.includes('verify-closed')) run([env.REAL_NODE, ...args])
+  console.log(JSON.stringify({ state: env.ACTUAL || (env.VERIFY_CLOSED === '1' ? 'CLOSED' : 'UNKNOWN') }))
   process.exit(env.VERIFY_CLOSED === '1' ? 0 : 1)
 }
 process.exit(1)
@@ -49,7 +51,7 @@ function fixture(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const bin = join(root, 'bin'), lib = join(root, 'lib'), state = join(root, 'state'), systemd = join(root, 'systemd'), buzz = join(root, 'buzz')
   for (const dir of [bin, lib, systemd, buzz]) mkdirSync(dir, { mode: 0o700 })
-  writeFileSync(join(buzz, 'node.env'), 'PORT=3000\n')
+  writeFileSync(join(buzz, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=closed\n')
   const mock = join(bin, 'mock.mjs'), calls = join(root, 'calls')
   writeFileSync(mock, stub); chmodSync(mock, 0o755); writeFileSync(calls, '')
   for (const name of ['sudo', 'install', 'id', 'getent', 'useradd', 'systemctl', 'ss', 'stat', 'node']) symlinkSync(mock, join(bin, name))
@@ -61,7 +63,7 @@ function fixture(t) {
     run(source, extra = {}) {
       const script = join(root, 'run.sh'); writeFileSync(script, transform(source))
       return spawnSync('bash', [script], { encoding: 'utf8', timeout: 10000,
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, STATE: state, ...extra } })
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, STATE: state, REAL_NODE: process.execPath, ...extra } })
     },
     calls() { return readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) },
   }
@@ -171,6 +173,12 @@ function checkAdmission(t, mutation) {
     { LISTEN: listener + listener.replace('127.0.0.1:3100', '0.0.0.0:3101') }, { VERIFY_CLOSED: '0' }, { SS_FAIL: '1' }]) {
     const bad = invoke(extra); assert.equal(bad.status, 1, `${JSON.stringify(extra)}: ${bad.stdout} ${bad.stderr}`)
   }
+  writeFileSync(join(f.buzz, 'node.env'), 'PORT=3000\nINTENDED_MEMBERSHIP=open-acknowledged\n')
+  const open = invoke({ ACTUAL: 'OPEN', VERIFY_CLOSED: '0' })
+  assert.equal(open.status, 1, open.stdout + open.stderr); assert.match(open.stdout, /admission relay closure not proved/)
+  writeFileSync(join(f.buzz, 'node.env'), 'PORT=3000\n')
+  const undeclared = invoke({})
+  assert.equal(undeclared.status, 1, undeclared.stdout + undeclared.stderr); assert.match(undeclared.stdout, /intended-membership-required/)
   assert.equal(f.calls().some(call => call[0] === 'systemctl' && call.some(arg => /^(?:restart|start|enable)$/u.test(arg))), false)
 }
 test('admission check requires the active service, its loopback listener and closed relay without restarting', t => checkAdmission(t))

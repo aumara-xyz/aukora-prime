@@ -137,6 +137,12 @@ mutation('launcher-checkout-readable', { approved: true },
     assert.equal(statSync(f.at('/opt/aukora-genesis/src/fresh-module')).mode & 0o777, 0o755, 'launcher-checkout-readable')
     assert.equal(statSync(f.at('/opt/aukora-genesis/src/fresh-module/index.mjs')).mode & 0o777, 0o644, 'launcher-checkout-readable')
   })
+mutation('operator-record-fields-printed', { approved: true },
+  "printf 'OLD_RELEASE=%s\\nNEW_RELEASE=%s\\nBACKUP_DIRECTORY=%s\\n' \"$OLD_RELEASE\" \"$REL\" \"$B\"", ':',
+  (f, result) => {
+    assert.equal(result.status, 0, 'operator-record-fields-printed')
+    for (const field of [`OLD_RELEASE=${f.at('/opt/aukora-genesis/release-aaaaaaa')}`, `NEW_RELEASE=${f.at('/opt/aukora-genesis/release-bbbbbbb')}`, `BACKUP_DIRECTORY=${f.backups()[0]}`]) assert.ok(output(result).includes(field + '\n'), 'operator-record-fields-printed')
+  })
 staticMutation('truthful-history-header',
   '# Collects owner approval before stopping services and restores interrupted switches. History: ops/pilot/README.md.',
   '# NOT RUN anywhere: switches the live harness.',

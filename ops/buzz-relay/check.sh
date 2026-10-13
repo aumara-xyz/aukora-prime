@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks relay health, recorded closure intent and opt-in admission service listeners.
+# Checks relay health and requires proved membership state to match declared intent.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="${1:-full}"
@@ -7,6 +7,26 @@ case "$MODE" in full|--health|--watch|--admission) ;; *) echo "usage: check.sh [
 fail=0
 say() { printf '%s  %s\n' "$1" "$2"; [ "$1" = PASS ] || fail=1; }
 ROOT=/var/lib/aukora-buzz
+membership_check() {
+  INTENDED_MEMBERSHIP=$(sudo cat "$ROOT/node.env" | bash "$HERE/read-setting.sh" INTENDED_MEMBERSHIP 2>/dev/null) || INTENDED_MEMBERSHIP=''
+  if [ -z "$INTENDED_MEMBERSHIP" ]; then
+    say FAIL 'buzz-check:intended-membership-required: close with bash ops/buzz-relay/close.sh --owner-pubkey "$OWNER_PUBKEY" --key-file /absolute/path/to/door.key; or acknowledge OPEN with bash ops/buzz-relay/close.sh --acknowledge-open (sets INTENDED_MEMBERSHIP=open-acknowledged in /var/lib/aukora-buzz/node.env)'
+  fi
+  MEMBER="$HERE/member/ops/buzz-relay/member.mjs"
+  [ -f "$MEMBER" ] || MEMBER="$HERE/member.mjs"
+  NODE="$HERE/node-v24.11.1/node"
+  [ -x "$NODE" ] || NODE=node
+  RESULT=$("$NODE" "$MEMBER" verify-closed --relay "http://localhost:${PORT}" 2>/dev/null) || :
+  ACTUAL=$(printf '%s' "$RESULT" | "$NODE" --input-type=module -e '
+    import { readFileSync } from "node:fs"
+    try { const {state} = JSON.parse(readFileSync(0, "utf8")); console.log(["CLOSED", "OPEN", "UNKNOWN"].includes(state) ? state : "UNKNOWN") } catch { console.log("UNKNOWN") }
+  ') || ACTUAL=UNKNOWN
+  case "$ACTUAL:$INTENDED_MEMBERSHIP" in
+    CLOSED:closed|OPEN:open-acknowledged) say PASS "membership $ACTUAL; intended $INTENDED_MEMBERSHIP" ;;
+    UNKNOWN:*) say FAIL "buzz-check:membership-unknown: membership UNKNOWN; intended ${INTENDED_MEMBERSHIP:-UNDECLARED}" ;;
+    *) say FAIL "buzz-check:membership-mismatch: membership $ACTUAL; intended ${INTENDED_MEMBERSHIP:-UNDECLARED}" ;;
+  esac
+}
 if [ "$MODE" = --admission ]; then
   [ "$(systemctl is-active aukora-admission.service)" = active ] \
     && say PASS 'aukora-admission.service active' || say FAIL 'aukora-admission.service not active'
@@ -28,12 +48,8 @@ if [ "$MODE" = --admission ]; then
     say FAIL 'aukora-admission listeners unavailable'
   fi
   PORT=$(sudo cat "$ROOT/node.env" | bash "$HERE/read-setting.sh" PORT) || exit 1
-  MEMBER="$HERE/member/ops/buzz-relay/member.mjs"
-  [ -f "$MEMBER" ] || MEMBER="$HERE/member.mjs"
-  NODE="$HERE/node-v24.11.1/node"
-  [ -x "$NODE" ] || NODE=node
-  "$NODE" "$MEMBER" verify-closed --relay "http://localhost:${PORT}" >/dev/null 2>&1 \
-    && say PASS 'admission relay closed' || say FAIL 'admission relay closure not proved'
+  membership_check
+  [ "$ACTUAL" = CLOSED ] && say PASS 'admission relay closed' || say FAIL 'admission relay closure not proved'
   exit "$fail"
 fi
 closed_intent=0 close_failed=0 watch_stopped=0
@@ -42,17 +58,16 @@ sudo test ! -e "$ROOT/close-failed" || close_failed=1
 [ "$close_failed" = 0 ] || say FAIL 'close-failed: run a successful close or close.sh --acknowledge'
 intent_fail=$fail
 fail=0
+PORT=$(sudo cat "$ROOT/node.env" | bash "$HERE/read-setting.sh" PORT) || exit 1
 # Recover failed starts too, without undoing an intentional stop or an ongoing transition.
 if [ "$MODE" = --watch ]; then
   STATE=$(systemctl show --property=ActiveState --value aukora-buzz.service) || exit 1
   case "$STATE" in
     active) ;;
     failed) say FAIL "aukora-buzz.service failed" ;;
-    *) [ "$closed_intent" = 1 ] || [ "$close_failed" = 1 ] || exit 0; watch_stopped=1 ;;
+    *) watch_stopped=1 ;;
   esac
 fi
-PORT=$(sudo cat "$ROOT/node.env" | bash "$HERE/read-setting.sh" PORT) || exit 1
-
 UID_BUZZ=$(id -u aukora-buzz)
 pod() { (cd /tmp && sudo -u aukora-buzz -H env XDG_RUNTIME_DIR="/run/user/$UID_BUZZ" timeout 10s podman "$@"); }
 
@@ -70,16 +85,9 @@ fi
 health_fail=$fail
 [ "$intent_fail" = 0 ] || fail=1
 
-MEMBER="$HERE/member/ops/buzz-relay/member.mjs"
-[ -f "$MEMBER" ] || MEMBER="$HERE/member.mjs"
-if [ "$MODE" = full ] || [ "$closed_intent" = 1 ]; then
-if node "$MEMBER" verify-closed --relay "http://localhost:${PORT}" >/dev/null 2>&1; then
-  say PASS closed
-elif [ "$closed_intent" = 1 ]; then
+membership_check
+if [ "$closed_intent" = 1 ] && [ "$ACTUAL" != CLOSED ]; then
   say FAIL 'closed intent: verify-closed did not pass; relay may be OPEN'
-else
-  printf 'OPEN  closed (not proved)\n'
-fi
 fi
 if [ "$MODE" != full ]; then
   if [ "$MODE" = --watch ] && [ "$health_fail" != 0 ]; then systemctl --no-block restart aukora-buzz.service || exit 1; fi

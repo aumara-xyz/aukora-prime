@@ -85,6 +85,7 @@ function bridge(owner) {
       const request = new Request(url, options), route = new URL(url).pathname
       assert.equal(request.method, 'POST')
       assert.equal(request.headers.get('content-type'), 'application/json')
+      if (!request.headers.has('authorization')) return Response.json({ error: 'relay_membership_required' }, { status: 403 })
       assert.match(request.headers.get('authorization') ?? '', /^Nostr /u)
       const auth = JSON.parse(Buffer.from(request.headers.get('authorization').slice(6), 'base64').toString('utf8'))
       assert.equal(verifyEvent(auth), true); assert.equal(auth.kind, 27235)

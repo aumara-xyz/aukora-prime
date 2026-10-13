@@ -25,6 +25,10 @@ describe('live-switch-main.sh hard-kill phase recovery', { concurrency: 4 }, () 
       assert.equal(f.backups().length, 1)
       const backup = f.backups()[0]
       assert.match(readFileSync(backup + '/state', 'utf8'), new RegExp('^phase=' + phase + '$', 'm'))
+      const events = f.events(), published = events.findIndex(event => event.release.includes('release-bbbbbbb'))
+      if (published >= 0) {
+        for (const command of ['check-package', 'recover-cache', 'floor']) assert.ok(events.slice(0, published).some(event => event.name === 'python3' && event.args.includes(command)), command + ' verified before publishing candidate environment')
+      } else assert.equal(readFileSync(f.at('/etc/aukora-genesis/release.env'), 'utf8'), f.oldFiles['/etc/aukora-genesis/release.env'], 'old environment remains before candidate verification')
       const before = f.events().length
       const refused = await f.runAsync()
       assert.notEqual(refused.status, 0, text(refused))
@@ -68,6 +72,18 @@ describe('live-switch-main.sh preflight and absent-owner recovery', { concurrenc
       const backup = f.backups()[0]
       f.config({ killPhase: '' })
       const recover = await f.runAsync(['--recover', backup])
+      assert.equal(recover.status, 0, text(recover))
+      restored(f)
+    } finally { f.cleanup() }
+  })
+  test('preflight recovery restores an unrelated unit lost during the stop', async () => {
+    const f = fixture({ killPhase: 'ui-probe', stopPeer: true })
+    try {
+      const killed = await f.runAsync()
+      assert.equal(killed.signal, 'SIGKILL', text(killed))
+      assert.ok(!f.active().includes('aukora-relay'))
+      f.config({ killPhase: '' })
+      const recover = await f.runAsync(['--recover', f.backups()[0]])
       assert.equal(recover.status, 0, text(recover))
       restored(f)
     } finally { f.cleanup() }

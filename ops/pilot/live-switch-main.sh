@@ -127,7 +127,7 @@ restore() {
   done
   while read -r unit wanted; do
     if [ "$wanted" = active ]; then
-      if [ "$unit" != aukora-genesis ]; then try systemctl start "$unit"; fi
+      if [ "$unit" != aukora-genesis ]; then active "$unit" || try systemctl start "$unit"; fi
       active "$unit" || bad=1
     else try systemctl stop "$unit"; active "$unit" && bad=1; fi
   done < "$B/units.old"
@@ -194,9 +194,13 @@ for unit in aukora-genesis aukora-boundary-gate; do active "$unit" || refuse "UN
 B=$(mktemp -d "$ROOT/root/aukora-backup-pre-$S-XXXXXX")
 phase backup
 printf '%s\n' "$C" > "$B/commit"
-for unit in aukora-genesis aukora-boundary-gate aukora-selfcheck.timer; do
-  if active "$unit"; then printf '%s active\n' "$unit"; else printf '%s inactive\n' "$unit"; fi
-done > "$B/units.old"
+systemctl list-units --state=active --no-legend --plain --full > "$B/units.active" || refuse UNIT_SNAPSHOT_FAILED
+{
+  for unit in aukora-genesis aukora-boundary-gate aukora-selfcheck.timer; do
+    if active "$unit"; then printf '%s active\n' "$unit"; else printf '%s inactive\n' "$unit"; fi
+  done
+  awk '{print $1 " active"}' "$B/units.active"
+} | awk '!seen[$1]++' > "$B/units.old"
 items=(opt/aukora-boundary-gate etc/aukora-boundary-gate usr/local/lib/aukora-boundary etc/aukora-genesis etc/aukora-approvals)
 [ ! -d "$ROOT/opt/owner-key" ] || items+=(opt/owner-key)
 tar -C "${ROOT:-/}" -czf "$B/host.tgz" "${items[@]}"
@@ -327,8 +331,10 @@ if grep -qE '^aukora-[a-z-]+ \(file://.*\): Error' "$B/harness.log"; then refuse
 active aukora-genesis || refuse HARNESS_NOT_ACTIVE
 phase units
 while read -r unit wanted; do
-  if [ "$wanted" = active ]; then systemctl start "$unit"; active "$unit" || refuse "UNIT_NOT_ACTIVE: $unit"
+  if [ "$wanted" = active ]; then active "$unit" || systemctl start "$unit"; active "$unit" || refuse "UNIT_NOT_ACTIVE: $unit"
   else systemctl stop "$unit"; if active "$unit"; then refuse "UNIT_UNEXPECTED_ACTIVE: $unit"; fi; fi
 done < "$B/units.old"
 phase done; ARMED=0
 echo "SWITCH_DONE: verified harness on release-$S, approval installed, UI probe and plugin log check passed; backup $B"
+OLD_RELEASE=$(sed -n 's/^AUKORA_RELEASE_DIR=//p' "$B/release.env.old")
+printf 'OLD_RELEASE=%s\nNEW_RELEASE=%s\nBACKUP_DIRECTORY=%s\n' "$OLD_RELEASE" "$REL" "$B"

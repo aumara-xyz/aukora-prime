@@ -17,6 +17,7 @@ const missingTools = ['/bin/bash', '/usr/bin/python3', '/usr/bin/tar', '/usr/bin
 if (missingTools.length) { console.log('UNPERFORMED: switch fixture requires ' + missingTools.join(', ')); process.exit(2) }
 const json = path => JSON.parse(readFileSync(path, 'utf8'))
 function put(path, body, mode) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, body, mode ? { mode } : undefined) }
+let socketStatusOnly = false
 
 export function fixture(config = {}) {
   const root = mkdtempSync(join(repo, 'tests/.pilot-switch-'))
@@ -37,9 +38,15 @@ export function fixture(config = {}) {
   chmodSync(at('/opt/aukora-genesis/src/fresh-module'), 0o755)
   chmodSync(at('/opt/aukora-genesis/src/fresh-module/index.mjs'), 0o644)
   for (const path of ['/root', '/opt/aukora-genesis/src', '/opt/aukora-genesis/release-aaaaaaa', '/opt/aukora-genesis/release-bbbbbbb', '/run/aukora-gate', '/bin']) mkdirSync(at(path), { recursive: true })
-  // The script waits for the gate's two sockets before installing an approval; the stand-in machine has them.
-  // Bound from inside the directory so the path length limit for sockets cannot matter.
-  execFileSync('/usr/bin/python3', ['-I', '-S', '-c', 'import socket\nfor n in ("gate.sock","owner.sock"):\n s=socket.socket(socket.AF_UNIX); s.bind(n); s.close()'], { cwd: at('/run/aukora-gate') })
+  // Probe relative socket paths; a restricted sandbox uses synthetic socket status instead of a bind.
+  const socketProbe = spawnSync('/usr/bin/python3', ['-I', '-S', '-c', 'import socket\ns=socket.socket(socket.AF_UNIX); s.bind("probe.sock"); s.close()'], { cwd: at('/run/aukora-gate'), encoding: 'utf8' })
+  const syntheticSockets = socketProbe.status !== 0 && /Operation not permitted|Permission denied/.test(socketProbe.stderr)
+  if (socketProbe.status !== 0 && !syntheticSockets) { rmSync(root, { recursive: true, force: true }); throw new Error(socketProbe.stderr) }
+  rmSync(at('/run/aukora-gate/probe.sock'), { force: true })
+  if (syntheticSockets && !socketStatusOnly) { socketStatusOnly = true; console.log('UNPERFORMED: sandbox refuses AF_UNIX bind (EPERM); pilot fixture simulates socket status') }
+  put(at('/test-socket-create'), `#!/bin/bash\ncd ${shellQuote(at('/run/aukora-gate'))}\nfor name in "$@"; do\n  if [ ${syntheticSockets ? '1' : '0'} = 1 ]; then : > "$name.status"; else /usr/bin/python3 -I -S -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()' "$name"; fi\ndone\n`, 0o755)
+  const socketNames = config.socketDelay || config.socketsMissing === true ? [] : ['gate.sock', 'owner.sock'].filter(name => name !== config.socketsMissing)
+  execFileSync('/bin/bash', [at('/test-socket-create'), ...socketNames])
   put(at('/home/aukora-host/genesis/state/launch-url.json'), '{"url":"http://127.0.0.1:18735/fixture"}\n', 0o600)
   put(at('/test-head'), oldCommit)
   put(at('/test-events'), '')
@@ -64,7 +71,9 @@ export function fixture(config = {}) {
     put(at('/usr/bin/' + name), `#!/bin/bash\nset -- ${shellQuote(name)} "$@"\nsource ${shellQuote(at('/test-stub.sh'))}\n`, 0o755)
   }
   put(at('/opt/aukora-node/bin/node'), readFileSync(at('/usr/bin/node')), 0o755)
-  put(at('/test-bash-env'), `export PILOT_FIXTURE_SHELL_PID=\${PILOT_FIXTURE_SHELL_PID:-$$}\n` + ['id', 'sleep', 'chown', 'systemctl', 'ss', 'curl', 'git', 'journalctl', 'sudo', 'mv', 'install'].map(name => `${name}() ( set -- ${shellQuote(name)} "$@"; source ${shellQuote(at('/test-stub.sh'))}; )`).join('\n') + '\n')
+  const socketCheck = syntheticSockets ? `[() { if builtin [ "$#" = 3 ] && builtin [ "$1" = -S ]; then builtin [ -f "$2.status" ]; else builtin [ "$@"; fi; }\n` : ''
+  put(at('/test-socket-bash-env'), socketCheck)
+  put(at('/test-bash-env'), `export PILOT_FIXTURE_SHELL_PID=\${PILOT_FIXTURE_SHELL_PID:-$$}\n` + socketCheck + ['id', 'sleep', 'chown', 'systemctl', 'ss', 'curl', 'git', 'journalctl', 'sudo', 'mv', 'install'].map(name => `${name}() ( set -- ${shellQuote(name)} "$@"; source ${shellQuote(at('/test-stub.sh'))}; )`).join('\n') + '\n')
 
   const spawnArgs = (args, env, options) => {
     const bash = options.bash ?? '/bin/bash'
@@ -78,7 +87,7 @@ export function fixture(config = {}) {
     }
     const outputPath = options.journal ? at('/test-journal-output') : null
     const outputFd = outputPath ? openSync(outputPath, 'w', 0o600) : null
-    return [executable, commandArgs, { cwd: repo, env: { ...process.env, SSH_CONNECTION: '', SSH_CLIENT: '', SSH_TTY: '', INVOCATION_ID: '', JOURNAL_STREAM: '', PILOT_FIXTURE_SHELL_PID: '', ROOT: root, PILOT_SWITCH_TEST: '1', WAIT_TICKS: '3', BASH_ENV: options.external ? '' : at('/test-bash-env'), PATH: `${at('/usr/bin')}:${process.env.PATH}`, ...env }, detached: !!options.session, timeout: 25000, ...(outputFd === null ? {} : { stdio: ['pipe', outputFd, 'pipe'] }) }, outputPath, outputFd]
+    return [executable, commandArgs, { cwd: repo, env: { ...process.env, SSH_CONNECTION: '', SSH_CLIENT: '', SSH_TTY: '', INVOCATION_ID: '', JOURNAL_STREAM: '', PILOT_FIXTURE_SHELL_PID: '', ROOT: root, PILOT_SWITCH_TEST: '1', WAIT_TICKS: '3', BASH_ENV: options.external ? at('/test-socket-bash-env') : at('/test-bash-env'), PATH: `${at('/usr/bin')}:${process.env.PATH}`, ...env }, detached: !!options.session, timeout: 25000, ...(outputFd === null ? {} : { stdio: ['pipe', outputFd, 'pipe'] }) }, outputPath, outputFd]
   }
   const pendingDetached = new Set()
   const run = (args = [commit], env = {}, options = {}) => {
@@ -157,7 +166,13 @@ approve() {
 }
 case "$name" in
 id) echo 0 ;;
-sleep|chown) exit 0 ;;
+sleep)
+  if [ "\${socketDelay:-0}" != 0 ] && [ ! -f "$R/test-sockets-ready" ] && [ "$(< "$R/test-head")" = "$TARGET_COMMIT" ] && [ "$(< "$R/test-unit-aukora-boundary-gate")" = 1 ]; then
+    n=0; [ ! -f "$R/test-socket-polls" ] || n=$(< "$R/test-socket-polls"); n=$((n+1)); printf '%s' "$n" > "$R/test-socket-polls"
+    if [ "$n" = 1 ]; then /bin/bash "$R/test-socket-create" gate.sock; fi
+    if [ "$n" -ge "$socketDelay" ]; then /bin/bash "$R/test-socket-create" owner.sock; touch "$R/test-sockets-ready"; fi
+  fi ;;
+chown) exit 0 ;;
 sudo) if [ "\${1:-}" = -u ]; then shift 2; fi; exec "$@" ;;
 mv)
   /bin/mv "$@" || exit $?
@@ -173,12 +188,19 @@ install)
 systemctl)
   command=$1; shift
   if [ "$command" = show ]; then echo 0123456789abcdef0123456789abcdef; exit 0; fi
+  if [ "$command" = list-units ]; then
+    [ "\${snapshotFails:-0}" = 0 ] || fail UNIT_SNAPSHOT_FAILED
+    for unit in aukora-genesis aukora-boundary-gate aukora-selfcheck.timer aukora-relay aukora-buzz-relay openviking; do
+      if [ "$(< "$R/test-unit-$unit")" = 1 ]; then printf '%s loaded active running fixture\\n' "$unit"; fi
+    done
+    exit 0
+  fi
   for unit in "$@"; do
     [[ "$unit" = -* ]] && continue
     case "$command" in
     is-active) if [ -f "$R/test-unit-$unit" ] && [ "$(< "$R/test-unit-$unit")" = 1 ]; then echo active; else echo inactive; exit 3; fi ;;
     is-failed) if [ "\${harnessNotReady:-0}" = 1 ] && [ "$unit" = aukora-genesis ] && [[ "$release" = *release-bbbbbbb* ]]; then echo failed; elif [ "$(< "$R/test-unit-$unit")" = 1 ]; then echo active; exit 1; else echo failed; fi ;;
-    stop) printf 0 > "$R/test-unit-$unit" ;;
+    stop) printf 0 > "$R/test-unit-$unit"; if [ "\${stopPeer:-0}" = 1 ] && [ "$unit" = aukora-genesis ]; then printf 0 > "$R/test-unit-aukora-relay"; fi ;;
     start)
       if [ "$unit" = aukora-genesis ] && { [ "\${startAllFails:-0}" = 1 ] || { [ "\${startNewFails:-0}" = 1 ] && [[ "$release" = *release-bbbbbbb* ]]; }; }; then printf 0 > "$R/test-unit-$unit"; fail START_FAILED; fi
       if [ "$unit" = aukora-boundary-gate ] && [ "\${gateStartFails:-0}" = 1 ] && [[ "$(< "$R/opt/aukora-boundary-gate/package-marker")" = new* ]]; then fail GATE_START_FAILED; fi
@@ -235,7 +257,7 @@ python3)
   floor) [ "\${floorFails:-0}" = 0 ] || fail FLOOR_FAILED; echo FLOOR_VERIFIED ;;
   install|recover-cache)
     [ "$(< "$R/test-approved")" = 1 ] && [ "\${approvalInstallFails:-0}" = 0 ] || fail APPROVAL_NOT_AVAILABLE
-    mkdir -p "$output"; echo 'synthetic approval' > "$output/approval.fixture"; echo '{"new":true}' > "$R/etc/aukora-approvals/release-floor.json"; printf 'INSTALLED fixture\\nFLOOR new\\n' ;;
+    mkdir -p "$output"; echo 'synthetic approval' > "$output/approval.fixture"; echo '{"new":true}' > "$R/etc/aukora-approvals/release-floor.json.new"; /bin/mv "$R/etc/aukora-approvals/release-floor.json.new" "$R/etc/aukora-approvals/release-floor.json"; printf 'INSTALLED fixture\\nFLOOR new\\n' ;;
   *) fail UNKNOWN_PYTHON ;;
   esac ;;
 *) fail "UNKNOWN_COMMAND $name" ;;

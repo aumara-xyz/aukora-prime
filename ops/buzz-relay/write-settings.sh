@@ -2,6 +2,7 @@
 # Write relay settings atomically; closing preserves all unrelated settings.
 set -euo pipefail
 ROOT="$1" OWNER="$2" PORT="${3:-}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 umask 077
 if [ -z "$OWNER" ] && [ -f relay.env ]; then OWNER=$(sed -n 's/^RELAY_OWNER_PUBKEY=//p' relay.env); fi
@@ -29,4 +30,13 @@ trap 'rm -f "$NEXT"' EXIT
 } > "$NEXT"
 chmod 0600 "$NEXT"
 mv -f "$NEXT" relay.env
-if [ -n "$PORT" ]; then printf 'PORT=%s\n' "$PORT" > node.env; fi
+if [ -n "$PORT" ]; then
+  INTENDED_MEMBERSHIP=closed
+  if [ -f node.env ]; then
+    INTENDED_MEMBERSHIP=$(bash "$HERE/read-setting.sh" INTENDED_MEMBERSHIP < node.env 2>/dev/null) || INTENDED_MEMBERSHIP=''
+  fi
+  NODE_NEXT=$(mktemp "$ROOT/.node.env.XXXXXX")
+  { printf 'PORT=%s\n' "$PORT"; [ -z "$INTENDED_MEMBERSHIP" ] || printf 'INTENDED_MEMBERSHIP=%s\n' "$INTENDED_MEMBERSHIP"; } > "$NODE_NEXT"
+  chmod 0600 "$NODE_NEXT"
+  mv -f "$NODE_NEXT" node.env
+fi

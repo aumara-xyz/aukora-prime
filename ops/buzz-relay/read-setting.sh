@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Service-owned settings are data, never commands in the administrator's shell.
 set -euo pipefail
-SETTING="${1:?usage: read-setting.sh PORT|IMAGE}"
+SETTING="${1:?usage: read-setting.sh PORT|INTENDED_MEMBERSHIP|IMAGE}"
 value=""
 while IFS= read -r line || [ -n "$line" ]; do
   case "$SETTING:$line" in
-    PORT:PORT=*|IMAGE:IMAGE=*)
+    PORT:PORT=*|INTENDED_MEMBERSHIP:INTENDED_MEMBERSHIP=*|IMAGE:IMAGE=*)
       [ -z "$value" ] || { echo "duplicate $SETTING setting" >&2; exit 2; }
       value="${line#*=}"
       [ -n "$value" ] || { echo "empty $SETTING setting" >&2; exit 2; }
       ;;
+    PORT:INTENDED_MEMBERSHIP=*|INTENDED_MEMBERSHIP:PORT=*) ;;
     IMAGE:SOURCE_SHA=*)
       [[ "${line#*=}" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid SOURCE_SHA setting" >&2; exit 2; }
       ;;
@@ -24,6 +25,9 @@ case "$SETTING" in
     if [ "$value" -ge 32768 ] && [ "$value" -le 60999 ]; then
       echo "PORT 32768-60999 is forbidden: the sandbox firewall permits that ephemeral range" >&2; exit 2
     fi
+    ;;
+  INTENDED_MEMBERSHIP)
+    [[ "$value" = closed || "$value" = open-acknowledged ]] || { echo 'INTENDED_MEMBERSHIP must be closed or open-acknowledged' >&2; exit 2; }
     ;;
   IMAGE)
     [[ "$value" =~ ^localhost/aukora-buzz-relay:[0-9a-f]{12}$ ]] \
