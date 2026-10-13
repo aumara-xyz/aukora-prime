@@ -2,7 +2,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { generated, rows, root, builder, source } from './helpers/release-composition.mjs'
 
@@ -125,6 +125,8 @@ for name, digest in profile['presets'].items():
 print('PASS browser preset fixture: 5 pinned/source presets disabled; covered marker hashes match')
 `
 test('browser restrictions reach nested and preset-local providers from the pinned archive', t => {
+  // The pinned harness archive is fetched, not tracked; without it this row is unperformed, not passed.
+  if (!existsSync(new URL('../vendor/dsh-source.tar.gz', import.meta.url))) return t.skip('UNPERFORMED: vendor/dsh-source.tar.gz absent')
   const dir = scratch(t)
   assert.match(success(run(presets, source, [dir])), /PASS browser preset fixture: 5/u)
   const patch = generated(undefined, { browserNode: true, includeUpstream: false }).patches['aukora-composition.patch.yml']

@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -30,8 +31,8 @@ class World:
         self.listener_after_refusal, self.floor_accepts_before, self.starts_before = False, False, False
         self.leak_on_start, self.active_after_refusal, self.hide_app = False, False, False
         self.text = SOURCE.read_text() if text is None else text
-        for prefix in ('/var/lib/', '/opt/', '/etc/', '/home/', '/usr/local/'):
-            self.text = self.text.replace(prefix, str(self.root) + prefix)
+        # One pass: a scratch root that itself lies under /home must not be rewritten a second time.
+        self.text = re.sub(r'(?<![\w./-])(/var/lib/|/opt/|/etc/|/home/|/usr/local/)', lambda m: str(self.root) + m.group(1), self.text)
         self.m = types.ModuleType('browser_pipeline_fixture')
         self.m.__file__ = str(SOURCE)
         exec(compile(self.text, str(SOURCE), 'exec'), self.m.__dict__)
@@ -115,7 +116,7 @@ class World:
         shutil.copyfile(ROOT / 'packages/boundary-gate/host/systemd/aukora-boundary-gate.service',
             target / 'packages/boundary-gate/host/systemd/aukora-boundary-gate.service')
 
-    def fresh_run(self, command, name, cwd, env):
+    def fresh_run(self, command, name, cwd, env, timeout=None):
         self.events.append((name,))
         if self.fail == name:
             raise ValueError('BROWSER_FIXTURE_' + name.upper())
