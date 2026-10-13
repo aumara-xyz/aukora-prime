@@ -104,7 +104,9 @@ function typescript() {
     try { return createRequire(resolve(root, 'package.json'))('typescript') } catch {}
   }
   try { return require('typescript') } catch {}
-  assert.fail('aumlok-browser-client:pinned-typescript-required')
+  // The pinned harness build is fetched, not tracked; without it this file is unperformed (exit 2), not failed.
+  console.log('UNPERFORMED: aumlok-browser-client needs the pinned harness build for its TypeScript')
+  process.exit(2)
 }
 const ts = typescript()
 function compile(text) {

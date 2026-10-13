@@ -54,7 +54,7 @@ class World:
         self.stack.enter_context(patch.dict(os.environ, {}, clear=False))
         for name, replacement in [('root_check', lambda: None), ('protected', lambda *args, **kwargs: None),
             ('module', self.module), ('run', self.run), ('extract', self.extract), ('bootstrap', self.bootstrap),
-            ('sockets', self.sockets), ('profile', lambda path: self.events.append(('profile', str(path))))]:
+            ('sockets', self.sockets), ('profile', lambda path, checkout=None: self.events.append(('profile', str(path))))]:
             self.stack.enter_context(patch.object(self.m, name, replacement))
         self.stack.enter_context(patch.object(self.m.subprocess, 'run', self.subprocess))
 

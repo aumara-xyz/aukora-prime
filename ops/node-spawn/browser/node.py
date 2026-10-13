@@ -160,8 +160,9 @@ def sockets():
     refuse('GATE_SOCKETS_MISSING')
 
 
-def profile_rules():
-    file = CHECKOUT / 'scripts/materialize-aukora-release.py'
+def profile_rules(checkout=None):
+    # During install the reviewed checkout has not yet moved to its installed path.
+    file = (checkout or CHECKOUT) / 'scripts/materialize-aukora-release.py'
     protected(file)
     names = {'BROWSER_DISABLED_ROWS', 'BROWSER_REFUSAL_ENTRY', 'BROWSER_REFUSAL_SOURCE'}
     rules = {}
@@ -172,8 +173,8 @@ def profile_rules():
     return rules
 
 
-def profile(release):
-    rules = profile_rules()
+def profile(release, checkout=None):
+    rules = profile_rules(checkout)
     file = release / 'browser-node-profile.patch.yml'
     prefix = '# aukora-browser-node-profile '
     text = file.read_text()
@@ -274,7 +275,7 @@ def install(options):
     fresh.run(['python3', str(checkout / 'scripts/materialize-aukora-release.py'), '--browser-node',
                '--from', str(checkout / 'vendor/dsh'), '--to', str(release)], 'materialize', checkout, env)
     stage.public_modes(release)
-    profile(release)
+    profile(release, checkout)
     gate = STATE / 'gate-package'
     owner = STATE / 'owner-key'
     shutil.copytree(checkout / 'packages/boundary-gate', gate)
@@ -518,5 +519,9 @@ if __name__ == '__main__':
         main(sys.argv[1:])
     except Exception as error:
         code = str(error)
+        if not re.fullmatch(r'BROWSER_[A-Z_]+', code) and STATE.is_dir():
+            # An unnamed failure keeps its trace root-private; only the refusal line is printed.
+            import traceback
+            (STATE / 'last-failure.log').write_text(traceback.format_exc())
         print('REFUSED ' + (code if re.fullmatch(r'BROWSER_[A-Z_]+', code) else 'BROWSER_OPERATION_REFUSED'), file=sys.stderr)
         sys.exit(1)

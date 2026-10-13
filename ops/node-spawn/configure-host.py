@@ -37,9 +37,9 @@ def read(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > 262144 or info.st_nlink != 1:
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 16777216 or info.st_nlink != 1:
             refuse('SPAWN_CONFIG_INPUT')
-        data = os.read(fd, 262145)
+        data = os.read(fd, 16777217)
         if len(data) != info.st_size:
             refuse('SPAWN_CONFIG_INPUT')
         return data

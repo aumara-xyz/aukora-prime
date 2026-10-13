@@ -138,7 +138,7 @@ elif scenario=='nofollow':
  except OSError: pass
  else: raise AssertionError('HOST_GUARD_NOFOLLOW')
 elif scenario=='read-size':
- put(target,b' '*262145); expect('SPAWN_CONFIG_INPUT',lambda:scope['read'](target))
+ put(target,b' '*16777217); expect('SPAWN_CONFIG_INPUT',lambda:scope['read'](target))
 elif scenario in ('owner','file-type','dir-type','read-type','read-length'):
  original=Path.lstat if scenario in ('owner','file-type','dir-type') else os.fstat
  def metadata(*args,**kwargs):
@@ -209,7 +209,7 @@ test('host protection removals fail the relevant scenario', t => {
     ['owner', 'info.st_uid != os.geteuid()', 'False', 'owner'], ['mode', 'info.st_mode & 0o022', 'False', 'file-mode'],
     ['file-type', 'stat.S_ISREG(info.st_mode)', 'True', 'file-type'], ['directory-type', 'stat.S_ISDIR(info.st_mode)', 'True', 'dir-type'],
     ['link-count', 'info.st_nlink != 1', 'False', 'hardlink'], ['nofollow', ' | os.O_NOFOLLOW', '', 'nofollow'],
-    ['read-size', 'info.st_size > 262144', 'False', 'read-size'], ['read-type', 'not stat.S_ISREG(info.st_mode)', 'False', 'read-type'],
+    ['read-size', 'info.st_size > 16777216', 'False', 'read-size'], ['read-type', 'not stat.S_ISREG(info.st_mode)', 'False', 'read-type'],
     ['read-length', 'if len(data) != info.st_size:', 'if False:', 'read-length'], ['exclusive', ' | os.O_EXCL', '', 'exclusive'],
     ['root-custody', '    checked(root, True)', '', 'root-mode'], ['conflict', 'if read(path) != data:', 'if False:', 'write'],
     ['config-custody', '    checked(config_path)', '', 'config-custody'], ['resume', 'if read(marker) != binding(config_path, config, root, number):', 'if False:', 'resume'],

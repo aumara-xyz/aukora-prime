@@ -85,7 +85,7 @@ function checkAdmission(t, script = source, helper = admissionSource) {
     ['--plan', 'member-node'], ['member-node'],
     ...['', join(f.root, 'absent'), empty, link, f.root].map(path => ['--plan', 'member-node', path]),
   ]) assertRefused(f.run(args), 'ADMISSION_RECORD_REQUIRED')
-  writeFileSync(f.record, JSON.stringify(record) + ' '.repeat(262144))
+  writeFileSync(f.record, JSON.stringify(record) + ' '.repeat(16777216))
   assertRefused(f.run(), 'ADMISSION_RECORD_REQUIRED')
   assert.deepEqual(f.calls(), [])
 }

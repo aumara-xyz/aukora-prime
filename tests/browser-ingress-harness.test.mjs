@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -17,6 +17,8 @@ const pin = JSON.parse(readFileSync(join(root, 'upstream-dsh.json'), 'utf8'))
 const patchBytes = readFileSync(join(root, patchFile))
 const patch = JSON.parse(patchBytes)
 const sha256 = value => createHash('sha256').update(value).digest('hex')
+// The pinned harness archive is fetched, not tracked; without it this file is unperformed (exit 2), not failed.
+if (!existsSync(archive)) { console.log('UNPERFORMED: vendor/dsh-source.tar.gz absent'); process.exit(2) }
 const listing = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }).trim().split('\n')
 
 function pinnedSource(relative) {
