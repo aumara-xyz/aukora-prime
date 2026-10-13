@@ -14,7 +14,7 @@
 // harness-chosen session label. Targets are injected; with an empty allowlist every proposal is refused.
 import path from 'node:path'
 import { ownerCardClarity, NOTE_TARGET } from './targets.mjs'
-import { createHmac, randomUUID, randomBytes, sign, verify, timingSafeEqual } from 'node:crypto'
+import { createHmac, createPublicKey, randomUUID, randomBytes, sign, verify, timingSafeEqual } from 'node:crypto'
 import { sha256, SHA, loadOrCreateKey, openDb, createLedger, signedEntryData,
   gateCompletedResultDigest, gateCaptureSigningBytes, entryBody } from './ledger.mjs'
 import { loadOwnerSecret, rotateBearer } from './secrets.mjs'
@@ -22,8 +22,10 @@ import { lineDiff, cleanNote, noteMeta, cardWarnings, swatchText, noteDisplay } 
 // Concrete G protocol, not a caller-supplied verifier. Installed use requires an independently
 // verified protected owner-key profile and installation; source fixtures do not qualify custody.
 import { ownerRootPin } from '../../owner-key/src/index.mjs'
-import { AUTHORIZATION_FIELDS, ownerAuthorization, ownerAuthorizationText, ownerAuthorizationDigest,
+import { AUTHORIZATION_FIELDS, AUTHORIZATION_V2_FIELDS, ownerAuthorization, ownerAuthorizationText, ownerAuthorizationDigest,
+  ownerAuthorizationOwnerState, ownerAuthorizationCardText, ownerAuthorizationPasskeyOptions,
   ownerAuthorizationProofText, verifyOwnerAuthorization } from '../../owner-key/src/authorization.mjs'
+import { passkeySetup } from './owner-state.mjs'
 
 export const DEFAULT_LIMITS = Object.freeze({
   ttlMs: 5 * 60 * 1000, popupLimit: 12000, keepVersions: 50, whyMax: 4000,
@@ -39,7 +41,7 @@ export const AURA_NOTE_REFUSE = Object.freeze({
 
 // targets: { [name]: { entry, maxBytes, schema, validate(text), accentOf?, plain?, after? } }
 // store:   { read(name, spec) -> Buffer|null, write(name, spec, bytes, proposalId) }
-export function createGate({ home, targets = {}, store, now = Date.now, limits = {}, key, owner, db, iso, readOwnerState, journalId } = {}) {
+export function createGate({ home, targets = {}, store, now = Date.now, limits = {}, key, owner, db, iso, readOwnerState, readPasskeySetup, passkeyEnrollmentCeremony, journalId } = {}) {
   const L = { ...DEFAULT_LIMITS, ...limits }
   if (!Number.isSafeInteger(L.proposeMaxPerWindow) || L.proposeMaxPerWindow < 1 || L.proposeMaxPerWindow > 1024
     || !Number.isSafeInteger(L.proposeWindowMs) || L.proposeWindowMs < 1000 || L.proposeWindowMs > 3600000)
@@ -81,6 +83,30 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     return value
   }
   const gateId = sha256(key.pub.export({ type: 'spki', format: 'der' }))
+  const passkeyRefuse = code => { throw Object.assign(new Error('passkey:' + code), { code: 'passkey:' + code }) }
+  // The claim and credential share the durable writer lock; process-local ceremonies never resume.
+  db.exec(`CREATE TABLE IF NOT EXISTS owner_passkey(singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    setup_text TEXT NOT NULL, claim_state TEXT NOT NULL, enrollment_id TEXT, state_text TEXT, sign_count INTEGER);
+    CREATE TRIGGER IF NOT EXISTS owner_passkey_no_delete BEFORE DELETE ON owner_passkey
+      BEGIN SELECT RAISE(ABORT,'owner passkey state retained'); END;
+    CREATE TRIGGER IF NOT EXISTS owner_passkey_pin BEFORE UPDATE ON owner_passkey
+      WHEN NEW.setup_text != OLD.setup_text OR (OLD.state_text IS NOT NULL AND NEW.state_text IS NOT OLD.state_text)
+        OR (OLD.claim_state='spent' AND NEW.claim_state!='spent') OR NEW.sign_count < OLD.sign_count
+      BEGIN SELECT RAISE(ABORT,'owner passkey state retained'); END;`)
+  const ceremonies = new Map()
+  function selectedPasskeySetup() {
+    if (typeof readPasskeySetup !== 'function') passkeyRefuse('setup-unavailable')
+    const setup = passkeySetup(synchronous(readPasskeySetup(), 'protected passkey setup'))
+    if (setup.gate !== gateId) passkeyRefuse('gate-mismatch')
+    const retained = db.prepare('SELECT * FROM owner_passkey WHERE singleton=1').get()
+    if (retained && retained.setup_text !== JSON.stringify(setup)) passkeyRefuse('setup-changed')
+    return setup
+  }
+  if (readPasskeySetup !== undefined) tx(() => {
+    if (readOwnerState !== undefined) passkeyRefuse('legacy-owner-already-selected')
+    const setup = selectedPasskeySetup()
+    db.prepare("INSERT OR IGNORE INTO owner_passkey(singleton,setup_text,claim_state) VALUES(1,?,'fresh')").run(JSON.stringify(setup))
+  })
   if (journalId !== undefined && (typeof journalId !== 'string' || journalId.length < 1 || journalId.length > 128
     || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(journalId) || /[^A-Za-z0-9._:-]/u.test(journalId)))
     throw new Error('trusted journalId must be a bounded public identifier')
@@ -89,6 +115,12 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   // This callback is a trusted host registry source, never an RPC input or qualification boolean.
   // Configuring enforcement is durable; losing or corrupting the registry cannot restore legacy approval.
   function activeOwnerState() {
+    if (readPasskeySetup !== undefined || db.prepare('SELECT 1 FROM owner_passkey LIMIT 1').get()) {
+      selectedPasskeySetup()
+      const row = db.prepare('SELECT state_text FROM owner_passkey WHERE singleton=1').get()
+      if (!row?.state_text) passkeyRefuse('owner-not-enrolled')
+      return ownerAuthorizationOwnerState(JSON.parse(row.state_text))
+    }
     if (typeof readOwnerState !== 'function') throw new Error('owner authorization unavailable: trusted owner state is unconfigured')
     const state = synchronous(readOwnerState(), 'trusted owner state')
     if (!state || typeof state !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(state))) throw new Error('invalid trusted owner state')
@@ -108,6 +140,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     return Object.freeze(out)
   }
   function ownerAuthorizationRequired() {
+    if (readPasskeySetup !== undefined || db.prepare('SELECT 1 FROM owner_passkey LIMIT 1').get()) return true
     if (readOwnerState !== undefined) return true
     if (db.prepare('SELECT 1 FROM owner_authorization_required LIMIT 1').get()
       || db.prepare('SELECT 1 FROM owner_authorization_reviews LIMIT 1').get()
@@ -140,6 +173,66 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       if (inserted.changes !== 1) throw new Error('owner authorization enforcement latch unavailable')
     }
   })
+  function startPasskeyEnrollment(args) {
+    if (!exactKeys(args, ['claim_code']) || typeof args.claim_code !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(args.claim_code)) passkeyRefuse('claim-invalid')
+    const setup = selectedPasskeySetup()
+    if (typeof passkeyEnrollmentCeremony !== 'function') passkeyRefuse('enrollment-runtime-unavailable')
+    const ceremony = passkeyEnrollmentCeremony(setup.binding), enrollment_id = ceremony.status().ceremony_id
+    tx(() => {
+      const row = db.prepare('SELECT * FROM owner_passkey WHERE singleton=1').get()
+      if (row?.state_text || row?.claim_state !== 'fresh') passkeyRefuse('enrollment-closed')
+      if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired')
+      if (!timingSafeEqual(Buffer.from(sha256(args.claim_code), 'hex'), Buffer.from(setup.claim_sha256, 'hex'))) passkeyRefuse('claim-invalid')
+      const reserved = db.prepare("UPDATE owner_passkey SET claim_state='reserved',enrollment_id=? WHERE singleton=1 AND claim_state='fresh'").run(enrollment_id)
+      if (reserved.changes !== 1) passkeyRefuse('enrollment-closed')
+      append('owner-passkey-claim-reserved', { detail: { node: setup.node, gate: gateId, enrollment_id } })
+    }, () => {
+      selectedPasskeySetup()
+      if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired-at-reservation-commit')
+    })
+    ceremonies.set(enrollment_id, ceremony)
+    return { enrollment_id, public_key: ceremony.creationRequest().public_key }
+  }
+  function enrollment(args, field) {
+    if (!exactKeys(args, ['enrollment_id', field]) || typeof args.enrollment_id !== 'string') passkeyRefuse('enrollment-shape')
+    const setup = selectedPasskeySetup(), row = db.prepare('SELECT * FROM owner_passkey WHERE singleton=1').get()
+    if (row?.state_text || row?.claim_state !== 'reserved' || row.enrollment_id !== args.enrollment_id) passkeyRefuse('enrollment-closed')
+    if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired')
+    const ceremony = ceremonies.get(args.enrollment_id)
+    if (!ceremony) passkeyRefuse('ceremony-lost')
+    return { setup, ceremony }
+  }
+  function registerPasskeyEnrollment(args) {
+    const { ceremony } = enrollment(args, 'registration')
+    const result = ceremony.acceptRegistration(args.registration)
+    return { enrollment_id: args.enrollment_id, public_key: result.public_key }
+  }
+  function finishPasskeyEnrollment(args) {
+    const { setup, ceremony } = enrollment(args, 'assertion'), result = ceremony.confirmPossession(args.assertion)
+    const c = result.evidence.credential, xy = Buffer.from(c.public_key_hex, 'hex')
+    const spki = createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: xy.subarray(1, 33).toString('base64url'),
+      y: xy.subarray(33).toString('base64url') }, format: 'jwk' }).export({ type: 'spki', format: 'der' }).toString('base64')
+    const state = ownerAuthorizationOwnerState({ version: 2, kind: 'aukora-owner-state/passkey-v2',
+      owner_subject: setup.binding.identity.subject, owner_root_spki_base64: spki, owner_root_id: ownerRootPin(spki).owner_root_id,
+      owner_epoch: setup.binding.identity.authorization_epoch, registry_sha256: sha256(JSON.stringify(setup)),
+      activation_sha256: result.evidence_digest.slice(7), node: setup.node, rp_id: setup.rp_id, origin: setup.origin,
+      credential_id: c.credential_id, user_handle: c.user_handle, public_key_hex: c.public_key_hex,
+      sign_count: c.sign_count, backup_eligible: c.backup_eligible })
+    tx(() => {
+      const current = selectedPasskeySetup()
+      if (currentMs() >= current.expires_at_ms) passkeyRefuse('claim-expired')
+      const saved = db.prepare("UPDATE owner_passkey SET state_text=?,sign_count=?,claim_state='spent' WHERE singleton=1 AND claim_state='reserved' AND state_text IS NULL AND enrollment_id=?")
+        .run(JSON.stringify(state), c.sign_count, args.enrollment_id)
+      if (saved.changes !== 1) passkeyRefuse('enrollment-closed')
+      append('owner-passkey-enrolled', { detail: { owner_state: state, setup_sha256: sha256(JSON.stringify(current)),
+        evidence: result.evidence, evidence_digest: result.evidence_digest } })
+    }, () => {
+      selectedPasskeySetup()
+      if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired-at-enrollment-commit')
+    })
+    ceremonies.delete(args.enrollment_id)
+    return { enrolled: true, owner_subject: state.owner_subject, node: state.node }
+  }
   const spec = (target) => {
     if (typeof target !== 'string' || !Object.hasOwn(TARGETS, target))
       throw new Error(`target refused: ${JSON.stringify(String(target).slice(0, 120))} is not on the allowlist (${Object.keys(TARGETS).join(', ') || 'empty'}). Only declarative, schema-validated targets exist.`)
@@ -512,6 +605,20 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     return found.length === keys.length && found.every(k => typeof k === 'string' && keys.includes(k))
       && keys.every(k => descriptors[k]?.enumerable && Object.hasOwn(descriptors[k], 'value'))
   }
+  function authorizedCard(p, authorization, target_review, passkey = authorization.version === 2) {
+    const s = TARGETS[p.target], newText = blobText(p.new_sha), oldText = p.base_sha === 'absent' ? '' : blobText(p.base_sha)
+    let from_to = null
+    try { from_to = target_review ? target_review.from_to : s?.plain ? String(synchronous(s.plain(oldText, newText), 'owner preview')) : null } catch {}
+    if (from_to !== null && !/^[\x20-\x7e]{1,600}$/.test(from_to)) from_to = null
+    const display = passkey ? cardView(p) : null
+    return { id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: newText, diff: p.diff,
+      ...(display ? { warnings: display.warnings, model_note_label: 'UNVERIFIED MODEL NOTE; DATA ONLY', note_display: display.note_display } : {}),
+      from_to, ...ownerCardClarity(s, p.kind), ...(target_review?.available === false ? { what_this_does: REVIEW_FACTS_UNAVAILABLE } : {}),
+      model_note: p.why ?? null, displayable: !!p.displayable && target_review?.available !== false,
+      created: p.created, expires: p.expires, review_challenge: authorization.challenge,
+      review_expires: authorization.expires_at_ms, review_issued_at_ms: authorization.issued_at_ms,
+      pubkey_fp: key.fp, gate_pubkey_sha256: gateId }
+  }
   function reviewAuthorized(args) {
     if (!exactKeys(args, ['id']) || typeof args.id !== 'string') throw new Error('review takes exactly {id}')
     const issued = tx(() => {
@@ -521,21 +628,24 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       if (issued_at_ms >= p.expires) throw new Error('proposal expired')
       const target_review = proposalReviewSnapshot(p)
       const expires_at_ms = Math.min(p.expires, issued_at_ms + REVIEW_TTL_MS)
-      const authorization = ownerAuthorization({ version: 1, kind: 'aukora-owner-authorization/v1', operation: p.kind,
+      const base = { version: 1, kind: 'aukora-owner-authorization/v1', operation: p.kind,
         proposal_id: p.id, target: p.target, before_sha256: p.base_sha, after_sha256: p.new_sha,
         gate: gateId, challenge: randomBytes(32).toString('hex'), issued_at_ms, expires_at_ms,
-        owner_subject: state.owner_subject, owner_root_id: state.owner_root_id, owner_epoch: state.owner_epoch })
+        owner_subject: state.owner_subject, owner_root_id: state.owner_root_id, owner_epoch: state.owner_epoch }
+      const card_text = state.version === 2 ? ownerAuthorizationCardText(authorizedCard(p, base, target_review, true)) : null
+      const authorization = ownerAuthorization(state.version === 2 ? { ...base, version: 2,
+        kind: 'aukora-owner-authorization/v2', node: state.node, card_sha256: sha256(card_text) } : base)
       const authorization_text = ownerAuthorizationText(authorization), authorization_id = ownerAuthorizationDigest(authorization)
       const owner_state_text = JSON.stringify(state)
       db.prepare("UPDATE owner_authorization_reviews SET state='invalidated', spent_at_ms=? WHERE proposal_id=? AND state='live'").run(issued_at_ms, p.id)
       const e = append('review-issued', { proposal: p.id, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha,
         detail: { via: 'owner', authorization_text, authorization_id, owner_state: state,
-          issued_at_ms, expires_at_ms, gate_pubkey_sha256: gateId, ...(target_review ? { target_review } : {}) } })
+          issued_at_ms, expires_at_ms, gate_pubkey_sha256: gateId, ...(card_text === null ? {} : { card_text }), ...(target_review ? { target_review } : {}) } })
       db.prepare(`INSERT INTO owner_authorization_reviews(gate,challenge,proposal_id,authorization_id,authorization_text,
         owner_state_text,issued_at_ms,expires_at_ms,issue_seq,issue_hash,state) VALUES(?,?,?,?,?,?,?,?,?,?,'live')`)
         .run(gateId, authorization.challenge, p.id, authorization_id, authorization_text, owner_state_text,
           issued_at_ms, expires_at_ms, e.seq, e.hash)
-      return { p, authorization, authorization_id, owner_state_text, target_review, issue_seq: e.seq, issue_hash: e.hash }
+      return { p, authorization, authorization_id, owner_state_text, target_review, card_text, issue_seq: e.seq, issue_hash: e.hash }
     }, () => {
       const live = db.prepare("SELECT * FROM owner_authorization_reviews WHERE proposal_id=? AND state='live'").get(args.id)
       if (!live || JSON.stringify(activeOwnerState()) !== live.owner_state_text)
@@ -548,18 +658,9 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       if (at < live.issued_at_ms || at >= live.expires_at_ms) throw new Error('review validity changed at final issuance clock')
     })
     const { p, authorization, target_review } = issued
-    const s = TARGETS[p.target], newText = blobText(p.new_sha)
-    let oldText = ''
-    if (p.base_sha !== 'absent') { try { oldText = blobText(p.base_sha) } catch {} }
-    let from_to = null
-    try { from_to = target_review ? target_review.from_to : s?.plain ? String(synchronous(s.plain(oldText, newText), 'owner preview')) : null } catch {}
-    if (from_to !== null && !/^[\x20-\x7e]{1,600}$/.test(from_to)) from_to = null
-    return { version: 3, id: p.id, kind: p.kind, target: p.target, base_sha: p.base_sha, new_sha: p.new_sha, content: newText, diff: p.diff,
-      from_to, ...ownerCardClarity(s, p.kind), ...(target_review?.available === false ? { what_this_does: REVIEW_FACTS_UNAVAILABLE } : {}),
-      model_note: p.why ?? null, displayable: !!p.displayable && target_review?.available !== false,
-      created: p.created, expires: p.expires, review_challenge: authorization.challenge,
-      review_expires: authorization.expires_at_ms, review_issued_at_ms: authorization.issued_at_ms,
-      pubkey_fp: key.fp, gate_pubkey_sha256: gateId, owner_authorization: authorization,
+    return { version: authorization.version === 2 ? 4 : 3, ...authorizedCard(p, authorization, target_review), owner_authorization: authorization,
+      ...(authorization.version === 2 ? { card_text: issued.card_text,
+        public_key: ownerAuthorizationPasskeyOptions(authorization, JSON.parse(issued.owner_state_text)) } : {}),
       authorization_digest: issued.authorization_id, review_issue: { ledger_seq: issued.issue_seq, ledger_hash: issued.issue_hash } }
   }
 
@@ -596,8 +697,20 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
         }
         const state = activeOwnerState()
         if (JSON.stringify(state) !== r.owner_state_text) throw new Error('active owner state changed since review')
-        const expectations = { owner_root_spki_base64: state.owner_root_spki_base64, authorization_digest: r.authorization_id,
-          ...Object.fromEntries(AUTHORIZATION_FIELDS.map(field => [field, a[field]])) }
+        let passkeyCounter
+        if (state.version === 2) {
+          const setup = selectedPasskeySetup()
+          if (a.version !== 2 || a.node !== setup.node || a.node !== state.node) passkeyRefuse('node-mismatch')
+          const detail = JSON.parse(db.prepare('SELECT detail FROM ledger WHERE seq=? AND hash=?').get(r.issue_seq, r.issue_hash)?.detail ?? '{}')
+          const card_text = ownerAuthorizationCardText(authorizedCard(p, a, detail.target_review ?? null))
+          if (card_text !== detail.card_text || sha256(card_text) !== a.card_sha256) passkeyRefuse('card-mismatch')
+          passkeyCounter = db.prepare('SELECT sign_count FROM owner_passkey WHERE singleton=1').get()?.sign_count
+          if (!Number.isSafeInteger(passkeyCounter)) passkeyRefuse('counter-unavailable')
+        }
+        const expectations = state.version === 2 ? { owner_state: { ...state, sign_count: passkeyCounter }, authorization_digest: r.authorization_id,
+          ...Object.fromEntries(AUTHORIZATION_V2_FIELDS.map(field => [field, a[field]])) }
+          : { owner_root_spki_base64: state.owner_root_spki_base64, authorization_digest: r.authorization_id,
+            ...Object.fromEntries(AUTHORIZATION_FIELDS.map(field => [field, a[field]])) }
         const verified = verifyOwnerAuthorization(args.owner_authorization_proof, expectations, currentMs())
         if (!p.displayable) throw new Error('proposal too large to show in full; approval disabled')
         const s = spec(p.target)
@@ -626,6 +739,10 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
         const spent = db.prepare("UPDATE owner_authorization_reviews SET state='spent', spent_at_ms=?, spend_seq=? WHERE gate=? AND challenge=? AND authorization_id=? AND state='live'")
           .run(accepted_at_ms, e.seq, gateId, r.challenge, verified.reference.authorization_id)
         if (spent.changes !== 1 || !setState(id, 'pending', 'applying', 'owner authorization spent')) throw new Error('owner consumption compare-and-set failed')
+        if (state.version === 2) {
+          const updated = db.prepare('UPDATE owner_passkey SET sign_count=? WHERE singleton=1 AND sign_count=?').run(verified.sign_count, passkeyCounter)
+          if (updated.changes !== 1) passkeyRefuse('counter-conflict')
+        }
         return { p, review: r, consumption: db.prepare('SELECT * FROM owner_authorization_consumptions WHERE proposal_id=?').get(id) }
       }, () => {
         const c = db.prepare('SELECT * FROM owner_authorization_consumptions WHERE proposal_id=?').get(id)
@@ -918,6 +1035,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   if (['approve', 'decide'].some(op => Object.hasOwn(ownerOps, op))) throw new Error('invariant: the owner channel approves only through review -> decide_review')
 
   return Object.freeze({
+    startPasskeyEnrollment, registerPasskeyEnrollment, finishPasskeyEnrollment,
     proposeOps: Object.freeze(proposeOps), ownerOps: Object.freeze(ownerOps), startup, cardView, pendingRows, blobText, spec,
     targets: TARGETS, owner, pub: key.pub, pubPem: key.pubPem, fp: key.fp, home, now, db, append, verify: ledger.verify,
     close: () => { try { db.close() } catch {} },

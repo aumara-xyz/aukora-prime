@@ -72,9 +72,88 @@ These checks run in the package check below (`npm run check:boundary-gate` from 
 are not part of the frozen, sha-pinned 66-job source profile (`packages/ops/fast-verify/manifest.mjs`), whose
 runner, CI helper and inventory count are a reviewed contract; adding a job there needs that review.
 
-Known limits carried from the lab: the owner bearer is a link secret (anyone holding it can approve until it
+Known limits carried from the lab: the legacy owner bearer is a link secret (anyone holding it can approve until it
 expires); the operator who can become the gate user is trusted by construction; the model's chat text
-outside the gate card is not gate-verified; WebAuthn owner assertions are design only.
+outside the gate card is not gate-verified. The opt-in passkey path below has source checks only.
+
+## Passkey owner mode: C1 operator runbook
+
+This mode is opt-in per node. It requires an enrolled passkey for effects; the rotating owner bearer permits
+card access, never approval by itself. It does not supply harness login or the Aumlok phrase ceremony.
+No real authenticator, HTTPS ingress, LXD or installed service was exercised by these source checks.
+
+The host integrator must install/pin the complete import closure before starting this mode. Do not bypass the
+bootstrap with an unprotected direct `serve` invocation. Root-held code must include `/opt/aukora-boundary-gate`
+and its new `src/owner-passkey-script.mjs`, `/opt/owner-key`, `/opt/authority` (including its preserved
+`upstream/` imports), and `/opt/contracts`, from the same reviewed checkout; ancestors and files must be
+root-owned and not group/other writable. Node must be exactly 24.11.1. This is a deployment prerequisite, not a
+claim that these install paths have been provisioned. Stage the complete packages from one reviewed revision;
+preserve upstream/vendor/license files. The passkey generator profile is opt-in:
+
+```sh
+/usr/bin/python3 -I -S packages/boundary-gate/host/install/generate-manifest.py \
+  --package "$STAGED_GATE" --owner-key "$STAGED_OWNER_KEY" \
+  --launcher-checkout "$STAGED_CHECKOUT" --signer-epochs "$STAGED_SIGNER_EPOCHS" \
+  --passkey-authority "$STAGED_AUTHORITY" --passkey-contracts "$STAGED_CONTRACTS" \
+  --output "$STAGED_MANIFEST"
+```
+
+Use the protected staging/install procedure in [host/install/README.md](host/install/README.md), adding complete
+authority/contracts packages at the fixed roots above. Require the installed bootstrap's `check-package` to
+print `PACKAGE_VERIFIED` before minting a claim or starting the gate. These commands describe the source opt-in;
+the host installer and service unit still need the operator's reviewed materialization.
+
+1. Provision fresh C1 gate signer, protected home, targets and release floor through the reviewed installer,
+   with separate gate/harness principals and no copied state. Keep the harness stopped until its exact release
+   is approved. Supply a fresh 64-hex node identity and a dedicated HTTPS owner origin as operator inputs.
+   The RP is exactly that origin's DNS hostname. Keep the gate listener on container loopback; the reviewed
+   private proxy must preserve Host/Origin/Fetch Metadata, reject other hosts and prevent external raw-port access.
+   Disable query/body logging on owner routes. Never forward the harness launch token to this page.
+2. Root reviews `FINAL_BINDING`, the closed public JSON accepted by
+   `validatePasskeyEnrollmentBinding()` in `packages/authority/src/passkey-enrollment.mjs`: immutable identity
+   (`owner_id`, canonical `subject`, `approval_key_did`, `control_digest`, `authorization_epoch >= 1`),
+   `identity_provenance`, HTTPS `passkey_profile`, public `user`, and empty `existing_credential_ids`.
+   Provenance fields alone do not verify an Aumlok projection. Row 4's provisional claim is not row 5's
+   passkey-signed final subject/root binding. This implementation fixes the subject at enrollment; it cannot
+   replace a provisional subject later. Obtain independently reviewed final binding material before using its
+   cards, or keep the final binding join blocked.
+3. Set absolute protected paths `PINNED_NODE`, `GATE_PUB`, `FINAL_BINDING`, and `CLAIM_OUT`;
+   `PASSKEY_SETUP` must be `/etc/aukora-boundary-gate/passkey-setup.json` for the installed bootstrap.
+   Set public `NODE_ID` and `OWNER_ORIGIN`. Mint immediately before Peter is ready:
+
+   ```sh
+   sudo "$PINNED_NODE" /opt/aukora-boundary-gate/bin/gate.mjs mint-passkey-claim \
+     --pub "$GATE_PUB" --binding "$FINAL_BINDING" --node "$NODE_ID" \
+     --owner-origin "$OWNER_ORIGIN" --passkey-setup "$PASSKEY_SETUP" --claim-out "$CLAIM_OUT"
+   sudo chown root:aukora-gate "$PASSKEY_SETUP"
+   sudo chmod 0640 "$PASSKEY_SETUP"
+   ```
+
+   Both output files are exclusive creations. The claim is in root-private `CLAIM_OUT` (0600), never stdout;
+   deliver it to Peter by the approved private route, never a URL/log. The claim expires after five minutes.
+   Starting enrollment reserves it durably; cancellation or gate restart does not restore it. There is no
+   recovery/reset command here. Do not delete the database, replace setup, reset the floor or copy another node.
+4. Configure the protected gate service with its existing `serve` arguments plus
+   `--passkey-setup /etc/aukora-boundary-gate/passkey-setup.json`; omit `--owner-page`. Its entry is
+   `/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap serve`, with the fixed home/run/target
+   paths and reviewed GID in [host/install/README.md](host/install/README.md). Peter opens
+   `OWNER_ORIGIN/owner/enroll`, enters the claim and performs credential creation and the possession assertion
+   himself. Verify the enrolled ledger/state and refusal of a second claim/registration/finish attempt.
+5. Deliver the fresh rotating gate bearer privately for `OWNER_ORIGIN/owner/cards?bearer=…`; redact it from
+   ingress logs. The static hash-pinned script removes the query from the current history entry. Peter reviews
+   the exact retained JSON card and node authorization, then clicks the passkey approval himself. The page has
+   no inline script and is unframeable. A cookie alone must produce no effect.
+6. On C1, record one harmless effect and its public receipt. Repeat wrong digest/key/node/RP/origin, missing UV,
+   expired proof and replay attempts: effect count must stay one. Restart the gate with the same state and replay
+   again; verify the ledger and retained receipt cold using installed `gate.mjs verify` and `verify-receipt`.
+   Inspect actual loaded code/pins, owner state, private listener reachability and Peter's screen before calling
+   the node delivered. These source tests cannot establish any of those observations.
+
+Peter must choose synced versus device-only passkey policy and recovery expectations before qualification.
+Current enrollment uses none attestation and permits backup-eligible credentials; a device-only policy still
+needs enforcement and real-authenticator qualification, and none attestation does not prove hardware custody.
+A passkey approval proves a key on one device signed these exact bytes after that device's local user check;
+it does not prove a unique person; synced passkeys leave the device; no real authenticator ran here.
 
 Checks (no network, no sudo, no OpenShell needed):
 

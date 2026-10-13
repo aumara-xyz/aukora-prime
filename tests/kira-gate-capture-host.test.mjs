@@ -924,7 +924,7 @@ test('actual E193 revalidates the retained H scope after awaited write policy be
 const binURL = new URL('../packages/boundary-gate/bin/gate.mjs', import.meta.url)
 const unitURL = new URL('../packages/boundary-gate/host/systemd/aukora-boundary-gate.service', import.meta.url)
 let gateCliFixtureSequence = 0
-async function runGateCli(args, source, { readOwnerState, ownerStateError } = {}) {
+async function runGateCli(args, source, { readOwnerState, ownerStateError, readPasskeySetup, passkeySetupError } = {}) {
   source ??= await readFile(binURL, 'utf8')
   const observed = { calls: [], gates: [], servers: [], messages: [], exit: null, error: null }
   const exit = Object.freeze({ fixture: 'process-exit' }), owner = Object.freeze({ fixture: 'owner' })
@@ -943,6 +943,13 @@ async function runGateCli(args, source, { readOwnerState, ownerStateError } = {}
       if (ownerStateError) throw ownerStateError
       return readOwnerState
     },
+    passkeySetupReader: (...args) => {
+      assert.deepEqual(args, ['/fixture/passkey-setup.json']); observed.calls.push(['passkey-setup-reader'])
+      if (passkeySetupError) throw passkeySetupError
+      return readPasskeySetup
+    },
+    mintPasskeyClaim: options => { observed.calls.push(['mint-passkey-claim', options]); return { minted: true } },
+    createPasskeyEnrollmentCeremony: binding => { observed.calls.push(['passkey-ceremony', binding]); return { fixture: 'ceremony' } },
     rotateBearer: (home, actualOwner) => { assert.equal(actualOwner, owner); observed.calls.push(['bearer', home]); return { fixture: 'bearer-info' } },
     gateTargets: (root, options) => { observed.calls.push(['targets', root, options]); return { fixtureTarget: {} } },
     gateStore: options => { observed.calls.push(['store', options]); return { fixture: 'store' } },
@@ -967,6 +974,8 @@ async function runGateCli(args, source, { readOwnerState, ownerStateError } = {}
   const dependency = `globalThis[Symbol.for('aukora.tests.gateCli.dependencies')].get(${JSON.stringify(id)})`
   let rewritten = source.replace(/^#![^\n]*\n/u, '').replace(/import fs from 'node:fs'/u,
     `import fs from '${dataURL(`export default ${dependency}.fs;`)}'`)
+  rewritten = rewritten.replace("'../../authority/src/passkey-enrollment.mjs'",
+    JSON.stringify(dataURL(`export const createPasskeyEnrollmentCeremony = ${dependency}.createPasskeyEnrollmentCeremony;`)))
   rewritten = rewritten.replace(/import\s*\{([^}]+)\}\s*from\s*(['"])([^'"]+)\2/gu,
     (statement, bindings, _quote, specifier) => {
       if (specifier === 'node:util') return statement
@@ -1026,6 +1035,48 @@ test('gate CLI never falls back to legacy when selecting the owner-state reader 
   assert.equal(refused.gates.length, 0); assert.equal(refused.servers.length, 0)
   assert.equal(refused.calls.filter(([call]) => call === 'owner-state-reader').length, 1)
   assert.equal(refused.calls.some(([call]) => call === 'startup'), false)
+})
+
+// Reviewed passkey diff: explicit setup adds a reader, registration factory and isolated owner page;
+// legacy option shapes, journal guards and enrolled-owner reader forwarding remain pinned above.
+test('gate CLI passkey setup is opt-in and forwards protected setup to the isolated owner page', async () => {
+  const readPasskeySetup = () => ({ origin: 'https://owner.example', rp_id: 'owner.example' })
+  const selected = await runGateCli([...serveArgs, '--passkey-setup', '/fixture/passkey-setup.json'], undefined, { readPasskeySetup })
+  assert.equal(selected.error, null); assert.equal(selected.exit, null); assert.equal(selected.gates.length, 1)
+  assert.equal(selected.gates[0].readPasskeySetup, readPasskeySetup)
+  assert.equal(typeof selected.gates[0].passkeyEnrollmentCeremony, 'function')
+  assert.deepEqual(selected.servers[0].options.passkeyOwner, { origin: 'https://owner.example', rpId: 'owner.example' })
+  assert.equal(selected.servers[0].options.ownerPage, false)
+  assert.equal(selected.calls.filter(([name]) => name === 'passkey-setup-reader').length, 1)
+  const failed = await runGateCli([...serveArgs, '--passkey-setup', '/fixture/passkey-setup.json'], undefined,
+    { passkeySetupError: Error('passkey-setup-unprotected') })
+  assert.match(failed.error.message, /unprotected/u); assert.equal(failed.gates.length, 0); assert.equal(failed.servers.length, 0)
+})
+
+test('gate CLI refuses passkey setup on other commands and sharing the legacy owner listener', async () => {
+  for (const args of [
+    ['verify', '--home', '/fixture/gate', '--passkey-setup', '/fixture/passkey-setup.json'],
+    [...serveArgs, '--claim-out', '/fixture/claim.txt'], [...serveArgs, '--binding', '/fixture/binding.json'],
+    [...serveArgs, '--node', 'fixture-node'], [...serveArgs, '--owner-origin', 'https://owner.example'],
+    [...serveArgs, '--passkey-setup', '/fixture/passkey-setup.json', '--owner-page'],
+  ]) {
+    const selected = await runGateCli(args)
+    assert.equal(selected.exit, 2); assert.equal(selected.gates.length, 0); assert.equal(selected.servers.length, 0)
+    assert.deepEqual(selected.calls, [['umask', 0o027]])
+  }
+})
+
+test('gate CLI passkey negative controls detect omitted protected setup and shared legacy listener', async () => {
+  const source = await readFile(binURL, 'utf8'), readPasskeySetup = () => ({ origin: 'https://owner.example', rp_id: 'owner.example' })
+  const options = [...serveArgs, '--passkey-setup', '/fixture/passkey-setup.json']
+  const binding = '...(readPasskeySetup === undefined ? {} : { readPasskeySetup, passkeyEnrollmentCeremony }),'
+  const listener = "|| (cmd === 'serve' && o['passkey-setup'] !== undefined && o['owner-page'])"
+  assert.equal(source.split(binding).length, 2); assert.equal(source.split(listener).length, 2)
+  const unprotected = await runGateCli(options, source.replace(binding, ''), { readPasskeySetup })
+  assert.equal(unprotected.error, null); assert.equal(Object.hasOwn(unprotected.gates[0], 'readPasskeySetup'), false)
+  const shared = await runGateCli([...options, '--owner-page'], source.replace(listener, ''), { readPasskeySetup })
+  assert.equal(shared.error, null); assert.equal(shared.servers[0].options.ownerPage, true)
+  assert.equal(shared.servers[0].options.passkeyOwner.origin, 'https://owner.example')
 })
 
 test('gate CLI refuses wrong, missing, repeated and non-serve journal arguments before gate state', async () => {

@@ -16,12 +16,13 @@ import { rotateBearer, loadOwnerSecret } from '../src/secrets.mjs'
 import { openDb, verifyLedger, loadOrCreateKey, keyFingerprint } from '../src/ledger.mjs'
 import { gateTargets, gateStore } from '../src/wiring.mjs'
 import { verifyReceipt } from '../src/receipts.mjs'
-import { ownerStateReader } from '../src/owner-state.mjs'
+import { ownerStateReader, passkeySetupReader, mintPasskeyClaim } from '../src/owner-state.mjs'
 
 process.umask(0o027)
 const [cmd, ...rest] = process.argv.slice(2)
 const { values: o, tokens } = parseArgs({ args: rest, options: { home: { type: 'string' }, run: { type: 'string' }, port: { type: 'string' }, gid: { type: 'string' },
-  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, 'releases-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' }, 'journal-id': { type: 'string' } }, strict: true, tokens: true })
+  'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, 'releases-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' }, 'journal-id': { type: 'string' },
+  'passkey-setup': { type: 'string' }, 'claim-out': { type: 'string' }, binding: { type: 'string' }, node: { type: 'string' }, 'owner-origin': { type: 'string' } }, strict: true, tokens: true })
 // This fixed public journal is an operator startup binding, never a request or
 // model value. Reject incompatible commands before opening any gate state.
 if (o['journal-id'] !== undefined && (cmd !== 'serve' || o['journal-id'] !== 'aukora-gate-pilot'
@@ -29,8 +30,20 @@ if (o['journal-id'] !== undefined && (cmd !== 'serve' || o['journal-id'] !== 'au
   console.error('--journal-id requires serve and the fixed aukora-gate-pilot journal'); process.exit(2)
 }
 const abs = (label, p) => { if (!p || !path.isAbsolute(p)) { console.error(`--${label} must be an absolute path`); process.exit(2) } return p }
+if ((o['passkey-setup'] !== undefined && !['serve', 'mint-passkey-claim'].includes(cmd))
+  || (['claim-out', 'binding', 'node', 'owner-origin'].some(k => o[k] !== undefined) && cmd !== 'mint-passkey-claim')
+  || (cmd === 'serve' && o['passkey-setup'] !== undefined && o['owner-page'])) {
+  console.error('passkey options require the passkey command; legacy owner page cannot share its listener'); process.exit(2)
+}
 
-if (cmd === 'verify') {
+if (cmd === 'mint-passkey-claim') {
+  const publicKey = createPublicKey(fs.readFileSync(abs('pub', o.pub)))
+  const { ownerAuthorizationGatePin } = await import('../../owner-key/src/authorization.mjs')
+  const r = mintPasskeyClaim({ file: abs('passkey-setup', o['passkey-setup']), claimFile: abs('claim-out', o['claim-out']),
+    gate: ownerAuthorizationGatePin(publicKey.export({ type: 'spki', format: 'der' }).toString('base64')).gate,
+    node: o.node, origin: o['owner-origin'], binding: JSON.parse(fs.readFileSync(abs('binding', o.binding), 'utf8')) })
+  console.log(JSON.stringify(r)); process.exit(0)
+} else if (cmd === 'verify') {
   const pub = o.pub ? createPublicKey(fs.readFileSync(abs('pub', o.pub))) : loadOrCreateKey(abs('home', o.home)).pub
   const db = openDb(o.db ? abs('db', o.db) : path.join(abs('home', o.home), 'gate.db'), { readOnly: true })
   const r = verifyLedger(db, pub)
@@ -45,12 +58,17 @@ if (cmd === 'verify') {
   const owner = loadOwnerSecret(home)
   const bearerInfo = rotateBearer(home, owner)
   const readOwnerState = ownerStateReader()
+  const readPasskeySetup = o['passkey-setup'] === undefined ? undefined : passkeySetupReader(abs('passkey-setup', o['passkey-setup']))
+  const passkeyEnrollmentCeremony = readPasskeySetup === undefined ? undefined
+    : (await import('../../authority/src/passkey-enrollment.mjs')).createPasskeyEnrollmentCeremony
   const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }),
     ...(readOwnerState === undefined ? {} : { readOwnerState }),
+    ...(readPasskeySetup === undefined ? {} : { readPasskeySetup, passkeyEnrollmentCeremony }),
     ...(o['journal-id'] === undefined ? {} : { journalId: o['journal-id'] }) })
   const v = gate.startup({ bearerInfo })
   if (!v.ok) console.error('LEDGER VERIFY FAILED', v.errors)
-  const srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC', ownerPage: o['owner-page'] === true })
+  const srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC', ownerPage: o['owner-page'] === true,
+    ...(readPasskeySetup === undefined ? {} : { passkeyOwner: { origin: readPasskeySetup().origin, rpId: readPasskeySetup().rp_id } }) })
   console.log(`boundary-gate PROPOSE ${srv.proposeSocket} OWNER ${srv.ownerSocket} (0600) OWNER-HTTP ${srv.port === null ? 'off' : 'loopback:' + srv.port} pubkey ${gate.fp} targets ${Object.keys(gate.targets).length}`)
   const stop = () => srv.close().finally(() => { gate.close(); process.exit(0) })
   process.on('SIGTERM', stop); process.on('SIGINT', stop)

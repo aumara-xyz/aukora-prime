@@ -7,7 +7,7 @@ import net from 'node:net'
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createOwnerPage } from './owner-page.mjs'
+import { createOwnerPage, createPasskeyOwnerHandler } from './owner-page.mjs'
 
 export const OWNER_SOCKET_APPROVER = 'owner via owner.sock (local; 0600 gate user/root only)'
 
@@ -35,7 +35,8 @@ export function lineServer(opmap, approverFor) {
 
 const listen = (srv, ...a) => new Promise((res, rej) => { srv.once('error', rej); srv.listen(...a, () => { srv.off('error', rej); res(srv) }) })
 
-export async function serveGate(gate, { runDir, gid = 0, ownerHttpPort = 17792, timeZone = 'UTC', ownerPage = false }) {
+export async function serveGate(gate, { runDir, gid = 0, ownerHttpPort = 17792, timeZone = 'UTC', ownerPage = false, passkeyOwner }) {
+  if (ownerPage && passkeyOwner) throw new Error('passkey:legacy-page-conflict')
   fs.mkdirSync(runDir, { recursive: true })
   const proposeSocket = path.join(runDir, 'gate.sock'), ownerSocket = path.join(runDir, 'owner.sock')
   for (const s of [proposeSocket, ownerSocket]) { try { fs.unlinkSync(s) } catch {} }
@@ -46,7 +47,7 @@ export async function serveGate(gate, { runDir, gid = 0, ownerHttpPort = 17792, 
   const ownerServer = await listen(lineServer(gate.ownerOps, () => OWNER_SOCKET_APPROVER), ownerSocket)
   fs.chmodSync(ownerSocket, 0o600)
   try { fs.unlinkSync(path.join(runDir, 'owner-http.port')) } catch {}
-  const page = ownerPage ? createOwnerPage(gate, { timeZone }) : null
+  const page = passkeyOwner ? createPasskeyOwnerHandler(gate, passkeyOwner) : ownerPage ? createOwnerPage(gate, { timeZone }) : null
   const ownerHttp = page ? await listen(http.createServer(page.handler), ownerHttpPort, '127.0.0.1') : null
   const port = ownerHttp ? ownerHttp.address().port : null
   if (ownerHttp) fs.writeFileSync(path.join(runDir, 'owner-http.port'), String(port), { mode: 0o644 })

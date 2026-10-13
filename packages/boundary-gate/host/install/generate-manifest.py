@@ -84,6 +84,8 @@ def main():
     parser.add_argument("--launcher-checkout", help="staged checkout containing six reviewed inputs; mandatory for v2, no launcher execution")
     parser.add_argument("--aura-source", help="exact reviewed complete staged Aura source; requires owner-key and aura-context")
     parser.add_argument("--aura-context", help="staged public Aura configuration; no private signer reads")
+    parser.add_argument("--passkey-authority", help="reviewed complete staged authority package; requires owner-key and contracts")
+    parser.add_argument("--passkey-contracts", help="reviewed complete staged contracts package; requires authority")
     parser.add_argument("--output", required=True, help="new staging file outside the package")
     options = parser.parse_args()
     try:
@@ -91,10 +93,10 @@ def main():
         root, output = os.path.abspath(options.package), os.path.abspath(options.output)
         installed_roots = (SOURCE["PACKAGE"], SOURCE["AURA_ROOT"], SOURCE["OWNER_KEY_ROOT"],
                            os.path.dirname(SOURCE["MANIFEST"]), os.path.dirname(SOURCE["BOOTSTRAP"]),
-                           os.path.dirname(SOURCE["NODE"]), SOURCE["LAUNCHER_ROOT"])
+                           os.path.dirname(SOURCE["NODE"]), SOURCE["LAUNCHER_ROOT"], *SOURCE["PASSKEY_ROOTS"].values())
         require(all(os.path.commonpath([installed, output]) != installed for installed in installed_roots), "manifest-installed-path")
         for supplied in (options.package, options.signer_epochs, options.owner_key, options.aura_source,
-                         options.aura_context, options.launcher_checkout):
+                         options.aura_context, options.launcher_checkout, options.passkey_authority, options.passkey_contracts):
             if supplied is None:
                 continue
             require(SOURCE["aura_data_path"](supplied), "staging-input-path")
@@ -106,8 +108,18 @@ def main():
         require(owner_root is None or options.launcher_checkout is not None, "staging-launcher-required")
         require(bool(options.aura_source) == bool(options.aura_context), "staging-aura-required")
         require(not options.aura_source or owner_root is not None, "staging-aura-owner-key-required")
+        require(bool(options.passkey_authority) == bool(options.passkey_contracts), "staging-passkey-pair-required")
+        require(not options.passkey_authority or owner_root is not None, "staging-passkey-owner-key-required")
         aura_root = os.path.abspath(options.aura_source) if options.aura_source else None
         launcher_root = os.path.abspath(options.launcher_checkout) if options.launcher_checkout else None
+        passkey_roots = {"passkey_authority": options.passkey_authority, "passkey_contracts": options.passkey_contracts}
+        for name, staged in passkey_roots.items():
+            if staged is not None:
+                require(os.path.commonpath([staged, output]) != staged, "manifest-inside-profile")
+                require(all(os.path.commonpath([staged, other]) not in (staged, other)
+                            for other in (root, owner_root, aura_root, launcher_root,
+                                          *(value for key, value in passkey_roots.items() if key != name))
+                            if other is not None), "staging-profile-overlap")
         if launcher_root is not None:
             require(os.path.commonpath([launcher_root, output]) != launcher_root, "manifest-inside-profile")
             require(all(os.path.commonpath([launcher_root, staged]) not in (launcher_root, staged)
@@ -141,6 +153,11 @@ def main():
                             "configuration": {"path": SOURCE["AURA_CONFIG"], "sha256": hashlib.sha256(configuration).hexdigest()}}
             SOURCE["validate_aura_profile"](aura_profile)
             manifest["profiles"]["aura"] = aura_profile
+        for name, staged in passkey_roots.items():
+            if staged is not None:
+                profile = {"root": SOURCE["PASSKEY_ROOTS"][name], "files": staging_inventory(staged)}
+                SOURCE["validate_passkey_profile"](name, profile)
+                manifest["profiles"][name] = profile
         encoded = (json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
         SOURCE["parse_manifest"](encoded)
         fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)

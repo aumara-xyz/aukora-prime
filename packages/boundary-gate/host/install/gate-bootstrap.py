@@ -96,6 +96,8 @@ AURA_SOURCE_PINS = {
     "scripts/aura/verify-collected.mjs": "4030920a8e2b653c4623b59e3ce27c3a3ef137a4e8e6b7ff33a7aa297e7580bc",
 }
 OWNER_KEY_ROOT = "/opt/owner-key"
+PASSKEY_ROOTS = {"passkey_authority": "/opt/authority", "passkey_contracts": "/opt/contracts"}
+PASSKEY_SETUP = "/etc/aukora-boundary-gate/passkey-setup.json"
 # Exact package inventory: f5da7bb adds two reviewed software-signer check files;
 # only tests import the helper, and package verification never executes checks.
 OWNER_KEY_FILES = frozenset({
@@ -103,14 +105,17 @@ OWNER_KEY_FILES = frozenset({
     "checks/authorization.test.mjs", "checks/gate-caller.test.mjs", "checks/mutant-loader.mjs",
     "checks/mutants.mjs", "checks/owner-key.test.mjs",
     "checks/software-signer.mjs", "checks/software-signer.test.mjs",
-    "src/authorization.mjs", "src/index.mjs",
+    "src/authorization.mjs", "src/index.mjs", "src/webauthn.mjs",
 })
 OWNER_KEY_SOURCE_PINS = {
+    # Reviewed local diff from a2929e0: v2 WebAuthn proof and self-contained public
+    # assertion verifier; legacy domains remain unchanged. No signing or storage.
     # Exact owner-key source inventory: authorization.mjs matched at 0e1a2b0..e6ea06e;
     # reviewed f5da7bb adds a closed public enrollment-record helper through the
     # existing state validator. Trusted authorization source requires this review;
     # registry/activation evidence and signing authority are not supplied here.
-    "src/authorization.mjs": "39cbe12e0edcd8f27754d3916dfef253e1f03417798cce2e9d9974a00876d82a",
+    "src/authorization.mjs": "bd62a5a9dadf6e9690b6e542ffc975105f4df4f5f685324e72fc36b82772d8a3",
+    "src/webauthn.mjs": "6f7df3334006c409dba3db66b423b05cc7f725aac398ba85bae419d6e2b90484",
     "src/index.mjs": "5416ff95400109c65ed8e8d3fb9c94ec218c46c1039e6cc703a781781ccb467d",
 }
 MAX_FILE = 8 * 1024 * 1024
@@ -285,8 +290,19 @@ def validate_launcher_profile(value):
     return value
 
 
+def validate_passkey_profile(name, value):
+    require(isinstance(value, dict) and set(value) == {"root", "files"}
+            and value["root"] == PASSKEY_ROOTS[name], "passkey-profile")
+    files = hash_mapping(value["files"])
+    require(all(re.fullmatch(r"[A-Za-z0-9_.@][A-Za-z0-9._@-]*(?:/[A-Za-z0-9_.@][A-Za-z0-9._@-]*)*", path)
+                for path in files), "passkey-profile-path")
+    required = {"package.json", "src/passkey-enrollment.mjs", "src/webauthn.mjs"} if name == "passkey_authority" else {"package.json", "src/runtime.mjs"}
+    require(required <= set(files), "passkey-profile-source")
+    return value
+
+
 def parse_profiles(value):
-    require(isinstance(value, dict) and set(value) <= {"owner_key", "aura", "launcher"}, "manifest-profiles")
+    require(isinstance(value, dict) and set(value) <= {"owner_key", "aura", "launcher", *PASSKEY_ROOTS}, "manifest-profiles")
     require("launcher" in value, "launcher-profile-unconfigured")
     validate_launcher_profile(value["launcher"])
     require("aura" not in value or "owner_key" in value, "aura-owner-key-profile")
@@ -294,6 +310,10 @@ def parse_profiles(value):
         validate_owner_key_profile(value["owner_key"])
     if "aura" in value:
         validate_aura_profile(value["aura"])
+    require((set(value) & set(PASSKEY_ROOTS)) in (set(), set(PASSKEY_ROOTS)), "passkey-profile-pair")
+    require(not set(value) & set(PASSKEY_ROOTS) or "owner_key" in value, "passkey-owner-key-profile")
+    for name in PASSKEY_ROOTS.keys() & value.keys():
+        validate_passkey_profile(name, value[name])
     return value
 
 
@@ -514,7 +534,8 @@ def serve_arguments(arguments):
         raise Refused("aura-context-unconfigured")
     require(arguments and arguments[0] == "serve", "launch-action")
     fixed = {"--home": "/home/aukora-gate", "--run": "/run/aukora-gate",
-             "--target-root": "/var/lib/aukora-boundary/targets", "--releases-root": "/opt/aukora-genesis"}
+             "--target-root": "/var/lib/aukora-boundary/targets", "--releases-root": "/opt/aukora-genesis",
+             "--passkey-setup": PASSKEY_SETUP}
     seen, index = set(), 1
     while index < len(arguments):
         name = arguments[index]
@@ -537,6 +558,7 @@ def serve_arguments(arguments):
             require(len(value) <= 128 and (value == "UTC" or re.fullmatch(r"[A-Za-z_]+(?:/[A-Za-z0-9_+-]+){1,3}", value) is not None), "launch-time-zone")
         index += 2
     require({"--home", "--run", "--target-root", "--gid"} <= seen, "launch-required")
+    require(not {"--passkey-setup", "--owner-page"} <= seen, "passkey-owner-page-conflict")
     return list(arguments)
 
 
@@ -803,6 +825,10 @@ def verify_source_profiles(manifest):
         verify_package(OWNER_KEY_ROOT, profile["files"])
     if "aura" in profiles:
         verify_aura_profile(profiles["aura"])
+    for name, root in PASSKEY_ROOTS.items():
+        if name in profiles:
+            profile = validate_passkey_profile(name, profiles[name])
+            verify_package(root, profile["files"])
 
 
 def require_node_profile(manifest, entry):
@@ -863,6 +889,8 @@ def main():
                 print("PACKAGE_VERIFIED")
             return 0
         require_node_profile(manifest, entry)
+        if "--passkey-setup" in arguments:
+            require(set(PASSKEY_ROOTS) <= set(manifest.get("profiles", {})), "passkey-profile-unconfigured")
         if entry == AURA_ROOT + "/" + AURA_ENTRY:
             # Re-pin the fixed public document before the private metadata
             # operation; no cached context or private bytes enter other roles.

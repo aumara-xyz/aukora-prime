@@ -73,6 +73,44 @@ class RepositorySourcePinChecks(unittest.TestCase):
             self.assertEqual(set(manifest["profiles"]["owner_key"]["files"]), SOURCE["OWNER_KEY_FILES"])
             self.assertEqual(manifest["profiles"]["launcher"]["files"], SOURCE["LAUNCHER_SOURCE_PINS"])
             print(result.stdout.strip(), flush=True)
+            authority, contracts = root / "authority", root / "contracts"
+            shutil.copytree(REPOSITORY / "packages/authority", authority)
+            shutil.copytree(REPOSITORY / "packages/contracts", contracts)
+            passkey_output = root / "passkey-manifest.json"
+            command = [sys.executable, "-I", "-S", str(gate / "host/install/generate-manifest.py"),
+                "--package", str(gate), "--owner-key", str(owner), "--launcher-checkout", str(launcher),
+                "--signer-epochs", str(epochs), "--passkey-authority", str(authority), "--passkey-contracts", str(contracts), "--output", str(passkey_output)]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            profiles = json.loads(passkey_output.read_bytes())["profiles"]
+            self.assertEqual(profiles["passkey_authority"]["root"], "/opt/authority")
+            self.assertEqual(profiles["passkey_contracts"]["root"], "/opt/contracts")
+            for flag, code in [("--passkey-contracts", "staging-passkey-pair-required"), ("--owner-key", "staging-passkey-owner-key-required")]:
+                shortened = list(command); index = shortened.index(flag); del shortened[index:index + 2]
+                shortened[-1] = str(root / "refused.json")
+                result = subprocess.run(shortened, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2); self.assertIn(code, result.stderr)
+
+    def test_passkey_generator_guard_mutations_fail_the_named_refusals(self):
+        source = (HERE / "generate-manifest.py").read_text()
+        guards = ['require(bool(options.passkey_authority) == bool(options.passkey_contracts), "staging-passkey-pair-required")',
+                  'require(not options.passkey_authority or owner_root is not None, "staging-passkey-owner-key-required")']
+        for guard in guards:
+            self.assertEqual(source.count(guard), 1)
+            namespace = {"__name__": "passkey_staging_mutant", "__file__": str(HERE / "generate-manifest.py")}
+            exec(compile(source.replace(guard, 'require(True, "removed-passkey-staging-guard")'), "<passkey-staging-guard-mutant>", "exec"), namespace)
+            args = ["fixture", "--package", str(REPOSITORY / "packages/boundary-gate"), "--signer-epochs", str(REPOSITORY / "package.json"),
+                    "--passkey-authority", str(REPOSITORY / "packages/authority"), "--output", str(REPOSITORY / ".scratch/passkey-mutant.json")]
+            if "owner-key" in guard:
+                args += ["--passkey-contracts", str(REPOSITORY / "packages/contracts")]
+            expected = "staging-passkey-pair-required" if "pair-required" in guard else "staging-passkey-owner-key-required"
+            def regression(candidate):
+                with patch.object(sys, "argv", args), patch.object(sys, "stderr", new_callable=io.StringIO) as refusal:
+                    self.assertEqual(candidate["main"](), 2)
+                    self.assertIn(expected, refusal.getvalue())
+            regression(runpy.run_path(str(HERE / "generate-manifest.py"), run_name="staging_original"))
+            with self.assertRaises(AssertionError): regression(namespace)
+        print("SOURCE-ONLY passkey staging guard mutations: 2/2 killed by named prerequisite refusal regressions", flush=True)
 
     def test_changed_source_byte_and_changed_pin_refuse_in_every_group(self):
         with tempfile.TemporaryDirectory(prefix=".bootstrap-pins-", dir=REPOSITORY) as temporary:
@@ -730,6 +768,100 @@ class BootstrapChecks(unittest.TestCase):
                      profiles={"launcher": self.world.launcher_profile(), "owner_key": self.world.owner_profile()})
         return value
 
+    def passkey_manifest(self):
+        value, epochs = self.v2_manifest(), json.dumps({"version": 1, "kind": "aukora-signer-epochs/v1",
+            "epochs": [{"epoch": 1, "gate_pubkey_sha256": "0" * 64}]}).encode()
+        value["external_files"][SOURCE["SIGNER_EPOCHS"]] = hashlib.sha256(epochs).hexdigest()
+        self.passkey_staged = {}
+        for name, root in SOURCE["PASSKEY_ROOTS"].items():
+            staged = self.world.root.parent / name
+            staged.mkdir(mode=0o700, exist_ok=True)
+            paths = ["package.json", "src/passkey-enrollment.mjs", "src/webauthn.mjs", "upstream/vendor/deps/@noble/curves@2.2.0/nist.js"] if name == "passkey_authority" else ["package.json", "src/runtime.mjs"]
+            for path in paths:
+                self.world.put(path, "// public dependency fixture\n", root=staged)
+            files = {str(path.relative_to(staged)): hashlib.sha256(path.read_bytes()).hexdigest() for path in staged.rglob("*") if path.is_file()}
+            value["profiles"][name] = {"root": root, "files": files}
+            self.passkey_staged[name] = staged
+        return value, epochs
+
+    def passkey_dispatch(self, manifest, epochs, namespace=None):
+        namespace = SOURCE if namespace is None else namespace
+        calls = []
+        def dispatch(_path, arguments, _environment):
+            calls.append(arguments)
+            subprocess.run([sys.executable, "-I", "-S", str(self.world.root / "bin/gate.mjs")], check=True)
+        arguments = ["serve", "--home", "/home/aukora-gate", "--run", "/run/aukora-gate", "--target-root",
+                     "/var/lib/aukora-boundary/targets", "--gid", "123", "--passkey-setup", SOURCE["PASSKEY_SETUP"]]
+        with self.protected_aura_world(manifest, epochs, namespace), patch.object(sys, "argv", ["fixture"] + arguments), \
+                patch.dict(os.environ, {}, clear=True), patch.object(os, "execve", dispatch), patch.object(os, "chdir"), \
+                patch.object(sys, "stderr", new_callable=io.StringIO) as refusal:
+            namespace["main"]()
+        return calls, refusal.getvalue()
+
+    def test_passkey_profiles_are_optional_paired_closed_and_fixed(self):
+        manifest, _epochs = self.passkey_manifest()
+        with patch.dict(G, {"OWNER_KEY_SOURCE_PINS": self.world.owner_pins, "LAUNCHER_SOURCE_PINS": self.world.launcher_files}):
+            SOURCE["parse_manifest"](json.dumps(manifest).encode())
+            SOURCE["parse_manifest"](json.dumps(self.v2_manifest()).encode())
+            cases = [("passkey-profile-pair", lambda m: m["profiles"].pop("passkey_contracts")),
+                ("passkey-owner-key-profile", lambda m: m["profiles"].pop("owner_key")),
+                ("passkey-profile", lambda m: m["profiles"]["passkey_authority"].update(root="/tmp/candidate")),
+                ("passkey-profile", lambda m: m["profiles"]["passkey_authority"].update(extra=True)),
+                ("passkey-profile-source", lambda m: m["profiles"]["passkey_authority"]["files"].pop("src/webauthn.mjs")),
+                ("passkey-profile-path", lambda m: m["profiles"]["passkey_authority"]["files"].update({"file:candidate": "0" * 64}))]
+            for code, change in cases:
+                candidate = json.loads(json.dumps(manifest)); change(candidate)
+                with self.subTest(code=code), self.refuses(code):
+                    SOURCE["parse_manifest"](json.dumps(candidate).encode())
+
+    def test_passkey_dispatch_requires_verified_dependency_bytes_and_exclusive_fixed_setup(self):
+        manifest, epochs = self.passkey_manifest()
+        calls, refusal = self.passkey_dispatch(manifest, epochs)
+        self.assertEqual(len(calls), 1, refusal); self.world.marker.unlink()
+        candidate = json.loads(json.dumps(manifest))
+        for name in SOURCE["PASSKEY_ROOTS"]:
+            candidate["profiles"].pop(name)
+        calls, refusal = self.passkey_dispatch(candidate, epochs)
+        self.assertEqual(calls, []); self.assertIn("passkey-profile-unconfigured", refusal)
+        for name, staged in self.passkey_staged.items():
+            path = staged / "package.json"; original = path.read_bytes(); path.write_text("unreviewed dependency\n")
+            calls, refusal = self.passkey_dispatch(manifest, epochs)
+            self.assertEqual(calls, []); self.assertIn("package-hash", refusal); path.write_bytes(original)
+        base = ["serve", "--home", "/home/aukora-gate", "--run", "/run/aukora-gate", "--target-root", "/var/lib/aukora-boundary/targets", "--gid", "123"]
+        self.assertEqual(SOURCE["serve_arguments"](base + ["--passkey-setup", SOURCE["PASSKEY_SETUP"]]), base + ["--passkey-setup", SOURCE["PASSKEY_SETUP"]])
+        for tail, code in [(["--passkey-setup", "/tmp/candidate"], "launch-fixed-path"),
+                           (["--passkey-setup", SOURCE["PASSKEY_SETUP"], "--owner-page"], "passkey-owner-page-conflict")]:
+            with self.refuses(code): SOURCE["serve_arguments"](base + tail)
+        with self.refuses("launch-action"): SOURCE["launch_arguments"](["mint-passkey-claim"])
+
+    def test_passkey_bootstrap_guard_mutations_fail_the_specific_regressions(self):
+        source = (HERE / "gate-bootstrap.py").read_text()
+        guards = {
+            "pair": 'require((set(value) & set(PASSKEY_ROOTS)) in (set(), set(PASSKEY_ROOTS)), "passkey-profile-pair")',
+            "owner": 'require(not set(value) & set(PASSKEY_ROOTS) or "owner_key" in value, "passkey-owner-key-profile")',
+            "root": 'and value["root"] == PASSKEY_ROOTS[name]',
+            "source": 'require(required <= set(files), "passkey-profile-source")',
+            "path": 'require(all(re.fullmatch(r"[A-Za-z0-9_.@][A-Za-z0-9._@-]*(?:/[A-Za-z0-9_.@][A-Za-z0-9._@-]*)*", path)\n                for path in files), "passkey-profile-path")',
+            "selected": 'require(set(PASSKEY_ROOTS) <= set(manifest.get("profiles", {})), "passkey-profile-unconfigured")',
+            "bytes": 'verify_package(root, profile["files"])',
+            "exclusive": 'require(not {"--passkey-setup", "--owner-page"} <= seen, "passkey-owner-page-conflict")',
+            "fixed": 'require(value == fixed[name], "launch-fixed-path")',
+        }
+        for name, guard in guards.items():
+            self.assertEqual(source.count(guard), 1)
+            replacement = 'and True' if name == "root" else 'require(name == "--passkey-setup" or value == fixed[name], "launch-fixed-path")' if name == "fixed" else 'require(True, "removed-passkey-test-guard")'
+            namespace = {"__name__": "passkey_guard_mutant", "__file__": str(HERE / "gate-bootstrap.py")}
+            exec(compile(source.replace(guard, replacement), "<passkey-guard-mutant>", "exec"), namespace)
+            regression = self.test_passkey_profiles_are_optional_paired_closed_and_fixed if name in ("pair", "owner", "root", "source", "path") else self.test_passkey_dispatch_requires_verified_dependency_bytes_and_exclusive_fixed_setup
+            result = unittest.TestResult()
+            method = regression.__name__
+            fixture = BootstrapChecks(method)
+            with patch.dict(globals(), {"SOURCE": dict(namespace), "G": namespace["verify_package"].__globals__, "Refused": namespace["Refused"]}):
+                fixture.run(result)
+            self.assertEqual(result.errors, [], name)
+            self.assertTrue(result.failures, name + " removed protection survived")
+        print("SOURCE-ONLY passkey bootstrap guard mutations: 9/9 killed; selected-profile and byte-verification mutants reach disposable dispatch", flush=True)
+
     def aura_profile(self):
         return {"root": SOURCE["AURA_ROOT"], "entry": SOURCE["AURA_ENTRY"],
                 "files": dict(SOURCE["AURA_SOURCE_PINS"]),
@@ -774,6 +906,7 @@ class BootstrapChecks(unittest.TestCase):
         def fixture_verify(root, files):
             roots = {SOURCE["PACKAGE"]: ("gate", self.world.root), SOURCE["OWNER_KEY_ROOT"]: ("owner_key", self.world.owner_root),
                      SOURCE["AURA_ROOT"]: ("aura", self.world.aura_root)}
+            roots.update({SOURCE["PASSKEY_ROOTS"][name]: (name, staged) for name, staged in getattr(self, "passkey_staged", {}).items()})
             label, staged = roots[root]
             phases.append(label)
             return original_verify(str(staged), files)

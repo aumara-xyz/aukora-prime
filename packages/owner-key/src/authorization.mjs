@@ -2,6 +2,7 @@
 // Public owner-authorization protocol. No signer, seed, storage, effect or fallback.
 import { createHash, createPublicKey, verify } from 'node:crypto'
 import { ownerRootPin, OWNER_KEY_ALGORITHM } from './index.mjs'
+import { prepareWebauthnConfig, verifyWebauthnAssertion, webauthnOptions } from './webauthn.mjs'
 
 export const OWNER_AUTHORIZATION_DOMAIN = 'aukora:owner-authorization:v1\0'
 export const OWNER_AUTHORIZATION_PROOF_DOMAIN = 'aukora:owner-authorization-proof:v1\0'
@@ -10,11 +11,18 @@ export const AUTHORIZATION_FIELDS = Object.freeze(['after_sha256', 'before_sha25
   'owner_subject', 'proposal_id', 'target', 'version'])
 export const OWNER_STATE_FIELDS = Object.freeze(['version', 'kind', 'owner_subject',
   'owner_root_spki_base64', 'owner_root_id', 'owner_epoch', 'registry_sha256', 'activation_sha256'])
+export const OWNER_AUTHORIZATION_WEBAUTHN_ALGORITHM = 'webauthn-es256-sha256'
+export const OWNER_AUTHORIZATION_V2_DOMAIN = 'aukora:owner-authorization:v2\0'
+export const OWNER_AUTHORIZATION_PROOF_V2_DOMAIN = 'aukora:owner-authorization-proof:v2\0'
+export const AUTHORIZATION_V2_FIELDS = Object.freeze([...AUTHORIZATION_FIELDS, 'card_sha256', 'node'].sort())
+export const OWNER_STATE_V2_FIELDS = Object.freeze([...OWNER_STATE_FIELDS, 'node', 'rp_id', 'origin',
+  'credential_id', 'user_handle', 'public_key_hex', 'sign_count', 'backup_eligible'])
 const HEX = /^[0-9a-f]{64}$/u
 const hex64 = value => typeof value === 'string' && value.length === 64 && HEX.test(value)
 const integer = value => Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 const fail = code => { throw Object.assign(new TypeError(`owner-authorization:${code}`), { code: `owner-authorization:${code}` }) }
+const versionOf = value => value && typeof value === 'object' ? Object.getOwnPropertyDescriptor(value, 'version')?.value : undefined
 
 function closed(value, fields, preserveOrder = false) {
   try {
@@ -34,6 +42,7 @@ function closed(value, fields, preserveOrder = false) {
 
 /** Structure and public-key identity only. State MUST come from an independent trusted registry. */
 export function ownerAuthorizationOwnerState(supplied) {
+  if (versionOf(supplied) === 2) return ownerAuthorizationPasskeyState(supplied)
   const state = closed(supplied, OWNER_STATE_FIELDS)
   if (state.version !== 1 || state.kind !== 'aukora-owner-state/v1'
     || typeof state.owner_subject !== 'string' || state.owner_subject.length !== 73
@@ -42,6 +51,36 @@ export function ownerAuthorizationOwnerState(supplied) {
     || !['owner_root_id', 'registry_sha256', 'activation_sha256'].every(field => hex64(state[field]))
     || ownerRootPin(state.owner_root_spki_base64).owner_root_id !== state.owner_root_id) fail('owner-state')
   return Object.freeze(state)
+}
+
+/** The credential, RP, exact HTTPS origin and node are independently protected enrollment pins. */
+export function ownerAuthorizationPasskeyState(supplied) {
+  const state = closed(supplied, OWNER_STATE_V2_FIELDS)
+  const legacy = Object.fromEntries(OWNER_STATE_FIELDS.map(field => [field, state[field]]))
+  ownerAuthorizationOwnerState({ ...legacy, version: 1, kind: 'aukora-owner-state/v1' })
+  if (state.version !== 2 || state.kind !== 'aukora-owner-state/passkey-v2' || !hex64(state.node)) fail('passkey-state')
+  try {
+    prepareWebauthnConfig(passkeyConfig(state))
+    const jwk = createPublicKey({ key: Buffer.from(state.owner_root_spki_base64, 'base64'), format: 'der', type: 'spki' })
+      .export({ format: 'jwk' })
+    const point = '04' + Buffer.from(jwk.x, 'base64url').toString('hex') + Buffer.from(jwk.y, 'base64url').toString('hex')
+    if (point !== state.public_key_hex) fail('passkey-key-pin')
+  } catch { fail('passkey-state') }
+  return Object.freeze(state)
+}
+
+function passkeyConfig(state) {
+  return { rp_id: state.rp_id, origins: [state.origin], credentials: [{ owner_id: state.owner_subject,
+    credential_id: state.credential_id, public_key_hex: state.public_key_hex, user_handle: state.user_handle,
+    sign_count: state.sign_count, backup_eligible: state.backup_eligible }] }
+}
+
+export function ownerAuthorizationPasskeyOptions(supplied, suppliedState) {
+  const a = ownerAuthorization(supplied), state = ownerAuthorizationPasskeyState(suppliedState)
+  if (a.version !== 2 || a.node !== state.node || a.owner_subject !== state.owner_subject
+    || a.owner_root_id !== state.owner_root_id || a.owner_epoch !== state.owner_epoch) fail('passkey-state-mismatch')
+  return webauthnOptions(passkeyConfig(state), state.owner_subject,
+    Buffer.from(ownerAuthorizationDigest(a), 'hex').toString('base64url'))
 }
 
 /** Public enrollment record only; registry/activation digests require independent evidence. */
@@ -69,8 +108,38 @@ const REVIEW_FIELDS = Object.freeze(['version', 'id', 'kind', 'target', 'base_sh
   'content', 'diff', 'from_to', 'clarity_label', 'what_this_does', 'model_note', 'displayable',
   'created', 'expires', 'review_challenge', 'review_expires', 'review_issued_at_ms', 'pubkey_fp',
   'gate_pubkey_sha256', 'owner_authorization', 'authorization_digest', 'review_issue'])
+const CARD_FIELDS = Object.freeze(['id', 'kind', 'target', 'base_sha', 'new_sha', 'content', 'diff',
+  'warnings', 'model_note_label', 'note_display',
+  'from_to', 'clarity_label', 'what_this_does', 'model_note', 'displayable', 'created', 'expires',
+  'review_challenge', 'review_expires', 'review_issued_at_ms', 'pubkey_fp', 'gate_pubkey_sha256'])
+export function ownerAuthorizationCardText(review) {
+  const fields = Object.fromEntries(CARD_FIELDS.map(field => {
+    const descriptor = Object.getOwnPropertyDescriptor(review, field)
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) fail('card-shape')
+    return [field, descriptor.value]
+  }))
+  if (!cardWarnings(fields.warnings)) fail('card-warning')
+  return JSON.stringify(closed(fields, CARD_FIELDS))
+}
 const ascii = (value, min, max, diff = false) => typeof value === 'string' && value.length >= min
   && value.length <= max && !(diff ? /[^\x09\x0a\x20-\x7e]/u : /[^\x20-\x7e]/u).test(value)
+function passkeyCardBody(r) {
+  if (r.target !== 'plugins/owner-note/note.md')
+    return ascii(r.content, 0, 12000) && ascii(r.diff, 0, 12000, true) && r.content.length + r.diff.length <= 12000
+  return [r.content, r.diff].every(value => typeof value === 'string'
+    && !/[\x00-\x08\x0b-\x1f\x7f]/u.test(value)
+    && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value))
+    && Buffer.byteLength(r.content, 'utf8') + Buffer.byteLength(r.diff, 'utf8') <= 12000
+}
+function cardWarnings(value) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > 32
+    || Reflect.ownKeys(value).length !== value.length + 1) return false
+  for (let index = 0; index < value.length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value') || !ascii(descriptor.value, 1, 2048)) return false
+  }
+  return true
+}
 function coordinate(supplied, preserveOrder = false) {
   const value = closed(supplied, ['ledger_seq', 'ledger_hash'], preserveOrder)
   if (!integer(value.ledger_seq) || value.ledger_seq < 1 || !hex64(value.ledger_hash)) fail('ledger-coordinate')
@@ -79,7 +148,37 @@ function coordinate(supplied, preserveOrder = false) {
 
 /** H's actual review v3: independently pinned gate and active owner, exact stored bytes and challenge. */
 export function ownerAuthorizationGateReview(supplied, suppliedState, gateSpkiBase64, nowMs) {
+  if (versionOf(supplied) === 4) {
+    const r = closed(supplied, [...REVIEW_FIELDS, 'card_text', 'public_key', 'warnings', 'model_note_label', 'note_display'])
+    const state = ownerAuthorizationPasskeyState(suppliedState), pin = ownerAuthorizationGatePin(gateSpkiBase64)
+    const authorization = ownerAuthorization(r.owner_authorization)
+    if (r.displayable !== true || !integer(nowMs) || !integer(r.created) || !integer(r.expires)
+      || !integer(r.review_issued_at_ms) || !integer(r.review_expires) || r.created > r.review_issued_at_ms
+      || r.review_issued_at_ms > nowMs || nowMs >= r.review_expires || r.review_expires > r.expires
+      || r.pubkey_fp !== pin.pubkey_fp || r.gate_pubkey_sha256 !== pin.gate
+      || !passkeyCardBody(r) || !cardWarnings(r.warnings)
+      || r.model_note_label !== 'UNVERIFIED MODEL NOTE; DATA ONLY' || !ascii(r.note_display, 0, 1024)
+      || sha(r.content) !== r.new_sha
+      || !(r.from_to === null || ascii(r.from_to, 1, 600)) || !['ROUTINE', 'CRITICAL'].includes(r.clarity_label)
+      || !ascii(r.what_this_does, 1, 200) || !(r.model_note === null || ascii(r.model_note, 0, 200))) fail('gate-review')
+    if (typeof r.card_text !== 'string' || r.card_text !== ownerAuthorizationCardText(r)) fail('passkey-card-bytes')
+    const expected = ownerAuthorization({ version: 2, kind: 'aukora-owner-authorization/v2', operation: r.kind,
+      proposal_id: r.id, target: r.target, before_sha256: r.base_sha, after_sha256: r.new_sha,
+      gate: pin.gate, challenge: r.review_challenge, issued_at_ms: r.review_issued_at_ms, expires_at_ms: r.review_expires,
+      owner_subject: state.owner_subject, owner_root_id: state.owner_root_id, owner_epoch: state.owner_epoch,
+      node: state.node, card_sha256: sha(Buffer.from(r.card_text, 'utf8')) })
+    if (ownerAuthorizationText(authorization) !== ownerAuthorizationText(expected)
+      || r.authorization_digest !== ownerAuthorizationDigest(expected)) fail('gate-review-mismatch')
+    const options = closed(r.public_key, ['challenge', 'rpId', 'allowCredentials', 'userVerification', 'timeout'])
+    if (!Array.isArray(options.allowCredentials) || options.allowCredentials.length !== 1) fail('passkey-options')
+    options.allowCredentials = [closed(options.allowCredentials[0], ['type', 'id'])]
+    if (JSON.stringify(options) !== JSON.stringify(ownerAuthorizationPasskeyOptions(expected, state))) fail('passkey-options')
+    const review = Object.freeze({ ...r, owner_authorization: authorization, review_issue: coordinate(r.review_issue) })
+    return Object.freeze({ review, authorization, expectations: Object.freeze({ owner_state: state,
+      authorization_digest: r.authorization_digest, ...expected }), owner_state: state, gate_pin: pin })
+  }
   const r = closed(supplied, REVIEW_FIELDS), state = ownerAuthorizationOwnerState(suppliedState)
+  if (state.version !== 1) fail('weaker-proof')
   const pin = ownerAuthorizationGatePin(gateSpkiBase64)
   const authorization = ownerAuthorization(r.owner_authorization)
   if (r.version !== 3 || r.displayable !== true || !integer(nowMs)
@@ -140,6 +239,12 @@ export function verifyOwnerAuthorizationGateReceipt(suppliedReceipt, signatureBa
     || receipt.owner_consumption.review_issue.ledger_seq !== prepared.review.review_issue.ledger_seq
     || receipt.owner_consumption.review_issue.ledger_hash !== prepared.review.review_issue.ledger_hash) fail('gate-receipt-mismatch')
   // accepted is used ONLY after the independently pinned gate signature authenticated that exact value.
+  if (proof.version === 2) {
+    const verified = verifyOwnerAuthorizationReference(proof, receipt.owner_authorization, prepared.expectations, accepted,
+      { checkCounter: false })
+    return Object.freeze({ status: 'authenticated-gate-acknowledgement', receipt: Object.freeze(receipt),
+      reference: verified.reference, grants_authority: false, retained_history: 'H/D/E-verification-required' })
+  }
   const verified = verifyOwnerAuthorizationReference(proof, receipt.owner_authorization, prepared.expectations, accepted)
   return Object.freeze({ status: 'authenticated-gate-acknowledgement', receipt: Object.freeze(receipt),
     reference: verified.reference, grants_authority: false, retained_history: 'H/D/E-verification-required' })
@@ -147,6 +252,13 @@ export function verifyOwnerAuthorizationGateReceipt(suppliedReceipt, signatureBa
 
 /** Format validation only. The gate must supply and enforce its actual allowlist. */
 export function ownerAuthorization(supplied) {
+  if (versionOf(supplied) === 2) {
+    const a = closed(supplied, AUTHORIZATION_V2_FIELDS)
+    const legacy = Object.fromEntries(AUTHORIZATION_FIELDS.map(field => [field, a[field]]))
+    ownerAuthorization({ ...legacy, version: 1, kind: 'aukora-owner-authorization/v1' })
+    if (a.kind !== 'aukora-owner-authorization/v2' || !hex64(a.card_sha256) || !hex64(a.node)) fail('object')
+    return Object.freeze(a)
+  }
   const a = closed(supplied, AUTHORIZATION_FIELDS)
   if (a.version !== 1 || a.kind !== 'aukora-owner-authorization/v1'
     || !['change', 'revert'].includes(a.operation)
@@ -168,7 +280,9 @@ export function ownerAuthorization(supplied) {
 }
 
 export const ownerAuthorizationText = authorization => JSON.stringify(ownerAuthorization(authorization))
-export const ownerAuthorizationSigningBytes = authorization => Buffer.from(OWNER_AUTHORIZATION_DOMAIN + ownerAuthorizationText(authorization), 'utf8')
+export const ownerAuthorizationSigningBytes = authorization => versionOf(authorization) === 2
+  ? Buffer.from(OWNER_AUTHORIZATION_V2_DOMAIN + ownerAuthorizationText(authorization), 'utf8')
+  : Buffer.from(OWNER_AUTHORIZATION_DOMAIN + ownerAuthorizationText(authorization), 'utf8')
 export const ownerAuthorizationDigest = authorization => sha(ownerAuthorizationSigningBytes(authorization))
 export function parseOwnerAuthorization(text) {
   if (typeof text !== 'string' || Buffer.byteLength(text) > 4096) fail('wire')
@@ -179,23 +293,54 @@ export function parseOwnerAuthorization(text) {
 }
 
 function normalizedProof(supplied) {
+  if (versionOf(supplied) === 2) {
+    const proof = closed(supplied, ['version', 'algorithm', 'authorization', 'assertion'])
+    const assertion = closed(proof.assertion, ['kind', 'credential_id', 'client_data_json', 'authenticator_data', 'signature', 'user_handle'])
+    if (proof.algorithm !== OWNER_AUTHORIZATION_WEBAUTHN_ALGORITHM || assertion.kind !== 'passkey') fail('weaker-proof')
+    for (const field of ['credential_id', 'client_data_json', 'authenticator_data', 'signature'])
+      if (typeof assertion[field] !== 'string' || assertion[field].length === 0 || assertion[field].length > 32768) fail('assertion')
+    if (assertion.user_handle !== null && (typeof assertion.user_handle !== 'string' || assertion.user_handle.length > 128)) fail('assertion')
+    const authorization = ownerAuthorization(proof.authorization)
+    if (authorization.version !== 2) fail('weaker-proof')
+    return Object.freeze({ version: 2, algorithm: proof.algorithm, authorization, assertion: Object.freeze(assertion) })
+  }
   const proof = closed(supplied, ['algorithm', 'authorization', 'signature_base64'])
   if (proof.algorithm !== OWNER_KEY_ALGORITHM || typeof proof.signature_base64 !== 'string'
     || proof.signature_base64.length > 96) fail('signature')
   const signature = Buffer.from(proof.signature_base64, 'base64')
   if (signature.length < 8 || signature.length > 72 || signature.toString('base64') !== proof.signature_base64) fail('signature')
-  return Object.freeze({ algorithm: proof.algorithm, authorization: ownerAuthorization(proof.authorization),
+  const authorization = ownerAuthorization(proof.authorization)
+  if (authorization.version !== 1) fail('weaker-proof')
+  return Object.freeze({ algorithm: proof.algorithm, authorization,
     signature_base64: proof.signature_base64 })
 }
 
 export function ownerAuthorizationProofText(proof) { return JSON.stringify(normalizedProof(proof)) }
 export function ownerAuthorizationProofDigest(proof) {
+  if (versionOf(proof) === 2)
+    return sha(Buffer.from(OWNER_AUTHORIZATION_PROOF_V2_DOMAIN + ownerAuthorizationProofText(proof), 'utf8'))
   return sha(Buffer.from(OWNER_AUTHORIZATION_PROOF_DOMAIN + ownerAuthorizationProofText(proof), 'utf8'))
 }
 
 /** Full independently issued live challenge expectations, including exact unsigned-body digest. */
-export function verifyOwnerAuthorization(supplied, expectations, nowMs) {
+export function verifyOwnerAuthorization(supplied, expectations, nowMs, { checkCounter = true } = {}) {
   const proof = normalizedProof(supplied), a = proof.authorization
+  if (proof.version === 2) {
+    const e = closed(expectations, ['owner_state', 'authorization_digest', ...AUTHORIZATION_V2_FIELDS])
+    const state = ownerAuthorizationPasskeyState(e.owner_state)
+    if (!integer(nowMs) || a.issued_at_ms > nowMs || nowMs >= a.expires_at_ms) fail('passkey-expired')
+    if (a.node !== state.node || a.owner_subject !== state.owner_subject || a.owner_root_id !== state.owner_root_id
+      || a.owner_epoch !== state.owner_epoch) fail('passkey-state-mismatch')
+    if (e.authorization_digest !== ownerAuthorizationDigest(a)) fail('passkey-challenge-mismatch')
+    for (const field of AUTHORIZATION_V2_FIELDS) if (e[field] !== a[field]) fail('passkey-expectation-mismatch')
+    const assertion = verifyWebauthnAssertion({ material: proof.assertion, config: passkeyConfig(state),
+      ownerId: state.owner_subject, challenge: Buffer.from(ownerAuthorizationDigest(a), 'hex').toString('base64url'),
+      counter: state.sign_count, checkCounter })
+    const reference = Object.freeze({ version: 1, kind: 'aukora-owner-authorization-ref/v1',
+      authorization_id: ownerAuthorizationDigest(a), proof_sha256: ownerAuthorizationProofDigest(proof) })
+    return Object.freeze({ status: 'verified-owner-authorization', authorization: a, proof, reference, ...assertion,
+      custody: 'backup-eligible-credentials-may-sync', activation: 'UNPERFORMED', grants_authority: false })
+  }
   const e = closed(expectations, ['owner_root_spki_base64', 'authorization_digest', ...AUTHORIZATION_FIELDS])
   const pin = ownerRootPin(e.owner_root_spki_base64)
   if (!integer(nowMs) || a.issued_at_ms > nowMs || nowMs >= a.expires_at_ms) fail('expired')
@@ -216,15 +361,22 @@ export async function consumeOwnerAuthorization(proof, expectations, { nowMs, co
   if (typeof consumeOnce !== 'function') fail('durable-consumer-required')
   const verified = verifyOwnerAuthorization(proof, expectations, nowMs)
   const claim = Object.freeze({ authorization: verified.authorization, proof: verified.proof,
-    reference: verified.reference })
+    reference: verified.reference, ...(verified.proof.version === 2 ? { credential_id: verified.credential_id,
+      sign_count: verified.sign_count } : {}) })
   if (await consumeOnce(claim) !== true) fail('replay-or-consumption-unknown')
   return verified
 }
 
 /** Compare a reference already authenticated by the gate receipt verifier. No receipt authentication here. */
-export function verifyOwnerAuthorizationReference(proof, suppliedReference, expectations, nowMs) {
+export function verifyOwnerAuthorizationReference(proof, suppliedReference, expectations, nowMs, options) {
   const reference = closed(suppliedReference, ['version', 'kind', 'authorization_id', 'proof_sha256'])
-  const verified = verifyOwnerAuthorization(proof, expectations, nowMs)
+  const verified = verifyOwnerAuthorization(proof, expectations, nowMs, options)
+  if (verified.proof.version === 2) {
+    if (reference.version !== 1 || reference.kind !== 'aukora-owner-authorization-ref/v1'
+      || reference.authorization_id !== verified.reference.authorization_id
+      || reference.proof_sha256 !== verified.reference.proof_sha256) fail('receipt-reference')
+    return verified
+  }
   if (reference.version !== 1 || reference.kind !== 'aukora-owner-authorization-ref/v1'
     || reference.authorization_id !== verified.reference.authorization_id
     || reference.proof_sha256 !== verified.reference.proof_sha256) fail('receipt-reference')

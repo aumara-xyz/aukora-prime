@@ -3,9 +3,10 @@
 // (step 1 of 2)" is out of the tab order and only opens step 2, where the result must be TYPED before
 // "Confirm apply" works (single-use nonce, 2 min). Tab/Enter/Space alone cannot approve. Every POST must echo
 // the exact base and result sha256 the page showed, or it is refused.
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { bearerOk } from './secrets.mjs'
 import { colorName, isHex } from './card.mjs'
+import { OWNER_PASSKEY_SCRIPT } from './owner-passkey-script.mjs'
 
 export const CONFIRM_TTL_MS = 2 * 60 * 1000
 export const PAGE_APPROVER = 'owner via gate approval page (bearer token, typed 2-step confirm)'
@@ -92,4 +93,94 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
     send(404, 'not found', 'text/plain')
   }
   return { pageHtml, act, handler, confirms }
+}
+
+// Passkey routes accept only the configured HTTPS owner origin and bounded same-origin JSON.
+export function createPasskeyOwnerHandler(gate, { origin, rpId } = {}) {
+  const fail = code => { throw new Error(code) }
+  let configured
+  try { configured = new URL(origin) } catch { fail('OWNER_PASSKEY_ORIGIN_REQUIRED') }
+  if (configured.protocol !== 'https:' || configured.origin !== origin || configured.hostname !== rpId ||
+    !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(rpId) ||
+    /^\d+(?:\.\d+){3}$/.test(rpId)) fail('OWNER_PASSKEY_ORIGIN_REQUIRED')
+  const css = 'body{font:16px/1.5 system-ui;margin:2rem auto;padding:1rem;max-width:70rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid;padding:1rem}button,input{font:inherit;padding:.5rem;margin:.5rem 0}article{border-top:2px solid;margin-top:2rem}#status{white-space:pre-wrap}'
+  const hash = text => createHash('sha256').update(text).digest('base64')
+  const scriptHash = hash(OWNER_PASSKEY_SCRIPT)
+  const headers = { 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
+    'x-content-type-options': 'nosniff', 'permissions-policy': 'publickey-credentials-create=(self), publickey-credentials-get=(self)',
+    'content-security-policy': `default-src 'none'; script-src 'sha256-${scriptHash}'; style-src 'sha256-${hash(css)}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` }
+  const html = (mode, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Boundary gate — owner passkey</title><style>${css}</style><script defer src="/owner/passkey.js" integrity="sha256-${scriptHash}"></script></head><body data-owner-passkey data-origin="${esc(origin)}" data-rp-id="${esc(rpId)}" data-mode="${mode}"><h1>Boundary gate — owner passkey</h1><p>This page is served by the gate. A browser session alone cannot approve an effect.</p><p>A passkey signs exact card bytes after the device’s local user check. It does not prove a unique person; synced passkeys can leave the device.</p><p id="status" role="status"></p>${body}</body></html>`
+  const send = (res, status, body, type = 'application/json; charset=utf-8') => { res.writeHead(status, { ...headers, 'content-type': type }); res.end(type.startsWith('application/json') ? JSON.stringify(body) : body) }
+  const closed = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === keys.length && keys.every(key => Object.hasOwn(body, key))
+  const readBody = req => new Promise((resolve, reject) => {
+    let bytes = 0, chunks = [], settled = false, timer
+    const stop = (error, body) => { if (settled) return; settled = true; clearTimeout(timer); req.setTimeout?.(0); error ? reject(error) : resolve(body) }
+    const timedOut = () => stop(new Error('OWNER_PASSKEY_BODY_TIMEOUT'))
+    timer = setTimeout(timedOut, 10000); timer.unref?.()
+    req.setTimeout?.(10000, timedOut)
+    req.on('data', chunk => {
+      if (settled) return
+      bytes += Buffer.byteLength(chunk)
+      if (bytes > 65536) { chunks = []; stop(new Error('OWNER_PASSKEY_BODY_TOO_LARGE')); return }
+      chunks.push(Buffer.from(chunk))
+    })
+    req.on('error', () => stop(new Error('OWNER_PASSKEY_BODY_INVALID')))
+    req.on('aborted', () => stop(new Error('OWNER_PASSKEY_BODY_INVALID')))
+    req.on('end', () => {
+      if (settled) return
+      try { stop(null, JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)))) }
+      catch { stop(new Error('OWNER_PASSKEY_BODY_INVALID')) }
+    })
+  })
+  async function handler(req, res) {
+    try {
+      if (req.headers.host !== configured.host) fail('OWNER_PASSKEY_HOST_REFUSED')
+      if (typeof req.url !== 'string' || !req.url.startsWith('/') || req.url.startsWith('//') || req.url.length > 4096 || req.url.includes('#')) fail('OWNER_PASSKEY_PATH_REFUSED')
+      const url = new URL(req.url, origin), script = url.pathname === '/owner/passkey.js'
+      if (req.method === 'GET') {
+        if (script ? req.headers['sec-fetch-site'] !== 'same-origin' || req.headers['sec-fetch-mode'] !== 'no-cors' || req.headers['sec-fetch-dest'] !== 'script'
+          : !['same-origin', 'none'].includes(req.headers['sec-fetch-site']) || req.headers['sec-fetch-mode'] !== 'navigate' || req.headers['sec-fetch-dest'] !== 'document') fail('OWNER_PASSKEY_FETCH_METADATA_REFUSED')
+        if (script) {
+          if (url.search) fail('OWNER_PASSKEY_PATH_REFUSED')
+          return send(res, 200, OWNER_PASSKEY_SCRIPT, 'text/javascript; charset=utf-8')
+        }
+        if (url.pathname === '/owner/enroll' && !url.search) return send(res, 200, html('enroll', '<form id="enroll-form"><label for="claim-code">Root-minted single-use claim code</label><br><input id="claim-code" type="password" autocomplete="off" required maxlength="256"><br><button type="submit">Create and verify owner passkey</button></form>'), 'text/html; charset=utf-8')
+        if (url.pathname === '/owner/cards') {
+          if ([...url.searchParams.keys()].join(',') !== 'bearer') fail('OWNER_PASSKEY_PATH_REFUSED')
+          const bearer = url.searchParams.get('bearer')
+          if (!bearerOk(gate.owner, bearer, gate.now)) return send(res, 401, { ok: false, error: 'OWNER_PASSKEY_BEARER_REFUSED' })
+          const pending = await gate.ownerOps.pending({})
+          const cards = pending.pending.map(card => `<article data-card data-id="${esc(card.id)}"><h2>Proposal ${esc(card.id)}</h2><pre data-card-text>${esc(JSON.stringify(card, null, 2))}</pre><pre data-authorization hidden></pre><button type="button" data-review>Review exact card</button><button type="button" data-approve hidden>Approve once with passkey</button></article>`).join('')
+          return send(res, 200, html('cards', `<input id="owner-bearer" type="hidden" value="${esc(bearer)}">${cards || '<p>No pending proposals.</p>'}`), 'text/html; charset=utf-8')
+        }
+        return send(res, 404, { ok: false, error: 'OWNER_PASSKEY_PATH_REFUSED' })
+      }
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'OWNER_PASSKEY_METHOD_REFUSED' })
+      if (req.headers.origin !== origin) fail('OWNER_PASSKEY_ORIGIN_REFUSED')
+      if (req.headers['sec-fetch-site'] !== 'same-origin' || !['cors', 'same-origin'].includes(req.headers['sec-fetch-mode']) || req.headers['sec-fetch-dest'] !== '') fail('OWNER_PASSKEY_FETCH_METADATA_REFUSED')
+      if (req.headers['content-type'] !== 'application/json') fail('OWNER_PASSKEY_CONTENT_TYPE_REFUSED')
+      if (url.search) fail('OWNER_PASSKEY_PATH_REFUSED')
+      const body = await readBody(req)
+      const enroll = { '/owner/enroll/start': ['claim_code'], '/owner/enroll/register': ['enrollment_id', 'registration'], '/owner/enroll/finish': ['enrollment_id', 'assertion'] }
+      if (Object.hasOwn(enroll, url.pathname)) {
+        if (!closed(body, enroll[url.pathname])) fail('OWNER_PASSKEY_FIELDS_REFUSED')
+        const operation = { '/owner/enroll/start': 'startPasskeyEnrollment', '/owner/enroll/register': 'registerPasskeyEnrollment', '/owner/enroll/finish': 'finishPasskeyEnrollment' }[url.pathname]
+        return send(res, 200, { ok: true, result: await gate[operation](body) })
+      }
+      const keys = url.pathname === '/owner/review' ? ['bearer', 'id']
+        : url.pathname === '/owner/approve' ? ['bearer', 'id', 'base_sha', 'new_sha', 'review_challenge', 'owner_authorization_proof'] : null
+      if (!keys) return send(res, 404, { ok: false, error: 'OWNER_PASSKEY_PATH_REFUSED' })
+      if (!closed(body, keys)) fail('OWNER_PASSKEY_FIELDS_REFUSED')
+      if (!bearerOk(gate.owner, body.bearer, gate.now)) return send(res, 401, { ok: false, error: 'OWNER_PASSKEY_BEARER_REFUSED' })
+      const { bearer, ...args } = body
+      const result = url.pathname === '/owner/review' ? await gate.ownerOps.review(args)
+        : await gate.ownerOps.decide_review({ ...args, outcome: 'allowed-once' }, 'owner via gate passkey page')
+      send(res, 200, { ok: true, result })
+    } catch (error) {
+      const code = /^[A-Z][A-Z0-9_]+$/.test(error?.message) ? error.message : 'OWNER_PASSKEY_REFUSED'
+      send(res, code === 'OWNER_PASSKEY_BODY_TOO_LARGE' ? 413 : 403, { ok: false, error: code })
+      if (code === 'OWNER_PASSKEY_BODY_TOO_LARGE' || code === 'OWNER_PASSKEY_BODY_TIMEOUT') req.destroy?.()
+    }
+  }
+  return { handler }
 }
