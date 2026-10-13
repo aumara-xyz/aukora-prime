@@ -99,6 +99,19 @@ sudo install -o root -g root -m 0644 "$CADDY_CANDIDATE" /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
+When this host carries siblings, create each with its own `--name`, app and owner
+hostnames, and three loopback ports. Put all nodes in the ingress runbook's
+root-owned JSON inventory, render it with `render.py --nodes`, validate the exact
+candidate with `render.py --check` and Caddy, install, reload, then check the
+installed Caddyfile. To add C2, run the `create.sh` and `acceptance.sh --phase
+before` sequence above with C2's distinct values before adding its JSON row. To
+remove C2, remove its JSON row, render, validate, install, reload and check first;
+then deactivate or delete only C2 and remove its DNS. Do not reuse its ports until
+the installed-file check passes and its hostnames no longer answer. See the
+[ingress add/remove procedure](../ingress/README.md#add-a-second-node) for exact
+commands. Each hostname can reach only its node's ports. The app's `__Host-`
+cookie is host-only, so sibling hostnames cannot share it.
+
 `CADDY_CANDIDATE` is an operator-selected file; preserve any other existing host
 routes before installing it. Caddy sends only the exact broker endpoints to
 the claim port; app HTTP, WebSocket and SSE go directly to the harness. No DNS,

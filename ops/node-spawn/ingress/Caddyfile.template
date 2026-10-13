@@ -10,6 +10,8 @@
 	}
 }
 
+# BEGIN AUKORA NODE
+# Node __NODE_NAME__: these hostnames route only to this node's three ports.
 https://__APP_HOST__ {
 	import aukora_headers
 
@@ -72,6 +74,7 @@ http://__APP_HOST__ {
 http://__OWNER_HOST__ {
 	redir https://__OWNER_HOST__{uri} permanent
 }
+# END AUKORA NODE
 
 :80, :443 {
 	abort

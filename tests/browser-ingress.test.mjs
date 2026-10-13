@@ -2,7 +2,7 @@
 // Source fixtures exercise launch-dsh.py, claim.py, render.py and Caddyfile.template without a listener.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -12,6 +12,8 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const claimPath = join(root, 'ops/node-spawn/ingress/claim.py')
 const renderPath = join(root, 'ops/node-spawn/ingress/render.py')
 const templatePath = join(root, 'ops/node-spawn/ingress/Caddyfile.template')
+const ingressReadmePath = join(root, 'ops/node-spawn/ingress/README.md')
+const browserReadmePath = join(root, 'ops/node-spawn/browser/README.md')
 const launcherPath = join(root, 'scripts/launch-dsh.py')
 const python = '/usr/bin/python3'
 
@@ -288,7 +290,7 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
 })
 
 const rendererCourt = String.raw`
-import importlib.util, pathlib, sys
+import importlib.util, json, os, pathlib, tempfile, sys
 source = pathlib.Path(sys.argv[1])
 spec = importlib.util.spec_from_file_location('render_under_test', source)
 module = importlib.util.module_from_spec(spec)
@@ -302,7 +304,33 @@ for ports in [(28735, 28735, 28737), (28735, 28736, 28735), (28735, 28736, 28736
     try: module.render(template, 'node.example.test', 'owner.example.test', *ports)
     except ValueError as error: assert str(error) == 'INGRESS_PORTS_MUST_DIFFER'
     else: raise AssertionError('colliding upstreams accepted')
-print('PASS renderer: DNS authority and three distinct loopback upstreams')
+nodes = [
+    {'name':'C1','app_host':'one.example.test','owner_host':'one-owner.example.test','harness_port':28735,'owner_port':28736,'claim_port':28737},
+    {'name':'C2','app_host':'two.example.test','owner_host':'two-owner.example.test','harness_port':29735,'owner_port':29736,'claim_port':29737},
+]
+assert len(module.validate_nodes(nodes)) == 2
+invalid_port = [dict(node) for node in nodes]
+invalid_port[1]['harness_port'] = 29735.5
+try: module.validate_nodes(invalid_port)
+except ValueError as error: assert str(error) == 'INGRESS_NODE_VALUE_INVALID'
+else: raise AssertionError('non-integer JSON port accepted')
+for field, value, code in [('app_host', 'one.example.test', 'INGRESS_HOSTS_MUST_DIFFER'),
+                           ('harness_port', 28735, 'INGRESS_PORTS_MUST_DIFFER'),
+                           ('name', 'C1', 'INGRESS_NODE_NAME_INVALID')]:
+    crossed = [dict(node) for node in nodes]
+    crossed[1][field] = value
+    try: module.validate_nodes(crossed)
+    except ValueError as error: assert str(error) == code
+    else: raise AssertionError('cross-node collision accepted: ' + field)
+with tempfile.TemporaryDirectory() as temporary:
+    path = pathlib.Path(temporary) / 'nodes.json'
+    path.write_text(json.dumps(nodes))
+    path.chmod(0o600)
+    assert len(module.load_nodes(path, required_uid=os.getuid())) == 2
+    try: module.load_nodes(path, required_uid=os.getuid() + 1)
+    except ValueError as error: assert str(error) == 'INGRESS_NODES_FILE_INVALID'
+    else: raise AssertionError('wrong-owner nodes file accepted')
+print('PASS renderer: protected list, unique DNS authorities and unique loopback upstreams')
 `
 
 test('renderer refuses numeric authorities and colliding broker upstreams', t => {
@@ -313,7 +341,10 @@ test('renderer refuses numeric authorities and colliding broker upstreams', t =>
   assert.match(baseline.stdout, /^PASS renderer:/mu)
   const mutations = [
     ['DNS authority', 'or re.search(r"[a-z]", labels[-1]) is None', 'or False'],
-    ['three distinct upstreams', 'if len({harness_port, owner_port, claim_port}) != 3:', 'if False:'],
+    ['globally unique hostnames', 'if len(node_hosts) != 2 or hosts & node_hosts:', 'if len(node_hosts) != 2:'],
+    ['globally unique ports', 'if len(node_ports) != 3 or ports & node_ports:', 'if len(node_ports) != 3:'],
+    ['unique node names', 'or NODE_NAME.fullmatch(name) is None or name in names):', 'or NODE_NAME.fullmatch(name) is None or False):'],
+    ['root-owned nodes file', 'or info.st_uid != required_uid', 'or False'],
   ]
   const scratch = mkdtempSync(join(tmpdir(), 'aukora-ingress-render-mutants-'))
   writeFileSync(join(scratch, 'Caddyfile.template'), readFileSync(templatePath))
@@ -328,13 +359,99 @@ test('renderer refuses numeric authorities and colliding broker upstreams', t =>
   }
   const args = ['-I', '-S', renderPath, '--app-host', 'node.example.test', '--owner-host',
     'owner.example.test', '--harness-port', '28735', '--owner-port', '28736']
-  assert.notEqual(spawnSync(python, args, { encoding: 'utf8' }).status, 0)
-  const required = 'parser.add_argument("--claim-port", type=port, required=True)'
+  const missing = spawnSync(python, args, { encoding: 'utf8' })
+  assert.notEqual(missing.status, 0)
+  assert.match(missing.stderr, /single-node mode requires all five host and port flags/u)
+  const required = 'if any(value is None for value in single) or arguments.check is not None:'
   assert.equal(source.split(required).length, 2)
-  const file = join(scratch, 'claim-port-required.py')
-  writeFileSync(file, source.replace(required, required.replace('True', 'False')), { mode: 0o600 })
-  const mutant = spawnSync(python, args.map(value => value === renderPath ? file : value), { encoding: 'utf8' })
-  assert.throws(() => assert.notEqual(mutant.status, 0), assert.AssertionError,
-    'removing required claim port must fail the missing-port refusal check')
-  t.diagnostic('MUTATION renderer protections: 3/3 killed')
+  const missingGuard = join(scratch, 'missing-single-guard.py')
+  writeFileSync(missingGuard, source.replace(required, 'if arguments.check is not None:'), { mode: 0o600 })
+  const missingMutant = spawnSync(python, args.map(value => value === renderPath ? missingGuard : value), { encoding: 'utf8' })
+  assert.doesNotMatch(missingMutant.stderr, /single-node mode requires all five host and port flags/u)
+  t.diagnostic('MUTATION CAUGHT renderer required single-node flags')
+  t.diagnostic(`MUTATION renderer protections: ${mutations.length}/${mutations.length} killed`)
+})
+
+const nodesCliCourt = String.raw`
+import importlib.util, os, pathlib, sys
+source = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location('render_cli_under_test', source)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+load_nodes = module.load_nodes
+module.load_nodes = lambda path: load_nodes(path, required_uid=os.getuid())
+sys.argv = [str(source), *sys.argv[2:]]
+module.main()
+`
+
+function assertNodeCaddy(text, node, sibling) {
+  const start = text.indexOf(`# Node ${node.name}:`)
+  assert.notEqual(start, -1, node.name)
+  const next = text.indexOf('# Node ', start + 1)
+  const catchall = text.indexOf(':80, :443 {', start)
+  const block = text.slice(start, next === -1 ? catchall : next)
+  assert.match(block, new RegExp(`https://${node.app_host.replaceAll('.', '\\.')}`))
+  assert.match(block, new RegExp(`https://${node.owner_host.replaceAll('.', '\\.')}`))
+  assert.match(block, new RegExp(`http://${node.app_host.replaceAll('.', '\\.')}`))
+  assert.match(block, new RegExp(`http://${node.owner_host.replaceAll('.', '\\.')}`))
+  assert.equal(block.match(/import aukora_headers/gu)?.length, 2)
+  assert.equal(block.match(/header_up -X-Forwarded-\*/gu)?.length, 3)
+  assert.equal(block.match(/flush_interval -1/gu)?.length, 3)
+  assert.match(block, new RegExp(`handle @claim \\{\\s+reverse_proxy 127\\.0\\.0\\.1:${node.claim_port}`))
+  assert.match(block, new RegExp(`\\thandle \\{\\s+reverse_proxy 127\\.0\\.0\\.1:${node.harness_port}`))
+  assert.match(block, new RegExp(`header X-Frame-Options "DENY"\\s+reverse_proxy 127\\.0\\.0\\.1:${node.owner_port}`))
+  assert.match(block, /handle @launch_token \{\n\t\trespond 404\n\t\}/u)
+  for (const header of ['Origin', 'Cookie', 'Sec-Fetch-Dest', 'Sec-Fetch-Mode', 'Sec-Fetch-Site', 'Sec-Fetch-User']) {
+    assert.doesNotMatch(block, new RegExp(`header_up -?${header}\\b`, 'u'), `${node.name}: ${header}`)
+  }
+  for (const port of [sibling.harness_port, sibling.owner_port, sibling.claim_port]) {
+    assert.doesNotMatch(block, new RegExp(`127\\.0\\.0\\.1:${port}\\b`, 'u'), `${node.name}: sibling port ${port}`)
+  }
+}
+
+test('multi-node render keeps each sibling hostname on its own ports and check catches a crossed port', t => {
+  const scratch = mkdtempSync(join(tmpdir(), 'aukora-ingress-nodes-'))
+  const nodesPath = join(scratch, 'nodes.json')
+  const renderedPath = join(scratch, 'Caddyfile')
+  const nodes = [
+    { name: 'C1', app_host: 'one.example.test', owner_host: 'one-owner.example.test', harness_port: 28735, owner_port: 28736, claim_port: 28737 },
+    { name: 'C2', app_host: 'two.example.test', owner_host: 'two-owner.example.test', harness_port: 29735, owner_port: 29736, claim_port: 29737 },
+  ]
+  writeFileSync(nodesPath, `${JSON.stringify(nodes)}\n`, { mode: 0o600 })
+  const run = args => spawnSync(python, ['-I', '-S', '-c', nodesCliCourt, renderPath, ...args], { encoding: 'utf8' })
+  const rendered = run(['--nodes', nodesPath, '--output', renderedPath])
+  assert.equal(rendered.status, 0, rendered.stderr)
+  const text = readFileSync(renderedPath, 'utf8')
+  assertNodeCaddy(text, nodes[0], nodes[1])
+  assertNodeCaddy(text, nodes[1], nodes[0])
+  assert.equal(text.match(/^:80, :443 \{/gmu)?.length, 1)
+  assert.match(text, /Strict-Transport-Security "max-age=31536000"/u)
+  assert.match(text, /request_body \{\s+max_size 8MB/u)
+
+  const checked = run(['--check', renderedPath, '--nodes', nodesPath])
+  assert.equal(checked.status, 0, checked.stderr)
+  assert.match(checked.stdout, /^PASS ingress: rendered file matches 2 nodes$/mu)
+
+  writeFileSync(renderedPath, text.replace('127.0.0.1:29735', '127.0.0.1:28735'))
+  const crossed = run(['--check', renderedPath, '--nodes', nodesPath])
+  assert.notEqual(crossed.status, 0, 'cross-node port mutation survived --check')
+  assert.match(crossed.stderr, /INGRESS_RENDERED_MISMATCH/u)
+  t.diagnostic('MUTATION CAUGHT rendered C2 harness crossing to C1 harness port')
+
+  chmodSync(nodesPath, 0o622)
+  const writable = run(['--nodes', nodesPath])
+  assert.notEqual(writable.status, 0)
+  assert.match(writable.stderr, /INGRESS_NODES_FILE_INVALID/u)
+})
+
+test('operator runbooks state sibling isolation and ordered add/remove steps', () => {
+  const ingress = readFileSync(ingressReadmePath, 'utf8')
+  const browser = readFileSync(browserReadmePath, 'utf8')
+  for (const text of [ingress, browser]) {
+    assert.match(text, /Each hostname can reach only its node's ports|no rule may let one node's hostname reach a\s+sibling node's/u)
+    assert.match(text, /`__Host-`[\s\S]{0,100}host-only/u)
+  }
+  assert.match(ingress, /### Add a second node[\s\S]+create\.sh[\s\S]+JSON[\s\S]+render[\s\S]+validate[\s\S]+reload/u)
+  assert.match(ingress, /### Remove one node[\s\S]+Remove only that node's object[\s\S]+render[\s\S]+validate[\s\S]+reload Caddy/u)
+  assert.match(ingress, /render\.py --check \/etc\/caddy\/Caddyfile[\s\S]+--nodes \/etc\/caddy\/aukora-nodes\.json/u)
 })

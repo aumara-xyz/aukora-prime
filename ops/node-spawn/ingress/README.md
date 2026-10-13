@@ -1,4 +1,4 @@
-# C1 HTTPS ingress
+# Browser-node HTTPS ingress
 
 This is source and an operator procedure, not a deployed C1. It keeps the
 harness and owner page on container loopback, exposes two named HTTPS hosts
@@ -6,6 +6,13 @@ through Caddy, and exchanges a short-lived one-time claim for the harness's
 authority-bound cookie. The reusable harness launch token stays in its private
 loopback descriptor. Returning sign-in uses the enrolled gate passkey and the
 same spent-once claim store; a cookie permits app access and grants no approval.
+
+On a host with multiple nodes, every app and owner hostname and every one of the
+three loopback ports must be globally unique. A hostname's generated site blocks
+contain only that node's ports; no rule may let one node's hostname reach a
+sibling node's harness, owner page or claim broker. App cookies use the
+`__Host-` prefix, `Path=/`, `Secure`, and no `Domain`, so they are host-only and
+sibling hostnames cannot share them. One closed catch-all follows all named sites.
 
 Use Node `v24.11.1` for the repository build. Caddy and LXD run on the existing
 Ubuntu host; the claim broker runs as root inside the unprivileged C1 container.
@@ -89,6 +96,58 @@ sudo caddy validate --config /tmp/Caddyfile.c1 --adapter caddyfile
 sudo install -o root -g root -m 0644 /tmp/Caddyfile.c1 /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
+
+For one node, those existing flags retain the same rendered behavior. For more
+than one node, keep the complete non-secret inventory in a root-owned regular
+file with no group/other write bits. The JSON is a non-empty array; every object
+has exactly `name`, `app_host`, `owner_host`, `harness_port`, `owner_port`, and
+`claim_port`. Names use the same syntax as `create.sh` and are unique. Hostnames
+and ports are unique across the whole array. For example, stage the reviewed
+values and install them without exposing any private claim or launch token:
+
+```json
+[
+  {"name":"C1","app_host":"app-one.example.invalid","owner_host":"owner-one.example.invalid","harness_port":28735,"owner_port":28736,"claim_port":28737},
+  {"name":"C2","app_host":"app-two.example.invalid","owner_host":"owner-two.example.invalid","harness_port":29735,"owner_port":29736,"claim_port":29737}
+]
+```
+
+```sh
+sudo install -o root -g root -m 0644 "$REVIEWED_NODES_JSON" /etc/caddy/aukora-nodes.json
+sudo python3 ops/node-spawn/ingress/render.py --nodes /etc/caddy/aukora-nodes.json \
+  --output /etc/caddy/Caddyfile.aukora-candidate
+sudo python3 ops/node-spawn/ingress/render.py --check /etc/caddy/Caddyfile.aukora-candidate \
+  --nodes /etc/caddy/aukora-nodes.json
+sudo caddy validate --config /etc/caddy/Caddyfile.aukora-candidate --adapter caddyfile
+sudo install -o root -g root -m 0644 /etc/caddy/Caddyfile.aukora-candidate /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+sudo python3 ops/node-spawn/ingress/render.py --check /etc/caddy/Caddyfile \
+  --nodes /etc/caddy/aukora-nodes.json
+```
+
+### Add a second node
+
+1. Choose C2's two new DNS hostnames and three unused loopback ports. Add both
+   DNS records, but do not expose the high ports.
+2. Run `browser/create.sh` with `--name C2`, C2's `--app-host` and
+   `--owner-host`, and its own `--app-port`, `--owner-port`, and `--claim-port`;
+   then run `browser/acceptance.sh --name C2 --phase before`.
+3. Add C2's six fields to the reviewed JSON array, install that file root-owned,
+   and run the render, `render.py --check`, `caddy validate`, install, reload,
+   and live-file `render.py --check` commands above in that order.
+4. Complete C2's separate owner approval, start, after-approval acceptance and
+   outside checks. C1's claims, cookies and owner approval do not apply to C2.
+
+### Remove one node
+
+1. Remove only that node's object from the reviewed JSON; at least one node must
+   remain. Install the revised root-owned file, render a fresh candidate, run
+   `render.py --check` and `caddy validate`, install it, reload Caddy, and check
+   the live file exactly as above. Confirm the removed hostnames no longer answer
+   before reusing any port.
+2. Deactivate or destroy only that node using the browser runbook. Remove its DNS
+   records and retained data according to owner policy. Do not delete another
+   node's container, profile, ports, origins or state.
 
 The named HTTPS sites use Caddy's automatic certificates. The template has no
 access-log directive, bounds request bodies, preserves Host, Origin, Cookie and
