@@ -4,11 +4,12 @@ set -euo pipefail
 [[ $# == 4 && $1 == --name && $3 == --phase && $2 =~ ^[A-Za-z][A-Za-z0-9-]{0,62}$ && ( $4 == before || $4 == after ) ]] || {
   printf 'REFUSED BROWSER_ACCEPTANCE_USAGE\n' >&2; exit 1;
 }
-config=$(lxc --force-local config show "$2" --expanded --format=json) || { printf 'REFUSED BROWSER_ACCEPTANCE_CONFIG\n' >&2; exit 1; }
+# LXD 5.21 has no JSON form of "config show"; the instance API object carries the same expanded values.
+config=$(lxc --force-local query "/1.0/instances/$2") || { printf 'REFUSED BROWSER_ACCEPTANCE_CONFIG\n' >&2; exit 1; }
 printf '%s' "$config" | python3 -I -S -c '
 import json,re,sys
 try:
-    value=json.load(sys.stdin);config=value["config"];devices=value["devices"]
+    value=json.load(sys.stdin);config=value["expanded_config"];devices=value["expanded_devices"]
     assert config.get("security.privileged")=="false" and config.get("security.nesting")=="false"
     assert config.get("security.idmap.isolated")=="true" and config.get("security.devlxd")=="false"
     assert set(devices)=={"root","browser-app","browser-owner"} and devices["root"]["type"]=="disk"

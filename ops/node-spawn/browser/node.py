@@ -47,10 +47,11 @@ def digest(value, revision=False):
     return value
 
 
-def protected(path, directory=False, uid=0, private=False):
+def protected(path, directory=False, uid=0, private=False, linked=False):
     info = path.lstat()
     need(info.st_uid == uid and not info.st_mode & (0o077 if private else 0o022)
-         and (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode) and info.st_nlink == 1),
+         and (stat.S_ISDIR(info.st_mode) if directory
+              else stat.S_ISREG(info.st_mode) and (linked or info.st_nlink == 1)),
          'CUSTODY_INVALID')
 
 
@@ -228,6 +229,8 @@ def install(options):
                  '/usr', '/usr/local', '/usr/local/lib', '/var/lib/aukora-boundary', '/usr/local/lib/aukora-boundary'):
         if Path(name).exists() or Path(name).is_symlink():
             protected(Path(name), True)
+    # The stock image listens for SSH on every address; this node is reached only through its two proxies.
+    run(['systemctl', 'mask', '--now', 'ssh.socket', 'ssh.service'], 'SSH_DISABLE_REFUSED')
     STATE.mkdir(mode=0o700)
     deps = STATE / 'dependencies'
     extract(inputs / 'dependencies.tar.gz', deps)
@@ -395,7 +398,7 @@ def listeners(text):
     need(bool(rows), 'LISTENERS_MISSING')
     endpoints = [row.split()[3] for row in rows if len(row.split()) >= 4]
     try:
-        local = all(ipaddress.ip_address(item.rsplit(':', 1)[0].strip('[]')).is_loopback for item in endpoints)
+        local = all(ipaddress.ip_address(item.rsplit(':', 1)[0].strip('[]').split('%', 1)[0]).is_loopback for item in endpoints)
     except ValueError:
         local = False
     need(len(endpoints) == len(rows) and local, 'NON_LOOPBACK_LISTENER')
@@ -424,7 +427,9 @@ def accept(phase):
                 if entry.is_symlink():
                     need(entry.resolve().is_relative_to(path), 'PACKAGE_LINK')
                 else:
-                    protected(entry, entry.is_dir())
+                    # pnpm hard-links the built harness's dependencies from its root-private store;
+                    # owner and mode are still required there, a single link is not.
+                    protected(entry, entry.is_dir(), linked=entry.is_relative_to(CHECKOUT / 'vendor/dsh'))
     need(run([NODE, '--version'], 'NODE_INVALID').strip() == 'v24.11.1', 'NODE_VERSION_MISMATCH')
     bootstrap('check-package')
     bootstrap('check-runtime')

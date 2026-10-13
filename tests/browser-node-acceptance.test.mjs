@@ -21,10 +21,10 @@ function fixture(t) {
   const dir = fs.mkdtempSync(path.join(root, '.runtime/browser-accept-'))
   const config = path.join(dir, 'config.json'), log = path.join(dir, 'calls')
   fs.writeFileSync(path.join(dir, 'lxc'), '#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\n'
-    + 'case "$*" in *" config show "*) if [[ ${REFUSE_CONFIG:-0} == 1 ]]; then exit 1; fi; cat "$CONFIG" ;; *" exec "*) printf "PASS synthetic container acceptance\\n" ;; *) exit 66 ;; esac\n', { mode: 0o700 })
+    + 'case "$*" in *" query "*) if [[ ${REFUSE_CONFIG:-0} == 1 ]]; then exit 1; fi; cat "$CONFIG" ;; *" exec "*) printf "PASS synthetic container acceptance\\n" ;; *) exit 66 ;; esac\n', { mode: 0o700 })
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return (value = base, args = ['--name', 'C1', '--phase', 'after'], modified = source, extra = {}) => {
-    fs.writeFileSync(config, typeof value === 'string' ? value : JSON.stringify(value))
+    fs.writeFileSync(config, typeof value === 'string' ? value : JSON.stringify({ expanded_config: value.config, expanded_devices: value.devices }))
     fs.writeFileSync(log, '')
     const file = path.join(dir, 'acceptance.sh')
     fs.writeFileSync(file, modified)
@@ -54,7 +54,7 @@ test('acceptance validates arguments, local proxy readback and embedded Python s
   const call = fixture(t)
   const ok = call()
   assert.equal(ok.status, 0, ok.stderr)
-  assert.match(ok.calls, /^--force-local config show C1 --expanded --format=json\n--force-local exec C1 /)
+  assert.match(ok.calls, /^--force-local query \/1\.0\/instances\/C1\n--force-local exec C1 /)
   assert.match(ok.calls, /accept --phase after/)
   for (const args of [[], ['--name', '-C1', '--phase', 'after'], ['--name', 'C 1', '--phase', 'after'],
     ['--name', 'C1', '--phase', 'unknown'], ['--name', 'C1', '--phase', 'after', '--extra']]) {
