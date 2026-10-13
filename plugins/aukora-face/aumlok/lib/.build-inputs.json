@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "aumlok",
-  "srcDigest": "ff70663c1aa8b0d422f44cc1e77c932f9db2821afb8c742aef3e693de640ea46",
+  "srcDigest": "f604a2daf241d3f6255bf9270840259918a55722965174a727c4ae87da558d48",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",

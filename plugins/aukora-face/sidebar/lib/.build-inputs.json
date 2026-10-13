@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "sidebar",
-  "srcDigest": "5a15fa39eb2e104cd6f2a3a51dc6dbd59853e94f44f2611db5f029c69939a70b",
+  "srcDigest": "71c85b9e8ba262a6e8665ccc530f8dd94fac3f198d44350fdd2c577e9b288a30",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",

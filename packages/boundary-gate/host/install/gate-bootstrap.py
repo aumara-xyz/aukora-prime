@@ -29,13 +29,14 @@ LAUNCHER_ROOT = "/opt/aukora-genesis/src"
 # Exact launcher source inventory: reviewed C1 ingress diff from a2929e0 adds the
 # bounded public-origin passthrough and Secure public-cookie harness patch.
 # Explicit host environment overrides remain outside the pinned profile.
+# The recipe includes opt-in browser request, Remote and event admission.
 LAUNCHER_SOURCE_PINS = {
     "scripts/launch-dsh.py": "addb516dc4a8e1e9229a67e9d307ec4f91622046d539baf6f50ab02beaac3603",
     "scripts/genesis-check.mjs": "238ad43612280b79d0d0303480cb1a999bcf3b413fe18c97ebd9e0aedae3b303",
     "scripts/lib/artifact-integrity.mjs": "39e2f64643ceb2e0d93fabd14467ebaf5efd6de0e0a70f76cf19ce69825b5a41",
     "scripts/lib/release-strip.mjs": "1a687a82424b84420497edbdc5e6c13cb14e065fe4d262f0e859e9e85264b641",
     "scripts/artifacts-coverage.json": "4b652f8963fe5ed4ebe9436621c709d217cd08e97ff7986f14900efba6f9c592",
-    "upstream-dsh.json": "702c345f235c054b2c29fc60d7562360424a13aa148c77b37df1264e55bceb01",
+    "upstream-dsh.json": "bbc68938ec9c4c507692b0a38927d0a0894d472113e7b72e461b05535ea731f3",
 }
 AURA_ROOT = "/opt/aukora-aura"
 AURA_ENTRY = "packages/boundary-gate/host/aura/entry.mjs"

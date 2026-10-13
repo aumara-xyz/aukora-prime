@@ -1,0 +1,234 @@
+{
+  "formatVersion": 1,
+  "name": "browser-bootstrap-guard",
+  "reason": "Require browser-node admission before HTTP routes and upgrades and before Remote invocation; restrict unbound event streams to connection readiness and fail closed when policy is unavailable.",
+  "upstream": {
+    "repository": "https://github.com/deepseek-ai/deepseek-harness",
+    "baseCommit": "0d1f50007f9bca3f52b06e1c3074fa14d5fb0720",
+    "license": "MIT",
+    "licenseFiles": [
+      "licenses/DSH-MIT-LICENSE"
+    ],
+    "scope": "Opt-in WebServer pre-routing admission, Gateway pre-invocation admission and unbound forwarded-event filtering"
+  },
+  "edits": [
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "find": "  compressionThresholdBytes?: number\n",
+      "replace": "  compressionThresholdBytes?: number\n  /** Require the browser access policy before HTTP and upgrade dispatch. @default false */\n  browserAccessGuard?: boolean\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "find": "    compressionThresholdBytes: z.natural().default(DEFAULT_COMPRESSION_THRESHOLD_BYTES),\n",
+      "replace": "    compressionThresholdBytes: z.natural().default(DEFAULT_COMPRESSION_THRESHOLD_BYTES),\n    browserAccessGuard: z.boolean().default(false),\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "find": "  /** Listen; resolves once the socket is bound (rejection = FAILED fiber). */\n",
+      "replace": "  /** Enabled browser admission refuses when its policy service is unavailable. */\n  private browserRequestRejection(req: IncomingMessage, upgrade: boolean): string | undefined {\n    if (this.config.browserAccessGuard !== true) return undefined\n    try {\n      const guard = this.ctx.get('aukoraBrowserAccess') as {\n        requestRejection(request: IncomingMessage, upgrade: boolean): unknown\n      } | undefined\n      if (guard === undefined) return 'browser-node:binding-guard-unavailable'\n      const reason = guard.requestRejection(req, upgrade)\n      if (reason === undefined) return undefined\n      return typeof reason === 'string' && reason.length > 0\n        ? reason\n        : 'browser-node:binding-guard-unavailable'\n    } catch {\n      return 'browser-node:binding-guard-unavailable'\n    }\n  }\n\n  /** Listen; resolves once the socket is bound (rejection = FAILED fiber). */\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "find": "    const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {\n",
+      "replace": "    const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {\n      const reason = this.browserRequestRejection(req, false)\n      if (reason !== undefined) {\n        res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store' })\n        res.end(JSON.stringify({ ok: false, reason }))\n        return\n      }\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "find": "      let route: WebUpgradeRoute | undefined\n",
+      "replace": "      const reason = this.browserRequestRejection(req, true)\n      if (reason !== undefined) {\n        const body = JSON.stringify({ ok: false, reason })\n        socket.end(`HTTP/1.1 403 Forbidden\\r\\nContent-Type: application/json\\r\\nCache-Control: no-store\\r\\nConnection: close\\r\\nContent-Length: ${String(Buffer.byteLength(body))}\\r\\n\\r\\n${body}`)\n        return\n      }\n      let route: WebUpgradeRoute | undefined\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  readonly websocketHeartbeatIntervalMs?: number\n",
+      "replace": "  readonly websocketHeartbeatIntervalMs?: number\n  /** Require browser binding admission before Remote dispatch. @default false */\n  readonly browserAccessGuard?: boolean\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  static Config: z<Config> = z.object({\n",
+      "replace": "  static Config: z<Config> = z.object({\n    browserAccessGuard: z.boolean().default(false),\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  private srcClaims: ReadonlySet<string> | undefined\n",
+      "replace": "  private readonly browserAccessGuard: boolean\n  private srcClaims: ReadonlySet<string> | undefined\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "    super(ctx, 'typertGateway')\n",
+      "replace": "    super(ctx, 'typertGateway')\n    this.browserAccessGuard = config.browserAccessGuard === true\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  private claimsEndpoint(endpoint: string): boolean {\n",
+      "replace": "  /** Enabled browser Remote dispatch fails closed without its policy. */\n  private browserRemoteRejection(endpoint: string): string | undefined {\n    if (!this.browserAccessGuard) return undefined\n    try {\n      const guard = this.ctx.get('aukoraBrowserAccess') as { rpcRejection(endpoint: string): unknown } | undefined\n      if (guard === undefined) return 'browser-node:binding-guard-unavailable'\n      const reason = guard.rpcRejection(endpoint)\n      if (reason === undefined) return undefined\n      return typeof reason === 'string' && reason.length > 0\n        ? reason\n        : 'browser-node:binding-guard-unavailable'\n    } catch {\n      return 'browser-node:binding-guard-unavailable'\n    }\n  }\n\n  private assertBrowserRemoteAccess(endpoint: string): void {\n    const reason = this.browserRemoteRejection(endpoint)\n    if (reason !== undefined) throw Object.assign(new Error(reason), {\n      isDSHRemoteError: true, code: reason, details: { status: 403, reason },\n    })\n  }\n\n  private claimsEndpoint(endpoint: string): boolean {\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  async invoke(request: InvokeRemoteRequest): Promise<unknown> {\n",
+      "replace": "  async invoke(request: InvokeRemoteRequest): Promise<unknown> {\n    this.assertBrowserRemoteAccess(endpointOf(request.namespace, request.method))\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "      return await Reflect.apply(prepared.method, prepared.receiver, prepared.args) as unknown\n",
+      "replace": "      this.assertBrowserRemoteAccess(prepared.endpoint)\n      return await Reflect.apply(prepared.method, prepared.receiver, prepared.args) as unknown\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>> {\n",
+      "replace": "  async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>> {\n    this.assertBrowserRemoteAccess(endpointOf(request.namespace, request.method))\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "      source = Reflect.apply(prepared.method, prepared.receiver, prepared.args) as unknown\n",
+      "replace": "      this.assertBrowserRemoteAccess(prepared.endpoint)\n      source = Reflect.apply(prepared.method, prepared.receiver, prepared.args) as unknown\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "    if (endpoint === REMOTE_EVENT_RESULT_ENDPOINT) {\n      try {\n",
+      "replace": "    try { this.assertBrowserRemoteAccess(endpoint) } catch (error) { return rpcFailure(error) }\n    if (endpoint === REMOTE_EVENT_RESULT_ENDPOINT) {\n      try {\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "    if (endpoint === REMOTE_EVENT_STREAM_ENDPOINT) {\n      return this.openRemoteEvents(payload, signal)\n",
+      "replace": "    this.assertBrowserRemoteAccess(endpoint)\n    if (endpoint === REMOTE_EVENT_STREAM_ENDPOINT) {\n      return this.openRemoteEvents(payload, signal)\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "      yield* client.queue.iterate(lifetime)\n",
+      "replace": "      for await (const frame of client.queue.iterate(lifetime)) {\n        if (this.browserRemoteRejection('$events/content') === undefined) yield frame\n      }\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  private broadcastRemoteEvent(frame: TypertRemoteEventFrame): void {\n",
+      "replace": "  private broadcastRemoteEvent(frame: TypertRemoteEventFrame): void {\n    if (this.browserRemoteRejection('$events/content') !== undefined) return\n",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "find": "  private deliverRemoteEvent(pending: PendingRemoteEvent, client: RemoteEventClient): void {\n",
+      "replace": "  private deliverRemoteEvent(pending: PendingRemoteEvent, client: RemoteEventClient): void {\n    if (this.browserRemoteRejection('$events/content') !== undefined) return\n",
+      "occurrences": 1
+    }
+  ],
+  "expectAfterApply": [
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "contains": "browserAccessGuard: z.boolean().default(false)"
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "contains": "this.browserRequestRejection(req, false)"
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "contains": "this.browserRequestRejection(req, true)"
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "contains": "this.ctx.get('aukoraBrowserAccess')"
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "contains": "browser-node:binding-guard-unavailable"
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "contains": "'cache-control': 'no-store'"
+    },
+    {
+      "path": "packages/host/webserver/src/index.ts",
+      "contains": "Cache-Control: no-store"
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "browserAccessGuard: z.boolean().default(false)"
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "this.ctx.get('aukoraBrowserAccess')"
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "this.assertBrowserRemoteAccess(endpointOf(request.namespace, request.method))"
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "this.assertBrowserRemoteAccess(prepared.endpoint)"
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "try { this.assertBrowserRemoteAccess(endpoint) } catch (error) { return rpcFailure(error) }"
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "this.browserRemoteRejection('$events/content')"
+    },
+    {
+      "path": "packages/api/gateway/src/index.ts",
+      "contains": "isDSHRemoteError: true, code: reason, details: { status: 403, reason }"
+    }
+  ],
+  "expectAfterBuild": [
+    {
+      "path": "packages/host/webserver/lib/index.js",
+      "contains": "browserAccessGuard"
+    },
+    {
+      "path": "packages/host/webserver/lib/index.js",
+      "contains": "browserRequestRejection(req, false)"
+    },
+    {
+      "path": "packages/host/webserver/lib/index.js",
+      "contains": "browserRequestRejection(req, true)"
+    },
+    {
+      "path": "packages/host/webserver/lib/index.js",
+      "contains": "aukoraBrowserAccess"
+    },
+    {
+      "path": "packages/host/webserver/lib/index.js",
+      "contains": "browser-node:binding-guard-unavailable"
+    },
+    {
+      "path": "packages/host/webserver/lib/index.js",
+      "contains": "no-store"
+    },
+    {
+      "path": "packages/api/gateway/lib/index.js",
+      "contains": "browserAccessGuard"
+    },
+    {
+      "path": "packages/api/gateway/lib/index.js",
+      "contains": "assertBrowserRemoteAccess"
+    },
+    {
+      "path": "packages/api/gateway/lib/index.js",
+      "contains": "browserRemoteRejection"
+    },
+    {
+      "path": "packages/api/gateway/lib/index.js",
+      "contains": "$events/content"
+    },
+    {
+      "path": "packages/api/gateway/lib/index.js",
+      "contains": "browser-node:binding-guard-unavailable"
+    }
+  ]
+}

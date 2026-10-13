@@ -650,9 +650,13 @@ def browser_node_rows(browser_node: bool = False, public_origin: str = '') -> st
     return ('\n' + ''.join(f'- id: {name}\n  disabled: true\n' for name in BROWSER_DISABLED_ROWS)
             + '- id: connection\n  config:\n    trustedHosts: !!js ctx.webRuntime.trustedHosts\n'
             + '    cookieMaxAgeDays: 1\n'
+            + '- id: webserver\n  config:\n    browserAccessGuard: true\n'
+            + '- id: typert-gateway\n  config:\n    browserAccessGuard: true\n'
             + browser_binding_rows(public_origin)
             + '- insert:\n    - id: aukora-browser-refusal\n'
-            + f'      name: ./{BROWSER_REFUSAL_ENTRY}\n')
+            + f'      name: ./{BROWSER_REFUSAL_ENTRY}\n'
+            + '    - id: aukora-browser-bootstrap\n'
+            + '      name: ./plugins/aukora-action-gate/lib/browser-bootstrap.mjs\n')
 
 
 def restrict_browser_preset(text: str) -> str:
@@ -729,6 +733,7 @@ def composition_gate_policy(with_legacy_relay: bool = False, browser_node: bool 
     if browser_node:
         policy['pluginSet'] = [name for name in policy['pluginSet'] if name != 'aukora-buzz-door']
         policy['pluginSet'] = sorted(policy['pluginSet'] + ['aukora-browser-refusal'])
+        policy['pluginSet'] = sorted(policy['pluginSet'] + ['aukora-browser-bootstrap'])
     return policy
 
 

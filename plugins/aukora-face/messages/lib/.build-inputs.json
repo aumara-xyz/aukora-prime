@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "messages",
-  "srcDigest": "0f7715004d5c4ba8c343e20d72cc954a45105fc580fbd7197b0aad1f40985fc4",
+  "srcDigest": "6cb4cccd5f1c46a8a6781eda8be9f142bd432842f9a5f945eb6f278a1ca07af9",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",

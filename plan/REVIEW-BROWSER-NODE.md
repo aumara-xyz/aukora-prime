@@ -157,3 +157,103 @@ may share the app registrable domain.
 These source results do **not** prove a safe Internet node, containment, phrase
 secrecy, real-device custody, live cookie behavior, rendered-screen integrity,
 or that the four pieces have been installed and joined.
+
+
+## Working-tree unbound bootstrap repair — 2026-10-14, SOURCE ONLY
+
+Base `67e98443f0e83d4b909410308c7dc0290710d1ee`, plus this working tree.
+This supersedes the parked empty-list design, not the historical node observations
+above. The supplied real-node report shows that omitting the upload/session
+service chain leaves 31 client entries pending and prevents every screen.
+No build or installed browser run was performed for this repair.
+
+The archive SHA-256 is
+`ae0968314dcd5e3c9d7e8f1f5748bbd289afc4ef5668187e0ef6524a7c64c87e`,
+DSH `0d1f50007f9bca3f52b06e1c3074fa14d5fb0720`. Cited harness source files
+were compared with the archive and the supplied read-only extracted tree;
+`tests/browser-bootstrap-boot.test.mjs` repeats comparison for each loaded source.
+Paths/lines below refer to the pristine archive; first-party faces refer to this tree.
+
+The dependency trace is `apps/web/src/main.ts:6` ->
+`packages/client/web/src/boot.ts:81-87` -> `bootClient` -> `mountClient`.
+`boot-client.ts:54-55` waits for the actual Loader and rejects non-active entries.
+The renderer provides `slots` and `uiRenderer`; settings uses public-browser
+memory persistence (`ui-settings/src/client/index.ts:58`), so its host describe
+call is skipped. Locale and theme provide local services. File-upload's client
+provides `fileUpload` without uploading; session-controller's client requires it
+and provides `sessions` synchronously (`api/session-controller/src/client/index.ts:85-110`).
+The ui-session client waits on sessions and slots; the shared layout requires slots/theme/locale/sessions; Aumlok requires
+slots/locale/connection, then its projection/layout. Aumlok's status fetch runs
+at apply and connection reset; the existing projection subscription opens its
+surface. Removing fileUpload reproduces the genuine Loader pending failure in
+the new test. UI atoms and transport are fixtures; this is not a browser render.
+
+These are the eager Remote calls on that initial public, unbound path:
+
+| Method/stream | Client need and source | Reads only? / unbound policy |
+| --- | --- | --- |
+| `$events` | Gateway generation calls `ready(host)`; `api/gateway/src/client/remote-events.ts:135-143` | Only the ready frame is exposed; emit/waterfall contents are withheld. Allowed. |
+| `credentials/describe` | Web-search configuration badge; `client/ui-settings-plugins/src/client/web-search-card-controller.ts:98,128` | Yes: configured/writable metadata, values stripped by `api/settings-controller/src/credentials.ts:83-90`. Allowed. |
+| `agentPresets/list` | Hero preset chips and reset refresh; `client/ui-agent-preset/src/client/settings-store.ts` | Yes: path-free roster, `preset/agent-presets/src/index.ts:285-303`. Allowed. |
+| `session/modelCatalog` | Global model directory resolver; `client/ui-model-selection/src/client/index.ts:137`, `service.ts:52`, `catalog.ts:45` | Yes: provider/model names/default, no addressed session; `api/session-controller/src/catalog.ts:16-66`. Allowed. |
+| `permissionPresets/catalog` | Permission catalog subscribes to connection generation; `client/ui-permission-presets/src/client/index.ts:134-135`, `ui-permission-presets/src/client/catalog.ts:44-53,115-134` | Yes: configured names/descriptions (`interaction/permission-presets/src/index.ts:292-305,388-394`), does not apply permissions. Allowed. |
+| `dynamicCordisRunner/syncInspectManifest` | Scheduled inspection publication; `extensions/cordis-client-runner/src/client/inspect-registry.ts` | No: replaces host mirror, `extensions/cordis-host-runner/src/index.ts:497-500`. Refused; chain catches failure. |
+| `session/control` | Session controller starts its control stream at apply | Reads queue/message/projection content (`api/session-controller/src/control.ts`). Refused; failure callback logs, service stays mounted. |
+| `session/list` | SessionManager refresh on connection ready/reset | Reads summaries/projections. Refused; list remains pending with error, not a missing service. |
+| `dynamicCordisRunner/inventory` | UI Cordis refreshes at apply/reset; `extensions/ui-cordis/src/client/index.ts:58-61,82-85,173` | Reads session-associated agent/package/run diagnostics (`extensions/cordis-host-runner/src/index.ts:525-542`). Refused; `ui-cordis/src/client/inventory.ts:78-100` catches failure. |
+| `workspace/follow` | Workspace client starts snapshot stream at apply | Reads workspace paths/session IDs; unnecessary for binding. Refused; model stores failure. |
+
+A retained session selection can additionally attempt `subagents/list`; it is
+refused. Public `settings/describe` is skipped. The session-list readiness guard
+in the replacement `plugins/aukora-face/settings/src/client/SettingsOnboarding.tsx:35` prevents the
+initial DeepSeek onboarding reads `llm/listProviders` and
+`llm/listConfigurableProviders`. `GET /open-in-app/apps` is also eager but optional: its controller catches refusal and hides the host-open button (`client/ui-open-in-app/src/client/controller.ts:71-85`). No session-content read is admitted for this screen; retained local selection does not widen the policy.
+Static assets, theme, Aura snapshot, Aumlok control/identity reads and the four
+first-binding POSTs retain the parked exceptions; binding POSTs intentionally
+write identity state and are separate from the five-entry RPC list.
+
+`browser-bootstrap-guard.patch.json` checks HTTP before route/fallback selection
+and upgrades. Only GET `/api/remote.mux` can upgrade while unbound; the existing
+cookie/Host/Origin checks still run. Gateway checks run before Remote
+context/lookup resolution and again immediately before `Reflect.apply`; special
+`$events` and `$events/result` dispatch paths are checked too. The private
+`$events/content` sentinel is default-denied before binding, at broadcast,
+waterfall delivery and dequeue. Already-open connections admit new events after
+binding; prebinding pending waterfalls are replayed on normal reconnection.
+Bound calls and ordinary profiles use the original dispatch.
+
+HTTP refusal is 403 `{ok:false,reason:'browser-node:binding-required'}`.
+The actual mux pump emits `type:'error'` with the same code/message and
+`details:{status:403,reason:'browser-node:binding-required'}`. Missing/throwing/
+invalid policy uses `browser-node:binding-guard-unavailable`. The real pinned
+mux receive/pump is exercised in memory, without listen().
+
+Integrator commands, **NOT RUN**, from a clean reviewed checkout with a fresh
+archive extraction (retain any previous patched/built tree separately):
+
+```sh
+export PATH=$HOME/.local/node-v24.11.1/bin:$PATH
+python3 scripts/build-dsh.py
+scripts/build-face-bundles.sh
+python3 scripts/materialize-aukora-release.py --browser-node --public-origin "$AUKORA_APP_ORIGIN" --from "$PWD/vendor/dsh" --to "$AUKORA_REVIEWED_RELEASE"
+./security-review
+```
+
+Use the existing browser install/approval/start/acceptance route for an isolated
+rehearsal; obtain a fresh owner approval for the exact rebuilt plugin set.
+Do not reuse an earlier release's approval or hot-load these bytes into a node.
+The patch set changes from eight to nine. Existing harness
+`.dsh-build/pinned-harness-build.json`, `genesis-artifacts.json`, upstream client
+build/host artifact inventories, all nine face `lib/.build-inputs.json` records,
+and downstream release strip/artifact/plugin-set/materialization records need
+regeneration. Face inputs include `upstream-dsh.json`; stale manifests must not
+be relabelled. The installed bootstrap and root gate-package manifest also need
+regeneration through the installer because the launcher-recipe pin changed.
+Frozen NEXT face snapshots remain historical; no frozen pins were moved here.
+
+Reviewed capture reconciliation changed only the materializer hash and its
+review comment: browser webserver/gateway opt-ins, bootstrap mount and required
+plugin name. Kira rows/configuration/proposal socket and the gate.mjs hash are
+unchanged. The bootstrap's recipe pin and the default surface fingerprint were
+refreshed. This does not join a browser session to an exact owner/passkey,
+isolate active content, prove containment, or establish usable installed boot.

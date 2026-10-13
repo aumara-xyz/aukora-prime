@@ -57,7 +57,7 @@
       "source": "plugins/aukora-face/layout/lib/.build-inputs.json",
       "path": "faces/layout/lib/.build-inputs.json",
       "bytes": 2161,
-      "sha256": "567b4ebbaa5ca4a119c38229bc3b57ac5cf8400b3e51adf7f24a08c296633936",
+      "sha256": "38cc335df55d7020b52ae6a2484edd115b88322b9bbf0d18b6fb3f0b8535113f",
       "role": "bundle"
     },
     {
@@ -435,7 +435,7 @@
       "source": "plugins/aukora-face/sidebar/lib/.build-inputs.json",
       "path": "faces/sidebar/lib/.build-inputs.json",
       "bytes": 842,
-      "sha256": "817295172091fa2fdc586c5d7bc274c77402106f69232f1a1e500e7bb3c70829",
+      "sha256": "588062599ef927469c2a1b25322afcda09cbb559f5f39d1d9602d8af264bdb83",
       "role": "bundle"
     },
     {
@@ -533,7 +533,7 @@
       "source": "plugins/aukora-face/threads/lib/.build-inputs.json",
       "path": "faces/threads/lib/.build-inputs.json",
       "bytes": 1417,
-      "sha256": "bd2f757242cbc6f4955d4456ef8b7a448d7cca52638d113a3a3ac13d821ecac2",
+      "sha256": "6afa9b40ef989ddaf9e8c9632479a76b7b3620ce841d3f51055803176849e19c",
       "role": "bundle"
     },
     {
@@ -771,7 +771,7 @@
       "source": "plugins/aukora-face/apps/lib/.build-inputs.json",
       "path": "faces/apps/lib/.build-inputs.json",
       "bytes": 13599,
-      "sha256": "2098f3abe2eb529195a09bf3e04fcfdcf67c7cc3fe987f0669ed8d21573461a6",
+      "sha256": "d223363b3c58735fd5f1432f36b4abf1e87019b795427ec8cdff4d0337e8f6cd",
       "role": "bundle"
     },
     {
@@ -1611,7 +1611,7 @@
       "source": "plugins/aukora-face/messages/lib/.build-inputs.json",
       "path": "faces/messages/lib/.build-inputs.json",
       "bytes": 1363,
-      "sha256": "1239261bbf3f3cbe6bf1bfc2573e8ce50a8331d02b51ac1863dcd1b932afffa1",
+      "sha256": "f814858cb0e51d9a2e8cf6767093e3628ebdc5fabd1a36d64ab57ca4fdb6ba7f",
       "role": "bundle"
     },
     {
@@ -1821,7 +1821,7 @@
       "source": "plugins/aukora-face/memory/lib/.build-inputs.json",
       "path": "faces/memory/lib/.build-inputs.json",
       "bytes": 872,
-      "sha256": "e575a7cf9e7d8971c64c47b324258558434d5b985a2ebeb29205c05fa1b3a8ee",
+      "sha256": "2a3977aca9b5772a5d35a230f6913b4d7004b258ff2e0bb2689fcb663f606e70",
       "role": "bundle"
     },
     {
@@ -1940,7 +1940,7 @@
       "source": "plugins/aukora-face/aumlok/lib/.build-inputs.json",
       "path": "faces/aumlok/lib/.build-inputs.json",
       "bytes": 1844,
-      "sha256": "6ff0c0a881225899ee6b1c742ed493d0235aadab09ec242bfaac986b60568d4f",
+      "sha256": "b89eb109cbd0be4349c66fd21ce210521e6a4821cdf779d1f8f52fc750d9a9e8",
       "role": "bundle"
     },
     {
@@ -2171,7 +2171,7 @@
       "source": "plugins/aukora-face/documents/lib/.build-inputs.json",
       "path": "faces/documents/lib/.build-inputs.json",
       "bytes": 1131,
-      "sha256": "20be39cd84e225324a527f2525aea9f8314a8883b330898de4a8c13703cec272",
+      "sha256": "869b75372104c288b7bd55603026abedbb26d31d53abfe4b5ef7934696e0dc24",
       "role": "bundle"
     },
     {
@@ -2332,7 +2332,7 @@
       "source": "plugins/aukora-face/settings/lib/.build-inputs.json",
       "path": "faces/settings/lib/.build-inputs.json",
       "bytes": 1770,
-      "sha256": "dad1f1cbeef1d6e6aca17635b013f2c3ab136b54bb277a6194ef18757dc378c4",
+      "sha256": "80ccb66f3484e0fdb57acdd68f2e6c885145a5a5d3e3130dd2a93b978607ed23",
       "role": "bundle"
     },
     {

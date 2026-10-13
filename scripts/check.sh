@@ -624,7 +624,7 @@ check_tap 'AUKORA_BROWSER_CREATE_FAST=1 node --test --test-reporter=tap --test-s
 check_tap 'node --test --test-reporter=tap --test-name-pattern="browser installer browser-node-unit" tests/browser-node-install.test.mjs'
 check_tap 'node --test --test-reporter=tap --test-name-pattern="browser installer browser-node-pipeline|browser shell" tests/browser-node-install.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/browser-node-acceptance.test.mjs tests/browser-node-keys.test.mjs tests/browser-node-owner.test.mjs'
-check_tap 'node --test --test-reporter=tap tests/browser-release-profile.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/browser-release-profile.test.mjs tests/browser-bootstrap*.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/runtime-pilot-export.test.mjs'
 check 'node packages/ops/owner-save-pilot/v1/check-metadata.mjs'
 check 'node packages/ops/owner-save-pilot/v1/check-source.mjs --contracts-root "$PWD/packages/contracts/src"'

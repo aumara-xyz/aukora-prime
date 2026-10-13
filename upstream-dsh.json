@@ -48,6 +48,11 @@
       "file": "patches/subprocess-env-scrub.patch.json",
       "sha256": "02bfe26df92bf1c51239658da6323edce5ff8574a6a70c36a32edf8696680b32",
       "reason": "Scrub credential-shaped names, SSH/GPG agent variables and DSH_/AUKORA_ namespaces from inherited child environments; preserve explicit host overrides and pinned proxy handling."
+    },
+    {
+      "file": "patches/browser-bootstrap-guard.patch.json",
+      "sha256": "6f97ce6fdf0538437d193397edc128c920a81c360981f9603bc15e249596659a",
+      "reason": "Require browser-node admission before HTTP routes and upgrades and before Remote invocation; restrict unbound event streams to connection readiness and fail closed when policy is unavailable."
     }
   ]
 }
