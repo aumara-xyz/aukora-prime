@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "memory",
-  "srcDigest": "d03f076cfc0e3a69913461c04ca505b385fb64129cf7d5787ba59f9250ac4d9e",
+  "srcDigest": "1da5b774c2ead97be303df9259b93c8f415ba4765ba025d0f2b1f266523c552d",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",
