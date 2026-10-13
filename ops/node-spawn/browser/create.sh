@@ -48,7 +48,8 @@ complete=0
 cleanup() {
   local result=$?
   trap - EXIT
-  if [[ $complete == 0 ]]; then
+  # AUKORA_BROWSER_KEEP_FAILED=1 leaves a failed node in place for the operator to inspect and remove.
+  if [[ $complete == 0 && ${AUKORA_BROWSER_KEEP_FAILED:-0} != 1 ]]; then
     if [[ $created_container == 1 ]]; then lxc delete --force "$name" >/dev/null 2>&1 || printf "REFUSED BROWSER_CREATE_ROLLBACK_CONTAINER_FAILED\n" >&2; fi
     if [[ $created_profile == 1 ]]; then lxc profile delete "$profile" >/dev/null 2>&1 || printf "REFUSED BROWSER_CREATE_ROLLBACK_PROFILE_FAILED\n" >&2; fi
   fi
@@ -88,7 +89,8 @@ except (OSError, ValueError):
     sys.exit(1)
 PY
 )
-run() { local code=$1; shift; "$@" >"$work/action.log" 2>&1 || refuse "$code"; }
+# A failed step repeats only the named refusal lines of its output; nothing else leaves the action log.
+run() { local code=$1; shift; "$@" >"$work/action.log" 2>&1 || { grep -E '^REFUSED [A-Z0-9_]+$' "$work/action.log" >&2 || true; refuse "$code"; }; }
 source_git() { env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
 run BROWSER_CREATE_BUNDLE_INVALID source_git clone --quiet --no-checkout --no-local -- "$work/checkout.bundle" "$work/checkout"
 run BROWSER_CREATE_REVISION_UNAVAILABLE source_git -C "$work/checkout" checkout --quiet --detach "$revision"

@@ -63,6 +63,9 @@ def module(file):
 
 def run(command, code, env=None, cwd=None, expected=0):
     result = subprocess.run(command, env=env or ENV, cwd=cwd, capture_output=True)
+    if result.returncode != expected and STATE.is_dir():
+        # Root-private; the refusal code alone is printed.
+        (STATE / 'last-failure.log').write_bytes(result.stdout[-20000:] + b'\n--- stderr\n' + result.stderr[-20000:])
     need(result.returncode == expected, code)
     return result.stdout.decode()
 
