@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-// This client only calls the authenticated loopback door with an existing private credential.
+// This client only calls an authenticated IPv4-loopback door and accepts its two success statuses.
 import { readDoorCredential, VikingCredentialError } from './viking-auth.mjs'
 const [route, ...args] = process.argv.slice(2);
 const from = process.env.ROOM_ME;
 const fail = message => { process.stderr.write(`${message}\n`); process.exitCode = 1; };
 const plain = value => String(value).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
+const doorPort = value => {
+  if (value === undefined) return 8766
+  if (!/^[1-9][0-9]{0,4}$/u.test(value) || Number(value) > 65535) throw new Error('viking.cli:invalid-door-port')
+  return Number(value)
+}
 async function main() {
   if (!from || !/^[A-Za-z0-9_-]{1,64}$/.test(from)) return fail('Set ROOM_ME to your speaker name (1-64 letters, digits, underscores or hyphens), e.g. ROOM_ME=CLAUDE.');
   if (route !== 'remember' && route !== 'recall') return fail('Unknown Viking command.');
@@ -19,18 +24,21 @@ async function main() {
   }
   const json = JSON.stringify(body);
   if (Buffer.byteLength(json) > 16 * 1024) return fail('Request exceeds 16 KiB.');
+  const port = doorPort(process.env.AUKORA_VIKING_DOOR_PORT)
+  const door = new URL(`http://127.0.0.1:${port}`)
+  if (door.protocol !== 'http:' || door.hostname !== '127.0.0.1') return fail('viking.cli:non-loopback-door-refused')
   const authToken = readDoorCredential(process.env.AUKORA_VIKING_DOOR_KEY_FILE);
   if (json.includes(authToken)) return fail('Request refused.');
-  const response = await fetch(`http://127.0.0.1:8766/${route}`, {
+  const response = await fetch(new URL(`/${route}`, door), {
     method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-aukora-memory-version': '2', authorization: `Bearer ${authToken}` },
     body: json, signal: AbortSignal.timeout(120_000),
   });
-  if (!response.ok) return fail(`Viking door refused the request (HTTP ${response.status}).`);
+  if (![200, 201].includes(response.status)) return fail(`Viking door refused the request (HTTP ${response.status}).`);
   const result = await response.json();
   if (JSON.stringify(result).includes(authToken)) return fail('Viking door response suppressed.');
   if (route === 'remember') {
     if (!Number.isInteger(result?.remembered)) return fail('Viking door returned an invalid result.');
-    process.stdout.write(`${result.ids?.length ? 'Remembered' : 'Not captured'}${result.index?.pending ? '; indexing pending retry' : ''}.\n`);
+    process.stdout.write(`${result.ids?.length ? 'Remembered' : 'Not captured'}${result.index?.pending ? '; indexing pending retry' : ''}; door ${port}.\n`);
   } else {
     if (!Array.isArray(result?.notes)) return fail('Viking door returned an invalid result.');
     if (result.state === 'undetermined') return fail('Memory search unavailable.');
@@ -42,7 +50,9 @@ async function main() {
     else return fail('Viking door returned no recognized recall method.');
     if (!result.notes.length) process.stdout.write('No matching memories.\n');
     for (const hit of result.notes) process.stdout.write(`${plain(hit.text)}\nscore: ${Number(hit.score)}\nsource: ${plain(hit.uri)}\n\n`);
+    process.stdout.write(`door ${port}.\n`)
   }
 }
 main().catch(error => fail(error instanceof VikingCredentialError ? error.code
+  : typeof error?.message === 'string' && error.message.startsWith('viking.cli:') ? error.message
   : 'Viking door unavailable or returned an invalid response; no request details printed.'));

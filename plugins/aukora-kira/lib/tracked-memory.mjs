@@ -3,7 +3,7 @@
  * No approval, grant, queue proposal or authority is created by this module. */
 import { AURA_RECORD_DOMAIN, auraEntryHash, chainAuraEntries } from './memory-owner.mjs'
 import { buildRememberedNote, canonicalInstant, cutText, recomputeNoteId, sha256Hex, MEMORY_TIER } from './memory-tiers.mjs'
-import { contentHash, verifyContentHash } from './memory-quality.mjs'
+import { contentHash, memoryQuality, verifyContentHash } from './memory-quality.mjs'
 import { consumeTurn } from './memory-capture-hook.mjs'
 import { nextEntry, verifyChain as verifyJournal } from './memory-journal.mjs'
 import { STORE_PATHS, objectFileName } from './memory-store.mjs'
@@ -18,8 +18,26 @@ import { randomUUID } from 'node:crypto'
 import { parseAuraSourceProjection, createAuraAssociation, referenceForAssociatedNote, sourceIdentity } from './aura-association.mjs'
 
 const RETRY_BATCH = 8
+const RECIPROCAL_RANK_OFFSET = 60
 const retryFlights = new Map()
 const batchSize = value => Number.isInteger(value) && value > 0 ? Math.min(value, RETRY_BATCH) : RETRY_BATCH
+
+// Semantic and lexical result ranks both contribute; neither score scale can erase the other.
+export function fuseRecallHits(semanticHits, lexicalHits, limit) {
+  const rows = new Map()
+  for (const [source, hits] of [['semantic', semanticHits], ['lexical', lexicalHits]]) {
+    hits.forEach((hit, index) => {
+      const row = rows.get(hit.id) ?? { hit, semantic: Infinity, lexical: Infinity, fused: 0 }
+      row[source] = index + 1
+      row.fused += 1 / (RECIPROCAL_RANK_OFFSET + index + 1)
+      if (source === 'semantic') row.hit = hit
+      rows.set(hit.id, row)
+    })
+  }
+  return [...rows.values()]
+    .sort((a, b) => b.fused - a.fused || a.semantic - b.semantic || a.lexical - b.lexical || a.hit.id.localeCompare(b.hit.id))
+    .slice(0, limit).map(row => row.hit)
+}
 
 const chainFile = stateDir => `${stateDir}/${STORE_PATHS.rememberedAura}`
 const journalFile = stateDir => `${stateDir}/${STORE_PATHS.journal}`
@@ -404,8 +422,9 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
       const notes = filter([...ledger(live).entries.values(), ...live.withheld], live)
       const byId = new Map(notes.map(note => [note.id, note]))
       const count = Number.isInteger(limit) ? Math.max(1, Math.min(50, limit)) : SEMANTIC_DEFAULTS.limit
-      const lexicalHits = () => {
-        const records = notes.map(note => ({ recordId: note.id, text: note.statement }))
+      const lexicalHits = (semanticEligible = false) => {
+        const candidates = semanticEligible ? notes.filter(note => memoryQuality(note.statement).keep) : notes
+        const records = candidates.map(note => ({ recordId: note.id, text: note.statement }))
         return rankRecords(compileIndex(records), records, String(question ?? ''))
           .filter(row => row.score >= LEXICAL_METHOD.minScore).slice(0, count)
           .map(row => ({ id: row.recordId, score: row.score, note: byId.get(row.recordId), relevance: 'lexical-overlap',
@@ -417,18 +436,14 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
           ...(live.complete ? {} : { state: 'undetermined' }), method: LEXICAL_METHOD.name, ceiling: RETRIEVAL_CEILING,
           degraded: !lexical, semantic: { available: false, reason: answer.reason, failures: answer.failures }, memory: report, dropped: answer.dropped }
       }
-      const hits = answer.hits.flatMap(hit => {
+      const semanticHits = answer.hits.flatMap(hit => {
         const note = byId.get(hit.id)
         if (!note) return []
         if (!verifyContentHash(note.statement, hit.note?.contentHash).ok) { report.hashMismatches++; return [] }
         return [{ ...hit, note }]
       })
-      // Partial index: notes not indexed yet are invisible to the search by meaning. They are still the owner's
-      // notes, so text search covers them as well; its hits are appended and labelled, never mixed up with the others.
-      if (answer.coverage?.partial === true) {
-        const have = new Set(hits.map(hit => hit.id))
-        for (const hit of lexicalHits()) { if (hits.length >= count) break; if (!have.has(hit.id)) { hits.push(hit); have.add(hit.id) } }
-      }
+      const unsafeSemanticDrop = ['tampered', 'unreadable', 'unmapped'].some(key => answer.dropped?.[key]?.length > 0)
+      const hits = fuseRecallHits(semanticHits, unsafeSemanticDrop ? [] : lexicalHits(true), count)
       return { ...semanticNotes({ ...answer, hits }, 60_000), ...(live.complete && answer.ledgerComplete ? {} : { state: 'undetermined' }),
         semantic: { available: true, failures: answer.failures }, memory: report, dropped: answer.dropped }
     } catch {
