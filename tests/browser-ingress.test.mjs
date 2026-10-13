@@ -227,7 +227,9 @@ function assertCaddy(text) {
   }
   assert.match(text, /@claim path \/__aukora\/claim \/__aukora\/claim\.js \/__aukora\/signin \/__aukora\/signin\.js \/__aukora\/signout/u)
   assert.match(text, /@launch_token query token=\*/u)
-  assert.match(text, /respond @launch_token 404/u)
+  // The refusal sits in its own handle block: a bare respond is ordered after handle and would never fire.
+  assert.match(text, /handle @launch_token \{\n\t\trespond 404\n\t\}/u)
+  assert.doesNotMatch(text, /^\trespond @launch_token/mu)
   assert.doesNotMatch(text, /header Content-Security-Policy/u)
   assert.match(text, /X-Frame-Options "DENY"/u)
   assert.doesNotMatch(text, /^\s*log(?:\s|\{)/mu)
@@ -255,7 +257,7 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
     ['Host preservation', 'header_up Host {http.request.host}', 'header_up Host 127.0.0.1'],
     ['owner frame refusal', 'header X-Frame-Options "DENY"', 'header X-Removed-Frame "ALLOW"'],
     ['closed unknown hosts', ':80, :443 {', ':80 {'],
-    ['public launch token refused', 'respond @launch_token 404', 'respond @launch_token 200'],
+    ['public launch token refused', 'handle @launch_token {\n\t\trespond 404', 'handle @launch_token {\n\t\trespond 200'],
     ['returning signin route', '/__aukora/signin /__aukora/signin.js', '/removed/signin /removed/signin.js'],
     ['signout route', '/__aukora/signout', '/removed/signout'],
   ]

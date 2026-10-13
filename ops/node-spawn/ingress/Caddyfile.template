@@ -14,7 +14,10 @@ https://__APP_HOST__ {
 	import aukora_headers
 
 	@launch_token query token=*
-	respond @launch_token 404
+	# Inside a handle block: Caddy runs handle before a bare respond, so a bare one never fires here.
+	handle @launch_token {
+		respond 404
+	}
 
 	@claim path /__aukora/claim /__aukora/claim.js /__aukora/signin /__aukora/signin.js /__aukora/signout
 	handle @claim {
