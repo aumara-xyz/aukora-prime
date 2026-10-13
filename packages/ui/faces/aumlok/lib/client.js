@@ -577,7 +577,8 @@ window.__ModuleLoader__.load({
 				ok: false,
 				reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.NO_BROWSER_CEREMONY
 			};
-			if (input.projection.status !== "not-connected" || input.projection.reason !== "controller-absent") return {
+			const projection = input.projection;
+			if (!(projection.status === "not-connected" && (projection.reason === "controller-absent" || projection.reason === "control-unreadable" && projection.code === "aumlok-local:directory-malformed"))) return {
 				ok: false,
 				reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND
 			};

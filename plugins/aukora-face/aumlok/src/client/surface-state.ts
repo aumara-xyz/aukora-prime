@@ -61,8 +61,14 @@ export function aumlokFirstRunOpen(input: {
   if (input.alreadyOpened) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.ALREADY_OPENED }
   if (input.isLoopback) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.LOOPBACK }
   if (!input.browserCeremony) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.NO_BROWSER_CEREMONY }
-  if (input.projection.status !== 'not-connected' || input.projection.reason !== 'controller-absent')
-    return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND }
+  // A FRESH BROWSER NODE NAMES A BINDING DIRECTORY THAT DOES NOT EXIST YET (the ceremony creates it), and the
+  // store reports a named-but-absent directory as `directory-malformed`, not as absence. Seen on a real
+  // node: that is the state every unbound browser node is in. Opening the ceremony on it is safe: the bind
+  // route creates the directory exclusively and refuses anything already there.
+  const projection = input.projection as { status: string; reason?: string; code?: string }
+  const unbound = projection.status === 'not-connected' && (projection.reason === 'controller-absent'
+    || (projection.reason === 'control-unreadable' && projection.code === 'aumlok-local:directory-malformed'))
+  if (!unbound) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND }
   return { ok: true }
 }
 

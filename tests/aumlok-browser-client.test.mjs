@@ -378,6 +378,8 @@ async function firstRunDecisionChecks(api = surfaceState) {
   const unbound = { status: 'not-connected', reason: 'controller-absent' }
   const base = { active: false, alreadyOpened: false, browserCeremony: true, isLoopback: false, projection: unbound }
   assert.deepEqual(api.aumlokFirstRunOpen(base), { ok: true })
+  // The state a real fresh browser node reports: its named binding directory does not exist yet.
+  assert.deepEqual(api.aumlokFirstRunOpen({ ...base, projection: { status: 'not-connected', reason: 'control-unreadable', code: 'aumlok-local:directory-malformed' } }), { ok: true })
   for (const [change, refusal] of [
     [{ active: true }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.ALREADY_OPEN],
     [{ alreadyOpened: true }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.ALREADY_OPENED],
@@ -385,6 +387,7 @@ async function firstRunDecisionChecks(api = surfaceState) {
     [{ isLoopback: true }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.LOOPBACK],
     [{ projection: { status: 'not-connected' } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
     [{ projection: { status: 'not-connected', reason: 'adapter-unbound' } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
+    [{ projection: { status: 'not-connected', reason: 'control-unreadable', code: 'aumlok-local:entry-malformed' } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
     [{ projection: { status: 'connected', control: {} } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
     [{ projection: { status: 'connected', reason: 'controller-absent', control: {} } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
   ]) assert.deepEqual(api.aumlokFirstRunOpen({ ...base, ...change }), { ok: false, reason: refusal })
@@ -562,8 +565,9 @@ test('browser client protection mutations are detected', async () => {
     ['auto-open once guard', 'if (input.alreadyOpened)', 'if (false)'],
     ['auto-open loopback guard', 'if (input.isLoopback)', 'if (false)'],
     ['auto-open browser ceremony guard', 'if (!input.browserCeremony)', 'if (false)'],
-    ['auto-open status guard', "input.projection.status !== 'not-connected'", 'false'],
-    ['auto-open absent-controller guard', "input.projection.reason !== 'controller-absent'", 'false'],
+    ['auto-open status guard', "projection.status === 'not-connected' && (", 'true && ('],
+    ['auto-open absent-controller guard', "(projection.reason === 'controller-absent'", "(true"],
+    ['auto-open absent-directory code guard', "projection.code === 'aumlok-local:directory-malformed'", 'true'],
     ['step confirmation', "if (input.beat === 'confirm') return 3", 'if (false) return 3'],
     ['step completion', "if (input.bound || input.successfulBind) return 'complete'", 'if (false) return \'complete\''],
   ]) await mutation(name, sources['surface-state.ts'], before, after, firstRunDecisionChecks)
