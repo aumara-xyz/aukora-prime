@@ -501,3 +501,28 @@ On the live release, RAN: `ops/pilot/ui-probe.mjs` all served; `scripts/kira/att
 Done and then set aside as off-priority, by Peter's ruling the same hour: Auma was given a relay key, door settings for his test channel and a session on the live node, and posted one line there; the door registered. He does not want Buzz worked on now. It is idle; nothing depends on it.
 
 Peter's rulings this day, final: the product for now is BROWSER-BASED, a window onto a person's own node in the cloud; Electron and self-hosting come later. This week's target: a FRESH node (C1), not the pilot, opened in a normal browser and bound to him by the binding ceremony; then a second. Fresh nodes will be containers on the machine already paid for. Nothing counts as done until he has opened it himself.
+
+### 2026-10-13 checker: browser-node evidence stops before a durable start
+
+Checked `0427da2` offline under Node 24.11.1. The commit messages record, on the test machine: a fresh container from committed code; the pinned harness built offline; a release materialized; fresh gate keys; and before-approval acceptance PASS, with its last two fixes applied by hand to that node. A later message records one approval through the gate page by the owner's own click (ledger sequence 5), approval installed, floor verified and launcher provenance bound over 8,389 artifacts. Its start reached launcher checks and did not stay up.
+
+No commit message at this revision records a second fresh-gate ledger-5 approval or the harness staying started, so neither is raised here. NOT RUN: sign-in from a browser, the binding ceremony, a real passkey, after-approval acceptance or a model reply. The full checker record is `plan/CHECK-2026-10-13.md`; it is source and report evidence, not observation of an installed browser product.
+
+### 2026-10-13, afternoon: a fresh browser node, approved by the owner, opened in a normal browser
+
+RAN on the test machine (a fresh unprivileged container, no network, nothing copied from any node), by `ops/node-spawn/browser`:
+create from committed code; harness built offline; release materialized without relay or Buzz door; fresh gate keys;
+before-approval acceptance PASS. The owner approved through the gate's page with his own click on three successive
+builds; each started and passed the after-approval acceptance. A REHEARSAL instance of the last build, approved by a
+stand-in, was signed in from a real browser over HTTPS with a one-time link (Secure, one-day session), loaded the full
+app, and showed the binding screen through phrase generation and retyping.
+
+Found only by running it for real, each fixed and tested: pnpm 11's offline settings; a 256 KB read bound against a
+2 MB release record; git refusing a root-owned checkout; profile files written after the release was measured; a
+proxy rule that never fired (the launch token reached the harness on the public address); the proxy sending an empty
+Origin; a 30-day session where one day is required; a profile that disabled the browser client's upload transport;
+the binding screen needing the node's origin as release bytes; SSH listening inside the stock image.
+
+NOT RUN: the final Bind step in a browser; the owner's own binding; passkey approval; a model reply; voice; a second node.
+Open from review (plan/REVIEW-BROWSER-NODE.md): a signed-in but unbound session keeps general RPC access (the pinned
+harness has no hook to restrict it); four fixes are written and parked because they change the harness cookie patch.

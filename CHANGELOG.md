@@ -1,5 +1,11 @@
 # Changelog
 
+## Checker — 13 October 2026
+
+- Checked revision `0427da2` with Node 24.11.1: the security profile had 0 failures and 11 unperformed rows; the registered offline suite exposed a sandboxed network crash, a load-sensitive timeout that passed on rerun and a supplied stale build prerequisite that failed instead of reporting unperformed.
+- Ran all 61 top-level test files added that day and recorded the loopback, built-input and timeout limits in [the dated check](plan/CHECK-2026-10-13.md).
+- Added the browser-node status from commit-message evidence without promoting the unrecorded second approval or successful start. Browser sign-in, binding, a real passkey, after-approval acceptance and a model reply remain unperformed.
+
 ## Private NEXT — 2 October 2026
 
 This increment continues exact reviewed `fbbb1ae` on `prime/next-development`.

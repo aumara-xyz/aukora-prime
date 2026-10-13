@@ -428,8 +428,35 @@
       "next": "Run on the received revision with the documented prerequisites and retain its output; this proves the scoped temporary boot, not installation or containment."
     },
     {
+      "name": "Browser node",
+      "description": "The browser-node procedure creates an unprivileged container from a stock image, builds the pinned harness offline, materializes a relay-free release, generates gate keys, holds the harness for first approval, and wires one-time sign-in over HTTPS itself.",
+      "code": [
+        "ops/node-spawn/browser/create.sh",
+        "ops/node-spawn/browser/node.py",
+        "ops/node-spawn/browser/acceptance.sh",
+        "ops/node-spawn/browser/start.sh"
+      ],
+      "state": "RAN on a real node",
+      "basis": "Run by the builder on the test machine on October 13 and recorded in that day's commit messages and plan/NORTH-STAR.md: a fresh container created from committed code with no network; an offline harness build; release materialization; fresh gate keys; before-approval acceptance PASS. The owner approved a release through the gate's page with his own click on three successive fresh builds (ledger sequence 5 on each fresh gate); each started and passed the after-approval acceptance. On the last build a stand-in approved a REHEARSAL instance through the same page: after-approval acceptance PASS including the one-use claim exchange; a one-time link signed a real browser in over HTTPS with a Secure one-day session; the full app loaded; the binding screen rendered UNBOUND, generated a throwaway phrase and accepted its retyping. From outside: no cookie 401, cross-site 403, foreign Origin 403, launch-token query 404. NOT RUN: the final Bind step in a browser, the owner's own binding, a real passkey, a model reply, a reboot, any second node. The approval is a bearer link plus typed confirmation, not a device key.",
+      "evidence": [
+        "plan/CHECK-2026-10-13.md",
+        "plan/NORTH-STAR.md",
+        "ops/node-spawn/browser/README.md"
+      ],
+      "command": "node --test tests/browser-node-acceptance.test.mjs tests/browser-node-create.test.mjs tests/browser-node-install.test.mjs tests/browser-node-keys.test.mjs tests/browser-node-owner.test.mjs tests/browser-release-profile.test.mjs",
+      "commandPaths": [
+        "tests/browser-node-acceptance.test.mjs",
+        "tests/browser-node-create.test.mjs",
+        "tests/browser-node-install.test.mjs",
+        "tests/browser-node-keys.test.mjs",
+        "tests/browser-node-owner.test.mjs",
+        "tests/browser-release-profile.test.mjs"
+      ],
+      "next": "A fresh node the owner approves once and binds himself; then passkey approval on that node."
+    },
+    {
       "name": "One-command example start",
-      "description": "One command turns a clone into a running, locked-down system on loopback, with commands to see a refusal, approve a change and verify its signed receipt.",
+      "description": "One command turns a clone into a running loopback example, with commands to see a refusal, approve a change and verify its signed receipt.",
       "code": [
         "harness/cli.mjs"
       ],
