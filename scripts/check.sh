@@ -624,7 +624,12 @@ check_tap 'AUKORA_BROWSER_CREATE_FAST=1 node --test --test-reporter=tap --test-s
 check_tap 'node --test --test-reporter=tap --test-name-pattern="browser installer browser-node-unit" tests/browser-node-install.test.mjs'
 check_tap 'node --test --test-reporter=tap --test-name-pattern="browser installer browser-node-pipeline|browser shell" tests/browser-node-install.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/browser-node-acceptance.test.mjs tests/browser-node-keys.test.mjs tests/browser-node-owner.test.mjs'
-check_tap 'node --test --test-reporter=tap tests/browser-release-profile.test.mjs tests/browser-bootstrap*.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/browser-release-profile.test.mjs'
+# These three need the fetched harness archive and its build; without them each prints a named UNPERFORMED
+# line and exits 2, which only a direct run (not the TAP runner) reports as unperformed rather than failed.
+check 'node tests/browser-bootstrap-guard.test.mjs'
+check 'node tests/browser-bootstrap-mux.test.mjs'
+check 'node tests/browser-bootstrap-boot.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/runtime-pilot-export.test.mjs'
 check 'node packages/ops/owner-save-pilot/v1/check-metadata.mjs'
 check 'node packages/ops/owner-save-pilot/v1/check-source.mjs --contracts-root "$PWD/packages/contracts/src"'
