@@ -175,8 +175,9 @@ record=json.load(sys.stdin)
 m=types.ModuleType('export_fixture')
 exec(compile((Path(root)/'ops/node-spawn/browser/node.py').read_text(),'node.py','exec'),m.__dict__)
 m.installed=lambda: {'revision':record['release']['revision'],'inputs':dict(record['installer_inputs'],app_host='PRIVATE_HOST',owner_host='PRIVATE_HOST')}
-sources={'plugin-set-approver.json':{'gatePubkeyPem':record['signer']['public_key_pem']},'plugin-set-approval.json':record['approval'],'release-floor.json':record['floor'],'signer-epochs.json':{'epochs':[{'gate_pubkey_sha256':record['signer']['sha256']}]},'plugin-set.json':{'setDigest':record['release']['plugin_set_sha256']},'aukora-release.json':{'tipSha':record['release']['revision']},'genesis-artifacts.json':{'artifacts':[]}}
-m.evidence_json=lambda file: (sources[file.name],b'${artifacts.replaceAll('\n', '\\n')}')
+sources={'plugin-set-approver.json':{'gatePubkeyPem':record['signer']['public_key_pem']},'plugin-set-approval.json':record['approval'],'release-floor.json':record['floor'],'plugin-set.json':{'setDigest':record['release']['plugin_set_sha256'],'release':{'commit':record['release']['revision']}}}
+m.evidence_json=lambda file,label: (sources[file.name],json.dumps(sources[file.name]).encode())
+m.evidence_digest=lambda file: __import__('hashlib').sha256(b'${artifacts.replaceAll('\n', '\\n')}').hexdigest()
 m.protected=lambda *args,**kwargs: None
 m.gate_signer=lambda: record['signer']['public_key_pem']
 m.NODE=node

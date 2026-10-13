@@ -352,17 +352,27 @@ m.main(["model-key"])
         file = self.root / 'record.json'
         file.write_text('{"public":true}')
         with patch.object(M, 'protected') as custody:
-            self.assertEqual(M.evidence_json(file), ({'public': True}, b'{"public":true}'))
+            self.assertEqual(M.evidence_json(file, 'APPROVER_PIN'), ({'public': True}, b'{"public":true}'))
             self.assertEqual(custody.call_args_list[-1].args, (file,))
             self.assertEqual([call.args for call in custody.call_args_list[:-1]], [(parent, True) for parent in file.parents])
-            file.write_text('{}' + ' ' * (4 * 1024 * 1024 - 1))
-            rejects(lambda: M.evidence_json(file), 'EVIDENCE_INPUT_LIMIT')
+            for label, limit in M.EVIDENCE_JSON_LIMITS.items():
+                file.write_bytes(b'{}' + b' ' * (limit - 1))
+                rejects(lambda: M.evidence_json(file, label), 'EVIDENCE_' + label + '_LIMIT')
         file.write_text('{}')
         def custody(path, directory=False):
             if path == file.parent:
                 raise ValueError('BROWSER_CUSTODY_INVALID')
         with patch.object(M, 'protected', side_effect=custody):
-            rejects(lambda: M.evidence_json(file), 'CUSTODY_INVALID')
+            rejects(lambda: M.evidence_json(file, 'APPROVER_PIN'), 'CUSTODY_INVALID')
+
+    def test_evidence_artifact_digest_is_streamed_and_named(self):
+        file = self.root / 'genesis-artifacts.json'
+        payload = b'{"artifacts":[]}' + b' ' * (2 * 1024 * 1024)
+        file.write_bytes(payload)
+        with patch.object(M, 'protected'):
+            self.assertEqual(M.evidence_digest(file), hashlib.sha256(payload).hexdigest())
+            file.write_bytes(b'x' * (M.EVIDENCE_ARTIFACT_RECORD_MAX_BYTES + 1))
+            rejects(lambda: M.evidence_digest(file), 'EVIDENCE_ARTIFACT_RECORD_LIMIT')
 
     def test_evidence_projection_revision_and_public_schema(self):
         value = {'revision': 'a' * 40, 'inputs': dict(checkout='1' * 64, node='2' * 64,
@@ -370,12 +380,12 @@ m.main(["model-key"])
         sources = {'plugin-set-approver.json': {'gatePubkeyPem': 'public fixture PEM'},
                    'plugin-set-approval.json': {'receipt': {'v': 2, 'kind': 'change'}},
                    'release-floor.json': {'signer_key_sha256': '5' * 64},
-                   'plugin-set.json': {'setDigest': '6' * 64},
-                   'aukora-release.json': {'tipSha': 'a' * 40}, 'genesis-artifacts.json': {'artifacts': []}}
-        def read(file):
+                   'plugin-set.json': {'setDigest': '6' * 64, 'release': {'commit': 'a' * 40}}}
+        def read(file, label):
             result = sources[file.name]
             return result, json.dumps(result).encode()
         with patch.object(M, 'installed', return_value=value), patch.object(M, 'evidence_json', side_effect=read), patch.object(M, 'protected') as custody, \
+                patch.object(M, 'evidence_digest', return_value=hashlib.sha256(b'{"artifacts":[]}').hexdigest()) as artifact_digest, \
                 patch.object(M, 'gate_signer', return_value='public fixture PEM') as ping, \
                 patch.object(M.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')) as verifier:
             checks = [{'name': 'root_platform', 'status': 'FAIL'}]
@@ -383,7 +393,8 @@ m.main(["model-key"])
             record = json.loads(raw)
             self.assertNotIn('PRIVATE_', raw)
             self.assertEqual(record['installer_inputs'], {name: value['inputs'][name] for name in ('checkout', 'node', 'dependencies', 'harness')})
-            self.assertEqual(record['release']['record_sha256'], hashlib.sha256(read(Path('genesis-artifacts.json'))[1]).hexdigest())
+            self.assertEqual(record['release']['record_sha256'], hashlib.sha256(b'{"artifacts":[]}').hexdigest())
+            artifact_digest.assert_called_with(Path('/opt/aukora-genesis/release-aaaaaaa/.dsh-build/genesis-artifacts.json'))
             self.assertEqual(record['checks'], checks)
             self.assertIsNone(record['record_signature'])
             self.assertEqual(list(record['approval']['receipt']), ['v', 'kind'])
@@ -392,9 +403,9 @@ m.main(["model-key"])
             self.assertIn((Path(M.NODE),), [call.args for call in custody.call_args_list])
             checker = M.CHECKOUT / 'scripts/audit/browser-node-evidence.mjs'
             self.assertIn((checker,), [call.args for call in custody.call_args_list])
-            sources['aukora-release.json']['tipSha'] = 'b' * 40
+            sources['plugin-set.json']['release']['commit'] = 'b' * 40
             rejects(lambda: M.evidence_record(checks), 'EVIDENCE_REVISION_MISMATCH')
-            sources['aukora-release.json']['tipSha'] = 'a' * 40
+            sources['plugin-set.json']['release']['commit'] = 'a' * 40
             ping.return_value = 'rotated public fixture PEM'
             rejects(lambda: M.evidence_record(checks), 'EVIDENCE_SIGNER_MISMATCH')
             ping.return_value = 'public fixture PEM'
@@ -407,6 +418,86 @@ m.main(["model-key"])
                     M.refuse('CUSTODY_INVALID')
             custody.side_effect = unsafe
             rejects(lambda: M.evidence_record(checks), 'CUSTODY_INVALID')
+
+    def test_evidence_real_node_sized_inputs_and_installer_modes(self):
+        revision = 'a' * 40
+        self.root.chmod(0o755)
+        release = self.root / ('release-' + revision[:7])
+        build = release / '.dsh-build'
+        approval = self.root / 'approvals' / revision / 'state'
+        gate_state = approval / 'gate-state'
+        state = self.root / 'installer'
+        for directory in (release, build, approval, gate_state, state):
+            directory.mkdir(parents=True, exist_ok=True)
+            directory.chmod(0o755)
+        installed = {'revision': revision, 'inputs': {'checkout': '1' * 64, 'node': '2' * 64,
+            'dependencies': '3' * 64, 'harness': '4' * 64}}
+        plugin_files = {f'plugins/synthetic/file-{index:04d}.mjs': '6' * 64 for index in range(630)}
+        plugin_set = {'kind': 'aukora-plugin-set/v1', 'setDigest': '5' * 64,
+            'release': {'commit': revision}, 'files': plugin_files}
+        artifact_entries = [{'path': f'plugins/synthetic/{index:05d}-' + 'p' * 44, 'sha256': '7' * 64}
+                            for index in range(15700)]
+        artifact_bytes = json.dumps({'artifacts': artifact_entries}, separators=(',', ':')).encode()
+        self.assertGreater(len(artifact_bytes), 2 * 1024 * 1024)
+        strip_entries = [{'path': f'upstream/deleted/{index:04d}-' + 's' * 47, 'bytes': 1, 'sha256': '8' * 64}
+                         for index in range(9700)]
+        strip_bytes = json.dumps({'deleted': strip_entries}, separators=(',', ':')).encode()
+        self.assertGreater(len(strip_bytes), 1536 * 1024)
+        files = {
+            state / 'installed.json': json.dumps(installed).encode(),
+            gate_state / 'plugin-set-approver.json': json.dumps({'gatePubkeyPem': 'public fixture PEM'}).encode(),
+            gate_state / 'plugin-set-approval.json': json.dumps({'receipt': {'v': 2}}).encode(),
+            self.root / 'release-floor.json': json.dumps({'signer_key_sha256': '9' * 64}).encode(),
+            build / 'plugin-set.json': json.dumps(plugin_set).encode(),
+            build / 'genesis-artifacts.json': artifact_bytes,
+            release / 'strip-manifest.json': strip_bytes,
+            build / 'aukora-release.json': json.dumps({'tipSha': revision, 'dependencies': ['d' * 128] * 40000}).encode(),
+            gate_state / 'ledger-export.json': b'x' * (5 * 1024 * 1024),
+        }
+        for file, payload in files.items():
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(payload)
+            file.chmod(0o644)
+        (self.root / 'release-floor.json').chmod(0o644)
+        self.assertGreater((build / 'aukora-release.json').stat().st_size, 4 * 1024 * 1024)
+        observed = set()
+        def custody(path, directory=False, uid=0, private=False, linked=False):
+            if path != self.root and not path.is_relative_to(self.root):
+                return
+            info = path.lstat()
+            self.assertEqual(stat.S_IMODE(info.st_mode), 0o755 if directory else 0o644)
+            self.assertFalse(info.st_mode & 0o022)
+            observed.add(path)
+        original_evidence_json = M.evidence_json
+        def evidence_json(file, label):
+            if file == Path('/etc/aukora-approvals/release-floor.json'):
+                file = self.root / 'release-floor.json'
+            return original_evidence_json(file, label)
+        verifier = subprocess.CompletedProcess([], 0, b'', b'')
+        with patch.object(M, 'STATE', state), patch.object(M, 'release_paths', return_value=(release, approval)), \
+                patch.object(M, 'protected', side_effect=custody), patch.object(M, 'gate_signer', return_value='public fixture PEM'), \
+                patch.object(M, 'evidence_json', side_effect=evidence_json), patch.object(M.subprocess, 'run', return_value=verifier):
+            record = json.loads(M.evidence_record([{'name': 'root_platform', 'status': 'FAIL'}]))
+        self.assertEqual(record['release']['record_sha256'], hashlib.sha256(artifact_bytes).hexdigest())
+        self.assertEqual(record['release']['plugin_set_sha256'], plugin_set['setDigest'])
+        self.assertNotIn(build / 'aukora-release.json', observed)
+        self.assertNotIn(release / 'strip-manifest.json', observed)
+        self.assertNotIn(gate_state / 'ledger-export.json', observed)
+        for file in (state / 'installed.json', gate_state / 'plugin-set-approver.json',
+                     gate_state / 'plugin-set-approval.json', self.root / 'release-floor.json',
+                     build / 'plugin-set.json', build / 'genesis-artifacts.json'):
+            self.assertIn(file, observed)
+
+    def test_evidence_custody_accepts_installer_public_modes(self):
+        directory = types.SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR | 0o755, st_nlink=1)
+        regular = types.SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | 0o644, st_nlink=1)
+        with patch.object(M.Path, 'lstat', return_value=directory):
+            M.protected(Path('/synthetic-release'), True)
+        with patch.object(M.Path, 'lstat', return_value=regular):
+            M.protected(Path('/synthetic-release/record.json'))
+        regular.st_mode = stat.S_IFREG | 0o664
+        with patch.object(M.Path, 'lstat', return_value=regular):
+            rejects(lambda: M.protected(Path('/synthetic-release/record.json')), 'CUSTODY_INVALID')
 
     def test_evidence_gate_ping_is_bounded_read_only_and_public(self):
         response = json.dumps({'ok': True, 'result': {'ok': True, 'pubkey_fp': 'a' * 16, 'pubkey_pem': 'public fixture PEM'}}).encode() + b'\n'
@@ -655,7 +746,9 @@ def guard_mutations():
         'read_model_key': ['test_model_key_input_refusals_and_prompt'],
         'model_store_key': ['test_model_key_custody_and_store_refusals'],
         'main': ['test_usage_every_option', 'test_profile_rules_and_service_preflight'],
+        'evidence_custody': ['test_evidence_reads_bound_public_sources'],
         'evidence_json': ['test_evidence_reads_bound_public_sources'],
+        'evidence_digest': ['test_evidence_artifact_digest_is_streamed_and_named'],
         'evidence_record': ['test_evidence_projection_revision_and_public_schema'],
         'accept_evidence': ['test_evidence_hides_output_and_preserves_failure'],
         'gate_signer': ['test_evidence_gate_ping_is_bounded_read_only_and_public'],
@@ -704,6 +797,9 @@ def guard_mutations():
         ('failure status', '    if failed:\n', '    if False:\n', 'test_evidence_hides_output_and_preserves_failure'),
         ('evidence root', "    root_check()\n    checks = []", "    checks = []", 'test_evidence_hides_output_and_preserves_failure'),
         ('verifier custody', '    for file in (Path(NODE), verifier):\n        for parent in file.parents:\n            protected(parent, True)\n        protected(file)\n', '', 'test_evidence_projection_revision_and_public_schema'),
+        ('large materialization independence', "    artifact_sha256 = evidence_digest(release / '.dsh-build/genesis-artifacts.json')\n",
+         "    evidence_json(release / '.dsh-build/aukora-release.json', 'PLUGIN_SET')\n    artifact_sha256 = evidence_digest(release / '.dsh-build/genesis-artifacts.json')\n",
+         'test_evidence_real_node_sized_inputs_and_installer_modes'),
     ]
     for label, before, after, method in controls:
         assert TEXT.count(before) == 1, label
@@ -712,7 +808,7 @@ def guard_mutations():
         with contextlib.redirect_stdout(io.StringIO()):
             BrowserInstaller(method).run(result)
         M = original_module
-        assert result.failures, 'evidence removal survived: ' + label
+        assert result.failures or result.errors, 'evidence removal survived: ' + label
     print('SOURCE-ONLY browser evidence exporter mutations: %d/%d killed' % (len(controls), len(controls)))
     observations = [
         ("            checks.append({'name': name, 'status': 'FAIL'})", "            checks.append({'name': name, 'status': 'PASS'})"),

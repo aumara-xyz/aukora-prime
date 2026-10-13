@@ -39,6 +39,16 @@ MODEL_HOME = Path('/home/aukora-host/genesis/state/home')
 MODEL_STORE = '.credentials.yaml'
 MODEL_KEY_MAX_BYTES = 4096
 MODEL_STORE_MAX_BYTES = 32 * 1024
+EVIDENCE_JSON_LIMITS = {
+    'INSTALL_RECORD': 16 * 1024,
+    'APPROVER_PIN': 64 * 1024,
+    'APPROVAL_CACHE': 128 * 1024,
+    'RELEASE_FLOOR': 16 * 1024,
+    'PLUGIN_SET': 2 * 1024 * 1024,
+}
+# A real 15,700-entry artifact record is about 2 MiB; 8 MiB permits growth while keeping the streamed read finite.
+EVIDENCE_ARTIFACT_RECORD_MAX_BYTES = 8 * 1024 * 1024
+EVIDENCE_DIGEST_CHUNK_BYTES = 64 * 1024
 
 
 def refuse(code):
@@ -159,10 +169,8 @@ def checked_inputs(options, stage):
 
 
 def installed():
-    protected(STATE, True)
     file = STATE / 'installed.json'
-    protected(file)
-    value = json.loads(file.read_text())
+    value, _ = evidence_json(file, 'INSTALL_RECORD')
     need(isinstance(value, dict) and set(value) == {'revision', 'inputs'} and isinstance(value['inputs'], dict), 'INSTALL_RECORD_INVALID')
     digest(value['revision'], True)
     return value
@@ -877,33 +885,53 @@ def accept(phase, checks=None):
         checks[-1]['status'] = 'PASS'
 
 
-def evidence_json(file):
+def evidence_custody(file):
     for parent in file.parents:
         protected(parent, True)
     protected(file)
+
+
+def evidence_json(file, label):
+    evidence_custody(file)
+    limit = EVIDENCE_JSON_LIMITS[label]
     with file.open('rb') as source:
-        raw = source.read(4 * 1024 * 1024 + 1)
-    need(len(raw) <= 4 * 1024 * 1024, 'EVIDENCE_INPUT_LIMIT')
+        raw = source.read(limit + 1)
+    need(len(raw) <= limit, 'EVIDENCE_' + label + '_LIMIT')
     return json.loads(raw), raw
+
+
+def evidence_digest(file):
+    evidence_custody(file)
+    total = 0
+    digest = hashlib.sha256()
+    with file.open('rb') as source:
+        while True:
+            block = source.read(EVIDENCE_DIGEST_CHUNK_BYTES)
+            if not block:
+                break
+            total += len(block)
+            need(total <= EVIDENCE_ARTIFACT_RECORD_MAX_BYTES, 'EVIDENCE_ARTIFACT_RECORD_LIMIT')
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def evidence_record(checks):
     # Export only public approval proofs, digests and named check outcomes.
     value = installed()
     release, approval = release_paths(value)
-    pin, _ = evidence_json(approval / 'gate-state/plugin-set-approver.json')
-    receipt, _ = evidence_json(approval / 'gate-state/plugin-set-approval.json')
-    floor, _ = evidence_json(Path('/etc/aukora-approvals/release-floor.json'))
-    plugins, _ = evidence_json(release / '.dsh-build/plugin-set.json')
-    metadata, _ = evidence_json(release / '.dsh-build/aukora-release.json')
-    _, artifact_bytes = evidence_json(release / '.dsh-build/genesis-artifacts.json')
-    need(metadata.get('tipSha') == value['revision'], 'EVIDENCE_REVISION_MISMATCH')
+    pin, _ = evidence_json(approval / 'gate-state/plugin-set-approver.json', 'APPROVER_PIN')
+    # This cache holds one signed apply row; the growing gate ledger is not read or exported.
+    receipt, _ = evidence_json(approval / 'gate-state/plugin-set-approval.json', 'APPROVAL_CACHE')
+    floor, _ = evidence_json(Path('/etc/aukora-approvals/release-floor.json'), 'RELEASE_FLOOR')
+    plugins, _ = evidence_json(release / '.dsh-build/plugin-set.json', 'PLUGIN_SET')
+    need(plugins.get('release', {}).get('commit') == value['revision'], 'EVIDENCE_REVISION_MISMATCH')
+    artifact_sha256 = evidence_digest(release / '.dsh-build/genesis-artifacts.json')
     public_key = pin['gatePubkeyPem']
     need(gate_signer() == public_key, 'EVIDENCE_SIGNER_MISMATCH')
     # The verifier derives the full fingerprint from this public key and binds it to the floor.
     record = {'kind': 'aukora-browser-node-evidence/v1', 'phase': 'after',
               'observed_at': datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
-              'release': {'revision': value['revision'], 'record_sha256': hashlib.sha256(artifact_bytes).hexdigest(),
+              'release': {'revision': value['revision'], 'record_sha256': artifact_sha256,
                           'plugin_set_sha256': plugins['setDigest']},
               'signer': {'public_key_pem': public_key, 'sha256': floor['signer_key_sha256']},
               'approval': receipt, 'floor': floor,
