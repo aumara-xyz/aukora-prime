@@ -30,6 +30,11 @@
       "reason": "Agent process launch requires the AUKORA native confinement service before child execution; full-access session mode cannot bypass it, and unwired native SDK providers refuse startup."
     },
     {
+      "file": "patches/public-browser-secure-cookie.patch.json",
+      "sha256": "41aaee4b38de8cdec99e02d94c81c6354ff4ca443db4fc5b307e21b9c0099b62",
+      "reason": "Mark authority-bound browser cookies Secure for non-loopback hosts while retaining the existing loopback HTTP development exchange."
+    },
+    {
       "file": "patches/cordis-logger-exporter-disposer.patch.json",
       "sha256": "49b01ff3947d94bd928cfc1bbed697e53206daf33711e43f2225fdf736ce2ed6",
       "reason": "Dispose the logger exporter by its captured registration ID so unloading an earlier exporter cannot remove a later exporter. Narrow backport of official DSH ac2f890291a0c1f5b8bc785fca2ae39005343819; no Cordis API or configuration upgrade."

@@ -1,0 +1,41 @@
+{
+  "formatVersion": 1,
+  "name": "public-browser-secure-cookie",
+  "reason": "Mark authority-bound browser cookies Secure for non-loopback hosts while retaining the existing loopback HTTP development exchange.",
+  "edits": [
+    {
+      "path": "packages/client/connection/src/browser-auth.ts",
+      "find": "import { credentialKey } from '@deepseek-ai/dsh-credentials'",
+      "replace": "import { credentialKey } from '@deepseek-ai/dsh-credentials'\nimport { isLoopbackHostname } from './loopback-hostname.ts'",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/client/connection/src/browser-auth.ts",
+      "find": "function sessionCookie(name: string, value: string, expiresAt: number, maxAgeSeconds: number): string {\n  return `${name}=${value}; Max-Age=${String(maxAgeSeconds)}; Path=/; Expires=${new Date(expiresAt).toUTCString()}; HttpOnly; SameSite=Strict`\n}",
+      "replace": "function sessionCookie(authority: string, name: string, value: string, expiresAt: number, maxAgeSeconds: number): string {\n  const hostname = new URL(`http://${authority}`).hostname\n  const secure = isLoopbackHostname(hostname) ? '' : '; Secure'\n  return `${name}=${value}; Max-Age=${String(maxAgeSeconds)}; Path=/; Expires=${new Date(expiresAt).toUTCString()}; HttpOnly; SameSite=Strict${secure}`\n}",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/client/connection/src/browser-auth.ts",
+      "find": "          'set-cookie': sessionCookie(\n            cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),\n          ),",
+      "replace": "          'set-cookie': sessionCookie(\n            authority, cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),\n          ),",
+      "occurrences": 1
+    }
+  ],
+  "expectAfterApply": [
+    {
+      "path": "packages/client/connection/src/browser-auth.ts",
+      "contains": "const secure = isLoopbackHostname(hostname) ? '' : '; Secure'"
+    },
+    {
+      "path": "packages/client/connection/src/browser-auth.ts",
+      "contains": "authority, cookieName(authority), value"
+    }
+  ],
+  "expectAfterBuild": [
+    {
+      "path": "packages/client/connection/lib/types/browser-auth.js",
+      "contains": "; Secure"
+    }
+  ]
+}

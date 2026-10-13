@@ -12,6 +12,8 @@ parser.add_argument('--foreground', action='store_true',
                     help='Linux service supervision: retain the log pump, forward signals and return the backend exit status')
 parser.add_argument('--node', type=Path, help='foreground service: exact protected runtime executable')
 parser.add_argument('--approval-state-root', type=Path, help='foreground service: root-protected plugin approval cache')
+parser.add_argument('--public-origin-file', type=Path,
+                    help='foreground service: root-protected file containing one canonical https://hostname origin')
 parser.add_argument('--patch', action='append', default=[], type=Path,
                     help='extra loader patch overlay applied after the profile layer (repeatable)')
 parser.add_argument('--approved-record-sha', action='append', default=[],
@@ -42,6 +44,40 @@ def _root_protected(path):
         if part.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
             parser.error('service-path-not-root-protected')
     return path
+
+def parse_public_origin(value):
+    """Return the one public hostname accepted from a canonical HTTPS origin file."""
+    if value.endswith('\n'):
+        value=value[:-1]
+    try:
+        parsed=urllib.parse.urlsplit(value)
+        hostname=parsed.hostname
+        port=parsed.port
+    except ValueError as error:
+        raise ValueError('PUBLIC_ORIGIN_INVALID: origin is not a canonical HTTPS hostname') from error
+    labels=hostname.split('.') if hostname is not None else []
+    if (parsed.scheme != 'https' or parsed.netloc != hostname or port is not None
+            or parsed.username is not None or parsed.password is not None
+            or parsed.path or parsed.query or parsed.fragment
+            or value != f'https://{hostname}'
+            or hostname in ('localhost',) or len(hostname) > 253 or len(labels) < 2
+            or not re.search(r'[a-z]', labels[-1])
+            or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label)
+                   for label in labels)):
+        raise ValueError('PUBLIC_ORIGIN_INVALID: require one lowercase HTTPS DNS hostname with no port, wildcard, path, query, fragment or credentials')
+    return hostname
+
+public_authority=None
+if a.public_origin_file is not None:
+    if not a.foreground:
+        parser.error('PUBLIC_ORIGIN_SERVICE_ONLY: --public-origin-file requires --foreground')
+    origin_file=_root_protected(a.public_origin_file)
+    if not origin_file.is_file():
+        parser.error('PUBLIC_ORIGIN_FILE_INVALID: public origin must be a regular root-protected file')
+    try:
+        public_authority=parse_public_origin(origin_file.read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, ValueError) as error:
+        parser.error(str(error))
 if a.foreground:
     if a.node is None or a.approval_state_root is None:
         parser.error('service-requires-exact-node-and-protected-approval-cache')
@@ -652,6 +688,7 @@ if support_root is not None:
 command=[node,*gate_argv,str(entry)]
 for patch in patches: command += ['--patch', str(patch)]
 command += ['--profile','web','--host','127.0.0.1','--port',str(a.port),'--no-open']
+if public_authority is not None: command += ['--trusted-host', public_authority]
 os.umask(0o077)
 # ── A BOUNDED STARTUP WINDOW, SO A HANG IS A NAMED REFUSAL AND NOT A WAITING JOB ────────────────
 # The launcher used to spawn the child and return immediately, which left the only proof of life to

@@ -26,16 +26,16 @@ EXTERNAL_FILES = (SIGNER_EPOCHS,)
 LAUNCHER_ROOT = "/opt/aukora-genesis/src"
 # Six approved checkout inputs only. Selected-release admission and all other
 # checkout/release bytes are outside this named pre-Node profile.
-# Exact launcher source inventory: upstream-dsh.json matched at 7ae564b..c707bb8;
-# reviewed 87f71c4 adds the pinned subprocess environment scrub patch. A harness
-# patch-set change requires this review; explicit host env overrides remain.
+# Exact launcher source inventory: reviewed C1 ingress diff from a2929e0 adds the
+# bounded public-origin passthrough and Secure public-cookie harness patch.
+# Explicit host environment overrides remain outside the pinned profile.
 LAUNCHER_SOURCE_PINS = {
-    "scripts/launch-dsh.py": "5501bdc1a57dfe11799e94c3194ae3c1844fe1968060fe5229be86553e0d3d1b",
+    "scripts/launch-dsh.py": "addb516dc4a8e1e9229a67e9d307ec4f91622046d539baf6f50ab02beaac3603",
     "scripts/genesis-check.mjs": "238ad43612280b79d0d0303480cb1a999bcf3b413fe18c97ebd9e0aedae3b303",
     "scripts/lib/artifact-integrity.mjs": "39e2f64643ceb2e0d93fabd14467ebaf5efd6de0e0a70f76cf19ce69825b5a41",
     "scripts/lib/release-strip.mjs": "1a687a82424b84420497edbdc5e6c13cb14e065fe4d262f0e859e9e85264b641",
     "scripts/artifacts-coverage.json": "4b652f8963fe5ed4ebe9436621c709d217cd08e97ff7986f14900efba6f9c592",
-    "upstream-dsh.json": "2efb1979a844b435bc0de888beb345983497cb193aa173394de04c38ddabe88a",
+    "upstream-dsh.json": "08808d69a88818b5235b2015f55701efc22a7beee7697198577555a71dd4dd06",
 }
 AURA_ROOT = "/opt/aukora-aura"
 AURA_ENTRY = "packages/boundary-gate/host/aura/entry.mjs"

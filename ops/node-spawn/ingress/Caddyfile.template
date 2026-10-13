@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Only the configured application and owner hosts reach loopback services.
+
+(aukora_headers) {
+	header Strict-Transport-Security "max-age=31536000"
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "no-referrer"
+	request_body {
+		max_size 8MB
+	}
+}
+
+https://__APP_HOST__ {
+	import aukora_headers
+
+	@launch_token query token=*
+	respond @launch_token 404
+
+	@claim path /__aukora/claim /__aukora/claim.js
+	handle @claim {
+		reverse_proxy 127.0.0.1:__OWNER_PORT__ {
+			flush_interval -1
+			header_up -Forwarded
+			header_up -X-Forwarded-*
+			header_up Host {http.request.host}
+			header_up Origin {http.request.header.Origin}
+			header_up Cookie {http.request.header.Cookie}
+			header_up Sec-Fetch-Dest {http.request.header.Sec-Fetch-Dest}
+			header_up Sec-Fetch-Mode {http.request.header.Sec-Fetch-Mode}
+			header_up Sec-Fetch-Site {http.request.header.Sec-Fetch-Site}
+			header_up Sec-Fetch-User {http.request.header.Sec-Fetch-User}
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Forwarded-Host {http.request.host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:__HARNESS_PORT__ {
+			flush_interval -1
+			header_up -Forwarded
+			header_up -X-Forwarded-*
+			header_up Host {http.request.host}
+			header_up Origin {http.request.header.Origin}
+			header_up Cookie {http.request.header.Cookie}
+			header_up Sec-Fetch-Dest {http.request.header.Sec-Fetch-Dest}
+			header_up Sec-Fetch-Mode {http.request.header.Sec-Fetch-Mode}
+			header_up Sec-Fetch-Site {http.request.header.Sec-Fetch-Site}
+			header_up Sec-Fetch-User {http.request.header.Sec-Fetch-User}
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Forwarded-Host {http.request.host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+}
+
+https://__OWNER_HOST__ {
+	import aukora_headers
+	header Content-Security-Policy "default-src 'none'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+	header X-Frame-Options "DENY"
+	reverse_proxy 127.0.0.1:__OWNER_PORT__ {
+		flush_interval -1
+		header_up -Forwarded
+		header_up -X-Forwarded-*
+		header_up Host {http.request.host}
+		header_up Origin {http.request.header.Origin}
+		header_up Cookie {http.request.header.Cookie}
+		header_up Sec-Fetch-Dest {http.request.header.Sec-Fetch-Dest}
+		header_up Sec-Fetch-Mode {http.request.header.Sec-Fetch-Mode}
+		header_up Sec-Fetch-Site {http.request.header.Sec-Fetch-Site}
+		header_up Sec-Fetch-User {http.request.header.Sec-Fetch-User}
+		header_up X-Forwarded-For {http.request.remote.host}
+		header_up X-Forwarded-Host {http.request.host}
+		header_up X-Forwarded-Proto https
+	}
+}
+
+http://__APP_HOST__ {
+	redir https://__APP_HOST__{uri} permanent
+}
+
+http://__OWNER_HOST__ {
+	redir https://__OWNER_HOST__{uri} permanent
+}
+
+:80, :443 {
+	abort
+}
+
