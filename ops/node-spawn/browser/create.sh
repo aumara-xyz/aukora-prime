@@ -137,7 +137,7 @@ try:
             raise ValueError('BROWSER_CREATE_' + ('NODE_EXISTS' if kind == 'instances' else 'PROFILE_EXISTS'))
     image = json.loads((work / 'image.json').read_bytes())
     properties = image.get('properties', {}) if isinstance(image, dict) else {}
-    if not isinstance(properties, dict) or image.get('fingerprint') != fingerprint or image.get('type') != 'container' or properties.get('os') != 'Ubuntu' or not (properties.get('release') in ('noble', '24.04') or properties.get('version') == '24.04'):
+    if not isinstance(properties, dict) or image.get('fingerprint') != fingerprint or image.get('type') != 'container' or str(properties.get('os')).lower() != 'ubuntu' or not (properties.get('release') in ('noble', '24.04') or properties.get('version') == '24.04'):
         raise ValueError('BROWSER_CREATE_IMAGE_NOT_UBUNTU_24_04')
 except (OSError, ValueError, TypeError, AttributeError):
     code = str(sys.exc_info()[1])
