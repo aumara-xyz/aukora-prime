@@ -1,0 +1,528 @@
+{
+  "asOf": "2026-10-13",
+  "scope": "These are the Genesis-derived pilot components. Prime NEXT's protected owner, memory, execution and inference joins remain a separate, unqualified source layer. RAN on a real node can name a scratch probe on the pilot host; it does not mean the feature is active in its live harness.",
+  "rows": [
+    {
+      "name": "Boundary gate and owner approval",
+      "description": "A separate gate accepts proposals, binds owner review to exact bytes, applies allowed targets and signs its ledger.",
+      "code": [
+        "packages/boundary-gate/src/gate.mjs",
+        "packages/boundary-gate/src/ledger.mjs",
+        "apps/aukora-desktop/aumlok-signer-airlock.mjs"
+      ],
+      "state": "RAN on a real node",
+      "basis": "October 4 theme approval has a retained signed export; October 13 records two real owner-approved switches: the first was rolled back the same morning; the second (release c603bbf) stands. This does not establish current gate-package parity, enrolled owner custody or comprehension.",
+      "evidence": [
+        "docs/evidence/l2-demo-2026-10-04/README.md",
+        "plan/NORTH-STAR.md",
+        "ARCHITECTURE.md"
+      ],
+      "command": "node docs/evidence/l2-demo-2026-10-04/verify.mjs",
+      "commandPaths": [
+        "docs/evidence/l2-demo-2026-10-04/verify.mjs"
+      ],
+      "next": "Read back the installed gate bytes and qualify the owner's selected signing route; the gate key's signature alone does not prove a human approval."
+    },
+    {
+      "name": "Action gate",
+      "description": "A harness tool-registry guard judges calls and fsyncs an unsigned decision record before allowing them.",
+      "code": [
+        "plugins/aukora-action-gate/lib/index.mjs",
+        "plugins/aukora-action-gate/lib/policy.mjs",
+        "plugins/aukora-action-gate/lib/receipts.mjs"
+      ],
+      "state": "RAN on a real node",
+      "basis": "The plan records the gate and file fence mounted on the pilot; the fresh-clone check separately exercises an unapproved-action refusal. Host/plugin effects and operations inside a started process remain outside this registry hook.",
+      "evidence": [
+        "ARCHITECTURE.md",
+        "plan/NORTH-STAR.md"
+      ],
+      "command": "node plugins/aukora-action-gate/check.mjs",
+      "commandPaths": [
+        "plugins/aukora-action-gate/check.mjs"
+      ],
+      "next": "Measure alternate effect routes and the normal admitted OpenShell route; the retained containment FAIL remains open."
+    },
+    {
+      "name": "Aura signed gate ledger and collector",
+      "description": "The gate signs a hash-linked SQLite history; the INTERIM collector verifies and encrypts observations of that history.",
+      "code": [
+        "packages/boundary-gate/src/ledger.mjs",
+        "scripts/aura/collect-gate.mjs",
+        "host/aura-interim/README.md"
+      ],
+      "state": "RAN on a real node",
+      "basis": "October 12 reports 1,814 signed gate rows and external prefix anchoring; the earlier INTERIM collector report verified through position 153. The collector covers the gate ledger, not every action, memory or code event, and its synthetic owner keys are not enrolled owner custody.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "ARCHITECTURE.md",
+        "host/aura-interim/README.md"
+      ],
+      "command": "node scripts/aura/checks/collector.mjs",
+      "commandPaths": [
+        "scripts/aura/checks/collector.mjs"
+      ],
+      "next": "Qualify the protected replacement collector, choose the owner binding and measure omitted histories against independent retained observations."
+    },
+    {
+      "name": "Aura export and cold verification",
+      "description": "Standalone commands export a verified gate snapshot and check its signatures and separately supplied retained heads.",
+      "code": [
+        "scripts/aura/export-ledger.mjs",
+        "scripts/aura/verify-export.mjs",
+        "scripts/aura/gate-snapshot.mjs"
+      ],
+      "state": "SOURCE only",
+      "basis": "These new export commands have source checks, but no retained installed export acceptance is identified. A bundled public key or head is only producer-supplied evidence; gate exports do not contain the minimal verifier's Merkle proof.",
+      "evidence": [
+        "ARCHITECTURE.md",
+        "scripts/aura/README.md"
+      ],
+      "command": "node scripts/aura/checks/export-ledger.mjs",
+      "commandPaths": [
+        "scripts/aura/checks/export-ledger.mjs"
+      ],
+      "next": "Export on an authorized node, pin the key independently, retain a head elsewhere and cold-verify the supplied bytes; tail omission after that head remains undetectable."
+    },
+    {
+      "name": "Aura snapshot",
+      "description": "The signed-in read route hashes the gate head, Kira remembered head and checked release artifact-record digest, including explicit absence.",
+      "code": [
+        "plugins/aukora-face/settings/src/index.ts",
+        "plugins/aukora-face/settings/src/aura/snapshot-reader.ts",
+        "plugins/aukora-face/settings/src/aura/snapshot.ts"
+      ],
+      "state": "RAN on a real node",
+      "basis": "October 13 staging reports 401/405/200 route checks and all three sources present; remembering a synthetic note changed the snapshot with the gate head unchanged. The named code-chain source is the release record digest, not the Aura code-change ledger. On October 13 the live release c603bbf served the snapshot route to the signed-in screen probe; the page itself was viewed in a browser in staging only.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "ARCHITECTURE.md"
+      ],
+      "command": "node --test tests/aura-snapshot.test.mjs tests/aura-snapshot-services.test.mjs",
+      "commandPaths": [
+        "tests/aura-snapshot.test.mjs",
+        "tests/aura-snapshot-services.test.mjs"
+      ],
+      "next": "Observe the route after an owner-approved live switch; a combined display head does not turn separate histories into a complete signed master ledger."
+    },
+    {
+      "name": "Kira capture and append-only memory ledger",
+      "description": "Eligible durable turns and remembered notes become hashed records in a separate unsigned memory history, with forget tombstones.",
+      "code": [
+        "plugins/aukora-kira/lib/memory-remembered-hook.mjs",
+        "plugins/aukora-kira/lib/tracked-memory.mjs",
+        "plugins/aukora-kira/lib/memory-journal.mjs"
+      ],
+      "state": "RAN on a real node",
+      "basis": "October 13 readback reports 202 existing pilot notes. Capture can be paused or filtered, fail or miss unsupported routes; ordinary remembers do not enter the signed gate ledger and grant no authority.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "plan/MORNING-2026-10-13.md",
+        "ARCHITECTURE.md"
+      ],
+      "command": "node --test tests/kira-a1-ledger-availability.test.mjs",
+      "commandPaths": [
+        "tests/kira-a1-ledger-availability.test.mjs"
+      ],
+      "next": "Verify the installed capture coverage and original source references; qualify the protected gate-completion capture separately."
+    },
+    {
+      "name": "Kira recall by text and meaning",
+      "description": "Kira searches local notes by text or uses OpenViking similarity, then rechecks returned notes against the local ledger and policy.",
+      "code": [
+        "plugins/aukora-kira/lib/index.js",
+        "plugins/aukora-kira/lib/recall-openviking.mjs",
+        "scripts/kira/release-recall-probe.mjs"
+      ],
+      "state": "RAN on a real node",
+      "basis": "The pilot-host release probe ran 6 of 6 with scratch state and real OpenViking: remember, semantic recall without shared words, text recall, forget and absence. On October 13 the live node moved to c603bbf, which carries this. The earlier live 3673b98 predated the opt-in fix; no model used recall in this probe and quality beyond the synthetic note is unmeasured.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "plugins/aukora-kira/README.md"
+      ],
+      "command": "node --test tests/kira-openviking-recall.test.mjs tests/kira-openviking-release.test.mjs",
+      "commandPaths": [
+        "tests/kira-openviking-recall.test.mjs",
+        "tests/kira-openviking-release.test.mjs"
+      ],
+      "next": "Observe Auma using permitted recalled notes after an owner-approved release switch; measure partial-index behavior and retrieval quality."
+    },
+    {
+      "name": "Kira operator-declared projects",
+      "description": "A protected operator map assigns workspace aliases to declared projects so model-controlled paths cannot invent memory scope.",
+      "code": [
+        "plugins/aukora-kira/lib/project-mapping.mjs",
+        "plugins/aukora-kira/lib/project-identity.mjs",
+        "scripts/kira/build-project-map.mjs"
+      ],
+      "state": "RAN on a real node",
+      "basis": "The morning update reports the map installed and a scratch-copy pilot probe making 147 project notes and 52 general-workspace notes readable; three lack a project and five fail integrity or presence checks. Installing a map does not establish that the older live release consumes it.",
+      "evidence": [
+        "plan/MORNING-2026-10-13.md",
+        "plugins/aukora-kira/README.md"
+      ],
+      "command": "node --test tests/kira-project-mapping.test.mjs tests/kira-build-project-map.test.mjs",
+      "commandPaths": [
+        "tests/kira-project-mapping.test.mjs",
+        "tests/kira-build-project-map.test.mjs"
+      ],
+      "next": "Check declared scope through the candidate release and then the actual approved live path; preserve unresolved or invalid notes instead of assigning them by guess."
+    },
+    {
+      "name": "Aumlok phrase, derivation and binding",
+      "description": "Seven independently drawn words from pinned 2,048-word lists in ten languages feed handle-salted scrypt and root/device identity binding.",
+      "code": [
+        "plugins/aukora-aumlok/lib/ceremony-phrase.mjs",
+        "plugins/aukora-aumlok/lib/derive-v3.mjs",
+        "plugins/aukora-aumlok/lib/bind-v3.mjs",
+        "plugins/aukora-aumlok/lib/record-v3.mjs"
+      ],
+      "state": "SOURCE only",
+      "basis": "The morning note labels the new generator Mac/CI tested and not yet on an app screen. The 77-bit figure applies to independent uniform draws, not legacy acrostics or user-edited phrases; the public handle adds no secret entropy. Real pilot owner-root enrollment is unqualified.",
+      "evidence": [
+        "plan/MORNING-2026-10-13.md",
+        "plugins/aukora-aumlok/README.md",
+        "ARCHITECTURE.md"
+      ],
+      "command": "node --test tests/aukora-aumlok-words.test.mjs tests/aukora-aumlok-language.test.mjs tests/aukora-aumlok-fresh-bind.test.mjs",
+      "commandPaths": [
+        "tests/aukora-aumlok-words.test.mjs",
+        "tests/aukora-aumlok-language.test.mjs",
+        "tests/aukora-aumlok-fresh-bind.test.mjs"
+      ],
+      "next": "Qualify the actual enrollment, custody, recovery and revocation ceremony; phrase strength and valid signatures do not prove a unique human."
+    },
+    {
+      "name": "Aumlok guess limit",
+      "description": "A shared node-controlled SQLite limiter backs off online root-ID guesses after five failures and refuses missing state.",
+      "code": [
+        "plugins/aukora-aumlok/lib/attempt-limit.mjs"
+      ],
+      "state": "SOURCE only",
+      "basis": "The limiter is tested source with no network endpoint or enrolled-node call site. It recognizes public bytes and grants nothing; it cannot limit offline guessing against public verification material.",
+      "evidence": [
+        "plan/MORNING-2026-10-13.md",
+        "plugins/aukora-aumlok/lib/attempt-limit.mjs"
+      ],
+      "command": "node --test tests/aukora-aumlok-attempt-limit.test.mjs",
+      "commandPaths": [
+        "tests/aukora-aumlok-attempt-limit.test.mjs"
+      ],
+      "next": "Join it to the selected protected enrollment route with one durable store, then measure legitimate recovery and denial-of-service behavior."
+    },
+    {
+      "name": "Pentora",
+      "description": "A deterministic SHA-256 expansion of a 32-byte head paints a geometric fingerprint on Aura Coherence; owner-card Details also has a source display.",
+      "code": [
+        "plugins/aukora-face/settings/src/aura/pentora.mjs",
+        "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx",
+        "apps/aukora-desktop/aumlok-approval.html"
+      ],
+      "state": "RAN in staging",
+      "basis": "The latest October 13 staging report records a real browser showing a settled Aura Pentora with 3 of 3 sources. The owner-card display has separate source checks; the image authenticates and authorizes nothing.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "plan/MORNING-2026-10-13.md"
+      ],
+      "command": "node --test tests/aura-pentora-surface.test.mjs tests/aura-pentora-motion.test.mjs tests/aura-pentora-sharing.test.mjs",
+      "commandPaths": [
+        "tests/aura-pentora-surface.test.mjs",
+        "tests/aura-pentora-motion.test.mjs",
+        "tests/aura-pentora-sharing.test.mjs"
+      ],
+      "next": "Observe live movement on a named release and compare the full underlying heads; visual similarity is not proof of record truth or complete coverage."
+    },
+    {
+      "name": "Minimal verifier",
+      "description": "The frozen Python verifier checks RFC 6962 consistency; the Node Aura bridge also rederives a hash-chain prefix against a retained head.",
+      "code": [
+        "vendor/append-only/verify.py",
+        "scripts/aura/verify-append-only.mjs",
+        "scripts/aukora/become.mjs",
+        "scripts/aura/composition/association-plugin.js",
+        "scripts/aura/adapter.py"
+      ],
+      "state": "SOURCE only",
+      "basis": "The materializer selects an Aura association tool that calls the Python court through adapter.py; the operator become command also calls the court. No current installed invocation is established here. The Node chain bridge is standalone and the Aura snapshot does not call it. Power-of-two prefix cases can be UNDETERMINED.",
+      "evidence": [
+        "docs/MINIMAL-VERIFIER.md",
+        "ARCHITECTURE.md",
+        "plan/NORTH-STAR.md"
+      ],
+      "command": "node scripts/aura/verify-append-only.mjs --selftest",
+      "commandPaths": [
+        "scripts/aura/verify-append-only.mjs"
+      ],
+      "next": "Choose an independently retained head and qualify a named installed consumer. Append-only comparison proves neither signatures, event truth, latestness nor independent custody."
+    },
+    {
+      "name": "WASM proposal cell",
+      "description": "A fixed-memory WebAssembly guest constructs a bounded memory-put proposal with a restricted import surface.",
+      "code": [
+        "plugins/aukora-kira/lib/wasm-proposal.mjs",
+        "plugins/aukora-kira/lib/wasm-cell/aukora/guest/wasm-proposal-cell.mjs",
+        "plugins/aukora-kira/lib/tools.mjs",
+        "plugins/aukora-kira/bin/kira-stage.mjs"
+      ],
+      "state": "SOURCE only",
+      "basis": "stageTool and the standalone kira-stage CLI call the cell; the current mounted Kira entry registers remember/recall instead of kira_stage. No installed cell execution is demonstrated. It does not confine its Node host, grant authority or leave a proof that the guest ran.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "ARCHITECTURE.md",
+        "docs/HARD-QUESTIONS.md"
+      ],
+      "command": "node plugins/aukora-kira/lib/wasm-cell/courts/harness/wasm-proposal-cell/run.mjs",
+      "commandPaths": [
+        "plugins/aukora-kira/lib/wasm-cell/courts/harness/wasm-proposal-cell/run.mjs"
+      ],
+      "next": "Name and qualify the installed proposal consumer and enforce its resource limits; do not present proposal-byte validation as host containment."
+    },
+    {
+      "name": "Co-presence receipts",
+      "description": "Two device signatures bind a light-handshake receipt; a receiver checks age, optional exact text/device binding and durable consumption.",
+      "code": [
+        "packages/copresence/verify.mjs",
+        "packages/copresence/verify-intent.mjs",
+        "packages/copresence/receiver.mjs",
+        "packages/copresence/portal-v0/portal/index.html"
+      ],
+      "state": "SOURCE only",
+      "basis": "The morning note separately records three laptop/iPhone light-handshake runs, but checking the owner's saved receipt and installed receiver/enrollment integration remain unperformed. Source fixtures do not establish that join, physical proximity or a unique person.",
+      "evidence": [
+        "plan/MORNING-2026-10-13.md",
+        "packages/copresence/README.md",
+        "ARCHITECTURE.md"
+      ],
+      "command": "node packages/copresence/check.mjs",
+      "commandPaths": [
+        "packages/copresence/check.mjs"
+      ],
+      "next": "Verify a consented real-device receipt and qualify its protected receiving store and enrollment consumer; receipts are evidence and grant nothing."
+    },
+    {
+      "name": "Invites and admission service",
+      "description": "Signed 48-hour bearer invites and redemptions spend a three-invite quota in one store before a relay-owner member add and signed confirmation.",
+      "code": [
+        "packages/invites/index.mjs",
+        "ops/buzz-relay/admit.mjs",
+        "ops/buzz-relay/admission-server.mjs",
+        "ops/buzz-relay/units/aukora-admission.service"
+      ],
+      "state": "SOURCE only",
+      "basis": "The latest plan and relay procedure say the service is not installed and no real closed-relay admission is qualified. HTTP tests use throwaway keys and a stand-in relay; authoritative single use depends on the shared store, not the signed invite alone.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "plan/MORNING-2026-10-13.md",
+        "ops/buzz-relay/README.md",
+        "packages/invites/README.md"
+      ],
+      "command": "node --test packages/invites/index.test.mjs ops/buzz-relay/admit.test.mjs tests/admission-server.test.mjs",
+      "commandPaths": [
+        "packages/invites/index.test.mjs",
+        "ops/buzz-relay/admit.test.mjs",
+        "tests/admission-server.test.mjs"
+      ],
+      "next": "The owner must choose relay-key custody, close the relay and authorize service activation; then exercise replay, recovery and actual membership refusal."
+    },
+    {
+      "name": "Buzz Nostr relay",
+      "description": "A separate rootless relay, Postgres and Redis service carries signed channels beside the node's HTTP message service.",
+      "code": [
+        "ops/buzz-relay/install.sh",
+        "ops/buzz-relay/check.sh",
+        "ops/buzz-relay/PIN"
+      ],
+      "state": "RAN on a real node",
+      "basis": "October 12 records 10 of 10 service checks and Peter's Mac channel messages through the tunnel. The relay remains open; its pinned private Buzz fork is outside this public source tree and was not inspected here.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "ops/buzz-relay/README.md"
+      ],
+      "command": "node --test ops/buzz-relay/test.mjs",
+      "commandPaths": [
+        "ops/buzz-relay/test.mjs"
+      ],
+      "next": "Choose the relay owner key and qualify closed-mode refusals; channel operators can read channel messages and relationships."
+    },
+    {
+      "name": "Buzz door",
+      "description": "A host plugin admits signed mentions to a named session as data and provides bounded posts plus gate-receipt posts.",
+      "code": [
+        "plugins/aukora-buzz-door/lib/index.mjs",
+        "plugins/aukora-buzz-door/bin/verify-channel-receipt.mjs"
+      ],
+      "state": "RAN in staging",
+      "basis": "Installed acceptance reports 11 of 11; a mention after restart starts a real harness turn with plugin provenance, stopping at MISSING_CREDENTIAL. No staging model reply is demonstrated and the live pilot has no Auma relay key or door settings.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "plugins/aukora-buzz-door/checks/installed-accept.mjs"
+      ],
+      "command": "node --test tests/aukora-buzz-door.test.mjs",
+      "commandPaths": [
+        "tests/aukora-buzz-door.test.mjs"
+      ],
+      "next": "Use an authorized staging model configuration for a real reply, then qualify the approved live configuration and posted receipt under independent pins."
+    },
+    {
+      "name": "Node spawn",
+      "description": "Operator scripts verify signed authoritative admission and plan or provision Linux node steps from reviewed inputs.",
+      "code": [
+        "ops/node-spawn/spawn.sh",
+        "ops/node-spawn/linux.sh",
+        "ops/node-spawn/admission.mjs"
+      ],
+      "state": "SOURCE only",
+      "basis": "The node-spawn procedure says no installer step ran on a real Linux host. Its disposable fixtures replace users, services, builds and installed readback; no cloud allocation or bare-OS download is implemented, and member/Auma currently require two invites.",
+      "evidence": [
+        "ops/node-spawn/README.md",
+        "plan/NORTH-STAR.md"
+      ],
+      "command": "node --test tests/node-spawn-linux.test.mjs tests/node-spawn-invite.test.mjs ops/node-spawn/test.mjs",
+      "commandPaths": [
+        "tests/node-spawn-linux.test.mjs",
+        "tests/node-spawn-invite.test.mjs",
+        "ops/node-spawn/test.mjs"
+      ],
+      "next": "The owner must decide the member/Auma admission rule and qualify one authorized fresh host with real enrollment and sandbox provisioning."
+    },
+    {
+      "name": "Desktop app",
+      "description": "The Electron client connects to a configured harness and presents the owner approval card through its protected bridge route.",
+      "code": [
+        "apps/aukora-desktop/main.mjs",
+        "apps/aukora-desktop/aumlok-approval.html",
+        "apps/aukora-desktop/aumlok-signer-airlock.mjs"
+      ],
+      "state": "RAN on a real node",
+      "basis": "The plan records the Mac client attached to the pilot and actual approval clicks. The morning correction distinguishes the pilot-attached AUKORA Nebius launcher from a Dock shortcut that opened an older local Genesis release.",
+      "evidence": [
+        "plan/MORNING-2026-10-13.md",
+        "plan/NORTH-STAR.md",
+        "evidence/pilot/2026-10-10-readback.md"
+      ],
+      "command": "node --test tests/aukora-owner-card-no-friction.test.mjs tests/aukora-owner-card-model-fence.test.mjs",
+      "commandPaths": [
+        "tests/aukora-owner-card-no-friction.test.mjs",
+        "tests/aukora-owner-card-model-fence.test.mjs"
+      ],
+      "next": "Verify the configured attach route and rendered window after an approved switch; source card checks do not establish attendance or understanding."
+    },
+    {
+      "name": "Fresh-clone build and boot",
+      "description": "A clean clone builds pinned DSH, materializes a release, signs a temporary launch approval and checks authenticated screens and one refusal.",
+      "code": [
+        "scripts/fresh-clone-check.sh",
+        ".github/workflows/checks.yml",
+        "ops/pilot/ui-probe.mjs"
+      ],
+      "state": "RAN in CI",
+      "basis": "The latest plan retains a GitHub Ubuntu fresh clone boots run at be6dcfb, 272 seconds, and a separate pilot-host run, 286 seconds. Temporary same-user authority, no model credentials, no Buzz relay or memory qualification.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "README.md"
+      ],
+      "command": "./scripts/fresh-clone-check.sh .",
+      "commandPaths": [
+        "scripts/fresh-clone-check.sh"
+      ],
+      "next": "Run on the received revision with the documented prerequisites and retain its output; this proves the scoped temporary boot, not installation or containment."
+    },
+    {
+      "name": "One-command NEXT example",
+      "description": "A proposed prime up --example command would give a stranger a disposable NEXT start.",
+      "code": [
+        "harness/cli.mjs"
+      ],
+      "state": "NOT BUILT",
+      "basis": "The latest plan says the proposal is parked; the CLI has no up command. NEXT boot requires a protected deployment manifest with root-owned ancestry. The separate fresh-clone smoke check already builds and boots the pilot composition.",
+      "evidence": [
+        "plan/NORTH-STAR.md",
+        "harness/deployment-manifest.mjs"
+      ],
+      "command": "./prime help",
+      "commandPaths": [
+        "prime"
+      ],
+      "next": "The owner must settle the example's authority and state scope; the plan recommends building a practical start on the fresh-clone machinery. Help output establishes the exposed CLI, not a functioning NEXT boot."
+    },
+    {
+      "name": "Pilot switch",
+      "description": "The rewritten operator script obtains approval while the old harness runs, switches protected files and requires UI and plugin-load checks.",
+      "code": [
+        "ops/pilot/live-switch-main.sh",
+        "ops/pilot/ui-probe.mjs"
+      ],
+      "state": "RAN on a real node",
+      "basis": "The rewritten script ran on the live pilot on October 13 with the owner approving its card while the old release was up: the first attempt stopped at installing the approval (gate sockets not yet present) and restored; the second completed, including its own screen probe and plugin-load check. Before that: four staging rehearsals with a stand-in key, two of which found permission faults. An earlier script switched live that morning, showed no apps and was rolled back.",
+      "evidence": [
+        "ops/pilot/README.md",
+        "plan/MORNING-2026-10-13.md",
+        "plan/NORTH-STAR.md"
+      ],
+      "command": "node --test tests/pilot-switch-order.test.mjs tests/pilot-switch-recovery.test.mjs",
+      "commandPaths": [
+        "tests/pilot-switch-order.test.mjs",
+        "tests/pilot-switch-recovery.test.mjs"
+      ],
+      "next": "The owner must approve the prepared compatible release through the existing card, then observe the script's checks and installed behavior."
+    }
+  ],
+  "joins": [
+    {
+      "text": "The recorded pilot joins composition admission, the action-gate tool hook, OpenShell dispatch and gate theme approval. The desktop calls owner review/decide_review; the proposal channel cannot approve. These joined paths do not establish complete mediation: direct plugin/host effects remain outside the registry and the retained containment result is FAIL.",
+      "paths": [
+        "plugins/aukora-composition-gate/src/plugin-set.mjs",
+        "plugins/aukora-action-gate/lib/index.mjs",
+        "plugins/aukora-openshell-confinement/lib/index.mjs",
+        "apps/aukora-desktop/aumlok-signer-airlock.mjs",
+        "packages/boundary-gate/src/gate.mjs",
+        "ARCHITECTURE.md"
+      ]
+    },
+    {
+      "text": "Kira's mounted source constructs tracked memory and the OpenViking bridge, applies operator project scope and exposes kira.head. The pilot-host scratch probe exercised release composition → Kira → real OpenViking; it did not show Auma consuming recall in a live turn. The newest project-map observation is likewise a scratch-copy probe, with a map installed for the candidate release.",
+      "paths": [
+        "plugins/aukora-kira/lib/index.js",
+        "plugins/aukora-kira/lib/tracked-memory.mjs",
+        "plugins/aukora-kira/lib/recall-openviking.mjs",
+        "plugins/aukora-kira/lib/project-mapping.mjs",
+        "scripts/kira/release-recall-probe.mjs",
+        "plan/MORNING-2026-10-13.md"
+      ]
+    },
+    {
+      "text": "The settings face injects kira.head, asks the gate for a verified log head through the carried Buzz transport and checks the release artifact-record digest. Aura Coherence derives its Pentora from the resulting snapshot. Those three sources are combined for a display; their histories are not merged. The code source is an artifact record, and the action history remains a distinct unsigned chain. Staging showed this join with 3/3 present; live 3673b98 has no snapshot route.",
+      "paths": [
+        "plugins/aukora-face/settings/src/index.ts",
+        "plugins/aukora-face/settings/src/aura/snapshot-reader.ts",
+        "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx",
+        "plugins/aukora-action-gate/lib/receipts.mjs",
+        "plan/NORTH-STAR.md"
+      ]
+    },
+    {
+      "text": "The Buzz door joins verified channel input to agents.followup and brackets posts with gate intent/completion records; installed staging acceptance exercises that join with a recorder. A real session wake stopped at missing model credentials. Invites join authoritative spending to relay member-add in source; node-spawn requires the admission service's signed confirmation. No deployed closed-relay admission or fresh-node installer is qualified.",
+      "paths": [
+        "plugins/aukora-buzz-door/lib/index.mjs",
+        "plugins/aukora-buzz-door/checks/installed-accept.mjs",
+        "ops/buzz-relay/admit.mjs",
+        "ops/buzz-relay/admission-server.mjs",
+        "ops/node-spawn/admission.mjs",
+        "plan/NORTH-STAR.md"
+      ]
+    },
+    {
+      "text": "The source gate-completion capture can attach a specific gate result to Kira under protected pins; ordinary capture is separate. Configured co-presence acceptance, admission and Buzz wake callers can report digests through aura_note, but those source additions are not a complete action ledger. The receiving library grants no authority. The membrane verifier, WASM proposal cell, owner enrollment/guess-limit route and Buzz Touch ID approval are not joined into one qualified running path; the Touch ID and pilot gate signing paths still use separate keys.",
+      "paths": [
+        "plugins/aukora-kira/lib/gate-capture-host.mjs",
+        "packages/boundary-gate/src/gate.mjs",
+        "packages/copresence/receiver.mjs",
+        "plugins/aukora-aumlok/lib/attempt-limit.mjs",
+        "scripts/aura/verify-append-only.mjs",
+        "plugins/aukora-kira/lib/wasm-proposal.mjs",
+        "ARCHITECTURE.md",
+        "plan/MORNING-2026-10-13.md"
+      ]
+    }
+  ]
+}

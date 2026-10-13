@@ -2,6 +2,8 @@
 
 **Start here:** [plan/NORTH-STAR.md](plan/NORTH-STAR.md) (the plan) and [plan/HANDOFF-2026-10-12.md](plan/HANDOFF-2026-10-12.md) (how to work, where things are, what is next).
 
+**What changed recently:** [component status and runtime joins](docs/STATUS.md) updates the older observations in the reading pages; [review questions](docs/REVIEW-PROMPTS.md) link evidence and its limits.
+
 ## The owner's standing rule: work lands on main, on GitHub, every time
 
 This rule is for the owner's own sessions and takes precedence over CONTRIBUTING.md's branch-and-PR route for outside contributors.

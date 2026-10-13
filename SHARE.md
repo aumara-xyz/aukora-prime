@@ -13,6 +13,8 @@ This is a suggested reading path for people and AI assistants, not authority ove
 
 Disclose what you read, ran or could not inspect. Assess current implementation separately from conditional architectural potential. Name supporting evidence, counterevidence and uncertainty; neither praise nor rejection is a required conclusion.
 
+**What changed recently:** [component status and runtime joins](docs/STATUS.md) updates older reading-page observations; [review questions](docs/REVIEW-PROMPTS.md) give scoped checks and questions the repository cannot yet settle.
+
 The received main branch now includes [NEXT system source and its integration evidence](docs/development/INTEGRATION-CHECKPOINT-2026-10-02.md). Its connected DSH/C/Bridge/E check used a mock final provider and synthetic owner approval; published source does not supply the missing native request producer, protected custody or runtime qualification. Review those distinctions against the code and recorded commands.
 
 ## Evidence and source review

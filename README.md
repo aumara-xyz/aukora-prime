@@ -10,6 +10,8 @@ AUKORA aims to become an open personal AI workspace that helps people think, rem
 
 [Short overview and reading map](docs/READING-GUIDE.md): purpose, design choices, dated observations and missing work.
 
+**What changed recently:** [component status and runtime joins](docs/STATUS.md) updates the dated observations below and in the reading guide; [review questions](docs/REVIEW-PROMPTS.md) pair claims with checks and limits.
+
 **The software that proposes an act should not be the authority that permits it.**
 
 **Reading the code? Start with [SECURITY-BOUNDARY.md](SECURITY-BOUNDARY.md), then [ARCHITECTURE.md](ARCHITECTURE.md):** how the pilot organism (Genesis runtime, boundary gate, OpenShell sandbox, desktop owner app, Aumlok, Kira, Aura) connects, with shared REPORTED / SOURCE / NOT YET status and links to the existing checks.
@@ -20,7 +22,7 @@ AUKORA aims to become an open personal AI workspace that helps people think, rem
 
 **RECORDED: the October 10 readback found release `3673b98` on the Linux pilot, a Nebius VM.** Eight service units were active. The gate, runtime, OpenShell gateway and HTTP relay used separate accounts; memory shared the runtime account. Only SSH listened off loopback, and the Mac desktop app connected through a loopback forward ([readback](evidence/pilot/2026-10-10-readback.md)). This operator-side record does not establish containment or installed-byte parity. The gate package `4c24fd0` remains an October 5 operator report, not a readback of its bytes.
 
-**RECORDED: the later October 12 plan reports Buzz running on the pilot and channel messages from Peter's Mac.** A release built from main at `22b9c0d` started in the pilot's staging container. Its Buzz door was mounted but unconfigured and unavailable; the live harness was unchanged. **NOT YET:** Auma answering through Buzz. Invites are **NOT BUILT**. Memory indexing, search and recall are not demonstrated. See the [later plan entries](plan/NORTH-STAR.md).
+**RECORDED: the later October 12 plan reports Buzz running on the pilot and channel messages from Peter's Mac.** Later staging releases started real harness turns through the configured Buzz door, stopping at a missing model key. **NOT YET:** Auma answering through Buzz. Invites and admission are **SOURCE**; the admission service is not installed. Release-based scratch probes demonstrated text and meaning-based recall through real OpenViking; the live harness returned to `3673b98` after an October 13 rollback. See the [later plan entries](plan/NORTH-STAR.md) and [current component status](docs/STATUS.md).
 
 Prime NEXT is a separate source layer. Its protected owner, memory, execution and inference joins remain unqualified. The [L2 export](docs/evidence/l2-demo-2026-10-04/README.md) retains a signed theme-change receipt and ledger prefix. Source checks and dated records do not qualify the whole product.
 
@@ -33,6 +35,8 @@ sudo ./security-review-containment # live containment check (root, on the pilot 
 **Recursion research:** [Ornith / Nebius Lab report and sanitized digest](research/README.md) — separate research evidence, not a deployed AUKORA model or product qualification.
 
 Read [the security boundary](SECURITY-BOUNDARY.md), [component map](ARCHITECTURE.md), [current claims](docs/CLAIMS.md) and [historical evidence](docs/EVIDENCE-HISTORY.md). [Contribute](CONTRIBUTING.md) or [report a vulnerability privately](SECURITY.md).
+
+The generated tables retain their selected, dated evidence snapshot. [Current component status](docs/STATUS.md) records later staging, memory and admission work without implying that this checkout is the live release.
 
 <!-- BEGIN GENERATED current-revisions -->
 | Identity | Revision / observation | Meaning |
