@@ -1,0 +1,131 @@
+{
+  "schema": "aukora-runtime-claims/v1",
+  "claims": [
+    {
+      "id": "pilot-rollback-release",
+      "statement": "The pilot was rolled back to `3673b98`.",
+      "where": "pilot",
+      "date": "2026-10-13",
+      "commit": "3673b98a3e090d122ed0853386ff60913287c3a8",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Commit a signed gate export covering the rollback approval, its offline verification output, the release-record digest and a sanitized readback binding the active process to that release; retain the public key and a head independently.",
+      "limit": "Latest dated operator account, not a current observation. A release environment file or signed approval alone does not prove which bytes the active process loaded.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "pilot-owner-approved-switch",
+      "statement": "The earlier `live-switch-main.sh` ran on the pilot on 2026-10-13, with the owner's click, from `3673b98` to `c8cf03c`.",
+      "where": "pilot",
+      "date": "2026-10-13",
+      "commit": "c8cf03c0657c623b289203562b0c60283a8ca5cb",
+      "source": "ops/pilot/README.md",
+      "upgrade": "Commit a signed gate export containing the c8cf03c plugin-set approval and apply entries, the release-record digest and verification output; retain an independently held key and ledger head.",
+      "limit": "Historical switch of the earlier script. The plan says c8cf03c ran for about twelve minutes and was rolled back. A valid gate signature proves signed bytes, not the identity or attendance of the person who clicked.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "fresh-clone-boot",
+      "statement": "From nothing but a clone of the public repository: the pinned harness archive is downloaded and its hash checked; it is built; a release is materialized; the plugin set is approved through the real approval commands with a throwaway owner key under a temporary root; the release starts on loopback with no model key; and, signed in with its own token: the screens answer, no plugin threw at load, every shipped face is in the client graph, the thread icon and the stock apps are served, an unauthenticated request gets 401, and the action gate refuses an unapproved action before its body runs.",
+      "where": "ci",
+      "date": "2026-10-13",
+      "commit": "be6dcfb3ecd12203dccb109e2dbf73887fcde68d",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Already verified against the public GitHub Actions run. Artifacts expire; preserve the raw output before expiry if the claim must outlive it.",
+      "limit": "The audit checks that the named job succeeded for this commit in the public run; it does not rerun the boot (it takes about five minutes). Temporary same-user approval does not prove real owner enrollment, containment, persistent installation, memory, the Buzz relay or a model reply.",
+      "verification": "verified",
+      "evidence": {
+        "kind": "ci",
+        "runId": 38325827085,
+        "attempt": 1,
+        "job": "fresh clone boots",
+        "artifact": "fresh-clone-be6dcfb3ecd12203dccb109e2dbf73887fcde68d-1"
+      }
+    },
+    {
+      "id": "staging-door-acceptance",
+      "statement": "**Installed door acceptance: 11 of 11**, with the signed ledger holding the intent and the completion.",
+      "where": "staging",
+      "date": "2026-10-12",
+      "commit": "dcb2141c09fb711668351eb6299a6004cfd50905",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Commit sanitized installed-accept output naming dcb2141 and a signed staging ledger export covering its intent and completion entries, with the verifier command and verification output. Supply the exact sequences rather than inferring them from an earlier run.",
+      "limit": "Staging container with a stand-in owner key. The session mention started a turn but stopped at MISSING_CREDENTIAL; no model reply, live-pilot door, closed relay or invite admission is established.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "pilot-release-memory-probe",
+      "statement": "release `c8cf03c` built beside the live one with Kira's OpenViking setting on; the memory probe 6 of 6 against the real OpenViking after its second fix.",
+      "where": "pilot",
+      "date": "2026-10-13",
+      "commit": "c8cf03c0657c623b289203562b0c60283a8ca5cb",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Commit sanitized release-recall-probe output identifying c8cf03c, its release-record digest, scratch-state cleanup and the six asserted outcomes; publish a reproducible verifier for that evidence. A signed gate export alone cannot verify memory retrieval.",
+      "limit": "Probe release beside the live release, scratch memory and one synthetic note against the real service. No model used a recalled note, no recall-quality evaluation, and this row does not establish the live release behavior.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "staging-restart-door",
+      "statement": "Then: a new session and a throwaway owner and channel, harness restarted, **no client opened the session**, a mention posted: `handed_by_door=true turn_started=true`.",
+      "where": "staging",
+      "date": "2026-10-12",
+      "commit": "0356b0406491c81a925916209b0add950804f803",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Commit sanitized restart and mention output tied to release 0356b04 and its digest, with a reproducible checker that asserts no client opened the session and the mention started exactly one turn.",
+      "limit": "Staging only, throwaway identity and channel. The turn stopped at the missing model key; no reply or live-pilot restart acceptance was shown.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "staging-aura-three-heads",
+      "statement": "After one synthetic note was remembered through the release's own Kira (and recalled by text), the snapshot showed `gate-ledger` (295 entries), `kira-chain` (1 entry) and `code-chain` (the release record's digest) all present, and the snapshot's head changed while the gate's head did not.",
+      "where": "staging",
+      "date": "2026-10-13",
+      "commit": "727d9d76381c1048b907fef63b0a88ca9aa2050c",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Commit sanitized before/after snapshots with signed gate export through sequence 295, verifiable Kira-chain evidence, release-record digest and verification output. Do not present the gate export as evidence for the other two sources.",
+      "limit": "Staging with a synthetic subject. This account did not observe the page in a browser, a model turn or the live harness; gate-chain signatures alone cannot establish the other source heads or event truth.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "staging-screen-observation",
+      "statement": "thread icons render; the apps panel lists the apps; Auma Lingwa opens and renders; the Aura Coherence page shows a settled Pentora with 3 of 3 sources present.",
+      "where": "staging",
+      "date": "2026-10-13",
+      "commit": "ddc3375854871af624ac79a7f96cff0401b14311",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Commit the sanitized ui-probe output, release-record digest and address-free browser evidence tied to ddc3375; provide a reproducible output checker. Retain the unexplained control-route 404s with the evidence.",
+      "limit": "Operator-reported browser observation in staging, not live pilot. The plan records two unexplained /api/aukora/aumlok-control HTTP 404s. HTTP probe success alone does not prove what the browser rendered.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "staging-switch-rehearsal",
+      "statement": "`SWITCH_DONE`: approval installed, harness on the new release, self-check timer active, the script's own screen probe and plugin-load check passed.",
+      "where": "staging",
+      "date": "2026-10-13",
+      "commit": null,
+      "source": "ops/pilot/README.md",
+      "upgrade": "Record the exact rehearsed commit, then commit sanitized switch and ui-probe output, release-record digest and signed staging approval export with offline verification output. Retain both failed rehearsals and their recovery results.",
+      "limit": "Third rehearsal of the rewritten script in a staging container with a stand-in key. The README gives no exact rehearsed commit. It does not qualify the later source revision or a run of the rewritten script on the live pilot.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    },
+    {
+      "id": "mac-buzz-private-message",
+      "statement": "it connects and signs in (NIP-42); a private message it wraps and publishes is accepted, the recipient fetches it, opens it and proves the sender; a stranger asking for the recipient's messages is refused by the relay.",
+      "where": "mac",
+      "date": "2026-10-12",
+      "commit": "b8870613dc701a15d03f74547cfafcbf79d74164",
+      "source": "plan/NORTH-STAR.md",
+      "upgrade": "Publish the exact relay source revision and build provenance plus sanitized test-key transcript and a clone-reproducible command covering acceptance, recipient verification and stranger refusal.",
+      "limit": "Mac only with test keys and the private Buzz fork. b887061 identifies unchanged plugin code, not a complete deployed release. No containment on the Mac, pilot plugin mount, channel join or real owner enrollment is proved.",
+      "verification": "reported",
+      "evidence": "reported-only"
+    }
+  ]
+}
