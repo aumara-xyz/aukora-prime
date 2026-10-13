@@ -310,7 +310,14 @@ async function mountingChecks(text = sources['index.ts']) {
       submit: async (...args) => { desktopCalls.push(args); return { ok: true } },
     }) : undefined
     class Projection {
-      constructor(ctx) { ctx.aumlokControlProjection = this; this.store = {} }
+      constructor(ctx) {
+        ctx.aumlokControlProjection = this
+        // The mounted plugin reads and subscribes to this store to decide the first-run open.
+        const listeners = new Set()
+        this.state = { status: 'unknown' }
+        this.store = { getSnapshot: () => this.state, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) } }
+        this.publish = state => { this.state = state; for (const listener of listeners) listener() }
+      }
       attachCeremony(value) { this.ceremony = value }
       get ceremonyAvailable() { return this.ceremony !== undefined }
       drawPhrase(...args) { return bridgeApi.drawAumlokPhrase(this.ceremony, ...args) }
@@ -325,11 +332,13 @@ async function mountingChecks(text = sources['index.ts']) {
         if (name === './control-projection.ts') return { AumlokControlProjectionService: Projection }
         if (name === './control-status-loader.ts') return { AumlokControlStatusLoader: class { refresh() {} dispose() {} } }
         if (name === '../identity.ts') return { AUMLOK_IDENTITY_ENDPOINT: '/api/aukora/aumlok-identity' }
+        if (name === './surface-state.ts') return surfaceState
         return {}
       } })
     const layoutCalls = []
     const ctx = { locale: { register() {} }, layout: {
       closeSurface: () => { layoutCalls.push('close') }, openConversation: () => { layoutCalls.push('conversation') },
+      openSurface: id => { layoutCalls.push('open:' + id) },
     }, slots: { inject: (_name, callback) => callback(),
       register: options => { if (options.inject) injected[options.id] = options.inject(); return () => {} } },
       effect: callback => callback(), on: () => () => {}, get(name) { return this[name] ?? { isLoopback: false } },
@@ -339,6 +348,13 @@ async function mountingChecks(text = sources['index.ts']) {
     exports.apply(ctx)
     assert.equal(injected.aumlok.ceremonyAvailable, true)
     assert.equal(injected.aumlok.browserCeremony, !desktop)
+    // FIRST RUN OPENS FROM THE MOUNTED PLUGIN: nothing has opened the screen, the status arrives unbound,
+    // and the layout is asked to open it exactly once, on the public origin only.
+    assert.deepEqual(layoutCalls, [], 'no open before a status is known')
+    ctx.aumlokControlProjection.publish({ status: 'not-connected', reason: 'controller-absent' })
+    ctx.aumlokControlProjection.publish({ status: 'not-connected', reason: 'controller-absent' })
+    assert.deepEqual(layoutCalls, !desktop && !loopback ? ['open:aumlok'] : [], 'one first-run open, public origin only')
+    layoutCalls.length = 0
     assert.equal(injected.aumlok.publicFirstRun, !desktop && !loopback)
     assert.equal((await injected.aumlok.drawPhrase('bind', 'en', 'owner')).ok, true)
     assert.equal((await injected.aumlok.submitPhrase('bind', words, 'owner')).ok, true)

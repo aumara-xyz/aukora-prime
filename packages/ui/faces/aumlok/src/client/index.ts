@@ -12,6 +12,7 @@ import { AumlokControlProjectionService } from './control-projection.ts'
 import { AumlokControlStatusLoader } from './control-status-loader.ts'
 import { createAumlokBrowserCeremonyBridge, parseAumlokDrawnPhrase, readAumlokCeremonyBridge } from './binding-bridge.ts'
 import { en, zh, type AumlokKey } from './locales.ts'
+import { aumlokFirstRunOpen } from './surface-state.ts'
 import { AUMLOK_IDENTITY_ENDPOINT, type AumlokContactIdentity } from '../identity.ts'
 import type { ReadIdentity } from './IdentityCard.tsx'
 
@@ -75,6 +76,29 @@ export function apply(ctx: ClientContext): void {
     name: 'shell.menu.system', id: 'identity', order: -20, locale: NS,
   }, IdentityMenu))
   ctx.inject(['slots', 'aumlokControlProjection', 'layout'], (scope: ClientContext) => {
+    // FIRST RUN OPENS FROM HERE, NOT FROM THE SCREEN. The shell mounts a surface only once it is open,
+    // so a decision made inside the surface never runs on a node nobody has opened yet (seen on a real
+    // node: status answered unbound and nothing happened). One open per page load, public origin only.
+    if (browserCeremony !== undefined && !connection.isLoopback) {
+      let opened = false
+      const consider = (): void => {
+        const decision = aumlokFirstRunOpen({
+          active: false,
+          alreadyOpened: opened,
+          browserCeremony: true,
+          isLoopback: false,
+          projection: scope.aumlokControlProjection.store.getSnapshot(),
+        })
+        if (!decision.ok) return
+        opened = true
+        scope.layout.openSurface('aumlok')
+      }
+      scope.effect(() => {
+        const dispose = scope.aumlokControlProjection.store.subscribe(consider)
+        consider()
+        return dispose
+      }, 'ui-aumlok: first-run open')
+    }
     scope.slots.inject('shell.surface', () => scope.slots.register({
       name: 'shell.surface',
       id: 'aumlok',

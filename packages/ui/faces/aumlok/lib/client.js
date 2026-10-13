@@ -15273,6 +15273,25 @@ window.__ModuleLoader__.load({
 				"aumlokControlProjection",
 				"layout"
 			], (scope) => {
+				if (browserCeremony !== void 0 && !connection.isLoopback) {
+					let opened = false;
+					const consider = () => {
+						if (!aumlokFirstRunOpen({
+							active: false,
+							alreadyOpened: opened,
+							browserCeremony: true,
+							isLoopback: false,
+							projection: scope.aumlokControlProjection.store.getSnapshot()
+						}).ok) return;
+						opened = true;
+						scope.layout.openSurface("aumlok");
+					};
+					scope.effect(() => {
+						const dispose = scope.aumlokControlProjection.store.subscribe(consider);
+						consider();
+						return dispose;
+					}, "ui-aumlok: first-run open");
+				}
 				scope.slots.inject("shell.surface", () => scope.slots.register({
 					name: "shell.surface",
 					id: "aumlok",
