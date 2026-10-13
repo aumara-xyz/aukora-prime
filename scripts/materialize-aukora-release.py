@@ -624,7 +624,11 @@ def browser_node_rows(browser_node: bool = False) -> str:
     """Disable the pinned shell, file, network and delegation providers."""
     if not browser_node:
         return ''
+    # A browser session on a public address lasts one day, the harness's minimum; the claim broker
+    # refuses any longer-lived cookie. trustedHosts keeps the pinned expression.
     return ('\n' + ''.join(f'- id: {name}\n  disabled: true\n' for name in BROWSER_DISABLED_ROWS)
+            + '- id: connection\n  config:\n    trustedHosts: !!js ctx.webRuntime.trustedHosts\n'
+            + '    cookieMaxAgeDays: 1\n'
             + '- insert:\n    - id: aukora-browser-refusal\n'
             + f'      name: ./{BROWSER_REFUSAL_ENTRY}\n')
 
