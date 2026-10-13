@@ -1940,14 +1940,14 @@
       "source": "plugins/aukora-face/aumlok/lib/.build-inputs.json",
       "path": "faces/aumlok/lib/.build-inputs.json",
       "bytes": 1844,
-      "sha256": "64f0159748c702c309a37e4e8a02edcd1d3a9c15660bb9d54f3b2553663a0a9e",
+      "sha256": "380b9deea51d89a2a7579f003e0fab4f67b919ed8dc8221588d34397c9d266b1",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/aumlok/lib/client.js",
       "path": "faces/aumlok/lib/client.js",
-      "bytes": 474868,
-      "sha256": "651e783f81504407fb57d719a53d3c9c6a7c9b1fd8c1bbaf13373ed44b5357ab",
+      "bytes": 483597,
+      "sha256": "9bf44fcde4cf1e1d706ac9efa93da94d796f5ff40722e02e13815634bd2e69e6",
       "role": "bundle"
     },
     {
@@ -1974,8 +1974,8 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/Aumlok.module.css",
       "path": "faces/aumlok/src/client/Aumlok.module.css",
-      "bytes": 42815,
-      "sha256": "a6f07c38f27a9d49388335de9f645dde72e321999a7f20fd76fb6a7696625f39",
+      "bytes": 46105,
+      "sha256": "142a2daaf05fe7cf8a3d53f45039ebb2202b69d2705ebd1cc46f9efa12e13d4c",
       "role": "source"
     },
     {
@@ -1988,8 +1988,8 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/AumlokSurface.tsx",
       "path": "faces/aumlok/src/client/AumlokSurface.tsx",
-      "bytes": 27655,
-      "sha256": "5ee8c3da93e1452b60ee3834f95bca84d54ac859e2e88dfaeadc1721eaaa0566",
+      "bytes": 30110,
+      "sha256": "d6fa132e0e7becd74449e6938bbdf6dd0d8caec6df47d23f20c1fb42fa9deada",
       "role": "source"
     },
     {
@@ -2058,15 +2058,15 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/index.ts",
       "path": "faces/aumlok/src/client/index.ts",
-      "bytes": 5462,
-      "sha256": "19d7a4c68d44ca9eb65c6d44d677f3a241776e04e01929d70b01d6cd55989ae3",
+      "bytes": 5676,
+      "sha256": "1058dc4392f4b2ca6aa0f5261d239eae6856319f7329d38f07550a6a02fe7f1a",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/aumlok/src/client/locales.ts",
       "path": "faces/aumlok/src/client/locales.ts",
-      "bytes": 22963,
-      "sha256": "c75002f07397d4908a96c2572a6a64da9e8bdf7d43a5f6875133d3b7677eb336",
+      "bytes": 23668,
+      "sha256": "d96449403489a82a4881e371bdb3e8eba0e49db52b0266f545887053994c725f",
       "role": "source"
     },
     {
@@ -2079,8 +2079,8 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/surface-state.ts",
       "path": "faces/aumlok/src/client/surface-state.ts",
-      "bytes": 20580,
-      "sha256": "82e7039c13cd1f7d9ccb9dada1bc2b02498a15ecf0125a2ca759559c3b35e2c3",
+      "bytes": 22585,
+      "sha256": "63209a34d6f248196bab213572dd3271ba82bb9b7671fe130a4285dd5eb9c918",
       "role": "source"
     },
     {

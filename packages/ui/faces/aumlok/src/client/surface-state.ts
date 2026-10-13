@@ -20,7 +20,7 @@
 // says are therefore decided HERE, and `AumlokSurface.tsx` renders these answers rather than
 // re-deriving them.
 import type { AumlokKey } from './locales.ts'
-import type { AumlokControlProjection } from './control-projection.ts'
+import type { AumlokControlProjection, AumlokControlProjectionState } from './control-projection.ts'
 
 /** The three states of the one layout, in the plan's own order. There is no fourth. */
 export const AUMLOK_SURFACE_STATES = ['unbound', 'bound', 'refresh'] as const
@@ -37,6 +37,47 @@ export const AUMLOK_CEREMONY_BEATS = ['none', 'shown', 'typed', 'confirm'] as co
 
 export type AumlokSurfaceState = (typeof AUMLOK_SURFACE_STATES)[number]
 export type AumlokCeremonyBeat = (typeof AUMLOK_CEREMONY_BEATS)[number]
+
+/** Named refusals for browser-node first-run navigation. */
+export const AUMLOK_FIRST_RUN_OPEN_REFUSE = Object.freeze({
+  ALREADY_OPEN: 'aumlok:first-run-already-open',
+  ALREADY_OPENED: 'aumlok:first-run-already-opened',
+  LOOPBACK: 'aumlok:first-run-loopback',
+  NO_BROWSER_CEREMONY: 'aumlok:first-run-no-browser-ceremony',
+  NOT_UNBOUND: 'aumlok:first-run-not-unbound',
+} as const)
+
+export type AumlokFirstRunStep = 1 | 2 | 3 | 'complete'
+
+/** Open only after the configured public-origin status route reports an empty controller. */
+export function aumlokFirstRunOpen(input: {
+  readonly active: boolean
+  readonly alreadyOpened: boolean
+  readonly browserCeremony: boolean
+  readonly isLoopback: boolean
+  readonly projection: AumlokControlProjectionState
+}): { readonly ok: true } | { readonly ok: false; readonly reason: typeof AUMLOK_FIRST_RUN_OPEN_REFUSE[keyof typeof AUMLOK_FIRST_RUN_OPEN_REFUSE] } {
+  if (input.active) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.ALREADY_OPEN }
+  if (input.alreadyOpened) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.ALREADY_OPENED }
+  if (input.isLoopback) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.LOOPBACK }
+  if (!input.browserCeremony) return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.NO_BROWSER_CEREMONY }
+  if (input.projection.status !== 'not-connected' || input.projection.reason !== 'controller-absent')
+    return { ok: false, reason: AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND }
+  return { ok: true }
+}
+
+/** Map the binding beats to the three first-run instructions and completion. */
+export function aumlokFirstRunStep(input: {
+  readonly beat: AumlokCeremonyBeat
+  readonly busy: boolean
+  readonly bound: boolean
+  readonly successfulBind: boolean
+}): AumlokFirstRunStep {
+  if (input.bound || input.successfulBind) return 'complete'
+  if (input.beat === 'confirm') return 3
+  if (input.busy || input.beat === 'shown' || input.beat === 'typed') return 2
+  return 1
+}
 
 /** What one tile of the seven shows. The layout never changes; only this does. */
 export type AumlokTileFace = 'empty' | 'word' | 'input' | 'dots'

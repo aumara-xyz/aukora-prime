@@ -74,7 +74,7 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('shell.menu.system', () => ctx.slots.register({
     name: 'shell.menu.system', id: 'identity', order: -20, locale: NS,
   }, IdentityMenu))
-  ctx.inject(['slots', 'aumlokControlProjection'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'aumlokControlProjection', 'layout'], (scope: ClientContext) => {
     scope.slots.inject('shell.surface', () => scope.slots.register({
       name: 'shell.surface',
       id: 'aumlok',
@@ -84,6 +84,7 @@ export function apply(ctx: ClientContext): void {
         hooks: { controlProjection: scope.aumlokControlProjection.store },
         ceremonyAvailable: scope.aumlokControlProjection.ceremonyAvailable,
         browserCeremony: browserCeremony !== undefined,
+        publicFirstRun: browserCeremony !== undefined && !connection.isLoopback,
         ...(browserCeremony === undefined ? {} : { cancelCeremony: () => { void browserCeremony.cancel() } }),
         // THE TWO HALVES OF ONE CROSSING, AND THE HANDLE THAT SALTS THE KEY CROSSES WITH THEM (X8):
         // the shell draws the words, the screen shows them once, and the typed words — and the public
@@ -99,6 +100,10 @@ export function apply(ctx: ClientContext): void {
         // becomes the seven public fields without a page reload, and a changed phrase
         // moves the record to its new epoch. A refusal never reaches this.
         refreshControlStatus,
+        startFirstChat: () => {
+          scope.layout.closeSurface()
+          scope.layout.openConversation()
+        },
       }),
     }, AumlokSurface))
     scope.slots.inject('shell.surface', () => scope.slots.register({

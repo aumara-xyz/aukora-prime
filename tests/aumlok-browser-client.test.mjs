@@ -13,7 +13,7 @@ import * as surfaceState from '../plugins/aukora-face/aumlok/src/client/surface-
 import { en } from '../plugins/aukora-face/aumlok/src/client/locales.ts'
 
 const client = new URL('../plugins/aukora-face/aumlok/src/client/', import.meta.url)
-const sources = Object.fromEntries(['binding-bridge.ts', 'control-status-loader.ts', 'index.ts', 'AumlokSurface.tsx']
+const sources = Object.fromEntries(['binding-bridge.ts', 'control-status-loader.ts', 'index.ts', 'AumlokSurface.tsx', 'surface-state.ts', 'Aumlok.module.css']
   .map(name => [name, readFileSync(new URL(name, client), 'utf8')]))
 const words = ['abandon', 'ability', 'able', 'about', 'above', 'absent', 'absorb']
 const draw = { ceremonyId: 'fixture_ceremony_123', words, language: 'en', entropyBits: 77 }
@@ -127,10 +127,10 @@ const textOf = value => Array.isArray(value) ? value.map(textOf).join('')
   : value && typeof value === 'object' ? textOf(value.props?.children)
     : value === null || value === undefined || typeof value === 'boolean' ? '' : String(value)
 
-function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true) {
+function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true, options = {}) {
   const slots = [], updates = [], effects = [], draws = [], submits = []
-  let cursor = 0, tree, cancelled = 0, refreshed = 0
-  let projection = { status: 'not-connected' }
+  let cursor = 0, tree, cancelled = 0, refreshed = 0, opened = 0, started = 0
+  let projection = options.projection ?? { status: 'not-connected' }
   const react = {
     useState(initial) { const at = cursor++; if (!(at in slots)) slots[at] = { value: typeof initial === 'function' ? initial() : initial }
       return [slots[at].value, update => updates.push(() => { slots[at].value = typeof update === 'function' ? update(slots[at].value) : update })] },
@@ -155,8 +155,10 @@ function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true) {
       if (name === './Aumlok.module.css') return { default: new Proxy({}, { get: (_target, key) => key }) }
       throw Error(`unexpected import ${name}`)
     } })
-  let props = { activeSurface: 'aumlok', closeSurface() {}, t: key => en[key], useControlProjection: () => projection,
-    ceremonyAvailable: true, browserCeremony, cancelCeremony: () => { cancelled += 1 },
+  let props = { activeSurface: options.activeSurface ?? 'aumlok', closeSurface() {}, openSurface: () => { opened += 1 },
+    t: key => en[key], useControlProjection: () => projection,
+    ceremonyAvailable: true, browserCeremony, publicFirstRun: options.publicFirstRun ?? browserCeremony,
+    cancelCeremony: () => { cancelled += 1 },
     drawPhrase: async (...args) => { draws.push(args); return { ok: true, ...draw } },
     submitPhrase: async (...args) => { submits.push(args); return { ok: true, drawSpent: true } },
     refreshControlStatus: () => { refreshed += 1; projection = { status: 'connected', control: {
@@ -164,11 +166,13 @@ function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true) {
       activeControlDigest: 'b'.repeat(64), custodyClass: 'same-uid-posix-mode-only', revoked: false,
       boundAt: '2026-01-01T00:00:00Z', phraseLanguage: 'en', phraseLegacy: false,
     } } },
+    startFirstChat: () => { started += 1 },
   }
   function render() { cursor = 0; tree = exports.AumlokSurface(props); while (effects.length) effects.shift()() }
   async function flush() { for (let step = 0; step < 40; step++) { await Promise.resolve(); while (updates.length) { updates.shift()(); render() } } }
   render()
-  return { draws, submits, get tree() { return tree }, get cancelled() { return cancelled }, get refreshed() { return refreshed }, flush,
+  return { draws, submits, get tree() { return tree }, get cancelled() { return cancelled }, get refreshed() { return refreshed },
+    get opened() { return opened }, get started() { return started }, flush,
     async change(key, value, checked = false) { find(tree, key).props.onChange({ target: checked ? { checked: value } : { value } }); await flush() },
     async click() { find(tree, 'data-aumlok-bind-button').props.onClick(); await flush() },
     async bound() { props.refreshControlStatus(); render(); await flush() },
@@ -183,21 +187,25 @@ async function screenChecks(text = sources['AumlokSurface.tsx']) {
   assert.ok(disclosure)
   assert.match(textOf(disclosure), /words are sent over the encrypted connection to your own node and derived there/u)
   assert.match(textOf(disclosure), /Deriving on your device is later work/u)
+  assert.equal(find(ui.tree, 'data-aumlok-first-run-step').props['data-aumlok-first-run-step'], 1)
   assert.equal(find(ui.tree, 'data-aumlok-bind-button').props.disabled, true)
   await ui.change('data-aumlok-handle-input', 'owner')
   assert.equal(find(ui.tree, 'data-aumlok-bind-button').props.disabled, false)
   await ui.click()
   assert.deepEqual(ui.draws, [['bind', 'en', 'owner']])
+  assert.equal(find(ui.tree, 'data-aumlok-first-run-step').props['data-aumlok-first-run-step'], 2)
   assert.equal(find(ui.tree, 'data-aumlok-ceremony-beat').props['data-aumlok-ceremony-beat'], 'shown')
   assert.equal(nodes(ui.tree).filter(node => node.props?.['data-aumlok-tile-face'] === 'word' && node.type === 'span').length, 6)
   assert.equal(textOf(find(ui.tree, 'data-aumlok-first-word')), words[0])
   await ui.click()
+  assert.equal(find(ui.tree, 'data-aumlok-first-run-step').props['data-aumlok-first-run-step'], 2)
   assert.equal(nodes(ui.tree).filter(node => Object.hasOwn(node.props ?? {}, 'data-aumlok-tile-input')).length, 7)
   for (let at = 0; at < 7; at++) {
     nodes(ui.tree).find(node => node.props?.['data-aumlok-tile-input'] === at).props.onChange({ target: { value: words[at] } })
     await ui.flush()
   }
   await ui.click()
+  assert.equal(find(ui.tree, 'data-aumlok-first-run-step').props['data-aumlok-first-run-step'], 3)
   assert.ok(find(ui.tree, 'data-aumlok-confirm-warning'))
   assert.equal(find(ui.tree, 'data-aumlok-bind-button').props.disabled, true)
   await ui.click(); assert.equal(ui.submits.length, 0)
@@ -210,9 +218,16 @@ async function screenChecks(text = sources['AumlokSurface.tsx']) {
   assert.deepEqual(JSON.parse(JSON.stringify(ui.submits)), [['bind', words, 'owner']]); assert.equal(ui.refreshed, 1)
   assert.equal(find(ui.tree, 'data-aumlok-badge').props['data-aumlok-badge'], 'bound')
   assert.equal(find(ui.tree, 'data-aumlok-bind-button'), undefined, 'browser binding has no replacement control')
-  assert.ok(find(ui.tree, 'data-aumlok-bound-receipt'))
+  assert.equal(textOf(find(ui.tree, 'data-aumlok-completion')).includes('Your node is yours'), true)
+  assert.equal(textOf(find(ui.tree, 'data-aumlok-completion-handle')), 'owner')
+  find(ui.tree, 'data-aumlok-start-chat').props.onClick()
+  assert.equal(ui.started, 1)
   await ui.close(); assert.equal(ui.cancelled, 1)
   ui.unmount(); assert.equal(ui.cancelled, 2)
+  const browserBound = screen(text, true)
+  await browserBound.bound()
+  assert.equal(find(browserBound.tree, 'data-aumlok-bind-button'), undefined, 'bound browser cannot replace identity')
+  browserBound.unmount()
   const desktop = screen(text, false)
   assert.equal(find(desktop.tree, 'data-aumlok-browser-derivation'), undefined)
   await desktop.bound()
@@ -235,7 +250,11 @@ async function loaderChecks(Loader = AumlokControlStatusLoader) {
 }
 
 async function mountingChecks(text = sources['index.ts']) {
-  for (const desktop of [false, true]) {
+  for (const { desktop, loopback } of [
+    { desktop: false, loopback: false },
+    { desktop: false, loopback: true },
+    { desktop: true, loopback: true },
+  ]) {
     const calls = [], desktopCalls = [], injected = {}, exports = {}
     const fetch = async (url, init) => { calls.push({ url, init }); return reply(url.endsWith('/prepare')
       ? { ok: true, draw } : url.endsWith('/bind') ? { ok: true, binding: {} } : { ok: true }) }
@@ -261,14 +280,19 @@ async function mountingChecks(text = sources['index.ts']) {
         if (name === '../identity.ts') return { AUMLOK_IDENTITY_ENDPOINT: '/api/aukora/aumlok-identity' }
         return {}
       } })
-    const ctx = { locale: { register() {} }, slots: { inject: (_name, callback) => callback(),
+    const layoutCalls = []
+    const ctx = { locale: { register() {} }, layout: {
+      closeSurface: () => { layoutCalls.push('close') }, openConversation: () => { layoutCalls.push('conversation') },
+    }, slots: { inject: (_name, callback) => callback(),
       register: options => { if (options.inject) injected[options.id] = options.inject(); return () => {} } },
-      effect: callback => callback(), on: () => () => {}, get: () => ({ isLoopback: false }),
+      effect: callback => callback(), on: () => () => {}, get(name) { return this[name] ?? { isLoopback: false } },
       inject(_services, callback) { callback(this) },
     }
+    ctx.connection = { isLoopback: loopback }
     exports.apply(ctx)
     assert.equal(injected.aumlok.ceremonyAvailable, true)
     assert.equal(injected.aumlok.browserCeremony, !desktop)
+    assert.equal(injected.aumlok.publicFirstRun, !desktop && !loopback)
     assert.equal((await injected.aumlok.drawPhrase('bind', 'en', 'owner')).ok, true)
     assert.equal((await injected.aumlok.submitPhrase('bind', words, 'owner')).ok, true)
     if (desktop) assert.deepEqual(desktopCalls, [['bind', 'en'], ['bind', words, 'owner']])
@@ -278,11 +302,57 @@ async function mountingChecks(text = sources['index.ts']) {
       assert.equal(calls.length, count)
       assert.equal(typeof injected.aumlok.cancelCeremony, 'function')
     }
+    injected.aumlok.startFirstChat()
+    assert.deepEqual(layoutCalls, ['close', 'conversation'])
     await injected.identity.readIdentity()
     assert.equal(calls.at(-1).url, '/api/aukora/aumlok-identity')
     assert.equal(calls.at(-1).init.method, 'GET'); assert.equal(calls.at(-1).init.credentials, 'same-origin')
     assert.equal(calls.at(-1).init.cache, 'no-store')
   }
+}
+
+async function firstRunDecisionChecks(api = surfaceState) {
+  const unbound = { status: 'not-connected', reason: 'controller-absent' }
+  const base = { active: false, alreadyOpened: false, browserCeremony: true, isLoopback: false, projection: unbound }
+  assert.deepEqual(api.aumlokFirstRunOpen(base), { ok: true })
+  for (const [change, refusal] of [
+    [{ active: true }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.ALREADY_OPEN],
+    [{ alreadyOpened: true }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.ALREADY_OPENED],
+    [{ browserCeremony: false }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NO_BROWSER_CEREMONY],
+    [{ isLoopback: true }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.LOOPBACK],
+    [{ projection: { status: 'not-connected' } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
+    [{ projection: { status: 'not-connected', reason: 'adapter-unbound' } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
+    [{ projection: { status: 'connected', control: {} } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
+    [{ projection: { status: 'connected', reason: 'controller-absent', control: {} } }, api.AUMLOK_FIRST_RUN_OPEN_REFUSE.NOT_UNBOUND],
+  ]) assert.deepEqual(api.aumlokFirstRunOpen({ ...base, ...change }), { ok: false, reason: refusal })
+  const step = (beat, busy = false, bound = false, successfulBind = false) =>
+    api.aumlokFirstRunStep({ beat, busy, bound, successfulBind })
+  assert.equal(step('none'), 1)
+  assert.equal(step('none', true), 2)
+  assert.equal(step('shown'), 2)
+  assert.equal(step('typed'), 2)
+  assert.equal(step('confirm'), 3)
+  assert.equal(step('confirm', true), 3)
+  assert.equal(step('none', false, true), 'complete')
+  assert.equal(step('none', false, false, true), 'complete')
+}
+
+function firstRunStyleChecks(text = sources['Aumlok.module.css']) {
+  const block = selector => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    const matches = [...text.matchAll(new RegExp(`${escaped} \\{[^}]*\\}`, 'gu'))]
+    const shared = matches.find(match => match[0].includes('background: var(--aukora-surface);'))
+    assert.ok(shared, `missing shared-surface CSS block ${selector}`)
+    return shared[0]
+  }
+  for (const selector of ['.firstRunSteps li', '.flow', '.completion']) {
+    assert.match(block(selector), /border: 1px solid var\(--aukora-border\)/u)
+    assert.match(block(selector), /border-radius: var\(--aukora-radius\)/u)
+    assert.match(block(selector), /background: var\(--aukora-surface\)/u)
+    assert.match(block(selector), /backdrop-filter: blur\(18px\)/u)
+  }
+  assert.match(text, /@container aumlok \(max-width: 520px\)[\s\S]*\.flowSummary \{ display: list-item; \}[\s\S]*\.flow:not\(\[open\]\) > \.flowBody \{ display: none; \}/u)
+  assert.match(text, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.firstRunSteps li,[\s\S]*\.completion button \{\s*transition: none;/u)
 }
 
 async function mutation(name, source, before, after, check, load) {
@@ -299,7 +369,7 @@ test('browser uses HTTPS, same-origin POST bodies, one pending draw and sanitize
 })
 test('rendered screen discloses node derivation and walks draw, hide, type, acknowledge, bind', async () => {
   await screenChecks()
-  console.log('AUMLOK BROWSER SCREEN: PASS rendered seven-word ceremony, disclosure, acknowledgment, bound receipt, desktop refresh preserved')
+  console.log('AUMLOK BROWSER SCREEN: PASS rendered seven-word ceremony, disclosure, acknowledgment, completion state, desktop refresh preserved')
 })
 test('public authenticated status reads remain generation-scoped and disposable', async () => {
   await loaderChecks()
@@ -308,6 +378,26 @@ test('public authenticated status reads remain generation-scoped and disposable'
 test('browser mounting carries handle and desktop mounting keeps its original transport', async () => {
   await mountingChecks()
   console.log('AUMLOK BROWSER MOUNT: PASS browser transport, prepare handle, desktop precedence, public authenticated identity read')
+})
+test('first run opens only for public-origin UNBOUND and exposes each binding step', async () => {
+  await firstRunDecisionChecks()
+  firstRunStyleChecks()
+  const publicUnbound = screen(sources['AumlokSurface.tsx'], true, {
+    activeSurface: 'threads', publicFirstRun: true,
+    projection: { status: 'not-connected', reason: 'controller-absent' },
+  })
+  assert.equal(publicUnbound.opened, 1)
+  const loopback = screen(sources['AumlokSurface.tsx'], true, {
+    activeSurface: 'threads', publicFirstRun: false,
+    projection: { status: 'not-connected', reason: 'controller-absent' },
+  })
+  assert.equal(loopback.opened, 0)
+  const bound = screen(sources['AumlokSurface.tsx'], true, {
+    activeSurface: 'threads', publicFirstRun: true,
+    projection: { status: 'connected', control: {} },
+  })
+  assert.equal(bound.opened, 0)
+  console.log('AUMLOK FIRST RUN: PASS public-origin UNBOUND auto-open, loopback/bound refusal, three steps, completion chat action')
 })
 test('browser client protection mutations are detected', async () => {
   const source = sources['binding-bridge.ts']
@@ -353,5 +443,25 @@ test('browser client protection mutations are detected', async () => {
     "false ? Promise.resolve({ ok: false, reason: 'aumlok:browser-first-binding-only' })", () => mountingChecks(sources['index.ts'].replace(
       "intent !== 'bind' ? Promise.resolve({ ok: false, reason: 'aumlok:browser-first-binding-only' })",
       "false ? Promise.resolve({ ok: false, reason: 'aumlok:browser-first-binding-only' })")), () => ({}))
-  console.log('AUMLOK BROWSER CLIENT MUTATIONS: 26/26 KILLED; source fixtures, no real browser or owner binding')
+  await mutation('public-origin loopback fence', sources['index.ts'],
+    'browserCeremony !== undefined && !connection.isLoopback', 'browserCeremony !== undefined',
+    () => mountingChecks(sources['index.ts'].replace(
+      'browserCeremony !== undefined && !connection.isLoopback', 'browserCeremony !== undefined')), () => ({}))
+  for (const [name, before, after] of [
+    ['auto-open once guard', 'if (input.alreadyOpened)', 'if (false)'],
+    ['auto-open loopback guard', 'if (input.isLoopback)', 'if (false)'],
+    ['auto-open browser ceremony guard', 'if (!input.browserCeremony)', 'if (false)'],
+    ['auto-open status guard', "input.projection.status !== 'not-connected'", 'false'],
+    ['auto-open absent-controller guard', "input.projection.reason !== 'controller-absent'", 'false'],
+    ['step confirmation', "if (input.beat === 'confirm') return 3", 'if (false) return 3'],
+    ['step completion', "if (input.bound || input.successfulBind) return 'complete'", 'if (false) return \'complete\''],
+  ]) await mutation(name, sources['surface-state.ts'], before, after, firstRunDecisionChecks)
+  for (const [name, before, after] of [
+    ['shared first-run surface tokens', 'background: var(--aukora-surface);\n  backdrop-filter: blur(18px);', 'background: #000;\n  backdrop-filter: none;'],
+    ['narrow explanation control', '.flowSummary { display: list-item; }', '.flowSummary { display: none; }'],
+    ['narrow explanation collapse', '.flow:not([open]) > .flowBody { display: none; }', '.flow:not([open]) > .flowBody { display: block; }'],
+    ['first-run reduced motion', '.completion button {\n    transition: none;', '.completion button {\n    transition: all 180ms ease;'],
+  ]) await mutation(name, sources['Aumlok.module.css'], before, after,
+    async () => firstRunStyleChecks(sources['Aumlok.module.css'].replace(before, after)), () => ({}))
+  console.log('AUMLOK BROWSER CLIENT MUTATIONS: 38/38 KILLED; source fixtures, no real browser or owner binding')
 })

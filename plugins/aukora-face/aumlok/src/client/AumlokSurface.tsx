@@ -23,6 +23,8 @@ import {
   aumlokAnchorBoxes,
   aumlokBadgeWord,
   aumlokConfirmGate,
+  aumlokFirstRunOpen,
+  aumlokFirstRunStep,
   aumlokHandleGate,
   aumlokReceipt,
   aumlokRedraw,
@@ -58,6 +60,8 @@ export interface AumlokSurfaceInjected {
   ceremonyAvailable: boolean
   /** Browser binding is first-run only and derives the phrase on the node. */
   browserCeremony?: boolean
+  /** The page is the node's authenticated non-loopback browser origin. */
+  publicFirstRun?: boolean
   /** Clear the pending browser draw when the surface closes or unmounts. */
   cancelCeremony?: () => void
   /** Ask the shell for one phrase, shown once, and report what came back. */
@@ -67,6 +71,8 @@ export interface AumlokSurfaceInjected {
     handle?: string) => Promise<AumlokCeremonyResult>
   /** Re-read the controller's public control, which is what flips the screen's state. */
   refreshControlStatus: () => void
+  /** Leave binding and open the resident first conversation. */
+  startFirstChat: () => void
 }
 
 /** Props assembled for the always-mounted AUMLOK center surface. */
@@ -198,15 +204,18 @@ function PhraseBand({
  */
 export function AumlokSurface({
   activeSurface,
+  openSurface,
   closeSurface,
   t,
   useControlProjection,
   ceremonyAvailable,
   browserCeremony = false,
+  publicFirstRun = false,
   cancelCeremony,
   drawPhrase,
   submitPhrase,
   refreshControlStatus,
+  startFirstChat,
 }: AumlokSurfaceProps) {
   const active = activeSurface === 'aumlok'
   const projection = useControlProjection(value => value)
@@ -228,6 +237,7 @@ export function AumlokSurface({
   const [acknowledged, setAcknowledged] = useState(false)
   const [outcome, setOutcome] = useState<AumlokCeremonyResult | undefined>(undefined)
   const ceremonyGeneration = useRef(0)
+  const autoOpened = useRef(false)
   useLayoutEffect(() => {
     if (!active) {
       setRefreshing(false)
@@ -260,6 +270,25 @@ export function AumlokSurface({
   const sameHandle = changingHandle && typeof boundHandle === 'string' && boundHandle.length > 0
     && handle.normalize('NFKC').toLowerCase() === boundHandle.normalize('NFKC').toLowerCase()
   const receipt = projection.status === 'connected' ? aumlokReceipt(projection.control) : undefined
+  const successfulBrowserBind = browserCeremony && outcome?.ok === true
+  const firstRunStep = aumlokFirstRunStep({
+    beat,
+    busy,
+    bound: projection.status === 'connected',
+    successfulBind: successfulBrowserBind,
+  })
+  useEffect(() => {
+    const decision = aumlokFirstRunOpen({
+      active,
+      alreadyOpened: autoOpened.current,
+      browserCeremony,
+      isLoopback: !publicFirstRun,
+      projection,
+    })
+    if (!decision.ok) return
+    autoOpened.current = true
+    openSurface('aumlok')
+  }, [active, browserCeremony, openSurface, projection, publicFirstRun])
   const onType = (position: number, value: string): void => {
     // THE BOX ACKNOWLEDGES THE WORDS THAT WERE ON THE SCREEN WHEN IT WAS TICKED. Editing any of them
     // afterwards puts the box back to unticked, so the one thing that arms Bind cannot be carried
@@ -321,7 +350,7 @@ export function AumlokSurface({
       setRefreshing(false)
       setChangingHandle(false)
       if (browserCeremony) setTyped(emptyTyped())
-      setHandle('')
+      else setHandle('')
     })()
   }
   // ONE CONTROL PER STATE, AND THE PERSON'S OWN BEAT BETWEEN SHOWING AND TYPING. The words leave the
@@ -475,14 +504,36 @@ export function AumlokSurface({
               because a refresh is an act on the bound state and the old binding stands until the new
               words are typed back. The decision is `aumlokBadgeWord`, keyed off the same state the
               tiles and the buttons are drawn from, so the badge cannot disagree with the screen. */}
-          <span className={css.statusBadge} data-aumlok-badge={aumlokBadgeWord(state)} role="img" aria-label={t(aumlokBadgeWord(state))}>
-            {aumlokBadgeWord(state) === 'bound' ? <IdentityIcon name="lock" /> : null}
-            {t(aumlokBadgeWord(state))}
+          <span className={css.statusBadge} data-aumlok-badge={successfulBrowserBind ? 'bound' : aumlokBadgeWord(state)} role="img"
+            aria-label={t(successfulBrowserBind ? 'bound' : aumlokBadgeWord(state))}>
+            {successfulBrowserBind || aumlokBadgeWord(state) === 'bound' ? <IdentityIcon name="lock" /> : null}
+            {t(successfulBrowserBind ? 'bound' : aumlokBadgeWord(state))}
           </span>
         </header>
 
         <div className={css.composition}>
           <section className={css.phraseStage} aria-label={t('phrase.label')}>
+            {browserCeremony && firstRunStep !== 'complete' ? (
+              <ol className={css.firstRunSteps} data-aumlok-first-run-step={firstRunStep} aria-label={t('firstRun.steps.label')}>
+                {([1, 2, 3] as const).map(step => (
+                  <li key={step} data-current={firstRunStep === step || undefined}
+                    aria-current={firstRunStep === step ? 'step' : undefined}>
+                    <span>{step}</span>{t(`firstRun.step.${step}`)}
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+            {successfulBrowserBind ? (
+              <section className={css.completion} data-aumlok-completion aria-labelledby="aumlok-completion-title">
+                <span className={css.completionBadge}><IdentityIcon name="lock" />{t('bound')}</span>
+                <h3 id="aumlok-completion-title">{t('firstRun.complete.title')}</h3>
+                <p>{t('firstRun.complete.handle')}</p>
+                <strong data-aumlok-completion-handle>{handle}</strong>
+                <button type="button" data-aumlok-start-chat onClick={startFirstChat}>
+                  {t('firstRun.complete.chat')}
+                </button>
+              </section>
+            ) : <>
             {browserCeremony ? <p className={css.warning} data-aumlok-browser-derivation>
               In this version, your words are sent over the encrypted connection to your own node and derived there.
               Deriving on your device is later work.
@@ -600,22 +651,26 @@ export function AumlokSurface({
               </>}
               {ceremonyControls}
             </div>
+            </>}
           </section>
 
-          <Card className={css.flow} aria-labelledby="aumlok-flow-label">
-            <SectionHeader className={css.explanationHeader}>
-              <img src="/branding/aumara-icon-96.png" width="36" height="36" alt="" />
-              <h3 id="aumlok-flow-label">{t('surface.explanation.title')}</h3>
-            </SectionHeader>
-            <div className={css.explanation} data-aumlok-explanation>
-              <p>{t('surface.explanation.identity')}</p>
-              <p>{t('surface.explanation.knowledge')}</p>
-              <p>{t('surface.explanation.decider')}</p>
-              <p>{t('surface.explanation.boundary')}</p>
-              <p>{t('surface.explanation.edge')}</p>
+          <details className={css.flow}>
+            <summary className={css.flowSummary}>{t('firstRun.what')}</summary>
+            <div className={css.flowBody}>
+              <SectionHeader className={css.explanationHeader}>
+                <img src="/branding/aumara-icon-96.png" width="36" height="36" alt="" />
+                <h3 id="aumlok-flow-label">{t('surface.explanation.title')}</h3>
+              </SectionHeader>
+              <div className={css.explanation} data-aumlok-explanation>
+                <p>{t('surface.explanation.identity')}</p>
+                <p>{t('surface.explanation.knowledge')}</p>
+                <p>{t('surface.explanation.decider')}</p>
+                <p>{t('surface.explanation.boundary')}</p>
+                <p>{t('surface.explanation.edge')}</p>
+              </div>
+              <p className={css.boundaryClosing}>{t('surface.explanation.closing')}</p>
             </div>
-            <p className={css.boundaryClosing}>{t('surface.explanation.closing')}</p>
-          </Card>
+          </details>
         </div>
       </div>
 
