@@ -18,6 +18,8 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+# Scratch directories must not be group-writable whatever umask the runner inherits (Ubuntu's default is 002).
+os.umask(0o022)
 SOURCE = ROOT / 'ops/node-spawn/browser/node.py'
 SCRATCH = ROOT / '.runtime/browser-pipeline'
 SCRATCH.mkdir(parents=True, exist_ok=True)
