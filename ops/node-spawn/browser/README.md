@@ -35,7 +35,7 @@ Ubuntu 24.04 preparation machine of the same CPU architecture:
    needed by that stock image; offline install uses `dpkg --install`, never apt
    or an internet fetch. Python3, Bash, tar, dpkg and coreutils must already be
    present in the stock image. Unpack the verified `pnpm@11.7.0` distribution
-   into `pnpm/` (entry `pnpm/dist/pnpm.cjs` with its support tree). With pinned
+   into `pnpm/` (entry `pnpm/bin/pnpm.cjs` with its support tree). With pinned
    Node and that pnpm, extract the pinned harness into a preparation directory
    and run `pnpm fetch --frozen-lockfile --store-dir /absolute/path/to/store`
    there. Archive these three directories with hardlinks expanded, e.g.

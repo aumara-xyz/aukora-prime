@@ -90,11 +90,11 @@ class World:
         self.events.append(('extract', file.name))
         target.mkdir()
         if file.name == 'dependencies.tar.gz':
-            for name in ('debs', 'pnpm/dist', 'store'):
+            for name in ('debs', 'pnpm/bin', 'store'):
                 (target / name).mkdir(parents=True)
             if self.attack != 'dependencies':
                 (target / 'debs/build.deb').write_bytes(b'fixture')
-            (target / 'pnpm/dist/pnpm.cjs').write_text('fixture')
+            (target / 'pnpm/bin/pnpm.cjs').write_text('fixture')
         else:
             name = 'node-invalid' if self.attack == 'node-name' else 'node-v24.11.1-linux-x64'
             node = target / name

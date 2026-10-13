@@ -228,7 +228,7 @@ def install(options):
     deps = STATE / 'dependencies'
     extract(inputs / 'dependencies.tar.gz', deps)
     debs = sorted((deps / 'debs').glob('*.deb'))
-    need(bool(debs) and (deps / 'pnpm/dist/pnpm.cjs').is_file() and (deps / 'store').is_dir(), 'DEPENDENCIES_MISSING')
+    need(bool(debs) and (deps / 'pnpm/bin/pnpm.cjs').is_file() and (deps / 'store').is_dir(), 'DEPENDENCIES_MISSING')
     run(['dpkg', '--install', *map(str, debs)], 'OS_DEPENDENCIES_REFUSED')
     checkout = STATE / 'checkout'
     run(['git', 'clone', '--quiet', '--no-local', '--', str(inputs / 'checkout.bundle'), str(checkout)], 'CLONE_REFUSED')
@@ -250,7 +250,7 @@ def install(options):
     node.rename('/opt/aukora-node')
     tools = STATE / 'tools'
     tools.mkdir(mode=0o755)
-    (tools / 'pnpm').write_text('#!/bin/sh\nexec /opt/aukora-node/bin/node ' + str(deps / 'pnpm/dist/pnpm.cjs') + ' "$@"\n')
+    (tools / 'pnpm').write_text('#!/bin/sh\nexec /opt/aukora-node/bin/node ' + str(deps / 'pnpm/bin/pnpm.cjs') + ' "$@"\n')
     (tools / 'pnpm').chmod(0o755)
     env = dict(ENV)
     build_home = STATE / 'build-home'
