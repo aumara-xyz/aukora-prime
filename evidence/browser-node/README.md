@@ -22,3 +22,6 @@ FAIL; later checks were not run. Do not turn a fixture into a real-run row.
   verifies the receipt signature, the approval bindings, the signed apply row and the floor binding, and lists
   what it cannot verify. The exporter that wrote it was the working copy later committed with this record
   (run from outside the node's installed checkout, which was one revision older).
+- `2026-10-14-rehearsal-r1-c18a7e4.json`: the same rehearsal node rebuilt at `c18a7e4` (pre-binding restriction,
+  sign-in fixes), after-approval phase, all checks PASS, collected by the installed exporter itself. Stand-in
+  approval; never bound. Verify it the same way.
