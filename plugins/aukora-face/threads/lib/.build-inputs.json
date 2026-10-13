@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "threads",
-  "srcDigest": "fae33b8d002c854610396aebad948a57171dbb8eccf7e5461d5ac56cb1a58f2b",
+  "srcDigest": "66e92acfc1787ea1621bdd98f5ca090a273fda15b6e318c2509c37f10b4d3dae",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",
