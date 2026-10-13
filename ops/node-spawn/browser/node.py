@@ -811,7 +811,11 @@ def accept(phase, checks=None):
         run(['systemctl', 'is-active', '--quiet', 'aukora-browser.service'], 'HARNESS_INACTIVE')
         need('127.0.0.1:18735' in endpoints, 'HARNESS_LISTENER_MISSING')
         checkpoint('signed_in_ui')
-        print(run(['runuser', '-u', 'aukora-host', '--', NODE, str(CHECKOUT / 'ops/pilot/ui-probe.mjs')], 'UI_PROBE_REFUSED').strip())
+        # Before the binding ceremony the node serves its first screen and refuses the apps; the probe is
+        # told which state to expect from whether the binding directory exists yet.
+        unbound = not Path('/home/aukora-host/genesis/state/aumlok-binding').exists()
+        print(run(['runuser', '-u', 'aukora-host', '--', NODE, str(CHECKOUT / 'ops/pilot/ui-probe.mjs'),
+                   *(['--expect-unbound'] if unbound else [])], 'UI_PROBE_REFUSED').strip())
         checkpoint('plugin_load')
         invocation = run(['systemctl', 'show', '-p', 'InvocationID', '--value', 'aukora-browser.service'], 'JOURNAL_UNAVAILABLE').strip()
         need(bool(re.fullmatch(r'[0-9a-f]{32}', invocation)), 'JOURNAL_UNAVAILABLE')

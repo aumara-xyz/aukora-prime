@@ -36,6 +36,8 @@ export function createBrowserAccess(control) {
       const read = request.method === 'GET' || request.method === 'HEAD'
       if (read && (staticFiles.has(path)
         || path.startsWith('/assets/')
+        // Brand images the first screen draws (seen broken on a rehearsal node when refused).
+        || path.startsWith('/branding/')
         || (path.startsWith('/plugins/') && path !== '/plugins/events'
           && !path.startsWith('/plugins/events/')))) return undefined
       if (request.method === 'GET' && reads.has(path)) return undefined

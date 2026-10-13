@@ -19,7 +19,11 @@ const paths = [
   '/api/aukora/aura-snapshot',
 ]
 
-async function probe(launchFile) {
+// On a browser node that has not been bound yet, the apps and their APIs must answer 403 until binding;
+// everything the first screen draws must still be served. --expect-unbound checks exactly that.
+const afterBinding = path => path.startsWith('/stock-apps/') || path.startsWith('/app/') || path.startsWith('/api/auma-live/')
+
+async function probe(launchFile, expectUnbound = false) {
   let launch, url
   try { launch = JSON.parse(readFileSync(launchFile, 'utf8')) }
   catch { return { ok: false, code: 'ui-probe:launch-unreadable', checks: [] } }
@@ -46,7 +50,7 @@ async function probe(launchFile) {
       const body = await response.arrayBuffer()
       checks.push({ path, status: response.status, bytes: body.byteLength,
         contentType: (response.headers.get('content-type') ?? '').split(';')[0],
-        served: response.status === 200 && body.byteLength > 0 })
+        served: expectUnbound && afterBinding(path) ? response.status === 403 : response.status === 200 && body.byteLength > 0 })
     } catch {
       checks.push({ path, status: null, bytes: 0, contentType: '', served: false,
         code: 'ui-probe:request-unavailable' })
@@ -58,13 +62,14 @@ async function probe(launchFile) {
 
 const args = process.argv.slice(2)
 const json = args.includes('--json')
-const launchFile = args.find(arg => arg !== '--json') ?? '/home/aukora-host/genesis/state/launch-url.json'
-const result = await probe(launchFile)
+const expectUnbound = args.includes('--expect-unbound')
+const launchFile = args.find(arg => !arg.startsWith('--')) ?? '/home/aukora-host/genesis/state/launch-url.json'
+const result = await probe(launchFile, expectUnbound)
 if (json) console.log(JSON.stringify(result))
 else {
   for (const check of result.checks) console.log(String(check.status ?? 'ERR').padEnd(4),
     String(check.bytes).padStart(8), check.contentType.padEnd(24), check.path)
-  console.log(result.ok ? 'UI PROBE: all served' : `UI PROBE: ${result.code}`
+  console.log(result.ok ? (expectUnbound ? 'UI PROBE: all served (unbound: first screen served, apps refused until binding)' : 'UI PROBE: all served') : `UI PROBE: ${result.code}`
     + (result.checks.length ? ` (${result.checks.filter(check => !check.served).length} not served)` : ''))
 }
 process.exitCode = result.ok ? 0 : 1
