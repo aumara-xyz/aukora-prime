@@ -304,6 +304,11 @@ def install(options):
          '--output', str(STATE / 'manifest.json')], 'MANIFEST_REFUSED')
     stage.public_modes(checkout)
     checkout.rename(CHECKOUT)
+    # The harness user reads the root-owned checkout's recorded pin through git; git refuses a
+    # repository owned by another user unless the system names it.
+    run(['git', 'config', '--system', '--add', 'safe.directory', str(CHECKOUT)], 'GIT_SAFE_DIRECTORY_REFUSED')
+    if Path('/etc/gitconfig').is_file():
+        Path('/etc/gitconfig').chmod(0o644)
     config = module(CHECKOUT / 'ops/node-spawn/configure-host.py')
     for source, destination, mode in [(epochs, Path('/etc/aukora-boundary-gate/signer-epochs.json'), 0o644),
         (STATE / 'manifest.json', Path('/etc/aukora-boundary-gate/gate-package-manifest.json'), 0o644),

@@ -2021,10 +2021,14 @@ def main() -> int:
         'ThrottleInterval': 10,
     }))
 
-    strip = strip_release(target)
-    strip_path = target / 'strip-manifest.json'
+    # The browser profile's files are release bytes: they go in BEFORE the strip measures the tree,
+    # or the launcher's re-measurement finds files the strip manifest never counted.
     if args.browser_node:
         install_browser_profile(target)
+    strip = strip_release(target)
+    strip_path = target / 'strip-manifest.json'
+    if args.browser_node and not (target / 'browser-node-profile.patch.yml').is_file():
+        fail('browser-node:profile-stripped')
 
     # THE RELEASE'S OWN IMPORTS MUST RESOLVE INSIDE IT, checked AFTER the strip because the strip is what deleted `scripts/lib`.
     gaps = release_import_gaps(target)
