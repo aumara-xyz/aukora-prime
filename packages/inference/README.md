@@ -2,6 +2,10 @@ Lane E supplies one explicit `externalDeepSeek` adapter for the existing DSH Llm
 
 The package owns its donor closure and license locally and uses Node 24.11.1+ built-ins. Integrator owns contracts, root configuration, host lifecycle and runtime qualification. There is no second orchestration loop or runtime lookup of another user-owned repository.
 
+`plugins/aukora-face/apps/src/auma-live/model-request-store.ts` is canonical for
+`src/owned/model-request-store.ts`; `tests/pinned-copies.test.mjs` checks equality.
+The frozen face's copy is covered by the existing face-copy audit.
+
 The original lane handoff was SOURCE-ONLY. Subsequent [NEXT integration evidence](../../docs/development/INTEGRATION-CHECKPOINT-2026-10-02.md) records focused checks and one connected pinned DSH/C/Bridge/E mock pilot; those are scoped records, not installed-product qualification. The shared [private continuation](private-continuation.md) supersedes the earlier claim-only callback description below. Real owner/key custody, the native interactive request producer and a paid reply remain unqualified. Run the checks on the received revision and report their actual result.
 
 Run the disposable acceptance check from Prime root:

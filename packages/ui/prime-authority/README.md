@@ -1,5 +1,10 @@
 # Prime owner client
 
+`packages/memory/src/capture-presentation.mjs` is canonical for the UI adapter
+and its `lib/types/` copy; `packages/ui/adapters/capture-presentation.d.mts` is
+canonical for that generated declaration. `tests/pinned-copies.test.mjs` checks
+these copies. Build and runtime qualification remain separate.
+
 Separate web-only Cordis client `@aukora/prime-authority-ui`, mounted as `prime-owner` in `shell.menu.system` and `shell.surface`. It uses the frozen Layout's exported `ActionButton`, `Panel`, and `SectionHeader` and existing tokens. No frozen face is edited or replaced. `lib/index.js` is deliberately a no-op host.
 
 H serves `/prime/contracts/browser.mjs`, `shared.mjs`, and `json.mjs` through the existing DSH connection gate. The default client POSTs the exact C method envelopes to `/api/prime/authority/{loginChallenge,loginComplete,approvalChallenge,approvalComplete,declineApproval}`, with same-origin credentials, no cache, and refused redirects. Responses use `response.text()` and the shared `parseStrictJson` helper, preserving duplicate-key checks before parsing. Challenge templates use `validateApprovalTemplate`; signed proof validation rejects placeholders. These routes stay `503 UNAVAILABLE` until the host has an explicitly configured verifier. No enrollment, signing key, email login, storage token, reserve, or executor is implemented here.

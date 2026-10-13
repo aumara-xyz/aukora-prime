@@ -233,7 +233,7 @@ fs.writeFileSync(join(home, 'support', 'kira-deployment-overlay.patch.yml'), ['-
 built = process.argv.includes('--without-harness') ? undefined
   : [process.env.AUKORA_DSH_BUILD, join(root, 'vendor/dsh')].filter(Boolean)
     .map(path => resolve(path)).find(path => existsSync(join(path, 'vendor/cordis/lib/index.js')))
-const fixture = generated(undefined, { home, includeUpstream: false })
+const fixture = generated(undefined, { home, includeUpstream: false, withLegacyRelay: process.argv.includes('--with-legacy-relay') })
 const merged = new Map()
 for (const row of rows(fixture.patches['aukora-composition.patch.yml'], 'aukora-composition.patch.yml', { home, cwd: home })) {
   merged.set(row.id, { ...merged.get(row.id), ...row })

@@ -247,8 +247,10 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // optional Aumlok row targets service.mjs; both Kira rows/config and socket are unchanged.
   // Reviewed project map opt-in: a validated --kira-project-map adds a quoted
   // projectIdentityFile to the three Kira rows; no map is read or provisioned.
+  // Reviewed legacy relay default: only its mount, tool allow-list and copied
+  // plugin inventory become opt-in; both Kira rows/config and proposal socket are unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '0c71aa3b423eba98b07bf6ccc1c74f742aba4d2332aea29ffc5cd9511dcf6aa6')
+    'f9715e026453e38560c2e715ef28881537af7911b49bc05a788d728b3d608626')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 

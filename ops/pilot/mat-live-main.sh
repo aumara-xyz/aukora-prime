@@ -9,10 +9,12 @@ cd ~/prime-ci-clean || exit 1
 [ "$(git rev-parse HEAD)" = "$C" ] && [ -z "$(git status --porcelain)" ] && echo "CLEAN at $S" || { echo NOT_CLEAN_AT_COMMIT; exit 1; }
 [ -e "$REL" ] && { echo REL_EXISTS; exit 1; }
 BEFORE=$(grep -o "release-[0-9a-f]*" /etc/aukora-genesis/release.env | head -1)
+# The pilot still runs the older relay service and its plugin, so its releases keep them (--with-legacy-relay); a
+# default release no longer mounts them.
 # The owner's existing notes are readable only with the project map (scripts/kira/build-project-map.mjs made it).
 MAP=""; [ -f /etc/aukora/kira-projects.json ] && MAP="--kira-project-map /etc/aukora/kira-projects.json" && echo "with project map"
 sudo -n chown ubuntu:ubuntu /opt/aukora-genesis
-AUKORA_STATE=$HOME/aukora-zip/matstate-live python3 scripts/materialize-aukora-release.py --from $HOME/aukora-zip/main-build/vendor/dsh --to "$REL" --kira-openviking-home "$OV" $MAP > ~/aukora-zip/materialize-live-$S.log 2>&1; MAT=$?; echo "MAT_EXIT $MAT"
+AUKORA_STATE=$HOME/aukora-zip/matstate-live python3 scripts/materialize-aukora-release.py --from $HOME/aukora-zip/main-build/vendor/dsh --to "$REL" --kira-openviking-home "$OV" $MAP --with-legacy-relay > ~/aukora-zip/materialize-live-$S.log 2>&1; MAT=$?; echo "MAT_EXIT $MAT"
 sudo -n chown root:root /opt/aukora-genesis
 grep -E "materialize-release-failed" -A3 ~/aukora-zip/materialize-live-$S.log | cut -c1-300
 [ $MAT -eq 0 ] && sudo -n chown -R root:root "$REL" && sudo -n chmod -R go-w,a+rX "$REL"

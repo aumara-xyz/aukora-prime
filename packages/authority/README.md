@@ -1,5 +1,11 @@
 # Prime authority service core
 
+The root paths corresponding to `upstream/` are canonical for unchanged donor
+copies; `tests/pinned-copies.test.mjs` checks their bytes and relative symlink text.
+The retained adaptations are `ceilings.mjs`, `prime-verifier.mjs`, `strict-read.mjs`,
+`decide.mjs` and `scripts/aumlok/PROVENANCE.md`. In particular, the frozen ceiling
+disclosure predates the root's updated phrase generation; these are not equal copies.
+
 The [setup-only passkey bootstrap source](docs/passkey-bootstrap-source.md) validates a narrow WebAuthn none/ES256 creation candidate, then requires a fresh candidate-bound possession assertion. It does not enroll an owner, write configuration or grant authority. Optional protected-manifest selection pins the exact public credential/profile binding in initial durable owner metadata and refuses later omission/change. Initial identity provenance and real browser/owner setup remain H-owned prerequisites. All setup status/evidence names the reduced same-host guarantees; full qualification and v1 contracts are unchanged.
 
 NEXT inference SOURCE-ONLY: the [guarded join](docs/inference-authority-source.md) uses the existing owner review, kernel PREPARED and one-use dispatch with the settled fifteen-field admission. An immutable trusted inference profile binds the actual registered Task/conversation, qualified route, exact original configuration, stored budget and shared E state derivation. Genuine inference receipt settlement retains original rates, accepts identical factual evidence and permits changed evidence only through explicit unknown reconciliation. Completed rows compact; unknown rows remain full. Missing profile/dependencies fail closed. The mapper and digest helpers are source exports; no worker role, route, live configuration or effect is installed. Focused approved keyless checks now pass (35 cases, 329 assertions), along with changed-module syntax and optional peer loading. Prior owner-review/dispatch metadata is modeled; actual C factual settlement and local kernel/store/witness preparation are exercised. Authenticated owner/private-worker/provider integration and builds remain unperformed.

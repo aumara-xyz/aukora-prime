@@ -8,3 +8,6 @@ bytes are pinned at `vendor/phase0-consistency/`. Each file's git blob is listed
     python3 minimal/tour.py                  # four acts: APPEND_ONLY, UNDETERMINED, OBSERVATION_CONFLICT, UNDETERMINED
 
 STATUS: imported byte for byte. `scripts/aura/verify-append-only.mjs` uses the pinned copy on Kira's Aura ledger.
+
+`minimal/verify.py` here is canonical for `vendor/append-only/verify.py`;
+`tests/pinned-copies.test.mjs` checks equality alongside the existing provenance pin.

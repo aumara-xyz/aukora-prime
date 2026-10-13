@@ -9,6 +9,11 @@ Two standalone checkers and their data, copied unchanged from `aumara-xyz/aukora
 
 `node packages/copresence/check.mjs` runs both over every vector and fixture and compares each outcome.
 
+`verify.mjs` and `verify-intent.mjs` here are canonical. The portal tests call these
+same sibling files; there is no second tracked standalone checker copy to compare.
+`portal-v0/tests/gate1-core.test.mjs` already checks the page verifier's outcomes
+against `verify.mjs`, including mutated receipts.
+
 `receiver.mjs` calls the frozen checkers as subprocesses. `receiveReceipt(receipt, options)` requires `now`
 (caller Unix seconds) and `store`; optional `maxAge` defaults to 300 seconds, with 5 seconds of future slack.
 `expectedText` enables intent verification; `expectedAsker` and `expectedApprover` require it. The result is only

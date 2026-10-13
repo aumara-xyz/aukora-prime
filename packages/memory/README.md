@@ -1,5 +1,10 @@
 # Prime memory source
 
+Root paths corresponding to `genesis/` are canonical for unchanged donor copies,
+checked by `tests/pinned-copies.test.mjs`. The retained `cite-service.mjs`,
+`memory-tiers.mjs`, `memory-verify.mjs` and `strict-read.mjs` are adaptations,
+not equal copies. `src/capture-presentation.mjs` is canonical for its UI copies.
+
 **SOURCE-ONLY Unicode hardening:** direct capture rejects lone surrogates in its
 idempotency key before UTF-8 hashing or persistence. The copied strict reader now
 checks decoded object keys as well as values. One shared diagnostic prefix helper

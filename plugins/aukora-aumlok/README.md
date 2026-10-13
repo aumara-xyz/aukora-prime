@@ -3,6 +3,10 @@
 The public identity/control adapter. One question, answered the same way for every consumer:
 **which AUKORA subject is this, and is it still the one that was pinned?**
 
+`plugins/aukora-nostr/lib/vendor/noble-curves` is canonical for the 27 payload and
+licence files under this plugin's same directory. `tests/pinned-copies.test.mjs`
+checks their equality; each plugin retains its own provenance manifest.
+
 ```js
 import { projectPublicControl, admitPublicControl } from '@aukora/dsh-plugin-aumlok'
 

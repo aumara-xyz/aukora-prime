@@ -541,7 +541,44 @@ def held_overlay_rows() -> str:
     return '\n' + text.rstrip('\n') + '\n'
 
 
-def action_gate_rows() -> str:
+def action_gate_overlay(with_legacy_relay: bool = False) -> str:
+    """Allow the legacy relay tools only for an explicit legacy release."""
+    text = (ROOT / 'overlays' / 'action-gate.patch.yml').read_text(encoding='utf-8')
+    if with_legacy_relay:
+        anchor = '          - aukora_gate_propose\n'
+        if text.count(anchor) != 1:
+            fail('legacy-relay:action-gate-anchor')
+        text = text.replace(anchor, anchor
+                            + '          # AUMA relay host tools (plugins/aukora-relay-auma): read newest <=20; post plain chat <=2000 bytes, rate-limited, recorded in Aura.\n'
+                            + '          - relay_read\n'
+                            + '          - relay_post\n')
+    return text
+
+
+def legacy_relay_rows(with_legacy_relay: bool = False) -> str:
+    """Mount the retained HTTP relay plugin only for an explicit legacy release."""
+    if not with_legacy_relay:
+        return ''
+    return (
+        '    - id: aukora-relay-auma\n'
+        '      name: ./plugins/aukora-relay-auma/lib/index.mjs\n'
+        '      config:\n'
+        "        keyFile: !!js process.env.HOME + '/.config/aukora-relay/auma.key'\n"
+        '        gateSocket: /run/aukora-gate/gate.sock\n'
+        '        workspaceRoots:\n'
+        "          - !!js process.env.HOME + '/workspaces'\n"
+    )
+
+
+def composition_gate_policy(with_legacy_relay: bool = False) -> dict:
+    """The recorded plugin set excludes the unmounted legacy relay by default."""
+    policy = json.loads((GATE / 'policy.json').read_text(encoding='utf-8'))
+    if not with_legacy_relay:
+        policy['pluginSet'] = [name for name in policy['pluginSet'] if name != 'aukora-relay-auma']
+    return policy
+
+
+def action_gate_rows(with_legacy_relay: bool = False) -> str:
     """The action gate, IN the release's default composition, taken from overlays/action-gate.patch.yml.
 
     A fresh install lists only `aukora-composition.patch.yml`, and the rows `core_mount_rows` writes
@@ -557,8 +594,7 @@ def action_gate_rows() -> str:
     id (vendor/loader/src/config/group.ts `update`), so the second `aukora-action-gate` insert
     replaces the first rather than mounting a second guard.
     """
-    source = ROOT / 'overlays' / 'action-gate.patch.yml'
-    rows = [line for line in source.read_text(encoding='utf-8').splitlines()
+    rows = [line for line in action_gate_overlay(with_legacy_relay).splitlines()
             if not line.lstrip().startswith('#')]
     while rows and rows[0].strip() == '':
         rows.pop(0)
@@ -973,6 +1009,9 @@ def main() -> int:
     parser.add_argument('--from', dest='source', type=Path, default=ROOT / 'vendor/dsh')
     parser.add_argument('--to', dest='target', required=True, type=Path)
     parser.add_argument('--force', action='store_true')
+    parser.add_argument('--with-legacy-relay', action='store_true',
+                        help='mount the deprecated HTTP relay plugin and allow relay_read/relay_post; '
+                             'retains the existing key, gate and workspace configuration.')
     parser.add_argument('--kira-openviking-home', type=Path,
                         help='existing OpenViking home containing aukora-bridge.json, ov.conf and root.key; '
                              'for the Linux service use /var/lib/aukora-host/openviking. '
@@ -1190,6 +1229,9 @@ def main() -> int:
     for name in ('README.md', 'policy.json', 'GOVERNED.md'):
         if (GATE / name).is_file():
             shutil.copy2(GATE / name, gate_out / name)
+    if not args.with_legacy_relay:
+        (gate_out / 'policy.json').write_text(json.dumps(composition_gate_policy(), indent=2) + '\n',
+                                             encoding='utf-8')
     # The governed demonstration module travels too, so the release can SHOW admission rather
     # than only describe it, and so its bytes can be bound by a grant that a reader can check.
     demo_out = target / 'plugins/aukora-gate-demo'
@@ -1430,7 +1472,7 @@ def main() -> int:
         '  disabled: true\n'
         '\n'
         + core_mount_rows('')
-        + action_gate_rows()
+        + action_gate_rows(args.with_legacy_relay)
         + held_overlay_rows()
         + hmr_row +
         '- insert:\n'
@@ -1604,16 +1646,7 @@ def main() -> int:
         + '      name: ./plugins/aukora-auma-theme/lib/index.mjs\n'
         + '      config:\n'
         + '        proposeSocket: /run/aukora-gate/gate.sock\n'
-        # AUMA ON THE PROJECT RELAY (2026-10-05): relay_read/relay_post host tools as server identity auma. The key is
-        # harness-owned (0600, outside every guest/workspace root) and never reaches the model; every post is written
-        # to the gate ledger (relay_record) and so into Aura. Inert off Linux. AUMA posts are advisory, never orders.
-        + '    - id: aukora-relay-auma\n'
-        + '      name: ./plugins/aukora-relay-auma/lib/index.mjs\n'
-        + '      config:\n'
-        + "        keyFile: !!js process.env.HOME + '/.config/aukora-relay/auma.key'\n"
-        + '        gateSocket: /run/aukora-gate/gate.sock\n'
-        + '        workspaceRoots:\n'
-        + "          - !!js process.env.HOME + '/workspaces'\n"
+        + legacy_relay_rows(args.with_legacy_relay)
         # The door reads its protected configuration file inside the harness.
         + '    - id: aukora-buzz-door\n'
         + '      name: ./plugins/aukora-buzz-door/lib/index.mjs\n'
@@ -1842,6 +1875,8 @@ def main() -> int:
     # (`action_gate_rows`), so a fresh install needs nothing more; this copy is kept for a deployment that
     # already lists `<release>/action-gate.patch.yml`, where applying the same rows again is harmless.
     shutil.copy2(ROOT / 'overlays' / 'action-gate.patch.yml', target / 'action-gate.patch.yml')
+    if args.with_legacy_relay:
+        (target / 'action-gate.patch.yml').write_text(action_gate_overlay(True), encoding='utf-8')
     # The same, for the Seatbelt provider swap. Carrying the file mounts nothing; a deployment lists it to mount it.
     shutil.copy2(ROOT / 'overlays' / 'seatbelt.patch.yml', target / 'seatbelt.patch.yml')
     shutil.copy2(ROOT / 'overlays' / 'caged-worker.patch.yml', target / 'caged-worker.patch.yml')

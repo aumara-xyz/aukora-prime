@@ -11,7 +11,7 @@ export const builder = join(root, 'scripts/materialize-aukora-release.py')
 export const source = readFileSync(builder, 'utf8')
 export const release = '/synthetic/release'
 
-export function generated(input = source, { home = '/synthetic/home', includeUpstream = true } = {}) {
+export function generated(input = source, { home = '/synthetic/home', includeUpstream = true, withLegacyRelay = false } = {}) {
   return JSON.parse(execFileSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', `
 import ast, hashlib, json, re, sys, tarfile
 from pathlib import Path
@@ -25,7 +25,8 @@ patches = {}
 class Patch:
     def __init__(self, name): self.name = name
     def read_text(self, **kwargs): return patches.get(self.name, '')
-ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(development=False, kira_openviking_home=None, kira_project_map=None),
+ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(development=False, kira_openviking_home=None, kira_project_map=None,
+          with_legacy_relay=sys.argv[3] == 'true'),
           patch=Patch('aukora-composition.patch.yml'), default_patch=Patch('aukora-composition.patch.yml'),
           hmr_row=ns['hmr_disable_row'](False))
 for node in main.body:
@@ -58,7 +59,7 @@ with tarfile.open(archive, 'r:gz') as tar:
         if entry.isfile() and any(path.startswith(prefix) for prefix in package_roots) and path.endswith('.ts'):
             upstream[path] = tar.extractfile(entry).read().decode('utf-8')
 print(json.dumps(dict(patches=patches, upstream=upstream)))
-`, builder, String(includeUpstream)], { cwd: root, input, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: home }, timeout: 10000 }))
+`, builder, String(includeUpstream), String(withLegacyRelay)], { cwd: root, input, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: home }, timeout: 10000 }))
 }
 
 function withoutComment(text) {

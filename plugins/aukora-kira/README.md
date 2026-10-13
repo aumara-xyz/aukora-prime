@@ -1,5 +1,10 @@
 # AUKORA Kira plugin
 
+`plugins/aukora-box/aukora/{broker/memory-put-args.mjs,guest/wasm-proposal-cell.d.mts,kernel-seed/canonical-json.mjs}`
+are canonical for the identical `lib/wasm-cell/` copies checked by
+`tests/pinned-copies.test.mjs`. The cell wrapper and other retained artifacts have
+their own provenance and adaptations; this does not make the closures interchangeable.
+
 A stock DSH host plugin that **writes Remembered memory and stages Signed proposals**. A Remembered record **is memory** — §2.2 of the design settles it, and §10.1 lists this
 very sentence as a claim that had to change — but it is memory **labeled unreviewed** (`REMEMBERED_IS_UNREVIEWED`): extracted by deterministic rules over one bounded turn,
 possibly wrong, and never presented as something a person checked. What it does **not** do is write the **Signed** track: that still needs a grant and a signed approval, and

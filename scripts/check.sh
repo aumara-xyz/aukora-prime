@@ -361,6 +361,10 @@ check_darwin() {
 
 check 'python3 vendor/append-only/verify.py --selftest'
 check 'python3 scripts/phase0-check-pins.py'
+check 'node scripts/audit/surface.mjs --check'
+check_tap 'node --test --test-reporter=tap tests/surface.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/legacy-relay-release.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/pinned-copies.test.mjs'
 check 'node plugins/aukora-kira/lib/wasm-cell/courts/harness/wasm-proposal-cell/run.mjs'
 check 'node tests/kira-diamond-cold.test.mjs'
 check_injection 'node tests/kira-injection.test.mjs --mutate'
