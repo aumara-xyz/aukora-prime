@@ -1,5 +1,13 @@
 # Pilot: moving the live harness to a commit of `main`
 
+## Current state
+
+- The last recorded live pilot switch reached `c603bbf` on 2026-10-13 after Peter approved its card.
+- That switch passed the signed-in screen probe and the plugin-load check, with the self-check timer active afterward.
+- The current script raises approval while the old harness remains available, waits for both gate sockets and retains recovery state.
+- A staging rehearsal is required before another live switch.
+- These records do not establish the pilot's present state, future-release compatibility or recovery after machine power loss.
+
 `mat-live-main.sh <full commit>` builds `/opt/aukora-genesis/release-<sha7>` beside the live release. It approves, installs and switches nothing. It ran on the pilot on 2026-10-13 for `b65f39c`, `5ad3467` and `c8cf03c` while the harness stayed on `3673b98`.
 
 The earlier `live-switch-main.sh` ran on the pilot on 2026-10-13, with the owner's click, from `3673b98` to `c8cf03c`. Three runs were needed. It first stopped the harness before asking for approval, making the desktop popup unreachable. The owner approved the pending card with the old release running, and a later run found that approval. Lingering connections then prevented both the new and restored harness from starting. The third run reported `SWITCH_DONE`, selfcheck and plugin enforcement passed, the memory probe passed 6 of 6, and a real model turn answered. These are historical observations of the earlier script.

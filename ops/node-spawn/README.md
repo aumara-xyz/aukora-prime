@@ -6,6 +6,8 @@ bootstrap and installed readback replaced by fixtures. Helper checks use real
 local Git, throwaway signed invites and SQLite. The pilot's existing staging
 observations do not qualify this installer.
 
+The separately scoped [browser-node installer](browser/README.md) builds a relay-free restricted node and records the real-node acceptance that exists for that path; the [ingress runbook](ingress/README.md) renders and checks the two-host HTTPS front door for its application, owner and one-use claim routes. Neither result qualifies the member-node flow documented below.
+
 ```sh
 export PATH=$HOME/.local/node-v24.11.1/bin:$PATH
 bash ops/node-spawn/spawn.sh --dry-run --config /absolute/operator/spawn.json
