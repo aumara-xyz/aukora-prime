@@ -248,8 +248,9 @@ still no private material.
 * `projectPublicControl` and the loader never return private key material (the result is built field by
   field). The ceremony exports `bindV3`, `readKeptMachineSeed` and `rootPrivateKeyOf` return seeds or
   private keys by design.
-* No module in the package emits `identityBound: true` (`tests/aukora-aumlok.test.mjs` asserts it), and
-  it claims no hardware custody or succession.
+* No module in the package emits `identityBound: true` in the current source
+  search. The older `tests/aukora-aumlok.test.mjs` assertion is absent from this
+  checkout, so this statement has no single current all-module court.
 * It does not half-verify. The root-control suite is hybrid; a promotion refuses by name unless
   **both** halves can be verified.
 
@@ -425,8 +426,10 @@ implemented; no second identity or derivation implementation is needed.
 ## No build step
 
 The modules under `lib/` are the shipped bytes. Nothing transpiles or bundles them, so the digest a
-reviewer checks is the digest that runs. Every static single-quoted `from` import in the top-level
-`lib/*.mjs` is a `node:*` builtin or a sibling (an arm in `tests/aukora-aumlok.test.mjs`).
+reviewer checks is the digest that runs. The removed historical
+`tests/aukora-aumlok.test.mjs` asserted that every static single-quoted `from`
+import in the top-level `lib/*.mjs` was a `node:*` builtin or a sibling; this
+checkout has no current equivalent whole-directory arm.
 `pq-generator.mjs` also dynamically imports the vendored, pinned `@noble/post-quantum` closure in
 `lib/vendor/noble-ml-dsa` (see its `PROVENANCE.md`), which that arm does not scan.
 

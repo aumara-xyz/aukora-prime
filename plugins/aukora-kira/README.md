@@ -5,7 +5,7 @@ are canonical for the identical `lib/wasm-cell/` copies checked by
 `tests/pinned-copies.test.mjs`. The cell wrapper and other retained artifacts have
 their own provenance and adaptations; this does not make the closures interchangeable.
 
-A stock DSH host plugin that **writes Remembered memory and stages Signed proposals**. A Remembered record **is memory** — §2.2 of the design settles it, and §10.1 lists this
+A DSH host plugin that captures and writes Remembered memory and exposes bounded recall. Its source retains the older stage/settlement machinery, but the current mounted entry registers `kira_remember` and `kira_recall`, not the old stage/settle/queue tool set. A Remembered record **is memory** — §2.2 of the design settles it, and §10.1 lists this
 very sentence as a claim that had to change — but it is memory **labeled unreviewed** (`REMEMBERED_IS_UNREVIEWED`): extracted by deterministic rules over one bounded turn,
 possibly wrong, and never presented as something a person checked. What it does **not** do is write the **Signed** track: that still needs a grant and a signed approval, and
 that is what the queue below is for. When the composition names a `queueDir` (the shipped default does), a stage, the auto-stage turn hook and the compaction-export hook each
@@ -49,19 +49,13 @@ A composition row mounts it, and the read owner names a module on disk:
 The owner module must export `createReadOwner(options)`. The plugin resolves no
 bare specifiers, needs no build step, and imports nothing from the harness. It
 does need `plugins/aukora-aumlok` beside it, because `lib/approval.mjs` imports that
-lane's rules, so it mounts from a built DSH release that also carries Aumlok. (The
-court for the import boundary, `kira-recall`'s write-boundary arm, is red; see
-Tests.) It declares `inject = ['tools']` and
-registers `kira_stage` and `kira_recall`, `kira_settle` only with `memoryOwner`, and
-`kira_queue` only with a `queueDir`. It provides the `kira.recall` service, and
-`aura.cite` with `memoryOwner`. It registers an `agent/pre-step` recall-injection hook
-and, with a queue, the auto-stage and compaction-export hooks. **Do not read the
-recall-injection hook as working** (found 2026-09-26, by reading): its lane resolver
-in `lib/index.js` (about :455) calls `readReflect()`, which is defined only inside
-`compaction-export-hook.mjs`, so every pre-step throws a `ReferenceError` inside the
-lane supplier, the injection guard contains it, and the turn goes through unchanged.
-No court drives `index.js` `apply()` through a pre-step and asserts an injected
-line.
+lane's rules, so it mounts from a built DSH release that also carries Aumlok. It
+declares `inject = ['tools']`, registers `kira_remember` when `memoryOwner` is
+configured and always registers `kira_recall`. It provides `kira.head` and
+`kira.recall`, registers durable capture hooks and wires recall injection through
+the imported `readReflectFor()`. Current injection and live-path tests drive the
+mounted entry; their synthetic fixtures do not establish what a deployed model
+actually recalled.
 
 A configuration that names an unimplemented retrieval option, or that omits the
 read owner, fails at mount. It does not degrade silently.
@@ -100,7 +94,11 @@ step before removing scratch state. This exercises release files in an operator
 process; it does not prove the running harness loaded that release, a model used
 recall, containment, or general embedding quality.
 
-## Tools
+## Retained stage/settlement source
+
+The APIs below remain in source for compatibility and focused callers. The
+current mounted entry does not register `kira_stage`, `kira_settle` or
+`kira_queue`; its model-facing tools are `kira_remember` and `kira_recall`.
 
 ### `kira_stage`
 
@@ -124,13 +122,13 @@ Availability is not authorization: under the default subject (`aumlok:subject:ow
 approval can be produced until the deployment overlay names the controller's
 `aukora:1:` subject.
 
-**Whether live memory settlement is available is a fact about configuration, and
-`kira_stage` reports it.** The status is `available: false` /
+**Whether retained settlement is available is a fact about configuration, and
+the retained `stageTool` reports it.** The status is `available: false` /
 `no-admitted-memory-producer` when no owner is configured, and `available: true` /
 `admitted-memory-owner-configured` when one is. The value is derived from whether a
 `memoryOwner` was configured (`index.js`), and `kira-reachable` checks the configured
-case. The output schema checks only its shape. The unconfigured-case arm in
-`kira-recall` is currently unreached, because that court is red earlier (see Tests).
+case. The output schema checks only its shape. The historical `kira-recall`
+court that described the unconfigured arm is absent from this checkout.
 
 Two owner sources, exactly one of which a composition names:
 
@@ -190,16 +188,16 @@ approval and the grant are what authorize one write. Reads never touch a grant, 
 nonce or an approval store — a question is free, a durable write is authorized —
 and no read-path module imports the settlement owner. That is an import-level
 separation: with `memoryOwner`, the read owner is built by the same module over the
-same store. The write-boundary arm that checks this is currently red, because
-`strict-read.mjs` is a second filesystem module the arm does not admit. The cross-lane
+same store. The removed historical write-boundary court reported a failure because
+`strict-read.mjs` was a second filesystem module it did not admit. The cross-lane
 imports are all in `approval.mjs` (Aumlok's owner-approval, operation-approval,
 approval-receipt, canonical, subject and did-key modules), so the verifier uses the
 approving lane's own rules. That makes the two agree by construction, not
-independently. `kira-approval-wire` runs the real producer out of process to catch drift
-on Kira's side; a defect in the shared rule itself is not independently checked.
+independently. The removed historical `kira-approval-wire` ran the producer out of
+process; no current check with that name exists here.
 
-**No tool mints a grant, and no tool approves.** When `memoryOwner` is configured
-a third tool, `kira_settle`, is registered; it accepts only `confirm: true`, reads
+**No retained tool mints a grant, and no tool approves.** The retained
+`settleTool` accepts only `confirm: true`, reads
 both documents from the files the composition names, and settles exactly the bytes
 they bind. The grant is minted by `bin/kira-grant.mjs` and the approval by the
 owner approval command — `scripts/aumlok/approve-operation`, which holds no key and
@@ -306,55 +304,22 @@ nothing, and no derived option is deployed, measured, or claimed.
 | The **owner approval command** producing the document `approvalFile` reads | Aumlok lane | **present.** `scripts/aumlok/approve-operation` writes an `aukora:approval-receipt:v1` artifact over one exact operation digest, through a real signer daemon on a Unix socket. `scripts/kira/kira-approve.mjs` and `tests/kira-approval-standin.mjs` are daemon-free doubles that mint the SAME artifact through Aumlok's own `createApprovalReceipt`, for suites that must not start a daemon. `scripts/kira/kira-approve.mjs` records `approvalClass=scripted` by default; `approve-operation` and `tests/kira-approval-standin.mjs` default to `delegated`, and either may be set to `scripted`/`delegated`/`unattributed`. `human-ceremony` is refused. The class is an unsigned label. No artifact claims attendance: Kira refuses any value other than `reported-not-proven`. The reconciled digest rule and the exact fields are in `PROVENANCE.md` §"The owner approval dependency, and the exact wire between the two lanes" |
 | The harness runtime | present | any built tree or materialized release |
 
-## Tests
+## Current checks
 
 ```sh
-node tests/kira-record.test.mjs                    # the record contract
-node tests/kira-recall.test.mjs                    # retrieval, isolation, lifecycle, write boundary — RED at 674fae6bf (see below)
-node tests/kira-approval.test.mjs --mutate --repro # the approval gate, against a daemon-free double
-node tests/kira-approval-wire.test.mjs --mutate    # THE WIRE: the shipped producer → this settle path
-node tests/kira-dsh-assembly.test.mjs              # real DSH context and tool assembly
-node tests/kira-lexical-bench.mjs --records 1000   # CPU latency and footprint
+node --test tests/aukora-kira-ask-recall.test.mjs
+node --test tests/kira-openviking-recall.test.mjs tests/kira-openviking-release.test.mjs
+node --test tests/kira-project-mapping.test.mjs tests/kira-gate-capture-host.test.mjs
 ```
 
-`kira-approval-wire.test.mjs` is the acceptance court for the interface between these two lanes: it
-runs `scripts/aumlok/approve-operation` and `scripts/aumlok/signer.mjs` as separate processes,
-consumes their artifact through the real `kira_settle` path, and re-runs itself against a mutated
-copy of this package for each rule of the wire. It is the only court that can see the digest rule
-drift, because the others' approver imports that rule from the module under test.
-
-The first five are CI steps: record, recall, approval and approval-wire in the
-`keyless-courts` job; dsh-assembly in `keyless-build` after materialize, when the
-selector selects the build, with the courts gate failing if a selected job did not run.
-The sixth, lexical-bench, is a measurement, not a gate. Each of the five runs with
-`--mutate`.
-
-**Two of those CI steps are red at commit `674fae6bf`** (measured 2026-09-26 from a clean
-shell). `kira-recall` exits 1 at its write-boundary arm (`strict-read.mjs` imports
-`node:fs` and uses a write primitive, which the arm admits only in `memory-owner.mjs`),
-so every arm after it does not run. And the `--mutate` pass of `kira-approval-wire` fails
-all four mutations for the wrong reason: its copies omit `plugins/aukora-owner-daemon`,
-which `scripts/aumlok/signer.mjs` imports, so no mutation is detected (its plain run, 10
-arms, passes). The fix belongs in the courts, not in this README.
-
-`kira-dsh-assembly.test.mjs` needs a harness runtime and will not skip without
-one. It resolves, in order: `--dsh-root <path>`, `AUKORA_DSH_RELEASE` (a
-materialized release, which is what CI produces), `AUKORA_DSH_ROOT` (a built
-tree), then `<checkout>/vendor/dsh`. No machine path is hard-coded, and when the
-runtime carries its own build record the test prints the genesis commit it was
-measured against, so "against the current runtime" is checkable afterwards:
-
-```sh
-python3 scripts/build-dsh.py
-python3 scripts/materialize-aukora-release.py --to "$RUNNER_TEMP/aukora-release"
-AUKORA_DSH_RELEASE="$RUNNER_TEMP/aukora-release" node tests/kira-dsh-assembly.test.mjs --mutate
-```
-
-`tests/kira-test-store.mjs` is a **disposable test adapter**. The durable write
-path is `lib/memory-owner.mjs`; the adapter instead builds canonical records, object
-bodies, key projections and a real `aura.jsonl` hash chain on temporary state,
-and `verifyStore` re-derives every citation digest from those bytes. The plugin
-never imports it.
+The older `kira-record`, `kira-recall`, `kira-approval`, `kira-approval-wire`,
+`kira-dsh-assembly`, `kira-lexical-bench` and `kira-test-store` files described by
+the imported lane README are absent from this checkout. Their dated arm counts and
+failures are historical, not commands or current results. The checks above cover
+the current recall hook, OpenViking opt-in, project mapping and protected gate
+capture; each retains its own stated scope and exclusions. The broader
+`kira-memory-live-path` and `kira-injection` checks require a built harness matching
+this checkout and report `UNPERFORMED` without one.
 # Linux deployment source (L3)
 
 ## Declare projects on a node

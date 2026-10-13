@@ -16,7 +16,8 @@ send and receive, 2026-09-24: the sending peer filed `1bf3cd65…` and the recei
 `cbcd7246…` for the same event, both sound. **So never match a sent copy to a received one by
 `contentDigest`.** The cross-node identity is **`eventId`** — the SHA-256 of the event's canonical
 serialization, invariant under how the bytes are spelled — and it matched exactly.
-`tests/aukora-nostr-evidence.test.mjs` pins both halves.
+That is a retained 2026-09-24 measurement. The test that originally pinned both
+halves is not present in this checkout.
 
 ## What exists today
 
@@ -106,7 +107,7 @@ against the published NIP-44 vectors.
 
 ### What the relay can and cannot see
 
-Asserted in the court, not assumed. A published wrap contains neither the message text, nor the
+In the retained historical court account, a published wrap contains neither the message text, nor the
 author's pubkey, nor the inner kind. It **does** contain the recipient's `p` tag, which is the
 documented limit of NIP-17 — and exactly why the spec tells relays to gate `kind:1059` behind NIP-42
 AUTH. Until we only publish to relays that do, "no metadata leak" is not a claim this lane can make.
@@ -114,7 +115,7 @@ AUTH. Until we only publish to relays that do, "no metadata leak" is not a claim
 ## The two vendored primitives, and why
 
 **Node lacks two primitives this lane needs, and they fail in opposite ways.** Both are measured facts,
-pinned by the pin court so a future reader cannot rediscover them by surprise.
+recorded by the historical pin court. That court is not present in this checkout.
 
 **1. BIP-340 Schnorr — absent, and silent about it.** Measured 2026-09-22:
 `crypto.sign(null, msg, {key, scheme:'schnorr'})` accepts the option, ignores it, and returns a DER
@@ -131,9 +132,9 @@ present and is deliberately **not** used: NIP-44 wants a bare ChaCha20 stream pl
 HMAC-SHA256, and the AEAD authenticates a different byte range, so AEAD payloads are unreadable by a
 NIP-44 reader.
 
-The pin court asserts the non-64-byte signature, the refused 12-byte nonce, and that a 16-byte IV does
-not reproduce the RFC vector. That `crypto.verify` accepts the ECDSA signature was measured once
-(2026-09-22) and is not asserted, and neither are the specific hex values quoted above.
+The removed pin court asserted the non-64-byte signature, the refused 12-byte
+nonce, and that a 16-byte IV did not reproduce the RFC vector. Those are retained
+2026-09-22 results, not assertions run by this checkout.
 
 So `lib/vendor/` carries two **pinned, vendored** trees — on identical terms:
 
@@ -167,12 +168,9 @@ us. `relaySummary()` renders the line a person actually reads:
 2 asked, 1 answered: wss://relay.damus.io (ok), wss://nos.lol (unreachable: could not reach wss://nos.lol)
 ```
 
-The court drives this over a **real WebSocket** against `tests/helpers/mock-relay.mjs`, an in-process
-NIP-01 relay with the RFC 6455 server half written out — so handler wiring, frame sizing and socket
-cleanup are exercised rather than stubbed. The mock relay's own court asserts the handshake accept value,
-split and coalesced frames (including a frame split across two TCP writes), and `#p` filtering. That
-removing each of those turns it red is argued from those assertions; no automated negative control or
-recorded mutation run shows it.
+The historical court drove this over a real WebSocket against an in-process
+NIP-01 mock relay. Neither that mock relay nor its court is present in this
+checkout, so those handler/frame claims have no current runnable entry point here.
 
 ### The jitter trap, found only by a real relay
 
@@ -219,26 +217,17 @@ Under v3 (`aumlok-kdf-v1`, what `bind` writes today), both halves derive from th
 words; the words without the handle recover nothing. A binding signed by a lost controller cannot be re-issued, only
 replaced, and replacing it is a new identity rather than a recovery.
 
-## Courts
+## Current check and historical courts
 
 ```
-# arm counts are top-level test() calls, counted 2026-09-26
-node tests/aukora-nostr-vendor-pin.test.mjs   #  8 arms: pin drift ×2 trees, tamper, BIP-340 vector, RFC 8439 vector, the Node gaps
-node tests/aukora-nostr-nip44.test.mjs        # 10 arms: the published NIP-44 vectors — 35 ECDH, 24 padding, 10 payloads, 12 refusals
-node tests/aukora-nostr-giftwrap.test.mjs     # 15 arms: the published NIP-59 example end to end, a NIP-17 round trip, the MUST
-node tests/aukora-nostr-relay.test.mjs        # 15 arms: real WebSocket, every named relay state, offline vs. answered-with-nothing
-node tests/aukora-nostr-binding.test.mjs      # 14 arms: identity, A-verifies-B, seven tamper cases refused under three named codes
-node tests/aukora-nostr-contact.test.mjs      # 26 arms: the anchor is the contact's peer key, the FOREIGN reasons, the SAS rules
-node tests/helpers/mock-relay.test.mjs        # 17 arms: the in-process NIP-01 relay the relay court runs against
-
-AUKORA_NOSTR_REAL_RELAY=1 node tests/aukora-nostr-real-relay.test.mjs   # opt-in: two disposable nodes over PUBLIC relays
+node plugins/aukora-nostr/checks/records.mjs
 ```
 
-The real-relay court is **gated, and the gate is not a silent skip**: without the variable it exits 2
-and says NOT RUN, because it publishes an encrypted message to relays nobody here operates and that
-must be a deliberate act rather than a side effect of a test run. It has already earned its place — see
-the jitter finding above — and it passes against `relay.damus.io` and `nos.lol`, with evidence kept
-under `courts/evidence/`.
+This source-only check uses published test keys and in-memory records. It performs
+no key generation, credential read, socket, relay request or installed-path check.
+The seven dated Nostr courts, their mock relay, public-relay opt-in and vector file
+listed by the imported README are absent from this checkout; their arm counts and
+real-relay results are historical rather than runnable commands here.
 
 Both crypto courts check **published vectors**, never a round trip: `sign` then `verify` agrees with
 itself even when both halves are wrong, and a published vector does not.
@@ -248,8 +237,8 @@ compare, green — while being wrong in three independent ways (HKDF as extract+
 spec's extract-only/expand-only split, power-of-two padding, and no extended length prefix). Run against
 the published vectors, the *same* code failed 10 of 10 payload vectors and 9 of 24 padding lengths and
 could not decrypt a published payload at all, while its own round trip still returned `true`. The
-vectors are vendored at `tests/vectors/nip44.vectors.json` and their sha256 is asserted to be the
-digest the NIP-44 spec publishes.
+The historical vector file is not present in this checkout, so this retained
+account does not substitute for a current published-vector check.
 
 ## Not here yet
 

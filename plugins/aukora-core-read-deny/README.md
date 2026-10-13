@@ -18,9 +18,10 @@ wired.
 | `lib/preset.mjs` | who is reading — `presetOfFromContext(ctx)`, from three real services |
 | `lib/seatbelt.mjs` | the Seatbelt profile, **measured and recorded as unusable** — see below, including a 2026-09-26 finding that reopens it |
 | `lib/index.mjs` | the entry — `apply(ctx, {providerClass, providerConfig})` |
-| `lib/hands-fence.mjs` | a check of whether the operator's protected directories are `0700` and operator-owned, which fences them only from OTHER uids (`tests/aukora-core-hands-fence.test.mjs`). Nothing at runtime calls it, and the hands currently run as the operator |
-| `tests/aukora-core-read-deny.test.mjs` | 62 arms and 11 mutations (62/62 green, plain and `--mutate`, 2026-09-26) |
-| `tests/aukora-core-seatbelt.test.mjs` | 9 arms; see the Seatbelt section for what it records and what its result depends on |
+| `lib/hands-fence.mjs` | a check of whether the operator's protected directories are `0700` and operator-owned, which fences them only from OTHER uids. Nothing at runtime calls it, and the hands currently run as the operator |
+
+The three dated courts formerly listed here are absent from this checkout. Their
+2026-09-26 arm and mutation counts are historical, not current commands.
 
 ## The one change this needs to take effect
 
@@ -71,9 +72,9 @@ because that list would be invented rather than measured.
 
 ## The Seatbelt route, as measured — and a finding that reopens it
 
-`lib/seatbelt.mjs` emits the deny-default profile item 4 asked for. `tests/aukora-core-seatbelt.test.mjs`
-records that no measured SBPL shape both runs a process and withholds the read, and it is GREEN (9/9) when
-run on macOS with the default temporary directory.
+`lib/seatbelt.mjs` emits the deny-default profile item 4 asked for. The removed
+historical court recorded that no measured SBPL shape both ran a process and
+withheld the read on macOS with its default temporary directory.
 
 **Finding, 2026-09-26, Darwin 25.1 (not yet folded into the court):** the court builds its protected paths
 under `os.tmpdir()`. With the default `/tmp` or `/var/folders/…` (both symlinks into `/private`), a targeted
@@ -95,7 +96,5 @@ and it fails as an abort with no diagnostic rather than a refusal naming what wa
 `(subpath "/")` is the only read grant that runs, **which is exactly as broad as the `(allow default)` the
 item exists to replace.**
 
-`tests/aukora-core-seatbelt.test.mjs` runs on the front door and in the macOS CI job, plain and with
-`--mutate`. It skips by name on non-macOS, and that skip is not coverage. Its `--mutate` mode rewrites
-`lib/seatbelt.mjs` in place and then restores it. Its own header still says it is red on purpose and not on
-the front door; both are out of date.
+No current front-door or macOS CI registration names that removed court. The
+retained measurement is not current regression or mutation coverage.

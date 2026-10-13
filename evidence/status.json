@@ -351,8 +351,8 @@
         "plugins/aukora-buzz-door/lib/index.mjs",
         "plugins/aukora-buzz-door/bin/verify-channel-receipt.mjs"
       ],
-      "state": "RAN in staging",
-      "basis": "Installed acceptance reports 11 of 11; a mention after restart starts a real harness turn with plugin provenance, stopping at MISSING_CREDENTIAL. No staging model reply is demonstrated and the live pilot has no Auma relay key or door settings.",
+      "state": "RAN on a real node",
+      "basis": "Installed staging acceptance reports 11 of 11 and a restart wake into a real session. Later on October 13, the live c603bbf node received an Auma relay key, door settings and a session, registered the door, and posted one line. Peter then parked Buzz; it is idle and nothing depends on it.",
       "evidence": [
         "plan/NORTH-STAR.md",
         "plugins/aukora-buzz-door/checks/installed-accept.mjs"
@@ -361,7 +361,7 @@
       "commandPaths": [
         "tests/aukora-buzz-door.test.mjs"
       ],
-      "next": "Use an authorized staging model configuration for a real reply, then qualify the approved live configuration and posted receipt under independent pins."
+      "next": "No next Buzz step is authorized while it is parked. The one live post does not qualify an incoming-message reply, a posted gate receipt, closed-relay admission or continuing availability."
     },
     {
       "name": "Node spawn",
@@ -464,7 +464,7 @@
         "tests/pilot-switch-order.test.mjs",
         "tests/pilot-switch-recovery.test.mjs"
       ],
-      "next": "The owner must approve the prepared compatible release through the existing card, then observe the script's checks and installed behavior."
+      "next": "Retain the live c603bbf switch record and investigate any later candidate separately; one successful switch does not establish future recovery or machine-power-loss behavior."
     }
   ],
   "joins": [
@@ -491,7 +491,7 @@
       ]
     },
     {
-      "text": "The settings face injects kira.head, asks the gate for a verified log head through the carried Buzz transport and checks the release artifact-record digest. Aura Coherence derives its Pentora from the resulting snapshot. Those three sources are combined for a display; their histories are not merged. The code source is an artifact record, and the action history remains a distinct unsigned chain. Staging showed this join with 3/3 present; live 3673b98 has no snapshot route.",
+      "text": "The settings face injects kira.head, asks the gate for a verified log head through the carried Buzz transport and checks the release artifact-record digest. Aura Coherence derives its Pentora from the resulting snapshot. Those three sources are combined for a display; their histories are not merged. The code source is an artifact record, and the action history remains a distinct unsigned chain. Staging showed this join with 3/3 present; the live c603bbf signed-in probe served the snapshot route, but the page was viewed in a browser only in staging.",
       "paths": [
         "plugins/aukora-face/settings/src/index.ts",
         "plugins/aukora-face/settings/src/aura/snapshot-reader.ts",
@@ -501,7 +501,7 @@
       ]
     },
     {
-      "text": "The Buzz door joins verified channel input to agents.followup and brackets posts with gate intent/completion records; installed staging acceptance exercises that join with a recorder. A real session wake stopped at missing model credentials. Invites join authoritative spending to relay member-add in source; node-spawn requires the admission service's signed confirmation. No deployed closed-relay admission or fresh-node installer is qualified.",
+      "text": "The Buzz door joins verified channel input to agents.followup and brackets posts with gate intent/completion records; installed staging acceptance exercises that join with a recorder. A real staging session wake stopped at missing model credentials. The live c603bbf node later registered a configured door and posted one line before Peter parked Buzz idle. Invites join authoritative spending to relay member-add in source; node-spawn requires the admission service's signed confirmation. No incoming live reply, posted gate receipt, deployed closed-relay admission or fresh-node installer is qualified.",
       "paths": [
         "plugins/aukora-buzz-door/lib/index.mjs",
         "plugins/aukora-buzz-door/checks/installed-accept.mjs",

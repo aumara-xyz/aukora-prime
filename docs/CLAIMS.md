@@ -1,6 +1,6 @@
 # Current claims and their limits
 
-The dated source account below is generated from [evidence/current.json](../evidence/current.json). “Source” means present code; “reported” means an operator account. RECORDED preserves a dated account; it does not mean runtime VERIFIED. The [runtime evidence table](#runtime-evidence) is generated separately from its single source, [evidence/runtime-claims.json](../evidence/runtime-claims.json), and supersedes older runtime status descriptions. Test results belong to the received SHA emitted by `./security-review`, not automatically to these rows. The [component map](../ARCHITECTURE.md) separates the pilot from NEXT.
+The dated source account below is generated from [evidence/current.json](../evidence/current.json). “Source” means present code; “reported” means an operator account. RECORDED preserves a dated account; it does not mean runtime VERIFIED. The later [component status](STATUS.md) supersedes this selected snapshot where it records `c603bbf`, the live door post and Buzz being parked idle. The [runtime evidence table](#runtime-evidence) is generated separately from its single source, [evidence/runtime-claims.json](../evidence/runtime-claims.json), and supersedes older runtime status descriptions. Test results belong to the received SHA emitted by `./security-review`, not automatically to these rows. The [component map](../ARCHITECTURE.md) separates the pilot from NEXT.
 
 <!-- BEGIN GENERATED current-revisions -->
 | Identity | Revision / observation | Meaning |

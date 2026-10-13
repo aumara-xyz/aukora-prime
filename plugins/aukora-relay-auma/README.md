@@ -1,9 +1,9 @@
 # Deprecated HTTP relay adapter
 
 `aukora-buzz-door` is the release's channel-chat route. This older adapter and
-`host/relay` remain for existing HTTP clients and the owner's assistant: removing
-them requires an owner-approved migration of those clients and the active
-`aukora-relay.service`. No running service is changed by this source change.
+`host/relay` remain for existing HTTP clients and installations: removing them
+requires an owner-approved migration of any remaining clients and installed
+`aukora-relay.service`. The default materialized release does not mount this adapter.
 
 New releases do not mount this plugin or allow `relay_read` / `relay_post`.
 `python3 scripts/materialize-aukora-release.py --with-legacy-relay --from BUILT --to RELEASE`
@@ -23,5 +23,5 @@ the frozen UI manifest or gate-bootstrap inventory carries `host/relay`.
 Known existing court failure (2026-10-13 task baseline):
 `node host/relay/check.mjs` reports 23 passing cases, then
 `Twin did not falsify its check: Peter-only decision`.
-This change does not repair that court, qualify the HTTP relay or Buzz, prove
-installed-byte parity, or retire the running legacy service.
+The default-off release choice does not repair that court, qualify the HTTP relay
+or Buzz, prove installed-byte parity, or retire an installed legacy service.
