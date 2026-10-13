@@ -580,3 +580,39 @@ the builder's observations on the test machine, by its own report unless a recor
 
 Still NOT RUN: the final Bind step in a browser; the owner's own binding of a fresh node; passkey with a real
 authenticator; a model reply on a browser node; voice; a second owner-bound node.
+
+### 2026-10-14 checker: the unbound restriction ran before its last two fixes; Bind remains the owner's step
+
+This update uses only commit messages since the prior checker cut-off and the full browser-node review. It adds no
+machine observation. By the builder's report, rehearsal node `aukora-r1`, approved by a stand-in, booted with the
+pre-binding restriction, opened the binding screen by itself in a real browser over HTTPS, refused session creation,
+session listing and file upload with 403 `browser-node:binding-required`, and passed the after-approval acceptance in
+unbound mode. That node run preceded two fixes in `f47a61e`: the contact-card identity read is now refused, as are paths
+with an empty segment, an encoded slash or a backslash. The guard, boot and mux suites ran after those fixes; no message
+records the fixed revision running on a node.
+
+A second model family reviewed the restriction read-only. Three items remain open: any readable binding control record
+lifts the guard; `prepare` returns the drawn words to the signed-in client; and GET/HEAD under `/plugins/` is an open
+prefix. The first committed rehearsal record,
+`evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json`, uses a stand-in approval. Commit `5dd0e97` records 22
+after-approval checks and offline verification of its receipt signature, approval bindings, signed apply row and floor
+binding; the record predates the pre-binding restriction.
+
+Kira's latest source fuses semantic and lexical rankings by reciprocal rank. Commit `aee1bc9` records the reproducer
+moving from rank 3 to rank 2 and the Kira Viking CLI plus OpenViking recall and sync suites running. It explicitly leaves
+real embeddings and the 700-note store unperformed. By the builder's report, C1 and R1 answered on separate hostnames
+behind one web server, and R1 passed after-approval acceptance with the one-use claim exchange and a host-only
+`__Host-` cookie; no committed machine record independently retains that two-node observation.
+
+Next: the owner approves one clean node once and presses Bind himself in a real browser. These reports and the committed
+rehearsal record do not prove the later restriction fixes on a node, owner binding, real authenticator custody, a model
+reply, voice, containment or cross-node hostname isolation.
+
+### 2026-10-14, early: builder's report after the checker's cut-off
+
+By the builder's report, on the rehearsal node `aukora-r1` (stand-in approval) at `f47a61e`, in a real browser over
+HTTPS after the two review fixes: the contact card answered 403, `/plugins//events` answered 403, the brand image
+and the first screen were served, an app page and session creation answered 403, a boot method answered 200, and
+the after-approval acceptance passed in its unbound mode. Against the builders' own memory store (about 700
+notes, real embeddings) the question that had missed its short direct note returned it second after recall fusion.
+Staging was rolled to `aee1bc9` and its screen probe passed. None of this has a committed record.

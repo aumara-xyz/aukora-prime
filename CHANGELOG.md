@@ -1,5 +1,12 @@
 # Changelog
 
+## Checker — 14 October 2026
+
+- Updated the browser-node status from the commit messages and the full correctness review: the pre-binding restriction ran on rehearsal `aukora-r1` before two later source fixes, a second model family reviewed it read-only, three findings remain open, and the first rehearsal evidence record is committed with a stand-in approval.
+- Recorded Kira's reciprocal-rank recall fusion and its named source suites without presenting them as a run against real embeddings or the 700-note store.
+- Recorded two host-routed nodes and R1's host-only cookie acceptance by the builder's report; no committed machine record independently retains that observation.
+- The next owner step remains one clean-node approval followed by the owner pressing Bind himself. These records do not prove owner binding, real authenticator custody, a browser-node model reply, voice, containment or cross-node hostname isolation.
+
 ## Checker — 13 October 2026
 
 - Checked revision `0427da2` with Node 24.11.1: the security profile had 0 failures and 11 unperformed rows; the registered offline suite exposed a sandboxed network crash, a load-sensitive timeout that passed on rerun and a supplied stale build prerequisite that failed instead of reporting unperformed.

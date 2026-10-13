@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-13",
+  "asOf": "2026-10-14",
   "scope": "These are the Genesis-derived pilot components. Prime NEXT's protected owner, memory, execution and inference joins remain a separate, unqualified source layer. RAN on a real node can name a scratch probe on the pilot host; it does not mean the feature is active in its live harness.",
   "rows": [
     {
@@ -128,24 +128,25 @@
     },
     {
       "name": "Kira recall by text and meaning",
-      "description": "Kira searches local notes by text or uses OpenViking similarity, then rechecks returned notes against the local ledger and policy.",
+      "description": "Kira fuses text and OpenViking semantic rankings, then rechecks returned notes against the local ledger and policy.",
       "code": [
         "plugins/aukora-kira/lib/index.js",
         "plugins/aukora-kira/lib/recall-openviking.mjs",
         "scripts/kira/release-recall-probe.mjs"
       ],
       "state": "RAN on a real node",
-      "basis": "The pilot-host release probe ran 6 of 6 with scratch state and real OpenViking: remember, semantic recall without shared words, text recall, forget and absence. On October 13 the live node moved to c603bbf, which carries this. The earlier live 3673b98 predated the opt-in fix; no model used recall in this probe and quality beyond the synthetic note is unmeasured.",
+      "basis": "The pilot-host release probe ran 6 of 6 with scratch state and real OpenViking: remember, semantic recall without shared words, text recall, forget and absence. On October 13 the live node moved to c603bbf, which carries that path. Commit aee1bc9 adds reciprocal-rank fusion so lexical evidence is not discarded when semantic recall is available; its message records the kira-recall-fusion reproducer moving from rank 3 to rank 2 and the Kira Viking CLI plus OpenViking recall and sync suites running. The fused ranking was not run against real embeddings or the 700-note store, and no model used recall in the earlier probe.",
       "evidence": [
         "plan/NORTH-STAR.md",
         "plugins/aukora-kira/README.md"
       ],
-      "command": "node --test tests/kira-openviking-recall.test.mjs tests/kira-openviking-release.test.mjs",
+      "command": "node --test tests/kira-recall-fusion.test.mjs tests/kira-openviking-recall.test.mjs tests/kira-openviking-release.test.mjs",
       "commandPaths": [
+        "tests/kira-recall-fusion.test.mjs",
         "tests/kira-openviking-recall.test.mjs",
         "tests/kira-openviking-release.test.mjs"
       ],
-      "next": "Observe Auma using permitted recalled notes after an owner-approved release switch; measure partial-index behavior and retrieval quality."
+      "next": "Run the fused recall against real embeddings and the 700-note store and retain its ranked results."
     },
     {
       "name": "Kira OpenViking indexing",
@@ -455,7 +456,7 @@
         "ops/node-spawn/ingress/claim.py"
       ],
       "state": "RAN on a real node",
-      "basis": "One rehearsal node was reached from a real browser over HTTPS and the commit messages record public-address refusals for no cookie, cross-site requests, a foreign Origin and launch-token queries. Later source changes add a __Host- session cookie, broker deadlines and multi-node rendering; those commits record tests only. Two nodes behind one web server and the later cookie in a real browser were explicitly not run.",
+      "basis": "One rehearsal node was reached from a real browser over HTTPS and the commit messages record public-address refusals for no cookie, cross-site requests, a foreign Origin and launch-token queries. Later source changes add a __Host- session cookie, broker deadlines and multi-node rendering. By the builder's report, C1 and R1 then answered on their own hostnames behind one web server, and R1 passed after-approval acceptance including the one-use claim exchange and a host-only (__Host-) cookie. No committed machine record independently retains that two-node observation.",
       "evidence": [
         "plan/NORTH-STAR.md",
         "ops/node-spawn/ingress/README.md"
@@ -465,26 +466,32 @@
         "tests/browser-ingress.test.mjs",
         "tests/browser-ingress-harness.test.mjs"
       ],
-      "next": "Put two real nodes behind one web server and prove each hostname cannot reach the other node's ports."
+      "next": "On the two real nodes, attempt each hostname's claim and cookie against the other node and retain the refusals."
     },
     {
       "name": "Browser node",
-      "description": "The browser-node procedure creates an unprivileged container from a stock image, builds the pinned harness offline, materializes a relay-free release, generates gate keys, holds the harness for first approval, and wires one-time sign-in over HTTPS itself.",
+      "description": "The browser-node procedure creates an unprivileged container, builds the pinned harness offline, materializes a relay-free release, holds it for first approval, wires one-time HTTPS sign-in and restricts an unbound browser to first-screen reads.",
       "code": [
         "ops/node-spawn/browser/create.sh",
         "ops/node-spawn/browser/node.py",
         "ops/node-spawn/browser/acceptance.sh",
-        "ops/node-spawn/browser/start.sh"
+        "ops/node-spawn/browser/start.sh",
+        "plugins/aukora-action-gate/lib/browser-bootstrap.mjs"
       ],
       "state": "RAN on a real node",
-      "basis": "Run by the builder on the test machine on October 13 and recorded in that day's commit messages and plan/NORTH-STAR.md: a fresh container created from committed code with no network; an offline harness build; release materialization; fresh gate keys; before-approval acceptance PASS. The owner approved through the gate page on three successive fresh builds; each started and passed after-approval acceptance. On the last build a stand-in approved a REHEARSAL instance: a one-time link signed a real browser in over HTTPS, the app loaded, and the binding screen generated a throwaway phrase and accepted its retyping. Later commits add a host-only cookie, passkey enrollment, model-key installation, public evidence and automatic first-run opening, but explicitly leave their corresponding real-node/browser runs unperformed. NOT RUN: the final Bind step in a browser, the owner's own binding, a passkey with a real authenticator, a model reply, voice, a reboot or a second owner-bound node. The observed approvals used a bearer page plus typed confirmation, not a device key.",
+      "basis": "On October 13 the builder recorded a fresh offline build and three owner-approved starts with after-approval acceptance; a separate stand-in-approved rehearsal reached phrase retyping in a real browser. By the builder's report, rehearsal node aukora-r1 later booted with the pre-binding restriction, opened the binding screen by itself, refused session creation, session listing and file upload with 403 browser-node:binding-required, and passed acceptance in unbound mode. That node run preceded the two fixes in f47a61e: refusing the contact-card identity read and paths with empty segments, encoded slashes or backslashes. Their guard, boot and mux suites ran, but the fixes were not rerun on a node. A second model family reviewed the restriction read-only; three items remain open: a readable control record lifts the guard, prepare returns the drawn words to the signed-in client, and GET/HEAD under /plugins/ remains an open prefix. The committed rehearsal record evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json uses a stand-in approval; commit 5dd0e97 records 22 after-approval checks and offline verification of its receipt signature, approval bindings, signed apply row and floor binding. It does not record the later pre-binding fixes. Final Bind, the owner's own binding, a real authenticator, a model reply, voice, reboot and a second owner-bound node remain unperformed.",
       "evidence": [
+        "evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json",
         "plan/CHECK-2026-10-13.md",
         "plan/NORTH-STAR.md",
+        "plan/REVIEW-BROWSER-NODE.md",
         "ops/node-spawn/browser/README.md"
       ],
-      "command": "node --test tests/browser-node-acceptance.test.mjs tests/browser-node-create.test.mjs tests/browser-node-install.test.mjs tests/browser-node-keys.test.mjs tests/browser-node-owner.test.mjs tests/browser-release-profile.test.mjs",
+      "command": "node --test tests/browser-bootstrap-guard.test.mjs tests/browser-bootstrap-boot.test.mjs tests/browser-bootstrap-mux.test.mjs tests/browser-node-acceptance.test.mjs tests/browser-node-create.test.mjs tests/browser-node-install.test.mjs tests/browser-node-keys.test.mjs tests/browser-node-owner.test.mjs tests/browser-release-profile.test.mjs",
       "commandPaths": [
+        "tests/browser-bootstrap-guard.test.mjs",
+        "tests/browser-bootstrap-boot.test.mjs",
+        "tests/browser-bootstrap-mux.test.mjs",
         "tests/browser-node-acceptance.test.mjs",
         "tests/browser-node-create.test.mjs",
         "tests/browser-node-install.test.mjs",
@@ -492,7 +499,7 @@
         "tests/browser-node-owner.test.mjs",
         "tests/browser-release-profile.test.mjs"
       ],
-      "next": "Have the owner complete the final Bind action on one fresh node in a real browser."
+      "next": "The owner approves one clean node once and presses Bind himself in a real browser."
     },
     {
       "name": "Live voice",
