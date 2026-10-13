@@ -243,13 +243,14 @@ test('offline CLI gives safe named refusal, PASS/FAIL exits and reads stdin with
     child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr)
     const completed = new Promise(resolve => child.on('close', resolve))
     child.stdin.on('error', () => {})
-    const parts = ${JSON.stringify(parts)}
+    // A number stands for that many spaces: a 128 KiB literal would exceed Linux's per-argument limit (E2BIG).
+    const parts = ${JSON.stringify(parts)}.map(part => typeof part === 'number' ? ' '.repeat(part) : part)
     for (const part of parts) { child.stdin.write(part); await new Promise(resolve => setTimeout(resolve, 20)) }
     child.stdin.end(); process.exitCode = await completed
   `], { encoding: 'utf8', timeout: 10000, maxBuffer: 256 * 1024 })
   const text = JSON.stringify(f.record)
   assert.equal(chunked([text.slice(0, 17), text.slice(17, 51), text.slice(51)]).status, 0, 'valid partial pipe reads reach EOF')
-  for (const tail of ['{"private":"PRIVATE_SENTINEL"}', ',"phase":"after"}', ' '.repeat(128 * 1024)]) {
+  for (const tail of ['{"private":"PRIVATE_SENTINEL"}', ',"phase":"after"}', 128 * 1024]) {
     const bad = chunked([text, tail]); assert.equal(bad.status, 1, 'later bytes cannot be silently ignored: ' + bad.stdout + bad.stderr)
     assert.match(bad.stdout, /^NOT VERIFIED browser-node-evidence:(?:json|input-size)\n$/)
     assert.doesNotMatch(bad.stdout + bad.stderr, /PRIVATE_SENTINEL/)
