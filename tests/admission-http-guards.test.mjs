@@ -31,8 +31,14 @@ const MUTATIONS = [
   ['request deadline', '}, config.deadlineMs)', '}, config.deadlineMs * 100)', 'deadline'],
   ['global rate limit', 'total >= config.globalLimit', 'false', 'limits'],
   ['address rate limit', 'count > config.addressLimit', 'false', 'limits'],
+  ['address table bound', '!addresses.has(address) && addresses.size >= config.addressTableLimit', 'false', 'address table'],
+  ['address table maximum', 'config.addressTableLimit > MAX_ADDRESS_TABLE', 'false', 'address table'],
   ['address refusal global charge', 'if (count > config.addressLimit) return false', 'if (count > config.addressLimit) { total++; return false }', 'limits'],
+  ['forwarding paired configuration', '(config.trustedAddressHeader === undefined) !== (config.trustedProxy === undefined)', 'false', 'forwarding'],
   ['forwarding proxy opt-in', "config.trustedAddressHeader !== undefined && (config.behindTlsProxy !== true", 'config.trustedAddressHeader !== undefined && (false', 'forwarding'],
+  ['forwarding proxy address', "typeof config.trustedProxy !== 'string' || !isIP(config.trustedProxy)", 'false', 'forwarding'],
+  ['forwarding proxy peer', 'if (request.socket.remoteAddress !== config.trustedProxy) throw fail(ADMIT.INPUT)', '', 'forwarding'],
+  ['forwarding missing fallback', 'if (headers.length === 0) return request.socket.remoteAddress', "if (headers.length === 0) throw fail(ADMIT.INPUT)", 'forwarding'],
   ['single forwarded address', 'headers.length !== 1', 'false', 'forwarding'],
   ['valid forwarded address', '!isIP(address)', 'false', 'forwarding'],
   ['stored confirmation signature', 'verifyAdmissionRecord({ root, record }).member !== result.member', 'false', 'confirmation'],
@@ -220,22 +226,40 @@ test('limits bound one socket peer and globally across peers; forwarding headers
 })
 
 test('forwarding requires an opted-in TLS proxy and a single valid address', async t => {
-  const f = fixture(t), trustedAddressHeader = 'x-forwarded-for'
+  const f = fixture(t), trustedAddressHeader = 'x-forwarded-for', trustedProxy = '127.0.0.1'
   await assert.rejects(() => startAdmissionServer({ ...f.options, trustedAddressHeader }, f.deps), error => error.code === REFUSE.INPUT)
+  await assert.rejects(() => startAdmissionServer({ ...f.options, trustedProxy, trustedAddressHeader }, f.deps), error => error.code === REFUSE.INPUT)
+  await assert.rejects(() => startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedAddressHeader }, f.deps), error => error.code === REFUSE.INPUT)
+  await assert.rejects(() => startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedProxy }, f.deps), error => error.code === REFUSE.INPUT)
+  await assert.rejects(() => startAdmissionServer({ ...f.options, behindTlsProxy: true,
+    trustedProxy: 'not-an-ip', trustedAddressHeader }, f.deps), error => error.code === REFUSE.INPUT)
   for (const value of ['', 'X-Forwarded-For', 'bad header']) {
-    await assert.rejects(() => startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedAddressHeader: value }, f.deps), error => error.code === REFUSE.INPUT)
+    await assert.rejects(() => startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedProxy, trustedAddressHeader: value }, f.deps), error => error.code === REFUSE.INPUT)
   }
-  const server = await startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedAddressHeader, addressLimit: 1 }, f.deps)
-  refused(await request(server, f.body), 400)
+  const server = await startAdmissionServer({ ...f.options, behindTlsProxy: true, trustedProxy, trustedAddressHeader, addressLimit: 1 }, f.deps)
+  assert.equal((await request(server, f.body)).status, 200)
   for (const address of ['203.0.113.1, 203.0.113.2', 'unknown', ' 203.0.113.1']) {
     refused(await request(server, f.body, { headers: { 'x-forwarded-for': address } }), 400)
   }
   refused(await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.1' },
     rawHeaders: ['content-type', 'application/json', 'X-Forwarded-For', '203.0.113.1', 'x-forwarded-for', '203.0.113.1'] }), 400)
+  refused(await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.1' }, address: '127.0.0.2' }), 400)
   assert.equal((await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.1' } })).status, 200)
   refused(await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.1' } }), 429, REFUSE.BUSY)
   assert.equal((await request(server, f.body, { headers: { 'x-forwarded-for': '203.0.113.2' } })).status, 200)
   assert.equal(f.counts(), 0)
+})
+
+test('address table is bounded independently of the global ceiling', async t => {
+  const f = fixture(t)
+  const server = await startAdmissionServer({ ...f.options, addressLimit: 2, addressTableLimit: 2,
+    globalLimit: 3, windowMs: 300000 }, f.deps)
+  assert.equal((await request(server, f.body, { address: '127.0.0.1' })).status, 200)
+  assert.equal((await request(server, f.body, { address: '127.0.0.2' })).status, 200)
+  refused(await request(server, f.body, { address: '127.0.0.3' }), 429, REFUSE.BUSY)
+  assert.equal((await request(server, f.body, { address: '127.0.0.1' })).status, 200)
+  refused(await request(server, f.body, { address: '127.0.0.2' }), 429, REFUSE.BUSY)
+  await assert.rejects(() => startAdmissionServer({ ...f.options, addressTableLimit: 4097 }, f.deps), error => error.code === REFUSE.INPUT)
 })
 
 test('redaction returns stable codes and logs only invite id and outcome', async t => {

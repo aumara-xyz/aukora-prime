@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Commits invite spending with pending delivery; appends admissions before adding relay members.
+// Commits invite spending with bounded delivery states; appends intent before adding relay members.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +15,7 @@ export const REFUSE = Object.freeze({
   INPUT: 'buzz-admit:invalid-input', KEY: 'buzz-admit:isolated-key-required',
   STORE: 'buzz-admit:store-invalid', BUSY: 'buzz-admit:store-busy',
   UNKNOWN: 'buzz-admit:acceptance-unconfirmed', PENDING: 'buzz-admit:pending-admissions',
+  RETRY: 'buzz-admit:retry-later', UNDELIVERABLE: 'buzz-admit:undeliverable',
   AURA: 'buzz-admit:aura-unrecorded',
 })
 const fail = code => Object.assign(new Error(code), { code })
@@ -25,6 +26,10 @@ const compact = (root, invite, redemption) => ({ root, inviteId: invite.id, rede
   inviter: invite.pubkey, member: redemption.pubkey })
 const json = value => JSON.stringify(value)
 const recordIds = record => record.chain.map(({ invite, redemption }) => [invite.id, redemption.id])
+const MAX_DELIVERY_ATTEMPTS = 3
+const RETRY_BASE_MS = 25
+const DELIVERY_STATES = new Set(['pending', 'admitted', 'undeliverable'])
+const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
 
 function syncDirectory(directory) {
   const fd = fs.openSync(directory, 'r')
@@ -60,9 +65,18 @@ function openStore(directory, root, baseUrl) {
     state = createDatabaseStore(db)
     db.exec(`CREATE TABLE IF NOT EXISTS delivery (
       sequence INTEGER PRIMARY KEY, inviteId TEXT NOT NULL UNIQUE REFERENCES consumed(inviteId),
-      entry TEXT NOT NULL, record TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0,1))
+      entry TEXT NOT NULL, record TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0,1)),
+      state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','admitted','undeliverable')),
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0), lastError TEXT, retryAt INTEGER NOT NULL DEFAULT 0
     ) STRICT;
     CREATE TABLE IF NOT EXISTS network (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), root TEXT NOT NULL, relay TEXT NOT NULL) STRICT;`)
+    const columns = new Set(db.prepare('PRAGMA table_info(delivery)').all().map(column => column.name))
+    if (!columns.has('state')) {
+      db.exec("BEGIN IMMEDIATE; ALTER TABLE delivery ADD COLUMN state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','admitted','undeliverable')); UPDATE delivery SET state = CASE done WHEN 1 THEN 'admitted' ELSE 'pending' END; COMMIT")
+    }
+    if (!columns.has('attempts')) db.exec('ALTER TABLE delivery ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0)')
+    if (!columns.has('lastError')) db.exec('ALTER TABLE delivery ADD COLUMN lastError TEXT')
+    if (!columns.has('retryAt')) db.exec('ALTER TABLE delivery ADD COLUMN retryAt INTEGER NOT NULL DEFAULT 0')
     db.prepare('INSERT OR IGNORE INTO network VALUES (1, ?, ?)').run(root, baseUrl)
     const network = db.prepare('SELECT root, relay FROM network').get()
     if (network.root !== root || network.relay !== baseUrl) throw fail(REFUSE.STORE)
@@ -106,11 +120,17 @@ function context(options, deps) {
   })
   const store = openStore(options.storeDir, client.pubkey, baseUrl)
   return { store, root: client.pubkey, sender: deps.sender ?? (command => client.send(command)),
-    onStage: deps.onStage ?? (() => {}), gateSocket: options.gateSocket, gate: deps.gate ?? gateCall }
+    onStage: deps.onStage ?? (() => {}), gateSocket: options.gateSocket, gate: deps.gate ?? gateCall,
+    nowMs: deps.nowMs ?? Date.now, sleep: deps.sleep ?? wait }
 }
 
 function checkedRecord(store, root, row) {
   const entry = JSON.parse(row.entry), record = JSON.parse(row.record)
+  if (!DELIVERY_STATES.has(row.state) || !Number.isSafeInteger(row.attempts) || row.attempts < 0
+    || !Number.isSafeInteger(row.retryAt) || row.retryAt < 0
+    || (row.state === 'admitted') !== Boolean(row.done)
+    || (row.state === 'undeliverable' && (row.attempts !== MAX_DELIVERY_ATTEMPTS || typeof row.lastError !== 'string'))
+    || (row.state === 'pending' && row.attempts >= MAX_DELIVERY_ATTEMPTS)) throw fail(REFUSE.STORE)
   if (verifyRecord({ root, record }).member !== entry.member) throw fail(REFUSE.STORE)
   const last = record.chain.at(-1)
   const stored = store.state.transaction(tx => tx.admission(root, entry.member))
@@ -118,11 +138,32 @@ function checkedRecord(store, root, row) {
   return { entry, record }
 }
 
+function admittedState(store) {
+  return { transaction(callback) {
+    return store.state.transaction(tx => callback({ ...tx, admission(root, member) {
+      const delivery = store.db.prepare('SELECT state FROM delivery JOIN admissions USING (inviteId) WHERE root = ? AND member = ?').get(root, member)
+      return delivery?.state === 'admitted' ? tx.admission(root, member) : undefined
+    } }))
+  } }
+}
+
+const deliveryCode = error => [...Object.values(MEMBER_REFUSE), REFUSE.AURA, REFUSE.UNKNOWN].includes(error?.code)
+  ? error.code : REFUSE.UNKNOWN
+
+function deliveryResult(row, entry, record) {
+  if (row.state === 'admitted') return { state: 'admitted', member: entry.member, record, attempts: row.attempts }
+  return { state: 'undeliverable', member: entry.member, invite_id: entry.inviteId,
+    attempts: row.attempts, code: row.lastError }
+}
+
 async function deliver(ctx, row) {
   const { store, sender, onStage } = ctx
   const { entry, record } = checkedRecord(store, ctx.root, row)
+  if (row.state !== 'pending') return deliveryResult(row, entry, record)
+  if (row.retryAt > ctx.nowMs()) throw fail(REFUSE.RETRY)
   appendAdmissions(store)
   onStage('append')
+  let code
   // Retries may duplicate this digest; a configured gate must acknowledge before the relay is changed.
   if (ctx.gateSocket !== undefined) {
     try {
@@ -130,14 +171,24 @@ async function deliver(ctx, row) {
         digest_sha256: createHash('sha256').update(json(record)).digest('hex') })
       if (ack?.ok !== true || !Number.isSafeInteger(ack.seq) || ack.seq < 1
         || typeof ack.hash !== 'string' || !/^[0-9a-f]{64}$/.test(ack.hash)) throw fail(REFUSE.AURA)
-    } catch { throw fail(REFUSE.AURA) }
+    } catch { code = REFUSE.AURA }
   }
-  const ack = await sender({ command: 'add', pubkey: entry.member, role: 'member' })
-  if (ack?.accepted !== true || ack.kind !== 9030 || !isHex32(ack.event_id)) throw fail(REFUSE.UNKNOWN)
+  if (!code) try {
+    const ack = await sender({ command: 'add', pubkey: entry.member, role: 'member' })
+    if (ack?.accepted !== true || ack.kind !== 9030 || !isHex32(ack.event_id)) throw fail(REFUSE.UNKNOWN)
+  } catch (error) { code = deliveryCode(error) }
+  if (code) {
+    const attempts = row.attempts + 1, terminal = attempts >= MAX_DELIVERY_ATTEMPTS
+    const retryAt = terminal ? 0 : ctx.nowMs() + RETRY_BASE_MS * (2 ** (attempts - 1))
+    store.db.prepare('UPDATE delivery SET state = ?, attempts = ?, lastError = ?, retryAt = ? WHERE inviteId = ?')
+      .run(terminal ? 'undeliverable' : 'pending', attempts, code, retryAt, entry.inviteId)
+    onStage('attempt')
+    throw fail(terminal ? REFUSE.UNDELIVERABLE : code)
+  }
   onStage('sent')
-  store.db.prepare('UPDATE delivery SET done = 1 WHERE inviteId = ?').run(entry.inviteId)
+  store.db.prepare("UPDATE delivery SET done = 1, state = 'admitted', attempts = attempts + 1, lastError = NULL, retryAt = 0 WHERE inviteId = ?").run(entry.inviteId)
   onStage('done')
-  return { member: entry.member, record }
+  return deliveryResult(store.db.prepare('SELECT * FROM delivery WHERE inviteId = ?').get(entry.inviteId), entry, record)
 }
 
 export function preflight(options, deps = {}) {
@@ -148,9 +199,7 @@ export function preflight(options, deps = {}) {
   const ctx = context(request, deps), { store, root } = ctx
   try {
     if (request.root !== root) throw fail(INVITE_REFUSE.NETWORK)
-    const pending = store.db.prepare('SELECT 1 FROM delivery WHERE done = 0').get()
-    if (pending) throw fail(REFUSE.PENDING)
-    return verifyAvailable({ root, invite, chain, state: store.state, now: (deps.now ?? seconds)() })
+    return verifyAvailable({ root, invite, chain, state: admittedState(store), now: (deps.now ?? seconds)() })
   } finally { store.close() }
 }
 
@@ -168,22 +217,23 @@ async function admitRequest(options, deps, idempotent) {
     if (idempotent && existing) {
       if (existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)
       if (canonicalJson(recordIds(JSON.parse(existing.record))) !== canonicalJson(recordIds(record))) throw fail(INVITE_REFUSE.CHAIN)
-      if (existing.done) {
+      if (existing.state === 'admitted') {
         const stored = checkedRecord(store, root, existing)
         appendAdmissions(store)
-        return { member: stored.entry.member, record: stored.record }
+        return deliveryResult(existing, stored.entry, stored.record)
       }
+      if (existing.state === 'undeliverable') throw fail(REFUSE.UNDELIVERABLE)
       return await deliver(ctx, existing)
     }
     if (existing) {
-      if (existing.done || existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)
+      if (existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)
       if (existing.record !== json(record)) throw fail(INVITE_REFUSE.CHAIN)
+      if (existing.state !== 'pending') throw fail(existing.state === 'undeliverable' ? REFUSE.UNDELIVERABLE : INVITE_REFUSE.REPLAY)
       return await deliver(ctx, existing)
     }
-    if (store.db.prepare('SELECT 1 FROM delivery WHERE done = 0').get()) throw fail(REFUSE.PENDING)
     // Outbox insertion shares the verifier transaction; rollback cannot leave an unresumable spend.
     const state = { transaction(callback) {
-      return store.state.transaction(tx => callback({ ...tx, record(entry) {
+      return admittedState(store).transaction(tx => callback({ ...tx, record(entry) {
         tx.record(entry)
         store.db.prepare('INSERT INTO delivery (inviteId, entry, record) VALUES (?, ?, ?)')
           .run(invite.id, json(entry), json(record))
@@ -207,8 +257,24 @@ export async function resume(options, deps = {}) {
   try {
     appendAdmissions(ctx.store)
     const results = []
-    for (const row of ctx.store.db.prepare('SELECT * FROM delivery WHERE done = 0 ORDER BY sequence').all()) {
-      results.push(await deliver(ctx, row))
+    for (const initial of ctx.store.db.prepare("SELECT * FROM delivery WHERE state = 'pending' ORDER BY sequence").all()) {
+      let row = initial
+      for (;;) {
+        const delay = row.retryAt - ctx.nowMs()
+        if (delay > 0) await ctx.sleep(delay)
+        try {
+          results.push(await deliver(ctx, row))
+          break
+        } catch (error) {
+          row = ctx.store.db.prepare('SELECT * FROM delivery WHERE inviteId = ?').get(row.inviteId)
+          if (row.state === 'undeliverable') {
+            const stored = checkedRecord(ctx.store, ctx.root, row)
+            results.push(deliveryResult(row, stored.entry, stored.record))
+            break
+          }
+          if (![REFUSE.RETRY, REFUSE.AURA, REFUSE.UNKNOWN, ...Object.values(MEMBER_REFUSE)].includes(error?.code)) throw error
+        }
+      }
     }
     return results
   } finally { ctx.store.close() }
@@ -225,6 +291,8 @@ use the previous admit output's record.chain. Supply [] for the root. Transfer b
 The admissions store holds, unencrypted, every member's public key and who invited whom (the whole invite graph).
 Resume: repeat an incomplete admit, or run resume with the same owner, relay and store. A spend committed before
 expiry is still delivered after expiry; uncommitted requests must still be valid. Never reset or restore the store.
+Delivery states are pending, admitted and undeliverable. Resume backs off, makes at most three total attempts per
+entry, reports terminal rows and continues later rows. Terminal invites stay spent and cannot vouch for another member.
 The append-only admissions.jsonl precedes each send. Recovery completes a torn matching prefix; other damage refuses.
 With --gate-socket, the gate must record the signed admission record's SHA-256 before each send. Reuse that option
 on resume. Gate failure leaves delivery pending; an uncertain send or gate reply may produce duplicate digest notes.

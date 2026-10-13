@@ -291,7 +291,7 @@ check('per-address refusals preserve global allowance', () => withServer(async (
   assert.equal((await from('192.0.2.2')).status, 200, 'A=200,429,429 must leave B allowance')
   refused(await from('192.0.2.3'), REFUSE.BUSY)
   assert.deepEqual(counts(f), { consumed: 0, admissions: 0 })
-}, { behindTlsProxy: true, trustedAddressHeader: 'x-client-address', addressLimit: 1,
+}, { behindTlsProxy: true, trustedProxy: '127.0.0.1', trustedAddressHeader: 'x-client-address', addressLimit: 1,
   globalLimit: 2, windowMs: 300000 }))
 check('isolated key', async () => {
   const f = fixture(), b = bridge(f.people[0].pubkey)

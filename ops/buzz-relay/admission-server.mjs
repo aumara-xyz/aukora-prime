@@ -19,19 +19,22 @@ const codes = new Set([...Object.values(ADMIT), ...Object.values(MEMBER), ...Obj
 const refusal = error => codes.has(error?.code) ? error.code : ADMIT.UNKNOWN
 const hex = value => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value)
 const loopback = host => host === '::1' || (isIP(host) === 4 && host.startsWith('127.'))
+const MAX_ADDRESS_TABLE = 4096
 const fields = (value, names) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).sort().join(',') === names.slice().sort().join(',')
 
 function settings(options) {
   const config = { host: '127.0.0.1', port: 3100, bodyLimit: 262144, deadlineMs: 5000,
-    windowMs: 60000, addressLimit: 30, globalLimit: 300, ...options }
+    windowMs: 60000, addressLimit: 30, addressTableLimit: 1024, globalLimit: 300, ...options }
   if (!isIP(config.host) || (!loopback(config.host) && config.behindTlsProxy !== true)
     || !Number.isInteger(config.port) || config.port < 0 || config.port > 65535
-    || !['bodyLimit', 'deadlineMs', 'windowMs', 'addressLimit', 'globalLimit'].every(name =>
+    || !['bodyLimit', 'deadlineMs', 'windowMs', 'addressLimit', 'addressTableLimit', 'globalLimit'].every(name =>
       Number.isSafeInteger(config[name]) && config[name] > 0)
-    || config.bodyLimit > 262144 || config.deadlineMs > 30000
+    || config.bodyLimit > 262144 || config.deadlineMs > 30000 || config.addressTableLimit > MAX_ADDRESS_TABLE
+    || (config.trustedAddressHeader === undefined) !== (config.trustedProxy === undefined)
     || (config.trustedAddressHeader !== undefined && (config.behindTlsProxy !== true
-      || typeof config.trustedAddressHeader !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/u.test(config.trustedAddressHeader)))) throw fail(ADMIT.INPUT)
+      || typeof config.trustedAddressHeader !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/u.test(config.trustedAddressHeader)
+      || typeof config.trustedProxy !== 'string' || !isIP(config.trustedProxy)))) throw fail(ADMIT.INPUT)
   return config
 }
 
@@ -45,6 +48,7 @@ function limiter(config) {
     const count = (addresses.get(address) ?? 0) + 1
     if (count > config.addressLimit) return false
     if (total >= config.globalLimit) return false
+    if (!addresses.has(address) && addresses.size >= config.addressTableLimit) return false
     addresses.set(address, count)
     total++
     return true
@@ -55,6 +59,8 @@ function addressOf(request, config) {
   if (config.trustedAddressHeader === undefined) return request.socket.remoteAddress
   const name = config.trustedAddressHeader
   const headers = request.rawHeaders.filter((_, index) => index % 2 === 0 && request.rawHeaders[index].toLowerCase() === name)
+  if (headers.length === 0) return request.socket.remoteAddress
+  if (request.socket.remoteAddress !== config.trustedProxy) throw fail(ADMIT.INPUT)
   const address = request.headers[name]
   if (headers.length !== 1 || typeof address !== 'string' || !isIP(address)) throw fail(ADMIT.INPUT)
   return address
@@ -117,13 +123,17 @@ const statusFor = code => {
   if (code === INVITES.ALLOTMENT) return 429
   if (code === INVITES.EXPIRED) return 410
   if ([INVITES.SIGNATURE, INVITES.NETWORK, INVITES.UNADMITTED].includes(code)) return 403
-  if ([ADMIT.UNKNOWN, ADMIT.STORE, ADMIT.AURA, MEMBER.CLOSED, MEMBER.TRANSPORT, MEMBER.UNKNOWN, MEMBER.REJECTED, MEMBER.RESPONSE].includes(code)) return 503
+  if ([ADMIT.UNKNOWN, ADMIT.STORE, ADMIT.AURA, ADMIT.RETRY, ADMIT.UNDELIVERABLE,
+    MEMBER.CLOSED, MEMBER.TRANSPORT, MEMBER.UNKNOWN, MEMBER.REJECTED, MEMBER.RESPONSE].includes(code)) return 503
   return 400
 }
 
-function transport(deps, signal) {
-  return { ...deps, fetchImpl: (url, options = {}) => (deps.fetchImpl ?? fetch)(url,
-    { ...options, redirect: 'error', signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal }) }
+function transport(deps, signalSource) {
+  return { ...deps, fetchImpl: (url, options = {}) => {
+    const signal = typeof signalSource === 'function' ? signalSource() : signalSource
+    return (deps.fetchImpl ?? fetch)(url,
+      { ...options, redirect: 'error', signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal })
+  } }
 }
 
 async function requireClosed(options, deps) {
@@ -136,13 +146,17 @@ export async function startAdmissionServer(options, deps = {}) {
   let owner
   try { owner = loadKey(config.keyFile, deps.keyOptions ?? { extraDenied: [path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), process.cwd()] }) }
   catch { throw fail(ADMIT.KEY) }
-  const startup = transport(deps, AbortSignal.timeout(config.deadlineMs))
-  await requireClosed(config, startup)
-  await resume(config, startup)
-  const allow = limiter(config), log = deps.log ?? (line => console.log(line))
+  const log = deps.log ?? (line => console.log(line))
   const writeLog = (inviteId, outcome) => {
     try { log(JSON.stringify({ invite_id: inviteId, outcome })) } catch {}
   }
+  const startup = transport(deps, () => AbortSignal.timeout(config.deadlineMs))
+  await requireClosed(config, startup)
+  const recovered = await resume(config, startup)
+  for (const result of recovered) {
+    if (result.state === 'undeliverable') writeLog(result.invite_id, ADMIT.UNDELIVERABLE)
+  }
+  const allow = limiter(config)
   const pendingRequests = new WeakMap(), malformedSockets = new WeakSet()
   const server = http.createServer({ maxHeaderSize: 4096, connectionsCheckingInterval: 250 }, async (request, response) => {
     let inviteId = null, finished = false
@@ -222,10 +236,10 @@ export async function startAdmissionServer(options, deps = {}) {
 }
 
 const HELP = `Usage: node ops/buzz-relay/admission-server.mjs --key-file OWNER_PATH --store ABSOLUTE_DIRECTORY
-  [--relay http://localhost:3000] [--host 127.0.0.1] [--port 3100] [--behind-tls-proxy] [--trusted-address-header NAME] [--gate-socket PATH]
+  [--relay http://localhost:3000] [--host 127.0.0.1] [--port 3100] [--behind-tls-proxy] [--trusted-proxy ADDRESS --trusted-address-header NAME] [--gate-socket PATH]
 Uses the isolated owner key loader and durable admission engine. Non-loopback binding requires --behind-tls-proxy.
-TLS termination is the operator's reverse proxy. Limits use the socket peer unless --trusted-address-header
-names one header under --behind-tls-proxy. The proxy must strip client copies and set one valid IP address.
+TLS termination is the operator's reverse proxy. Limits use the socket peer unless the configured --trusted-proxy
+sets the named header under --behind-tls-proxy. Other peers may not supply it. Missing headers use the socket peer.
 The relay must be closed. Pending spends recover before listening. No service is enabled by this command.`
 
 export async function runCli(args, deps = {}) {
@@ -233,7 +247,8 @@ export async function runCli(args, deps = {}) {
   try {
     if (args.length === 1 && args[0] === '--help') { out(HELP); return 0 }
     const options = {}, names = { '--key-file': 'keyFile', '--store': 'storeDir', '--relay': 'baseUrl',
-      '--host': 'host', '--port': 'port', '--gate-socket': 'gateSocket', '--trusted-address-header': 'trustedAddressHeader' }
+      '--host': 'host', '--port': 'port', '--gate-socket': 'gateSocket', '--trusted-proxy': 'trustedProxy',
+      '--trusted-address-header': 'trustedAddressHeader' }
     for (let i = 0; i < args.length; i++) {
       const flag = args[i]
       if (flag === '--behind-tls-proxy' && !Object.hasOwn(options, 'behindTlsProxy')) { options.behindTlsProxy = true; continue }

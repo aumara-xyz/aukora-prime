@@ -87,10 +87,13 @@ readable through `podman inspect` and permitted process-environment access by th
 it does not isolate credentials from the service account.
 
 `admit.mjs --help` describes issue, redeem, admit and resume with isolated key files. The admissions store holds, unencrypted, every member's public key and who invited whom (the whole invite graph); a spend committed before expiry is still delivered after expiry.
-It also holds event ids, signed ancestry and times; no secret keys are stored. Spending and pending delivery commit together. Resume with the same owner, relay and store: append the
-missing admission bytes, then retry the member add, even if the spent invite has since expired. Completed invites
-refuse replay. A lost relay acknowledgement can repeat the add request; recovery requires idempotent relay membership
-adds, not exactly-once HTTP. Keep this private local store intact; never reset it or restore an older copy.
+It also holds event ids, signed ancestry and times; no secret keys are stored. Spending and pending delivery commit
+together. Delivery is recorded as `pending`, `admitted`, or `undeliverable`. Resume with the same owner, relay and
+store: append the missing intent bytes, then retry a pending member add, even if the spent invite has since expired.
+Retries back off twice and stop after three failed attempts; `resume` reports the terminal row and continues with
+later rows. An undeliverable member is not valid invite ancestry. Completed invites refuse replay, and terminal
+invites stay spent. A lost relay acknowledgement can repeat the add request; recovery requires idempotent relay
+membership adds, not exactly-once HTTP. Keep this private local store intact; never reset it or restore an older copy.
 
 On a CLOSED relay owned by the signing key, this keeps out keys nobody vouched for; it does not prove a unique human.
 Invites are bearer codes: another valid key can redeem first. The append-only file contains compact admissions;
@@ -104,11 +107,13 @@ closure, idempotence, owner custody, store rollback resistance or enforcement in
 it returns `{admitted:true, record}` only after durable spending and the relay owner's signed kind-9030 member add.
 The record carries the owner's signed kind-39704 confirmation of the network root, last redemption id, and
 SHA-256 of the canonical chain; node-spawn requires that signature before recording admission. The confirmation
-is preserved in the admission database. The same signed redemption returns the same committed record on retry; a different redemption of a spent invite
-is refused. Refusals return non-200 `{code}` without request bytes. Both routes require `application/json`, reject
-unknown fields and bounded/slow bodies, and return `cache-control: no-store`. Fixed-window limits apply to the
-socket's remote address and globally. Logs contain the invite id and outcome; the service stores no private key
-in its admission graph. The service user can read its own key file.
+is preserved in the admission database. The same signed redemption returns the same committed record on retry only
+after the relay acknowledgement; an undeliverable redemption returns `buzz-admit:undeliverable`. A different
+redemption of a spent invite is refused. Refusals return non-200 `{code}` without request bytes. Both routes require
+`application/json`, reject unknown fields and bounded/slow bodies, and return `cache-control: no-store`. Fixed-window
+limits apply per trusted caller and globally. The caller table defaults to 1,024 entries and cannot exceed 4,096.
+Logs contain the invite id and outcome; the service stores no private key in its admission graph. The service user
+can read its own key file.
 Defaults are 256 KiB per body, five seconds per request, and 30 requests per address / 300 globally per minute.
 
 Nothing in this section has been installed or run against a real closed relay. The repository's admission tests
@@ -140,9 +145,11 @@ the pending outbox is recovered using the same owner and relay. A lost acknowled
 The default listener is `127.0.0.1:3100`. TLS termination belongs to the operator's reverse proxy, which should
 forward only `/preflight` and `/redeem` to that loopback address without logging bodies. The service neither serves
 TLS. Forwarding headers are ignored by default: callers behind one proxy share its address limit. An operator
-may opt in with `--behind-tls-proxy --trusted-address-header x-forwarded-for` only when a trusted proxy strips
-all client copies and sets one valid IP address, and callers cannot bypass that proxy. Lists, repeated headers,
-and invalid addresses are refused. An address-limited request does not consume the global allowance.
+may opt in with `--behind-tls-proxy --trusted-proxy 127.0.0.1 --trusted-address-header x-forwarded-for` only when
+that exact socket peer is the TLS proxy, it strips all client copies, and it sets one valid IP address. The named
+header is refused from every other socket peer; when it is absent the socket peer is used. Lists, repeated headers,
+and invalid addresses are refused. An address- or table-limited request does not consume the global allowance; the
+separate global limit still caps all accepted callers in the window.
 For a direct non-loopback bind, the CLI requires both `--host ADDRESS` and `--behind-tls-proxy`; the flag records
 operator intent and does not prove TLS. Such a deployment also needs an explicitly reviewed unit override for its
 loopback IP restrictions. Node-spawn must use the operator's HTTPS endpoint (or its existing explicit loopback

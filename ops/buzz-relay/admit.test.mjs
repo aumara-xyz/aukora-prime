@@ -76,6 +76,12 @@ function counts(f) {
   } finally { db.close() }
 }
 
+function deliveries(f) {
+  const db = new DatabaseSync(path.join(f.storeDir, 'admissions.sqlite'), { readOnly: true })
+  try { return db.prepare('SELECT inviteId, state, attempts, lastError, retryAt FROM delivery ORDER BY sequence').all() }
+  finally { db.close() }
+}
+
 // The stand-in validates NIP-98 and signed owner commands before changing its closed roster.
 function bridge(owner) {
   const members = new Set([owner]), requests = [], errors = [], nonces = new Set()
@@ -159,7 +165,7 @@ test('HTTP availability never spends and binds owner root plus completed authori
     assert.deepEqual(preflight({ ...f.options, root, invite: second.invite, chain: result.record.chain }, deps), { available: true, invite_id: second.invite.id })
     await assert.rejects(() => admitIdempotent({ ...f.options, root, ...second, chain: result.record.chain }, { ...f.deps,
       onStage: stage => { if (stage === 'spent') throw new Error('interrupted') }, sender: async () => accepted }))
-    assert.throws(() => preflight({ ...f.options, root, invite: pair(f, 0, 3).invite, chain: [] }, deps), error => error.code === REFUSE.PENDING)
+    assert.deepEqual(preflight({ ...f.options, root, invite: pair(f, 0, 3).invite, chain: [] }, deps).available, true)
     assert.deepEqual(counts(f), { consumed: 2, admissions: 2 })
   } finally { process.umask(previousMask) }
 })
@@ -344,18 +350,77 @@ onStage:stage=>{if(stage===cfg.stage)process.exit(77)}});`
   }
 })
 
-test('pending exact retry survives expiry; a conflicting redemption and new admission cannot bypass the pending operation', async t => {
+test('pending exact retry survives expiry while a later independent admission proceeds', async t => {
   const f = fixture(t), claim = pair(f), other = pair(f, 0, 2)
   await assert.rejects(() => admit({ ...f.options, ...claim }, { ...f.deps,
     sender: async () => { throw new Error('offline') } }))
   assert.deepEqual(counts(f), { consumed: 1, admissions: 1 }); assert.equal(lines(f).length, 1)
-  await rejects(() => admit({ ...f.options, ...other }, { ...f.deps, sender: async () => accepted }), REFUSE.PENDING)
+  const later = await admit({ ...f.options, ...other }, { ...f.deps, sender: async () => accepted })
+  assert.equal(later.state, 'admitted')
   const changed = redeemInvite({ invite: claim.invite, secretKey: f.people[2].key, now: f.now })
   await rejects(() => admit({ ...f.options, invite: claim.invite, redemption: changed }, { ...f.deps, sender: async () => accepted }), INVITES.REPLAY)
+  await new Promise(resolve => setTimeout(resolve, 30))
   let sends = 0
   const result = await admit({ ...f.options, ...claim }, { ...f.deps, now: () => f.now + TTL_SECONDS + 1,
     sender: async () => { sends++; return accepted } })
-  assert.equal(result.member, f.people[1].pubkey); assert.equal(sends, 1); assert.equal(lines(f).length, 1)
+  assert.equal(result.member, f.people[1].pubkey); assert.equal(sends, 1); assert.equal(lines(f).length, 2)
+})
+
+test('recovery backs off, records an undeliverable terminal state, and continues later rows', async t => {
+  const f = fixture(t), first = pair(f), second = pair(f, 0, 2)
+  let nowMs = 1000
+  const sleeps = [], sends = new Map()
+  const sender = async command => {
+    sends.set(command.pubkey, (sends.get(command.pubkey) ?? 0) + 1)
+    if (command.pubkey === first.redemption.pubkey) throw Object.assign(new Error('refused'), { code: MEMBER.REJECTED })
+    if ((sends.get(command.pubkey) ?? 0) === 1) throw new Error('timeout')
+    return accepted
+  }
+  const deps = { ...f.deps, nowMs: () => nowMs, sleep: async delay => { sleeps.push(delay); nowMs += delay }, sender }
+  await rejects(() => admit({ ...f.options, ...first }, deps), MEMBER.REJECTED)
+  await rejects(() => admitIdempotent({ ...f.options, root: f.people[0].pubkey, ...first }, deps), REFUSE.RETRY)
+  assert.equal(sends.get(first.redemption.pubkey), 1)
+  await rejects(() => admit({ ...f.options, ...second }, deps), REFUSE.UNKNOWN)
+  assert.deepEqual(deliveries(f).map(row => [row.state, row.attempts]), [['pending', 1], ['pending', 1]])
+  const recovered = await resume(f.options, deps)
+  assert.deepEqual(recovered.map(result => result.state), ['undeliverable', 'admitted'])
+  assert.deepEqual(sleeps, [25, 50])
+  assert.equal(sends.get(first.redemption.pubkey), 3)
+  assert.equal(sends.get(second.redemption.pubkey), 2)
+  const rows = deliveries(f)
+  assert.deepEqual(rows.map(row => [row.state, row.attempts, row.lastError]), [
+    ['undeliverable', 3, MEMBER.REJECTED], ['admitted', 2, null],
+  ])
+  const before = new Map(sends)
+  await rejects(() => admitIdempotent({ ...f.options, root: f.people[0].pubkey, ...first }, deps), REFUSE.UNDELIVERABLE)
+  await rejects(() => admit({ ...f.options, ...first }, deps), REFUSE.UNDELIVERABLE)
+  assert.deepEqual(sends, before)
+  const child = pair(f, 1, 3)
+  assert.throws(() => preflight({ ...f.options, root: f.people[0].pubkey, invite: child.invite, chain: [first] }, deps),
+    error => error.code === INVITES.UNADMITTED)
+  assert.deepEqual(await resume(f.options, deps), [])
+  assert.deepEqual(counts(f), { consumed: 2, admissions: 2 })
+})
+
+test('a completed legacy delivery migrates without a resend', async t => {
+  const f = fixture(t), claim = pair(f)
+  let sends = 0
+  const deps = { ...f.deps, sender: async () => { sends++; return accepted } }
+  const admitted = await admitIdempotent({ ...f.options, root: f.people[0].pubkey, ...claim }, deps)
+  const db = new DatabaseSync(path.join(f.storeDir, 'admissions.sqlite'))
+  try {
+    db.exec(`PRAGMA foreign_keys = OFF;
+      ALTER TABLE delivery RENAME TO delivery_new;
+      CREATE TABLE delivery (
+        sequence INTEGER PRIMARY KEY, inviteId TEXT NOT NULL UNIQUE REFERENCES consumed(inviteId),
+        entry TEXT NOT NULL, record TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0,1))
+      ) STRICT;
+      INSERT INTO delivery SELECT sequence, inviteId, entry, record, done FROM delivery_new;
+      DROP TABLE delivery_new; PRAGMA foreign_keys = ON;`)
+  } finally { db.close() }
+  const replay = await admitIdempotent({ ...f.options, root: f.people[0].pubkey, ...claim }, deps)
+  assert.deepEqual(replay.record, admitted.record); assert.equal(replay.state, 'admitted'); assert.equal(sends, 1)
+  assert.deepEqual(deliveries(f).map(row => [row.state, row.attempts]), [['admitted', 0]])
 })
 
 test('an in-flight sender holds the store lock and incomplete acknowledgements remain resumable', async t => {
@@ -536,7 +601,8 @@ test('CLI permits no secret arguments, isolation overrides or reflected exceptio
     ['issue', '--root'], ['issue', '--root', f.people[0].pubkey, '--root', f.people[0].pubkey],
     ['resume', '--invite', inviteFile], ['issue', '--key-file', f.people[0].key], valid]) {
     const out = [], err = []
-    assert.equal(await runCli(args, { ...f.deps, sender: async () => { throw new Error(f.people[0].key) },
+    assert.equal(await runCli(args, { ...f.deps, onStage: stage => { if (stage === 'spent') throw new Error(f.people[0].key) },
+      sender: async () => { throw new Error(f.people[0].key) },
       out: x => out.push(x), err: x => err.push(x) }), 1)
     assert.deepEqual(out, []); assert.equal(err.length, 1)
     assert.match(err[0], /^(buzz-admit|buzz-member|invites):[a-z-]+$/u)
@@ -551,15 +617,15 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
   const mutations = [
     ['HTTP root binding', 'if (idempotent && request.root !== root) throw fail(INVITE_REFUSE.NETWORK)', ''],
     ['preflight root binding', 'if (request.root !== root) throw fail(INVITE_REFUSE.NETWORK)', ''],
-    ['preflight pending', 'if (pending) throw fail(REFUSE.PENDING)', ''],
-    ['preflight verifier', 'return verifyAvailable({ root, invite, chain, state: store.state, now: (deps.now ?? seconds)() })', 'return { available: true, invite_id: invite.id }'],
+    ['preflight verifier', 'return verifyAvailable({ root, invite, chain, state: admittedState(store), now: (deps.now ?? seconds)() })', 'return { available: true, invite_id: invite.id }'],
     ['HTTP exact signed binding', 'if (existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)', ''],
     ['HTTP exact signed chain', 'if (canonicalJson(recordIds(JSON.parse(existing.record))) !== canonicalJson(recordIds(record))) throw fail(INVITE_REFUSE.CHAIN)', ''],
     ['HTTP canonical retry', 'canonicalJson(recordIds(JSON.parse(existing.record))) !== canonicalJson(recordIds(record))', 'existing.record !== json(record)'],
     ['HTTP ancestor ids', 'const recordIds = record => record.chain.map(({ invite, redemption }) => [invite.id, redemption.id])', 'const recordIds = record => [record.chain.at(-1).invite.id, record.chain.at(-1).redemption.id]'],
     ['HTTP retry signatures', '    verifyRecord({ root, record })\n    const existing', '    const existing'],
-    ['HTTP completed no resend', 'if (existing.done) {', 'if (false) {'],
+    ['HTTP completed no resend', "if (existing.state === 'admitted') {", 'if (false) {'],
     ['HTTP completed journal', 'const stored = checkedRecord(store, root, existing)\n        appendAdmissions(store)', 'const stored = checkedRecord(store, root, existing)'],
+    ['HTTP terminal no resend', "if (existing.state === 'undeliverable') throw fail(REFUSE.UNDELIVERABLE)", 'if (false) throw fail(REFUSE.UNDELIVERABLE)'],
     ['Aura required recording', 'if (ctx.gateSocket !== undefined) {', 'if (false) {'],
     ['Aura digest-only payload', "digest_sha256: createHash('sha256').update(json(record)).digest('hex')", "digest_sha256: createHash('sha256').update(json(record)).digest('hex'), record"],
     ['Aura exact record digest', ".update(json(record)).digest('hex')", ".update(json(entry)).digest('hex')"],
@@ -567,7 +633,7 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
     ['Aura integer sequence', '!Number.isSafeInteger(ack.seq) || ', ''],
     ['Aura positive sequence', 'ack.seq < 1', 'false'],
     ['Aura hash acknowledgement', "typeof ack.hash !== 'string' || !/^[0-9a-f]{64}$/.test(ack.hash)", 'false'],
-    ['Aura refusal surface', '} catch { throw fail(REFUSE.AURA) }', '} catch {}'],
+    ['Aura refusal surface', '} catch { code = REFUSE.AURA }', '} catch {}'],
     ['Aura configured socket', "if (options.gateSocket !== undefined && (typeof options.gateSocket !== 'string'\n    || !path.isAbsolute(options.gateSocket) || options.gateSocket.includes('\\0'))) throw fail(REFUSE.AURA)", ''],
     ['Aura CLI configuration', "gateSocket: opts['--gate-socket']", 'gateSocket: undefined'],
     ['verifier authorization', 'verifyAdmission({ root, invite, redemption, chain, state, now: (deps.now ?? seconds)() })',
@@ -577,16 +643,24 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
       ".run(invite.id, json(entry), json(record)); store.db.prepare('DELETE FROM delivery WHERE inviteId = ?').run(invite.id)"],
     ['log before relay', "appendAdmissions(store)\n  onStage('append')", "onStage('append')"],
     ['completion after acknowledgement', "const ack = await sender({ command: 'add', pubkey: entry.member, role: 'member' })",
-      "store.db.prepare('UPDATE delivery SET done = 1 WHERE inviteId = ?').run(entry.inviteId); const ack = await sender({ command: 'add', pubkey: entry.member, role: 'member' })"],
+      "store.db.prepare(\"UPDATE delivery SET done = 1, state = 'admitted' WHERE inviteId = ?\").run(entry.inviteId); const ack = await sender({ command: 'add', pubkey: entry.member, role: 'member' })"],
     ['accepted acknowledgement', 'ack?.accepted !== true || ', ''],
     ['member-kind acknowledgement', 'ack.kind !== 9030 || ', ''],
     ['event-id acknowledgement', '!isHex32(ack.event_id)', 'false'],
-    ['durable completion', 'UPDATE delivery SET done = 1 WHERE inviteId = ?', 'UPDATE delivery SET done = done WHERE inviteId = ?'],
+    ['durable completion', "UPDATE delivery SET done = 1, state = 'admitted', attempts = attempts + 1", "UPDATE delivery SET done = done, state = 'pending', attempts = attempts"],
     ['expired pending resume', 'if (existing) {', 'if (false) {'],
-    ['completed replay', 'existing.done || ', ''],
-    ['exact pending pair', 'if (existing.done || existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)\n      if (existing.record !== json(record)) throw fail(INVITE_REFUSE.CHAIN)',
-      'if (existing.done) throw fail(INVITE_REFUSE.REPLAY)'],
-    ['pending serialization', "if (store.db.prepare('SELECT 1 FROM delivery WHERE done = 0').get()) throw fail(REFUSE.PENDING)", ''],
+    ['completed replay', "if (existing.state !== 'pending') throw fail(existing.state === 'undeliverable' ? REFUSE.UNDELIVERABLE : INVITE_REFUSE.REPLAY)", 'if (false) throw fail(INVITE_REFUSE.REPLAY)'],
+    ['exact pending pair', "if (existing.entry !== json(compact(root, invite, redemption))) throw fail(INVITE_REFUSE.REPLAY)\n      if (existing.record !== json(record)) throw fail(INVITE_REFUSE.CHAIN)",
+      "if (existing.state !== 'pending') throw fail(INVITE_REFUSE.REPLAY)"],
+    ['later rows proceed', '// Outbox insertion shares the verifier transaction; rollback cannot leave an unresumable spend.',
+      "if (store.db.prepare(\"SELECT 1 FROM delivery WHERE state = 'pending'\").get()) throw fail(REFUSE.PENDING)\n    // Outbox insertion shares the verifier transaction; rollback cannot leave an unresumable spend."],
+    ['bounded attempts', 'const MAX_DELIVERY_ATTEMPTS = 3', 'const MAX_DELIVERY_ATTEMPTS = 4'],
+    ['retry backoff', 'const RETRY_BASE_MS = 25', 'const RETRY_BASE_MS = 0'],
+    ['retry deadline', 'if (row.retryAt > ctx.nowMs()) throw fail(REFUSE.RETRY)', ''],
+    ['terminal persistence', "terminal ? 'undeliverable' : 'pending'", "'pending'"],
+    ['admitted ancestry only', "delivery?.state === 'admitted' ? tx.admission(root, member) : undefined", 'delivery ? tx.admission(root, member) : undefined'],
+    ['resume continues rows', 'results.push(deliveryResult(row, stored.entry, stored.record))\n            break', 'results.push(deliveryResult(row, stored.entry, stored.record))\n            return results'],
+    ['legacy completion migration', "CASE done WHEN 1 THEN 'admitted' ELSE 'pending' END", "'pending'"],
     ['owner binding', 'network.root !== root || ', ''],
     ['relay binding', 'network.relay !== baseUrl', 'false'],
     ['append-only prefix', 'actual.length > expected.length || !actual.equals(expected.subarray(0, actual.length))', 'false'],
@@ -615,7 +689,7 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
     ['CLI error redaction', 'err(codes.includes(error?.code) ? error.code : REFUSE.INPUT)', 'err(error.message)'],
   ]
   const targets = [
-    [['preflight root binding', 'preflight pending', 'preflight verifier'], 'HTTP availability'],
+    [['preflight root binding', 'preflight verifier'], 'HTTP availability'],
     [['HTTP root binding', 'HTTP exact signed binding', 'HTTP exact signed chain', 'HTTP canonical retry', 'HTTP ancestor ids', 'HTTP retry signatures', 'HTTP completed no resend', 'HTTP completed journal'], 'HTTP completed'],
     [['Aura required recording', 'Aura digest-only payload', 'Aura exact record digest'], 'Aura admission digest'],
     [['Aura positive acknowledgement', 'Aura integer sequence', 'Aura positive sequence', 'Aura hash acknowledgement', 'Aura refusal surface'], 'Aura admission failures'],
@@ -625,7 +699,9 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
     [['atomic membership record', 'durable outbox', 'log before relay'], 'root admits A'],
     [['completion after acknowledgement', 'accepted acknowledgement', 'member-kind acknowledgement', 'event-id acknowledgement', 'concurrent sender lock'], 'in-flight sender'],
     [['durable completion'], 'each abrupt process exit'],
-    [['expired pending resume', 'exact pending pair', 'pending serialization'], 'pending exact retry'],
+    [['expired pending resume', 'exact pending pair', 'later rows proceed'], 'pending exact retry'],
+    [['HTTP terminal no resend', 'bounded attempts', 'retry backoff', 'retry deadline', 'terminal persistence', 'admitted ancestry only', 'resume continues rows'], 'recovery backs off'],
+    [['legacy completion migration'], 'completed legacy delivery'],
     [['owner binding', 'relay binding', 'append-only prefix'], 'recovery appends'],
     [['single-link store', 'private store files', 'store file owner', 'no-follow store files', 'SQLite companion protection'], 'store files reject'],
     [['private store directory', 'store directory owner', 'store parent symlink'], 'private store paths'],
