@@ -14,7 +14,7 @@ function protectedNode(st, directory) {
     throw refuse('owner-state-unprotected')
 }
 
-function readProtectedJson(file) {
+export function readProtectedJson(file) {
   const parents = []; let parent = path.dirname(file)
   while (true) { parents.push(parent); if (parent === '/') break; parent = path.dirname(parent) }
   for (const p of parents.reverse()) protectedNode(fs.lstatSync(p), true)

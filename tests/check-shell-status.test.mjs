@@ -19,7 +19,7 @@ const footer = (pass = 46, arms = 46, failed = 0, pending = 2, dsh = 'UNPERFORME
 const tap = (pass = 0, skipped = 0, todo = 0) =>
   `# tests ${pass + skipped + todo}\n# pass ${pass}\n# fail 0\n# cancelled 0\n# skipped ${skipped}\n# todo ${todo}`
 const registrations = text => text.split('\n').filter(line => /^check(?:_tap|_unittest|_darwin|_injection)? '/u.test(line))
-assert.equal(registrations(source).length, 278, 'preserve every existing fixed registration')
+assert.equal(registrations(source).length, 290, 'preserve every existing fixed registration')
 assert.equal(registrations(source).filter(line => line.includes(command)).length, 1)
 
 function fragments(text) {
@@ -201,6 +201,18 @@ assert.throws(() => checkEmptyMutationCourt(zeroCourt.replace(guard, '')), { cod
 console.log('KILLED zero-mutation guard removal (empty requested court otherwise exits zero)')
 
 const uncoveredRegistrations = [
+  "check_tap 'node --test --test-reporter=tap tests/browser-signin-session.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-browser-config.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-browser-join.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-browser-page.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/browser-ingress.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-passkey-gate.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-passkey-page.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-passkey-proof.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-passkey-receipt.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/owner-passkey-state.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/aumlok-browser-binding.test.mjs'",
+  "check_tap 'node --test --test-reporter=tap tests/aumlok-browser-routes.test.mjs'",
   "check '/usr/bin/python3 scripts/phase0/selfcheck.py'",
   "check '/usr/bin/python3 scripts/composition/composition-selfcheck.py'",
   "check '/usr/bin/python3 scripts/composition/subject-digest-court.py'",
@@ -363,4 +375,4 @@ if (process.argv.includes('--mutate')) {
     console.log(`KILLED ${name}`)
   }
 }
-console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 278 registrations retained; synthetic child/actual runner only; no fixture deletes`)
+console.log(`check-shell-status: ${cases.length + 3} cases PASS; ${process.argv.includes('--mutate') ? controls.length : 0} controls killed; 290 registrations retained; synthetic child/actual runner only; no fixture deletes`)

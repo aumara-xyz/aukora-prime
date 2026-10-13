@@ -98,6 +98,8 @@ AURA_SOURCE_PINS = {
 OWNER_KEY_ROOT = "/opt/owner-key"
 PASSKEY_ROOTS = {"passkey_authority": "/opt/authority", "passkey_contracts": "/opt/contracts"}
 PASSKEY_SETUP = "/etc/aukora-boundary-gate/passkey-setup.json"
+BROWSER_JOIN = "/etc/aukora-boundary-gate/browser-join.json"
+BROWSER_AUMLOK_ROOT = "/opt/aukora-aumlok"
 # Exact package inventory: f5da7bb adds two reviewed software-signer check files;
 # only tests import the helper, and package verification never executes checks.
 OWNER_KEY_FILES = frozenset({
@@ -292,17 +294,19 @@ def validate_launcher_profile(value):
 
 def validate_passkey_profile(name, value):
     require(isinstance(value, dict) and set(value) == {"root", "files"}
-            and value["root"] == PASSKEY_ROOTS[name], "passkey-profile")
+            and value["root"] == (BROWSER_AUMLOK_ROOT if name == "browser_aumlok" else PASSKEY_ROOTS[name]), "passkey-profile")
     files = hash_mapping(value["files"])
     require(all(re.fullmatch(r"[A-Za-z0-9_.@][A-Za-z0-9._@-]*(?:/[A-Za-z0-9_.@][A-Za-z0-9._@-]*)*", path)
                 for path in files), "passkey-profile-path")
-    required = {"package.json", "src/passkey-enrollment.mjs", "src/webauthn.mjs"} if name == "passkey_authority" else {"package.json", "src/runtime.mjs"}
+    required = ({"package.json", "lib/record-v3.mjs", "lib/strict-read.mjs"} if name == "browser_aumlok"
+                else {"package.json", "src/passkey-enrollment.mjs", "src/webauthn.mjs"} if name == "passkey_authority"
+                else {"package.json", "src/runtime.mjs"})
     require(required <= set(files), "passkey-profile-source")
     return value
 
 
 def parse_profiles(value):
-    require(isinstance(value, dict) and set(value) <= {"owner_key", "aura", "launcher", *PASSKEY_ROOTS}, "manifest-profiles")
+    require(isinstance(value, dict) and set(value) <= {"owner_key", "aura", "launcher", "browser_aumlok", *PASSKEY_ROOTS}, "manifest-profiles")
     require("launcher" in value, "launcher-profile-unconfigured")
     validate_launcher_profile(value["launcher"])
     require("aura" not in value or "owner_key" in value, "aura-owner-key-profile")
@@ -314,6 +318,9 @@ def parse_profiles(value):
     require(not set(value) & set(PASSKEY_ROOTS) or "owner_key" in value, "passkey-owner-key-profile")
     for name in PASSKEY_ROOTS.keys() & value.keys():
         validate_passkey_profile(name, value[name])
+    if "browser_aumlok" in value:
+        require(set(PASSKEY_ROOTS) <= set(value), "browser-passkey-profile")
+        validate_passkey_profile("browser_aumlok", value["browser_aumlok"])
     return value
 
 
@@ -535,7 +542,7 @@ def serve_arguments(arguments):
     require(arguments and arguments[0] == "serve", "launch-action")
     fixed = {"--home": "/home/aukora-gate", "--run": "/run/aukora-gate",
              "--target-root": "/var/lib/aukora-boundary/targets", "--releases-root": "/opt/aukora-genesis",
-             "--passkey-setup": PASSKEY_SETUP}
+             "--passkey-setup": PASSKEY_SETUP, "--browser-join": BROWSER_JOIN}
     seen, index = set(), 1
     while index < len(arguments):
         name = arguments[index]
@@ -559,6 +566,7 @@ def serve_arguments(arguments):
         index += 2
     require({"--home", "--run", "--target-root", "--gid"} <= seen, "launch-required")
     require(not {"--passkey-setup", "--owner-page"} <= seen, "passkey-owner-page-conflict")
+    require("--browser-join" not in seen or "--passkey-setup" in seen, "browser-passkey-required")
     return list(arguments)
 
 
@@ -829,6 +837,9 @@ def verify_source_profiles(manifest):
         if name in profiles:
             profile = validate_passkey_profile(name, profiles[name])
             verify_package(root, profile["files"])
+    if "browser_aumlok" in profiles:
+        profile = validate_passkey_profile("browser_aumlok", profiles["browser_aumlok"])
+        verify_package(BROWSER_AUMLOK_ROOT, profile["files"])
 
 
 def require_node_profile(manifest, entry):
@@ -891,6 +902,8 @@ def main():
         require_node_profile(manifest, entry)
         if "--passkey-setup" in arguments:
             require(set(PASSKEY_ROOTS) <= set(manifest.get("profiles", {})), "passkey-profile-unconfigured")
+        if "--browser-join" in arguments:
+            require("browser_aumlok" in manifest.get("profiles", {}), "browser-profile-unconfigured")
         if entry == AURA_ROOT + "/" + AURA_ENTRY:
             # Re-pin the fixed public document before the private metadata
             # operation; no cached context or private bytes enter other roles.

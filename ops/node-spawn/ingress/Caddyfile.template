@@ -16,7 +16,7 @@ https://__APP_HOST__ {
 	@launch_token query token=*
 	respond @launch_token 404
 
-	@claim path /__aukora/claim /__aukora/claim.js
+	@claim path /__aukora/claim /__aukora/claim.js /__aukora/signin /__aukora/signin.js /__aukora/signout
 	handle @claim {
 		reverse_proxy 127.0.0.1:__OWNER_PORT__ {
 			flush_interval -1
@@ -56,7 +56,6 @@ https://__APP_HOST__ {
 
 https://__OWNER_HOST__ {
 	import aukora_headers
-	header Content-Security-Policy "default-src 'none'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 	header X-Frame-Options "DENY"
 	reverse_proxy 127.0.0.1:__OWNER_PORT__ {
 		flush_interval -1

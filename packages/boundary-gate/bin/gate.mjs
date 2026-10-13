@@ -17,12 +17,13 @@ import { openDb, verifyLedger, loadOrCreateKey, keyFingerprint } from '../src/le
 import { gateTargets, gateStore } from '../src/wiring.mjs'
 import { verifyReceipt } from '../src/receipts.mjs'
 import { ownerStateReader, passkeySetupReader, mintPasskeyClaim } from '../src/owner-state.mjs'
+import { browserJoinReader, bindingRecordReader } from '../src/browser-join.mjs'
 
 process.umask(0o027)
 const [cmd, ...rest] = process.argv.slice(2)
 const { values: o, tokens } = parseArgs({ args: rest, options: { home: { type: 'string' }, run: { type: 'string' }, port: { type: 'string' }, gid: { type: 'string' },
   'time-zone': { type: 'string' }, db: { type: 'string' }, pub: { type: 'string' }, 'target-root': { type: 'string' }, 'releases-root': { type: 'string' }, receipt: { type: 'string' }, 'owner-page': { type: 'boolean' }, 'journal-id': { type: 'string' },
-  'passkey-setup': { type: 'string' }, 'claim-out': { type: 'string' }, binding: { type: 'string' }, node: { type: 'string' }, 'owner-origin': { type: 'string' } }, strict: true, tokens: true })
+  'passkey-setup': { type: 'string' }, 'claim-out': { type: 'string' }, binding: { type: 'string' }, node: { type: 'string' }, 'owner-origin': { type: 'string' }, 'browser-join': { type: 'string' } }, strict: true, tokens: true })
 // This fixed public journal is an operator startup binding, never a request or
 // model value. Reject incompatible commands before opening any gate state.
 if (o['journal-id'] !== undefined && (cmd !== 'serve' || o['journal-id'] !== 'aukora-gate-pilot'
@@ -30,6 +31,9 @@ if (o['journal-id'] !== undefined && (cmd !== 'serve' || o['journal-id'] !== 'au
   console.error('--journal-id requires serve and the fixed aukora-gate-pilot journal'); process.exit(2)
 }
 const abs = (label, p) => { if (!p || !path.isAbsolute(p)) { console.error(`--${label} must be an absolute path`); process.exit(2) } return p }
+if (o['browser-join'] !== undefined && (cmd !== 'serve' || o['passkey-setup'] === undefined)) {
+  console.error('--browser-join requires passkey serve'); process.exit(2)
+}
 if ((o['passkey-setup'] !== undefined && !['serve', 'mint-passkey-claim'].includes(cmd))
   || (['claim-out', 'binding', 'node', 'owner-origin'].some(k => o[k] !== undefined) && cmd !== 'mint-passkey-claim')
   || (cmd === 'serve' && o['passkey-setup'] !== undefined && o['owner-page'])) {
@@ -61,14 +65,25 @@ if (cmd === 'mint-passkey-claim') {
   const readPasskeySetup = o['passkey-setup'] === undefined ? undefined : passkeySetupReader(abs('passkey-setup', o['passkey-setup']))
   const passkeyEnrollmentCeremony = readPasskeySetup === undefined ? undefined
     : (await import('../../authority/src/passkey-enrollment.mjs')).createPasskeyEnrollmentCeremony
+  let browserJoin, browserPage
+  if (o['browser-join'] !== undefined) {
+    const readJoin = browserJoinReader(abs('browser-join', o['browser-join'])), selected = readJoin()
+    const projection = await import('/opt/aukora-aumlok/lib/record-v3.mjs')
+    const reader = await import('/opt/aukora-aumlok/lib/strict-read.mjs')
+    const readRecord = bindingRecordReader(selected.binding_record, { ...projection, ...reader })
+    browserJoin = { appOrigin: selected.app_origin, readBinding: () => { readJoin(); return readRecord() } }
+    const setup = readPasskeySetup()
+    browserPage = { appOrigin: selected.app_origin, node: setup.node, gateId: setup.gate }
+  }
   const gate = createGate({ home, owner, targets: gateTargets(abs('target-root', o['target-root']), o['releases-root'] ? { releasesRoot: abs('releases-root', o['releases-root']) } : {}), store: gateStore({ gid: Number(o.gid) || 0 }),
     ...(readOwnerState === undefined ? {} : { readOwnerState }),
     ...(readPasskeySetup === undefined ? {} : { readPasskeySetup, passkeyEnrollmentCeremony }),
+    ...(browserJoin === undefined ? {} : { browserJoin }),
     ...(o['journal-id'] === undefined ? {} : { journalId: o['journal-id'] }) })
   const v = gate.startup({ bearerInfo })
   if (!v.ok) console.error('LEDGER VERIFY FAILED', v.errors)
   const srv = await serveGate(gate, { runDir, gid: Number(o.gid) || 0, ownerHttpPort: Number(o.port ?? 17792), timeZone: o['time-zone'] ?? 'UTC', ownerPage: o['owner-page'] === true,
-    ...(readPasskeySetup === undefined ? {} : { passkeyOwner: { origin: readPasskeySetup().origin, rpId: readPasskeySetup().rp_id } }) })
+    ...(readPasskeySetup === undefined ? {} : { passkeyOwner: { origin: readPasskeySetup().origin, rpId: readPasskeySetup().rp_id, ...browserPage } }) })
   console.log(`boundary-gate PROPOSE ${srv.proposeSocket} OWNER ${srv.ownerSocket} (0600) OWNER-HTTP ${srv.port === null ? 'off' : 'loopback:' + srv.port} pubkey ${gate.fp} targets ${Object.keys(gate.targets).length}`)
   const stop = () => srv.close().finally(() => { gate.close(); process.exit(0) })
   process.on('SIGTERM', stop); process.on('SIGINT', stop)

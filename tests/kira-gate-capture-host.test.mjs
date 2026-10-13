@@ -927,7 +927,7 @@ test('actual E193 revalidates the retained H scope after awaited write policy be
 const binURL = new URL('../packages/boundary-gate/bin/gate.mjs', import.meta.url)
 const unitURL = new URL('../packages/boundary-gate/host/systemd/aukora-boundary-gate.service', import.meta.url)
 let gateCliFixtureSequence = 0
-async function runGateCli(args, source, { readOwnerState, ownerStateError, readPasskeySetup, passkeySetupError } = {}) {
+async function runGateCli(args, source, { readOwnerState, ownerStateError, readPasskeySetup, passkeySetupError, browserJoinError } = {}) {
   source ??= await readFile(binURL, 'utf8')
   const observed = { calls: [], gates: [], servers: [], messages: [], exit: null, error: null }
   const exit = Object.freeze({ fixture: 'process-exit' }), owner = Object.freeze({ fixture: 'owner' })
@@ -952,6 +952,15 @@ async function runGateCli(args, source, { readOwnerState, ownerStateError, readP
       return readPasskeySetup
     },
     mintPasskeyClaim: options => { observed.calls.push(['mint-passkey-claim', options]); return { minted: true } },
+    browserJoinReader: file => {
+      assert.equal(file, '/fixture/browser-join.json')
+      if (browserJoinError) throw browserJoinError
+      return () => ({ app_origin: 'https://app.example', binding_record: '/fixture/local-control.json' })
+    },
+    bindingRecordReader: (file, modules) => {
+      assert.equal(file, '/fixture/local-control.json'); assert.ok(modules.recordProjection && modules.readJsonStrictBytes)
+      return () => ({ subject: 'aukora:1:' + 'a'.repeat(64), rootId: 'b'.repeat(64) })
+    },
     createPasskeyEnrollmentCeremony: binding => { observed.calls.push(['passkey-ceremony', binding]); return { fixture: 'ceremony' } },
     rotateBearer: (home, actualOwner) => { assert.equal(actualOwner, owner); observed.calls.push(['bearer', home]); return { fixture: 'bearer-info' } },
     gateTargets: (root, options) => { observed.calls.push(['targets', root, options]); return { fixtureTarget: {} } },
@@ -979,6 +988,8 @@ async function runGateCli(args, source, { readOwnerState, ownerStateError, readP
     `import fs from '${dataURL(`export default ${dependency}.fs;`)}'`)
   rewritten = rewritten.replace("'../../authority/src/passkey-enrollment.mjs'",
     JSON.stringify(dataURL(`export const createPasskeyEnrollmentCeremony = ${dependency}.createPasskeyEnrollmentCeremony;`)))
+  rewritten = rewritten.replace("'/opt/aukora-aumlok/lib/record-v3.mjs'", JSON.stringify(dataURL('export const recordProjection = () => {};')))
+  rewritten = rewritten.replace("'/opt/aukora-aumlok/lib/strict-read.mjs'", JSON.stringify(dataURL('export const readJsonStrictBytes = () => {};')))
   rewritten = rewritten.replace(/import\s*\{([^}]+)\}\s*from\s*(['"])([^'"]+)\2/gu,
     (statement, bindings, _quote, specifier) => {
       if (specifier === 'node:util') return statement
@@ -1066,6 +1077,29 @@ test('gate CLI refuses passkey setup on other commands and sharing the legacy ow
     const selected = await runGateCli(args)
     assert.equal(selected.exit, 2); assert.equal(selected.gates.length, 0); assert.equal(selected.servers.length, 0)
     assert.deepEqual(selected.calls, [['umask', 0o027]])
+  }
+})
+
+// Reviewed browser join diff: protected config selects app audience and actual public-record reader.
+test('gate CLI browser join forwards protected config and refuses missing passkey mode or unreadable config', async () => {
+  const readPasskeySetup = () => ({ origin: 'https://owner.example', rp_id: 'owner.example', node: 'c'.repeat(64), gate: 'd'.repeat(64) })
+  const args = [...serveArgs, '--passkey-setup', '/fixture/passkey-setup.json', '--browser-join', '/fixture/browser-join.json']
+  const result = await runGateCli(args, undefined, { readPasskeySetup })
+  assert.equal(result.error, null); assert.equal(result.gates[0].browserJoin.appOrigin, 'https://app.example')
+  assert.deepEqual(result.gates[0].browserJoin.readBinding(), { subject: 'aukora:1:' + 'a'.repeat(64), rootId: 'b'.repeat(64) })
+  assert.deepEqual(result.servers[0].options.passkeyOwner, { origin: 'https://owner.example', rpId: 'owner.example', appOrigin: 'https://app.example', node: 'c'.repeat(64), gateId: 'd'.repeat(64) })
+  const failed = await runGateCli(args, undefined, { readPasskeySetup, browserJoinError: Error('browser-join:unprotected') })
+  assert.match(failed.error.message, /unprotected/); assert.equal(failed.gates.length, 0)
+  const invalid = await runGateCli([...serveArgs, '--browser-join', '/fixture/browser-join.json'])
+  assert.equal(invalid.exit, 2); assert.equal(invalid.gates.length, 0)
+  const source = await readFile(binURL, 'utf8')
+  for (const [before, exercise] of [
+    ['...(browserJoin === undefined ? {} : { browserJoin }),', result => assert.ok(result.gates[0].browserJoin)],
+    ['|| o[\'passkey-setup\'] === undefined', result => assert.equal(result.exit, 2)],
+  ]) {
+    assert.equal(source.split(before).length, 2)
+    const mutant = await runGateCli(before.startsWith('...') ? args : [...serveArgs, '--browser-join', '/fixture/browser-join.json'], source.replace(before, ''), { readPasskeySetup })
+    assert.throws(() => exercise(mutant), assert.AssertionError)
   }
 })
 

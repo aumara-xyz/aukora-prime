@@ -81,6 +81,38 @@ export function passkeyOwnerScript(environment = globalThis) {
     show('Owner passkey enrolled. Enrollment is closed.')
   }
   const bearer = document.querySelector('#owner-bearer')?.value
+  async function browserStatement(kind) {
+    const started = await post(`/owner/${kind}/start`, {})
+    const statement = JSON.parse(started.statement_text)
+    if (statement.kind !== `aukora-owner-browser-${kind}/v1` || statement.version !== 1
+      || statement.node !== root.dataset.node || statement.gate !== root.dataset.gate
+      || statement.origin !== profile.origin || statement.rp_id !== profile.rpId
+      || statement.app_origin !== root.dataset.appOrigin || statement.nonce !== started.challenge_id
+      || (kind === 'binding' && (!/^aukora:1:[a-f0-9]{64}$/.test(statement.subject) || !/^[a-f0-9]{64}$/.test(statement.rootId)))) error('OWNER_BROWSER_STATEMENT_REFUSED')
+    const digest = await environment.crypto.subtle.digest('SHA-256', new TextEncoder().encode(started.statement_text))
+    if (encode(digest) !== started.public_key?.challenge) error('OWNER_BROWSER_CHALLENGE_REFUSED')
+    getOptions(started.public_key)
+    const text = document.querySelector('[data-owner-statement]'), confirm = document.querySelector('#owner-confirm')
+    text.textContent = started.statement_text; text.hidden = false; confirm.hidden = false
+    confirm.onclick = async e => {
+      e.preventDefault()
+      if (busy) return
+      busy = true; confirm.disabled = true
+      try {
+        assertProfile()
+        const credential = await navigator.credentials.get({ publicKey: getOptions(started.public_key) })
+        const result = await post(`/owner/${kind}/finish`, { challenge_id: started.challenge_id, assertion: assertion(credential, started.public_key) })
+        if (kind === 'signin') {
+          if (result.app_origin !== root.dataset.appOrigin || !/^[A-Za-z0-9_-]{43}$/.test(result.code)) error('OWNER_BROWSER_REDIRECT_REFUSED')
+          const destination = new URL(result.app_origin)
+          if (destination.protocol !== 'https:' || destination.origin !== result.app_origin || destination.origin === profile.origin) error('OWNER_BROWSER_REDIRECT_REFUSED')
+          location.replace(result.app_origin + '/__aukora/signin#' + result.code)
+        } else show('The enrolled passkey is bound to this exact subject and node.')
+      } catch (error) { show(error.message || 'OWNER_BROWSER_REFUSED') }
+      finally { confirm.hidden = true; confirm.disabled = false; busy = false }
+    }
+    show('Review the exact statement before using your passkey.')
+  }
   async function review(card) {
     const review = await post('/owner/review', { bearer, id: card.dataset.id })
     const authorization = review.owner_authorization
@@ -118,6 +150,7 @@ export function passkeyOwnerScript(environment = globalThis) {
   try {
     assertProfile()
     if (root.dataset.mode === 'enroll') action(document.querySelector('#enroll-form'), 'submit', enroll)
+    else if (['signin', 'binding'].includes(root.dataset.mode)) action(document.querySelector('#owner-start'), 'click', () => browserStatement(root.dataset.mode))
     else {
       environment.history.replaceState(null, '', '/owner/cards')
       for (const card of document.querySelectorAll('[data-card]')) action(card.querySelector('[data-review]'), 'click', () => review(card))

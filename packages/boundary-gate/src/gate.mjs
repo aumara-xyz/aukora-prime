@@ -26,6 +26,7 @@ import { AUTHORIZATION_FIELDS, AUTHORIZATION_V2_FIELDS, ownerAuthorization, owne
   ownerAuthorizationOwnerState, ownerAuthorizationCardText, ownerAuthorizationPasskeyOptions,
   ownerAuthorizationProofText, verifyOwnerAuthorization } from '../../owner-key/src/authorization.mjs'
 import { passkeySetup } from './owner-state.mjs'
+import { createOwnerBrowser } from './owner-browser.mjs'
 
 export const DEFAULT_LIMITS = Object.freeze({
   ttlMs: 5 * 60 * 1000, popupLimit: 12000, keepVersions: 50, whyMax: 4000,
@@ -41,7 +42,7 @@ export const AURA_NOTE_REFUSE = Object.freeze({
 
 // targets: { [name]: { entry, maxBytes, schema, validate(text), accentOf?, plain?, after? } }
 // store:   { read(name, spec) -> Buffer|null, write(name, spec, bytes, proposalId) }
-export function createGate({ home, targets = {}, store, now = Date.now, limits = {}, key, owner, db, iso, readOwnerState, readPasskeySetup, passkeyEnrollmentCeremony, journalId } = {}) {
+export function createGate({ home, targets = {}, store, now = Date.now, limits = {}, key, owner, db, iso, readOwnerState, readPasskeySetup, passkeyEnrollmentCeremony, journalId, browserJoin } = {}) {
   const L = { ...DEFAULT_LIMITS, ...limits }
   if (!Number.isSafeInteger(L.proposeMaxPerWindow) || L.proposeMaxPerWindow < 1 || L.proposeMaxPerWindow > 1024
     || !Number.isSafeInteger(L.proposeWindowMs) || L.proposeWindowMs < 1000 || L.proposeWindowMs > 3600000)
@@ -114,12 +115,22 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     'owner_epoch', 'registry_sha256', 'activation_sha256']
   // This callback is a trusted host registry source, never an RPC input or qualification boolean.
   // Configuring enforcement is durable; losing or corrupting the registry cannot restore legacy approval.
+  function enrolledPasskeyState() {
+    selectedPasskeySetup()
+    const row = db.prepare('SELECT state_text FROM owner_passkey WHERE singleton=1').get()
+    if (!row?.state_text) passkeyRefuse('owner-not-enrolled')
+    return ownerAuthorizationOwnerState(JSON.parse(row.state_text))
+  }
+  if (browserJoin !== undefined && readPasskeySetup === undefined) passkeyRefuse('browser-setup-required')
+  const ownerBrowser = browserJoin === undefined ? undefined : createOwnerBrowser({ db, tx,
+    setup: selectedPasskeySetup, ownerState: enrolledPasskeyState, now: currentMs, append,
+    appOrigin: browserJoin.appOrigin, readBinding: browserJoin.readBinding })
+  if (!ownerBrowser && db.prepare("SELECT 1 FROM sqlite_master WHERE name='owner_browser_config'").get()
+    && db.prepare('SELECT 1 FROM owner_browser_config LIMIT 1').get()) passkeyRefuse('browser-join-required')
   function activeOwnerState() {
     if (readPasskeySetup !== undefined || db.prepare('SELECT 1 FROM owner_passkey LIMIT 1').get()) {
-      selectedPasskeySetup()
-      const row = db.prepare('SELECT state_text FROM owner_passkey WHERE singleton=1').get()
-      if (!row?.state_text) passkeyRefuse('owner-not-enrolled')
-      return ownerAuthorizationOwnerState(JSON.parse(row.state_text))
+      const state = enrolledPasskeyState()
+      return ownerBrowser ? ownerBrowser.boundOwnerState(state) : state
     }
     if (typeof readOwnerState !== 'function') throw new Error('owner authorization unavailable: trusted owner state is unconfigured')
     const state = synchronous(readOwnerState(), 'trusted owner state')
@@ -1036,6 +1047,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
 
   return Object.freeze({
     startPasskeyEnrollment, registerPasskeyEnrollment, finishPasskeyEnrollment,
+    ...(ownerBrowser === undefined ? {} : { ownerBrowser }),
     proposeOps: Object.freeze(proposeOps), ownerOps: Object.freeze(ownerOps), startup, cardView, pendingRows, blobText, spec,
     targets: TARGETS, owner, pub: key.pub, pubPem: key.pubPem, fp: key.fp, home, now, db, append, verify: ledger.verify,
     close: () => { try { db.close() } catch {} },

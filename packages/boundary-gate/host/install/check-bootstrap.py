@@ -839,7 +839,8 @@ class BootstrapChecks(unittest.TestCase):
         guards = {
             "pair": 'require((set(value) & set(PASSKEY_ROOTS)) in (set(), set(PASSKEY_ROOTS)), "passkey-profile-pair")',
             "owner": 'require(not set(value) & set(PASSKEY_ROOTS) or "owner_key" in value, "passkey-owner-key-profile")',
-            "root": 'and value["root"] == PASSKEY_ROOTS[name]',
+            # Reviewed join diff adds a fixed Aumlok root; the same root-removal mutant covers both profiles.
+            "root": 'and value["root"] == (BROWSER_AUMLOK_ROOT if name == "browser_aumlok" else PASSKEY_ROOTS[name])',
             "source": 'require(required <= set(files), "passkey-profile-source")',
             "path": 'require(all(re.fullmatch(r"[A-Za-z0-9_.@][A-Za-z0-9._@-]*(?:/[A-Za-z0-9_.@][A-Za-z0-9._@-]*)*", path)\n                for path in files), "passkey-profile-path")',
             "selected": 'require(set(PASSKEY_ROOTS) <= set(manifest.get("profiles", {})), "passkey-profile-unconfigured")',

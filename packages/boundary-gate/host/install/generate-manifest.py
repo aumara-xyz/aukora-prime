@@ -86,6 +86,7 @@ def main():
     parser.add_argument("--aura-context", help="staged public Aura configuration; no private signer reads")
     parser.add_argument("--passkey-authority", help="reviewed complete staged authority package; requires owner-key and contracts")
     parser.add_argument("--passkey-contracts", help="reviewed complete staged contracts package; requires authority")
+    parser.add_argument("--browser-aumlok", help="reviewed complete Aumlok plugin for the browser binding join")
     parser.add_argument("--output", required=True, help="new staging file outside the package")
     options = parser.parse_args()
     try:
@@ -93,10 +94,10 @@ def main():
         root, output = os.path.abspath(options.package), os.path.abspath(options.output)
         installed_roots = (SOURCE["PACKAGE"], SOURCE["AURA_ROOT"], SOURCE["OWNER_KEY_ROOT"],
                            os.path.dirname(SOURCE["MANIFEST"]), os.path.dirname(SOURCE["BOOTSTRAP"]),
-                           os.path.dirname(SOURCE["NODE"]), SOURCE["LAUNCHER_ROOT"], *SOURCE["PASSKEY_ROOTS"].values())
+                           os.path.dirname(SOURCE["NODE"]), SOURCE["LAUNCHER_ROOT"], SOURCE["BROWSER_AUMLOK_ROOT"], *SOURCE["PASSKEY_ROOTS"].values())
         require(all(os.path.commonpath([installed, output]) != installed for installed in installed_roots), "manifest-installed-path")
         for supplied in (options.package, options.signer_epochs, options.owner_key, options.aura_source,
-                         options.aura_context, options.launcher_checkout, options.passkey_authority, options.passkey_contracts):
+                         options.aura_context, options.launcher_checkout, options.passkey_authority, options.passkey_contracts, options.browser_aumlok):
             if supplied is None:
                 continue
             require(SOURCE["aura_data_path"](supplied), "staging-input-path")
@@ -110,9 +111,11 @@ def main():
         require(not options.aura_source or owner_root is not None, "staging-aura-owner-key-required")
         require(bool(options.passkey_authority) == bool(options.passkey_contracts), "staging-passkey-pair-required")
         require(not options.passkey_authority or owner_root is not None, "staging-passkey-owner-key-required")
+        require(not options.browser_aumlok or options.passkey_authority is not None, "staging-browser-passkey-required")
         aura_root = os.path.abspath(options.aura_source) if options.aura_source else None
         launcher_root = os.path.abspath(options.launcher_checkout) if options.launcher_checkout else None
-        passkey_roots = {"passkey_authority": options.passkey_authority, "passkey_contracts": options.passkey_contracts}
+        passkey_roots = {"passkey_authority": options.passkey_authority, "passkey_contracts": options.passkey_contracts,
+                        "browser_aumlok": options.browser_aumlok}
         for name, staged in passkey_roots.items():
             if staged is not None:
                 require(os.path.commonpath([staged, output]) != staged, "manifest-inside-profile")
@@ -155,7 +158,7 @@ def main():
             manifest["profiles"]["aura"] = aura_profile
         for name, staged in passkey_roots.items():
             if staged is not None:
-                profile = {"root": SOURCE["PASSKEY_ROOTS"][name], "files": staging_inventory(staged)}
+                profile = {"root": SOURCE["BROWSER_AUMLOK_ROOT"] if name == "browser_aumlok" else SOURCE["PASSKEY_ROOTS"][name], "files": staging_inventory(staged)}
                 SOURCE["validate_passkey_profile"](name, profile)
                 manifest["profiles"][name] = profile
         encoded = (json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=True) + "\n").encode("utf-8")

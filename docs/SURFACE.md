@@ -183,4 +183,4 @@ Legacy HTTP relay: deprecated in favor of Buzz; `--with-legacy-relay` restores i
 
 Remaining migrations: frozen face generation; stock-app provenance extraction; shared authority/memory donor closure; reproducible generated output; shared Noble crypto; shipped operator-script allowlist; disabled core-read-deny packaging; archival pins/history links; PostgreSQL staging; native presence readers; shared inference store; file-bus launchd retirement; flattened Messages/Nostr resolver. Preserve each consumer and reviewed inventory before removing its copies. Nine sweep deletion candidates are already absent at this revision. Copy parity proves equality, not runtime non-use or safety. This inventory does not prove containment, owner enrollment, listener activation, or that all inherited plugins execute successfully.
 
-<!-- source-inputs-sha256: 4c9aa2a3a6036fb7960bf9dd822791c8f96cd489823f36f183142362cca8bf14 -->
+<!-- source-inputs-sha256: 87941e9a7a5cbb42f3d03b71a776b9e93152daf12ab84f0e46fc7d8f12c38a29 -->

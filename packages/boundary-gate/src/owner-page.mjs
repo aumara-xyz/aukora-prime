@@ -101,7 +101,7 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
 }
 
 // Passkey routes accept only the configured HTTPS owner origin and bounded same-origin JSON.
-export function createPasskeyOwnerHandler(gate, { origin, rpId } = {}) {
+export function createPasskeyOwnerHandler(gate, { origin, rpId, appOrigin, node, gateId } = {}) {
   const fail = code => { throw new Error(code) }
   let configured
   try { configured = new URL(origin) } catch { fail('OWNER_PASSKEY_ORIGIN_REQUIRED') }
@@ -114,7 +114,7 @@ export function createPasskeyOwnerHandler(gate, { origin, rpId } = {}) {
   const headers = { 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff', 'permissions-policy': 'publickey-credentials-create=(self), publickey-credentials-get=(self)',
     'content-security-policy': `default-src 'none'; script-src 'sha256-${scriptHash}'; style-src 'sha256-${hash(css)}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` }
-  const html = (mode, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Boundary gate — owner passkey</title><style>${css}</style><script defer src="/owner/passkey.js" integrity="sha256-${scriptHash}"></script></head><body data-owner-passkey data-origin="${esc(origin)}" data-rp-id="${esc(rpId)}" data-mode="${mode}"><h1>Boundary gate — owner passkey</h1><p>This page is served by the gate. A browser session alone cannot approve an effect.</p><p>A passkey signs exact card bytes after the device’s local user check. It does not prove a unique person; synced passkeys can leave the device.</p><p id="status" role="status"></p>${body}</body></html>`
+  const html = (mode, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Boundary gate — owner passkey</title><style>${css}</style><script defer src="/owner/passkey.js" integrity="sha256-${scriptHash}"></script></head><body data-owner-passkey data-origin="${esc(origin)}" data-rp-id="${esc(rpId)}" data-app-origin="${esc(appOrigin ?? '')}" data-node="${esc(node ?? '')}" data-gate="${esc(gateId ?? '')}" data-mode="${mode}"><h1>Boundary gate — owner passkey</h1><p>This page is served by the gate. A browser session alone cannot approve an effect.</p><p>A passkey signs exact card bytes after the device’s local user check. It does not prove a unique person; synced passkeys can leave the device.</p><p id="status" role="status"></p>${body}</body></html>`
   const send = (res, status, body, type = 'application/json; charset=utf-8') => { res.writeHead(status, { ...headers, 'content-type': type }); res.end(type.startsWith('application/json') ? JSON.stringify(body) : body) }
   const closed = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === keys.length && keys.every(key => Object.hasOwn(body, key))
   const readBody = req => new Promise((resolve, reject) => {
@@ -143,13 +143,20 @@ export function createPasskeyOwnerHandler(gate, { origin, rpId } = {}) {
       if (typeof req.url !== 'string' || !req.url.startsWith('/') || req.url.startsWith('//') || req.url.length > 4096 || req.url.includes('#')) fail('OWNER_PASSKEY_PATH_REFUSED')
       const url = new URL(req.url, origin), script = url.pathname === '/owner/passkey.js'
       if (req.method === 'GET') {
+        const publicNavigation = ['/owner/signin', '/owner/binding'].includes(url.pathname) && !url.search
+          && ['same-site', 'cross-site'].includes(req.headers['sec-fetch-site'])
         if (script ? req.headers['sec-fetch-site'] !== 'same-origin' || req.headers['sec-fetch-mode'] !== 'no-cors' || req.headers['sec-fetch-dest'] !== 'script'
-          : !['same-origin', 'none'].includes(req.headers['sec-fetch-site']) || req.headers['sec-fetch-mode'] !== 'navigate' || req.headers['sec-fetch-dest'] !== 'document') fail('OWNER_PASSKEY_FETCH_METADATA_REFUSED')
+          : (!['same-origin', 'none'].includes(req.headers['sec-fetch-site']) && !publicNavigation) || req.headers['sec-fetch-mode'] !== 'navigate' || req.headers['sec-fetch-dest'] !== 'document') fail('OWNER_PASSKEY_FETCH_METADATA_REFUSED')
         if (script) {
           if (url.search) fail('OWNER_PASSKEY_PATH_REFUSED')
           return send(res, 200, OWNER_PASSKEY_SCRIPT, 'text/javascript; charset=utf-8')
         }
         if (url.pathname === '/owner/enroll' && !url.search) return send(res, 200, html('enroll', '<form id="enroll-form"><label for="claim-code">Root-minted single-use claim code</label><br><input id="claim-code" type="password" autocomplete="off" required maxlength="256"><br><button type="submit">Create and verify owner passkey</button></form>'), 'text/html; charset=utf-8')
+        if (['/owner/signin', '/owner/binding'].includes(url.pathname) && !url.search) {
+          if (!gate.ownerBrowser || !appOrigin || !node || !gateId) fail('OWNER_BROWSER_JOIN_REQUIRED')
+          const mode = url.pathname === '/owner/signin' ? 'signin' : 'binding'
+          return send(res, 200, html(mode, `<p>${mode === 'signin' ? 'Sign in to your node with the enrolled passkey.' : 'After the app binding ceremony, review the exact subject and node below.'}</p><button id="owner-start">Prepare ${mode === 'signin' ? 'sign-in' : 'subject binding'}</button><pre data-owner-statement hidden></pre><button id="owner-confirm" hidden>${mode === 'signin' ? 'Sign in' : 'Bind this exact subject and node'} with passkey</button>`), 'text/html; charset=utf-8')
+        }
         if (url.pathname === '/owner/cards') {
           if ([...url.searchParams.keys()].join(',') !== 'bearer') fail('OWNER_PASSKEY_PATH_REFUSED')
           const bearer = url.searchParams.get('bearer')
@@ -162,10 +169,19 @@ export function createPasskeyOwnerHandler(gate, { origin, rpId } = {}) {
       }
       if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'OWNER_PASSKEY_METHOD_REFUSED' })
       if (req.headers.origin !== origin) fail('OWNER_PASSKEY_ORIGIN_REFUSED')
-      if (req.headers['sec-fetch-site'] !== 'same-origin' || !['cors', 'same-origin'].includes(req.headers['sec-fetch-mode']) || req.headers['sec-fetch-dest'] !== '') fail('OWNER_PASSKEY_FETCH_METADATA_REFUSED')
+      if (req.headers['sec-fetch-site'] !== 'same-origin' || !['cors', 'same-origin'].includes(req.headers['sec-fetch-mode']) || !['', 'empty'].includes(req.headers['sec-fetch-dest'])) fail('OWNER_PASSKEY_FETCH_METADATA_REFUSED')
       if (req.headers['content-type'] !== 'application/json') fail('OWNER_PASSKEY_CONTENT_TYPE_REFUSED')
       if (url.search) fail('OWNER_PASSKEY_PATH_REFUSED')
       const body = await readBody(req)
+      const browser = { '/owner/signin/start': ['startSignin', []], '/owner/signin/finish': ['finishSignin', ['challenge_id', 'assertion']],
+        '/owner/signin/redeem': ['redeemSignin', ['code', 'app_origin']], '/owner/binding/start': ['startBinding', []],
+        '/owner/binding/finish': ['finishBinding', ['challenge_id', 'assertion']] }
+      if (Object.hasOwn(browser, url.pathname)) {
+        if (!gate.ownerBrowser) fail('OWNER_BROWSER_JOIN_REQUIRED')
+        const [operation, fields] = browser[url.pathname]
+        if (!closed(body, fields)) fail('OWNER_BROWSER_FIELDS_REFUSED')
+        return send(res, 200, { ok: true, result: gate.ownerBrowser[operation](body) })
+      }
       const enroll = { '/owner/enroll/start': ['claim_code'], '/owner/enroll/register': ['enrollment_id', 'registration'], '/owner/enroll/finish': ['enrollment_id', 'assertion'] }
       if (Object.hasOwn(enroll, url.pathname)) {
         if (!closed(body, enroll[url.pathname])) fail('OWNER_PASSKEY_FIELDS_REFUSED')
@@ -182,7 +198,7 @@ export function createPasskeyOwnerHandler(gate, { origin, rpId } = {}) {
         : await gate.ownerOps.decide_review({ ...args, outcome: 'allowed-once' }, 'owner via gate passkey page')
       send(res, 200, { ok: true, result })
     } catch (error) {
-      const code = /^[A-Z][A-Z0-9_]+$/.test(error?.message) ? error.message : 'OWNER_PASSKEY_REFUSED'
+      const code = /^(?:[A-Z][A-Z0-9_]+|owner-browser:[a-z-]+|passkey:[a-z-]+)$/.test(error?.message) ? error.message : 'OWNER_PASSKEY_REFUSED'
       send(res, code === 'OWNER_PASSKEY_BODY_TOO_LARGE' ? 413 : 403, { ok: false, error: code })
       if (code === 'OWNER_PASSKEY_BODY_TOO_LARGE' || code === 'OWNER_PASSKEY_BODY_TIMEOUT') req.destroy?.()
     }

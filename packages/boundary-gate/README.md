@@ -79,7 +79,8 @@ outside the gate card is not gate-verified. The opt-in passkey path below has so
 ## Passkey owner mode: C1 operator runbook
 
 This mode is opt-in per node. It requires an enrolled passkey for effects; the rotating owner bearer permits
-card access, never approval by itself. It does not supply harness login or the Aumlok phrase ceremony.
+card access, never approval by itself. The optional browser join below supplies returning harness sign-in
+and a final passkey-signed Aumlok subject binding; the existing app supplies the phrase ceremony.
 No real authenticator, HTTPS ingress, LXD or installed service was exercised by these source checks.
 
 The host integrator must install/pin the complete import closure before starting this mode. Do not bypass the
@@ -113,10 +114,9 @@ the host installer and service unit still need the operator's reviewed materiali
    `validatePasskeyEnrollmentBinding()` in `packages/authority/src/passkey-enrollment.mjs`: immutable identity
    (`owner_id`, canonical `subject`, `approval_key_did`, `control_digest`, `authorization_epoch >= 1`),
    `identity_provenance`, HTTPS `passkey_profile`, public `user`, and empty `existing_credential_ids`.
-   Provenance fields alone do not verify an Aumlok projection. Row 4's provisional claim is not row 5's
-   passkey-signed final subject/root binding. This implementation fixes the subject at enrollment; it cannot
-   replace a provisional subject later. Obtain independently reviewed final binding material before using its
-   cards, or keep the final binding join blocked.
+   Provenance fields alone do not verify an Aumlok projection. Without the browser join this subject stays
+   fixed at enrollment. With the join it identifies the provisioning ceremony; no effects can be approved
+   until a fresh passkey assertion binds the actual app record's subject and root digest to this node.
 3. Set absolute protected paths `PINNED_NODE`, `GATE_PUB`, `FINAL_BINDING`, and `CLAIM_OUT`;
    `PASSKEY_SETUP` must be `/etc/aukora-boundary-gate/passkey-setup.json` for the installed bootstrap.
    Set public `NODE_ID` and `OWNER_ORIGIN`. Mint immediately before Peter is ready:
@@ -154,6 +154,45 @@ Current enrollment uses none attestation and permits backup-eligible credentials
 needs enforcement and real-authenticator qualification, and none attestation does not prove hardware custody.
 A passkey approval proves a key on one device signed these exact bytes after that device's local user check;
 it does not prove a unique person; synced passkeys leave the device; no real authenticator ran here.
+
+### Returning browser sign-in and final subject binding
+
+Opt in with `--browser-join /etc/aukora-boundary-gate/browser-join.json` beside `--passkey-setup`.
+Root writes that protected, non-writable configuration as:
+
+```json
+{"version":1,"kind":"aukora-browser-join/v1","app_origin":"https://app.example.invalid","binding_record":"/home/aukora-host/browser-controller/local-control.json"}
+```
+
+Use the actual `local-control.json` path configured for the app's browser binding, not a copied projection.
+After its first creation, give the gate read access to that exact public file and traverse access to its
+parents. Grant no directory listing or default read ACL: the same directory holds `machine-seed-v3.json`.
+Preserve the seed's private permissions. The reader refuses aliases,
+uses the existing bounded strict JSON reader, and derives the subject with the existing `recordProjection()`.
+Stage the complete reviewed `plugins/aukora-aumlok` at `/opt/aukora-aumlok`; add
+`--browser-aumlok "$STAGED_AUMLOK"` to `generate-manifest.py` beside the authority/contracts profiles.
+The bootstrap verifies that complete root-held inventory before executing the join. Changing either
+configuration after selection refuses; removing the join after selection cannot restore provisional approvals.
+
+After enrollment, open `APP_ORIGIN/__aukora/signin` (or `OWNER_ORIGIN/owner/signin`). The gate displays a
+60-second statement binding its signer identity, node, owner origin, RP, app audience and durable nonce.
+The enrolled passkey assertion uses the same verifier and counter as card approval. Every attempt spends
+the nonce, including refused assertions. Success hands the browser a 60-second one-use code in the fixed
+app URL fragment; the page removes it from history and the broker exchanges it using its existing claim
+store. No enrollment means refusal; the root-minted original claim remains the first-entry route.
+
+Sign in to the app, complete its existing phrase binding, then open `OWNER_ORIGIN/owner/binding`.
+Review the exact public subject, root digest and node before signing. The gate retains that statement and
+assertion in its protected database and uses the signed subject for subsequent card authorization.
+It re-verifies the retained signature and current record on binding-sensitive use, including returning
+sign-in after binding and every card approval; changed subject/root, missing record or lost configuration
+refuses. The initial bootstrap still requires an independently approved harness release capable of serving
+the ceremony; this adapter is not a fresh-node installer or a substitute for initial release approval.
+
+The ingress [runbook](../../ops/node-spawn/ingress/README.md) describes cookie clearing and node-wide
+session revocation. Real enrollment, informed review, public TLS, ACL installation, browser rendering,
+restarts and separate-user containment remain unperformed. These source checks prove neither identity
+uniqueness nor device-only custody, phrase secrecy from the cloud operator, recovery or complete mediation.
 
 Checks (no network, no sudo, no OpenShell needed):
 

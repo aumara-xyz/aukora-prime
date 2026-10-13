@@ -225,10 +225,10 @@ function assertCaddy(text) {
   for (const header of ['X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Proto']) {
     assert.equal(text.match(new RegExp(`header_up ${header} `, 'gu'))?.length, 3, header)
   }
-  assert.match(text, /@claim path \/__aukora\/claim \/__aukora\/claim\.js/u)
+  assert.match(text, /@claim path \/__aukora\/claim \/__aukora\/claim\.js \/__aukora\/signin \/__aukora\/signin\.js \/__aukora\/signout/u)
   assert.match(text, /@launch_token query token=\*/u)
   assert.match(text, /respond @launch_token 404/u)
-  assert.match(text, /frame-ancestors 'none'/u)
+  assert.doesNotMatch(text, /header Content-Security-Policy/u)
   assert.match(text, /X-Frame-Options "DENY"/u)
   assert.doesNotMatch(text, /^\s*log(?:\s|\{)/mu)
   assert.doesNotMatch(text, /tls internal|cert_file|key_file/iu)
@@ -256,6 +256,8 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
     ['owner frame refusal', 'header X-Frame-Options "DENY"', 'header X-Removed-Frame "ALLOW"'],
     ['closed unknown hosts', ':80, :443 {', ':80 {'],
     ['public launch token refused', 'respond @launch_token 404', 'respond @launch_token 200'],
+    ['returning signin route', '/__aukora/signin /__aukora/signin.js', '/removed/signin /removed/signin.js'],
+    ['signout route', '/__aukora/signout', '/removed/signout'],
   ]
   for (const [name, before, after] of mutations) {
     assert.ok(result.stdout.includes(before), name)
@@ -264,5 +266,7 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
   }
   assert.throws(() => assertCaddy(result.stdout + '\nlog { output stdout }\n'), assert.AssertionError,
     'access logging mutation must fail')
-  t.diagnostic(`MUTATION Caddy protections: ${mutations.length + 1}/${mutations.length + 1} killed`)
+  assert.throws(() => assertCaddy(result.stdout + '\nheader Content-Security-Policy "default-src none"\n'), assert.AssertionError,
+    'owner CSP overwrite must fail')
+  t.diagnostic(`MUTATION Caddy protections: ${mutations.length + 2}/${mutations.length + 2} killed`)
 })

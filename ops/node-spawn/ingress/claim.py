@@ -3,6 +3,7 @@
 """Issue and spend bounded browser claims without exposing the harness launch token."""
 
 import argparse
+import base64
 import fcntl
 import hashlib
 import http.client
@@ -21,6 +22,9 @@ from pathlib import Path
 
 CLAIM_PATH = "/__aukora/claim"
 CLAIM_SCRIPT_PATH = "/__aukora/claim.js"
+SIGNIN_PATH = "/__aukora/signin"
+SIGNOUT_PATH = "/__aukora/signout"
+SESSION_SECONDS = 86400
 CODE_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}")
 DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 MAX_CLAIMS = 64
@@ -51,6 +55,42 @@ if (!/^[A-Za-z0-9_-]{43}$/.test(code)) {
     .catch(() => { statusNode.textContent = 'This claim was refused or has expired.'; });
 }
 """
+
+SIGNIN_PAGE = CLAIM_PAGE.replace(b"Claim AUKORA node", b"Sign in to AUKORA node").replace(
+    b"Claiming this node...", b"Signing in to this node...")
+SIGNIN_SCRIPT = CLAIM_SCRIPT.replace(b"/__aukora/claim'", b"/__aukora/signin'")
+
+
+def cookie_name(authority):
+    digest = base64.urlsafe_b64encode(hashlib.sha256(authority.encode()).digest()).decode().rstrip("=")
+    return "dsh-auth-" + digest
+
+
+def bounded_cookie(cookie, authority, now):
+    """Accept only the exact harness audience cookie with a signed lifetime of at most one day."""
+    try:
+        parts = cookie.split(";")
+        name, value = parts[0].split("=", 1)
+        version, encoded, signature = value.split(".")
+        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        attributes = {piece.strip().split("=", 1)[0].lower(): piece.strip().split("=", 1)[-1]
+                      for piece in parts[1:]}
+        issued, expires = payload["issuedAt"], payload["expiresAt"]
+        lifetime = expires - issued
+        max_age = int(attributes["max-age"])
+    except (AttributeError, KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as error:
+        raise ClaimRefusal("HARNESS_COOKIE_INVALID", 502) from error
+    if (name != cookie_name(authority) or version != "v1" or not signature
+            or payload.get("version") != 1 or payload.get("authority") != authority
+            or type(issued) is not int or type(expires) is not int
+            or not 0 < lifetime <= SESSION_SECONDS * 1000
+            or not 0 < max_age <= SESSION_SECONDS or max_age * 1000 != lifetime
+            or issued > int(now * 1000) + 5000 or expires <= int(now * 1000)
+            or attributes.get("path") != "/" or "domain" in attributes
+            or "secure" not in attributes or "httponly" not in attributes
+            or attributes.get("samesite") != "Strict" or "\r" in cookie or "\n" in cookie):
+        raise ClaimRefusal("HARNESS_COOKIE_INVALID", 502)
+    return cookie
 
 
 class ClaimRefusal(Exception):
@@ -187,8 +227,8 @@ class ClaimStore:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
-    def mint(self, authority, now, ttl_seconds):
-        code = secrets.token_urlsafe(32)
+    def mint(self, authority, now, ttl_seconds, code=None):
+        code = secrets.token_urlsafe(32) if code is None else code
         if CODE_PATTERN.fullmatch(code) is None:
             raise ClaimRefusal("CLAIM_RANDOM_INVALID", 500)
         digest = hashlib.sha256(code.encode()).hexdigest()
@@ -197,6 +237,8 @@ class ClaimStore:
             state = self._read()
             retained = [row for row in state["claims"]
                         if isinstance(row, dict) and row.get("expires_at", 0) >= now - 86400]
+            if any(row.get("digest") == f"sha256:{digest}" for row in retained):
+                raise ClaimRefusal("CLAIM_SPENT")
             if len(retained) >= MAX_CLAIMS:
                 raise ClaimRefusal("CLAIM_STORE_FULL", 503)
             retained.append({"digest": f"sha256:{digest}", "authority": authority,
@@ -297,7 +339,7 @@ class HarnessCookieExchange:
                 or "; Secure" not in cookie or "; HttpOnly" not in cookie
                 or "; SameSite=Strict" not in cookie):
             raise ClaimRefusal("HARNESS_COOKIE_INVALID", 502)
-        return cookie
+        return bounded_cookie(cookie, self.authority, time.time())
 
 
 class OwnerProxy:
@@ -367,10 +409,23 @@ class ClaimApplication:
             return 200, self._headers([("Content-Type", "text/html; charset=utf-8")]), CLAIM_PAGE
         if method == "GET" and target == CLAIM_SCRIPT_PATH:
             return 200, self._headers([("Content-Type", "text/javascript; charset=utf-8")]), CLAIM_SCRIPT
-        if method != "POST" or target != CLAIM_PATH:
+        if method == "GET" and target == SIGNIN_PATH:
+            page = SIGNIN_PAGE.replace(b"/__aukora/claim.js", b"/__aukora/signin.js")
+            return 200, self._headers([("Content-Type", "text/html; charset=utf-8")]), page
+        if method == "GET" and target == SIGNIN_PATH + ".js":
+            script = SIGNIN_SCRIPT.replace(
+                b"statusNode.textContent = 'This claim link is invalid.';",
+                ("location.replace(" + json.dumps("https://" + self.owner_authority + "/owner/signin") + ");").encode())
+            return 200, self._headers([("Content-Type", "text/javascript; charset=utf-8")]), script
+        if method != "POST" or target not in (CLAIM_PATH, SIGNIN_PATH, SIGNOUT_PATH):
             raise ClaimRefusal("CLAIM_ROUTE_REFUSED", 404)
         if headers.get("origin") != self.public_origin or headers.get("sec-fetch-site") == "cross-site":
             raise ClaimRefusal("CLAIM_ORIGIN_REFUSED")
+        if target == SIGNOUT_PATH:
+            if body:
+                raise ClaimRefusal("SIGNOUT_BODY_REFUSED", 400)
+            cleared = cookie_name(self.public_authority) + "=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Strict"
+            return 204, self._headers([("Set-Cookie", cleared)]), b""
         if headers.get("content-type", "").split(";", 1)[0].strip().lower() != "text/plain":
             raise ClaimRefusal("CLAIM_CONTENT_TYPE_REFUSED", 415)
         if len(body) > MAX_CLAIM_BODY:
@@ -383,6 +438,29 @@ class ClaimApplication:
             raise ClaimRefusal("CLAIM_INVALID")
         if not self.limiter.allow():
             raise ClaimRefusal("CLAIM_RATE_LIMITED", 429)
+        if target == SIGNIN_PATH:
+            status_code, _, payload = self.owner_proxy("POST", "/owner/signin/redeem", {
+                "origin": "https://" + self.owner_authority, "content-type": "application/json",
+                "sec-fetch-site": "same-origin", "sec-fetch-mode": "cors", "sec-fetch-dest": "empty",
+            }, json.dumps({"code": code, "app_origin": self.public_origin}, separators=(",", ":")).encode())
+            if status_code != 200:
+                raise ClaimRefusal("SIGNIN_REDEEM_REFUSED")
+            try:
+                result = json.loads(payload)
+            except (UnicodeError, json.JSONDecodeError) as error:
+                raise ClaimRefusal("SIGNIN_REDEEM_INVALID", 502) from error
+            redeemed = result.get("result", {}) if isinstance(result, dict) else {}
+            now_ms = int(self.clock() * 1000)
+            if (not isinstance(result, dict) or result.get("ok") is not True
+                    or not isinstance(result.get("result"), dict)
+                    or redeemed.get("app_origin") != self.public_origin
+                    or not isinstance(redeemed.get("node"), str)
+                    or re.fullmatch(r"[0-9a-f]{64}", redeemed.get("node", "")) is None
+                    or type(redeemed.get("expires_at_ms")) is not int
+                    or not now_ms + 1000 <= redeemed.get("expires_at_ms", 0) <= now_ms + 60000):
+                raise ClaimRefusal("SIGNIN_REDEEM_INVALID", 502)
+            self.store.mint(self.public_authority, int(self.clock()),
+                            redeemed["expires_at_ms"] // 1000 - int(self.clock()), code=code)
         self.store.consume(code, self.public_authority, int(self.clock()))
         cookie = self.exchange_cookie()
         return 204, self._headers([("Set-Cookie", cookie)]), b""

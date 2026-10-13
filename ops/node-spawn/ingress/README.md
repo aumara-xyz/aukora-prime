@@ -4,7 +4,8 @@ This is source and an operator procedure, not a deployed C1. It keeps the
 harness and owner page on container loopback, exposes two named HTTPS hosts
 through Caddy, and exchanges a short-lived one-time claim for the harness's
 authority-bound cookie. The reusable harness launch token stays in its private
-loopback descriptor.
+loopback descriptor. Returning sign-in uses the enrolled gate passkey and the
+same spent-once claim store; a cookie permits app access and grants no approval.
 
 Use Node `v24.11.1` for the repository build. Caddy and LXD run on the existing
 Ubuntu host; the claim broker runs as root inside the unprivileged C1 container.
@@ -55,6 +56,14 @@ canonical `https://hostname`. It passes only the hostname as `--trusted-host`.
 Restarting the harness changes its private launch token; the claim broker reads
 the current descriptor for each exchange.
 
+Set the installed release's existing `client-connection` configuration to
+`cookieMaxAgeDays: 1` through the reviewed release/approval procedure before
+using this broker. The pinned harness supports whole days, with a minimum of
+one and a default of thirty. The broker refuses a cookie whose signed
+`expiresAt - issuedAt` or emitted `Max-Age` exceeds one day; changing just a
+cookie attribute would not shorten the harness's signed authority. This source
+change does not materialize or approve that release configuration.
+
 The gate owner page must listen only at `127.0.0.1:17792`. Install this unit
 inside C1 after checking the source and paths against the installed release:
 
@@ -92,8 +101,9 @@ sudo ss -ltnp | grep -E '127\.0\.0\.1:(17792|18735|18736)\b'
 ```
 
 Only these three container-loopback listeners are expected. The broker handles
-the claim path for the application host and forwards the separate owner host to
-the owner page. It does not turn that legacy page into WebAuthn approval.
+claim, sign-in and sign-out paths for the application host and forwards the
+separate owner host to the owner page. Returning sign-in requires passkey mode;
+the legacy bearer page supplies no passkey login.
 
 ## Host proxy and Caddy
 
@@ -121,8 +131,9 @@ The named HTTPS sites use Caddy's automatic certificates. The template has no
 access-log directive, bounds request bodies, preserves Host, Origin, Cookie and
 Fetch Metadata, supports WebSocket upgrades and unbuffered SSE, replaces all
 client-supplied forwarding headers, refuses any public `token` query, and aborts
-unmatched hosts. The owner host adds `frame-ancestors 'none'` and
-`X-Frame-Options: DENY`.
+unmatched hosts. The owner host adds `X-Frame-Options: DENY`; the gate's policy
+supplies `frame-ancestors 'none'`. The proxy preserves the gate's Content-Security-Policy
+so its hash-pinned passkey script can run; it supplies no replacement policy.
 
 ## Mint and use one claim
 
@@ -140,6 +151,63 @@ the page removes the fragment and posts a bounded same-origin body. The store
 contains only its SHA-256 digest. A valid attempt is durably marked spent before
 the private harness exchange, so a failed exchange does not revive it. Mint a
 new link if that happens.
+
+## Returning sign-in and sign-out
+
+After protected passkey enrollment, open `https://${APP_HOST}/__aukora/signin`.
+The app page directs the browser to the configured owner hostname's
+`/owner/signin`. The gate issues the node/origin/nonce-bound challenge and uses
+its existing passkey verifier. It returns one short-lived code in the app URL
+fragment. The app removes that fragment and submits it in a bounded same-origin
+body; the broker redeems it at the gate's loopback `/owner/signin/redeem` route,
+pins the app audience and expiry, stores that same code's digest in `ClaimStore`,
+then spends it before exchanging the private launch token for the app cookie.
+Gate and broker restart do not restore a spent code. No enrolled passkey means
+this path refuses; root-minted operator claims remain the bootstrap path.
+
+Sign out with a same-origin empty `POST /__aukora/signout` from the app. This
+clears the exact `dsh-auth-` cookie derived from the configured app authority,
+with matching Path, Secure, HttpOnly and SameSite attributes. It does not revoke
+a stolen copy or close an already open WebSocket. A browser tab should close
+its active app connections when signing out.
+
+## Revoke every browser session
+
+The pinned harness has no per-session registry or revoke API. It caches the
+signing secret at activation and stores it in `DSH_HOME/.credentials.yaml`,
+`records['client-connection/browser-session']`, a version-1 grant. Restart alone
+retains that secret and does not revoke cookies. The root command below stops
+`aukora-genesis.service`, requires it to be inactive, rotates only that grant's
+secret with an atomic private write, then starts the service and requires it
+to be active. Stopping also drops active connections. If rotation or restart
+fails, repair the named refusal before reopening the app; the command never
+prints the signing secret or other credentials.
+
+Install the helper as root-owned reviewed code, and run on C1 using the pinned
+Node and root-controlled built harness already used by the service:
+
+```sh
+sudo install -o root -g root -m 0644 ops/node-spawn/ingress/revoke-sessions.mjs /usr/local/lib/aukora-revoke-sessions.mjs
+sudo "$PINNED_NODE" /usr/local/lib/aukora-revoke-sessions.mjs \
+  --harness-root "$PINNED_HARNESS"
+```
+
+`PINNED_HARNESS` is the complete reviewed build root; the helper reuses its
+existing `yaml` dependency from `packages/credentials/credentials-local`.
+It checks the resolved YAML package's complete directory and file tree for
+root ownership, write protection and absence of links before loading code.
+No YAML library is added here. The command refuses a symlink, hardlink,
+non-private credentials file, writable ancestry, unsupported record or failed
+stop/restart. It requires the installed unit's `ExecStart` to use the source
+launcher and exact `/home/aukora-host/genesis/state` state root; that launcher
+sets `DSH_HOME` to its `home` child. It rotates exactly
+`/home/aukora-host/genesis/state/home/.credentials.yaml`, with no caller-selected
+credential file. Root must confirm the installed release uses the default
+credentials provider path before qualification; a custom provider/path needs a
+reviewed adaptation. It preserves unrelated credentials and file ownership. The fresh
+activation loads the new key, so every earlier cookie fails its HMAC check.
+Observe old-cookie refusal and a new sign-in on the installed node after this
+command; service-active status alone does not establish browser behavior.
 
 ## Outside checks
 
@@ -172,3 +240,11 @@ of service, model cost, or an unreviewed owner-page implementation. The cloud
 operator and shared kernel remain inside the threat model. Real C1 certificate,
 firewall, raw-port, browser, WebSocket, SSE, restart and cookie observations are
 still required.
+
+Source checks use a software signer and the pinned harness's BrowserAuth with
+synthetic credentials. They prove the tested refusal and key-rotation behavior,
+including that the old activation accepts its old cookie until restart. They
+do not prove real passkey enrollment, hardware custody, a unique person,
+binding ceremony truth, cookie theft resistance, proxy deployment or the
+installed service's revocation behavior. Peter must choose passkey custody and
+recovery policy and approve the configured release before runtime qualification.
