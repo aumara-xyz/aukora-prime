@@ -255,7 +255,7 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // Reviewed voice runtime wiring: Apps keeps voice and automatic sidecar start disabled while
   // naming the fixed Linux runtime directory; Kira rows/config and proposal socket are unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '06fbc2f2608c7d259d08ac70716e301e9fb36464172f1084d2303ab612b99a7b')
+    '85b1856ce93412c8f45099eb2831889a9578f1385d76107cc67514d6ae7fbc36')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 

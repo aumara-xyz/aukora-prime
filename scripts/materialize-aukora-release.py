@@ -698,6 +698,10 @@ def install_browser_profile(target: Path, doomed=()) -> None:
     presets = {}
     for preset in sorted(target.rglob('agent.cordis.yml')):
         relative = preset.relative_to(target).as_posix()
+        # Test fixtures are never release content (the strip removes every tests/ tree); the strip plan
+        # alone proved unreliable for this inside a fresh container, so the rule is stated here too.
+        if 'tests' in relative.split('/')[:-1]:
+            continue
         if any(relative == path or relative.startswith(path.rstrip('/') + '/') for path in doomed):
             continue
         if preset.is_symlink():
@@ -2080,6 +2084,11 @@ def main() -> int:
     strip_path = target / 'strip-manifest.json'
     if args.browser_node and not (target / 'browser-node-profile.patch.yml').is_file():
         fail('browser-node:profile-stripped')
+    if args.browser_node:
+        recorded = json.loads((target / 'browser-node-profile.patch.yml').read_text(encoding='utf-8').split(' ', 2)[2])
+        gone = [name for name in recorded['presets'] if not (target / name).is_file()]
+        if gone:
+            fail('browser-node:preset-stripped: ' + ', '.join(gone[:3]))
 
     # THE RELEASE'S OWN IMPORTS MUST RESOLVE INSIDE IT, checked AFTER the strip because the strip is what deleted `scripts/lib`.
     gaps = release_import_gaps(target)
