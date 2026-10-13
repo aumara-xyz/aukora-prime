@@ -174,3 +174,34 @@ Unix socket binds with `EPERM`, while its two non-socket mutation cases passed.
 7. **Keep generated-looking lockfiles and QuickJS distribution files.** No action:
    they are required locked or vendored inputs and are named by license/provenance
    inventories.
+
+## Pass 3: dead-file removal
+
+The two removals below passed the same path and basename test against the tracked
+tree. Neither is selected by a package manifest, check registration, release copy,
+fresh-clone input, UI baseline, pinned-copy family, trusted-surface generator or
+license/provenance inventory. Neither is in the owner-designed reading graph.
+
+| Path | Proof | Action |
+| --- | --- | --- |
+| `apps/aukora-desktop/face-swap.mjs` | `git grep` found no path or basename reference outside the file. The desktop package has an explicit `build.files` list that omits it, and the release materializer copies only the named desktop import closure. Its header named `tests/aukora-face-live-swap.test.mjs`, but that test is absent from this repository and its history. | removed |
+| `harness/preview-gateway.mjs` | `git grep` found no path or basename reference outside the file. It only re-exported `PreviewGateway` from `preview-services.mjs`; the used host adapter imports that class directly. Fresh-clone and release materialization consume the pinned DSH tree, not this unused alias. | removed |
+
+### Owner decides
+
+- Is `apps/aukora-desktop/make-icons.sh` still the supported way to regenerate
+  the tracked desktop icons? If not, delete it; it has no caller or documentation
+  link, but its executable generator role is not disproved by that absence.
+- Is the undocumented `packages/desktop/Prime.applescript` -> `Prime.command` ->
+  `pilot-launch.cjs` Finder/SSH launcher still supported? If not, remove that
+  three-file chain; each remaining file currently reaches the next.
+- Is `ops/systemd/deployment.json.in` still an operator template? If not, delete
+  it; the active deployment record is generated, but the adjacent README still
+  describes a root-owned `deployment.json` contract.
+- Should the source-only owner inference selector and Unix transport remain as
+  retained H handoff source? Their exported functions are discussed in
+  `harness/OWNER-AUMA-JOIN.md`, so lack of a path link does not prove abandonment.
+- Should the unlinked NEXT integration JSON records and lab result bundles remain
+  as historical evidence? Their current consumer is unclear, but repository rules
+  require failed results and provenance to be preserved unless the owner retires
+  them explicitly.
