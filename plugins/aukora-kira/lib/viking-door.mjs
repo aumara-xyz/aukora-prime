@@ -21,7 +21,8 @@ export function createVikingDoor({ memory, stateDir, subject, config, authToken 
   const remember = async body => {
     if (!validExternalOrigin(body.from) || typeof body.text !== 'string' || !body.text.trim())
       throw new DoorError(400, 'Expected {from, text}.')
-    return memory.remember({ text: body.text, from: body.from, scope: 'agent' })
+    return memory.remember({ text: body.text, from: body.from, scope: 'agent',
+      ...(body.supersedes === undefined ? {} : { supersedes: body.supersedes }) })
   }
   const recall = async body => {
     if (typeof body.q !== 'string' || !body.q.trim() || (body.limit !== undefined && (!Number.isInteger(body.limit) || body.limit < 1 || body.limit > 10)))

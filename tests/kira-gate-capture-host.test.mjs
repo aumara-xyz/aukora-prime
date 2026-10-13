@@ -323,7 +323,11 @@ async function createAcceptedEFixture() {
   // capture/association authority and project attachment predicates stay intact.
   // Reviewed: import the ledger head reader and provide frozen read-only kira.head;
   // only head/count leave it, disposal refuses reads, and no authority paths changed.
-  assert.equal(sha(indexSource), 'a583f7cd29184cdcd069dc231516f6483b0e8e70f7dbfa370273c8eccaf37537',
+  // Reviewed: remember schema and pass-through admit supersedes IDs; capture scope,
+  // input byte bound and host authority checks remain unchanged.
+  // Reviewed: final recall and selected association reads use the same eligible
+  // replacement filter; returned historical snippets retain or refresh dated links.
+  assert.equal(sha(indexSource), 'd6f71047512b935ac55a16896df97c4f28b229faeff03c4b741b67c942ab3dbe',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')
@@ -411,7 +415,7 @@ async function createAcceptedEFixture() {
     mountUnlinkedKiraRoutes: () => { observations.mounts.push('unlinked'); return { mounted: ['/fixture/kira'] } },
     buildRouteDeps: () => ({ forgetNote: async () => ({ forgotten: false }), recallCandidates: () => [], liveRemembered: liveRead }),
     recallTool: execute => ({ name: 'kira_recall', execute }),
-    governRecords: records => records, recallAnnotations: () => ({}),
+    governRecords: records => records, governTrackedMemory: records => records, recallAnnotations: () => ({}),
   }
   const fixtureId = `accepted-e-${++acceptedEFixtureSequence}`
   const tableKey = Symbol.for('aukora.tests.acceptedE.dependencies')

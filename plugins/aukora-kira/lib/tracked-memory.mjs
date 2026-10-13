@@ -12,7 +12,7 @@ import { SECRET_PATTERNS, FORBIDDEN_WINDOW_DIGESTS, carriesForbiddenPhrase } fro
 import { readForbiddenDigests } from './forbidden-digests.mjs'
 import { appendJournalLine, durableWrite, ensureDirectory, listJsonFiles, readJsonStrict, readLinesIfPresent, withFileLock } from './strict-read.mjs'
 import { createOpenVikingRecall, semanticNotes, SEMANTIC_DEFAULTS, contentUri } from './recall-openviking.mjs'
-import { filterMemoryRecords } from './recall-filter/filter.mjs'
+import { countDrop, filterMemoryRecords } from './recall-filter/filter.mjs'
 import { compileIndex, rankRecords, LEXICAL_METHOD, RETRIEVAL_CEILING } from './retrieval.mjs'
 import { randomUUID } from 'node:crypto'
 import { parseAuraSourceProjection, createAuraAssociation, referenceForAssociatedNote, sourceIdentity } from './aura-association.mjs'
@@ -96,6 +96,69 @@ function boundedNotes(note) {
   return chunks
 }
 
+// Supersession lives in hashed ledger entries; a forgotten replacement no longer suppresses its predecessors.
+function supersessionLinks(chain, forgotten) {
+  const links = new Map()
+  for (const entry of chain) if (entry.op === 'supersede' && entry.supersedes !== undefined && !forgotten.has(entry.id)) {
+    for (const id of entry.supersedes) {
+      if (!links.has(id)) links.set(id, new Map())
+      links.get(id).set(entry.id, { id: entry.id, at: entry.at })
+    }
+  }
+  return links
+}
+
+// An eligible replacement suppresses its predecessors before ranking; other linked notes retain their dated markers.
+export function governTrackedMemory(notes, live, context, report) {
+  const replacements = live.supersessions ?? supersessionLinks(live.chain, live.forgotten)
+  const annotated = notes.map(note => replacements.has(note.id)
+    ? { ...note, supersededBy: [...replacements.get(note.id).values()] } : note)
+  const eligible = filterMemoryRecords(annotated, { ...context, forgotten: live.forgotten, states: live.states }, report)
+  const ids = new Set(eligible.map(note => note.id))
+  return eligible.filter(note => {
+    if (![...(replacements.get(note.id)?.keys() ?? [])].some(id => ids.has(id))) return true
+    countDrop(report, 'superseded', note.id); return false
+  })
+}
+
+// Every link names a verified note of the same subject and keeps the replacement graph acyclic.
+function planSupersession(ids, supersedes, live, candidates, planned, subject, at) {
+  if (supersedes === undefined) return
+  if (!Array.isArray(supersedes) || supersedes.some(id => typeof id !== 'string' || !/^rem:[0-9a-f]{64}$/u.test(id))
+    || new Set(supersedes).size !== supersedes.length) throw new Error('memory-supersedes-invalid')
+  if (!supersedes.length) return
+  const notes = new Map([...live.notes, ...(live.hiddenNotes ?? []), ...candidates].map(note => [note.id, note]))
+  const graph = new Map()
+  for (const entry of [...live.chain, ...planned]) if (entry.op === 'supersede' && entry.supersedes !== undefined) {
+    graph.set(entry.id, [...(graph.get(entry.id) ?? []), ...entry.supersedes])
+  }
+  const reaches = (start, target) => {
+    const seen = new Set(), pending = [start]
+    while (pending.length) {
+      const id = pending.pop()
+      if (id === target) return true
+      if (seen.has(id)) continue
+      seen.add(id); pending.push(...(graph.get(id) ?? []))
+    }
+    return false
+  }
+  const bodies = []
+  for (const id of ids) {
+    if (supersedes.includes(id)) throw new Error('memory-supersedes-self')
+    if (!notes.has(id)) throw new Error('memory-supersedes-missing')
+    if (notes.get(id).subject !== subject) throw new Error('memory-supersedes-subject')
+    for (const older of supersedes) {
+      const note = notes.get(older)
+      if (!note) throw new Error('memory-supersedes-missing')
+      if (note.subject !== subject) throw new Error('memory-supersedes-subject')
+      if (reaches(older, id)) throw new Error('memory-supersedes-cycle')
+    }
+    const fresh = supersedes.filter(older => !(graph.get(id) ?? []).includes(older))
+    if (fresh.length) bodies.push({ op: 'supersede', id, supersedes: fresh, at, by: 'kira.remember/v1' })
+  }
+  planned.push(...bodies)
+}
+
 /** Verify the entire chain. Legacy entries without hashes cannot establish membership. */
 export function memoryChain(stateDir) {
   const entries = []
@@ -112,12 +175,12 @@ export function memoryChain(stateDir) {
 
 /** Exact stored statement bytes, validated against the envelope AND the content commitment.
  * Old valid notes are accepted for bounded migration and local recall. */
-export function readTrackedMemory(stateDir) {
+export function readTrackedMemory(stateDir, { includeHidden = false } = {}) {
   const chain = memoryChain(stateDir)
   const membership = new Map(chain.filter(e => ['add', 'remember', 'index-content'].includes(e.op) && e.entryHash).map(e => [e.id, e]))
   const commitments = new Map(chain.filter(e => e.op === 'index-content').map(e => [e.id, e]))
   const { journal, forgotten, states } = journalSnapshot(stateDir)
-  const notes = [], withheld = [], orphans = [], seen = new Set()
+  const notes = [], hiddenNotes = [], withheld = [], orphans = [], seen = new Set()
   for (const name of listJsonFiles(`${stateDir}/${STORE_PATHS.remembered}`)) {
     if (!/^[0-9a-f]{64}\.json$/u.test(name)) continue
     seen.add(`rem:${name.slice(0, -5)}`)
@@ -125,22 +188,27 @@ export function readTrackedMemory(stateDir) {
     try {
       note = readJsonStrict(`${stateDir}/${STORE_PATHS.remembered}/${name}`)
       if (note.tier === 'forgotten' || forgotten.has(note.id)) continue
-      if (states.get(note.id) === 'hidden') continue
+      if (states.get(note.id) === 'hidden' && !includeHidden) continue
       const entry = membership.get(note.id)
       const hash = contentHash(note.statement)
       const commitment = commitments.get(note.id)
       if ((entry?.contentHash !== undefined && entry.contentHash !== hash) || (note.contentHash !== undefined && note.contentHash !== hash)
         || (commitment && (commitment.contentHash !== hash || commitment.entryHash !== note.aura?.entryHash))) throw new Error('content-hash-mismatch')
       if (!entry || entry.entryHash !== note.aura?.entryHash || recomputeNoteId(note) !== note.id || objectFileName(note.id) !== name) throw new Error('unchained')
-      notes.push({ ...note, ...note.origin?.metadata, tier: MEMORY_TIER.remembered, contentHash: hash,
+      const target = states.get(note.id) === 'hidden' ? hiddenNotes : notes
+      target.push({ ...note, ...note.origin?.metadata, tier: MEMORY_TIER.remembered, contentHash: hash,
         trackedContent: entry.contentHash === hash || commitment?.contentHash === hash })
     } catch (error) {
+      if (states.get(note?.id) === 'hidden') continue
       if (note && !membership.has(note.id)) orphans.push(note)
       withheld.push({ id: note?.id ?? `rem:${name.slice(0, -5)}`, recallRefusal: String(error?.message ?? 'unreadable') })
     }
   }
   for (const [id] of membership) if (id?.startsWith('rem:') && !seen.has(id) && !forgotten.has(id) && states.get(id) !== 'hidden') withheld.push({ id, recallRefusal: 'missing-object' })
-  return { notes, withheld, forgotten, states, complete: withheld.length === 0, chain, journal, orphans,
+  const replacements = supersessionLinks(chain, forgotten)
+  const annotated = notes.map(note => replacements.has(note.id)
+    ? { ...note, supersededBy: [...replacements.get(note.id).values()] } : note)
+  return { notes: annotated, ...(includeHidden ? { hiddenNotes } : {}), withheld, forgotten, states, complete: withheld.length === 0, chain, journal, orphans,
     hashMismatches: withheld.filter(note => note.recallRefusal === 'content-hash-mismatch').length }
 }
 
@@ -227,6 +295,7 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
   const ledger = (live = readTrackedMemory(stateDir)) => ({
     entries: new Map(live.notes.filter(note => note.subject === subject && note.privacy === 'local').map(note => [note.id, note])),
     complete: live.complete, forgotten: live.forgotten, states: live.states,
+    supersessions: supersessionLinks(live.chain, live.forgotten),
   })
   const syncBatch = batchSize(config.syncBatch)
   const indexSnapshot = async (live, priorityHashes = [], verifyAcknowledged = false, budget = syncBatch) => {
@@ -334,8 +403,8 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
     const digests = forbiddenDigests()
     prepare()
     const { results, live, candidates } = withFileLock(chainFile(stateDir), () => {
-      const live = readTrackedMemory(stateDir)
-      const identities = new Map(), candidates = [], results = []
+      const live = readTrackedMemory(stateDir, { includeHidden: true })
+      const identities = new Map(), candidates = [], results = [], supersessions = []
       const excluded = id => live.forgotten.has(id) || live.states.get(id) === 'hidden'
       const excludedDigests = new Set(live.chain.filter(entry => excluded(entry.id)).map(entry => entry.contentHash))
       for (const entry of live.chain) {
@@ -348,7 +417,7 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
         try {
           rejectCallerAssociation(input)
           const auraSource = hostSources[inputIndex]
-          const { text, from = 'memory', scope = 'owner', at = canonicalInstant(now()), source, migrationKey, metadata = {}, bodyAtCapture = null } = input
+          const { text, from = 'memory', scope = 'owner', at = canonicalInstant(now()), source, migrationKey, metadata = {}, bodyAtCapture = null, supersedes } = input
           if (auraSource && migrationKey !== undefined) throw new Error('memory-aura-historical-association-refused')
           if (typeof text !== 'string' || !text.trim()) throw new Error('memory-text-invalid')
           // A lone surrogate would be stored and then refused on every read, leaving the whole store incomplete.
@@ -368,7 +437,11 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
             && note.statement === (note.source?.span ? text.slice(note.source.span.start, note.source.span.end) : text))
           // A partially chained chunk group is not a completed capture. Rebuild it
           // with its original clock; append deduplicates the already chained parts.
-          if (identities.has(identity) && !orphan) { results.push({ remembered: 0, ids: identities.get(identity), notes: [] }); continue }
+          if (identities.has(identity) && !orphan) {
+            const ids = identities.get(identity)
+            planSupersession(ids, supersedes, live, candidates, supersessions, p.subject, canonicalInstant(now()))
+            results.push({ remembered: 0, ids, notes: [] }); continue
+          }
           const stamp = orphan?.observedAt ?? canonicalInstant(at)
           const note = orphan && !orphan.source?.span ? orphan : buildRememberedNote({ category: metadata.category ?? 'observation', statement: text,
             attributedTo, evidence: [{ log: `memory:${from}`, turn: 0, turnDigest: digest, quote: cutText(text, 200) }],
@@ -378,11 +451,15 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
             origin: { by: from, run: identity, metadata: Object.fromEntries(['expiresBy', 'current', 'supersededBy', 'hidden', 'forgotten', 'consent', 'stale', 'staleness'].filter(key => metadata[key] !== undefined).map(key => [key, metadata[key]])) },
             salt: identity, validTo: metadata.validTo ?? metadata.expiresBy ?? null, links: metadata.links ?? [] })
           const notes = boundedNotes({ ...note, bodyAtCapture }).map(part => bindAssociation(part, auraSource)), ids = notes.map(note => note.id)
+          planSupersession(ids, supersedes, live, [...candidates, ...notes], supersessions, p.subject, canonicalInstant(now()))
           candidates.push(...notes); identities.set(identity, ids)
           results.push({ remembered: 0, ids, notes })
         } catch (error) { results.push({ remembered: 0, ids: [], error: String(error?.message ?? 'memory-input-invalid') }) }
       }
       const written = new Map(append(stateDir, candidates, live).map(note => [note.id, note]))
+      const entries = chainAuraEntries(stateDir, supersessions, { file: chainFile(stateDir) })
+      for (const entry of entries) appendJournalLine({ file: chainFile(stateDir), line: JSON.stringify(entry) })
+      live.chain.push(...entries)
       for (const result of results) {
         result.notes = (result.notes ?? []).flatMap(note => written.has(note.id) ? [written.get(note.id)] : [])
         result.remembered = result.notes.length
@@ -399,7 +476,7 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
     if (options.auraSources !== undefined) throw new Error('memory-aura-source-count-invalid')
     const { results: [result], index } = await rememberBatch([input], { ...options,
       ...(auraSource === undefined ? {} : { auraSources: [auraSource] }) })
-    if (result.error) throw new Error(result.error)
+    if (result.error) throw Object.assign(new Error(result.error), { code: result.error })
     return { ...result, index }
   }
   const recall = async ({ question, limit, context = {}, lexical = false }) => {
@@ -408,8 +485,8 @@ export function createTrackedMemory({ stateDir, subject, config = { configured: 
     const paused = () => p.offTheRecord || Object.entries(CONTROLS).some(([k, v]) => (v.stopsRecall || v.stopsRecallPersonal) && p.controls?.[k])
     const pauseReply = () => ({ state: 'empty', notes: [], memory: report, grantsAuthority: false, reason: 'recall-paused' })
     if (paused()) return pauseReply()
-    const filter = (notes, live) => filterMemoryRecords(notes, { ...context, ...p, permittedPrivacy: [p.privacy],
-      nowMs: now(), forgotten: live.forgotten, states: live.states }, report)
+    const filter = (notes, live) => governTrackedMemory(notes, live, { ...context, ...p,
+      permittedPrivacy: [p.privacy], nowMs: now() }, report)
     try {
       const answer = lexical ? { available: false, reason: 'lexical-requested', hits: [],
         dropped: { unmapped: [], tampered: [], unreadable: [], belowThreshold: 0 } }

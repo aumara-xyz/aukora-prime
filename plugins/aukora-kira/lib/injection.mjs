@@ -277,6 +277,12 @@ export function laneQueries(lane, seed) {
   return Object.freeze([...(laneQuery === null ? [] : [laneQuery]), ...OPENING_QUERIES])
 }
 
+const supersessionMarks = value => (typeof value === 'string' ? [value] : Array.isArray(value) ? value : []).flatMap(newer => {
+  const id = typeof newer === 'string' ? newer : newer?.id
+  if (typeof id !== 'string' || !id) return []
+  return [{ id, at: typeof newer?.at === 'string' && newer.at ? newer.at : 'date unknown' }]
+})
+
 /**
  * WHAT A RECORD SAYS ABOUT ITSELF, IN WORDS A PERSON READS.
  *
@@ -303,7 +309,8 @@ export function applicabilityWordsOf(snippet) {
   if (snippet?.tier === 'remembered') {
     const source = snippet.source ?? {}
     return [`Unreviewed ${snippet.attributedTo === 'agent' ? 'agent finding, not Peter’s statement' : 'remembered statement'}; no authority or live-state attestation.`,
-      `Receipt: ${String(snippet.recordId)}; session ${String(source.sessionId ?? 'unknown')} event ${String(source.seq ?? '?')}.`]
+      `Receipt: ${String(snippet.recordId)}; session ${String(source.sessionId ?? 'unknown')} event ${String(source.seq ?? '?')}.`,
+      ...supersessionMarks(snippet.supersededBy).map(newer => `superseded by ${newer.id} (${newer.at})`)]
   }
   const words = []
   const citation = /** @type {Record<string, unknown>} */ (snippet?.citation ?? {})

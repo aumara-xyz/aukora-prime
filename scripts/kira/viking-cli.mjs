@@ -5,6 +5,11 @@ const [route, ...args] = process.argv.slice(2);
 const from = process.env.ROOM_ME;
 const fail = message => { process.stderr.write(`${message}\n`); process.exitCode = 1; };
 const plain = value => String(value).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
+const supersessionMarks = value => (typeof value === 'string' ? [value] : Array.isArray(value) ? value : []).flatMap(newer => {
+  const id = typeof newer === 'string' ? newer : newer?.id;
+  if (typeof id !== 'string' || !id) return [];
+  return [{ id, at: typeof newer?.at === 'string' && newer.at ? newer.at : 'date unknown' }];
+});
 const doorPort = value => {
   if (value === undefined) return 8766
   if (!/^[1-9][0-9]{0,4}$/u.test(value) || Number(value) > 65535) throw new Error('viking.cli:invalid-door-port')
@@ -13,11 +18,16 @@ const doorPort = value => {
 async function main() {
   if (!from || !/^[A-Za-z0-9_-]{1,64}$/.test(from)) return fail('Set ROOM_ME to your speaker name (1-64 letters, digits, underscores or hyphens), e.g. ROOM_ME=CLAUDE.');
   if (route !== 'remember' && route !== 'recall') return fail('Unknown Viking command.');
-  if (args.length < 1 || args.length > (route === 'recall' ? 2 : 1) || !args[0].trim()) {
-    return fail(route === 'remember' ? 'Usage: remember "<text>"' : 'Usage: recall "<question>" [n: 1-10]');
+  if (args.length < 1 || (route === 'recall' && args.length > 2) || !args[0].trim()) {
+    return fail(route === 'remember' ? 'Usage: remember "<text>" [--supersedes <id>...]' : 'Usage: recall "<question>" [n: 1-10]');
   }
   let body;
-  if (route === 'remember') body = { from, text: args[0] };
+  if (route === 'remember') {
+    const supersedes = args.slice(2);
+    if (args.length > 1 && (args[1] !== '--supersedes' || supersedes.length === 0
+      || supersedes.some(id => !/^rem:[0-9a-f]{64}$/u.test(id)))) return fail('viking.cli:invalid-supersedes');
+    body = { from, text: args[0], ...(supersedes.length === 0 ? {} : { supersedes }) };
+  }
   else {
     if (args[1] !== undefined && !/^(?:[1-9]|10)$/.test(args[1])) return fail('Recall limit must be an integer from 1 to 10.');
     body = { q: args[0], ...(args[1] === undefined ? {} : { limit: Number(args[1]) }) };
@@ -49,7 +59,11 @@ async function main() {
       process.stdout.write('Recall: lexical fallback; OpenViking semantic unavailable.\n');
     else return fail('Viking door returned no recognized recall method.');
     if (!result.notes.length) process.stdout.write('No matching memories.\n');
-    for (const hit of result.notes) process.stdout.write(`${plain(hit.text)}\nscore: ${Number(hit.score)}\nsource: ${plain(hit.uri)}\n\n`);
+    for (const hit of result.notes) {
+      process.stdout.write(`id: ${plain(hit.id)}\n${plain(hit.text)}\n`);
+      for (const newer of supersessionMarks(hit.supersededBy)) process.stdout.write(`superseded by ${plain(newer.id)} (${plain(newer.at)})\n`);
+      process.stdout.write(`score: ${Number(hit.score)}\nsource: ${plain(hit.uri)}\n\n`);
+    }
     process.stdout.write(`door ${port}.\n`)
   }
 }

@@ -681,6 +681,7 @@ export function semanticNotes(answer, chars = 600) {
       const text = useSpan ? Buffer.from(note.statement, 'utf8').subarray(start, semanticSpan.end).toString('utf8') : note.statement
       return { id, ...projectMemoryText(note, cutText(text, chars), { start }), score,
       uri, observedAt: note.observedAt ?? null,
+      ...(note.supersededBy ? { supersededBy: note.supersededBy } : {}),
       ...(semanticSpan ? { semanticSpan } : {}),
       tier: MEMORY_TIER.remembered, relevance, attributedTo: note.attributedTo, scope: note.scope, source: note.source,
       bodyAtCapture: note.bodyAtCapture ?? null, rememberedChain: note.aura,
