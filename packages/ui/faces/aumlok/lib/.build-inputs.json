@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "aumlok",
-  "srcDigest": "a7890e685419877c8b3c07167bec49a9d37333bf4e8c03fad8e20ee8c84f11fe",
+  "srcDigest": "67d3ed0b677fad5e3ddb68c3b28b324b2a83d153bbef170dd897a539ab976cc3",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",
@@ -46,8 +46,8 @@
     "tsdown.config.ts"
   ],
   "outputs": {
-    "client.js": "09c8d16b0ed328dda390de67e3e2ab6289e88641b4b6ebaf6c33a8fbf3b3571c",
-    "index.js": "e37ec665a746e432807ef469f3d943172c96221377c1bae167bee5c5df963e8d",
+    "client.js": "651e783f81504407fb57d719a53d3c9c6a7c9b1fd8c1bbaf13373ed44b5357ab",
+    "index.js": "6540d8fc08dfd31d1a90e20ada7f9e6d1b30f1998473a3199f4cc5d54993aa79",
     "invariant.js": "098e464c7e8186c21be68d972d433ddd1d95d382355c127887ffe964c294f301"
   }
 }

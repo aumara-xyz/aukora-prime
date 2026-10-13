@@ -21,7 +21,7 @@ const source = fs.readFileSync(new URL('../scripts/fresh-clone-runtime.mjs', imp
 const repository = fileURLToPath(new URL('../', import.meta.url))
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 function temporary(t) {
-  const root = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'aukora-fresh-clone-'))
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? '/tmp'), 'aukora-fresh-clone-'))
   fs.chmodSync(root, 0o700)
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   return root

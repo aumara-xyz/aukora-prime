@@ -178,6 +178,107 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/binding-bridge.ts
+		const AUMLOK_BROWSER_BINDING_ENDPOINT = "/api/aukora/aumlok-binding";
+		/** The browser submits secrets only in a same-origin HTTPS POST body. */
+		function createAumlokBrowserCeremonyBridge(fetchCeremony = (input, init) => globalThis.fetch(input, init), protocol = globalThis.location?.protocol ?? "") {
+			if (protocol !== "https:") return void 0;
+			let ceremonyId;
+			let preparedHandle;
+			let generation = 0;
+			const refusal = (reason) => ({
+				ok: false,
+				reason
+			});
+			async function post(verb, body) {
+				try {
+					const response = await fetchCeremony(`${AUMLOK_BROWSER_BINDING_ENDPOINT}/${verb}`, {
+						method: "POST",
+						headers: {
+							accept: "application/json",
+							"content-type": "application/json"
+						},
+						credentials: "same-origin",
+						mode: "same-origin",
+						cache: "no-store",
+						redirect: "error",
+						referrerPolicy: "no-referrer",
+						body: JSON.stringify(body)
+					});
+					if (response.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") return refusal("aumlok:browser-response-invalid");
+					const value = await response.json();
+					if (value === null || typeof value !== "object" || Array.isArray(value)) return refusal("aumlok:browser-response-invalid");
+					const record = value;
+					if (response.ok && record["ok"] === true) return record;
+					const reason = record["reason"];
+					return refusal(typeof reason === "string" && /^aumlok:[a-z0-9:_-]{1,112}$/u.test(reason) ? reason : "aumlok:browser-request-refused");
+				} catch {
+					return refusal("aumlok:browser-request-failed");
+				}
+			}
+			async function cancel() {
+				generation += 1;
+				const pending = ceremonyId;
+				ceremonyId = void 0;
+				preparedHandle = void 0;
+				return pending === void 0 ? { ok: true } : post("cancel", { ceremonyId: pending });
+			}
+			return {
+				draw: async () => refusal("aumlok:browser-handle-required"),
+				async prepare(handle, language = "en") {
+					await cancel();
+					const current = generation;
+					const value = await post("prepare", {
+						handle,
+						language
+					});
+					if (value["ok"] !== true) return value;
+					const draw = value["draw"];
+					if (draw === null || typeof draw !== "object" || Array.isArray(draw)) return refusal("aumlok:browser-response-invalid");
+					const id = draw["ceremonyId"];
+					const phrase = parseAumlokDrawnPhrase({
+						ok: true,
+						...draw
+					});
+					if (typeof id !== "string" || !/^[A-Za-z0-9_-]{16,128}$/u.test(id) || !phrase.ok) return refusal("aumlok:browser-response-invalid");
+					if (current !== generation) {
+						await post("cancel", { ceremonyId: id });
+						return refusal("aumlok:browser-draw-cancelled");
+					}
+					ceremonyId = id;
+					preparedHandle = handle;
+					return phrase;
+				},
+				async submit(intent, words, handle) {
+					if (intent !== "bind") return refusal("aumlok:browser-first-binding-only");
+					if (ceremonyId === void 0) return refusal("aumlok:browser-no-pending-draw");
+					if (handle !== preparedHandle) return refusal("aumlok:browser-handle-changed");
+					if (!Array.isArray(words) || words.length !== PHRASE_LENGTH || !words.every((word) => typeof word === "string" && WORD.test(word))) return refusal("aumlok:browser-phrase-shape");
+					const pending = ceremonyId;
+					ceremonyId = void 0;
+					preparedHandle = void 0;
+					generation += 1;
+					const value = await post("bind", {
+						ceremonyId: pending,
+						typedPhrase: words.join(" "),
+						acknowledged: true
+					});
+					if (value["ok"] !== true) return {
+						...value,
+						drawSpent: true
+					};
+					if (value["binding"] === null || typeof value["binding"] !== "object" || Array.isArray(value["binding"])) return {
+						...refusal("aumlok:browser-response-invalid"),
+						drawSpent: true
+					};
+					return {
+						ok: true,
+						drawSpent: true
+					};
+				},
+				cancel,
+				status: () => post("status", {})
+			};
+		}
 		/** Generated words contain only bounded Unicode letters and combining marks. */
 		const WORD = /^[\p{L}\p{M}]{1,64}$/u;
 		const AUMLOK_PHRASE_LANGUAGES = Object.freeze([
@@ -808,7 +909,7 @@ window.__ModuleLoader__.load({
 		* @param props - shell visibility, close action, ceremony source, and localized copy.
 		* @returns the always-mounted AUMLOK surface.
 		*/
-		function AumlokSurface({ activeSurface, closeSurface, t, useControlProjection, ceremonyAvailable, drawPhrase, submitPhrase, refreshControlStatus }) {
+		function AumlokSurface({ activeSurface, closeSurface, t, useControlProjection, ceremonyAvailable, browserCeremony = false, cancelCeremony, drawPhrase, submitPhrase, refreshControlStatus }) {
 			const active = activeSurface === "aumlok";
 			const projection = useControlProjection((value) => value);
 			const [refreshing, setRefreshing] = (0, react.useState)(false);
@@ -836,6 +937,7 @@ window.__ModuleLoader__.load({
 				}
 				return () => {
 					ceremonyGeneration.current += 1;
+					cancelCeremony?.();
 				};
 			}, [active]);
 			const state = aumlokSurfaceState({
@@ -874,7 +976,7 @@ window.__ModuleLoader__.load({
 				setAcknowledged(false);
 				if (intent === "refresh") setRefreshing(true);
 				(async () => {
-					const drawn = await drawPhrase(intent, language).catch(() => ({ ok: false }));
+					const drawn = await (browserCeremony ? drawPhrase(intent, language, handle) : drawPhrase(intent, language)).catch(() => ({ ok: false }));
 					if (generation !== ceremonyGeneration.current) return;
 					setBusy(false);
 					if (!drawn.ok || drawn.words === void 0) {
@@ -916,6 +1018,7 @@ window.__ModuleLoader__.load({
 					setBeat("none");
 					setRefreshing(false);
 					setChangingHandle(false);
+					if (browserCeremony) setTyped(emptyTyped());
 					setHandle("");
 				})();
 			};
@@ -955,7 +1058,7 @@ window.__ModuleLoader__.load({
 					document.removeEventListener("keydown", onKeyDown);
 				};
 			}, [active, closeSurface]);
-			const ceremonyControls = ceremonyAvailable ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			const ceremonyControls = ceremonyAvailable && (!browserCeremony || state === "unbound") ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: Aumlok_module_css_default.ceremonyAction,
 				"data-aumlok-ceremony-state": state,
 				"data-aumlok-ceremony-beat": beat,
@@ -1057,6 +1160,11 @@ window.__ModuleLoader__.load({
 							className: Aumlok_module_css_default.phraseStage,
 							"aria-label": t("phrase.label"),
 							children: [
+								browserCeremony ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: Aumlok_module_css_default.warning,
+									"data-aumlok-browser-derivation": true,
+									children: "In this version, your words are sent over the encrypted connection to your own node and derived there. Deriving on your device is later work."
+								}) : null,
 								state !== "bound" || changingHandle ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 									className: Aumlok_module_css_default.handleLabel,
 									children: [t("phrase.language"), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
@@ -14387,23 +14495,6 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/control-projection.ts
-		/**
-		* The AUMLOK public control projection, exactly as the controller plugin defines it.
-		*
-		* THIS FILE OWNS NO SCHEMA OF ITS OWN. `plugins/aukora-aumlok/lib/projection.mjs`
-		* defines a closed seven-field public control and builds it field by field so that the
-		* private half — the Ed25519 private key PEM and the ML-DSA-65 secret — structurally
-		* cannot appear in it. The screen reproduces those seven fields and refuses anything
-		* else on the wire. A screen with its own shape would be a second definition of a
-		* public identity, and the first time the two disagreed the screen would be lying.
-		*
-		* WHAT THIS SURFACE IS NOT. It shows status. It never generates a phrase, never asks for one,
-		* never holds a key, and never approves anything. BINDING RUNS HERE, ON THIS SCREEN: the seven
-		* words are drawn once, typed back into their tiles, and the root is DERIVED from them — there is
-		* no separate window in v3 and nothing is unwrapped into a record, because the words themselves
-		* are the key. Approval is a separate signer process on a Unix socket. Neither is reachable from a
-		* browser, and neither should be.
-		*/
 		const SUBJECT = /^aukora:1:[0-9a-f]{64}$/u;
 		const DIGEST = /^[0-9a-f]{64}$/u;
 		const DID_KEY = /^did:key:z[1-9A-HJ-NP-Za-km-z]{16,}$/u;
@@ -14639,32 +14730,30 @@ window.__ModuleLoader__.load({
 		*/
 		var AumlokControlStatusLoader = class {
 			projection;
-			connection;
 			fetchStatus;
 			controller;
 			disposed = false;
 			/**
 			* @param projection - browser-owned validated projection service.
-			* @param connection - page connection facts used to refuse non-loopback reads.
+			* @param connection - page connection facts; the authenticated host validates its configured origin.
 			* @param fetchStatus - same-origin HTTP reader; defaults to the browser fetch implementation.
 			*/
-			constructor(projection, connection, fetchStatus = (input, init) => globalThis.fetch(input, init)) {
+			constructor(projection, _connection, fetchStatus = (input, init) => globalThis.fetch(input, init)) {
 				this.projection = projection;
-				this.connection = connection;
 				this.fetchStatus = fetchStatus;
 			}
 			stale(controller) {
 				return controller.signal.aborted;
 			}
 			/**
-			* Drop the current projection and attempt one fresh loopback read.
+			* Drop the current projection and attempt one fresh authenticated same-origin read.
 			* Network, HTTP, media-type, and validation failures leave the service disconnected.
 			* @returns after the current generation either connects or remains disconnected.
 			*/
 			async refresh() {
 				this.controller?.abort();
 				this.projection.disconnect();
-				if (this.disposed || !this.connection.isLoopback) return;
+				if (this.disposed) return;
 				const controller = new AbortController();
 				this.controller = controller;
 				try {
@@ -14988,10 +15077,11 @@ window.__ModuleLoader__.load({
 				en
 			}), "ui-aumlok: dictionaries");
 			const projection = new AumlokControlProjectionService(ctx);
-			projection.attachCeremony(readAumlokCeremonyBridge());
+			const desktopCeremony = readAumlokCeremonyBridge();
+			const browserCeremony = desktopCeremony === void 0 ? createAumlokBrowserCeremonyBridge() : void 0;
+			projection.attachCeremony(desktopCeremony ?? browserCeremony);
 			const connection = ctx.get("connection");
 			const readIdentity = async (signal) => {
-				if (!connection.isLoopback) throw new Error("aumlok:identity-non-loopback");
 				const response = await fetch(AUMLOK_IDENTITY_ENDPOINT, {
 					method: "GET",
 					signal,
@@ -15037,7 +15127,14 @@ window.__ModuleLoader__.load({
 					inject: () => ({
 						hooks: { controlProjection: scope.aumlokControlProjection.store },
 						ceremonyAvailable: scope.aumlokControlProjection.ceremonyAvailable,
-						drawPhrase: (intent, language) => scope.aumlokControlProjection.drawPhrase(intent, language),
+						browserCeremony: browserCeremony !== void 0,
+						...browserCeremony === void 0 ? {} : { cancelCeremony: () => {
+							browserCeremony.cancel();
+						} },
+						drawPhrase: (intent, language, handle) => browserCeremony === void 0 ? scope.aumlokControlProjection.drawPhrase(intent, language) : intent !== "bind" ? Promise.resolve({
+							ok: false,
+							reason: "aumlok:browser-first-binding-only"
+						}) : browserCeremony.prepare(handle ?? "", language).then(parseAumlokDrawnPhrase),
 						submitPhrase: (intent, words, handle) => scope.aumlokControlProjection.submitPhrase(intent, words, handle),
 						refreshControlStatus
 					})

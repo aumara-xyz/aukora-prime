@@ -21,12 +21,12 @@ export class AumlokControlStatusLoader {
 
   /**
    * @param projection - browser-owned validated projection service.
-   * @param connection - page connection facts used to refuse non-loopback reads.
+   * @param connection - page connection facts; the authenticated host validates its configured origin.
    * @param fetchStatus - same-origin HTTP reader; defaults to the browser fetch implementation.
    */
   constructor(
     private readonly projection: AumlokControlProjectionService,
-    private readonly connection: Pick<ConnectionHandle, 'isLoopback'>,
+    _connection: Pick<ConnectionHandle, 'isLoopback'>,
     private readonly fetchStatus: StatusFetch = (input, init) => globalThis.fetch(input, init),
   ) {}
 
@@ -35,14 +35,14 @@ export class AumlokControlStatusLoader {
   }
 
   /**
-   * Drop the current projection and attempt one fresh loopback read.
+   * Drop the current projection and attempt one fresh authenticated same-origin read.
    * Network, HTTP, media-type, and validation failures leave the service disconnected.
    * @returns after the current generation either connects or remains disconnected.
    */
   async refresh(): Promise<void> {
     this.controller?.abort()
     this.projection.disconnect()
-    if (this.disposed || !this.connection.isLoopback) return
+    if (this.disposed) return
     const controller = new AbortController()
     this.controller = controller
     try {

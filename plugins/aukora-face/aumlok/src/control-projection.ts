@@ -1,21 +1,4 @@
-/**
- * The AUMLOK public control projection, exactly as the controller plugin defines it.
- *
- * THIS FILE OWNS NO SCHEMA OF ITS OWN. `plugins/aukora-aumlok/lib/projection.mjs`
- * defines a closed seven-field public control and builds it field by field so that the
- * private half — the Ed25519 private key PEM and the ML-DSA-65 secret — structurally
- * cannot appear in it. The screen reproduces those seven fields and refuses anything
- * else on the wire. A screen with its own shape would be a second definition of a
- * public identity, and the first time the two disagreed the screen would be lying.
- *
- * WHAT THIS SURFACE IS NOT. It shows status. It never generates a phrase, never asks for one,
- * never holds a key, and never approves anything. BINDING RUNS HERE, ON THIS SCREEN: the seven
- * words are drawn once, typed back into their tiles, and the root is DERIVED from them — there is
- * no separate window in v3 and nothing is unwrapped into a record, because the words themselves
- * are the key. Approval is a separate signer process on a Unix socket. Neither is reachable from a
- * browser, and neither should be.
- */
-
+// Validate the closed public control projection; private key fields are refused.
 import {
   isAumlokRecordControlProjection,
   isAumlokRecordProjection,

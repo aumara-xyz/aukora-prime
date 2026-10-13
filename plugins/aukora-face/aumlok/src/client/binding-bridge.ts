@@ -1,4 +1,4 @@
-// The face carries seven words and their language through the desktop bridge; it draws no words.
+// The face carries seven words through an available desktop or same-origin browser transport.
 export interface AumlokCeremonyResult {
   readonly ok: boolean
   /** The shell's own short machine-readable refusal. Shown verbatim, never replaced. */
@@ -39,6 +39,97 @@ export interface AumlokCeremonyBridge {
    * @returns whether the ceremony completed, and the shell's own reason when it did not.
    */
   submit(intent: AumlokCeremonyIntent, words: readonly string[], handle?: string): Promise<unknown>
+}
+
+/** Browser transport exposes only first binding and cancellation of its pending draw. */
+export interface AumlokBrowserCeremonyBridge extends AumlokCeremonyBridge {
+  prepare(handle: string, language?: string): Promise<unknown>
+  cancel(): Promise<unknown>
+  status(): Promise<unknown>
+}
+
+export const AUMLOK_BROWSER_BINDING_ENDPOINT = '/api/aukora/aumlok-binding'
+
+type CeremonyFetch = (input: string, init: RequestInit) => Promise<Response>
+
+/** The browser submits secrets only in a same-origin HTTPS POST body. */
+export function createAumlokBrowserCeremonyBridge(
+  fetchCeremony: CeremonyFetch = (input, init) => globalThis.fetch(input, init),
+  protocol: string = globalThis.location?.protocol ?? '',
+): AumlokBrowserCeremonyBridge | undefined {
+  if (protocol !== 'https:') return undefined
+  let ceremonyId: string | undefined
+  let preparedHandle: string | undefined
+  let generation = 0
+  const refusal = (reason: string) => ({ ok: false, reason })
+  async function post(verb: string, body: unknown): Promise<Record<string, unknown>> {
+    try {
+      const response = await fetchCeremony(`${AUMLOK_BROWSER_BINDING_ENDPOINT}/${verb}`, {
+        method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' },
+        credentials: 'same-origin', mode: 'same-origin', cache: 'no-store', redirect: 'error',
+        referrerPolicy: 'no-referrer', body: JSON.stringify(body),
+      })
+      if (response.headers.get('content-type')?.split(';', 1)[0]?.trim() !== 'application/json')
+        return refusal('aumlok:browser-response-invalid')
+      const value: unknown = await response.json()
+      if (value === null || typeof value !== 'object' || Array.isArray(value))
+        return refusal('aumlok:browser-response-invalid')
+      const record = value as Record<string, unknown>
+      if (response.ok && record['ok'] === true) return record
+      const reason = record['reason']
+      return refusal(typeof reason === 'string' && /^aumlok:[a-z0-9:_-]{1,112}$/u.test(reason)
+        ? reason : 'aumlok:browser-request-refused')
+    } catch { return refusal('aumlok:browser-request-failed') }
+  }
+  async function cancel(): Promise<unknown> {
+    generation += 1
+    const pending = ceremonyId
+    ceremonyId = undefined
+    preparedHandle = undefined
+    return pending === undefined ? { ok: true } : post('cancel', { ceremonyId: pending })
+  }
+  return {
+    draw: async () => refusal('aumlok:browser-handle-required'),
+    async prepare(handle, language = 'en') {
+      await cancel()
+      const current = generation
+      const value = await post('prepare', { handle, language })
+      if (value['ok'] !== true) return value
+      const draw = value['draw']
+      if (draw === null || typeof draw !== 'object' || Array.isArray(draw))
+        return refusal('aumlok:browser-response-invalid')
+      const id = (draw as Record<string, unknown>)['ceremonyId']
+      const phrase = parseAumlokDrawnPhrase({ ok: true, ...draw })
+      if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(id) || !phrase.ok)
+        return refusal('aumlok:browser-response-invalid')
+      if (current !== generation) {
+        await post('cancel', { ceremonyId: id })
+        return refusal('aumlok:browser-draw-cancelled')
+      }
+      ceremonyId = id
+      preparedHandle = handle
+      return phrase
+    },
+    async submit(intent, words, handle) {
+      if (intent !== 'bind') return refusal('aumlok:browser-first-binding-only')
+      if (ceremonyId === undefined) return refusal('aumlok:browser-no-pending-draw')
+      if (handle !== preparedHandle) return refusal('aumlok:browser-handle-changed')
+      if (!Array.isArray(words) || words.length !== PHRASE_LENGTH
+        || !words.every(word => typeof word === 'string' && WORD.test(word)))
+        return refusal('aumlok:browser-phrase-shape')
+      const pending = ceremonyId
+      ceremonyId = undefined
+      preparedHandle = undefined
+      generation += 1
+      const value = await post('bind', { ceremonyId: pending, typedPhrase: words.join(' '), acknowledged: true })
+      if (value['ok'] !== true) return { ...value, drawSpent: true }
+      if (value['binding'] === null || typeof value['binding'] !== 'object' || Array.isArray(value['binding']))
+        return { ...refusal('aumlok:browser-response-invalid'), drawSpent: true }
+      return { ok: true, drawSpent: true }
+    },
+    cancel,
+    status: () => post('status', {}),
+  }
 }
 
 /** Which ceremony the operator asked for. */

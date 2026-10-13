@@ -3,6 +3,79 @@
 The public identity/control adapter. One question, answered the same way for every consumer:
 **which AUKORA subject is this, and is it still the one that was pinned?**
 
+## C1 browser first binding (source; installation unperformed)
+
+This adapter uses the existing v3 derivation on the node. Generated words are returned
+once for the draw screen; submitted words are never echoed, logged or put in a URL.
+It requires the separately provisioned HTTPS ingress and signed-in harness cookie.
+It supplies no passkey enrollment, owner-state activation or release approval.
+
+On the fresh C1 container, as its harness user, set operator inputs `C1_ORIGIN`
+(exact HTTPS origin, no trailing slash), `C1_SUPPORT_ROOT`, `C1_STATE_ROOT`,
+`C1_BIND_DIR` (a new, absent directory) and `C1_PATCH` (an absolute patch path).
+Their parent directories must exist, belong to that user and be private.
+Do not copy another node's binding, attempt database, overlay or credentials.
+Set the backend's `AUKORA_SUPPORT_ROOT` to `C1_SUPPORT_ROOT` and leave
+`AUKORA_STATE` unset; Kira must read the same overlay this ceremony writes.
+Set `C1_STATE_ROOT` to the harness's configured `DSH_HOME`, so the generated
+composition and the overlay both name its `kira-memory` directory. If this profile
+uses another memory path, reconcile that composition before release approval.
+From the clean reviewed checkout, with Node v24.11.1, create the patch:
+
+```sh
+node --input-type=module <<'JS'
+import { writeFileSync } from 'node:fs'
+import { isAbsolute } from 'node:path'
+const names = ['C1_ORIGIN', 'C1_SUPPORT_ROOT', 'C1_STATE_ROOT', 'C1_BIND_DIR', 'C1_PATCH']
+const [origin, supportRoot, stateRoot, directory, patch] = names.map(name => {
+  const value = process.env[name]
+  if (!value) throw new Error(`missing operator input: ${name}`)
+  return value
+})
+if (new URL(origin).protocol !== 'https:' || new URL(origin).origin !== origin
+  || ![supportRoot, stateRoot, directory, patch].every(isAbsolute)) throw new Error('invalid operator input')
+const q = JSON.stringify
+writeFileSync(patch, `- id: aukora-aumlok\n  config:\n    directory: ${q(directory)}\n`
+  + `- id: aukora-face-aumlok\n  config:\n    directory: ${q(directory)}\n`
+  + `    browserBinding:\n      publicOrigin: ${q(origin)}\n      supportRoot: ${q(supportRoot)}\n      stateRoot: ${q(stateRoot)}\n`,
+  { flag: 'wx', mode: 0o600 })
+JS
+```
+
+Add `--patch "$C1_PATCH"` to the existing reviewed harness launch command; retain
+the loopback backend, public Host allowlist, secure sessions and release checks.
+Disable proxy body/query logging for these routes. Then Peter signs in at the HTTPS
+address, opens Aumlok, reads the cloud-derivation disclosure, chooses language and
+handle, draws seven words, reveals/records/hides them, retypes all seven, checks the
+acknowledgement and clicks Bind. A failed type-back spends the draw. Five failures
+lock the existing attempt limiter; expiry and cancellation also require a new draw.
+Browser refresh/replacement binding is refused.
+
+As the harness user, read back the result without printing private state:
+
+```sh
+node --input-type=module <<'JS'
+import { createBrowserBinding } from './plugins/aukora-aumlok/lib/browser-binding.mjs'
+import { resolveMemoryIdentity } from './plugins/aukora-kira/lib/memory-identity.mjs'
+const service = createBrowserBinding({ dir: process.env.C1_BIND_DIR,
+  supportRoot: process.env.C1_SUPPORT_ROOT, stateRoot: process.env.C1_STATE_ROOT })
+const binding = service.status()
+const memory = resolveMemoryIdentity({ supportRoot: process.env.C1_SUPPORT_ROOT, installed: true })
+if (!binding.ok || !binding.bound || binding.subject !== memory.subject) throw new Error('binding readback refused')
+console.log('C1 verified binding and Kira overlay agree')
+service.close()
+JS
+```
+
+Refresh the page and repeat readback after the operator's approved restart. Kira
+must subsequently mount using this support overlay; an already failed Kira mount
+is not revived by writing the file. This default is lexical memory; it establishes
+no semantic recall. The node retains a private attempt database
+and an exclusive first-bind marker. Missing attempts, a stale marker, or a bind
+that wrote the record but failed the overlay require inspection; never delete
+these to retry. This source check proves neither real HTTPS/session policy,
+human identity, authenticator custody, a model reply nor installed containment.
+
 `plugins/aukora-nostr/lib/vendor/noble-curves` is canonical for the 27 payload and
 licence files under this plugin's same directory. `tests/pinned-copies.test.mjs`
 checks their equality; each plugin retains its own provenance manifest.

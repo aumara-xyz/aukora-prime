@@ -1,21 +1,4 @@
-/**
- * Loopback host endpoint for the AUMLOK public control, read from the controller itself.
- *
- * WHERE THE STATUS COMES FROM. `ctx.aumlokControl` is the controller plugin's own
- * adapter. Its `refresh()` re-reads the configured directory on every call and returns
- * the closed public projection — the plugin's module header is explicit that the
- * service "adds no state, no caching and no authority". This route therefore calls it
- * PER REQUEST. An earlier version of this file read a launch-time environment entry
- * once and closed over the value, which could only ever have been as fresh as the
- * moment the process started, and disagreed with the controller's own field set.
- *
- * WHAT ABSENCE MEANS HERE. Three different absences reach this route and they are
- * reported as three different reasons, never collapsed into one not-found: no
- * controller service in the composition at all; a service mounted with no directory,
- * which refuses `aumlok:adapter-unbound` by name; and a directory that could not be
- * read, whose own refusal code is carried verbatim. A screen that cannot tell those
- * apart cannot tell an operator what to do next.
- */
+// Authenticated public identity reads and first binding on the configured HTTPS origin.
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { AUMLOK_IDENTITY_ENDPOINT } from './identity.ts'
@@ -39,6 +22,108 @@ export {
   parseAumlokNotConnectedBody,
 } from './control-projection.ts'
 export type { AumlokControlProjection, AumlokNotConnectedBody, AumlokNotConnectedReason } from './control-projection.ts'
+
+// Browser binding transport.
+export const BROWSER_BINDING_PREFIX = '/api/aukora/aumlok-binding'
+export const BROWSER_BODY_LIMIT = 8192
+
+export function aumlokRuntimeUrl(file: 'browser-binding.mjs' | 'store.mjs', base: string): string {
+  if (file !== 'browser-binding.mjs' && file !== 'store.mjs') throw new Error('aumlok:browser-runtime-file-refused')
+  const pathname = new URL('.', base).pathname
+  if (/\/plugins\/aukora-face-aumlok\/lib\/$/u.test(pathname)) return new URL(`../../aukora-aumlok/lib/${file}`, base).href
+  if (/\/plugins\/aukora-face\/aumlok\/(?:src|lib)\/$/u.test(pathname)) return new URL(`../../../aukora-aumlok/lib/${file}`, base).href
+  throw new Error('aumlok:browser-runtime-layout-refused')
+}
+
+interface Request {
+  readonly method?: string
+  readonly url?: string
+  readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>
+  [Symbol.asyncIterator](): AsyncIterator<Uint8Array | string>
+}
+interface Response {
+  writeHead(status: number, headers: Record<string, string>): unknown
+  setHeader(name: string, value: string): unknown
+  end(body?: string): unknown
+}
+
+export function configuredPublicOrigin(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new Error('aumlok:browser-origin-invalid')
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error('aumlok:browser-origin-invalid') }
+  if (url.protocol !== 'https:' || value !== url.origin || url.username || url.password) {
+    throw new Error('aumlok:browser-origin-invalid')
+  }
+  return url.origin
+}
+
+export function publicReadRejection(origin: string | undefined,
+  request: { readonly headers: Request['headers'] }): number | undefined {
+  const host = request.headers['host']
+  // Existing Electron requests remain subject to the harness's loopback fence.
+  if (typeof host === 'string' && /^(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]+)?$/u.test(host)) return undefined
+  if (!origin || host !== new URL(origin).host) return 403
+  const offered = request.headers['origin']
+  if (offered !== undefined && offered !== origin) return 403
+  const site = request.headers['sec-fetch-site']
+  if (site !== undefined && site !== 'same-origin') return 403
+  return undefined
+}
+
+export function browserBindingRoute(verb: 'prepare' | 'bind' | 'cancel' | 'status',
+  origin: string | undefined,
+  fence: (request: { readonly headers: Request['headers'] }) => number | undefined,
+  action: (body: Record<string, unknown>) => Promise<unknown>): WebRoute {
+  const path = `${BROWSER_BINDING_PREFIX}/${verb}`
+  return {
+    kind: 'exact', path,
+    handler: async (req: Request, res: Response) => {
+      const reply = (status: number, body: unknown): void => {
+        res.writeHead(status, { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8',
+          'x-content-type-options': 'nosniff' })
+        res.end(JSON.stringify(body))
+      }
+      const refuse = (status: number, reason: string): void => reply(status, { ok: false, reason })
+      const rejection = fence(req)
+      if (rejection !== undefined) { refuse(rejection, 'aumlok:browser-auth-refused'); return }
+      if (req.method !== 'POST') { res.setHeader('allow', 'POST'); refuse(405, 'aumlok:browser-post-required'); return }
+      if (!origin || req.headers['host'] !== new URL(origin).host || req.headers['origin'] !== origin
+        || (req.headers['sec-fetch-site'] !== undefined && req.headers['sec-fetch-site'] !== 'same-origin')) {
+        refuse(403, 'aumlok:browser-origin-refused'); return
+      }
+      if (req.url !== path) { refuse(400, 'aumlok:browser-url-refused'); return }
+      if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/iu.test(String(req.headers['content-type'] ?? ''))) {
+        refuse(415, 'aumlok:browser-json-required'); return
+      }
+      const declared = req.headers['content-length']
+      if (declared !== undefined && (typeof declared !== 'string' || !/^[0-9]+$/u.test(declared)
+        || Number(declared) > BROWSER_BODY_LIMIT)) {
+        refuse(413, 'aumlok:browser-body-too-large'); return
+      }
+      let body: Record<string, unknown>
+      try {
+        const decoder = new TextDecoder('utf-8', { fatal: true })
+        let raw = '', length = 0
+        for await (const chunk of req) {
+          const bytes = typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk
+          length += bytes.byteLength
+          if (length > BROWSER_BODY_LIMIT) { refuse(413, 'aumlok:browser-body-too-large'); return }
+          raw += decoder.decode(bytes, { stream: true })
+        }
+        raw += decoder.decode()
+        const parsed: unknown = JSON.parse(raw)
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          refuse(400, 'aumlok:browser-body-invalid'); return
+        }
+        body = parsed as Record<string, unknown>
+      } catch { refuse(400, 'aumlok:browser-body-invalid'); return }
+      try { reply(200, await action(body)) }
+      catch { refuse(503, 'aumlok:browser-binding-unavailable') }
+    },
+  }
+}
+// End browser binding transport.
 
 /** The controller's own refusal when a mount carries no directory. */
 const ADAPTER_UNBOUND = 'aumlok:adapter-unbound'
@@ -220,7 +305,7 @@ async function readControlFromDirectory(directory: string | undefined): Promise<
   }
   let store: AumlokControllerStore
   try {
-    store = (await loadUnseen(new URL('../../../aukora-aumlok/lib/store.mjs', import.meta.url).href)) as AumlokControllerStore
+    store = (await loadUnseen(aumlokRuntimeUrl('store.mjs', import.meta.url))) as AumlokControllerStore
   } catch {
     // NO READER REACHABLE is the absence this route has always served: without the organ there is no
     // way to judge a record, and a screen must not claim a binding it cannot validate.
@@ -468,6 +553,10 @@ export function apply(ctx: Context, config?: unknown): void {
     throw new Error('ui-aumlok: control status requires a loopback web server')
   }
   const directory = readConfiguredDirectory(config)
+  const browser = typeof config === 'object' && config !== null
+    ? (config as { browserBinding?: { publicOrigin?: unknown; supportRoot?: string; stateRoot?: string } }).browserBinding
+    : undefined
+  const publicOrigin = configuredPublicOrigin(browser?.publicOrigin)
   // The controller is read through the context at request time, not captured here.
   // `ctx.get` returns undefined when no row provides the service, which is the
   // composition this screen must be able to REPORT rather than disappear from.
@@ -478,6 +567,10 @@ export function apply(ctx: Context, config?: unknown): void {
       : undefined
   }
   const gate = (): RouteGate => Reflect.get(ctx, 'connection') as RouteGate
+  const readGate = (): RouteGate => ({ requestRejection: request => {
+    const rejected = fenceRejectionOf(gate(), request).rejection
+    return (rejected ?? publicReadRejection(publicOrigin, request)) as 401 | 403 | undefined
+  } })
   ctx.effect(() => ctx.webServer.register(identityContactVerificationRoute(
     request => fenceRejectionOf(gate(), request).rejection,
   )), 'ui-aumlok: fresh contact verification')
@@ -486,13 +579,45 @@ export function apply(ctx: Context, config?: unknown): void {
     () => { const service = controller(); return service === undefined ? directory : readConfiguredDirectory(service) },
   )), 'ui-aumlok: signed live contact route')
   ctx.effect(
-    () => ctx.webServer.register(route(gate, () => readControlWithFallback(controller(), directory))),
+    () => ctx.webServer.register(route(readGate, () => readControlWithFallback(controller(), directory))),
     'ui-aumlok: control status route',
   )
-  ctx.effect(() => ctx.webServer.register(identityRoute(gate, () => {
+  ctx.effect(() => ctx.webServer.register(identityRoute(readGate, () => {
     const service = controller()
     return service === undefined ? directory : readConfiguredDirectory(service)
   })), 'ui-aumlok: public identity route')
+  // The browser has only first-bind verbs; it receives no signer or replacement route.
+  interface Ceremony {
+    prepare(body: Record<string, unknown>): unknown
+    bind(body: Record<string, unknown>): Promise<unknown>
+    cancel(body: Record<string, unknown>): unknown
+    status(): unknown
+    close(): void
+  }
+  let pending: Promise<Ceremony> | undefined
+  const ceremony = (): Promise<Ceremony> => {
+    if (!pending) pending = (async () => {
+      if (!browser || !publicOrigin || !directory) throw new Error('aumlok:browser-config-missing')
+      const current = readConfiguredDirectory(controller())
+      if (current !== undefined && current !== directory) throw new Error('aumlok:browser-directory-mismatch')
+      const specifier = aumlokRuntimeUrl('browser-binding.mjs', import.meta.url)
+      const runtime = await loadUnseen(specifier) as {
+        createBrowserBinding(options: { dir: string; supportRoot: string | undefined; stateRoot: string | undefined }): Ceremony
+      }
+      return runtime.createBrowserBinding({ dir: directory, supportRoot: browser.supportRoot, stateRoot: browser.stateRoot })
+    })()
+    return pending
+  }
+  for (const verb of ['prepare', 'bind', 'cancel', 'status'] as const) {
+    ctx.effect(() => ctx.webServer.register(browserBindingRoute(verb, publicOrigin,
+      request => fenceRejectionOf(gate(), request).rejection,
+      async body => {
+        const service = await ceremony()
+        return verb === 'status' ? service.status() : service[verb](body)
+      })), `ui-aumlok: browser ${verb} route`)
+  }
+  ctx.effect(() => () => { void pending?.then(service => service.close()).catch(() => {}) },
+    'ui-aumlok: browser ceremony lifecycle')
 }
 
 /**

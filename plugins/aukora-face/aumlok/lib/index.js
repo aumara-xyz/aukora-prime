@@ -1687,23 +1687,6 @@ function phraseMetadata(record) {
 }
 //#endregion
 //#region lib/types/control-projection.js
-/**
-* The AUMLOK public control projection, exactly as the controller plugin defines it.
-*
-* THIS FILE OWNS NO SCHEMA OF ITS OWN. `plugins/aukora-aumlok/lib/projection.mjs`
-* defines a closed seven-field public control and builds it field by field so that the
-* private half — the Ed25519 private key PEM and the ML-DSA-65 secret — structurally
-* cannot appear in it. The screen reproduces those seven fields and refuses anything
-* else on the wire. A screen with its own shape would be a second definition of a
-* public identity, and the first time the two disagreed the screen would be lying.
-*
-* WHAT THIS SURFACE IS NOT. It shows status. It never generates a phrase, never asks for one,
-* never holds a key, and never approves anything. BINDING RUNS HERE, ON THIS SCREEN: the seven
-* words are drawn once, typed back into their tiles, and the root is DERIVED from them — there is
-* no separate window in v3 and nothing is unwrapped into a record, because the words themselves
-* are the key. Approval is a separate signer process on a Unix socket. Neither is reachable from a
-* browser, and neither should be.
-*/
 const SUBJECT = /^aukora:1:[0-9a-f]{64}$/u;
 const DIGEST = /^[0-9a-f]{64}$/u;
 const DID_KEY = /^did:key:z[1-9A-HJ-NP-Za-km-z]{16,}$/u;
@@ -1835,6 +1818,113 @@ var __rewriteRelativeImportExtension = function(path, preserveJsx) {
 	});
 	return path;
 };
+const BROWSER_BINDING_PREFIX = "/api/aukora/aumlok-binding";
+const BROWSER_BODY_LIMIT = 8192;
+function aumlokRuntimeUrl(file, base) {
+	if (file !== "browser-binding.mjs" && file !== "store.mjs") throw new Error("aumlok:browser-runtime-file-refused");
+	const pathname = new URL(".", base).pathname;
+	if (/\/plugins\/aukora-face-aumlok\/lib\/$/u.test(pathname)) return new URL(`../../aukora-aumlok/lib/${file}`, base).href;
+	if (/\/plugins\/aukora-face\/aumlok\/(?:src|lib)\/$/u.test(pathname)) return new URL(`../../../aukora-aumlok/lib/${file}`, base).href;
+	throw new Error("aumlok:browser-runtime-layout-refused");
+}
+function configuredPublicOrigin(value) {
+	if (value === void 0) return void 0;
+	if (typeof value !== "string") throw new Error("aumlok:browser-origin-invalid");
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error("aumlok:browser-origin-invalid");
+	}
+	if (url.protocol !== "https:" || value !== url.origin || url.username || url.password) throw new Error("aumlok:browser-origin-invalid");
+	return url.origin;
+}
+function publicReadRejection(origin, request) {
+	const host = request.headers["host"];
+	if (typeof host === "string" && /^(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]+)?$/u.test(host)) return void 0;
+	if (!origin || host !== new URL(origin).host) return 403;
+	const offered = request.headers["origin"];
+	if (offered !== void 0 && offered !== origin) return 403;
+	const site = request.headers["sec-fetch-site"];
+	if (site !== void 0 && site !== "same-origin") return 403;
+}
+function browserBindingRoute(verb, origin, fence, action) {
+	const path = `${BROWSER_BINDING_PREFIX}/${verb}`;
+	return {
+		kind: "exact",
+		path,
+		handler: async (req, res) => {
+			const reply = (status, body) => {
+				res.writeHead(status, {
+					"cache-control": "no-store",
+					"content-type": "application/json; charset=utf-8",
+					"x-content-type-options": "nosniff"
+				});
+				res.end(JSON.stringify(body));
+			};
+			const refuse = (status, reason) => reply(status, {
+				ok: false,
+				reason
+			});
+			const rejection = fence(req);
+			if (rejection !== void 0) {
+				refuse(rejection, "aumlok:browser-auth-refused");
+				return;
+			}
+			if (req.method !== "POST") {
+				res.setHeader("allow", "POST");
+				refuse(405, "aumlok:browser-post-required");
+				return;
+			}
+			if (!origin || req.headers["host"] !== new URL(origin).host || req.headers["origin"] !== origin || req.headers["sec-fetch-site"] !== void 0 && req.headers["sec-fetch-site"] !== "same-origin") {
+				refuse(403, "aumlok:browser-origin-refused");
+				return;
+			}
+			if (req.url !== path) {
+				refuse(400, "aumlok:browser-url-refused");
+				return;
+			}
+			if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/iu.test(String(req.headers["content-type"] ?? ""))) {
+				refuse(415, "aumlok:browser-json-required");
+				return;
+			}
+			const declared = req.headers["content-length"];
+			if (declared !== void 0 && (typeof declared !== "string" || !/^[0-9]+$/u.test(declared) || Number(declared) > 8192)) {
+				refuse(413, "aumlok:browser-body-too-large");
+				return;
+			}
+			let body;
+			try {
+				const decoder = new TextDecoder("utf-8", { fatal: true });
+				let raw = "", length = 0;
+				for await (const chunk of req) {
+					const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+					length += bytes.byteLength;
+					if (length > 8192) {
+						refuse(413, "aumlok:browser-body-too-large");
+						return;
+					}
+					raw += decoder.decode(bytes, { stream: true });
+				}
+				raw += decoder.decode();
+				const parsed = JSON.parse(raw);
+				if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+					refuse(400, "aumlok:browser-body-invalid");
+					return;
+				}
+				body = parsed;
+			} catch {
+				refuse(400, "aumlok:browser-body-invalid");
+				return;
+			}
+			try {
+				reply(200, await action(body));
+			} catch {
+				refuse(503, "aumlok:browser-binding-unavailable");
+			}
+		}
+	};
+}
 /** The controller's own refusal when a mount carries no directory. */
 const ADAPTER_UNBOUND = "aumlok:adapter-unbound";
 /**
@@ -1942,7 +2032,7 @@ async function readControlFromDirectory(directory) {
 	if (typeof directory !== "string" || directory.length === 0) return aumlokNotConnected("no-controller-service");
 	let store;
 	try {
-		store = await loadUnseen(new URL("../../../aukora-aumlok/lib/store.mjs", import.meta.url).href);
+		store = await loadUnseen(aumlokRuntimeUrl("store.mjs", import.meta.url));
 	} catch {
 		return aumlokNotConnected("no-controller-service");
 	}
@@ -2138,21 +2228,52 @@ function identityRoute(gate, directory) {
 function apply(ctx, config) {
 	if (ctx.webServer.host !== "127.0.0.1") throw new Error("ui-aumlok: control status requires a loopback web server");
 	const directory = readConfiguredDirectory(config);
+	const browser = typeof config === "object" && config !== null ? config.browserBinding : void 0;
+	const publicOrigin = configuredPublicOrigin(browser?.publicOrigin);
 	const controller = () => {
 		const service = ctx.get("aumlokControl");
 		return typeof service === "object" && service !== null && typeof service.refresh === "function" ? service : void 0;
 	};
 	const gate = () => Reflect.get(ctx, "connection");
+	const readGate = () => ({ requestRejection: (request) => {
+		return fenceRejectionOf(gate(), request).rejection ?? publicReadRejection(publicOrigin, request);
+	} });
 	ctx.effect(() => ctx.webServer.register(identityContactVerificationRoute((request) => fenceRejectionOf(gate(), request).rejection)), "ui-aumlok: fresh contact verification");
 	ctx.effect(() => ctx.webServer.register(identityContactIssueRoute((request) => fenceRejectionOf(gate(), request).rejection, () => {
 		const service = controller();
 		return service === void 0 ? directory : readConfiguredDirectory(service);
 	})), "ui-aumlok: signed live contact route");
-	ctx.effect(() => ctx.webServer.register(route(gate, () => readControlWithFallback(controller(), directory))), "ui-aumlok: control status route");
-	ctx.effect(() => ctx.webServer.register(identityRoute(gate, () => {
+	ctx.effect(() => ctx.webServer.register(route(readGate, () => readControlWithFallback(controller(), directory))), "ui-aumlok: control status route");
+	ctx.effect(() => ctx.webServer.register(identityRoute(readGate, () => {
 		const service = controller();
 		return service === void 0 ? directory : readConfiguredDirectory(service);
 	})), "ui-aumlok: public identity route");
+	let pending;
+	const ceremony = () => {
+		if (!pending) pending = (async () => {
+			if (!browser || !publicOrigin || !directory) throw new Error("aumlok:browser-config-missing");
+			const current = readConfiguredDirectory(controller());
+			if (current !== void 0 && current !== directory) throw new Error("aumlok:browser-directory-mismatch");
+			return (await loadUnseen(aumlokRuntimeUrl("browser-binding.mjs", import.meta.url))).createBrowserBinding({
+				dir: directory,
+				supportRoot: browser.supportRoot,
+				stateRoot: browser.stateRoot
+			});
+		})();
+		return pending;
+	};
+	for (const verb of [
+		"prepare",
+		"bind",
+		"cancel",
+		"status"
+	]) ctx.effect(() => ctx.webServer.register(browserBindingRoute(verb, publicOrigin, (request) => fenceRejectionOf(gate(), request).rejection, async (body) => {
+		const service = await ceremony();
+		return verb === "status" ? service.status() : service[verb](body);
+	})), `ui-aumlok: browser ${verb} route`);
+	ctx.effect(() => () => {
+		pending?.then((service) => service.close()).catch(() => {});
+	}, "ui-aumlok: browser ceremony lifecycle");
 }
 /**
 * This row's `directory`, when the composition names one.
@@ -2172,4 +2293,4 @@ function readConfiguredDirectory(config) {
 	return typeof directory === "string" && directory.length > 0 ? directory : void 0;
 }
 //#endregion
-export { AUMLOK_CONTROL_STATUS_ENDPOINT, AUMLOK_LOCAL_CUSTODY_CLASS, AUMLOK_PUBLIC_CONTROL_DOMAIN, apply, aumlokNotConnected, fenceRejectionOf, inject, parseAumlokControl, parseAumlokControlProjection, parseAumlokNotConnectedBody, readControl, readControlWithFallback };
+export { AUMLOK_CONTROL_STATUS_ENDPOINT, AUMLOK_LOCAL_CUSTODY_CLASS, AUMLOK_PUBLIC_CONTROL_DOMAIN, BROWSER_BINDING_PREFIX, BROWSER_BODY_LIMIT, apply, aumlokNotConnected, aumlokRuntimeUrl, browserBindingRoute, configuredPublicOrigin, fenceRejectionOf, inject, parseAumlokControl, parseAumlokControlProjection, parseAumlokNotConnectedBody, publicReadRejection, readControl, readControlWithFallback };

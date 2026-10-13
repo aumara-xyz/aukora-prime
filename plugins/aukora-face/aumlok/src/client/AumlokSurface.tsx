@@ -56,8 +56,12 @@ export interface AumlokSurfaceInjected {
   }
   /** Whether the desktop shell exposes the two ceremony verbs on this page at all. */
   ceremonyAvailable: boolean
+  /** Browser binding is first-run only and derives the phrase on the node. */
+  browserCeremony?: boolean
+  /** Clear the pending browser draw when the surface closes or unmounts. */
+  cancelCeremony?: () => void
   /** Ask the shell for one phrase, shown once, and report what came back. */
-  drawPhrase: (intent: AumlokCeremonyIntent, language?: string) => Promise<AumlokDrawnPhrase>
+  drawPhrase: (intent: AumlokCeremonyIntent, language?: string, handle?: string) => Promise<AumlokDrawnPhrase>
   /** Hand the typed words back, and report the shell's verdict. */
   submitPhrase: (intent: AumlokCeremonyIntent, words: readonly string[],
     handle?: string) => Promise<AumlokCeremonyResult>
@@ -198,6 +202,8 @@ export function AumlokSurface({
   t,
   useControlProjection,
   ceremonyAvailable,
+  browserCeremony = false,
+  cancelCeremony,
   drawPhrase,
   submitPhrase,
   refreshControlStatus,
@@ -235,7 +241,7 @@ export function AumlokSurface({
       setOutcome(undefined)
     }
     // Invalidate pending work on close or unmount; late words must never reopen a ceremony.
-    return () => { ceremonyGeneration.current += 1 }
+    return () => { ceremonyGeneration.current += 1; cancelCeremony?.() }
   }, [active])
   const state = aumlokSurfaceState({ bound: projection.status === 'connected', refreshing })
   const face = aumlokTileFace(state, beat)
@@ -273,7 +279,8 @@ export function AumlokSurface({
     setAcknowledged(false)
     if (intent === 'refresh') setRefreshing(true)
     void (async () => {
-      const drawn = await drawPhrase(intent, language).catch((): AumlokDrawnPhrase => ({ ok: false }))
+      const drawn = await (browserCeremony ? drawPhrase(intent, language, handle)
+        : drawPhrase(intent, language)).catch((): AumlokDrawnPhrase => ({ ok: false }))
       if (generation !== ceremonyGeneration.current) return
       setBusy(false)
       if (!drawn.ok || drawn.words === undefined) {
@@ -313,6 +320,7 @@ export function AumlokSurface({
       setBeat('none')
       setRefreshing(false)
       setChangingHandle(false)
+      if (browserCeremony) setTyped(emptyTyped())
       setHandle('')
     })()
   }
@@ -359,7 +367,7 @@ export function AumlokSurface({
     return () => { document.removeEventListener('keydown', onKeyDown) }
   }, [active, closeSurface])
 
-  const ceremonyControls = ceremonyAvailable ? (
+  const ceremonyControls = ceremonyAvailable && (!browserCeremony || state === 'unbound') ? (
     <div
       className={css.ceremonyAction}
       data-aumlok-ceremony-state={state}
@@ -475,6 +483,10 @@ export function AumlokSurface({
 
         <div className={css.composition}>
           <section className={css.phraseStage} aria-label={t('phrase.label')}>
+            {browserCeremony ? <p className={css.warning} data-aumlok-browser-derivation>
+              In this version, your words are sent over the encrypted connection to your own node and derived there.
+              Deriving on your device is later work.
+            </p> : null}
             {state !== 'bound' || changingHandle ? <label className={css.handleLabel}>
               {t('phrase.language')}
               <select data-aumlok-phrase-language value={language} disabled={busy || beat !== 'none'}
