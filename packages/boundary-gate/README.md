@@ -83,6 +83,28 @@ card access, never approval by itself. The optional browser join below supplies 
 and a final passkey-signed Aumlok subject binding; the existing app supplies the phrase ceremony.
 No real authenticator, HTTPS ingress, LXD or installed service was exercised by these source checks.
 
+For the installed browser-node profile with its app binding already finished,
+use the [browser-node operator sequence](../../ops/node-spawn/browser/README.md):
+
+```sh
+# Root inside the node; prints only the private owner-hostname enrollment link.
+/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py passkey-claim
+# Owner opens that link: create credential, then prove possession (two touches).
+# Local LXD host, after restarting the approved harness if status reports inactive:
+bash ops/node-spawn/browser/acceptance.sh --name C1 --phase passkey
+```
+
+This route selects the already-bound app's actual public record and exact owner
+hostname as RP ID. Enrollment commits that subject directly, so it does not
+select the provisional browser join or require a third final-binding assertion.
+It refuses an existing browser join. Before expiry, the same secret claim can
+resume the retained ceremony after restart; accepted registration cannot be
+replaced and enrollment cannot reopen after success or a cryptographic failure.
+Acceptance checks live enrollment/bearer refusal and the installed verifier's
+software-key positive/negative controls separately; it never approves as the owner.
+
+The lower-level procedure below is for separately provisioned gate installations.
+
 The host integrator must install/pin the complete import closure before starting this mode. Do not bypass the
 bootstrap with an unprotected direct `serve` invocation. Root-held code must include `/opt/aukora-boundary-gate`
 and its new `src/owner-passkey-script.mjs`, `/opt/owner-key`, `/opt/authority` (including its preserved
@@ -130,9 +152,13 @@ the host installer and service unit still need the operator's reviewed materiali
    ```
 
    Both output files are exclusive creations. The claim is in root-private `CLAIM_OUT` (0600), never stdout;
-   deliver it to Peter by the approved private route, never a URL/log. The claim expires after five minutes.
-   Starting enrollment reserves it durably; cancellation or gate restart does not restore it. There is no
-   recovery/reset command here. Do not delete the database, replace setup, reset the floor or copy another node.
+   deliver it through the private operator route. The browser-node wrapper prints it only in the owner
+   page's fragment link, which the page removes before requests; never record it in logs. The claim expires
+   after five minutes. Starting enrollment reserves it durably. After gate restart, presenting the same
+   secret claim before expiry resumes the same retained stage and ID, without a second registration once
+   registration is accepted. Direct enrollment IDs cannot resume without that claim. Success or a
+   cryptographic failure closes enrollment permanently. There is no expiry reset/recovery command here.
+   Do not delete the database, replace setup, reset the floor or copy another node.
 4. Configure the protected gate service with its existing `serve` arguments plus
    `--passkey-setup /etc/aukora-boundary-gate/passkey-setup.json`; omit `--owner-page`. Its entry is
    `/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap serve`, with the fixed home/run/target

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Read a named container and test approval-gated startup or its signed-in UI.
 set -euo pipefail
-[[ $# == 4 && $1 == --name && $3 == --phase && $2 =~ ^[A-Za-z][A-Za-z0-9-]{0,62}$ && ( $4 == before || $4 == after ) ]] || {
+[[ $# == 4 && $1 == --name && $3 == --phase && $2 =~ ^[A-Za-z][A-Za-z0-9-]{0,62}$ && ( $4 == before || $4 == after || $4 == passkey ) ]] || {
   printf 'REFUSED BROWSER_ACCEPTANCE_USAGE\n' >&2; exit 1;
 }
 # LXD 5.21 has no JSON form of "config show"; the instance API object carries the same expanded values.

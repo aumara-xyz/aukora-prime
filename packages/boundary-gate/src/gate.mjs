@@ -27,6 +27,7 @@ import { AUTHORIZATION_FIELDS, AUTHORIZATION_V2_FIELDS, ownerAuthorization, owne
   ownerAuthorizationProofText, verifyOwnerAuthorization } from '../../owner-key/src/authorization.mjs'
 import { passkeySetup } from './owner-state.mjs'
 import { createOwnerBrowser } from './owner-browser.mjs'
+import { retainedEnrollment } from './owner-enrollment.mjs'
 
 export const DEFAULT_LIMITS = Object.freeze({
   ttlMs: 5 * 60 * 1000, popupLimit: 12000, keepVersions: 50, whyMax: 4000,
@@ -85,7 +86,7 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
   }
   const gateId = sha256(key.pub.export({ type: 'spki', format: 'der' }))
   const passkeyRefuse = code => { throw Object.assign(new Error('passkey:' + code), { code: 'passkey:' + code }) }
-  // The claim and credential share the durable writer lock; process-local ceremonies never resume.
+  // The claim and credential share the durable writer lock; retained stages never rewind.
   db.exec(`CREATE TABLE IF NOT EXISTS owner_passkey(singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     setup_text TEXT NOT NULL, claim_state TEXT NOT NULL, enrollment_id TEXT, state_text TEXT, sign_count INTEGER);
     CREATE TRIGGER IF NOT EXISTS owner_passkey_no_delete BEFORE DELETE ON owner_passkey
@@ -94,7 +95,15 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       WHEN NEW.setup_text != OLD.setup_text OR (OLD.state_text IS NOT NULL AND NEW.state_text IS NOT OLD.state_text)
         OR (OLD.claim_state='spent' AND NEW.claim_state!='spent') OR NEW.sign_count < OLD.sign_count
       BEGIN SELECT RAISE(ABORT,'owner passkey state retained'); END;`)
-  const ceremonies = new Map()
+  db.exec(`CREATE TABLE IF NOT EXISTS owner_passkey_ceremony(singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    request_text TEXT NOT NULL, registration_text TEXT, failed INTEGER NOT NULL DEFAULT 0 CHECK(failed IN (0,1)));
+    CREATE TRIGGER IF NOT EXISTS owner_passkey_ceremony_no_delete BEFORE DELETE ON owner_passkey_ceremony
+      BEGIN SELECT RAISE(ABORT,'owner passkey ceremony retained'); END;
+    CREATE TRIGGER IF NOT EXISTS owner_passkey_ceremony_pin BEFORE UPDATE ON owner_passkey_ceremony
+      WHEN NEW.request_text != OLD.request_text OR (OLD.registration_text IS NOT NULL AND NEW.registration_text IS NOT OLD.registration_text)
+        OR NEW.failed < OLD.failed
+      BEGIN SELECT RAISE(ABORT,'owner passkey ceremony retained'); END;`)
+  const ceremonies = new Set()
   function selectedPasskeySetup() {
     if (typeof readPasskeySetup !== 'function') passkeyRefuse('setup-unavailable')
     const setup = passkeySetup(synchronous(readPasskeySetup(), 'protected passkey setup'))
@@ -188,48 +197,88 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
     if (!exactKeys(args, ['claim_code']) || typeof args.claim_code !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(args.claim_code)) passkeyRefuse('claim-invalid')
     const setup = selectedPasskeySetup()
     if (typeof passkeyEnrollmentCeremony !== 'function') passkeyRefuse('enrollment-runtime-unavailable')
-    const ceremony = passkeyEnrollmentCeremony(setup.binding), enrollment_id = ceremony.status().ceremony_id
+    let ceremony, enrollment_id, response
     tx(() => {
       const row = db.prepare('SELECT * FROM owner_passkey WHERE singleton=1').get()
-      if (row?.state_text || row?.claim_state !== 'fresh') passkeyRefuse('enrollment-closed')
+      if (row?.state_text || row?.claim_state === 'spent') passkeyRefuse('enrollment-closed')
       if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired')
       if (!timingSafeEqual(Buffer.from(sha256(args.claim_code), 'hex'), Buffer.from(setup.claim_sha256, 'hex'))) passkeyRefuse('claim-invalid')
+      if (!row?.state_text && row?.claim_state === 'reserved' && !ceremonies.has(row.enrollment_id)) {
+        const retained = db.prepare('SELECT * FROM owner_passkey_ceremony WHERE singleton=1').get()
+        if (!retained || retained.failed !== 0) passkeyRefuse('enrollment-closed')
+        ceremony = retainedEnrollment(JSON.parse(retained.request_text), setup.binding,
+          retained.registration_text === null ? null : JSON.parse(retained.registration_text))
+        enrollment_id = JSON.parse(retained.request_text).ceremony_id
+        if (enrollment_id !== row.enrollment_id) passkeyRefuse('ceremony-binding')
+        response = { enrollment_id, ...ceremony.resume() }
+        return
+      }
+      if (row?.state_text || row?.claim_state !== 'fresh') passkeyRefuse('enrollment-closed')
+      const created = passkeyEnrollmentCeremony(setup.binding).creationRequest()
+      ceremony = retainedEnrollment(created.request, setup.binding)
+      enrollment_id = created.request.ceremony_id
       const reserved = db.prepare("UPDATE owner_passkey SET claim_state='reserved',enrollment_id=? WHERE singleton=1 AND claim_state='fresh'").run(enrollment_id)
       if (reserved.changes !== 1) passkeyRefuse('enrollment-closed')
+      db.prepare('INSERT INTO owner_passkey_ceremony(singleton,request_text) VALUES(1,?)').run(JSON.stringify(created.request))
       append('owner-passkey-claim-reserved', { detail: { node: setup.node, gate: gateId, enrollment_id } })
+      response = { enrollment_id, ...ceremony.resume() }
     }, () => {
       selectedPasskeySetup()
       if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired-at-reservation-commit')
     })
-    ceremonies.set(enrollment_id, ceremony)
-    return { enrollment_id, public_key: ceremony.creationRequest().public_key }
+    ceremonies.add(enrollment_id)
+    return response
   }
   function enrollment(args, field) {
     if (!exactKeys(args, ['enrollment_id', field]) || typeof args.enrollment_id !== 'string') passkeyRefuse('enrollment-shape')
     const setup = selectedPasskeySetup(), row = db.prepare('SELECT * FROM owner_passkey WHERE singleton=1').get()
     if (row?.state_text || row?.claim_state !== 'reserved' || row.enrollment_id !== args.enrollment_id) passkeyRefuse('enrollment-closed')
     if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired')
-    const ceremony = ceremonies.get(args.enrollment_id)
-    if (!ceremony) passkeyRefuse('ceremony-lost')
-    return { setup, ceremony }
+    if (!ceremonies.has(args.enrollment_id)) passkeyRefuse('ceremony-lost')
+    const retained = db.prepare('SELECT * FROM owner_passkey_ceremony WHERE singleton=1').get()
+    if (!retained || retained.failed !== 0) passkeyRefuse('enrollment-closed')
+    const request = JSON.parse(retained.request_text)
+    if (request.ceremony_id !== row.enrollment_id) passkeyRefuse('ceremony-binding')
+    const ceremony = retainedEnrollment(request, setup.binding,
+      retained.registration_text === null ? null : JSON.parse(retained.registration_text))
+    return { setup, ceremony, retained }
   }
   function registerPasskeyEnrollment(args) {
-    const { ceremony } = enrollment(args, 'registration')
-    const result = ceremony.acceptRegistration(args.registration)
-    return { enrollment_id: args.enrollment_id, public_key: result.public_key }
+    let attempted = false
+    const response = tx(() => {
+      const { setup, ceremony, retained } = enrollment(args, 'registration')
+      if (retained.registration_text !== null) passkeyRefuse('registration-closed')
+      attempted = true
+      const result = ceremony.acceptRegistration(args.registration)
+      db.prepare('UPDATE owner_passkey_ceremony SET registration_text=? WHERE singleton=1 AND registration_text IS NULL').run(JSON.stringify(args.registration))
+      return { enrollment_id: args.enrollment_id, public_key: result.public_key, setup }
+    }, () => {
+      selectedPasskeySetup()
+      if (currentMs() >= selectedPasskeySetup().expires_at_ms) passkeyRefuse('claim-expired-at-registration-commit')
+    }, error => {
+      if (attempted) db.prepare('UPDATE owner_passkey_ceremony SET failed=1 WHERE singleton=1').run()
+      return { refused_error: error }
+    })
+    if (response.refused_error) throw response.refused_error
+    return { enrollment_id: response.enrollment_id, public_key: response.public_key }
   }
   function finishPasskeyEnrollment(args) {
-    const { setup, ceremony } = enrollment(args, 'assertion'), result = ceremony.confirmPossession(args.assertion)
-    const c = result.evidence.credential, xy = Buffer.from(c.public_key_hex, 'hex')
-    const spki = createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: xy.subarray(1, 33).toString('base64url'),
-      y: xy.subarray(33).toString('base64url') }, format: 'jwk' }).export({ type: 'spki', format: 'der' }).toString('base64')
-    const state = ownerAuthorizationOwnerState({ version: 2, kind: 'aukora-owner-state/passkey-v2',
-      owner_subject: setup.binding.identity.subject, owner_root_spki_base64: spki, owner_root_id: ownerRootPin(spki).owner_root_id,
-      owner_epoch: setup.binding.identity.authorization_epoch, registry_sha256: sha256(JSON.stringify(setup)),
-      activation_sha256: result.evidence_digest.slice(7), node: setup.node, rp_id: setup.rp_id, origin: setup.origin,
-      credential_id: c.credential_id, user_handle: c.user_handle, public_key_hex: c.public_key_hex,
-      sign_count: c.sign_count, backup_eligible: c.backup_eligible })
-    tx(() => {
+    let attempted = false, state, setup
+    const response = tx(() => {
+      const selected = enrollment(args, 'assertion')
+      setup = selected.setup
+      if (selected.retained.registration_text === null) passkeyRefuse('registration-required')
+      attempted = true
+      const result = selected.ceremony.confirmPossession(args.assertion)
+      const c = result.evidence.credential, xy = Buffer.from(c.public_key_hex, 'hex')
+      const spki = createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: xy.subarray(1, 33).toString('base64url'),
+        y: xy.subarray(33).toString('base64url') }, format: 'jwk' }).export({ type: 'spki', format: 'der' }).toString('base64')
+      state = ownerAuthorizationOwnerState({ version: 2, kind: 'aukora-owner-state/passkey-v2',
+        owner_subject: setup.binding.identity.subject, owner_root_spki_base64: spki, owner_root_id: ownerRootPin(spki).owner_root_id,
+        owner_epoch: setup.binding.identity.authorization_epoch, registry_sha256: sha256(JSON.stringify(setup)),
+        activation_sha256: result.evidence_digest.slice(7), node: setup.node, rp_id: setup.rp_id, origin: setup.origin,
+        credential_id: c.credential_id, user_handle: c.user_handle, public_key_hex: c.public_key_hex,
+        sign_count: c.sign_count, backup_eligible: c.backup_eligible })
       const current = selectedPasskeySetup()
       if (currentMs() >= current.expires_at_ms) passkeyRefuse('claim-expired')
       const saved = db.prepare("UPDATE owner_passkey SET state_text=?,sign_count=?,claim_state='spent' WHERE singleton=1 AND claim_state='reserved' AND state_text IS NULL AND enrollment_id=?")
@@ -237,12 +286,17 @@ export function createGate({ home, targets = {}, store, now = Date.now, limits =
       if (saved.changes !== 1) passkeyRefuse('enrollment-closed')
       append('owner-passkey-enrolled', { detail: { owner_state: state, setup_sha256: sha256(JSON.stringify(current)),
         evidence: result.evidence, evidence_digest: result.evidence_digest } })
+      return { enrolled: true, owner_subject: state.owner_subject, node: state.node }
     }, () => {
       selectedPasskeySetup()
       if (currentMs() >= setup.expires_at_ms) passkeyRefuse('claim-expired-at-enrollment-commit')
+    }, error => {
+      if (attempted) db.prepare('UPDATE owner_passkey_ceremony SET failed=1 WHERE singleton=1').run()
+      return { refused_error: error }
     })
+    if (response.refused_error) throw response.refused_error
     ceremonies.delete(args.enrollment_id)
-    return { enrolled: true, owner_subject: state.owner_subject, node: state.node }
+    return response
   }
   const spec = (target) => {
     if (typeof target !== 'string' || !Object.hasOwn(TARGETS, target))

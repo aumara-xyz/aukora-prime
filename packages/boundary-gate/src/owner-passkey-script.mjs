@@ -7,6 +7,7 @@ export function passkeyOwnerScript(environment = globalThis) {
   const error = code => { throw new Error(code) }
   const show = value => { status.textContent = value }
   let busy = false
+  const claimStorageKey = 'aukora-owner-passkey-claim:' + profile.origin
   function assertProfile() {
     if (environment.isSecureContext !== true || location.origin !== profile.origin ||
       new URL(profile.origin).protocol !== 'https:' || new URL(profile.origin).hostname !== profile.rpId ||
@@ -60,23 +61,29 @@ export function passkeyOwnerScript(environment = globalThis) {
     const claim = document.querySelector('#claim-code')
     const started = await post('/owner/enroll/start', { claim_code: claim.value })
     claim.value = ''
-    const publicKey = started.public_key
-    if (!publicKey || publicKey.rp?.id !== profile.rpId || publicKey.attestation !== 'none' ||
-      publicKey.authenticatorSelection?.userVerification !== 'required') error('OWNER_PASSKEY_CREATION_OPTIONS_REFUSED')
-    const options = { ...publicKey, challenge: decode(publicKey.challenge), user: { ...publicKey.user, id: decode(publicKey.user.id) },
-      excludeCredentials: (publicKey.excludeCredentials || []).map(credential => ({ ...credential, id: decode(credential.id) })) }
-    show('Create the owner passkey on this device, then confirm possession.')
-    const credential = await navigator.credentials.create({ publicKey: options })
-    if (credential?.type !== 'public-key' || !credential.response) error('OWNER_PASSKEY_REGISTRATION_CANCELLED')
-    const raw_id = encode(credential.rawId), extensions = credential.getClientExtensionResults()
-    if (Object.keys(extensions).length !== 0) error('OWNER_PASSKEY_REGISTRATION_EXTENSIONS_REFUSED')
-    const registration = { kind: 'passkey-registration', type: 'public-key', id: raw_id, raw_id,
-      client_data_json: encode(credential.response.clientDataJSON), attestation_object: encode(credential.response.attestationObject),
-      client_extension_results: extensions }
-    const registered = await post('/owner/enroll/register', { enrollment_id: started.enrollment_id, registration })
+    let registered = started
+    if (started.stage !== 'possession') {
+      if (started.stage !== undefined && started.stage !== 'registration') error('OWNER_PASSKEY_STAGE_REFUSED')
+      const publicKey = started.public_key
+      if (!publicKey || publicKey.rp?.id !== profile.rpId || publicKey.attestation !== 'none' ||
+        publicKey.authenticatorSelection?.userVerification !== 'required') error('OWNER_PASSKEY_CREATION_OPTIONS_REFUSED')
+      const options = { ...publicKey, challenge: decode(publicKey.challenge), user: { ...publicKey.user, id: decode(publicKey.user.id) },
+        excludeCredentials: (publicKey.excludeCredentials || []).map(credential => ({ ...credential, id: decode(credential.id) })) }
+      show('Create the owner passkey on this device, then confirm possession.')
+      const credential = await navigator.credentials.create({ publicKey: options })
+      if (credential?.type !== 'public-key' || !credential.response) error('OWNER_PASSKEY_REGISTRATION_CANCELLED')
+      const raw_id = encode(credential.rawId), extensions = credential.getClientExtensionResults()
+      if (Object.keys(extensions).length !== 0) error('OWNER_PASSKEY_REGISTRATION_EXTENSIONS_REFUSED')
+      const registration = { kind: 'passkey-registration', type: 'public-key', id: raw_id, raw_id,
+        client_data_json: encode(credential.response.clientDataJSON), attestation_object: encode(credential.response.attestationObject),
+        client_extension_results: extensions }
+      registered = await post('/owner/enroll/register', { enrollment_id: started.enrollment_id, registration })
+    }
+    show('Confirm possession of this owner passkey.')
     const get = getOptions(registered.public_key)
     const possession = await navigator.credentials.get({ publicKey: get })
     await post('/owner/enroll/finish', { enrollment_id: started.enrollment_id, assertion: assertion(possession, registered.public_key) })
+    environment.sessionStorage?.removeItem(claimStorageKey)
     document.querySelector('#enroll-form').hidden = true
     show('Owner passkey enrolled. Enrollment is closed.')
   }
@@ -149,7 +156,28 @@ export function passkeyOwnerScript(environment = globalThis) {
   }
   try {
     assertProfile()
-    if (root.dataset.mode === 'enroll') action(document.querySelector('#enroll-form'), 'submit', enroll)
+    if (root.dataset.mode === 'enroll') {
+      const form = document.querySelector('#enroll-form'), claim = document.querySelector('#claim-code')
+      action(form, 'submit', enroll)
+      const fragment = location.hash || ''
+      if (fragment) {
+        environment.history.replaceState(null, '', '/owner/enroll')
+        if (!/^#claim=[A-Za-z0-9_-]{43}$/.test(fragment)) error('OWNER_PASSKEY_CLAIM_LINK_REFUSED')
+        claim.value = fragment.slice(7)
+        environment.sessionStorage?.setItem(claimStorageKey, claim.value)
+      } else {
+        const retained = environment.sessionStorage?.getItem(claimStorageKey)
+        if (retained && /^[A-Za-z0-9_-]{43}$/.test(retained)) claim.value = retained
+      }
+      if (fragment || environment.sessionStorage?.getItem(claimStorageKey)) {
+        form.hidden = true; busy = true
+        return enroll().catch(e => {
+          if (/claim-expired|enrollment-closed/.test(e.message)) environment.sessionStorage?.removeItem(claimStorageKey)
+          show(e.message || 'OWNER_PASSKEY_REFUSED')
+        }).finally(() => { busy = false })
+      }
+      show('Open the root-minted owner enrollment link to enroll this node.')
+    }
     else if (['signin', 'binding'].includes(root.dataset.mode)) action(document.querySelector('#owner-start'), 'click', () => browserStatement(root.dataset.mode))
     else {
       environment.history.replaceState(null, '', '/owner/cards')

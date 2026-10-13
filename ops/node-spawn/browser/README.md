@@ -145,41 +145,87 @@ lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/o
 This root command prints only the link. Give it directly through the private
 operator route; do not log it. It carries a one-use fragment, never the harness
 launch token. Then Peter must open the actual HTTPS app and perform his
-binding ceremony through the separately implemented owner flow. Returning
-sign-in at `https://APP_HOST/__aukora/signin` goes through the broker to the
-owner origin's `/owner/signin`; it requires protected passkey gate configuration
-and enrollment. The installer pins complete authority/contracts/Aumlok packages
-in the gate manifest, initially selects the bearer owner page, and creates no
-enrollment or synthetic identity. After the initial release approval, prepare
-the actual protected passkey setup and browser binding configuration following
-the [gate procedure](../../../packages/boundary-gate/README.md#returning-browser-sign-in-and-final-subject-binding).
-Use the actual app's configured `local-control.json` path, never a copied
-projection; arrange gate read/traverse access only to that public record without
-exposing the machine seed. For this install the gate's primary group is `skgate`:
+binding ceremony through the separately implemented owner flow.
+
+For an installed, release-approved node whose binding ceremony is already
+finished, switch approvals with this exact sequence. Use a reviewed installation
+containing these files and complete pinned passkey packages; this command does
+not upgrade an older installation or reapprove its release.
 
 ```bash
-# Inside C1 as root, after mint-passkey-claim wrote the exclusive setup file:
-chown root:skgate /etc/aukora-boundary-gate/passkey-setup.json
-chmod 0640 /etc/aukora-boundary-gate/passkey-setup.json
-# Root writes browser-join.json with the actual app origin and binding_record,
-# root:skgate 0640, under the protected /etc/aukora-boundary-gate directory.
-/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py enable-owner-signin
+# Local host: mint immediately before the owner is ready (five-minute expiry).
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py passkey-claim
+# Give the one printed owner-hostname link through the private operator route.
+# Owner: open it, touch to create the credential, touch again to prove possession.
+# Wait for "Owner passkey enrolled. Enrollment is closed."
+lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/status.sh
+# If the approved harness is inactive after the gate restart:
+lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/start.sh
+bash ops/node-spawn/browser/acceptance.sh --name C1 --phase passkey
 ```
 
-`enable-owner-signin` verifies the installed package, checks both configurations
-with the existing gate readers as the gate user, matches their app/owner origins
-and gate signer, and writes a fixed root-owned service drop-in selecting both
-passkey and browser-join modes. A conflicting drop-in is refused. It reloads
-systemd, restarts the gate and waits for its sockets; it neither enrolls nor
-approves. Peter opens `https://OWNER_HOST/owner/enroll`, enters the private
-passkey enrollment claim and uses his authenticator. After the phrase ceremony
-he signs the gate's exact final subject/node binding. Returning sign-in is
-available after enrollment at `https://APP_HOST/__aukora/signin`; a retained
-binding must remain valid. Missing setup, configuration, read permission or
-enrollment refuses sign-in. Missing final binding refuses approvals/effects;
-it cannot reopen bearer approval for an enrolled owner. No script here
-enrolls him, installs a synthetic subject, proves a model reply, memory, browser
-streaming, device custody, human uniqueness, consent or complete containment.
+`passkey-claim` requires root, verifies package pins and the existing approved
+release floor, and reads only the app's actual public binding record at
+`/home/aukora-host/genesis/state/aumlok-binding/local-control.json`. It verifies
+that the approved composition configures that path and the pinned app origin,
+and selects the record's sole unrevoked machine approval key; unbound or
+ambiguous records refuse. It derives a stable node ID from this node's fresh gate
+public signer. No phrase, seed, private owner key or synthetic identity is read
+or enrolled. The RP ID is **exactly `OWNER_HOST`**, never the app hostname or its
+parent domain. The setup pins the existing subject, control digest and record
+hash; it is a root-selected snapshot, not proof of the phrase ceremony's consent.
+
+The command creates the setup and private saved claim exclusively, sets gate
+read access to setup, verifies it as the gate user, and installs a protected
+passkey-only service drop-in. It restarts the gate, waits for both sockets and
+checks the service is active before printing **only**
+`https://OWNER_HOST/owner/enroll#claim=…`. Keep that link
+private; do not log it. The page removes the fragment before requests, retains
+it in that origin's tab session storage until success, and automatically requests
+creation followed by possession. It does not require pasting a claim or a third
+subject-binding touch. Bearer approvals are disabled as soon as this mode starts,
+including before enrollment completes; the retained gate latch prevents downgrade.
+
+To recover an interrupted ceremony **before its original five-minute expiry**,
+run the same `node.py passkey-claim` command above as root. It redelivers the
+saved claim after restarting the gate; then reopen that link or reload the same
+tab. A tab reload while the original gate process is still running does not
+resume the reserved ceremony. The secret claim resumes
+the same enrollment ID and registration/possession stage. Once registration is
+retained, only possession resumes; another credential cannot replace it. The
+root command can redeliver the same unexpired claim if activation was interrupted;
+it never mints a replacement setup. Completed or cryptographically failed
+ceremonies remain closed, including across restart. An expired unfinished claim
+requires an explicit recovery policy; do not delete protected state, reset the
+floor or downgrade to the bearer page.
+
+`passkey` repeats `after` acceptance, then checks the installed gate's retained
+setup/enrollment matches the actual current public app binding, enrollment is
+closed over HTTP, and the old bearer page and a bearer-only approval both refuse.
+It also runs a valid software-signed control and wrong RP/origin/node proofs
+through the **installed verifier with ephemeral software state**. It cannot sign
+as the real enrolled owner and does not count those fixture checks as live owner
+approval. No software credential is installed, no card is approved, and no effect
+is authorized by acceptance.
+
+To review future cards, retrieve the rotated bearer through the existing private
+operator route and open `https://OWNER_HOST/owner/cards?bearer=…`. The bearer opens
+cards; only the enrolled passkey signs approvals. This already-bound activation
+pins the existing subject at enrollment and does not enable the separate browser
+join or returning sign-in. A pre-existing browser-join selection is refused; it
+cannot be removed to avoid its final-binding requirement. The provisional join's
+separate procedure remains in the
+[gate runbook](../../../packages/boundary-gate/README.md#returning-browser-sign-in-and-final-subject-binding).
+
+A real qualification must show the owner hostname and two real authenticator
+prompts in an actual HTTPS browser; successful enrollment of this bound subject
+and node; one harmless exact-card passkey approval and cold receipt verification;
+bearer/proofless/second-enrollment refusal after restart; actual loopback/TLS
+routing, installed package pins and service state. None ran here. Software
+fixtures do not prove device custody, human uniqueness, informed consent,
+public-browser behavior, model replies, memory, streaming or complete containment.
+Synced versus device-only credentials and expired-claim/device-loss recovery
+remain owner policy choices; none attestation permits backup-eligible passkeys.
 
 To deactivate, run `remove.sh` inside C1; it stops/disables only these units and
 retains keys, release bytes, approvals and floor. To destroy this test node,

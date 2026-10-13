@@ -171,7 +171,7 @@ export function createPasskeyOwnerHandler(gate, { origin, rpId, appOrigin, node,
           if (url.search) fail('OWNER_PASSKEY_PATH_REFUSED')
           return send(res, 200, OWNER_PASSKEY_SCRIPT, 'text/javascript; charset=utf-8')
         }
-        if (url.pathname === '/owner/enroll' && !url.search) return send(res, 200, html('enroll', '<form id="enroll-form"><label for="claim-code">Root-minted single-use claim code</label><br><input id="claim-code" type="password" autocomplete="off" required maxlength="256"><br><button type="submit">Create and verify owner passkey</button></form>'), 'text/html; charset=utf-8')
+        if (url.pathname === '/owner/enroll' && !url.search) return send(res, 200, html('enroll', '<p>Use your authenticator once to enroll, then again to prove possession.</p><form id="enroll-form" hidden><input id="claim-code" type="hidden" autocomplete="off"><button type="submit">Resume owner enrollment</button></form>'), 'text/html; charset=utf-8')
         if (['/owner/signin', '/owner/binding'].includes(url.pathname) && !url.search) {
           if (!gate.ownerBrowser || !appOrigin || !node || !gateId) fail('OWNER_BROWSER_JOIN_REQUIRED')
           const mode = url.pathname === '/owner/signin' ? 'signin' : 'binding'

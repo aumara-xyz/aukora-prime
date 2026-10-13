@@ -444,6 +444,43 @@ def rotate_owner_link():
     print('BROWSER_OWNER_LINK_ROTATED; retrieve bearer through the private operator route')
 
 
+def passkey_claim():
+    root_check()
+    value = installed()
+    release, approval = release_paths(value)
+    bootstrap('check-package')
+    bootstrap('floor', 'check', '--release-dir', release, '--approval-state-root', approval)
+    ingress = module(CHECKOUT / 'ops/node-spawn/ingress/claim.py')
+    app_public = ingress.read_origin_file(Path('/etc/aukora/public-origin'))[0]
+    owner_public = ingress.read_origin_file(Path('/etc/aukora/owner-public-origin'))[0]
+    link = run([NODE, '/opt/aukora-boundary-gate/bin/browser-passkey-claim.mjs',
+                '--owner-origin', owner_public, '--app-origin', app_public,
+                '--release', str(release)], 'PASSKEY_CLAIM_REFUSED')
+    if re.fullmatch(re.escape(owner_public + '/owner/enroll#claim=') + r'[A-Za-z0-9_-]{43}\n', link) is None:
+        refuse('PASSKEY_LINK_INVALID')
+    group = run(['getent', 'group', 'skgate'], 'GROUP_MISSING').strip().split(':')[2]
+    if not group.isdigit():
+        refuse('GROUP_INVALID')
+    setup = Path('/etc/aukora-boundary-gate/passkey-setup.json')
+    protected(setup)
+    os.chown(setup, 0, int(group), follow_symlinks=False)
+    setup.chmod(0o640)
+    script = "import { passkeySetupReader } from '/opt/aukora-boundary-gate/src/owner-state.mjs'; const read = passkeySetupReader('/etc/aukora-boundary-gate/passkey-setup.json'); read();"
+    run(['runuser', '-u', 'aukora-gate', '--', NODE, '--input-type=module', '-e', script],
+        'PASSKEY_CONFIG_REFUSED')
+    config = module(CHECKOUT / 'ops/node-spawn/configure-host.py')
+    passkey_service = '''[Service]
+ExecStart=
+ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap serve --home /home/aukora-gate --run /run/aukora-gate --target-root /var/lib/aukora-boundary/targets --port 17792 --gid GROUP --time-zone Asia/Makassar --journal-id aukora-gate-pilot --passkey-setup /etc/aukora-boundary-gate/passkey-setup.json
+'''.replace('GROUP', group)
+    config.write(Path('/etc/systemd/system/aukora-boundary-gate.service.d') / 'browser-owner.conf', passkey_service.encode(), Path('/'))
+    run(['systemctl', 'daemon-reload'], 'SYSTEMD_REFUSED')
+    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'PASSKEY_START_REFUSED')
+    sockets()
+    run(['systemctl', 'is-active', '--quiet', 'aukora-boundary-gate.service'], 'PASSKEY_GATE_INACTIVE')
+    sys.stdout.write(link)
+
+
 def enable_owner_signin():
     root_check()
     installed()
@@ -625,6 +662,9 @@ def accept(phase):
              and not any(name.lower() == 'set-cookie' for name, _ in headers), 'CLAIM_REPLAY_ACCEPTED')
         print('PASS | protected public origins, anonymous 401 and one-use public-authority claim cookie')
         print('PASS | approved signed-in UI and plugin load')
+        if phase == 'passkey':
+            print(run([NODE, str(CHECKOUT / 'ops/node-spawn/browser/passkey-acceptance.mjs')],
+                      'PASSKEY_ACCEPTANCE_REFUSED').strip())
     print('PASS | users modes package pins and loopback listeners')
 
 
@@ -635,13 +675,13 @@ class Parser(argparse.ArgumentParser):
 
 def main(args):
     parser = Parser(add_help=False)
-    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'enable-owner-signin'])
+    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'passkey-claim', 'enable-owner-signin'])
     parser.add_argument('--inputs')
     parser.add_argument('--app-host')
     parser.add_argument('--owner-host')
     for key in ('checkout-sha256', 'revision', 'node-sha256', 'dependencies-sha256'):
         parser.add_argument('--' + key)
-    parser.add_argument('--phase', choices=['before', 'after'])
+    parser.add_argument('--phase', choices=['before', 'after', 'passkey'])
     parser.add_argument('--release')
     need(len([a for a in args if a.startswith('--')]) == len(set(a for a in args if a.startswith('--'))), 'USAGE')
     options = parser.parse_args(args)
@@ -661,6 +701,8 @@ def main(args):
         claim()
     elif options.action == 'rotate-owner-link':
         rotate_owner_link()
+    elif options.action == 'passkey-claim':
+        passkey_claim()
     elif options.action == 'enable-owner-signin':
         enable_owner_signin()
     elif options.action == 'accept':
