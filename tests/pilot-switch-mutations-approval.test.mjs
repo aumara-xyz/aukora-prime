@@ -61,4 +61,8 @@ mutation('release-floor-readable-by-harness', {}, source => {
   assert.equal(statSync(f.at('/etc/aukora-approvals/release-floor.json')).mode & 0o777, 0o644, 'release-floor-readable-by-harness')
 })
 
-runMutationCourt('pilot switch owner approval mutations')
+runMutationCourt('pilot switch owner approval mutations', [
+  ['approval and sockets', ['approval-before-stop', 'owner-approval-required', 'installed-gate-incompatibility',
+    'both-gate-sockets-waited-for', 'both-gate-sockets-required-gate.sock', 'both-gate-sockets-required-owner.sock']],
+  ['readability', ['approval-files-readable-by-harness', 'approval-folders-readable-by-harness', 'release-floor-readable-by-harness']],
+])

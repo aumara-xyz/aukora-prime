@@ -67,6 +67,18 @@ export function staticMutation(label, from, to, inspect) {
   } })
 }
 
-export function runMutationCourt(label) {
-  test(label, { concurrency: 2 }, async t => { await Promise.all(cases.map(item => t.test(item.label, item.body))) })
+export function runMutationCourt(label, groups) {
+  if (!groups) {
+    test(label, { concurrency: 2 }, async t => { await Promise.all(cases.map(item => t.test(item.label, item.body))) })
+    return
+  }
+  const remaining = new Set(cases.map(item => item.label))
+  for (const [group, names] of groups) {
+    const selected = names.map(name => {
+      assert.ok(remaining.delete(name), `mutation group must name one unused case: ${name}`)
+      return cases.find(item => item.label === name)
+    })
+    test(`${label}: ${group}`, { concurrency: 2 }, async t => { await Promise.all(selected.map(item => t.test(item.label, item.body))) })
+  }
+  assert.equal(remaining.size, 0, `mutation groups must cover every case: ${[...remaining].join(', ')}`)
 }

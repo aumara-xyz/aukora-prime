@@ -100,7 +100,7 @@ function isCommitted(file, bytes, directory, timeout) {
   const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
   return result.status === 0 && result.stdout === `100644 blob ${blob}\t${file}\n`
 }
-async function fetchJson(url, timeout) {
+export async function fetchJson(url, timeout) {
   let response
   try {
     response = await fetch(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'aukora-runtime-claims' },
@@ -124,6 +124,23 @@ async function fetchJson(url, timeout) {
     refuse('network-unavailable')
   }
   return parseUniqueJson(Buffer.concat(chunks).toString('utf8'), { maxBytes: 1024 * 1024 })
+}
+
+export async function isolatedFetchJson(url, timeout, run = spawnSync) {
+  const program = `import { fetchJson } from ${JSON.stringify(import.meta.url)}
+try { console.log(JSON.stringify({ value: await fetchJson(process.argv[1], Number(process.argv[2])) })) }
+catch (error) { console.log(JSON.stringify({ reason: /^runtime-claims:[a-z-]+$/u.test(error?.message) ? error.message : 'runtime-claims:network-unavailable' })) }`
+  const result = run(process.execPath, ['--input-type=module', '--eval', program, url, String(timeout)], {
+    env: { PATH: process.env.PATH, LANG: 'C', TZ: 'UTC' }, encoding: 'utf8', timeout: timeout + 1000,
+    killSignal: 'SIGKILL', maxBuffer: 2 * 1024 * 1024,
+  })
+  if (result.error || result.signal || result.status !== 0) refuse('network-unavailable')
+  let answer
+  try { answer = parseUniqueJson(result.stdout, { maxBytes: 2 * 1024 * 1024 }) } catch { refuse('network-unavailable') }
+  if (answer.reason) refuse(answer.reason.replace('runtime-claims:', ''))
+  requireValue(answer && !Array.isArray(answer) && typeof answer === 'object'
+    && Object.keys(answer).length === 1 && answer.value && typeof answer.value === 'object', 'ci-api-response')
+  return answer.value
 }
 
 export async function verifyClaim(row, { directory = root, offline = false, remaining = () => 5000,
@@ -233,7 +250,8 @@ export async function main(argv = process.argv.slice(2)) {
     const deadline = performance.now() + 25000, rows = []
     console.log('| Claim | Status | Reason |\n| --- | --- | --- |')
     for (const claim of document.claims) {
-      const result = await verifyClaim(claim, { offline: argv.includes('--offline'), remaining: () => deadline - performance.now() })
+      const result = await verifyClaim(claim, { offline: argv.includes('--offline'), remaining: () => deadline - performance.now(),
+        request: isolatedFetchJson })
       rows.push(result)
       console.log(`| ${claim.id} | ${result.status} | ${result.reason} |`)
       if (result.checkedCommit) console.log(`CHECKED ${claim.id} clone=${result.checkedCommit}; historical runtime not attested`)

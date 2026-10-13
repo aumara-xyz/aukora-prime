@@ -11,15 +11,26 @@ import { createCordisToolProvider, SERVICE_NAME, TOOL_NAME } from '../src/index.
 
 const buildRoot = process.env.PRIME_PINNED_DSH_DIR
 const absentBuild = 'UNPERFORMED: set PRIME_PINNED_DSH_DIR to an existing built, pinned DSH tree; no install or build is performed'
+const staleBuild = 'UNPERFORMED: selected pinned DSH tree needs build metadata format 2; no install or build is performed'
 const jsonFile = async path => JSON.parse(await readFile(path, 'utf8'))
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
+const prerequisite = metadata => metadata?.formatVersion === 2 ? false : staleBuild
+let metadata, unavailable = absentBuild
+if (buildRoot) {
+  try { metadata = await jsonFile(resolve(buildRoot, '.dsh-build/pinned-harness-build.json')); unavailable = prerequisite(metadata) }
+  catch { unavailable = 'UNPERFORMED: selected pinned DSH tree has no readable build metadata; no install or build is performed' }
+}
+
+test('format-1 harness build metadata stays an unperformed prerequisite', () => {
+  assert.equal(prerequisite({ formatVersion: 1 }), staleBuild)
+  assert.equal(prerequisite({ formatVersion: 2 }), false)
+})
 
 test('real pinned Cordis/DSH and actual C/F; synthetic approvals and MOCKED qualification/SDK; no real gateway', {
-  skip: buildRoot ? false : absentBuild,
+  skip: unavailable,
 }, async t => {
   const root = resolve(buildRoot)
   const pin = await jsonFile(new URL('../../../upstream-dsh.json', import.meta.url))
-  const metadata = await jsonFile(resolve(root, '.dsh-build/pinned-harness-build.json'))
   const cordisPackage = await jsonFile(resolve(root, 'vendor/cordis/package.json'))
 
   // Refuse the selected tree before importing its code if pin checks fail.

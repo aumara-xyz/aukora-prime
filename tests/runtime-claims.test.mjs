@@ -160,6 +160,11 @@ protection('network-unavailable-does-not-pass', async module => {
   assert.equal(result.status, 'UNPERFORMED')
   assert.equal(module.resultCode([result], [ci]), 2)
 })
+protection('network-child-crash-is-unperformed', async module => {
+  await assert.rejects(() => module.isolatedFetchJson('https://example.invalid', 100, () => ({
+    error: undefined, signal: 'SIGSEGV', status: 0, stdout: JSON.stringify({ value: responses()[0] }),
+  })), { message: 'runtime-claims:network-unavailable' })
+})
 protection('failed-always-nonzero', module => assert.equal(module.resultCode([{ status: 'FAILED' }], [base]), 1))
 
 test('reported rows, exact clone output, signed historical prefix and CI attempt metadata', async () => {
@@ -231,6 +236,7 @@ test('removing each protection makes its real control fail', async () => {
     ["else refuse('schema-evidence')", 'else void 0', 'schema-evidence'],
     ["if (offline) return { status: 'UNPERFORMED', reason: 'runtime-claims:network-disabled' }", '', 'offline-does-not-pass'],
     ["? 'UNPERFORMED' : 'FAILED', reason }", "? 'VERIFIED' : 'FAILED', reason }", 'network-unavailable-does-not-pass'],
+    ["result.error || result.signal || result.status !== 0", "result.error || false || result.status !== 0", 'network-child-crash-is-unperformed'],
     ["(claims[index].verification === 'verified' && !['VERIFIED', 'UNPERFORMED'].includes(row.status))", 'false', 'offline-does-not-pass'],
     ["row.status === 'FAILED' ||", 'false ||', 'failed-always-nonzero'],
   ]) {
@@ -302,7 +308,8 @@ test('child bounds, clean-source identity and private environment survive guard 
     await childControl(await imported(shim))
     for (const [before, after] of [
       ['encoding: \'utf8\', timeout, killSignal:', "encoding: 'utf8', killSignal:"],
-      ["killSignal: 'SIGKILL',", ''], ['maxBuffer: 1024 * 1024,', ''],
+      ["timeout, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024,", 'timeout, maxBuffer: 1024 * 1024,'],
+      ['maxBuffer: 1024 * 1024,', ''],
       ["env: { PATH: process.env.PATH, LANG: 'C', TZ: 'UTC', GIT_NO_LAZY_FETCH: '1' }", 'env: process.env'],
       ["status.stdout === ''", 'true'],
     ]) {

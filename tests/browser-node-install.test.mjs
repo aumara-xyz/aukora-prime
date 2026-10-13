@@ -7,14 +7,15 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const checks = ['browser-node-unit.py', 'browser-node-pipeline.py'].map(name => path.join(root, 'tests', name))
 
-test('browser installer Python checks and guard mutation proof', () => {
-  for (const unit of checks) for (const args of [[], ['--mutations']]) {
+for (const unit of checks) for (const args of [[], ['--mutations']]) {
+  const name = path.basename(unit, '.py'), mode = args.length === 0 ? 'checks' : 'guard mutations'
+  test(`browser installer ${name} ${mode}`, () => {
     const result = spawnSync('python3', ['-I', '-S', '-B', unit, ...args], { cwd: root, encoding: 'utf8' })
     assert.equal(result.status, 0, result.stdout + result.stderr)
     process.stdout.write(result.stdout)
     if (args.length === 0) process.stdout.write(result.stderr)
-  }
-})
+  })
+}
 
 test('browser shell wrappers parse and reject unknown arguments and preloads', () => {
   for (const name of ['install', 'start', 'status', 'remove', 'acceptance', 'create']) {

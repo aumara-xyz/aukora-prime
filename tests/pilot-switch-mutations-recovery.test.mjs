@@ -80,4 +80,9 @@ mutation('state-flushed-before-stop', { approved: true },
     assert.ok(prior?.name === 'python3' && prior.args.includes('-c') && prior.args.at(-1).endsWith('/state'), 'state-flushed-before-stop')
   })
 
-runMutationCourt('pilot switch interruption and recovery mutations')
+runMutationCourt('pilot switch interruption and recovery mutations', [
+  ['interruption markers', ['unfinished-run-refused', 'package-out-phase-recorded', 'package-in-phase-recorded',
+    'armed-marker-survives-kill', 'recover-dispatch-restores']],
+  ['restoration and publication', ['recovery-restores-release-env', 'release-env-published-last',
+    'recovery-removes-candidate-cache', 'failed-recovery-remains-unfinished', 'state-flushed-before-stop']],
+])

@@ -20,7 +20,9 @@ const base = { config: { 'security.privileged': 'false', 'security.nesting': 'fa
 } }
 
 function fixture(t) {
-  const dir = fs.mkdtempSync(path.join(root, '.runtime/browser-accept-'))
+  const runtime = path.join(root, '.runtime')
+  fs.mkdirSync(runtime, { recursive: true, mode: 0o700 })
+  const dir = fs.mkdtempSync(path.join(runtime, 'browser-accept-'))
   const config = path.join(dir, 'config.json'), log = path.join(dir, 'calls')
   fs.writeFileSync(path.join(dir, 'lxc'), '#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\n'
     + 'case "$*" in *" query "*) if [[ ${REFUSE_CONFIG:-0} == 1 ]]; then exit 1; fi; cat "$CONFIG" ;; *" exec "*) printf "PASS synthetic container acceptance\\n" ;; *) exit 66 ;; esac\n', { mode: 0o700 })

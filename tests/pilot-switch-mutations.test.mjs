@@ -63,4 +63,7 @@ mutation('floor-check-required', { approved: true, floorFails: true },
     assert.deepEqual(f.active(), initial, 'floor-check-required')
   })
 
-runMutationCourt('pilot switch drain and restoration mutations')
+runMutationCourt('pilot switch drain and restoration mutations', [
+  ['restoration', ['selfcheck-timer-restored', 'all-active-units-restored', 'active-unit-snapshot-required', 'port-drain-must-fail']],
+  ['drain and floor', ['large-port-status-stays-busy', 'recovery-start-attempts-bounded', 'recovery-harness-down-explicit', 'floor-check-required']],
+])
