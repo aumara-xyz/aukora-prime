@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
-import { createHash, createPublicKey } from 'node:crypto'
+import { createHash, createPublicKey, randomBytes, timingSafeEqual } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -38,15 +38,42 @@ export function developmentPath(root, file, { privateRoot = false } = {}) {
   return file
 }
 
-function writePrivate(root, file, value) {
-  developmentPath(root, path.dirname(file))
-  if (fs.existsSync(file)) developmentPath(root, file)
+// Persistent example state is canonical, private, current-user data; aliases and checkout state are refused.
+export function examplePath(root, file, { privateRoot = false } = {}) {
+  if (!path.isAbsolute(root) || path.resolve(root) !== root || fs.realpathSync(root) !== root)
+    throw refuse('example-root-invalid')
+  const base = fs.lstatSync(root)
+  if (!base.isDirectory() || base.uid !== process.getuid() || (base.mode & 0o077))
+    throw refuse('example-root-not-private')
+  if (!path.isAbsolute(file) || path.resolve(file) !== file || !(file === root || file.startsWith(root + path.sep)))
+    throw refuse('example-path-outside-root')
+  for (let cursor = file; ; cursor = path.dirname(cursor)) {
+    const item = fs.lstatSync(cursor)
+    if (item.isSymbolicLink() || item.uid !== process.getuid() || (item.mode & 0o022)
+      || (!item.isDirectory() && (!item.isFile() || item.nlink !== 1))) throw refuse('example-path-unprotected')
+    if (cursor === root) break
+  }
+  if (privateRoot && (fs.lstatSync(file).mode & 0o077)) throw refuse('example-path-not-private')
+  return file
+}
+
+export function writePrivate(root, file, value, validate = developmentPath) {
+  validate(root, path.dirname(file))
+  if (fs.existsSync(file)) validate(root, file)
   const temporary = file + '.tmp-' + process.pid
   const fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600)
   try { fs.writeFileSync(fd, JSON.stringify(value) + '\n'); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
   fs.renameSync(temporary, file)
   const directory = fs.openSync(path.dirname(file), fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW)
   try { fs.fsyncSync(directory) } finally { fs.closeSync(directory) }
+}
+
+export function ensureText(root, file, content, validate) {
+  validate(root, path.dirname(file))
+  if (fs.existsSync(file)) {
+    validate(root, file, { privateRoot: true })
+    if (fs.readFileSync(file, 'utf8') !== content) throw refuse('example-state-bytes-mismatch')
+  } else fs.writeFileSync(file, content, { mode: 0o600, flag: 'wx' })
 }
 
 async function gateModules(checkout) {
@@ -60,11 +87,12 @@ async function gateModules(checkout) {
   return { canon, floor, targets, gate, server, secrets, wiring }
 }
 
-export async function checkAdmission({ checkout, release, root }) {
-  developmentPath(root, checkout); developmentPath(root, release)
+export async function checkAdmission({ checkout, release, root, stayUp = false }) {
+  const validate = stayUp ? examplePath : developmentPath
+  validate(root, checkout); validate(root, release)
   const gateState = path.join(root, 'support/state/gate-state')
   for (const name of ['boundary-approval.json', 'boundary-approver.json', 'signer-epochs.json', 'release-floor.json'])
-    developmentPath(root, path.join(gateState, name), { privateRoot: true })
+    validate(root, path.join(gateState, name), { privateRoot: true })
   const { canon, floor, targets } = await gateModules(checkout)
   const record = readJson(path.join(release, '.dsh-build/plugin-set.json'))
   const approval = readJson(path.join(gateState, 'boundary-approval.json'))
@@ -125,36 +153,141 @@ async function unusedPort() {
   return port
 }
 
-export async function terminate(pid) {
+export function controlReply(request, ready, stop) {
+  const token = typeof request?.token === 'string' ? Buffer.from(request.token) : Buffer.alloc(0)
+  const expected = Buffer.from(ready.controlToken)
+  if (token.length !== expected.length || !timingSafeEqual(token, expected)) return { ok: false }
+  if (request.op === 'status') return { ok: true, supervisorPid: ready.supervisorPid, origin: ready.origin, launchFile: ready.launchFile }
+  if (request.op === 'stop') { stop(); return { ok: true, stopping: true, supervisorPid: ready.supervisorPid } }
+  return { ok: false }
+}
+
+async function controlServer(ready, stop) {
+  const server = net.createServer(connection => {
+    let text = '', handled = false
+    connection.setTimeout(2000, () => connection.destroy())
+    connection.on('error', () => {})
+    connection.on('data', bytes => {
+      if (handled) return
+      text += bytes
+      if (text.length > 1024) { handled = true; connection.destroy(); return }
+      if (!text.includes('\n')) return
+      handled = true
+      let reply = { ok: false }
+      try { reply = controlReply(JSON.parse(text.slice(0, text.indexOf('\n'))), ready, stop) } catch {}
+      connection.end(JSON.stringify(reply) + '\n')
+    })
+  })
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
+  ready.controlPort = server.address().port
+  return server
+}
+
+export async function authenticateLaunch({ root, launchFile, origin, stayUp = false }) {
+  const validate = stayUp ? examplePath : developmentPath
+  validate(root, launchFile, { privateRoot: true })
+  const launch = readJson(launchFile), url = new URL(launch.url)
+  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password
+    || (origin !== undefined && url.origin !== origin)) throw refuse('example-launch-not-loopback')
+  const signedIn = await fetch(launch.url, { redirect: 'manual', signal: AbortSignal.timeout(10000) })
+  const cookieName = 'dsh-auth-' + createHash('sha256').update(url.host).digest('base64url')
+  const cookie = signedIn.headers.getSetCookie().map(row => row.split(';')[0]).find(row => row.startsWith(cookieName + '='))
+  if (!cookie) throw refuse('release-launch-token-signin-failed')
+  return { launch, url, headers: { cookie, origin: url.origin } }
+}
+
+export function processIdentity(pid) {
+  const result = spawnSync('ps', ['-p', String(pid), '-o', 'lstart=', '-o', 'command='], { encoding: 'utf8' })
+  return result.status === 0 ? result.stdout.trim() : null
+}
+
+export async function terminate(pid, identity) {
   if (!pid) return
+  if (identity !== undefined && processIdentity(pid) !== identity) return
   try { process.kill(-pid, 'SIGTERM') } catch (error) {
     if (error.code !== 'ESRCH') throw error
     try { process.kill(pid, 'SIGTERM') } catch (failure) { if (failure.code === 'ESRCH') return; throw failure }
   }
   for (let i = 0; i < 100; i++) {
+    if (identity !== undefined && processIdentity(pid) !== identity) return
     try { process.kill(pid, 0) } catch (error) { if (error.code === 'ESRCH') return }
     await delay(50)
   }
+  if (identity !== undefined && processIdentity(pid) !== identity) return
   try { process.kill(-pid, 'SIGKILL') } catch (error) {
     if (error.code !== 'ESRCH') throw error
     try { process.kill(pid, 'SIGKILL') } catch (failure) { if (failure.code !== 'ESRCH') throw failure }
   }
+  if (identity !== undefined) {
+    for (let i = 0; i < 100; i++) {
+      if (processIdentity(pid) !== identity) return
+      await delay(50)
+    }
+    throw refuse('example-owned-process-not-stopped')
+  }
 }
 
-export async function bootAndProbe({ checkout, release, root }) {
-  developmentPath(root, checkout); developmentPath(root, release)
+export function clearLaunchRecords(root, state, pid, validate) {
+  for (const name of ['launch.json', 'launch-url.json']) {
+    const file = path.join(state, name)
+    if (!fs.existsSync(file)) continue
+    validate(root, file, { privateRoot: true })
+    if (readJson(file).pid !== pid) throw refuse('example-launch-process-mismatch')
+    fs.unlinkSync(file)
+  }
+}
+
+export function assertProtectedRuntimeFiles(root, validate) {
+  const files = ['owner-secret.json', 'receipt-ed25519.pem', 'gate.db', 'gate.db-wal', 'gate.db-shm', 'owner-secret.json.tmp-' + process.pid]
+    .map(name => ({ candidate: path.join(root, 'gate-home', name), privateRoot: true }))
+  files.push({ candidate: path.join(root, 'gate-run/receipt-ed25519.pub'), privateRoot: false })
+  for (const { candidate, privateRoot } of files) {
+    try { fs.lstatSync(candidate) } catch (error) { if (error.code === 'ENOENT') continue; throw error }
+    validate(root, candidate, { privateRoot })
+  }
+}
+
+export async function checkWalkthrough({ checkout, root }) {
+  for (const command of ['refuse', 'approve', 'verify']) {
+    const visitor = spawn(path.join(checkout, 'prime'), ['example', command, '--dir', root],
+      { env: { PATH: process.env.PATH }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let report = ''
+    visitor.stdout.on('data', bytes => { report += bytes }); visitor.stderr.on('data', bytes => { report += bytes })
+    const timeout = setTimeout(() => { visitor.kill('SIGTERM') }, 30000)
+    let status
+    try { status = await new Promise(resolve => visitor.on('close', resolve)) } finally { clearTimeout(timeout) }
+    if (status !== 0 || !report.includes('PASS | example ' + command)) throw refuse('example-' + command + '-failed')
+    for (const line of report.split('\n')) if (/^PASS \| /u.test(line)) console.log(line)
+  }
+}
+
+export function assertRuntimeOptions(root, selectedPort) {
+  if (selectedPort !== undefined && (!/^(0|[1-9][0-9]{0,4})$/u.test(String(selectedPort)) || Number(selectedPort) > 65535))
+    throw refuse('example-port-invalid')
+  if (Buffer.byteLength(path.join(root, 'support/state/aumlok-signer.sock')) >= (process.platform === 'darwin' ? 104 : 108))
+    throw refuse('example-state-path-too-long-for-socket')
+}
+
+export async function bootAndProbe({ checkout, release, root, stayUp = false, port: selectedPort }) {
+  const validate = stayUp ? examplePath : developmentPath
+  validate(root, checkout); validate(root, release)
+  assertRuntimeOptions(root, selectedPort)
   process.umask(0o077)
   const support = path.join(root, 'support'), state = path.join(support, 'state'), gateState = path.join(state, 'gate-state')
   for (const directory of [support, state, gateState, ...['home', 'agents', 'workspace', 'logs'].map(name => path.join(state, name)),
-    path.join(root, 'gate-home'), path.join(root, 'gate-run'), path.join(root, 'targets')]) fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
+    path.join(root, 'gate-home'), path.join(root, 'gate-run'), path.join(root, 'targets')]) {
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 }); validate(root, directory)
+  }
   const modules = await gateModules(checkout)
   const { canon, floor, targets, gate: gateApi, server: serverApi, secrets, wiring } = modules
   const floorFile = path.join(gateState, 'release-floor.json'), targetRoot = path.join(root, 'targets')
   const registry = { ...wiring.gateTargets(targetRoot, { releasesRoot: path.dirname(release) }),
     [targets.PLUGIN_SET_TARGET]: targets.pluginSetTarget(targetRoot, { releasesRoot: path.dirname(release), floorFile }) }
+  assertProtectedRuntimeFiles(root, validate)
   const home = path.join(root, 'gate-home'), owner = secrets.loadOwnerSecret(home)
   const boundary = gateApi.createGate({ home, owner, targets: registry, store: wiring.gateStore() })
-  let sockets, child, signer, backendPid, interrupted = false
+  let sockets, child, signer, backendPid, backendIdentity, control, interrupted = false
+  const readyFile = path.join(root, 'example-ready.json')
   const stop = () => { interrupted = true }
   process.on('SIGTERM', stop); process.on('SIGINT', stop)
   try {
@@ -163,6 +296,7 @@ export async function bootAndProbe({ checkout, release, root }) {
     sockets = await serverApi.serveGate(boundary, { runDir: path.join(root, 'gate-run') })
     const record = readJson(path.join(release, '.dsh-build/plugin-set.json'))
     const installed = targets.installedRelease(path.dirname(release), path.basename(release))
+    if (!fs.existsSync(path.join(gateState, 'boundary-approval.json'))) {
     const content = targets.pluginSetApprovalText({ ...installed, operation: canon.operationDigestOf(canon.setOperationContent(record)) })
     const pending = await serverApi.call(sockets.ownerSocket, 'raise', { target: targets.PLUGIN_SET_TARGET, content, why: 'Disposable fresh clone boot check' })
     const review = await serverApi.call(sockets.ownerSocket, 'review', { id: pending.id })
@@ -182,24 +316,28 @@ export async function bootAndProbe({ checkout, release, root }) {
       target: targets.PLUGIN_SET_TARGET, approver: approval.receipt.approver }
     const epochs = { version: 1, kind: 'aukora-signer-epochs/v1', epochs: [{ epoch: 1, gate_pubkey_sha256: keyHash }] }
     const verified = canon.verifyOrderedGateApproval({ record, approval, pin, epochs })
-    writePrivate(root, floorFile, floor.advanceFloor(floor.readFloor(floorFile), verified))
-    writePrivate(root, path.join(gateState, 'boundary-approval.json'), approval)
-    writePrivate(root, path.join(gateState, 'boundary-approver.json'), pin)
-    writePrivate(root, path.join(gateState, 'signer-epochs.json'), epochs)
-    await checkAdmission({ checkout, release, root })
+    writePrivate(root, floorFile, floor.advanceFloor(floor.readFloor(floorFile), verified), validate)
+    writePrivate(root, path.join(gateState, 'boundary-approval.json'), approval, validate)
+    writePrivate(root, path.join(gateState, 'boundary-approver.json'), pin, validate)
+    writePrivate(root, path.join(gateState, 'signer-epochs.json'), epochs, validate)
+    }
+    await checkAdmission({ checkout, release, root, stayUp })
     console.log('PASS | signed owner.sock review and exact release floor with throwaway same-user authority')
     const identityDirectory = path.join(state, 'aumlok')
-    const generated = spawnSync(process.execPath, [path.join(checkout, 'scripts/aumlok/make-disposable-identity.mjs'),
-      '--directory', identityDirectory], { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 })
-    if (generated.status !== 0) throw refuse('disposable-identity-generation-failed')
+    if (!fs.existsSync(identityDirectory)) {
+      const generated = spawnSync(process.execPath, [path.join(checkout, 'scripts/aumlok/make-disposable-identity.mjs'),
+        '--directory', identityDirectory], { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 })
+      if (generated.status !== 0) throw refuse('disposable-identity-generation-failed')
+    }
+    validate(root, path.join(identityDirectory, 'local-control.json'), { privateRoot: true })
     const identity = readJson(path.join(identityDirectory, 'local-control.json'))
     const aumlok = await import(pathToFileURL(path.join(checkout, 'plugins/aukora-aumlok/lib/index.mjs')).href)
     const projection = aumlok.projectPublicControl({ genesis: identity.genesis, activeControl: identity.activeControl, custodyClass: identity.custodyClass })
     const keyFile = path.join(identityDirectory, 'owner.pem')
-    fs.writeFileSync(keyFile, identity.ed25519PrivateKeyPem, { mode: 0o600, flag: 'wx' })
+    ensureText(root, keyFile, identity.ed25519PrivateKeyPem, validate)
     const registered = identity.activeControl.publicKeys.ed25519
-    fs.writeFileSync(path.join(support, 'kira-deployment-overlay.patch.yml'),
-      `subject: ${projection.subject}\nactiveControlDigest: ${projection.activeControlDigest}\napproverDid: ${projection.approvalKeyDid}\n`, { mode: 0o600, flag: 'wx' })
+    ensureText(root, path.join(support, 'kira-deployment-overlay.patch.yml'),
+      `subject: ${projection.subject}\nactiveControlDigest: ${projection.activeControlDigest}\napproverDid: ${projection.approvalKeyDid}\n`, validate)
     const signerSocket = path.join(state, 'aumlok-signer.sock')
     signer = spawn(process.execPath, [path.join(checkout, 'scripts/aumlok/signer.mjs'), '--socket', signerSocket,
       '--key-file', keyFile, '--registered-key-hex', registered, '--approve', 'test-all'],
@@ -208,10 +346,12 @@ export async function bootAndProbe({ checkout, release, root }) {
     signer.stdout.on('data', bytes => { signerOutput += bytes }); signer.stderr.on('data', bytes => { signerOutput += bytes })
     for (let i = 0; i < 100 && !fs.existsSync(signerSocket) && signer.exitCode === null; i++) await delay(50)
     if (!fs.existsSync(signerSocket)) throw refuse(signerOutput.includes('EPERM') ? 'listen-EPERM' : 'disposable-owner-signer-unavailable')
-    const admitted = spawnSync(process.execPath, [path.join(checkout, 'scripts/aukora/plugin-set.mjs'), 'approve', '--release', release,
-      '--support', support, '--approval-class', 'scripted', '--out', path.join(support, 'approval-evidence')],
-      { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 })
-    if (admitted.status !== 0) throw refuse('disposable-plugin-set-approval-failed')
+    if (!fs.existsSync(path.join(gateState, 'plugin-set-approval.json'))) {
+      const admitted = spawnSync(process.execPath, [path.join(checkout, 'scripts/aukora/plugin-set.mjs'), 'approve', '--release', release,
+        '--support', support, '--approval-class', 'scripted', '--out', path.join(support, 'approval-evidence')],
+        { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 })
+      if (admitted.status !== 0) throw refuse('disposable-plugin-set-approval-failed')
+    }
     const check = spawnSync(process.execPath, [path.join(checkout, 'scripts/aukora/plugin-set.mjs'), 'check', '--release', release,
       '--support', support], { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 })
     if (check.status !== 0) throw refuse('disposable-plugin-set-verification-failed')
@@ -225,10 +365,14 @@ export async function bootAndProbe({ checkout, release, root }) {
       .replaceAll('${SUBJECT}', projection.subject).replaceAll('${CONTROL_DIGEST}', projection.activeControlDigest)
       .replaceAll('${APPROVER_DID}', projection.approvalKeyDid)
     if (/\$\{[A-Z_]+\}/u.test(kiraConfig)) throw refuse('deployment-template-unresolved')
-    fs.writeFileSync(kiraOverlay, kiraConfig, { mode: 0o600, flag: 'wx' })
-    fs.writeFileSync(probe, probeSource, { mode: 0o600, flag: 'wx' })
-    fs.writeFileSync(overlay, '- insert:\n    - id: fresh-clone-probe\n      name: ./probe.mjs\n', { mode: 0o600, flag: 'wx' })
-    const port = await unusedPort()
+    ensureText(root, kiraOverlay, kiraConfig, validate)
+    ensureText(root, probe, probeSource, validate)
+    ensureText(root, overlay, '- insert:\n    - id: fresh-clone-probe\n      name: ./probe.mjs\n', validate)
+    const port = selectedPort === undefined || Number(selectedPort) === 0 ? await unusedPort() : Number(selectedPort)
+    for (const name of ['launch.json', 'launch-url.json']) {
+      const stale = path.join(state, name)
+      if (fs.existsSync(stale)) { validate(root, stale, { privateRoot: true }); fs.unlinkSync(stale) }
+    }
     const processProbe = spawnSync('ps', ['-ax', '-o', 'pid=', '-o', 'ppid=', '-o', 'command='], { encoding: 'utf8' })
     if (processProbe.status !== 0) throw refuse('process-observation-unavailable')
     child = spawn('python3', [path.join(checkout, 'scripts/launch-dsh.py'), '--release', release, '--state-root', state,
@@ -242,27 +386,24 @@ export async function bootAndProbe({ checkout, release, root }) {
       const observed = spawnSync('ps', ['-ax', '-o', 'pid=', '-o', 'ppid=', '-o', 'command='], { encoding: 'utf8' })
       for (const line of observed.stdout?.split('\n') ?? []) {
         const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/u.exec(line)
-        if (match && Number(match[2]) === child.pid && match[3].includes(path.join(release, 'apps/cli/lib/bin.js'))) backendPid = Number(match[1])
+        if (match && Number(match[2]) === child.pid && match[3].includes(path.join(release, 'apps/cli/lib/bin.js'))) {
+          backendPid = Number(match[1]); backendIdentity = processIdentity(backendPid)
+        }
       }
     }
     const observer = setInterval(observeChildren, 100)
     let exitCode
     try { exitCode = await new Promise(resolve => child.on('close', resolve)) } finally { clearInterval(observer); observeChildren() }
     const launchRecord = path.join(state, 'launch.json')
-    if (fs.existsSync(launchRecord)) backendPid = readJson(launchRecord).pid
+    if (fs.existsSync(launchRecord) && readJson(launchRecord).pid !== backendPid) throw refuse('example-launch-process-mismatch')
     if (interrupted) throw refuse('fresh-clone-interrupted')
     if (exitCode !== 0) throw refuse(output.includes('Operation not permitted') || output.includes('EPERM') ? 'listen-EPERM' : 'release-launch-refused')
     const launchFile = path.join(state, 'launch-url.json')
     for (let i = 0; i < 600 && !fs.existsSync(launchFile) && !interrupted; i++) await delay(100)
     if (interrupted) throw refuse('fresh-clone-interrupted')
     if (!fs.existsSync(launchFile)) throw refuse('release-startup-timeout')
-    const launch = readJson(launchFile), url = new URL(launch.url)
-    backendPid = launch.pid
-    const signedIn = await fetch(launch.url, { redirect: 'manual', signal: AbortSignal.timeout(10000) })
-    const cookieName = 'dsh-auth-' + createHash('sha256').update(url.host).digest('base64url')
-    const cookie = signedIn.headers.getSetCookie().map(row => row.split(';')[0]).find(row => row.startsWith(cookieName + '='))
-    if (!cookie) throw refuse('release-launch-token-signin-failed')
-    const headers = { cookie, origin: url.origin }
+    const { launch, url, headers } = await authenticateLaunch({ root, launchFile, stayUp })
+    if (launch.pid !== backendPid) throw refuse('example-launch-process-mismatch')
     const ui = await fetch(url.origin + '/', { headers, signal: AbortSignal.timeout(10000) })
     assertHttpStatus(ui, 200, 'release-ui-not-served'); assertUiBody(await ui.text())
     console.log('PASS | UI answers using its own launch token')
@@ -282,25 +423,43 @@ export async function bootAndProbe({ checkout, release, root }) {
     const probeResult = spawnSync(process.execPath, [path.join(checkout, 'ops/pilot/ui-probe.mjs'), launchFile, '--release', release],
       { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 })
     assertProbeExit(probeResult)
-    console.log((probeResult.stdout ?? '').trim())
+    console.log('UI PROBE: all served')
     console.log('PASS | thread icon and stock apps served through ops/pilot/ui-probe.mjs')
+    const ready = { version: 1, kind: 'aukora-prime-example/v1', root, checkout, release,
+      origin: url.origin, launchFile, supervisorPid: process.pid, controlPort: 0, controlToken: randomBytes(32).toString('hex') }
+    control = await controlServer(ready, stop)
+    writePrivate(root, readyFile, ready, validate)
+    if (stayUp) {
+      while (!interrupted) {
+        if (signer.exitCode !== null) throw refuse('example-owner-signer-stopped')
+        if (processIdentity(backendPid) !== backendIdentity) throw refuse('example-backend-stopped')
+        await delay(500)
+      }
+    } else await checkWalkthrough({ checkout, root })
   } finally {
     process.off('SIGTERM', stop); process.off('SIGINT', stop)
-    if (!backendPid && fs.existsSync(path.join(state, 'launch.json'))) backendPid = readJson(path.join(state, 'launch.json')).pid
-    await terminate(backendPid)
+    if (control) await new Promise(resolve => control.close(resolve))
+    await terminate(backendPid, backendIdentity ?? null)
+    if (backendIdentity) clearLaunchRecords(root, state, backendPid, validate)
     if (child && child.exitCode === null) await terminate(child.pid)
     if (signer && signer.exitCode === null) await terminate(signer.pid)
     await sockets?.close(); boundary.close()
+    if (fs.existsSync(readyFile)) { validate(root, readyFile, { privateRoot: true }); fs.unlinkSync(readyFile) }
   }
 }
 
+export function parseRuntimeArgs(args) {
+  const { values } = parseArgs({ args, options: { checkout: { type: 'string' }, release: { type: 'string' }, root: { type: 'string' },
+    'check-admission': { type: 'boolean' }, 'stay-up': { type: 'boolean' }, port: { type: 'string' } } })
+  for (const name of ['checkout', 'release', 'root']) if (!values[name]) throw refuse('runtime-option-missing')
+  return { ...values, stayUp: values['stay-up'] === true }
+}
+
 if (import.meta.url.startsWith('file:') && process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  const { values } = parseArgs({ options: { checkout: { type: 'string' }, release: { type: 'string' }, root: { type: 'string' },
-    'check-admission': { type: 'boolean' } } })
   try {
-    for (const name of ['checkout', 'release', 'root']) if (!values[name]) throw refuse('runtime-option-missing')
-    if (values['check-admission']) await checkAdmission(values)
-    else await bootAndProbe(values)
+    const input = parseRuntimeArgs(process.argv.slice(2))
+    if (input['check-admission']) await checkAdmission(input)
+    else await bootAndProbe(input)
   } catch (error) {
     const unavailable = ['EPERM', 'listen-EPERM', 'EACCES', 'process-observation-unavailable'].includes(error.code)
     console.error((unavailable ? 'UNPERFORMED: ' : 'FAIL  ') + (error.code ?? 'fresh-clone-runtime-failed'))

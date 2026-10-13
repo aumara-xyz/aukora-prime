@@ -428,13 +428,13 @@
       "next": "Run on the received revision with the documented prerequisites and retain its output; this proves the scoped temporary boot, not installation or containment."
     },
     {
-      "name": "One-command NEXT example",
-      "description": "A proposed prime up --example command would give a stranger a disposable NEXT start.",
+      "name": "One-command example start",
+      "description": "One command turns a clone into a running, locked-down system on loopback, with commands to see a refusal, approve a change and verify its signed receipt.",
       "code": [
         "harness/cli.mjs"
       ],
-      "state": "NOT BUILT",
-      "basis": "The latest plan says the proposal is parked; the CLI has no up command. NEXT boot requires a protected deployment manifest with root-owned ancestry. The separate fresh-clone smoke check already builds and boots the pilot composition.",
+      "state": "RAN on a real node",
+      "basis": "'./prime up --example' RAN on the pilot machine (Linux) on October 13 from a clean clone with a previously built harness: started on loopback, refused an unauthenticated request, './prime example refuse' showed the action gate's refusal and its ledger entry, './prime example approve' approved a theme change with a throwaway owner key and returned a signed receipt, './prime example verify' passed, a second 'up' resumed, 'down' stopped it. The CI job 'fresh clone boots' runs the same three commands on every push. It uses the release path that the fresh-clone check uses; the separate NEXT composition ('./prime boot') still cannot be started without root-owned manifest ancestry. No model key (the assistant cannot answer), a throwaway owner on the same user, no containment, no relay.",
       "evidence": [
         "plan/NORTH-STAR.md",
         "harness/deployment-manifest.mjs"

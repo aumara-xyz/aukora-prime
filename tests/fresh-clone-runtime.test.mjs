@@ -10,6 +10,7 @@ import * as runtime from '../scripts/fresh-clone-runtime.mjs'
 import { recordPluginSet } from '../plugins/aukora-composition-gate/src/plugin-set.mjs'
 import { createGate } from '../packages/boundary-gate/src/gate.mjs'
 import { loadOwnerSecret } from '../packages/boundary-gate/src/secrets.mjs'
+import { rotateBearer } from '../packages/boundary-gate/src/secrets.mjs'
 import { pluginSetTarget, PLUGIN_SET_TARGET, pluginSetApprovalText, installedRelease } from '../packages/boundary-gate/src/targets.mjs'
 import { gateStore } from '../packages/boundary-gate/src/wiring.mjs'
 import { OWNER_SOCKET_APPROVER } from '../packages/boundary-gate/src/server.mjs'
@@ -57,6 +58,254 @@ function pathCases(t, module) {
   rejected(() => module.developmentPath(root, file), 'development-path-unprotected')
 }
 test('private current-user development paths refuse aliases, writable paths and linked files', t => pathCases(t, runtime))
+
+function examplePathCases(t, module) {
+  const root = temporary(t), file = path.join(root, 'data.json')
+  fs.writeFileSync(file, '{}', { mode: 0o600 })
+  assert.equal(module.examplePath(root, file), file)
+  rejected(() => module.examplePath(root, root + '-outside'), 'example-path-outside-root')
+  fs.chmodSync(root, 0o777)
+  rejected(() => module.examplePath(root, file), 'example-root-not-private')
+  fs.chmodSync(root, 0o700)
+  fs.chmodSync(file, 0o660)
+  rejected(() => module.examplePath(root, file), 'example-path-unprotected')
+  fs.chmodSync(file, 0o644)
+  rejected(() => module.examplePath(root, file, { privateRoot: true }), 'example-path-not-private')
+  fs.chmodSync(file, 0o600)
+  const link = path.join(root, 'link'); fs.symlinkSync(file, link)
+  rejected(() => module.examplePath(root, link), 'example-path-unprotected')
+  fs.unlinkSync(link); fs.linkSync(file, link)
+  rejected(() => module.examplePath(root, file), 'example-path-unprotected')
+  fs.unlinkSync(link)
+  const rootAlias = root + '-alias'; fs.symlinkSync(root, rootAlias)
+  t.after(() => fs.rmSync(rootAlias, { force: true }))
+  rejected(() => module.examplePath(rootAlias, path.join(rootAlias, 'data.json')), 'example-root-invalid')
+  const originalStat = fs.lstatSync
+  fs.lstatSync = (p, ...args) => {
+    const value = originalStat(p, ...args)
+    if (p === file) Object.defineProperty(value, 'uid', { value: process.getuid() + 1 })
+    return value
+  }
+  try { rejected(() => module.examplePath(root, file), 'example-path-unprotected') } finally { fs.lstatSync = originalStat }
+}
+
+test('persistent example paths refuse public roots, aliases, writable files and hardlinks; removals lose each refusal', async t => {
+  examplePathCases(t, runtime)
+  for (const [name, before, after] of [
+    ['example-private-root', '(base.mode & 0o077)', 'false'],
+    ['example-outside-root', '!(file === root || file.startsWith(root + path.sep))', 'false'],
+    ['example-writable-file', '(item.mode & 0o022)', 'false'],
+    ['example-private-file', "privateRoot && (fs.lstatSync(file).mode & 0o077)", 'false'],
+    ['example-symlink', 'const item = fs.lstatSync(cursor)', 'const item = fs.statSync(cursor)'],
+    ['example-hardlink', 'item.nlink !== 1', 'false'],
+    ['example-file-owner', 'item.uid !== process.getuid()', 'false'],
+  ]) {
+    assert.equal(source.split(before).length, 2)
+    const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, after)).toString('base64'))
+    assert.throws(() => examplePathCases(t, changed), assert.AssertionError)
+    t.diagnostic('KILLED ' + name)
+  }
+})
+
+function controlCases(module) {
+  const ready = { controlToken: 'a'.repeat(64), supervisorPid: 42, origin: 'http://127.0.0.1:1234', launchFile: '/private/state/link.json' }
+  let stopped = false
+  for (const token of [undefined, '', 'b'.repeat(64)]) {
+    assert.deepEqual(module.controlReply({ op: 'stop', token }, ready, () => { stopped = true }), { ok: false })
+    assert.equal(stopped, false)
+  }
+  const status = module.controlReply({ op: 'status', token: ready.controlToken }, ready, () => { stopped = true })
+  assert.deepEqual(status, { ok: true, supervisorPid: 42, origin: ready.origin, launchFile: ready.launchFile })
+  assert.equal(JSON.stringify(status).includes(ready.controlToken), false)
+  assert.deepEqual(module.controlReply({ op: 'stop', token: ready.controlToken }, ready, () => { stopped = true }),
+    { ok: true, stopping: true, supervisorPid: 42 })
+  assert.equal(stopped, true)
+}
+
+test('shutdown capability refuses strangers and status omits the capability; removal loses refusal', async t => {
+  controlCases(runtime)
+  const before = 'token.length !== expected.length || !timingSafeEqual(token, expected)'
+  assert.equal(source.split(before).length, 2)
+  const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, 'false')).toString('base64'))
+  assert.throws(() => controlCases(changed), assert.AssertionError)
+  t.diagnostic('KILLED shutdown-capability')
+  const exposure = "{ ok: true, supervisorPid: ready.supervisorPid, origin: ready.origin, launchFile: ready.launchFile }"
+  assert.equal(source.split(exposure).length, 2)
+  const leaking = await import('data:text/javascript;base64,' + Buffer.from(source.replace(exposure, '{ ...ready, ok: true }')).toString('base64'))
+  assert.throws(() => controlCases(leaking), assert.AssertionError)
+  t.diagnostic('KILLED shutdown-capability-disclosure')
+})
+
+test('resumed private runtime text refuses changed bytes; removal loses the refusal', async t => {
+  const root = temporary(t), file = path.join(root, 'overlay.yml')
+  runtime.ensureText(root, file, 'expected bytes', runtime.developmentPath)
+  runtime.ensureText(root, file, 'expected bytes', runtime.developmentPath)
+  rejectChanged(runtime)
+  function rejectChanged(module) {
+    rejected(() => module.ensureText(root, file, 'changed bytes', runtime.developmentPath), 'example-state-bytes-mismatch')
+  }
+  const before = "fs.readFileSync(file, 'utf8') !== content"
+  assert.equal(source.split(before).length, 2)
+  const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, 'false')).toString('base64'))
+  assert.throws(() => rejectChanged(changed), assert.AssertionError)
+  t.diagnostic('KILLED resumed-runtime-bytes')
+})
+
+test('launch sign-in refuses remote origins before a request; removing loopback guard loses refusal', async t => {
+  const root = temporary(t), launchFile = path.join(root, 'launch.json')
+  const originalFetch = globalThis.fetch
+  let requests = 0
+  globalThis.fetch = async () => { requests++; return { headers: { getSetCookie: () => [] } } }
+  t.after(() => { globalThis.fetch = originalFetch })
+  for (const url of ['https://127.0.0.1:1234/?token=SYNTHETIC', 'http://example.invalid/?token=SYNTHETIC',
+    'http://user:password@127.0.0.1:1234/?token=SYNTHETIC']) {
+    fs.writeFileSync(launchFile, JSON.stringify({ url }), { mode: 0o600 })
+    await assert.rejects(runtime.authenticateLaunch({ root, launchFile }), error => error.code === 'example-launch-not-loopback')
+  }
+  assert.equal(requests, 0)
+  const before = "url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password\n    || (origin !== undefined && url.origin !== origin)"
+  assert.equal(source.split(before).length, 2)
+  const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, 'false')).toString('base64'))
+  await assert.rejects(changed.authenticateLaunch({ root, launchFile }), error => error.code === 'release-launch-token-signin-failed')
+  assert.equal(requests, 1)
+  t.diagnostic('KILLED launch-loopback-origin')
+})
+
+test('a recorded backend identity cannot terminate a different process; removal loses the refusal', async t => {
+  const root = temporary(t), marker = path.join(root, 'wrongly-stopped')
+  async function exercise(module) {
+    const child = spawn(process.execPath, ['-e', "const fs = require('node:fs'); process.on('SIGTERM', () => { fs.writeFileSync(process.argv[1], 'stopped'); process.exit(0) }); fs.writeFileSync(process.argv[1] + '.ready', 'ready'); setInterval(() => {}, 1000)", marker],
+      { detached: true, stdio: 'ignore' })
+    t.after(() => { try { process.kill(-child.pid, 'SIGKILL') } catch {} })
+    for (let i = 0; i < 100 && !fs.existsSync(marker + '.ready'); i++) await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(fs.existsSync(marker + '.ready'), true)
+    await module.terminate(child.pid, 'different process creation time and command')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    assert.equal(fs.existsSync(marker), false)
+    await module.terminate(child.pid, module.processIdentity(child.pid))
+    assert.equal(fs.existsSync(marker), true)
+    fs.rmSync(marker); fs.rmSync(marker + '.ready')
+  }
+  await exercise(runtime)
+  const before = 'identity !== undefined && processIdentity(pid) !== identity'
+  assert.equal(source.split(before).length, 4)
+  const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replaceAll(before, 'false')).toString('base64'))
+  await assert.rejects(exercise(changed), assert.AssertionError)
+  t.diagnostic('KILLED backend-process-identity')
+})
+
+test('normal shutdown clears only its observed backend launch records; removing identity binding loses refusal', async t => {
+  const root = temporary(t), state = path.join(root, 'state')
+  fs.mkdirSync(state, { mode: 0o700 })
+  function records(pid) {
+    for (const name of ['launch.json', 'launch-url.json']) fs.writeFileSync(path.join(state, name), JSON.stringify({ pid }), { mode: 0o600 })
+  }
+  records(42)
+  runtime.clearLaunchRecords(root, state, 42, runtime.developmentPath)
+  assert.equal(fs.existsSync(path.join(state, 'launch.json')), false)
+  assert.equal(fs.existsSync(path.join(state, 'launch-url.json')), false)
+  records(43)
+  rejected(() => runtime.clearLaunchRecords(root, state, 42, runtime.developmentPath), 'example-launch-process-mismatch')
+  assert.equal(fs.existsSync(path.join(state, 'launch.json')), true)
+  const before = 'readJson(file).pid !== pid'
+  assert.equal(source.split(before).length, 2)
+  const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, 'false')).toString('base64'))
+  assert.throws(() => rejected(() => changed.clearLaunchRecords(root, state, 42, runtime.developmentPath), 'example-launch-process-mismatch'), assert.AssertionError)
+  t.diagnostic('KILLED stopped-launch-record-identity')
+})
+
+test('resumed gate producer files reject aliases including a dangling leaf before any write; removal exposes the external target', async t => {
+  const root = temporary(t), outside = temporary(t), home = path.join(root, 'gate-home'), run = path.join(root, 'gate-run')
+  fs.mkdirSync(home, { mode: 0o700 }); fs.mkdirSync(run, { mode: 0o700 })
+  const file = path.join(outside, 'must-not-change'), alias = path.join(home, 'owner-secret.json.tmp-' + process.pid)
+  fs.writeFileSync(file, 'original bytes', { mode: 0o600 })
+  fs.symlinkSync(file, alias)
+  rejected(() => runtime.assertProtectedRuntimeFiles(root, runtime.developmentPath), 'development-path-unprotected')
+  assert.equal(fs.readFileSync(file, 'utf8'), 'original bytes')
+  const before = 'validate(root, candidate, { privateRoot })'
+  assert.equal(source.split(before).length, 2)
+  const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, 'void candidate')).toString('base64'))
+  changed.assertProtectedRuntimeFiles(root, runtime.developmentPath)
+  rotateBearer(home, { hmacKey: 'a'.repeat(64) })
+  assert.notEqual(fs.readFileSync(file, 'utf8'), 'original bytes')
+  t.diagnostic('KILLED resumed-gate-producer-files (real bearer writer reached external alias)')
+  fs.symlinkSync(path.join(outside, 'missing'), path.join(run, 'receipt-ed25519.pub'))
+  rejected(() => runtime.assertProtectedRuntimeFiles(root, runtime.developmentPath), 'development-path-unprotected')
+})
+
+test('runtime accepts only named options and requires checkout release and root', () => {
+  const args = ['--checkout', '/c', '--release', '/r', '--root', '/s', '--stay-up', '--port', '1234']
+  assert.equal(runtime.parseRuntimeArgs(args).stayUp, true)
+  assert.equal(runtime.parseRuntimeArgs(args).port, '1234')
+  rejected(() => runtime.parseRuntimeArgs(['--root', '/s']), 'runtime-option-missing')
+  assert.throws(() => runtime.parseRuntimeArgs([...args, '--token', 'SYNTHETIC_SECRET']))
+  assert.throws(() => runtime.parseRuntimeArgs([...args, 'extra']))
+})
+
+test('ports and Unix socket path limits refuse invalid values before startup; removals lose refusal', async t => {
+  function cases(module) {
+    for (const port of [undefined, '0', '1', '65535']) module.assertRuntimeOptions('/private/state', port)
+    for (const port of ['-1', '65536', '01', 'x']) rejected(() => module.assertRuntimeOptions('/private/state', port), 'example-port-invalid')
+    rejected(() => module.assertRuntimeOptions('/' + 'x'.repeat(110)), 'example-state-path-too-long-for-socket')
+  }
+  cases(runtime)
+  for (const [name, before, after] of [
+    ['port-syntax', '!/^(0|[1-9][0-9]{0,4})$/u.test(String(selectedPort))', 'false'],
+    ['port-range', 'Number(selectedPort) > 65535', 'false'],
+    ['unix-socket-path', "Buffer.byteLength(path.join(root, 'support/state/aumlok-signer.sock')) >= (process.platform === 'darwin' ? 104 : 108)", 'false'],
+  ]) {
+    assert.equal(source.split(before).length, 2)
+    const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, after)).toString('base64'))
+    assert.throws(() => cases(changed), assert.AssertionError)
+    t.diagnostic('KILLED ' + name)
+  }
+})
+
+test('CI runs all exact walkthrough commands and requires exit success and PASS while suppressing child logs; each removal fails', async t => {
+  const root = temporary(t), checkout = path.join(root, 'clone'), record = path.join(root, 'commands.jsonl')
+  fs.mkdirSync(checkout, { mode: 0o700 })
+  fs.writeFileSync(path.join(checkout, 'prime'), `#!/usr/bin/env node
+import fs from 'node:fs'
+import path from 'node:path'
+const [kind, command, flag, root] = process.argv.slice(2)
+fs.appendFileSync(path.join(root, 'commands.jsonl'), JSON.stringify([kind, command, flag, root]) + '\\n')
+const config = JSON.parse(fs.readFileSync(path.join(root, 'fixture.json'), 'utf8'))
+console.log('SYNTHETIC_PRIVATE_TOKEN')
+if (!config.missingPass) console.log('PASS | example ' + command)
+process.exit(config.exitStatus ?? 0)
+`, { mode: 0o700 })
+  async function exercise(module, config = {}) {
+    fs.rmSync(record, { force: true })
+    fs.writeFileSync(path.join(root, 'fixture.json'), JSON.stringify(config), { mode: 0o600 })
+    const lines = [], original = console.log
+    console.log = line => lines.push(line)
+    let failure
+    try { await module.checkWalkthrough({ checkout, root }) } catch (error) { failure = error }
+    finally { console.log = original }
+    const seen = fs.existsSync(record) ? fs.readFileSync(record, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line)) : []
+    assert.equal(lines.join('\n').includes('SYNTHETIC_PRIVATE_TOKEN'), false)
+    if (config.exitStatus || config.missingPass) assert.equal(failure?.code, 'example-refuse-failed')
+    else {
+      assert.equal(failure, undefined)
+      assert.deepEqual(seen, ['refuse', 'approve', 'verify'].map(command => ['example', command, '--dir', root]))
+      assert.deepEqual(lines, ['refuse', 'approve', 'verify'].map(command => 'PASS | example ' + command))
+    }
+  }
+  await exercise(runtime)
+  await exercise(runtime, { exitStatus: 7 })
+  await exercise(runtime, { missingPass: true })
+  for (const [name, before, after, config] of [
+    ['walkthrough-all-commands', "['refuse', 'approve', 'verify']", "['refuse', 'approve']", {}],
+    ['walkthrough-exit-status', "status !== 0 || !report.includes('PASS | example ' + command)", "!report.includes('PASS | example ' + command)", { exitStatus: 7 }],
+    ['walkthrough-pass-line', "status !== 0 || !report.includes('PASS | example ' + command)", 'status !== 0', { missingPass: true }],
+    ['walkthrough-private-logs', 'if (/^PASS \\| /u.test(line)) console.log(line)', 'console.log(line)', {}],
+  ]) {
+    assert.equal(source.split(before).length, 2, name)
+    const changed = await import('data:text/javascript;base64,' + Buffer.from(source.replace(before, after)).toString('base64'))
+    await assert.rejects(() => exercise(changed, config), assert.AssertionError)
+    t.diagnostic('KILLED ' + name)
+  }
+})
 
 function observationCases(module) {
   module.assertNoPluginErrors('aukora-face-apps loaded')

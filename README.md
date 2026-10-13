@@ -1,6 +1,8 @@
 # AUKORA Prime
 
 [Threat model](docs/THREAT-MODEL.md): adversaries, defended actions, limits and evidence.
+Run `./prime up --example` from a clean clone to start the loopback example.
+[Five-minute walkthrough](examples/WALKTHROUGH.md): inspect the apps, refuse an action, approve a theme change and verify its signed record.
 
 ![AUKORA's intended human-first architecture](docs/assets/aukora-human-first.png)
 
@@ -68,27 +70,20 @@ The historical receipt does not attest the received revision. [CI source checks]
 
 ## From a clone to a running system
 
-Use Node **24.11.1** with its development headers, Python 3.9 or later, git, a C compiler (`cc`) and the package manager pinned in `upstream-dsh.json` (currently `pnpm@11.7.0`). The following smoke check makes another clean clone, obtains the pinned MIT DeepSeek harness archive, verifies its SHA-256, applies the pinned patches, builds and materializes a release. It starts a temporary gate and release as your current user, with throwaway keys and a real plugin-set approval. It does not use the machine's installed gate or model credentials.
+Use Node **24.11.1** with its development headers, Python 3.9 or later, git, a C compiler (`cc`) and the package manager pinned in `upstream-dsh.json` (currently `pnpm@11.7.0`) available in `PATH`. Start the example without root or global installs:
 
 ```sh
 git clone --branch main https://github.com/aumara-xyz/aukora-prime.git
 cd aukora-prime
 node --version                    # must print v24.11.1
-npm install --global pnpm@11.7.0
-./scripts/fresh-clone-check.sh .
+./prime up --example
 ```
 
-The check signs in with that release's launch token, checks the UI, face-plugin load failures, thread icon and carried stock apps, requires HTTP 401 without authentication, and exercises an action-gate refusal. It prints the rows and elapsed time, then stops the processes and removes its private temporary state. Exit `0` means every row passed; exit `1` means a check failed; exit `2` prints `UNPERFORMED: <reason>` for an unavailable prerequisite. The **fresh clone boots** Ubuntu CI job runs this command on every push, caching only the archive and verified harness build by their pinned inputs.
+The example builds the pinned harness, materializes this checkout's committed `HEAD`, follows the real plugin-set approval path with a throwaway owner key, and stays up on loopback. It prints the address and the path of a private sign-in file, without printing its token. State persists between runs. Follow the [walkthrough](examples/WALKTHROUGH.md) for sign-in, the refusal and approval commands, verification and shutdown.
 
-An offline archive still has to match the pin. The check uses an empty dependency store, so a fresh build still needs registry network access. `--built` skips only the harness build and verifies the supplied build before materializing:
+The boundary gate, action gate, approval commands, signed ledger, release floor, screens and apps are real. The owner key is a stand-in held by the same user; there is no model key, containment or relay. The assistant cannot answer. This does not qualify a production installation or the live pilot.
 
-```sh
-./scripts/fresh-clone-check.sh . --archive vendor/dsh-source.tar.gz
-# Reuse a verified built harness: the output explicitly marks the build skipped.
-./scripts/fresh-clone-check.sh . --archive vendor/dsh-source.tar.gz --built vendor/dsh
-```
-
-No model key is needed to start the release, serve its interface and apps, or check these refusals. A model reply needs a configured provider and its credentials; this check sends no model request. It verifies a temporary gate's signed approval and exact release floor, then uses the existing unprivileged Aumlok approval commands with a disposable scripted signer for launch. Its same-user authority proves the boot and approval path it exercises, not separate-user containment, real owner enrollment, persistent installation, a paid reply, or qualification of the live pilot. Production still uses the protected installed gate and the owner's approval route described in [the pilot procedure](ops/pilot/README.md).
+`./scripts/fresh-clone-check.sh .` runs the same build, materialization, approval and start machinery in a disposable clone, checks the served interface and apps, requires an unauthenticated HTTP 401, and runs the walkthrough's refusal, approval and verification commands. It then stops its processes and removes its private state. The **fresh clone boots** Ubuntu CI job runs it on every push. Exit `0` means its rows passed, `1` means a check failed, and `2` reports `UNPERFORMED: <reason>`. Both entry points accept a hash-checked `--archive` and a provenance-checked `--built`; a fresh build still needs registry access. Production uses the protected installed gate and the owner's route in [the pilot procedure](ops/pilot/README.md).
 
 ## Status
 

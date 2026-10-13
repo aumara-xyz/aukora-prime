@@ -8,7 +8,9 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const subject = readFileSync(join(root, 'scripts/fresh-clone-check.sh'), 'utf8')
+const sourceFiles = ['fresh-clone-check.sh', 'fresh-clone-driver.py', 'fresh_clone.py']
+const boundary = name => '\n# FRESH_CLONE_TEST_MODULE ' + name + '\n'
+const subject = sourceFiles.map(name => boundary(name) + readFileSync(join(root, 'scripts', name), 'utf8')).join('')
 const sha = value => createHash('sha256').update(value).digest('hex')
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
 const archiveBytes = Buffer.from('disposable pinned harness archive\n')
@@ -113,7 +115,8 @@ process.exit(config.runtimeStatus)
     const actualPython = command('python3', ['-c', 'import sys; print(sys.executable)'], root).stdout.trim()
     const actualGit = command('sh', ['-c', 'command -v git'], root).stdout.trim()
     const actualCc = command('sh', ['-c', 'command -v cc'], root).stdout.trim()
-    for (const [name, target] of [['sh', '/bin/sh'], ['node', process.execPath], ['python3', actualPython], ['git', actualGit], ['cc', actualCc]]) {
+    const actualDirname = command('sh', ['-c', 'command -v dirname'], root).stdout.trim()
+    for (const [name, target] of [['sh', '/bin/sh'], ['dirname', actualDirname], ['node', process.execPath], ['python3', actualPython], ['git', actualGit], ['cc', actualCc]]) {
       symlinkSync(target, join(tools, name))
     }
     unlinkSync(join(tools, options.missingTool))
@@ -134,7 +137,12 @@ process.exit(config.runtimeStatus)
   env.GIT_DIR = join(source, '.git')
   const wrapper = join(scratch, 'launcher/scripts/fresh-clone-check.sh')
   function run(code = subject, args = ['--archive', archive, '--built', built]) {
-    write(wrapper, code, true)
+    for (let index = 0; index < sourceFiles.length; index++) {
+      const name = sourceFiles[index], start = code.indexOf(boundary(name)) + boundary(name).length
+      const end = index + 1 < sourceFiles.length ? code.indexOf(boundary(sourceFiles[index + 1])) : code.length
+      assert.ok(start >= boundary(name).length && end > start, 'shared source fixture boundary: ' + name)
+      write(join(dirname(wrapper), name), code.slice(start, end), name.endsWith('.sh'))
+    }
     const result = spawnSync('sh', ['-c', 'umask 002; exec "$@"', 'fixture', wrapper, source, ...args],
       { cwd: scratch, env, encoding: 'utf8', timeout: 20000 })
     assert.equal(result.error, undefined, result.error?.message)
