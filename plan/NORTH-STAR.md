@@ -481,3 +481,13 @@ Measured on the live pilot (read-only): Kira holds 202 notes, 147 filed under th
 The live pilot stays on `3673b98` until Peter has seen the screenshots and the switch script has been rewritten (click first, with everything still up; a mandatory screen probe and plugin-load check before success).
 
 Also this morning: GitHub Actions switched off by Peter on seven private repositories; the "clones" he saw on the Buzz fork were its inherited workflows checking out the code.
+
+### 2026-10-13: a fresh clone becomes a running system, proven on GitHub on every push
+
+`scripts/fresh-clone-check.sh` RAN end to end twice: on the pilot (Linux, 286 s) and as the new CI job `fresh clone boots` on GitHub's own Ubuntu runner (272 s, commit `be6dcfb`, first run). From nothing but a clone of the public repository: the pinned harness archive is downloaded and its hash checked; it is built; a release is materialized; the plugin set is approved through the real approval commands with a throwaway owner key under a temporary root; the release starts on loopback with no model key; and, signed in with its own token: the screens answer, no plugin threw at load, every shipped face is in the client graph, the thread icon and the stock apps are served, an unauthenticated request gets 401, and the action gate refuses an unapproved action before its body runs.
+
+What it does not show: a model reply (no key), a real owner or real containment (same-user temporary authority, and it says so), the Buzz relay (private fork), memory, or a real machine's install paths. But the claim "nobody can build this from the repository" is no longer true, and this morning's regression (a release with no apps) cannot reach `main` green again: the same probe now runs on every push.
+
+Also done today: the rewritten pilot switch script completed a full staging rehearsal on its third try (two permission faults found and fixed by rehearsing); `tests/release-plugins-load.test.mjs` loads all 25 mounted plugins on Linux and macOS.
+
+Open: `./prime boot` (the NEXT composition) still cannot be started by a stranger: its verifier requires root-owned manifest ancestry, and an example for it is blocked on a design decision (`plan/PROPOSAL-prime-up.md` is parked, not landed). The practical one-command start should be built on the fresh-clone machinery instead.
