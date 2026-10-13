@@ -120,13 +120,14 @@ lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/o
 This requests a gate restart, waits for its sockets, and prints no bearer. Deliver
 the replacement through the same private operator route.
 The harness requires the gate; systemd's restart propagation is unverified here.
-After a rotation or passkey activation, inspect `status.sh`; if the approved
-harness is inactive, run `start.sh`, then repeat after-approval acceptance.
+After a rotation or passkey activation, inspect the service directly with
+`systemctl is-active aukora-browser.service`; if the approved harness is
+inactive, run `start.sh`, then repeat after-approval acceptance.
 
 ```bash
 lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/start.sh
 bash ops/node-spawn/browser/acceptance.sh --name C1 --phase after
-lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/status.sh
+lxc --force-local exec C1 -- systemctl is-active aukora-browser.service
 ```
 
 `after` checks installed users/modes/pins, all three loopback proxies, exact approved
@@ -147,6 +148,52 @@ operator route; do not log it. It carries a one-use fragment, never the harness
 launch token. Then Peter must open the actual HTTPS app and perform his
 binding ceremony through the separately implemented owner flow.
 
+To enable a model reply, set the one permitted DeepSeek credential inside C1
+as root. The safest interactive route prompts on the container terminal with
+echo disabled; without `--prompt`, the command accepts one credential only from
+non-terminal standard input and refuses a terminal. Never put the key in an
+argument, environment variable or shell assignment:
+
+```bash
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py model-key --prompt
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py status
+```
+
+Success prints only `MODEL_KEY_SET provider=deepseek sha256=XXXXXXXXXXXX`;
+compare that 12-hex SHA-256 prefix with a digest computed in the private source
+of the credential. `status` prints only `MODEL_KEY provider=deepseek
+present=yes|no`, never a digest or value. Remove the store with `node.py
+model-key --remove`; removal prints only `MODEL_KEY_REMOVED provider=deepseek`.
+
+The file is `/home/aukora-host/genesis/state/home/.credentials.yaml`, the
+runtime's `$DSH_HOME/.credentials.yaml`. The pinned harness names that location
+and layout at
+`vendor/dsh/packages/credentials/credentials-local/src/index.ts:60-68,166-226`,
+rejects group/other-readable stores at `:96-143`, and atomically writes mode
+`0600` at `:753-785`. DeepSeek's default reference is
+`DEEPSEEK_API_KEY` (`vendor/dsh/packages/llm/llm-deepseek/src/config.ts:28,80-86`)
+and it resolves the reference for each request
+(`vendor/dsh/packages/llm/llm-deepseek/src/index.ts:84-103`). This command writes
+that exact version-1 `refs` document, owned by `aukora-host`, through a private
+same-directory atomic replacement; it refuses symlinks, hard links, foreign
+ownership, non-private ancestry, malformed existing content and non-printable,
+empty, multiline or over-4096-byte input.
+
+The pinned DeepSeek provider has a per-request output-token setting, not a
+per-node spend or request-count ceiling. It is not wired as a cost cap. Set a
+conservative account/project budget and request limit at the provider before
+supplying C1's key. The browser composition leaves `llm-deepseek` and the plain
+chat/session path mounted. None of `BROWSER_DISABLED_ROWS` is needed for a
+plain text reply: those rows are shell, file, network-tool, workflow and
+delegation effects (plus their UI/providers). `file-upload` intentionally stays
+mounted for session startup. The pinned base composition mounts the LLM,
+session, credentials, agent loop and DeepSeek rows at
+`vendor/dsh/packages/bundle/base/cordis.patch.yml:27-34,87-98,488-505`; the web
+composition mounts file upload, conversation and chat at
+`vendor/dsh/packages/bundle/web-app/cordis.patch.yml:190-193,254-261`. None of
+those IDs is disabled by the browser profile. Any model tool call is separately refused by
+`aukora-browser-refusal`; this does not prove a provider reply works.
+
 For an installed, release-approved node whose binding ceremony is already
 finished, switch approvals with this exact sequence. Use a reviewed installation
 containing these files and complete pinned passkey packages; this command does
@@ -158,7 +205,7 @@ lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/o
 # Give the one printed owner-hostname link through the private operator route.
 # Owner: open it, touch to create the credential, touch again to prove possession.
 # Wait for "Owner passkey enrolled. Enrollment is closed."
-lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/status.sh
+lxc --force-local exec C1 -- systemctl is-active aukora-browser.service
 # If the approved harness is inactive after the gate restart:
 lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/start.sh
 bash ops/node-spawn/browser/acceptance.sh --name C1 --phase passkey

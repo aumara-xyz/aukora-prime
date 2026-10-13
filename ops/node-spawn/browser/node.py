@@ -2,19 +2,24 @@
 # Install pinned fresh inputs and require protected approval before launch.
 import argparse
 import ast
+import errno
+import getpass
 import hashlib
 import importlib.util
 import ipaddress
 import json
 import os
 from pathlib import Path
+import pwd
 import re
+import secrets
 import shutil
 import stat
 import subprocess
 import sys
 import tarfile
 import time
+import warnings
 
 STATE = Path('/var/lib/aukora-browser')
 CHECKOUT = Path('/opt/aukora-genesis/src')
@@ -24,6 +29,12 @@ ENV = {'PATH': '/opt/aukora-node/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.
        'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 PRELOAD = ('NODE_OPTIONS', 'NODE_PATH', 'PYTHONPATH', 'PYTHONHOME',
            'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT')
+MODEL_PROVIDER = 'deepseek'
+MODEL_REF = 'DEEPSEEK_API_KEY'
+MODEL_HOME = Path('/home/aukora-host/genesis/state/home')
+MODEL_STORE = '.credentials.yaml'
+MODEL_KEY_MAX_BYTES = 4096
+MODEL_STORE_MAX_BYTES = 32 * 1024
 
 
 def refuse(code):
@@ -151,6 +162,171 @@ def installed():
     need(isinstance(value, dict) and set(value) == {'revision', 'inputs'} and isinstance(value['inputs'], dict), 'INSTALL_RECORD_INVALID')
     digest(value['revision'], True)
     return value
+
+
+def harness_identity():
+    try:
+        user = pwd.getpwnam('aukora-host')
+    except KeyError:
+        refuse('MODEL_USER_INVALID')
+    need(user.pw_uid != 0 and user.pw_gid != 0 and user.pw_dir == '/home/aukora-host',
+         'MODEL_USER_INVALID')
+    return user.pw_uid, user.pw_gid
+
+
+def open_model_home(uid, gid):
+    # Credential writes stay under the private harness-owned DSH home.
+    paths = [MODEL_HOME, *list(MODEL_HOME.parents)[:3]]
+    need(MODEL_HOME.is_absolute(), 'MODEL_STORE_PATH_INVALID')
+    for path in paths:
+        try:
+            info = path.lstat()
+        except OSError:
+            refuse('MODEL_STORE_CUSTODY_INVALID')
+        need(stat.S_ISDIR(info.st_mode) and info.st_uid == uid and info.st_gid == gid
+             and not info.st_mode & 0o077, 'MODEL_STORE_CUSTODY_INVALID')
+    try:
+        descriptor = os.open(MODEL_HOME, os.O_RDONLY | os.O_DIRECTORY | getattr(os, 'O_NOFOLLOW', 0))
+    except OSError:
+        refuse('MODEL_STORE_CUSTODY_INVALID')
+    info = os.fstat(descriptor)
+    if not (stat.S_ISDIR(info.st_mode) and info.st_uid == uid and info.st_gid == gid
+            and not info.st_mode & 0o077):
+        os.close(descriptor)
+        refuse('MODEL_STORE_CUSTODY_INVALID')
+    return descriptor
+
+
+def validate_model_key(value):
+    need(0 < len(value) <= MODEL_KEY_MAX_BYTES, 'MODEL_KEY_LENGTH_INVALID')
+    try:
+        text = value.decode('utf-8')
+    except UnicodeError:
+        refuse('MODEL_KEY_SHAPE_INVALID')
+    need(bool(text) and all(character.isprintable() for character in text),
+         'MODEL_KEY_SHAPE_INVALID')
+    return text
+
+
+def read_model_key(prompt=False):
+    # Non-prompt input must not be a terminal that can echo the credential.
+    if prompt:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', getpass.GetPassWarning)
+                value = getpass.getpass('Model key: ').encode('utf-8')
+        except (EOFError, KeyboardInterrupt, UnicodeError, getpass.GetPassWarning):
+            refuse('MODEL_KEY_INPUT_REFUSED')
+    else:
+        need(not sys.stdin.isatty(), 'MODEL_KEY_TTY_REFUSED')
+        value = sys.stdin.buffer.read(MODEL_KEY_MAX_BYTES + 3)
+        if value.endswith(b'\r\n'):
+            value = value[:-2]
+        elif value.endswith(b'\n'):
+            value = value[:-1]
+        need(b'\r' not in value and b'\n' not in value, 'MODEL_KEY_MULTILINE_REFUSED')
+    validate_model_key(value)
+    return value
+
+
+def render_model_store(value):
+    text = validate_model_key(value)
+    return ('version: 1\nrefs:\n  ' + MODEL_REF + ': '
+            + json.dumps(text, ensure_ascii=True) + '\n').encode('ascii')
+
+
+def model_store_key(directory, uid, gid):
+    try:
+        info = os.stat(MODEL_STORE, dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        refuse('MODEL_STORE_INVALID')
+    need(stat.S_ISREG(info.st_mode) and info.st_uid == uid and info.st_gid == gid
+         and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o600
+         and info.st_size <= MODEL_STORE_MAX_BYTES, 'MODEL_STORE_INVALID')
+    try:
+        descriptor = os.open(MODEL_STORE, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0), dir_fd=directory)
+    except OSError:
+        refuse('MODEL_STORE_INVALID')
+    try:
+        current = os.fstat(descriptor)
+        need((current.st_dev, current.st_ino) == (info.st_dev, info.st_ino), 'MODEL_STORE_INVALID')
+        payload = os.read(descriptor, MODEL_STORE_MAX_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    prefix = ('version: 1\nrefs:\n  ' + MODEL_REF + ': ').encode('ascii')
+    try:
+        text = json.loads(payload[len(prefix):-1].decode('ascii'))
+        value = text.encode('utf-8')
+    except (AttributeError, UnicodeError, ValueError):
+        refuse('MODEL_STORE_INVALID')
+    need(render_model_store(value) == payload, 'MODEL_STORE_INVALID')
+    return value
+
+
+def write_model_store(directory, uid, gid, payload):
+    # Replace one validated store from a private same-directory temporary file.
+    temporary = '.' + MODEL_STORE + '.tmp-' + secrets.token_hex(12)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0)
+    descriptor = None
+    try:
+        descriptor = os.open(temporary, flags, 0o600, dir_fd=directory)
+        os.fchown(descriptor, uid, gid)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, 'wb') as output:
+            descriptor = None
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, MODEL_STORE, src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
+    except OSError:
+        refuse('MODEL_STORE_WRITE_REFUSED')
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary, dir_fd=directory)
+        except OSError as error:
+            if error.errno != errno.ENOENT:
+                refuse('MODEL_STORE_WRITE_REFUSED')
+
+
+def model_key(remove=False, prompt=False):
+    root_check()
+    installed()
+    uid, gid = harness_identity()
+    directory = open_model_home(uid, gid)
+    try:
+        existing = model_store_key(directory, uid, gid)
+        if remove:
+            if existing is not None:
+                try:
+                    os.unlink(MODEL_STORE, dir_fd=directory)
+                    os.fsync(directory)
+                except OSError:
+                    refuse('MODEL_STORE_REMOVE_REFUSED')
+            print('MODEL_KEY_REMOVED provider=' + MODEL_PROVIDER)
+            return
+        value = read_model_key(prompt)
+        write_model_store(directory, uid, gid, render_model_store(value))
+    finally:
+        os.close(directory)
+    prefix = hashlib.sha256(value).hexdigest()[:12]
+    print('MODEL_KEY_SET provider=' + MODEL_PROVIDER + ' sha256=' + prefix)
+
+
+def model_status():
+    root_check()
+    installed()
+    uid, gid = harness_identity()
+    directory = open_model_home(uid, gid)
+    try:
+        present = model_store_key(directory, uid, gid) is not None
+    finally:
+        os.close(directory)
+    print('MODEL_KEY provider=' + MODEL_PROVIDER + ' present=' + ('yes' if present else 'no'))
 
 
 def release_paths(value):
@@ -675,7 +851,7 @@ class Parser(argparse.ArgumentParser):
 
 def main(args):
     parser = Parser(add_help=False)
-    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'passkey-claim', 'enable-owner-signin'])
+    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'passkey-claim', 'enable-owner-signin', 'model-key'])
     parser.add_argument('--inputs')
     parser.add_argument('--app-host')
     parser.add_argument('--owner-host')
@@ -683,6 +859,8 @@ def main(args):
         parser.add_argument('--' + key)
     parser.add_argument('--phase', choices=['before', 'after', 'passkey'])
     parser.add_argument('--release')
+    parser.add_argument('--prompt', action='store_true')
+    parser.add_argument('--remove', dest='remove_model_key', action='store_true')
     need(len([a for a in args if a.startswith('--')]) == len(set(a for a in args if a.startswith('--'))), 'USAGE')
     options = parser.parse_args(args)
     fields = ('inputs', 'checkout_sha256', 'revision', 'node_sha256', 'dependencies_sha256', 'app_host', 'owner_host')
@@ -690,6 +868,9 @@ def main(args):
          else all(getattr(options, key) is None for key in fields), 'USAGE')
     need((options.phase is not None) == (options.action == 'accept'), 'USAGE')
     need((options.release is not None) == (options.action == 'verify-profile'), 'USAGE')
+    need(not options.prompt or options.action == 'model-key', 'USAGE')
+    need(not options.remove_model_key or options.action == 'model-key', 'USAGE')
+    need(not (options.prompt and options.remove_model_key), 'USAGE')
     if options.action == 'install':
         absolute(options.inputs)
         for key in fields[1:5]:
@@ -705,6 +886,8 @@ def main(args):
         passkey_claim()
     elif options.action == 'enable-owner-signin':
         enable_owner_signin()
+    elif options.action == 'model-key':
+        model_key(options.remove_model_key, options.prompt)
     elif options.action == 'accept':
         accept(options.phase)
     elif options.action == 'verify-profile':
@@ -720,16 +903,7 @@ def main(args):
         run(['systemctl', 'disable', '--now', 'aukora-browser.service', 'aukora-browser-claim.service', 'aukora-boundary-gate.service'], 'REMOVE_REFUSED')
         print('BROWSER_DEACTIVATED; protected state and floor retained')
     else:
-        root_check()
-        value = installed()
-        release, approval = release_paths(value)
-        bootstrap('check-package')
-        print('BROWSER_INSTALLED revision=' + value['revision'])
-        for name in ('aukora-boundary-gate.service', 'aukora-browser.service', 'aukora-browser-claim.service'):
-            result = subprocess.run(['systemctl', 'is-active', name], env=ENV, capture_output=True)
-            print(name + ' ' + ('active' if result.returncode == 0 else 'inactive'))
-        result = subprocess.run(['/usr/bin/python3', '-I', '-S', BOOT, 'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)], env=ENV, capture_output=True)
-        print('FLOOR ' + ('verified' if result.returncode == 0 else 'not verified'))
+        model_status()
 
 
 if __name__ == '__main__':

@@ -546,10 +546,10 @@ class Pipeline(unittest.TestCase):
         w = self.world()
         w.installed_world()
         before = (w.m.STATE / 'installed.json').read_bytes()
-        with contextlib.redirect_stdout(io.StringIO()) as output:
+        with patch.object(w.m, 'model_status') as model_status, contextlib.redirect_stdout(io.StringIO()) as output:
             w.m.main(['status'])
             w.m.main(['remove'])
-        self.assertIn('FLOOR not verified', output.getvalue())
+        model_status.assert_called_once_with()
         self.assertIn('protected state and floor retained', output.getvalue())
         self.assertEqual((w.m.STATE / 'installed.json').read_bytes(), before)
         self.assertFalse(any(command[0] == 'systemctl' and ('start' in command or 'enable' in command) for command in w.commands))

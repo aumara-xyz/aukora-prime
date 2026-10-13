@@ -77,7 +77,9 @@ class BrowserInstaller(unittest.TestCase):
             for bad in [[], ['unknown'], ['start', '--revision', 'a' * 40], ['remove', '--phase', 'after'],
                         ['status', '--unknown'], ['accept'], ['accept', '--phase', 'bad'],
                         valid + ['--phase', 'before'], valid[:-1], ['start', 'extra'], ['verify-profile'],
-                        ['status', '--release', '/opt/aukora-genesis/release-aaaaaaa']]:
+                        ['status', '--release', '/opt/aukora-genesis/release-aaaaaaa'],
+                        ['status', '--prompt'], ['remove', '--remove'], ['model-key', '--prompt', '--remove'],
+                        ['model-key', 'SECRET_MUST_NOT_BE_AN_ARGUMENT']]:
                 rejects(lambda: M.main(bad), 'USAGE')
             for index in (4, 6, 8, 10):
                 args = valid.copy()
@@ -86,9 +88,15 @@ class BrowserInstaller(unittest.TestCase):
             args = valid.copy()
             args[2] = '../outside'
             rejects(lambda: M.main(args), 'PATH_INVALID')
-        for command in ['start', 'status', 'remove', 'accept', 'claim', 'rotate-owner-link', 'enable-owner-signin']:
+        for command in ['start', 'status', 'remove', 'accept', 'claim', 'rotate-owner-link', 'enable-owner-signin', 'model-key']:
             with patch.object(M, 'root_check', side_effect=ValueError('BROWSER_ROOT_REQUIRED')):
                 rejects(lambda: M.main([command] + (['--phase', 'before'] if command == 'accept' else [])), 'ROOT_REQUIRED')
+        with patch.object(M, 'model_key') as model_key:
+            M.main(['model-key', '--prompt'])
+            model_key.assert_called_once_with(False, True)
+        with patch.object(M, 'model_key') as model_key:
+            M.main(['model-key', '--remove'])
+            model_key.assert_called_once_with(True, False)
 
     def test_path_and_digest(self):
         self.assertEqual(M.absolute(str(self.root)), self.root)
@@ -176,6 +184,168 @@ class BrowserInstaller(unittest.TestCase):
         result.stdout = b'public'
         with patch.object(M.subprocess, 'run', return_value=result):
             self.assertEqual(M.run(['fake'], 'FAKE_REFUSED'), 'public')
+
+    def model_home(self):
+        home = self.root / 'home/aukora-host/genesis/state/home'
+        home.mkdir(parents=True)
+        for path in [home, *list(home.parents)[:3]]:
+            path.chmod(0o700)
+        return home
+
+    def model_patches(self, home):
+        owner = home.stat()
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(M, 'MODEL_HOME', home))
+        stack.enter_context(patch.object(M, 'root_check'))
+        stack.enter_context(patch.object(M, 'installed', return_value={'revision': 'a' * 40, 'inputs': {}}))
+        stack.enter_context(patch.object(M, 'harness_identity', return_value=(owner.st_uid, owner.st_gid)))
+        return stack
+
+    def test_model_key_input_refusals_and_prompt(self):
+        for value, code in [(b'', 'MODEL_KEY_LENGTH_INVALID'), (b'A' * 4097, 'MODEL_KEY_LENGTH_INVALID'),
+                            (b'bad\x00key', 'MODEL_KEY_SHAPE_INVALID'), (b'bad\xffkey', 'MODEL_KEY_SHAPE_INVALID')]:
+            rejects(lambda value=value: M.validate_model_key(value), code)
+        streams = [(b'one\ntwo\n', False, 'MODEL_KEY_MULTILINE_REFUSED'),
+                   (b'key\n', True, 'MODEL_KEY_TTY_REFUSED')]
+        for value, terminal, code in streams:
+            source = types.SimpleNamespace(isatty=lambda terminal=terminal: terminal, buffer=io.BytesIO(value))
+            with patch.object(M.sys, 'stdin', source):
+                rejects(M.read_model_key, code)
+        with patch.object(M.getpass, 'getpass', return_value='prompt-key') as prompt:
+            self.assertEqual(M.read_model_key(True), b'prompt-key')
+            prompt.assert_called_once_with('Model key: ')
+        with patch.object(M.getpass, 'getpass', side_effect=EOFError):
+            rejects(lambda: M.read_model_key(True), 'MODEL_KEY_INPUT_REFUSED')
+
+    def test_model_key_store_status_and_remove(self):
+        home = self.model_home()
+        secret = b'SYNTHETIC_MODEL_SECRET_123'
+        source = types.SimpleNamespace(isatty=lambda: False, buffer=io.BytesIO(secret + b'\n'))
+        with self.model_patches(home), patch.object(M.sys, 'stdin', source), \
+                contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
+            M.model_key()
+        expected_hash = hashlib.sha256(secret).hexdigest()[:12]
+        self.assertEqual(stdout.getvalue(), 'MODEL_KEY_SET provider=deepseek sha256=' + expected_hash + '\n')
+        self.assertEqual(stderr.getvalue(), '')
+        self.assertNotIn(secret.decode(), stdout.getvalue() + stderr.getvalue())
+        store = home / '.credentials.yaml'
+        self.assertEqual(store.read_bytes(), b'version: 1\nrefs:\n  DEEPSEEK_API_KEY: "SYNTHETIC_MODEL_SECRET_123"\n')
+        self.assertEqual(store.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((store.stat().st_uid, store.stat().st_gid),
+                         (home.stat().st_uid, home.stat().st_gid))
+        self.assertEqual(list(home.glob('.*.tmp-*')), [])
+        with self.model_patches(home), contextlib.redirect_stdout(io.StringIO()) as output:
+            M.model_status()
+        self.assertEqual(output.getvalue(), 'MODEL_KEY provider=deepseek present=yes\n')
+        with self.model_patches(home), contextlib.redirect_stdout(io.StringIO()) as output:
+            M.model_key(remove=True)
+        self.assertEqual(output.getvalue(), 'MODEL_KEY_REMOVED provider=deepseek\n')
+        self.assertFalse(store.exists())
+        with self.model_patches(home), contextlib.redirect_stdout(io.StringIO()) as output:
+            M.model_status()
+        self.assertEqual(output.getvalue(), 'MODEL_KEY provider=deepseek present=no\n')
+
+    def test_model_key_custody_and_store_refusals(self):
+        home = self.model_home()
+        owner = home.stat()
+        rejects(lambda: M.open_model_home(owner.st_uid + 1, owner.st_gid), 'MODEL_STORE_CUSTODY_INVALID')
+        home.chmod(0o750)
+        rejects(lambda: M.open_model_home(owner.st_uid, owner.st_gid), 'MODEL_STORE_CUSTODY_INVALID')
+        home.chmod(0o700)
+        alias = self.root / 'model-home-link'
+        alias.symlink_to(home)
+        with patch.object(M, 'MODEL_HOME', alias):
+            rejects(lambda: M.open_model_home(owner.st_uid, owner.st_gid), 'MODEL_STORE_CUSTODY_INVALID')
+        parent_alias = self.root / 'harness-home-link'
+        parent_alias.symlink_to(home.parents[2])
+        with patch.object(M, 'MODEL_HOME', parent_alias / 'genesis/state/home'):
+            rejects(lambda: M.open_model_home(owner.st_uid, owner.st_gid), 'MODEL_STORE_CUSTODY_INVALID')
+        with patch.object(M, 'MODEL_HOME', Path('relative')):
+            rejects(lambda: M.open_model_home(owner.st_uid, owner.st_gid), 'MODEL_STORE_PATH_INVALID')
+        with patch.object(M.pwd, 'getpwnam', side_effect=KeyError):
+            rejects(M.harness_identity, 'MODEL_USER_INVALID')
+        with patch.object(M.pwd, 'getpwnam', return_value=types.SimpleNamespace(pw_uid=0, pw_gid=0, pw_dir='/root')):
+            rejects(M.harness_identity, 'MODEL_USER_INVALID')
+
+        directory = os.open(home, os.O_RDONLY | os.O_DIRECTORY)
+        store = home / '.credentials.yaml'
+        valid = M.render_model_store(b'synthetic-key')
+        try:
+            store.write_bytes(valid)
+            store.chmod(0o644)
+            rejects(lambda: M.model_store_key(directory, owner.st_uid, owner.st_gid), 'MODEL_STORE_INVALID')
+            store.chmod(0o600)
+            rejects(lambda: M.model_store_key(directory, owner.st_uid + 1, owner.st_gid), 'MODEL_STORE_INVALID')
+            original_fstat = M.os.fstat
+            def changed_inode(descriptor):
+                info = original_fstat(descriptor)
+                return types.SimpleNamespace(st_dev=info.st_dev, st_ino=info.st_ino + 1)
+            with patch.object(M.os, 'fstat', side_effect=changed_inode):
+                rejects(lambda: M.model_store_key(directory, owner.st_uid, owner.st_gid), 'MODEL_STORE_INVALID')
+            for payload in (b'not yaml\n', b'version: 1\nrefs:\n  DEEPSEEK_API_KEY: unquoted\n',
+                            b'version: 1\nrefs:\n  DEEPSEEK_API_KEY:  "synthetic-key"\n'):
+                store.write_bytes(payload)
+                store.chmod(0o600)
+                rejects(lambda: M.model_store_key(directory, owner.st_uid, owner.st_gid), 'MODEL_STORE_INVALID')
+            store.unlink()
+            target = home / 'target'
+            target.write_bytes(valid)
+            store.symlink_to(target)
+            rejects(lambda: M.model_store_key(directory, owner.st_uid, owner.st_gid), 'MODEL_STORE_INVALID')
+            store.unlink()
+            os.link(target, store)
+            rejects(lambda: M.model_store_key(directory, owner.st_uid, owner.st_gid), 'MODEL_STORE_INVALID')
+        finally:
+            os.close(directory)
+
+    def test_model_key_write_and_remove_fail_closed(self):
+        home = self.model_home()
+        owner = home.stat()
+        directory = os.open(home, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with patch.object(M.os, 'replace', side_effect=PermissionError):
+                rejects(lambda: M.write_model_store(directory, owner.st_uid, owner.st_gid, M.render_model_store(b'key')),
+                        'MODEL_STORE_WRITE_REFUSED')
+            self.assertFalse((home / '.credentials.yaml').exists())
+        finally:
+            os.close(directory)
+        store = home / '.credentials.yaml'
+        store.write_bytes(M.render_model_store(b'key'))
+        store.chmod(0o600)
+        with self.model_patches(home), patch.object(M.os, 'unlink', side_effect=PermissionError):
+            rejects(lambda: M.model_key(remove=True), 'MODEL_STORE_REMOVE_REFUSED')
+
+    def test_model_key_never_appears_in_output_or_process_arguments(self):
+        home = self.model_home()
+        owner = home.stat()
+        secret = 'SYNTHETIC_PROCESS_MODEL_SECRET_456'
+        wrapper = '''import importlib.util,os
+spec=importlib.util.spec_from_file_location("browser_node",{source!r})
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+m.MODEL_HOME=m.Path({home!r});m.root_check=lambda:None;m.installed=lambda:{{}}
+m.harness_identity=lambda:({uid},{gid})
+m.main(["model-key"])
+'''.format(source=str(SOURCE), home=str(home), uid=owner.st_uid, gid=owner.st_gid)
+        process = subprocess.Popen([sys.executable, '-c', wrapper], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        observed_arguments = ' '.join(map(str, process.args))
+        proc = Path('/proc') / str(process.pid) / 'cmdline'
+        if proc.is_file():
+            observed_arguments += proc.read_bytes().replace(b'\0', b' ').decode(errors='replace')
+        else:
+            try:
+                command = subprocess.run(['ps', '-o', 'command=', '-p', str(process.pid)],
+                                         capture_output=True, text=True)
+                observed_arguments += command.stdout
+            except PermissionError:
+                pass
+        stdout, stderr = process.communicate((secret + '\n').encode(), timeout=10)
+        visible = observed_arguments + stdout.decode() + stderr.decode()
+        self.assertEqual(process.returncode, 0, stderr.decode())
+        self.assertNotIn(secret, visible)
+        self.assertEqual(stdout.decode(), 'MODEL_KEY_SET provider=deepseek sha256='
+                         + hashlib.sha256(secret.encode()).hexdigest()[:12] + '\n')
+        self.assertEqual(stderr, b'')
 
     def test_sockets_waits_for_both(self):
         with patch.object(M.Path, 'is_socket', return_value=False), patch.object(M.time, 'sleep') as sleep:
@@ -311,6 +481,7 @@ def mutations():
             raise AssertionError('mutation survived: ' + before)
     print('SOURCE-ONLY browser installer guard mutations: %d/%d killed' % (killed, len(cases)))
     unit_mutations()
+    model_mutations()
     guard_mutations()
 
 
@@ -339,6 +510,30 @@ def unit_mutations():
     print('SOURCE-ONLY browser ingress unit mutations: %d/%d killed' % (len(cases), len(cases)))
 
 
+def model_mutations():
+    global M
+    original = M
+    cases = [
+        ('atomic replace',
+         "        os.replace(temporary, MODEL_STORE, src_dir_fd=directory, dst_dir_fd=directory)\n",
+         "        os.unlink(temporary, dir_fd=directory)\n"),
+        ('secret output',
+         "    print('MODEL_KEY_SET provider=' + MODEL_PROVIDER + ' sha256=' + prefix)\n",
+         "    print(value.decode())\n    print('MODEL_KEY_SET provider=' + MODEL_PROVIDER + ' sha256=' + prefix)\n"),
+        ('stdin-only',
+         "        value = sys.stdin.buffer.read(MODEL_KEY_MAX_BYTES + 3)\n",
+         "        value = os.environ.get('MODEL_KEY', '').encode()\n"),
+    ]
+    for label, before, after in cases:
+        assert TEXT.count(before) == 1, label
+        M = load(TEXT.replace(before, after))
+        result = unittest.TestResult()
+        BrowserInstaller('test_model_key_store_status_and_remove').run(result)
+        assert result.failures or result.errors, 'model credential mutation survived: ' + label
+    M = original
+    print('SOURCE-ONLY model credential mutations: %d/%d killed' % (len(cases), len(cases)))
+
+
 def guard_mutations():
     # Every named Python refusal is exercised with its actual predicate removed.
     global M
@@ -351,6 +546,11 @@ def guard_mutations():
         'extract': ['test_archives'], 'run': ['test_run_refuses_and_hides_output'],
         'profile': ['test_profile_integrity'], 'profile_rules': ['test_profile_rules_and_service_preflight'],
         'listeners': ['test_listener_readback'], 'units': ['test_units_preserve_approval_no_preview'],
+        'harness_identity': ['test_model_key_custody_and_store_refusals'],
+        'open_model_home': ['test_model_key_custody_and_store_refusals'],
+        'validate_model_key': ['test_model_key_input_refusals_and_prompt'],
+        'read_model_key': ['test_model_key_input_refusals_and_prompt'],
+        'model_store_key': ['test_model_key_custody_and_store_refusals'],
         'main': ['test_usage_every_option', 'test_profile_rules_and_service_preflight'],
     }
     pipeline_methods = {
