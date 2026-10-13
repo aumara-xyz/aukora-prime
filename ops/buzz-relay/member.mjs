@@ -78,6 +78,7 @@ export function createMemberClient({ keyFile, baseUrl = RELAY_HTTP } = {}, {
     async send(options) {
       const event = commandEvent(options, key, now)
       const { status, data } = await post(baseUrl, '/events', event, key, { fetchImpl, now })
+      if ([408, 425, 429].includes(status) || status >= 500) throw fail(REFUSE.TRANSPORT)
       if (status < 200 || status >= 300 || data?.accepted === false) throw fail(REFUSE.REJECTED)
       if (data?.accepted !== true || data.event_id !== event.id) throw fail(REFUSE.UNKNOWN)
       return { accepted: true, event_id: event.id, kind: event.kind }

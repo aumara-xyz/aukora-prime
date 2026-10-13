@@ -31,8 +31,8 @@
     },
     {
       "file": "patches/public-browser-secure-cookie.patch.json",
-      "sha256": "41aaee4b38de8cdec99e02d94c81c6354ff4ca443db4fc5b307e21b9c0099b62",
-      "reason": "Mark authority-bound browser cookies Secure for non-loopback hosts while retaining the existing loopback HTTP development exchange."
+      "sha256": "3589b8a3d085969b08ad1567bcd43fdee7bf0457edfb8327451c267cf37fdd4b",
+      "reason": "Use __Host- authority-bound Secure browser cookies for public hosts while retaining the existing loopback HTTP development exchange."
     },
     {
       "file": "patches/cordis-logger-exporter-disposer.patch.json",

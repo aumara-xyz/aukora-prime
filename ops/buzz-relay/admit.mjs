@@ -28,6 +28,8 @@ const json = value => JSON.stringify(value)
 const recordIds = record => record.chain.map(({ invite, redemption }) => [invite.id, redemption.id])
 const MAX_DELIVERY_ATTEMPTS = 3
 const RETRY_BASE_MS = 25
+const RETRY_MAX_MS = 30_000
+const LEGACY_DELIVERY_ERRORS = [...Object.values(MEMBER_REFUSE), REFUSE.AURA, REFUSE.UNKNOWN].filter(code => code !== MEMBER_REFUSE.INPUT)
 const DELIVERY_STATES = new Set(['pending', 'admitted', 'undeliverable'])
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
 
@@ -77,6 +79,9 @@ function openStore(directory, root, baseUrl) {
     if (!columns.has('attempts')) db.exec('ALTER TABLE delivery ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0)')
     if (!columns.has('lastError')) db.exec('ALTER TABLE delivery ADD COLUMN lastError TEXT')
     if (!columns.has('retryAt')) db.exec('ALTER TABLE delivery ADD COLUMN retryAt INTEGER NOT NULL DEFAULT 0')
+    // Older broad refusals retain the exact reserved redemption while delivery reopens.
+    db.prepare(`UPDATE delivery SET state = 'pending', retryAt = 0 WHERE state = 'undeliverable'
+      AND attempts = 3 AND done = 0 AND lastError IN (${LEGACY_DELIVERY_ERRORS.map(() => '?').join(',')})`).run(...LEGACY_DELIVERY_ERRORS)
     db.prepare('INSERT OR IGNORE INTO network VALUES (1, ?, ?)').run(root, baseUrl)
     const network = db.prepare('SELECT root, relay FROM network').get()
     if (network.root !== root || network.relay !== baseUrl) throw fail(REFUSE.STORE)
@@ -129,8 +134,7 @@ function checkedRecord(store, root, row) {
   if (!DELIVERY_STATES.has(row.state) || !Number.isSafeInteger(row.attempts) || row.attempts < 0
     || !Number.isSafeInteger(row.retryAt) || row.retryAt < 0
     || (row.state === 'admitted') !== Boolean(row.done)
-    || (row.state === 'undeliverable' && (row.attempts !== MAX_DELIVERY_ATTEMPTS || typeof row.lastError !== 'string'))
-    || (row.state === 'pending' && row.attempts >= MAX_DELIVERY_ATTEMPTS)) throw fail(REFUSE.STORE)
+    || (row.state === 'undeliverable' && (row.attempts < 1 || row.lastError !== MEMBER_REFUSE.INPUT))) throw fail(REFUSE.STORE)
   if (verifyRecord({ root, record }).member !== entry.member) throw fail(REFUSE.STORE)
   const last = record.chain.at(-1)
   const stored = store.state.transaction(tx => tx.admission(root, entry.member))
@@ -152,7 +156,7 @@ const deliveryCode = error => [...Object.values(MEMBER_REFUSE), REFUSE.AURA, REF
 
 function deliveryResult(row, entry, record) {
   if (row.state === 'admitted') return { state: 'admitted', member: entry.member, record, attempts: row.attempts }
-  return { state: 'undeliverable', member: entry.member, invite_id: entry.inviteId,
+  return { state: row.state, member: entry.member, invite_id: entry.inviteId,
     attempts: row.attempts, code: row.lastError }
 }
 
@@ -178,8 +182,8 @@ async function deliver(ctx, row) {
     if (ack?.accepted !== true || ack.kind !== 9030 || !isHex32(ack.event_id)) throw fail(REFUSE.UNKNOWN)
   } catch (error) { code = deliveryCode(error) }
   if (code) {
-    const attempts = row.attempts + 1, terminal = attempts >= MAX_DELIVERY_ATTEMPTS
-    const retryAt = terminal ? 0 : ctx.nowMs() + RETRY_BASE_MS * (2 ** (attempts - 1))
+    const attempts = row.attempts + 1, terminal = code === MEMBER_REFUSE.INPUT
+    const retryAt = terminal ? 0 : ctx.nowMs() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.min(attempts - 1, 16)))
     store.db.prepare('UPDATE delivery SET state = ?, attempts = ?, lastError = ?, retryAt = ? WHERE inviteId = ?')
       .run(terminal ? 'undeliverable' : 'pending', attempts, code, retryAt, entry.inviteId)
     onStage('attempt')
@@ -259,7 +263,7 @@ export async function resume(options, deps = {}) {
     const results = []
     for (const initial of ctx.store.db.prepare("SELECT * FROM delivery WHERE state = 'pending' ORDER BY sequence").all()) {
       let row = initial
-      for (;;) {
+      for (let attempt = 0; attempt < MAX_DELIVERY_ATTEMPTS; attempt++) {
         const delay = row.retryAt - ctx.nowMs()
         if (delay > 0) await ctx.sleep(delay)
         try {
@@ -273,6 +277,10 @@ export async function resume(options, deps = {}) {
             break
           }
           if (![REFUSE.RETRY, REFUSE.AURA, REFUSE.UNKNOWN, ...Object.values(MEMBER_REFUSE)].includes(error?.code)) throw error
+          if (attempt === MAX_DELIVERY_ATTEMPTS - 1) {
+            const stored = checkedRecord(ctx.store, ctx.root, row)
+            results.push(deliveryResult(row, stored.entry, stored.record))
+          }
         }
       }
     }
@@ -291,8 +299,11 @@ use the previous admit output's record.chain. Supply [] for the root. Transfer b
 The admissions store holds, unencrypted, every member's public key and who invited whom (the whole invite graph).
 Resume: repeat an incomplete admit, or run resume with the same owner, relay and store. A spend committed before
 expiry is still delivered after expiry; uncommitted requests must still be valid. Never reset or restore the store.
-Delivery states are pending, admitted and undeliverable. Resume backs off, makes at most three total attempts per
-entry, reports terminal rows and continues later rows. Terminal invites stay spent and cannot vouch for another member.
+Delivery states are pending, admitted and undeliverable. Resume makes at most three attempts per entry per run;
+backoff persists across runs and is capped at 30 seconds. Transport, Aura, unknown acknowledgements and unclassified
+refusals stay pending for the same redemption. Only local invalid-command refusals terminalize delivery;
+no remote refusal code is qualified as permanent.
+Older broad terminal refusals reopen as pending. Terminal invites stay spent and cannot vouch for another member.
 The append-only admissions.jsonl precedes each send. Recovery completes a torn matching prefix; other damage refuses.
 With --gate-socket, the gate must record the signed admission record's SHA-256 before each send. Reuse that option
 on resume. Gate failure leaves delivery pending; an uncertain send or gate reply may produce duplicate digest notes.

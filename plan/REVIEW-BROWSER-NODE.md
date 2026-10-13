@@ -6,6 +6,31 @@ probes. I did not inspect a deployed Caddy, browser, authenticator, container,
 DNS, certificate, firewall, journal, or relay. Loopback `listen()` was refused by
 the sandbox with `EPERM`.
 
+## Repair status — 2026-10-13 working tree
+
+This is source-only status on `work` over `71367ac`; no C1 process, browser,
+authenticator or relay was changed or observed.
+
+| Finding | Current status and scope |
+| --- | --- |
+| 1 · interrupted enrollment | **FIXED on current main before this rebase.** Commit `c2c291c` replaced the parked implementation with the browser `passkey-claim` switch-over. The gate retains the request and accepted registration, restarts into the same enrollment ID and stage while the original claim is live, and keeps completed or failed enrollment closed. This rebase therefore skips the parked `enrollment-resume.mjs`, gate/page rewrites and their old tests. Expired unfinished setup still requires an owner recovery policy. |
+| 2 · unbound general RPC | **OPEN.** The pinned harness still has no supported global request-policy/binding-state hook. The archive-backed test records authenticated unbound access through both general RPC dispatch paths; that is a documentation control, not a protection. |
+| 3 · cookie prefix | **FIXED in this working tree.** The harness patch now mints and parses `__Host-dsh-auth-*` for a public HTTPS authority while preserving unprefixed, non-Secure cookies for loopback HTTP. The claim broker, signout, browser-node acceptance path and tests use the same authority-derived name. Existing public cookies require sign-in again after installation. Per-session server revocation remains open. |
+| 4 · slow broker connections | **FIXED in this working tree.** The claim broker applies absolute five-second header and ten-second body deadlines, closes after one request, and admits at most 32 connection threads. Current Caddy host/header forwarding fixes remain intact; installed proxy behavior is not qualified here. |
+| 5 · transient invitation delivery | **FIXED in this working tree.** Transport, Aura, malformed acknowledgements and unqualified remote refusals remain pending for the exact spent redemption. Each resume run is bounded to three attempts and durable exponential backoff caps at 30 seconds. Only local invalid-command refusal is terminal; legacy broad terminal rows reopen without releasing their invitation. |
+
+Changing the pinned harness patch makes the nine canonical face build records,
+their frozen copies and `packages/ui/baseline-manifest.json` stale. They are
+intentionally not edited here because this clone cannot rebuild the harness.
+Materialization already reports `face-bundle-source-stale`. The current copy,
+baseline and security-review checks still pass because all three retained layers
+are consistently old. After the canonical rebuild, copy equality (and therefore
+security review) will be red until the frozen copies move; after that copy, the
+baseline check will be red until its file records are refreshed.
+
+These source changes do not prove safe Internet ingress, real passkey custody,
+live cookie behavior, installed limits, relay idempotence or runtime containment.
+
 ## CONFIRMED
 
 1. **A reserved passkey claim can permanently strand a fresh node.** The gate
@@ -124,9 +149,10 @@ review changed none of those files. No test or package check names
 
 ## Owner decisions
 
-Choose whether transient relay failures may ever burn membership, the recovery
-authority for reserved enrollment, session lifetime/revocation policy, and
-whether any model-authored active content may share the app registrable domain.
+Choose the protected binding/global-RPC policy join, authority for expired
+enrollment recovery or explicit invitation abandonment, session
+lifetime/per-session revocation policy, and whether model-authored active content
+may share the app registrable domain.
 These source results do **not** prove a safe Internet node, containment, phrase
 secrecy, real-device custody, live cookie behavior, rendered-screen integrity,
 or that the four pieces have been installed and joined.

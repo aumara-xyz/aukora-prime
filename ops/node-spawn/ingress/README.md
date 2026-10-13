@@ -56,6 +56,8 @@ private launch descriptor on every exchange.
 
 The broker listens on container `127.0.0.1:18736`; the gate uses `17792` and the
 harness uses `18735`. The broker handles app claim, sign-in and sign-out paths.
+It admits at most 32 simultaneous connections and applies absolute five-second
+header and ten-second body read deadlines, with one request per connection.
 It does not forward harness WebSocket upgrades or SSE: normal app traffic must
 reach the harness directly. Returning sign-in requires the gate's protected
 `--passkey-setup` and `--browser-join` configuration; the installer's initial
@@ -151,7 +153,7 @@ Gate and broker restart do not restore a spent code. No enrolled passkey means
 this path refuses; root-minted operator claims remain the bootstrap path.
 
 Sign out with a same-origin empty `POST /__aukora/signout` from the app. This
-clears the exact `dsh-auth-` cookie derived from the configured app authority,
+clears the exact `__Host-dsh-auth-` cookie derived from the configured public app authority,
 with matching Path, Secure, HttpOnly and SameSite attributes. It does not revoke
 a stolen copy or close an already open WebSocket. A browser tab should close
 its active app connections when signing out.
@@ -205,7 +207,7 @@ The first two commands must show valid public certificates and HSTS; the owner
 response must also refuse framing. The three hostile browser-marker probes must
 return `403`, never `101`. The unknown host must not answer. From outside, all
 three high ports and the container addresses must be unreachable. After Peter uses the
-claim, browser storage must show a `dsh-auth-*` cookie with `Secure`, `HttpOnly`
+claim, browser storage must show a `__Host-dsh-auth-*` cookie with `Secure`, `HttpOnly`
 and `SameSite=Strict`; repeating the same link must be refused.
 
 ## Limits

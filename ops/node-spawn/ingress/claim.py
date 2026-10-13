@@ -7,10 +7,12 @@ import base64
 import fcntl
 import hashlib
 import http.client
+import io
 import json
 import os
 import re
 import secrets
+import socket
 import stat
 import tempfile
 import threading
@@ -32,6 +34,9 @@ MAX_CLAIM_BODY = 128
 MAX_OWNER_BODY = 64 * 1024
 MAX_TARGET = 2048
 MAX_HEADERS = 8192
+MAX_CONNECTIONS = 32
+HEADER_READ_SECONDS = 5
+BODY_READ_SECONDS = 10
 
 CLAIM_PAGE = b"""<!doctype html>
 <meta charset="utf-8">
@@ -63,7 +68,11 @@ SIGNIN_SCRIPT = CLAIM_SCRIPT.replace(b"/__aukora/claim'", b"/__aukora/signin'")
 
 def cookie_name(authority):
     digest = base64.urlsafe_b64encode(hashlib.sha256(authority.encode()).digest()).decode().rstrip("=")
-    return "dsh-auth-" + digest
+    hostname = urllib.parse.urlsplit("http://" + authority).hostname
+    parts = hostname.split(".") if hostname else []
+    loopback = (hostname in ("localhost", "::1") or (len(parts) == 4 and parts[0] == "127"
+                and all(part.isdecimal() and int(part) <= 255 for part in parts)))
+    return ("" if loopback else "__Host-") + "dsh-auth-" + digest
 
 
 def bounded_cookie(cookie, authority, now):
@@ -335,7 +344,7 @@ class HarnessCookieExchange:
         finally:
             connection.close()
         if (response.status != 303 or location != "/" or not isinstance(cookie, str)
-                or not cookie.startswith("dsh-auth-") or "\r" in cookie or "\n" in cookie
+                or not cookie.startswith(cookie_name(self.authority) + "=") or "\r" in cookie or "\n" in cookie
                 or "; Secure" not in cookie or "; HttpOnly" not in cookie
                 or "; SameSite=Strict" not in cookie):
             raise ClaimRefusal("HARNESS_COOKIE_INVALID", 502)
@@ -466,10 +475,82 @@ class ClaimApplication:
         return 204, self._headers([("Set-Cookie", cookie)]), b""
 
 
+class DeadlineReader(io.RawIOBase):
+    """Bound socket reads by one absolute deadline per request phase."""
+
+    def __init__(self, connection):
+        super().__init__()
+        self.connection = connection
+
+    def start(self, seconds, code):
+        self.deadline = time.monotonic() + seconds
+        self.code = code
+        self.connection.settimeout(seconds)
+
+    def remaining(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise ClaimRefusal(self.code, 408)
+        return remaining
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        self.connection.settimeout(self.remaining())
+        try:
+            count = self.connection.recv_into(buffer)
+        except (TimeoutError, socket.timeout) as error:
+            raise ClaimRefusal(self.code, 408) from error
+        self.remaining()
+        return count
+
+
+class ClaimHTTPServer(ThreadingHTTPServer):
+    """Admit at most a fixed number of simultaneous connection threads."""
+
+    def __init__(self, address, handler):
+        self.connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        if not self.connections.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.connections.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.connections.release()
+
+
 def handler_for(application):
     class Handler(BaseHTTPRequestHandler):
         server_version = "aukora-claim"
         sys_version = ""
+
+        def setup(self):
+            super().setup()
+            self.rfile.close()
+            self.deadline_reader = DeadlineReader(self.connection)
+            self.rfile = io.BufferedReader(self.deadline_reader)
+
+        def handle_one_request(self):
+            self.requestline = ""
+            self.request_version = self.default_request_version
+            self.command = None
+            self.deadline_reader.start(HEADER_READ_SECONDS, "HEADER_READ_DEADLINE")
+            try:
+                super().handle_one_request()
+            except ClaimRefusal as refusal:
+                self.close_connection = True
+                self.send_error(refusal.status_code, refusal.code)
 
         def log_message(self, _format, *_arguments):
             return
@@ -497,7 +578,10 @@ def handler_for(application):
                 limit = MAX_CLAIM_BODY if self.headers.get("Host") == application.public_authority else MAX_OWNER_BODY
                 if length > limit:
                     raise ClaimRefusal("REQUEST_TOO_LARGE", 413)
+                self.close_connection = True
+                self.deadline_reader.start(BODY_READ_SECONDS, "BODY_READ_DEADLINE")
                 body = self.rfile.read(length)
+                self.deadline_reader.remaining()
                 if len(body) != length:
                     raise ClaimRefusal("REQUEST_TRUNCATED", 400)
                 headers = {name.lower(): value for name, value in self.headers.items()}
@@ -565,7 +649,7 @@ def main():
                                      public_authority, arguments.harness_port)
     application = ClaimApplication(store, public_origin, public_authority, owner_authority,
                                    exchange, OwnerProxy(arguments.owner_page_port, owner_authority))
-    server = ThreadingHTTPServer(("127.0.0.1", arguments.listen_port), handler_for(application))
+    server = ClaimHTTPServer(("127.0.0.1", arguments.listen_port), handler_for(application))
     server.handle_error = lambda *_args: None
     server.serve_forever()
 

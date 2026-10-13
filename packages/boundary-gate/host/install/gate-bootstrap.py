@@ -35,7 +35,7 @@ LAUNCHER_SOURCE_PINS = {
     "scripts/lib/artifact-integrity.mjs": "39e2f64643ceb2e0d93fabd14467ebaf5efd6de0e0a70f76cf19ce69825b5a41",
     "scripts/lib/release-strip.mjs": "1a687a82424b84420497edbdc5e6c13cb14e065fe4d262f0e859e9e85264b641",
     "scripts/artifacts-coverage.json": "4b652f8963fe5ed4ebe9436621c709d217cd08e97ff7986f14900efba6f9c592",
-    "upstream-dsh.json": "08808d69a88818b5235b2015f55701efc22a7beee7697198577555a71dd4dd06",
+    "upstream-dsh.json": "702c345f235c054b2c29fc60d7562360424a13aa148c77b37df1264e55bceb01",
 }
 AURA_ROOT = "/opt/aukora-aura"
 AURA_ENTRY = "packages/boundary-gate/host/aura/entry.mjs"

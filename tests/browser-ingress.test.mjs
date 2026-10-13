@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory() as temporary:
     refused(lambda: expired.consume(old, authority, now + 30), 'CLAIM_EXPIRED')
 
     calls = []
-    cookie = 'dsh-auth-fixture=v1.fixture; Path=/; HttpOnly; SameSite=Strict; Secure'
+    cookie = module.cookie_name(authority) + '=v1.fixture; Path=/; HttpOnly; SameSite=Strict; Secure'
     wrong = fresh(base, 'wrong-host')
     claim = wrong.mint(authority, now, 60)
     app = module.ClaimApplication(wrong, origin, authority, 'owner.example.test',

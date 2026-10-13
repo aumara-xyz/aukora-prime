@@ -26,6 +26,10 @@ def refused(call, code):
     raise AssertionError('accepted ' + code)
 with tempfile.TemporaryDirectory(dir=pathlib.Path.cwd()) as temporary:
     origin, authority, owner = 'https://node.example.test', 'node.example.test', 'owner.example.test'
+    expected_name = '__Host-dsh-auth-' + base64.urlsafe_b64encode(hashlib.sha256(authority.encode()).digest()).decode().rstrip('=')
+    assert m.cookie_name(authority) == expected_name
+    for local in ['localhost:18735', '127.0.0.1:18735', '127.0.0.2:18735', '[::1]:18735']:
+        assert m.cookie_name(local).startswith('dsh-auth-') and not m.cookie_name(local).startswith('__Host-')
     now, code = 1000, 'A' * 43
     headers = {'host':authority,'origin':origin,'sec-fetch-site':'same-origin','content-type':'text/plain'}
     def fresh(name):
@@ -117,6 +121,8 @@ test('returning signin, authority signout and signed session bound with guard mu
   t.diagnostic(baseline.stdout.trim())
   const source = readFileSync(claimPath, 'utf8')
   const mutants = [
+    ['public cookie prefix', '("" if loopback else "__Host-")', '""'],
+    ['loopback cookie prefix', '("" if loopback else "__Host-")', '"__Host-"'],
     ['same code spent', 'code=code)', 'code=None)'],
     ['duplicate import', 'if any(row.get("digest") == f"sha256:{digest}" for row in retained):', 'if False:'],
     ['redeem success', 'if status_code != 200:', 'if False:'],

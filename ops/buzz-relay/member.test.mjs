@@ -226,6 +226,15 @@ test('admin success requires accepted=true and the exact event id; relay failure
   }
 })
 
+test('remote refusals are unclassified; rate limits and outages remain retryable', async t => {
+  const f = fixture(t)
+  for (const status of [400, 413, 422, 408, 425, 429, 500, 502, 503, 504, 401, 403, 404]) {
+    const b = await bridge(t, () => ({ status, data: { accepted: false, error: f.key } }))
+    const code = [408, 425, 429].includes(status) || status >= 500 ? REFUSE.TRANSPORT : REFUSE.REJECTED
+    await rejects(() => client(f, b).send({ command: 'add', pubkey: target }), code)
+  }
+})
+
 test('verify-closed probes BOTH routes with a valid disposable identity and CLI exits zero only for closure', async t => {
   const b = await bridge(t)
   for (let i = 0; i < 2; i++) assert.equal((await verifyClosed(b)).closed, true)
@@ -339,6 +348,7 @@ test('mutation checks', { skip: process.env.AUKORA_BUZZ_MUTATIONS !== '1' }, () 
     ['NIP98', 'Authorization: httpAuthHeader({ url, body, secretKeyHex: key, now })', "Authorization: 'Nostr broken'"],
     ['response bound', 'bytes > MAX_RESPONSE_BYTES', 'false'],
     ['status rejection', 'status < 200 || status >= 300', 'false'],
+    ['transient status classification', 'if ([408, 425, 429].includes(status) || status >= 500) throw fail(REFUSE.TRANSPORT)', ''],
     ['explicit rejection', 'data?.accepted === false', 'false'],
     ['acknowledgement', 'data?.accepted !== true || data.event_id !== event.id', 'false'],
     ['exact event id', 'data.event_id !== event.id', 'false'],

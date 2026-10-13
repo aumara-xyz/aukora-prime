@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "apps",
-  "srcDigest": "697473d0e0f012c82614f776de1dc966999bcb80bd75874640351006a9a5e6d2",
+  "srcDigest": "2b5480bff3c017946dd7d185fbdb9ec463946d7cbcd4494ae880eeb811757b88",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",

@@ -372,24 +372,24 @@ test('recovery backs off, records an undeliverable terminal state, and continues
   const sleeps = [], sends = new Map()
   const sender = async command => {
     sends.set(command.pubkey, (sends.get(command.pubkey) ?? 0) + 1)
-    if (command.pubkey === first.redemption.pubkey) throw Object.assign(new Error('refused'), { code: MEMBER.REJECTED })
     if ((sends.get(command.pubkey) ?? 0) === 1) throw new Error('timeout')
+    if (command.pubkey === first.redemption.pubkey) throw Object.assign(new Error('refused'), { code: MEMBER.INPUT })
     return accepted
   }
   const deps = { ...f.deps, nowMs: () => nowMs, sleep: async delay => { sleeps.push(delay); nowMs += delay }, sender }
-  await rejects(() => admit({ ...f.options, ...first }, deps), MEMBER.REJECTED)
+  await rejects(() => admit({ ...f.options, ...first }, deps), REFUSE.UNKNOWN)
   await rejects(() => admitIdempotent({ ...f.options, root: f.people[0].pubkey, ...first }, deps), REFUSE.RETRY)
   assert.equal(sends.get(first.redemption.pubkey), 1)
   await rejects(() => admit({ ...f.options, ...second }, deps), REFUSE.UNKNOWN)
   assert.deepEqual(deliveries(f).map(row => [row.state, row.attempts]), [['pending', 1], ['pending', 1]])
   const recovered = await resume(f.options, deps)
   assert.deepEqual(recovered.map(result => result.state), ['undeliverable', 'admitted'])
-  assert.deepEqual(sleeps, [25, 50])
-  assert.equal(sends.get(first.redemption.pubkey), 3)
+  assert.deepEqual(sleeps, [25])
+  assert.equal(sends.get(first.redemption.pubkey), 2)
   assert.equal(sends.get(second.redemption.pubkey), 2)
   const rows = deliveries(f)
   assert.deepEqual(rows.map(row => [row.state, row.attempts, row.lastError]), [
-    ['undeliverable', 3, MEMBER.REJECTED], ['admitted', 2, null],
+    ['undeliverable', 2, MEMBER.INPUT], ['admitted', 2, null],
   ])
   const before = new Map(sends)
   await rejects(() => admitIdempotent({ ...f.options, root: f.people[0].pubkey, ...first }, deps), REFUSE.UNDELIVERABLE)
@@ -400,6 +400,81 @@ test('recovery backs off, records an undeliverable terminal state, and continues
     error => error.code === INVITES.UNADMITTED)
   assert.deepEqual(await resume(f.options, deps), [])
   assert.deepEqual(counts(f), { consumed: 2, admissions: 2 })
+})
+
+test('transient delivery stays pending across bounded recovery runs and reserves the exact redemption', async t => {
+  for (const code of [MEMBER.TRANSPORT, MEMBER.RESPONSE, MEMBER.UNKNOWN, MEMBER.REJECTED, REFUSE.UNKNOWN, REFUSE.AURA]) {
+    const f = fixture(t), claim = pair(f), later = pair(f, 0, 2), child = pair(f, 1, 3)
+    const sleeps = []
+    let nowMs = 1000, sends = 0, outage = true
+    const options = { ...f.options, root: f.people[0].pubkey, ...claim, ...(code === REFUSE.AURA ? { gateSocket: '/fixture-gate.sock' } : {}) }
+    const deps = { ...f.deps, nowMs: () => nowMs, sleep: async delay => { sleeps.push(delay); nowMs += delay },
+      gate: async () => { if (outage) throw new Error('private gate error'); return auraAck },
+      sender: async () => { sends++; if (outage) throw Object.assign(new Error('private relay error'), { code }); return accepted } }
+    await rejects(() => admitIdempotent(options, deps), code)
+    for (let run = 1; run <= 4; run++) {
+      const result = await resume(options, deps)
+      assert.deepEqual(result.map(row => [row.state, row.attempts, row.code]), [['pending', 1 + run * 3, code]])
+      assert.equal(sends, code === REFUSE.AURA ? 0 : 1 + run * 3)
+      assert.equal(deliveries(f)[0].state, 'pending')
+    }
+    assert.deepEqual(sleeps, [25, 50, 100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 30000])
+    assert.equal(deliveries(f)[0].retryAt, nowMs + 30000)
+    await rejects(() => admitIdempotent(options, deps), REFUSE.RETRY)
+    const changed = redeemInvite({ invite: claim.invite, secretKey: f.people[2].key, now: f.now })
+    await rejects(() => admitIdempotent({ ...options, redemption: changed }, deps), INVITES.REPLAY)
+    assert.throws(() => preflight({ ...f.options, root: f.people[0].pubkey, invite: child.invite, chain: [claim] }, deps), error => error.code === INVITES.UNADMITTED)
+    assert.equal((await admit({ ...f.options, ...later }, { ...f.deps, sender: async () => accepted })).state, 'admitted')
+    outage = false
+    const recovered = await resume(options, { ...deps, now: () => f.now + TTL_SECONDS + 1 })
+    assert.deepEqual(recovered.map(row => [row.state, row.attempts]), [['admitted', 14]])
+    assert.deepEqual(counts(f), { consumed: 2, admissions: 2 })
+    assert.equal(lines(f).length, 2)
+    assert.equal(preflight({ ...f.options, root: f.people[0].pubkey, invite: child.invite, chain: [claim] }, f.deps).available, true)
+  }
+})
+
+test('legacy broad terminal refusals reopen delivery without releasing the spent invitation', async t => {
+  for (const code of [MEMBER.TRANSPORT, MEMBER.REJECTED, MEMBER.RESPONSE, REFUSE.AURA, REFUSE.UNKNOWN]) {
+    const f = fixture(t), claim = pair(f), options = { ...f.options, root: f.people[0].pubkey, ...claim }
+    await rejects(() => admitIdempotent(options, { ...f.deps, sender: async () => { throw new Error('offline') } }), REFUSE.UNKNOWN)
+    const db = new DatabaseSync(path.join(f.storeDir, 'admissions.sqlite'))
+    try { db.prepare("UPDATE delivery SET state = 'undeliverable', attempts = 3, lastError = ?, retryAt = 0").run(code) }
+    finally { db.close() }
+    const changed = redeemInvite({ invite: claim.invite, secretKey: f.people[2].key, now: f.now })
+    await rejects(() => admitIdempotent({ ...options, redemption: changed }, f.deps), INVITES.REPLAY)
+    let sends = 0
+    const result = await resume(options, { ...f.deps, sender: async () => { sends++; return accepted } })
+    assert.deepEqual(result.map(row => [row.state, row.attempts]), [['admitted', 4]])
+    assert.equal(sends, 1); assert.deepEqual(counts(f), { consumed: 1, admissions: 1 })
+  }
+  for (const [attempts, code] of [[1, MEMBER.REJECTED], [3, 'invalid-state']]) {
+    const f = fixture(t), claim = pair(f)
+    await rejects(() => admit({ ...f.options, ...claim }, { ...f.deps, sender: async () => { throw new Error('offline') } }), REFUSE.UNKNOWN)
+    const db = new DatabaseSync(path.join(f.storeDir, 'admissions.sqlite'))
+    try { db.prepare("UPDATE delivery SET state = 'undeliverable', attempts = ?, lastError = ?, retryAt = 0").run(attempts, code) }
+    finally { db.close() }
+    await rejects(() => resume(f.options, { ...f.deps, sender: async () => assert.fail('invalid legacy row reached relay') }), REFUSE.STORE)
+  }
+})
+
+test('unclassified HTTP 400 and payload refusals remain pending for the exact signed request', async t => {
+  for (const status of [400, 413, 422]) {
+    const f = fixture(t), claim = pair(f)
+    let nowMs = 1000, sends = 0, outage = true
+    const deps = { ...f.deps, nowMs: () => nowMs, sleep: async delay => { nowMs += delay },
+      fetchImpl: async (_url, options) => {
+        sends++
+        return outage ? Response.json({ error: 'unclassified' }, { status })
+          : Response.json({ accepted: true, event_id: JSON.parse(options.body).id })
+      } }
+    await rejects(() => admit({ ...f.options, ...claim }, deps), MEMBER.REJECTED)
+    assert.deepEqual((await resume(f.options, deps)).map(row => [row.state, row.code]), [['pending', MEMBER.REJECTED]])
+    assert.equal(sends, 4)
+    outage = false
+    assert.deepEqual((await resume(f.options, deps)).map(row => row.state), ['admitted'])
+    assert.equal(sends, 5); assert.deepEqual(counts(f), { consumed: 1, admissions: 1 })
+  }
 })
 
 test('a completed legacy delivery migrates without a resend', async t => {
@@ -655,6 +730,10 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
     ['later rows proceed', '// Outbox insertion shares the verifier transaction; rollback cannot leave an unresumable spend.',
       "if (store.db.prepare(\"SELECT 1 FROM delivery WHERE state = 'pending'\").get()) throw fail(REFUSE.PENDING)\n    // Outbox insertion shares the verifier transaction; rollback cannot leave an unresumable spend."],
     ['bounded attempts', 'const MAX_DELIVERY_ATTEMPTS = 3', 'const MAX_DELIVERY_ATTEMPTS = 4'],
+    ['transient pending', 'terminal = code === MEMBER_REFUSE.INPUT', 'terminal = attempts >= MAX_DELIVERY_ATTEMPTS'],
+    ['retry cap', 'Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.min(attempts - 1, 16)))', 'RETRY_BASE_MS * (2 ** Math.min(attempts - 1, 16))'],
+    ['legacy transient recovery', "WHERE state = 'undeliverable'\n      AND attempts = 3", 'WHERE 0\n      AND attempts = 3'],
+    ['legacy state validation', "AND attempts = 3 AND done = 0 AND lastError IN", "AND done = 0 AND lastError IN"],
     ['retry backoff', 'const RETRY_BASE_MS = 25', 'const RETRY_BASE_MS = 0'],
     ['retry deadline', 'if (row.retryAt > ctx.nowMs()) throw fail(REFUSE.RETRY)', ''],
     ['terminal persistence', "terminal ? 'undeliverable' : 'pending'", "'pending'"],
@@ -700,7 +779,9 @@ test('admission protections fail under mutation', { skip: process.env.AUKORA_ADM
     [['completion after acknowledgement', 'accepted acknowledgement', 'member-kind acknowledgement', 'event-id acknowledgement', 'concurrent sender lock'], 'in-flight sender'],
     [['durable completion'], 'each abrupt process exit'],
     [['expired pending resume', 'exact pending pair', 'later rows proceed'], 'pending exact retry'],
-    [['HTTP terminal no resend', 'bounded attempts', 'retry backoff', 'retry deadline', 'terminal persistence', 'admitted ancestry only', 'resume continues rows'], 'recovery backs off'],
+    [['HTTP terminal no resend', 'retry backoff', 'retry deadline', 'terminal persistence', 'admitted ancestry only', 'resume continues rows'], 'recovery backs off'],
+    [['bounded attempts', 'transient pending', 'retry cap'], 'transient delivery stays pending'],
+    [['legacy transient recovery', 'legacy state validation'], 'legacy broad terminal refusals'],
     [['legacy completion migration'], 'completed legacy delivery'],
     [['owner binding', 'relay binding', 'append-only prefix'], 'recovery appends'],
     [['single-link store', 'private store files', 'store file owner', 'no-follow store files', 'SQLite companion protection'], 'store files reject'],

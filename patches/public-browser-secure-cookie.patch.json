@@ -1,12 +1,18 @@
 {
   "formatVersion": 1,
   "name": "public-browser-secure-cookie",
-  "reason": "Mark authority-bound browser cookies Secure for non-loopback hosts while retaining the existing loopback HTTP development exchange.",
+  "reason": "Use __Host- authority-bound Secure browser cookies for public hosts while retaining the existing loopback HTTP development exchange.",
   "edits": [
     {
       "path": "packages/client/connection/src/browser-auth.ts",
       "find": "import { credentialKey } from '@deepseek-ai/dsh-credentials'",
       "replace": "import { credentialKey } from '@deepseek-ai/dsh-credentials'\nimport { isLoopbackHostname } from './loopback-hostname.ts'",
+      "occurrences": 1
+    },
+    {
+      "path": "packages/client/connection/src/browser-auth.ts",
+      "find": "function cookieName(authority: string): string {\n  return COOKIE_PREFIX + encodeBase64Url(createHash('sha256').update(authority).digest())\n}",
+      "replace": "function cookieName(authority: string): string {\n  const hostname = new URL(`http://${authority}`).hostname\n  const prefix = isLoopbackHostname(hostname) ? COOKIE_PREFIX : '__Host-' + COOKIE_PREFIX\n  return prefix + encodeBase64Url(createHash('sha256').update(authority).digest())\n}",
       "occurrences": 1
     },
     {
@@ -30,12 +36,20 @@
     {
       "path": "packages/client/connection/src/browser-auth.ts",
       "contains": "authority, cookieName(authority), value"
+    },
+    {
+      "path": "packages/client/connection/src/browser-auth.ts",
+      "contains": "const prefix = isLoopbackHostname(hostname) ? COOKIE_PREFIX : '__Host-' + COOKIE_PREFIX"
     }
   ],
   "expectAfterBuild": [
     {
       "path": "packages/client/connection/lib/types/browser-auth.js",
       "contains": "; Secure"
+    },
+    {
+      "path": "packages/client/connection/lib/types/browser-auth.js",
+      "contains": "__Host-"
     }
   ]
 }

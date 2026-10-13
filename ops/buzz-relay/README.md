@@ -90,8 +90,11 @@ it does not isolate credentials from the service account.
 It also holds event ids, signed ancestry and times; no secret keys are stored. Spending and pending delivery commit
 together. Delivery is recorded as `pending`, `admitted`, or `undeliverable`. Resume with the same owner, relay and
 store: append the missing intent bytes, then retry a pending member add, even if the spent invite has since expired.
-Retries back off twice and stop after three failed attempts; `resume` reports the terminal row and continues with
-later rows. An undeliverable member is not valid invite ancestry. Completed invites refuse replay, and terminal
+Each `resume` run makes at most three attempts per pending row and continues with later rows. Backoff persists
+across runs, capped at 30 seconds. Transport, Aura, malformed acknowledgements and all remote refusals stay pending
+for the exact spent redemption; another key cannot redeem that invite. Only a local invalid-command refusal is
+terminal; no remote refusal code is qualified as permanent. Older broad terminal refusals reopen delivery while
+retaining the spent invitation. An undeliverable member is not valid invite ancestry. Completed invites refuse replay, and terminal
 invites stay spent. A lost relay acknowledgement can repeat the add request; recovery requires idempotent relay
 membership adds, not exactly-once HTTP. Keep this private local store intact; never reset it or restore an older copy.
 
