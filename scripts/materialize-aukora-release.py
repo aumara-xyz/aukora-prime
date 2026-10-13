@@ -655,10 +655,25 @@ def restrict_browser_preset(text: str) -> str:
     return ''.join(lines)
 
 
-def install_browser_profile(target: Path) -> None:
-    """Bind disabled release-local presets into a covered profile marker."""
+def strip_plan_deleted(target: Path) -> list:
+    """Paths the declared strip would delete from this release, read from the strip tool's own plan."""
+    completed = subprocess.run(['node', str(STRIP_CLI), '--release', str(target), '--plan'],
+                               capture_output=True, text=True)
+    if completed.returncode != 0:
+        fail(f'browser-node:strip-plan-failed: {(completed.stderr or completed.stdout).strip()[-300:]}')
+    return [line[len('  delete '):] for line in completed.stdout.splitlines() if line.startswith('  delete ')]
+
+
+def install_browser_profile(target: Path, doomed=()) -> None:
+    """Bind disabled release-local presets into a covered profile marker.
+
+    A preset the strip is about to delete is not release content and is not recorded.
+    """
     presets = {}
     for preset in sorted(target.rglob('agent.cordis.yml')):
+        relative = preset.relative_to(target).as_posix()
+        if any(relative == path or relative.startswith(path.rstrip('/') + '/') for path in doomed):
+            continue
         if preset.is_symlink():
             fail('browser-node:preset-symlink')
         preset.write_text(restrict_browser_preset(preset.read_text(encoding='utf-8')), encoding='utf-8')
@@ -2024,7 +2039,7 @@ def main() -> int:
     # The browser profile's files are release bytes: they go in BEFORE the strip measures the tree,
     # or the launcher's re-measurement finds files the strip manifest never counted.
     if args.browser_node:
-        install_browser_profile(target)
+        install_browser_profile(target, strip_plan_deleted(target))
     strip = strip_release(target)
     strip_path = target / 'strip-manifest.json'
     if args.browser_node and not (target / 'browser-node-profile.patch.yml').is_file():

@@ -253,7 +253,7 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // in host/preset scopes and records the global all-tool refusal before the artifact record.
   // Both Kira rows/config, proposal socket and ordinary release defaults remain unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '158e0f81fab1e7f9cf35c8465ee14fb0679248b57178b7fbb8bc2629b5216f0b')
+    '2c2fc4e6f287c610e4c41514aa084a77adc4125135aac6a4611facf2a5e4a1b9')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
