@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "settings",
-  "srcDigest": "2696ec0861206503e766e7cdfa505c1ce65adb5a123fc691a05a17c027c2e739",
+  "srcDigest": "bac29bccf124d6d06a3fb503df7c71f8121d9f18830d0e8246de04a0e22d1583",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",
@@ -45,7 +45,7 @@
     "tsdown.config.ts"
   ],
   "outputs": {
-    "client.js": "8b120c1a46ece3faabd85ba13235c6af6c2b149ce024402ffae33683f1f43adf",
+    "client.js": "21c5c251422d9be9e6c55d5d5adea63981455f96a82a7a39dcd47b8a6c7379ef",
     "index.js": "90cc67a0cbb039e29bf46e1a5cd7e4e5733a4939569d39f82a687a8be999bafd",
     "invariant.js": "ac97a8f17a8b9ea4cc74bb74faaebfb613ec92a958882b19673a6597ca88c225"
   }

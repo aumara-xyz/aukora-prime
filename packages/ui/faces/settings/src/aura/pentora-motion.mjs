@@ -37,6 +37,7 @@ export function pentoraMotionFrame(motion, elapsedMs, reducedMotion = false) {
   const moved = Math.floor(cells.nextCells.length * progress)
   return Object.freeze({
     cells: Object.freeze(cells.nextCells.map((value, index) => index < moved ? value : cells.previousCells[index])),
+    changedCells: Object.freeze(cells.nextCells.map((value, index) => value !== cells.previousCells[index])),
     status: solid ? 'solid' : 'in-motion',
     head: solid ? motion.nextHead : null,
     progress,

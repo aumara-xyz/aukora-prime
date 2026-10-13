@@ -11,6 +11,12 @@ export interface AuraSnapshot {
   head: string
   sources: AuraSnapshotSource[]
 }
+export interface AuraSourceAdvance {
+  source: string
+  head: string
+  entries: number
+  observedAt: number
+}
 const NAMES = ['gate-ledger', 'kira-chain', 'code-chain']
 const HEAD = /^[0-9a-f]{64}$/u
 function refuse(code: string): never {
@@ -47,4 +53,20 @@ export function advanceSourceEntries(previous: ReadonlyMap<string, number>, sour
     counters.set(source.name, Math.max(before ?? source.entries, source.entries))
   }
   return { counters, entries }
+}
+
+/** Record only non-initial source heads that this screen observed changing. */
+export function observeSourceAdvances(previous: ReadonlyMap<string, string | null>,
+  sources: readonly AuraSnapshotSource[], observedAt: number) {
+  const heads = new Map(previous)
+  const advances: AuraSourceAdvance[] = []
+  for (const source of sources) {
+    const seen = heads.has(source.name)
+    const before = heads.get(source.name)
+    if (seen && source.head !== null && source.head !== before) {
+      advances.push({ source: source.name, head: source.head, entries: source.entries ?? 0, observedAt })
+    }
+    heads.set(source.name, source.head)
+  }
+  return { heads, advances }
 }

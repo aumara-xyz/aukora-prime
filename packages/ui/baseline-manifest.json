@@ -2332,14 +2332,14 @@
       "source": "plugins/aukora-face/settings/lib/.build-inputs.json",
       "path": "faces/settings/lib/.build-inputs.json",
       "bytes": 1770,
-      "sha256": "88b57f909b5a4a5896edd1565c993766af257a521a76e3decb15f88d5aba3c4b",
+      "sha256": "d22a931d4bc3d8ac880eab6f484ae97cae59167dcc42e6e45e553f1213c49303",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/client.js",
       "path": "faces/settings/lib/client.js",
-      "bytes": 59405,
-      "sha256": "8b120c1a46ece3faabd85ba13235c6af6c2b149ce024402ffae33683f1f43adf",
+      "bytes": 69513,
+      "sha256": "21c5c251422d9be9e6c55d5d5adea63981455f96a82a7a39dcd47b8a6c7379ef",
       "role": "bundle"
     },
     {
@@ -2380,15 +2380,15 @@
     {
       "source": "plugins/aukora-face/settings/src/aura/pentora-motion.d.mts",
       "path": "faces/settings/src/aura/pentora-motion.d.mts",
-      "bytes": 719,
-      "sha256": "f2870f54530cca5d4c99445c0428336aa859dee90281fd00002ce54df6bb8f51",
+      "bytes": 763,
+      "sha256": "78bd05cfdc7800a916ebb328471fc1c27f59db3f1e6c41205a936793a653ebd8",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/settings/src/aura/pentora-motion.mjs",
       "path": "faces/settings/src/aura/pentora-motion.mjs",
-      "bytes": 1863,
-      "sha256": "16b4e4b1c9cf630851f1143ac8e6c3a56ab0407a2f1b32d8ba568260a433e033",
+      "bytes": 1973,
+      "sha256": "acc3763ac9a69955ba85e5e27cabcbe6be628b1858bbce155774ba2a5e444f7e",
       "role": "source"
     },
     {
@@ -2443,15 +2443,15 @@
     {
       "source": "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.module.css",
       "path": "faces/settings/src/client/AuraCoherenceSurface.module.css",
-      "bytes": 1686,
-      "sha256": "7a343e829a023378016280ff2019a07b48b2b32d412a4c7076bc72835aed0ff9",
+      "bytes": 7819,
+      "sha256": "064dc4246da25993b876fc75092fcaf023546e414c6d622991da05e674425acd",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/settings/src/client/AuraCoherenceSurface.tsx",
       "path": "faces/settings/src/client/AuraCoherenceSurface.tsx",
-      "bytes": 9524,
-      "sha256": "8c6f1c6a11612239eac449f60fb8c2d3705d61e3babd66b6d51752b60b216cd6",
+      "bytes": 11866,
+      "sha256": "09a450c26096bcbb222604657155ee24d7e2b13d989b1d10fb91f1f7a1a8dae9",
       "role": "source"
     },
     {
@@ -2513,8 +2513,8 @@
     {
       "source": "plugins/aukora-face/settings/src/client/aura-snapshot.ts",
       "path": "faces/settings/src/client/aura-snapshot.ts",
-      "bytes": 2405,
-      "sha256": "b3b831c0d4ce22a2d49d4721875c9258e1a14ab81b7c36fa601f13f2bedb15ce",
+      "bytes": 3190,
+      "sha256": "c56519e6aa639f20b7cb6ece5beef5a492e44845a74cbb56534ba30f92042b3d",
       "role": "source"
     },
     {
@@ -2541,8 +2541,8 @@
     {
       "source": "plugins/aukora-face/settings/src/client/locales.ts",
       "path": "faces/settings/src/client/locales.ts",
-      "bytes": 3866,
-      "sha256": "933ce6799ce3d46bb7234a66724f1c5c8adda42061377babb4ea4bcd12387f80",
+      "bytes": 3974,
+      "sha256": "3d1fa768f8607d27228c0070e8ea0458f4ca76b03a0986c3e0034843775e288a",
       "role": "source"
     },
     {

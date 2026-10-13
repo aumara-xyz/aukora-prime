@@ -1019,6 +1019,7 @@ window.__ModuleLoader__.load({
 			const moved = Math.floor(cells.nextCells.length * progress);
 			return Object.freeze({
 				cells: Object.freeze(cells.nextCells.map((value, index) => index < moved ? value : cells.previousCells[index])),
+				changedCells: Object.freeze(cells.nextCells.map((value, index) => value !== cells.previousCells[index])),
 				status: solid ? "solid" : "in-motion",
 				head: solid ? motion.nextHead : null,
 				progress
@@ -1075,6 +1076,26 @@ window.__ModuleLoader__.load({
 				entries
 			};
 		}
+		/** Record only non-initial source heads that this screen observed changing. */
+		function observeSourceAdvances(previous, sources, observedAt) {
+			const heads = new Map(previous);
+			const advances = [];
+			for (const source of sources) {
+				const seen = heads.has(source.name);
+				const before = heads.get(source.name);
+				if (seen && source.head !== null && source.head !== before) advances.push({
+					source: source.name,
+					head: source.head,
+					entries: source.entries ?? 0,
+					observedAt
+				});
+				heads.set(source.name, source.head);
+			}
+			return {
+				heads,
+				advances
+			};
+		}
 		//#endregion
 		//#region src/client/escape.ts
 		/**
@@ -1093,7 +1114,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:AuraCoherenceSurface.module.css.mjs
-		const css$2 = ".T5FNaa_root{height:100%;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);overflow:auto}.T5FNaa_root[hidden]{display:none}.T5FNaa_content{max-width:840px;margin:auto;padding:28px}.T5FNaa_heading{justify-content:space-between;align-items:center;gap:16px;display:flex}.T5FNaa_heading h2{margin:0;font-size:28px;font-weight:550}.T5FNaa_heading p,.T5FNaa_note{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.6}.T5FNaa_heading button{color:inherit;border:1px solid var(--dsw-alias-border-l1);cursor:pointer;background:0 0;border-radius:8px;padding:8px 14px}.T5FNaa_figureStage{text-align:center}.T5FNaa_pentora{width:min(100%,480px);margin:auto;display:block}.T5FNaa_edges{stroke:var(--dsw-alias-label-secondary);opacity:.32;stroke-width:.9px}.T5FNaa_cell[data-trit=\"0\"]{fill:#596475}.T5FNaa_cell[data-trit=\"1\"]{fill:#57bfff}.T5FNaa_cell[data-trit=\"2\"]{fill:#f3cd68}.T5FNaa_figureStage[data-pentora-state=in-motion] .T5FNaa_cell{fill-opacity:.38;stroke:#9faaba;stroke-width:1px}.T5FNaa_state{margin:0 0 16px;font-size:13px}.T5FNaa_readout,.T5FNaa_sources{border-top:1px solid var(--dsw-alias-border-l1);padding-top:14px}.T5FNaa_readout p{font-size:13px}.T5FNaa_sources div{flex-wrap:wrap;justify-content:space-between;gap:8px;padding:10px 0;display:flex}.T5FNaa_sources dt{font-weight:550}.T5FNaa_sources dd{margin:0;font-size:13px}.T5FNaa_absent,.T5FNaa_problem{color:#f3cd68}.T5FNaa_details{margin:20px 0}.T5FNaa_details summary{cursor:pointer}.T5FNaa_details pre{font-size:11px;line-height:1.5;overflow:auto}.T5FNaa_note{margin:12px 0}";
+		const css$2 = ".T5FNaa_root{--aura-blue:var(--aukora-blue,var(--dsw-static-spatial-blue));--aura-gold:var(--aukora-gold,var(--dsw-static-spatial-gold));--aura-mint:var(--aukora-green,var(--dsw-static-spatial-mint));--aura-violet:var(--aukora-purple,var(--dsw-static-spatial-violet));height:100%;color:var(--dsw-alias-label-primary);background:0 0;overflow:auto}.T5FNaa_root[hidden]{display:none}.T5FNaa_content{max-width:1040px;margin:auto;padding:clamp(24px,4vw,52px)}.T5FNaa_heading{justify-content:space-between;align-items:flex-start;gap:16px;display:flex}.T5FNaa_heading h2{color:#0000;background:linear-gradient(90deg, var(--aura-mint), var(--aura-blue), var(--aura-violet), var(--aura-gold));letter-spacing:-.035em;background-clip:text;width:fit-content;margin:0;font-size:clamp(28px,4vw,40px);font-weight:580;line-height:1.1}.T5FNaa_heading p{color:var(--aura-blue);letter-spacing:.08em;margin:8px 0 0;font-size:12px}.T5FNaa_heading button{color:var(--dsw-alias-label-primary);background:var(--aukora-surface);border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);backdrop-filter:blur(18px);cursor:pointer;padding:8px 14px}.T5FNaa_figureStage{isolation:isolate;text-align:center;place-items:center;min-height:clamp(480px,66vw,690px);margin:22px 0 0;padding:clamp(20px,4vw,44px) 0 18px;display:grid;position:relative;overflow:hidden}.T5FNaa_figureHalo{z-index:-1;aspect-ratio:1;background:radial-gradient(circle at 35% 45%, color-mix(in srgb, var(--aura-blue) 24%, transparent), transparent 48%), radial-gradient(circle at 64% 42%, color-mix(in srgb, var(--aura-violet) 20%, transparent), transparent 50%), radial-gradient(circle at 55% 68%, color-mix(in srgb, var(--aura-gold) 13%, transparent), transparent 54%);filter:blur(32px);opacity:.72;pointer-events:none;border-radius:50%;width:min(74%,620px);position:absolute}.T5FNaa_pentora{width:min(100%,650px);display:block;overflow:visible}.T5FNaa_edges{stroke:color-mix(in srgb, var(--aura-blue) 46%, transparent);stroke-width:.9px}.T5FNaa_cell{transform-box:fill-box;transform-origin:50%;animation:4.8s ease-in-out infinite T5FNaa_aura-cell-breathe;animation-delay:calc(var(--cell-order) * -31ms)}.T5FNaa_cell[data-trit=\"0\"]{fill:var(--dsw-alias-label-secondary);color:var(--dsw-alias-label-secondary)}.T5FNaa_cell[data-trit=\"1\"]{fill:var(--aura-blue);color:var(--aura-blue)}.T5FNaa_cell[data-trit=\"2\"]{fill:var(--aura-gold);color:var(--aura-gold)}.T5FNaa_figureStage[data-pentora-state=in-motion] .T5FNaa_cell{fill-opacity:.48;stroke:var(--aura-blue);stroke-width:1px}.T5FNaa_figureStage[data-pentora-pulse=active] .T5FNaa_cell[data-changed=true]{animation:.76s cubic-bezier(.2,.8,.2,1) both T5FNaa_aura-cell-pulse;animation-delay:calc(var(--cell-order) * 8ms)}.T5FNaa_figureStage[data-pentora-pulse=active] .T5FNaa_figureHalo{animation:1.2s ease-out both T5FNaa_aura-halo-pulse}.T5FNaa_state{color:var(--dsw-alias-label-secondary);margin:-16px 0 16px;font-size:12px;line-height:18px}.T5FNaa_problem{color:var(--aura-gold)}.T5FNaa_readout{border-top:1px solid #0000;border-image:linear-gradient(90deg, var(--aura-blue), var(--aura-violet), var(--aura-gold)) 1;flex-wrap:wrap;gap:8px 24px;margin-top:8px;padding:18px 0 16px;display:flex}.T5FNaa_readout p{color:var(--dsw-alias-label-secondary);margin:0;font-size:12px}.T5FNaa_readout code{color:var(--aura-blue)}.T5FNaa_sources{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0;display:grid}.T5FNaa_sources>div,.T5FNaa_activityStrip,.T5FNaa_details{box-sizing:border-box;border:1px solid var(--aukora-border);border-radius:var(--aukora-radius);background:var(--aukora-surface);backdrop-filter:blur(18px)}.T5FNaa_sources>div{--source-accent:var(--aura-gold);border-top-color:color-mix(in srgb, var(--source-accent) 72%, transparent);min-width:0;padding:16px}.T5FNaa_sources>div:nth-child(2){--source-accent:var(--aura-blue)}.T5FNaa_sources>div:nth-child(3){--source-accent:var(--aura-violet)}.T5FNaa_sources>div[data-source-advanced=true]{animation:1.5s ease-out both T5FNaa_aura-source-advance}.T5FNaa_sources dt{color:var(--source-accent);letter-spacing:.025em;font-size:13px;font-weight:650}.T5FNaa_sources dd{color:var(--dsw-alias-label-secondary);flex-wrap:wrap;align-items:center;gap:9px;margin:12px 0 0;font-size:12px;display:flex}.T5FNaa_sources code{width:100%;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;display:block;overflow:hidden}.T5FNaa_stateChip{border:1px solid color-mix(in srgb, var(--source-accent) 46%, transparent);color:var(--source-accent);background:color-mix(in srgb, var(--source-accent) 9%, transparent);text-transform:uppercase;letter-spacing:.06em;border-radius:999px;padding:2px 7px;font-size:10px;line-height:16px}.T5FNaa_absent{opacity:.72}.T5FNaa_entryCount{color:var(--source-accent)}.T5FNaa_sources>div[data-source-advanced=true] .T5FNaa_entryCount{animation:.7s ease-out both T5FNaa_aura-count-tick}.T5FNaa_activityStrip{margin:-2px 0 20px;padding:12px 16px}.T5FNaa_activityStrip h3{color:var(--aura-blue);text-transform:uppercase;letter-spacing:.09em;margin:0 0 9px;font-size:11px;line-height:16px}.T5FNaa_activityStrip ol{flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none;display:flex}.T5FNaa_activityStrip li{border-left:2px solid var(--aura-gold);min-width:0;color:var(--dsw-alias-label-secondary);background:color-mix(in srgb, var(--aura-blue) 5%, transparent);align-items:center;gap:8px;padding:5px 9px;font-size:11px;display:inline-flex}.T5FNaa_activityStrip strong{color:var(--dsw-alias-label-primary);font-weight:570}.T5FNaa_activityStrip code{color:var(--aura-blue)}.T5FNaa_activityStrip time{color:var(--dsw-alias-label-tertiary)}.T5FNaa_details{margin:18px 0;padding:13px 16px}.T5FNaa_details summary{color:var(--aura-blue);cursor:pointer;font-size:12px}.T5FNaa_details pre{margin-bottom:0;font-size:11px;line-height:1.5;overflow:auto}.T5FNaa_note{color:var(--dsw-alias-label-tertiary);margin:8px 0;font-size:11px;line-height:1.55}@keyframes T5FNaa_aura-cell-breathe{0%,to{opacity:.72;transform:scale(.9)}50%{opacity:1;transform:scale(1.12)}}@keyframes T5FNaa_aura-cell-pulse{0%{opacity:.35;filter:drop-shadow(0 0);transform:scale(.65)}55%{opacity:1;filter:drop-shadow(0 0 9px);transform:scale(2.15)}to{opacity:.92;filter:drop-shadow(0 0 2px);transform:scale(1)}}@keyframes T5FNaa_aura-halo-pulse{0%{opacity:.35;transform:scale(.88)}45%{opacity:1;transform:scale(1.08)}to{opacity:.72;transform:scale(1)}}@keyframes T5FNaa_aura-source-advance{0%{border-color:var(--source-accent);box-shadow:0 0 30px color-mix(in srgb, var(--source-accent) 34%, transparent);transform:translateY(-3px)}to{border-color:var(--aukora-border);box-shadow:none;transform:none}}@keyframes T5FNaa_aura-count-tick{0%{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}@media (width<=760px){.T5FNaa_content{padding:22px 18px 34px}.T5FNaa_figureStage{min-height:430px}.T5FNaa_sources{grid-template-columns:1fr}.T5FNaa_activityStrip ol{display:grid}}@media (prefers-reduced-motion:reduce){.T5FNaa_cell,.T5FNaa_figureStage[data-pentora-pulse=active] .T5FNaa_cell[data-changed=true],.T5FNaa_figureStage[data-pentora-pulse=active] .T5FNaa_figureHalo,.T5FNaa_sources>div[data-source-advanced=true],.T5FNaa_sources>div[data-source-advanced=true] .T5FNaa_entryCount{animation:none}}";
 		const tagId$2 = "@aukora/face-settings/AuraCoherenceSurface.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
 			const tag = document.createElement("style");
@@ -1104,10 +1125,18 @@ window.__ModuleLoader__.load({
 		}
 		var AuraCoherenceSurface_module_css_default = {
 			"absent": "T5FNaa_absent",
+			"activityStrip": "T5FNaa_activityStrip",
+			"aura-cell-breathe": "T5FNaa_aura-cell-breathe",
+			"aura-cell-pulse": "T5FNaa_aura-cell-pulse",
+			"aura-count-tick": "T5FNaa_aura-count-tick",
+			"aura-halo-pulse": "T5FNaa_aura-halo-pulse",
+			"aura-source-advance": "T5FNaa_aura-source-advance",
 			"cell": "T5FNaa_cell",
 			"content": "T5FNaa_content",
 			"details": "T5FNaa_details",
 			"edges": "T5FNaa_edges",
+			"entryCount": "T5FNaa_entryCount",
+			"figureHalo": "T5FNaa_figureHalo",
 			"figureStage": "T5FNaa_figureStage",
 			"heading": "T5FNaa_heading",
 			"note": "T5FNaa_note",
@@ -1116,29 +1145,32 @@ window.__ModuleLoader__.load({
 			"readout": "T5FNaa_readout",
 			"root": "T5FNaa_root",
 			"sources": "T5FNaa_sources",
-			"state": "T5FNaa_state"
+			"state": "T5FNaa_state",
+			"stateChip": "T5FNaa_stateChip"
 		};
 		//#endregion
 		//#region src/client/AuraCoherenceSurface.tsx
 		/** Render recorded heads; only head changes drive a marked transition. */
 		const POLL_MS = 2e3;
 		const READ_TIMEOUT_MS = 5e3;
-		/** Fixed camera: identical heads have identical orientation on every screen. */
-		const POINTS = PENTORA.points.map(([x, y, z]) => {
-			const yaw = .52, pitch = .38;
-			const xx = x * Math.cos(yaw) + z * Math.sin(yaw);
-			const zz = -x * Math.sin(yaw) + z * Math.cos(yaw);
-			const yy = y * Math.cos(pitch) - zz * Math.sin(pitch);
-			const depth = y * Math.sin(pitch) + zz * Math.cos(pitch);
-			const scale = 1 / (1 - .18 * depth);
-			return [
-				220 + xx * 168 * scale,
-				220 + yy * 168 * scale,
-				depth
-			];
-		});
+		/** Rotate only the presentation camera; head-derived cells stay unchanged. */
+		function projectedPoints(elapsedMs) {
+			const yaw = .52 + elapsedMs * 11e-5;
+			const pitch = .38 + .045 * Math.sin(elapsedMs * 6e-5);
+			return PENTORA.points.map(([x, y, z]) => {
+				const xx = x * Math.cos(yaw) + z * Math.sin(yaw);
+				const zz = -x * Math.sin(yaw) + z * Math.cos(yaw);
+				const yy = y * Math.cos(pitch) - zz * Math.sin(pitch);
+				const depth = y * Math.sin(pitch) + zz * Math.cos(pitch);
+				const scale = 1 / (1 - .18 * depth);
+				return [
+					220 + xx * 168 * scale,
+					220 + yy * 168 * scale,
+					depth
+				];
+			});
+		}
 		const CELL_INDEX = new Map(PENTORA.mutable.map((point, cell) => [point, cell]));
-		const DRAW_ORDER = POINTS.map((_, index) => index).sort((a, b) => POINTS[a][2] - POINTS[b][2] || a - b);
 		function reducedMotionMedia() {
 			return typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : void 0;
 		}
@@ -1171,6 +1203,13 @@ window.__ModuleLoader__.load({
 			}, []);
 			return visible;
 		}
+		function recordTime(value) {
+			return new Date(value).toLocaleTimeString([], {
+				hour: "2-digit",
+				minute: "2-digit",
+				second: "2-digit"
+			});
+		}
 		function AuraCoherenceSurface({ activeSurface, closeSurface, t }) {
 			const active = activeSurface === "aura-coherence";
 			const visible = useDocumentVisible();
@@ -1181,13 +1220,19 @@ window.__ModuleLoader__.load({
 			const [clock, setClock] = (0, react.useState)(null);
 			const [problem, setProblem] = (0, react.useState)(null);
 			const [entriesMoved, setEntriesMoved] = (0, react.useState)(0);
+			const [activity, setActivity] = (0, react.useState)([]);
+			const [advancedSources, setAdvancedSources] = (0, react.useState)(/* @__PURE__ */ new Set());
 			const counters = (0, react.useRef)(/* @__PURE__ */ new Map());
+			const sourceHeads = (0, react.useRef)(/* @__PURE__ */ new Map());
 			(0, react.useEffect)(() => {
 				if (!active) return;
 				observed.current = null;
 				counters.current = /* @__PURE__ */ new Map();
+				sourceHeads.current = /* @__PURE__ */ new Map();
 				setObservation(null);
 				setEntriesMoved(0);
+				setActivity([]);
+				setAdvancedSources(/* @__PURE__ */ new Set());
 				setProblem(null);
 			}, [active]);
 			(0, react.useEffect)(() => {
@@ -1214,6 +1259,8 @@ window.__ModuleLoader__.load({
 						const advance = advanceSourceEntries(counters.current, snapshot.sources);
 						counters.current = advance.counters;
 						setEntriesMoved((value) => value + advance.entries);
+						const sourceAdvance = observeSourceAdvances(sourceHeads.current, snapshot.sources, Date.now());
+						sourceHeads.current = sourceAdvance.heads;
 						const next = {
 							snapshot,
 							motion,
@@ -1223,8 +1270,11 @@ window.__ModuleLoader__.load({
 						setObservation(next);
 						if (prior?.snapshot.head !== snapshot.head) setClock({
 							motion,
-							elapsed: 0
+							elapsed: 0,
+							presentation: performance.now()
 						});
+						setAdvancedSources(new Set(sourceAdvance.advances.map((item) => item.source)));
+						if (sourceAdvance.advances.length > 0) setActivity((value) => [...sourceAdvance.advances, ...value].slice(0, 4));
 						setProblem(null);
 					} catch (error) {
 						if (!disposed) setProblem(error instanceof Error ? error.message : "aura-snapshot:read-failed");
@@ -1246,12 +1296,14 @@ window.__ModuleLoader__.load({
 				if (observation === null || !active || !visible) return;
 				let request = 0;
 				const draw = () => {
-					const age = Math.max(0, performance.now() - observation.since);
+					const now = performance.now();
+					const age = Math.max(0, now - observation.since);
 					setClock({
 						motion: observation.motion,
-						elapsed: age
+						elapsed: age,
+						presentation: reducedMotion ? 0 : now
 					});
-					if (pentoraMotionFrame(observation.motion, age, reducedMotion).status === "in-motion") request = window.requestAnimationFrame(draw);
+					if (!reducedMotion || pentoraMotionFrame(observation.motion, age, reducedMotion).status === "in-motion") request = window.requestAnimationFrame(draw);
 				};
 				draw();
 				return () => {
@@ -1280,6 +1332,8 @@ window.__ModuleLoader__.load({
 			const digestsWithheld = frame !== null && frame.status !== "solid";
 			const snapshot = observation?.snapshot;
 			const present = snapshot?.sources.filter((source) => source.head !== null).length ?? 0;
+			const points = projectedPoints(reducedMotion ? 0 : clock?.presentation ?? 0);
+			const drawOrder = points.map((_, index) => index).sort((a, b) => points[a][2] - points[b][2] || a - b);
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("section", {
 				className: AuraCoherenceSurface_module_css_default.root,
 				hidden: !active,
@@ -1298,50 +1352,78 @@ window.__ModuleLoader__.load({
 						frame !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: AuraCoherenceSurface_module_css_default.figureStage,
 							"data-pentora-state": frame.status,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
-								className: AuraCoherenceSurface_module_css_default.pentora,
-								viewBox: "0 0 440 440",
-								role: "img",
-								"aria-labelledby": `${svgPrefix}-title ${svgPrefix}-description`,
-								children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("title", {
-										id: `${svgPrefix}-title`,
-										children: t("aura.figure.title")
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("desc", {
-										id: `${svgPrefix}-description`,
-										children: t("aura.figure.description")
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("g", {
-										className: AuraCoherenceSurface_module_css_default.edges,
-										children: PENTORA.edges.map(([from, to], index) => {
-											const a = POINTS[from], b = POINTS[to];
-											return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("line", {
-												x1: a[0],
-												y1: a[1],
-												x2: b[0],
-												y2: b[1]
-											}, index);
+							"data-pentora-pulse": frame.status === "in-motion" ? "active" : void 0,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: AuraCoherenceSurface_module_css_default.figureHalo,
+									"aria-hidden": "true"
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+									className: AuraCoherenceSurface_module_css_default.pentora,
+									viewBox: "0 0 440 440",
+									role: "img",
+									"aria-labelledby": `${svgPrefix}-title ${svgPrefix}-description`,
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("title", {
+											id: `${svgPrefix}-title`,
+											children: t("aura.figure.title")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("desc", {
+											id: `${svgPrefix}-description`,
+											children: t("aura.figure.description")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("g", {
+											className: AuraCoherenceSurface_module_css_default.edges,
+											children: PENTORA.edges.map(([from, to], index) => {
+												const a = points[from], b = points[to];
+												return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("line", {
+													x1: a[0],
+													y1: a[1],
+													x2: b[0],
+													y2: b[1]
+												}, index);
+											})
+										}),
+										drawOrder.map((point) => {
+											const cell = CELL_INDEX.get(point), position = points[point];
+											const trit = cell === void 0 ? 1 : frame.cells[cell];
+											return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
+												cx: position[0],
+												cy: position[1],
+												r: cell === void 0 ? 6 : 3.8,
+												className: AuraCoherenceSurface_module_css_default.cell,
+												"data-pentora-cell": cell,
+												"data-trit": trit,
+												"data-changed": cell === void 0 ? void 0 : frame.changedCells[cell] || void 0,
+												style: { "--cell-order": cell ?? 55 }
+											}, point);
 										})
+									]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: AuraCoherenceSurface_module_css_default.state,
+									role: "status",
+									children: t(frame.status === "solid" ? "aura.status.rest" : "aura.status.moving")
+								})
+							]
+						}),
+						!digestsWithheld && activity.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+							className: AuraCoherenceSurface_module_css_default.activityStrip,
+							"aria-label": t("aura.activity.title"),
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", { children: t("aura.activity.title") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ol", { children: activity.map((item) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+								"data-aura-activity": item.source,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: item.source }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
+										title: item.head,
+										children: item.head.slice(0, 12)
 									}),
-									DRAW_ORDER.map((point) => {
-										const cell = CELL_INDEX.get(point), position = POINTS[point];
-										const trit = cell === void 0 ? 1 : frame.cells[cell];
-										return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
-											cx: position[0],
-											cy: position[1],
-											r: cell === void 0 ? 6 : 3.8,
-											className: AuraCoherenceSurface_module_css_default.cell,
-											"data-pentora-cell": cell,
-											"data-trit": trit
-										}, point);
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
+										dateTime: new Date(item.observedAt).toISOString(),
+										children: recordTime(item.observedAt)
 									})
 								]
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-								className: AuraCoherenceSurface_module_css_default.state,
-								role: "status",
-								children: t(frame.status === "solid" ? "aura.status.rest" : "aura.status.moving")
-							})]
+							}, `${item.source}:${item.head}:${item.observedAt}`)) })]
 						}),
 						problem !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
 							className: AuraCoherenceSurface_module_css_default.problem,
@@ -1373,26 +1455,31 @@ window.__ModuleLoader__.load({
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dl", {
 								className: AuraCoherenceSurface_module_css_default.sources,
-								children: snapshot.sources.map((source) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: source.name }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: source.head === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-									className: AuraCoherenceSurface_module_css_default.absent,
-									children: [
-										t("aura.snapshot.absent"),
-										" · ",
-										source.absence
-									]
-								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [t("aura.snapshot.available"), " · "] }),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
-										title: source.head,
-										children: source.head.slice(0, 16)
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
-										" · ",
-										source.entries,
-										" ",
-										t("aura.snapshot.records")
-									] })
-								] }) })] }, source.name))
+								children: snapshot.sources.map((source) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									"data-source": source.name,
+									"data-source-advanced": advancedSources.has(source.name) || void 0,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: source.name }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: source.head === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: `${AuraCoherenceSurface_module_css_default.stateChip} ${AuraCoherenceSurface_module_css_default.absent}`,
+										children: t("aura.snapshot.absent")
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: source.absence })] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: AuraCoherenceSurface_module_css_default.stateChip,
+											children: t("aura.snapshot.available")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", {
+											title: source.head,
+											children: source.head.slice(0, 16)
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: AuraCoherenceSurface_module_css_default.entryCount,
+											children: [
+												source.entries,
+												" ",
+												t("aura.snapshot.records")
+											]
+										}, `${source.name}:${source.entries}`)
+									] }) })]
+								}, source.name))
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
 								className: AuraCoherenceSurface_module_css_default.details,
@@ -1788,6 +1875,7 @@ window.__ModuleLoader__.load({
 			"aura.snapshot.absent": "缺失",
 			"aura.snapshot.available": "已提供",
 			"aura.snapshot.records": "条记录",
+			"aura.activity.title": "最近观察到的前进",
 			"aura.snapshot.details": "完整头与快照输入",
 			"aura.snapshot.waiting": "等待记录头；尚无图形。",
 			"aura.snapshot.stale": "读取失败；图形仅表示上次观察到的快照",
@@ -1817,6 +1905,7 @@ window.__ModuleLoader__.load({
 			"aura.snapshot.absent": "Absent",
 			"aura.snapshot.available": "Present",
 			"aura.snapshot.records": "entries",
+			"aura.activity.title": "Recently observed advances",
 			"aura.snapshot.details": "Full heads and snapshot inputs",
 			"aura.snapshot.waiting": "Waiting for recorded heads; no picture yet.",
 			"aura.snapshot.stale": "Read failed; the picture shows only the last observed snapshot",

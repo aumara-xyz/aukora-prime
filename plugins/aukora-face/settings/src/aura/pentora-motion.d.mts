@@ -7,6 +7,7 @@ export interface PentoraMotion {
 }
 export interface PentoraMotionFrame {
   readonly cells: readonly number[]
+  readonly changedCells: readonly boolean[]
   readonly status: 'solid' | 'in-motion'
   readonly head: string | null
   readonly progress: number

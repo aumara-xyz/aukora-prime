@@ -359,6 +359,20 @@ add('client counts only observed advances, preserving high water through absence
   const unknown = advanceSourceEntries(new Map(), [absent(0), absent(1), absent(2)])
   assert.equal(advanceSourceEntries(unknown.counters, sources).entries, 0)
 })
+add('client activity records only source heads observed advancing after the baseline', (_snapshot, _reader, { observeSourceAdvances }) => {
+  const initial = observeSourceAdvances(new Map(), sources, 100)
+  assert.equal(initial.advances.length, 0)
+  const unchanged = observeSourceAdvances(initial.heads, sources, 200)
+  assert.equal(unchanged.advances.length, 0)
+  const changedSources = [{ ...sources[0], head: '44'.repeat(32), entries: 4 }, ...sources.slice(1)]
+  const advanced = observeSourceAdvances(unchanged.heads, changedSources, 300)
+  assert.deepEqual(advanced.advances, [{ source: 'gate-ledger', head: '44'.repeat(32), entries: 4, observedAt: 300 }])
+  assert.equal(observeSourceAdvances(advanced.heads, changedSources, 400).advances.length, 0)
+  const unavailable = observeSourceAdvances(advanced.heads, [absent(0), ...changedSources.slice(1)], 500)
+  assert.equal(unavailable.advances.length, 0)
+  assert.deepEqual(observeSourceAdvances(unavailable.heads, changedSources, 600).advances,
+    [{ source: 'gate-ledger', head: '44'.repeat(32), entries: 4, observedAt: 600 }])
+})
 
 for (const check of checks) await check.run(snapshot, reader, client)
 console.log(`PASS Aura snapshot: ${checks.length} checks`)
@@ -433,6 +447,10 @@ const mutations = [
   ['client', 'if (before !== undefined)', 'if (true)'],
   ['client', 'Math.max(0, source.entries - before)', 'source.entries - before'],
   ['client', 'Math.max(before ?? source.entries, source.entries)', 'source.entries'],
+  ['client', 'const seen = heads.has(source.name)', 'const seen = false'],
+  ['client', 'source.head !== null && source.head !== before', 'source.head !== null && true'],
+  ['client', 'seen && source.head !== null', 'seen && true'],
+  ['client', 'heads.set(source.name, source.head)', 'undefined'],
 ]
 let killed = 0
 async function runMutation([file, before, after, secondBefore, secondAfter, only]) {

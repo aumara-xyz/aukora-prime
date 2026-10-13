@@ -266,7 +266,7 @@ async function checkPolling(text) {
   assert.equal(ui.requests.length, 2)
   await ui.reply(1, snapshot(heads[0]))
   assert.equal(ui.prepared, 1, 'same head keeps the same prepared picture')
-  assert.equal(ui.frames.size, 0, 'same head does not start an animation')
+  assert.equal(ui.frames.size, 1, 'same head keeps one bounded presentation-rotation frame')
   ui.unmount()
 }
 
@@ -315,6 +315,32 @@ async function checkClock(text) {
   assert.equal(stage(ui.tree).props['data-pentora-state'], 'solid')
   assert.deepEqual(renderedCells(ui.tree), await cellsOf(heads[2]))
   assert.ok(elements(ui.tree, node => node.type === 'p').some(node => node.props.children === 'aura.snapshot.entries:{"count":5}'))
+  ui.unmount()
+}
+
+async function checkObservedActivity(text) {
+  const ui = runtime(text)
+  await ui.reply(0, snapshot(heads[0]))
+  assert.equal(elements(ui.tree, node => node.props?.['data-aura-activity'] !== undefined).length, 0)
+  assert.equal(stage(ui.tree).props['data-pentora-pulse'], undefined)
+  await ui.advance(2000)
+  await ui.reply(1, snapshot(heads[1], 12))
+  assert.equal(stage(ui.tree).props['data-pentora-pulse'], 'active')
+  assert.equal(elements(ui.tree, node => node.props?.['data-aura-activity'] !== undefined).length, 0,
+    'new head stays withheld while the picture moves')
+  await ui.advance(1200)
+  const activity = elements(ui.tree, node => node.props?.['data-aura-activity'] !== undefined)
+  assert.equal(activity.length, 1)
+  assert.equal(activity[0].props['data-aura-activity'], 'gate-ledger')
+  assert.ok(textOf(activity[0]).includes(heads[1].slice(0, 12)))
+  assert.equal(elements(ui.tree, node => node.props?.['data-source-advanced'] === true).length, 1)
+  await ui.advance(800)
+  await ui.reply(2, snapshot(heads[1], 12))
+  assert.equal(stage(ui.tree).props['data-pentora-pulse'], undefined)
+  assert.equal(elements(ui.tree, node => node.props?.['data-aura-activity'] !== undefined).length, 1,
+    'unchanged poll adds no activity')
+  assert.equal(elements(ui.tree, node => node.props?.['data-source-advanced'] === true).length, 0,
+    'unchanged poll highlights no source')
   ui.unmount()
 }
 
@@ -418,17 +444,23 @@ function checkDisclosure(text, dictionaries = { en, zh }, styles = style) {
   assert.match(dictionaries.en['aura.status.moving'], /transition, not a recorded state/u)
   assert.match(dictionaries.zh['aura.status.moving'], /过渡帧，不是记录状态/u)
   assert.match(styles, /\.root\[hidden\]\s*\{\s*display:\s*none/u)
-  assert.match(styles, /\[data-pentora-state='in-motion'\] \.cell\s*\{[^}]*fill-opacity:\s*0\.38;[^}]*stroke:/u)
-  const colors = ['0', '1', '2'].map(trit => styles.match(new RegExp(`\\.cell\\[data-trit='${trit}'\\]\\s*\\{\\s*fill:\\s*(#[0-9a-f]+)`, 'u'))?.[1])
+  assert.match(styles, /\[data-pentora-state='in-motion'\] \.cell\s*\{[^}]*fill-opacity:\s*0\.48;[^}]*stroke:\s*var\(--aura-blue\)/u)
+  const colors = ['0', '1', '2'].map(trit => styles.match(new RegExp(`\\.cell\\[data-trit='${trit}'\\]\\s*\\{\\s*fill:\\s*([^;]+)`, 'u'))?.[1])
   assert.ok(colors.every(Boolean), 'each canonical trit has a color')
   assert.equal(new Set(colors).size, 3, 'canonical trits have distinct colors')
+  assert.match(styles, /background:\s*transparent/u)
+  assert.match(styles, /background:\s*var\(--aukora-surface\)/u)
+  assert.match(styles, /border-radius:\s*var\(--aukora-radius\)/u)
+  assert.match(styles, /aura-cell-pulse/u)
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/u)
   ui.unmount()
 }
 
 for (const [label, check] of [
-  ['surface renders reference cells and disclosed sources; unchanged heads do not animate', checkPolling],
+  ['surface renders reference cells and disclosed sources; unchanged heads do not retrigger transitions', checkPolling],
   ['legend names all three sources and shows present, mixed and absent observations', checkSourceLegend],
   ['new heads cannot reuse the previous settled clock; transition and counts are real', checkClock],
+  ['an advanced observed head creates a pulse, one activity row and one source highlight; an unchanged poll creates none', checkObservedActivity],
   ['reduced motion changes directly and preference updates cancel animation', checkReduced],
   ['inactive and hidden surfaces stop reads and frames; cleanup cancels pending work', checkLifecycle],
   ['snapshot reads abort at their bounded deadline', checkTimeout],
@@ -460,12 +492,14 @@ test('mutations of surface protections are detected by executable hook tests', a
     ['private uncached read', "cache: 'no-store'", "cache: 'default'", checkPolling],
     ['same origin credentials', "credentials: 'same-origin'", "credentials: 'omit'", checkPolling],
     ['record derived cell colors', 'const trit = cell === undefined ? 1 : frame.cells[cell]', 'const trit = 1', checkPolling],
-    ['absent sources disclosed', 'snapshot.sources.map(source => <div key={source.name}>', 'snapshot.sources.slice(0, 1).map(source => <div key={source.name}>', checkPolling],
+    ['absent sources disclosed', 'snapshot.sources.map(source => <div key={source.name}', 'snapshot.sources.slice(0, 1).map(source => <div key={source.name}', checkPolling],
     ['present source legend', "t('aura.snapshot.available')", "t('aura.snapshot.absent')", checkSourceLegend],
     ['absent source legend', "t('aura.snapshot.absent')", "t('aura.snapshot.available')", checkSourceLegend],
     ['same head reuse', 'prior?.snapshot.head === snapshot.head ? prior.motion', 'false ? prior.motion', checkPolling],
     ['clock belongs to motion', 'clock?.motion === observation.motion ? clock.elapsed : 0', 'clock?.elapsed ?? 0', checkClock],
     ['transition label', 'data-pentora-state={frame.status}', 'data-pentora-state="solid"', checkClock],
+    ['activity record', 'setActivity(value => [...sourceAdvance.advances, ...value].slice(0, 4))', 'setActivity(value => value)', checkObservedActivity],
+    ['pulse state', "data-pentora-pulse={frame.status === 'in-motion' ? 'active' : undefined}", 'data-pentora-pulse={undefined}', checkObservedActivity],
     ['reduced motion', 'const reducedMotion = useReducedMotion()', 'const reducedMotion = false', checkReduced],
     ['inactive polling', 'if (!active || !visible) return', 'if (!visible) return', checkLifecycle],
     ['hidden polling', 'if (!active || !visible) return', 'if (!active) return', checkLifecycle],
@@ -498,9 +532,9 @@ test('mutations removing display limits, available-source disclosure and transit
   }
   for (const [before, after] of [
     ['display: none', 'display: block'],
-    ['fill-opacity: 0.38', 'fill-opacity: 1'],
-    ['stroke: #9faaba', 'outline: #9faaba'],
-    ['fill: #57bfff', 'fill: #596475'],
+    ['fill-opacity: 0.48', 'fill-opacity: 1'],
+    ['stroke: var(--aura-blue)', 'outline: var(--aura-blue)'],
+    ['fill: var(--aura-blue)', 'fill: var(--dsw-alias-label-secondary)'],
   ]) {
     assert.ok(style.includes(before), `style mutation anchor: ${before}`)
     assert.throws(() => checkDisclosure(source, { en, zh }, style.replace(before, after)), assert.AssertionError)

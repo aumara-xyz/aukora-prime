@@ -20,12 +20,14 @@ async function checkSequence(api) {
     const state = await api.createPentoraMotion(heads[index - 1], heads[index], hash)
     const previous = await cellsOf(heads[index - 1])
     const expected = await cellsOf(heads[index])
+    const changed = expected.map((value, cell) => value !== previous[cell])
     for (const elapsed of [0, 40, 199, 399, 400, 800, 1199, 1200, 1800]) {
       const frame = api.pentoraMotionFrame(state, elapsed)
       const progress = Math.min(1, elapsed / 400)
       const moved = Math.floor(110 * progress)
       assert.equal(frame.progress, progress)
       assert.deepEqual(frame.cells, expected.map((value, cell) => cell < moved ? value : previous[cell]))
+      assert.deepEqual(frame.changedCells, changed)
       if (elapsed < 1200) {
         assert.equal(frame.status, 'in-motion')
         assert.equal(frame.head, null)
@@ -125,6 +127,7 @@ async function checkImmutable(api) {
   const frame = api.pentoraMotionFrame(state, 1200)
   assert.throws(() => { state.nextHead = heads[0] }, TypeError)
   assert.throws(() => { frame.cells[0] = (frame.cells[0] + 1) % 3 }, TypeError)
+  assert.throws(() => { frame.changedCells[0] = !frame.changedCells[0] }, TypeError)
   assert.throws(() => { frame.status = 'in-motion' }, TypeError)
 }
 
@@ -157,6 +160,7 @@ test('mutations of motion protections are all detected', async () => {
     ['prepared check removed', "if (cells === undefined) refuse('aura:pentora-motion')", '', checkPreparedRefusal],
     ['mutable motion', 'const motion = Object.freeze({ previousHead, nextHead })', 'const motion = { previousHead, nextHead }', checkImmutable],
     ['mutable frame cells', 'cells: Object.freeze(cells.nextCells.map((value, index) => index < moved ? value : cells.previousCells[index]))', 'cells: cells.nextCells.map((value, index) => index < moved ? value : cells.previousCells[index])', checkImmutable],
+    ['mutable changed-cell marks', 'changedCells: Object.freeze(cells.nextCells.map((value, index) => value !== cells.previousCells[index]))', 'changedCells: cells.nextCells.map((value, index) => value !== cells.previousCells[index])', checkImmutable],
     ['mutable frame label', 'return Object.freeze({', 'return ((value) => value)({', checkImmutable],
   ]
   for (const [label, from, to, check] of mutants) {
