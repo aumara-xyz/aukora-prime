@@ -194,12 +194,24 @@ export function bindScratchIO(scratch, held, { descriptorPaths = process.platfor
   return () => { Object.assign(fs, original); syncBuiltinESMExports(); if (!descriptorPaths) process.chdir(initialCwd) }
 }
 
-// Probe URIs are siblings of normal Kira memory; tenant headers and credentials stay unchanged.
+function probeUri(value, user, run, reverse = false) {
+  for (const namespace of ['memories', 'resources']) {
+    const normal = `viking://user/${user}/${namespace}/kira`, isolated = `viking://user/${user}/${namespace}/kira-release-probe/${run}`
+    const [from, to] = reverse ? [isolated, normal] : [normal, isolated]
+    if (typeof value === 'string' && (value === from || value.startsWith(`${from}/`))) return to + value.slice(from.length)
+  }
+  return value
+}
+
+export function probeContentUri(bridge, user, run, hash) {
+  const uri = typeof bridge.contentUri === 'function' ? bridge.contentUri(user, hash) : `viking://user/${user}/memories/kira/content/${hash}.md`
+  return probeUri(uri, user, run)
+}
+
+// Probe URIs isolate Kira memory and resource namespaces; tenant headers and credentials stay unchanged.
 export function probeTransport(config, run, transport = globalThis.fetch) {
-  const normal = `viking://user/${config.user}/memories/kira`, isolated = `viking://user/${config.user}/memories/kira-release-probe/${run}`
-  const map = (value, from, to) => typeof value === 'string' && (value === from || value.startsWith(`${from}/`)) ? to + value.slice(from.length) : value
-  const translate = (value, from, to) => Array.isArray(value) ? value.map(item => translate(item, from, to))
-    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, translate(item, from, to)])) : map(value, from, to)
+  const translate = (value, reverse = false) => Array.isArray(value) ? value.map(item => translate(item, reverse))
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, translate(item, reverse)])) : probeUri(value, config.user, run, reverse)
   const controller = new AbortController(), pending = new Set()
   const track = async action => {
     const request = Promise.resolve().then(action)
@@ -209,11 +221,11 @@ export function probeTransport(config, run, transport = globalThis.fetch) {
   const fetch = async (url, options = {}) => {
     if (!String(url).startsWith(`${config.url}/`)) return transport(url, options)
     const mapped = new URL(url), uri = mapped.searchParams.get('uri')
-    if (uri) mapped.searchParams.set('uri', map(uri, normal, isolated))
+    if (uri) mapped.searchParams.set('uri', probeUri(uri, config.user, run))
     const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal
     const response = await track(() => transport(mapped.href, { ...options, signal,
-      ...(options.body ? { body: JSON.stringify(translate(JSON.parse(options.body), normal, isolated)) } : {}) }))
-    return { ok: response.ok, status: response.status, json: () => track(async () => translate(await response.json(), isolated, normal)) }
+      ...(options.body ? { body: JSON.stringify(translate(JSON.parse(options.body))) } : {}) }))
+    return { ok: response.ok, status: response.status, json: () => track(async () => translate(await response.json(), true)) }
   }
   fetch.abort = () => controller.abort()
   fetch.close = async () => { fetch.abort(); await Promise.allSettled([...pending]) }
@@ -336,7 +348,7 @@ function journalInput(loaded, scratch, saved) {
   if (!/^[0-9a-f-]{36}$/u.test(run) || !/^[a-zA-Z0-9_-]{1,64}$/u.test(user)
     || !/^[a-zA-Z0-9_-]{1,64}$/u.test(account) || typeof url !== 'string'
     || sentence !== `Scarlet bicycle ${run} parked beneath maple foliage.`
-    || uri !== `viking://user/${user}/memories/kira-release-probe/${run}/content/${hash}.md`
+    || !['memories', 'resources'].some(namespace => uri === `viking://user/${user}/${namespace}/kira-release-probe/${run}/content/${hash}.md`)
     || saved.release !== loaded.release) fail('cleanup-journal-invalid')
   return { ...loaded, scratch, run, sentence, user, account, url, uri }
 }
@@ -429,7 +441,7 @@ export async function probeRelease({ release: selected, scratch, cleanup = false
       if (!bridgeConfig.configured) fail('bridge-configuration-unavailable')
       const run = randomUUID(), sentence = `Scarlet bicycle ${run} parked beneath maple foliage.`
       const hash = createHash('sha256').update(sentence).digest('hex'), { user, account, url } = bridgeConfig
-      saved = { release: loaded.release, run, sentence, user, account, url, uri: `viking://user/${user}/memories/kira-release-probe/${run}/content/${hash}.md` }
+      saved = { release: loaded.release, run, sentence, user, account, url, uri: probeContentUri(bridge, user, run, hash) }
       input = journalInput({ ...loaded, config }, path, scratchJournal(path, held, saved))
       needsCleanup = true
       const remembered = await step('remember', { action: 'remember' }, result => result.remembered === 1 && result.ids?.length === 1)

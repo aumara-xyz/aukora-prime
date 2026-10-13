@@ -74,7 +74,7 @@ try {
     for (const note of memory.read().notes) {
       assert.equal(note.contentHash, contentHash(note.statement))
       assert.ok(memoryChain(stateDir).some(entry => entry.contentHash === note.contentHash && entry.prev && entry.hash))
-      assert.equal(files.get(`viking://user/scratch/memories/kira/content/${note.contentHash}.md`), note.statement)
+      assert.equal(files.get(`viking://user/scratch/resources/kira/content/${note.contentHash}.md`), note.statement)
     }
     // Below the quality floor: chained, never written to the index, dropped from semantic recall, found by exact words,
     // and a vector indexed for one before the floor existed is never deleted by a retry.
@@ -84,7 +84,7 @@ try {
     const order = await junk.captureTurn(turn('owner', 'Reply with exactly the four characters: OK', 12))
     assert.equal(thanks.remembered, 1); assert.equal(order.remembered, 1); assert.equal(junk.read().notes.length, 2)
     assert.equal(files.size, indexed)
-    const older = `viking://user/scratch/memories/kira/content/${order.notes[0].contentHash}.md`
+    const older = `viking://user/scratch/resources/kira/content/${order.notes[0].contentHash}.md`
     files.set(older, order.notes[0].statement)
     mkdirSync(join(junkDir, 'remembered/index'), { recursive: true })
     writeFileSync(join(junkDir, 'remembered/index/ack.json'), JSON.stringify({ [older]: [order.notes[0].id] }))
@@ -133,18 +133,18 @@ try {
     clock += 30_001
     const current = await queued.captureTurn(turn('agent', 'The current final finding must be indexed first.', 91), { attributedTo: 'agent', scope: 'owner' })
     assert.equal(current.index.added, 2); assert.equal(current.index.pending, 4)
-    assert.ok(files.has(`viking://user/scratch/memories/kira/content/${current.notes[0].contentHash}.md`))
+    assert.ok(files.has(`viking://user/scratch/resources/kira/content/${current.notes[0].contentHash}.md`))
     const retry = await queued.retry()
     assert.equal(retry.added, 2); assert.equal(retry.pending, 2)
     clock = Math.max(clock + 30_001, retry.nextRetryAt)
     assert.equal((await queued.retry()).pending, 0)
     assert.equal(queued.read().notes.length, 6)
-    for (const note of queued.read().notes) files.delete(`viking://user/scratch/memories/kira/content/${note.contentHash}.md`)
+    for (const note of queued.read().notes) files.delete(`viking://user/scratch/resources/kira/content/${note.contentHash}.md`)
   })
   await arm('retry counter saturation at 20 still schedules and resets after a deferred document recovers', async () => {
     const retryState = join(root, 'retry-saturation'), statement = 'A painted wooden weather vane stands beside the orchard.'
     const retryConfig = { ...config, syncBatch: 2, retryBaseMs: 30_000 }
-    const uri = `viking://user/scratch/memories/kira/content/${contentHash(statement)}.md`
+    const uri = `viking://user/scratch/resources/kira/content/${contentHash(statement)}.md`
     let clock = Date.parse('2026-10-01T00:00:00Z'), writes = 0
     const retryFetch = async (...args) => {
       if (new URL(args[0]).pathname === '/api/v1/content/write') writes++
@@ -197,7 +197,7 @@ try {
   })
   await arm('forced recovery bypasses backoff but preserves an active durable retry lease', async () => {
     const retryState = join(root, 'retry-lease'), statement = 'The painted blue garden gate stands open beside the oldest orchard pear tree.'
-    const uri = `viking://user/scratch/memories/kira/content/${contentHash(statement)}.md`
+    const uri = `viking://user/scratch/resources/kira/content/${contentHash(statement)}.md`
     let clock = Date.parse('2026-10-02T00:00:00Z'), writes = 0
     const retryFetch = async (...args) => {
       if (new URL(args[0]).pathname === '/api/v1/content/write') writes++
@@ -235,7 +235,7 @@ try {
   await arm('summary-only hits fetch exact content; tampered and unchained indexed hits are dropped and counted', async () => {
     const [uri, text] = files.entries().next().value
     files.set(uri, 'substituted text')
-    const fakeUri = 'viking://user/scratch/memories/kira/content/' + 'a'.repeat(64) + '.md'
+    const fakeUri = 'viking://user/scratch/resources/kira/content/' + 'a'.repeat(64) + '.md'
     files.set(fakeUri, 'unknown')
     const reply = await memory.recall({ question: 'pet' })
     assert.equal(reply.droppedTampered, 1); assert.equal(reply.droppedUnmapped, 1)

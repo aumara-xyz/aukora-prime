@@ -7,12 +7,12 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { loopbackListenUnavailable } from './support/openviking-http.mjs'
 const fixtureSource = readFileSync(new URL('./support/openviking-http.mjs', import.meta.url), 'utf8')
-const uriGuard = "assert.ok(body.uri.startsWith('viking://user/owner/memories/kira/content/'))"
-const targetGuard = "assert.equal(body.target_uri, 'viking://user/owner/memories/kira/content')"
+const uriGuard = "assert.ok(body.uri.startsWith('viking://user/owner/resources/kira/content/'))"
+const targetGuard = "assert.equal(body.target_uri, 'viking://user/owner/resources/kira/content')"
 assert.equal(fixtureSource.split(uriGuard).length, 2); assert.equal(fixtureSource.split(targetGuard).length, 2)
 const { createOpenVikingHttpFixture } = await import('data:text/javascript;base64,' + Buffer.from(fixtureSource
-  .replace(uriGuard, "assert.match(body.uri, /^viking:\\/\\/user\\/owner\\/memories\\/kira-release-probe\\/[0-9a-f-]{36}\\/content\\/[0-9a-f]{64}\\.md$/u)")
-  .replace(targetGuard, "assert.match(body.target_uri, /^viking:\\/\\/user\\/owner\\/memories\\/kira-release-probe\\/[0-9a-f-]{36}\\/content$/u)")).toString('base64'))
+  .replace(uriGuard, "assert.match(body.uri, /^viking:\\/\\/user\\/owner\\/resources\\/kira-release-probe\\/[0-9a-f-]{36}\\/content\\/[0-9a-f]{64}\\.md$/u)")
+  .replace(targetGuard, "assert.match(body.target_uri, /^viking:\\/\\/user\\/owner\\/resources\\/kira-release-probe\\/[0-9a-f-]{36}\\/content$/u)")).toString('base64'))
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url)), probeFile = join(ROOT, 'scripts/kira/release-recall-probe.mjs')
 const work = mkdtempSync(join(ROOT, 'tests/.release-recall-'))

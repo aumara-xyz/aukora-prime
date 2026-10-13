@@ -136,15 +136,18 @@ const mismatchFields = value => {
     if ((Number.isSafeInteger(value?.[name]) && value[name] >= 0) || value?.[name] === 'unknown') fields[name] = value[name]
   }
   if ((Number.isSafeInteger(value?.firstDiffByte) && value.firstDiffByte >= -1) || value?.firstDiffByte === 'unknown') fields.firstDiffByte = value.firstDiffByte
+  if (['prefix', 'suffix', 'infix', 'absent'].includes(value?.expectedPlacement)) fields.expectedPlacement = value.expectedPlacement
+  if (/^[0-9a-f]{64}$/u.test(value?.extraBytesSha256)) fields.extraBytesSha256 = value.extraBytesSha256
   return fields
 }
 const readContentPath = uri => `/api/v1/content/read?uri=${encodeURIComponent(uri)}&raw=true`
 
-/** URI identity is the SHA-256 of the exact UTF-8 capture bytes, never a title or summary. */
+/** Resource files preserve exact UTF-8 bytes without memory metadata or whitespace cleanup. */
 export function contentUri(user, hash) {
   if (!/^[a-zA-Z0-9_-]{1,64}$/u.test(user) || !/^[0-9a-f]{64}$/u.test(hash)) throw new Error('memory-uri-invalid')
-  return `viking://user/${user}/memories/kira/${MEMORY_STORAGE.content}/${hash}.md`
+  return `viking://user/${user}/resources/kira/${MEMORY_STORAGE.content}/${hash}.md`
 }
+const legacyContentUri = uri => uri.replace('/resources/kira/', '/memories/kira/')
 
 /** Every index part commits to the full note, its exact byte span and its own
  * bytes. The short-note URI stays compatible with the existing index. */
@@ -163,6 +166,8 @@ export function createOpenVikingRecall(input) {
   const doFetch = input.fetch ?? globalThis.fetch
   const now = input.now ?? Date.now
   const root = `viking://user/${config.user}/memories/kira`
+  const contentRoot = `viking://user/${config.user}/resources/kira/${MEMORY_STORAGE.content}`
+  const inScope = uri => uri.startsWith(`${root}/`) || uri.startsWith(`${contentRoot}/`)
   const acknowledgementFile = input.stateDir ? `${input.stateDir}/remembered/index/ack.json` : null
   let acknowledgements = {}
   const documentMetadata = new Map()
@@ -251,7 +256,7 @@ export function createOpenVikingRecall(input) {
       ...(acknowledgements[uri]?.retry ? { retry: acknowledgements[uri].retry } : {}),
       ...(acknowledgements[uri]?.status === 'pending' ? { status: 'pending' } : {}),
       ...(document ? { partHash: document.partHash, byteRange: document.byteRange } : {}),
-      storageTier: uri.startsWith(`${root}/${MEMORY_STORAGE.content}/`) ? MEMORY_STORAGE.content : uri.split('/').at(-2),
+      storageTier: uri.startsWith(`${contentRoot}/`) ? MEMORY_STORAGE.content : uri.split('/').at(-2),
       ...(removal ? { removal } : {}) }
   }
   const ack = (uri, ids, hash = uri.match(/\/content\/([0-9a-f]{64})(?:\.md|-part-[0-9]+-[0-9]+-[0-9a-f]{64}\.md)$/u)?.[1] ?? null, removal = null, contentWritten = false) => {
@@ -311,7 +316,10 @@ export function createOpenVikingRecall(input) {
     const shared = Math.min(expected.length, actual.length)
     for (let offset = 0; offset < shared; offset++) if (expected[offset] !== actual[offset]) { firstDiffByte = offset; break }
     if (firstDiffByte === -1 && expected.length !== actual.length) firstDiffByte = shared
-    const detail = comparison => ({ comparison, expectedBytes: expected.length, actualBytes: actual.length, firstDiffByte })
+    const at = expected.length > 0 && actual.length > expected.length ? actual.indexOf(expected) : -1
+    const extra = at >= 0 ? { expectedPlacement: at === 0 ? 'prefix' : at + expected.length === actual.length ? 'suffix' : 'infix',
+      extraBytesSha256: sha256Hex(Buffer.concat([actual.subarray(0, at), actual.subarray(at + expected.length)])) } : { expectedPlacement: 'absent' }
+    const detail = comparison => ({ comparison, expectedBytes: expected.length, actualBytes: actual.length, firstDiffByte, ...extra })
     if (document === undefined) return detail('document')
     if (!verifyContentHash(note.statement, hashOf(note)).ok) return detail('note-content-hash')
     if (firstDiffByte !== -1) return detail('content-bytes')
@@ -368,7 +376,8 @@ export function createOpenVikingRecall(input) {
   // sync removes only vectors whose notes left the ledger (forgotten, hidden, changed or gone).
   const retainedOf = live => new Set([...live.entries.values()]
     .filter(note => verifyContentHash(note.statement, hashOf(note)).ok)
-    .flatMap(note => [contentUri(config.user, hashOf(note)), ...contentDocuments(config.user, note).map(part => part.uri)]))
+    .flatMap(note => [contentUri(config.user, hashOf(note)), ...contentDocuments(config.user, note).map(part => part.uri)])
+    .flatMap(uri => [uri, legacyContentUri(uri)]))
   const sync = (source, options = {}) => inTurn(async () => {
     if (!configured) return { added: 0, removed: 0, requests: 0, pending: 0, failed: ['openviking-not-configured'] }
     readAcknowledgements()
@@ -381,7 +390,7 @@ export function createOpenVikingRecall(input) {
       try { await removeUri(uri); ack(uri, null); removed++ }
       catch (error) { failed.push('remove-failed'); failures.push(failureOf(error)) }
     }
-    if (options.removeStale !== false && live.complete) for (const uri of Object.keys(acknowledgements)) if (uri.startsWith(`${root}/`) && !grouped.has(uri) && !retained.has(uri)) {
+    if (options.removeStale !== false && live.complete) for (const uri of Object.keys(acknowledgements)) if (inScope(uri) && !grouped.has(uri) && !retained.has(uri)) {
       if (requests >= budget || failed.length) break
       await remove(uri)
     }
@@ -395,8 +404,10 @@ export function createOpenVikingRecall(input) {
     const skipped = new Set(options.skipIds ?? [])
     const skippedUris = new Set(options.skipUris ?? [])
     const eligible = ([uri, notes]) => retryReady(uri, options) && !skippedUris.has(uri) && !notes.every(note => skipped.has(note.id))
-    const selected = failed.length ? [] : [...current, ...older].filter(eligible)
+    const candidates = failed.length ? [] : [...current, ...older].filter(eligible)
+    const selected = candidates.filter(([uri]) => !acknowledged(acknowledgements[uri]) || requests + 2 <= budget)
       .slice(0, Math.max(0, budget - requests))
+    if (budget > requests && candidates.length && !selected.length) failed.push('index-migration-budget-too-small')
     const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1, Math.min(60_000, Math.trunc(options.timeoutMs))) : config.timeoutMs
     for (const [uri, notes] of selected) {
       if (requests >= budget) break
@@ -412,7 +423,7 @@ export function createOpenVikingRecall(input) {
         if (acknowledged(acknowledgements[uri])) {
           if (requests + 2 > budget) {
             if (budget < 2) failed.push('index-migration-budget-too-small')
-            break
+            continue
           }
           requests++
           try {
@@ -425,7 +436,7 @@ export function createOpenVikingRecall(input) {
         const retry = acknowledgements[uri]?.retry
         ackMany([[uri, { ...ackValue(uri, notes.map(note => note.id), hashOf(notes[0])), status: 'pending', ...(retry ? { retry } : {}) }]])
         requests++
-        const result = await call('POST', '/api/v1/content/write', { uri, content: document.content, mode: 'replace', wait: true,
+        const result = await call('POST', '/api/v1/content/write', { uri, content: document.content, mode: 'replace', wait: true, processing_mode: 'vectors_only',
           timeout: Math.max(1, Math.round(timeoutMs / 1000)), tags: [`contentHash=${hashOf(notes[0])}`, `content_sha256=${document.partHash}`,
             `byte_start=${document.start}`, `byte_end=${document.end}`, `storageTier=${MEMORY_STORAGE.content}`, 'source=kira-memory'] }, timeoutMs)
         // OpenViking 0.4.21 can save bytes with HTTP 200 while embedding fails.
@@ -493,7 +504,7 @@ export function createOpenVikingRecall(input) {
       retryable: pendingGroups.filter(eligible).length, deferred: pendingGroups.filter(group => !eligible(group)).length, recordFailures,
       failedUris: [...failedUris],
       pendingIds: [...new Set(pendingGroups.flatMap(([, notes]) => notes.map(note => note.id)))], failedIds: [...failedIds],
-      removalPending: latestRetained ? Object.keys(acknowledgements).filter(uri => uri.startsWith(`${root}/`) && !latestGroups.has(uri)
+      removalPending: latestRetained ? Object.keys(acknowledgements).filter(uri => inScope(uri) && !latestGroups.has(uri)
         && !latestRetained.has(uri)).length : null,
       indexed: [...latestGroups.keys()].filter(uri => indexed(acknowledgements[uri])).length, failed, failures, audit, requests, budget }
   })
@@ -539,7 +550,7 @@ export function createOpenVikingRecall(input) {
     catch { synced = { failed: ['index-sync-failed'], failures: [failureOf(null)] } }
     const failures = [...(synced.failures ?? [])]
     let result
-    try { result = await call('POST', '/api/v1/search/find', { query: `${config.queryInstruction}${String(question)}`, target_uri: `${root}/${MEMORY_STORAGE.content}`, limit: config.candidates }) }
+    try { result = await call('POST', '/api/v1/search/find', { query: `${config.queryInstruction}${String(question)}`, target_uri: contentRoot, limit: config.candidates }) }
     catch (error) {
       live = await ledgerNow(source)
       return { available: false, reason: error.code === 'kira.semantic:auth-refused' ? 'openviking-auth-refused' : 'semantic-recall-failed',
@@ -575,7 +586,7 @@ export function createOpenVikingRecall(input) {
       const uri = String(hit?.uri ?? '')
       const named = idFromUri(config.user, uri)
       const ids = byUri.get(uri) ?? (named && live.entries.has(named) ? [named] : [])
-      if (!uri.startsWith(`${root}/`) || !ids.length) return { uri, ids: [], unmapped: true }
+      if (!inScope(uri) || !ids.length) return { uri, ids: [], unmapped: true }
       try { return { uri, ids, score, bytes: await call('GET', readContentPath(uri)) } }
       catch (error) { return { uri, ids, unreadable: true, unavailable: error.code !== 'kira.semantic:not-found', failure: failureOf(error) } }
     }))

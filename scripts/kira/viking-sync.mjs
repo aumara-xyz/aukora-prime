@@ -28,6 +28,8 @@ function failureRow(value) {
     if ((Number.isSafeInteger(value[name]) && value[name] >= 0) || value[name] === 'unknown') row[name] = value[name]
   }
   if ((Number.isSafeInteger(value.firstDiffByte) && value.firstDiffByte >= -1) || value.firstDiffByte === 'unknown') row.firstDiffByte = value.firstDiffByte
+  if (['prefix', 'suffix', 'infix', 'absent'].includes(value.expectedPlacement)) row.expectedPlacement = value.expectedPlacement
+  if (/^[0-9a-f]{64}$/u.test(value.extraBytesSha256)) row.extraBytesSha256 = value.extraBytesSha256
   return row
 }
 const eligible = report => Number.isSafeInteger(report.retryable) ? count(report.retryable) : count(report.pending)

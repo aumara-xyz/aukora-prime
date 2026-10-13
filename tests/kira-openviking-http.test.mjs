@@ -15,7 +15,7 @@ const mutations = {
   'legacy-retry': ['recall-openviking.mjs', "acknowledged(entry) && entry.vectorStatus === 'complete'", 'acknowledged(entry)'],
   'legacy-integrity': ['recall-openviking.mjs', '!matchesDocument(notes[0], uri, bytes)', 'false'],
   'pending-deletion': ['recall-openviking.mjs', "ackMany([[uri, { ...ackValue(uri, notes.map(note => note.id), hashOf(notes[0])), status: 'pending', ...(retry ? { retry } : {}) }]])", 'void 0'],
-  'migration-budget': ['recall-openviking.mjs', "if (budget < 2) failed.push('index-migration-budget-too-small')", 'void 0'],
+  'migration-budget': ['recall-openviking.mjs', "if (budget > requests && candidates.length && !selected.length) failed.push('index-migration-budget-too-small')", 'void 0'],
   'home-used': ['index.js', 'normalized.openVikingHome ?? openVikingHome(normalized.memoryOwner.stateDir)', 'openVikingHome(normalized.memoryOwner.stateDir)'],
   'home-absolute': ['index.js', '!isAbsolute(record.openVikingHome)', 'false'],
   'home-owner': ['index.js', 'record.memoryOwner === undefined', 'false'],

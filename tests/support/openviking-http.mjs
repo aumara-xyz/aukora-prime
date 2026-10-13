@@ -22,7 +22,8 @@ export async function createOpenVikingHttpFixture({ statement, question, semanti
     assert.equal(request.headers['x-openviking-user'], 'owner')
     if (url.pathname === '/api/v1/content/write') {
       assert.equal(request.method, 'POST'); assert.equal(body.mode, 'replace'); assert.equal(body.wait, true)
-      assert.ok(body.uri.startsWith('viking://user/owner/memories/kira/content/'))
+      assert.ok(body.uri.startsWith('viking://user/owner/resources/kira/content/'))
+      assert.equal(body.processing_mode, 'vectors_only')
       const refusal = controls.writeFailures.get(body.uri)
       if (refusal?.httpStatus) return error(refusal.httpStatus, 'SYNTHETIC-WRITE-REFUSED')
       if (Buffer.byteLength(body.content, 'utf8') > controls.maxContentBytes) return error(413, 'CONTENT_TOO_LARGE')
@@ -34,9 +35,9 @@ export async function createOpenVikingHttpFixture({ statement, question, semanti
     }
     if (url.pathname === '/api/v1/search/find') {
       if (controls.embeddingDown) return error(500, 'INTERNAL')
-      assert.equal(body.target_uri, 'viking://user/owner/memories/kira/content')
-      return ok({ memories: [...vectors].filter(uri => semanticMatch(files.get(uri), body.query))
-        .map(uri => ({ uri, score: 0.91, abstract: 'untrusted summary' })), resources: [], skills: [], total: vectors.size })
+      assert.equal(body.target_uri, 'viking://user/owner/resources/kira/content')
+      return ok({ resources: [...vectors].filter(uri => semanticMatch(files.get(uri), body.query))
+        .map(uri => ({ uri, score: 0.91, abstract: 'untrusted summary' })), memories: [], skills: [], total: vectors.size })
     }
     if (url.pathname === '/api/v1/content/read') return files.has(uri) ? ok(files.get(uri)) : error(404, 'NOT_FOUND')
     if (url.pathname === '/api/v1/fs' && request.method === 'DELETE') { files.delete(uri); vectors.delete(uri); return ok({}) }

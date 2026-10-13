@@ -2,6 +2,7 @@
 // Release sync drains synthetic state and preserves failure, retry, integrity and transport bounds.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { join } from 'node:path'
@@ -55,6 +56,14 @@ const changes = {
   'audit-before-drain': [toolUrl, 'verifyAcknowledged: before === 0', 'verifyAcknowledged: true'],
   'raw-integrity-read': [bridgeUrl, 'const readContentPath = uri => `/api/v1/content/read?uri=${encodeURIComponent(uri)}&raw=true`', 'const readContentPath = uri => `/api/v1/content/read?uri=${encodeURIComponent(uri)}`'],
   'mismatch-diagnostics': [bridgeUrl, ".map(id => ({ id, reason: 'index-content-mismatch', ...mismatchFields(mismatch) }))", ".map(id => ({ id, reason: 'index-content-mismatch' }))"],
+  'resource-content-uri': [bridgeUrl, 'return `viking://user/${user}/resources/kira/${MEMORY_STORAGE.content}/${hash}.md`', 'return `viking://user/${user}/memories/kira/${MEMORY_STORAGE.content}/${hash}.md`'],
+  'vectors-only': [bridgeUrl, "processing_mode: 'vectors_only',", ''],
+  'legacy-index-retained': [bridgeUrl, '.flatMap(uri => [uri, legacyContentUri(uri)]))', '.flatMap(uri => [uri]))'],
+  'exact-byte-comparison': [bridgeUrl, "if (firstDiffByte !== -1) return detail('content-bytes')", "if (false) return detail('content-bytes')"],
+  'extra-byte-placement': [bridgeUrl, 'fields.expectedPlacement = value.expectedPlacement', 'void value.expectedPlacement'],
+  'extra-byte-hash': [bridgeUrl, 'sha256Hex(Buffer.concat([actual.subarray(0, at), actual.subarray(at + expected.length)]))', "'0'.repeat(64)"],
+  'extra-output-placement': [toolUrl, 'row.expectedPlacement = value.expectedPlacement', 'void value.expectedPlacement'],
+  'extra-output-hash': [toolUrl, 'row.extraBytesSha256 = value.extraBytesSha256', 'void value.extraBytesSha256'],
 }
 let applied = 0
 if (mutant) {
@@ -98,7 +107,8 @@ async function check(name, action) {
                                     : ['interactive-busy', 'interactive-busy-audit'].includes(mutant) ? 'interactive-flight'
                                       : ['shared-retry', 'shared-pending', 'successful-retry-cleared'].includes(mutant) ? 'shared'
                                         : mutant === 'audit-before-drain' ? 'audit-drain'
-                                          : ['raw-integrity-read', 'mismatch-diagnostics'].includes(mutant) ? 'exact' : 'partial'
+                                          : ['raw-integrity-read', 'mismatch-diagnostics', 'resource-content-uri', 'vectors-only', 'legacy-index-retained',
+                                            'exact-byte-comparison', 'extra-byte-placement', 'extra-byte-hash', 'extra-output-placement', 'extra-output-hash'].includes(mutant) ? 'exact' : 'partial'
     if (!name.startsWith(group)) return
   }
   await action(); passed++; process.stdout.write(`PASS ${name}\n`)
@@ -108,13 +118,16 @@ function fixture() {
   let writes = 0, down = false, onWrite, searchEmpty = false, vectorStatus = 'complete', visibleProject = value => value
   const fetch = async (url, options = {}) => {
     const parsed = new URL(url), body = options.body ? JSON.parse(options.body) : {}, uri = parsed.searchParams.get('uri')
-    calls.push({ method: options.method ?? 'GET', path: parsed.pathname, raw: parsed.searchParams.get('raw') })
+    calls.push({ method: options.method ?? 'GET', path: parsed.pathname, raw: parsed.searchParams.get('raw'), processingMode: body.processing_mode })
     if (down) throw new Error(canary)
     if (parsed.pathname === '/health') return Response.json({ healthy: true })
     let result
     if (parsed.pathname === '/api/v1/content/write') {
       if (rejected.has(body.uri)) return Response.json({ status: 'error', error: canary }, { status: 413 })
-      files.set(body.uri, body.content); writes++; await onWrite?.(); result = { vector_status: vectorStatus }
+      assert.equal(body.processing_mode, 'vectors_only')
+      // Pinned memory create strips whitespace and adds its reserved version trailer.
+      files.set(body.uri, body.uri.includes('/memories/') ? body.content.trim() + '\n\n<!-- MEMORY_FIELDS\n{\n  "version": 1\n}\n-->' : body.content)
+      writes++; await onWrite?.(); result = { vector_status: vectorStatus }
     } else if (parsed.pathname === '/api/v1/content/read') {
       if (!files.has(uri)) return Response.json({ status: 'error' }, { status: 404 })
       result = parsed.searchParams.get('raw') === 'true' ? files.get(uri) : visibleProject(files.get(uri))
@@ -178,7 +191,8 @@ try {
       `failed-id: ${id} reason=vector-status-failed httpStatus=200 vectorStatus=failed attempts=2 nextRetryAt=70000 capped=true`)
     assert.equal(syncFailureLine({ id, reason: 'content-hash-mismatch' }, true), `skipped-id: ${id} reason=content-hash-mismatch`)
     for (const invalid of [
-      { reason: canary, vectorStatus: canary, httpStatus: 999, attempts: -1, nextRetryAt: -1, comparison: canary },
+      { reason: canary, vectorStatus: canary, httpStatus: 999, attempts: -1, nextRetryAt: -1, comparison: canary,
+        expectedPlacement: canary, extraBytesSha256: canary },
       { reason: canary, vectorStatus: canary, httpStatus: 0, attempts: 1.5, nextRetryAt: Infinity,
         expectedBytes: canary, actualBytes: canary, firstDiffByte: canary },
     ]) assert.equal(syncFailureLine({ id, ...invalid, statement: canary, key: canary }), `failed-id: ${id} reason=index-failed`)
@@ -186,7 +200,7 @@ try {
   await check('exact raw verification preserves CRLF, trailing whitespace, Unicode bytes and bounded chunks', async () => {
     const run = fixture(), stateDir = join(work, 'exact-fixtures'), store = createTrackedMemory({ stateDir, subject })
     const texts = [
-      'Aukora preserves Cafe\u0301, 星 and 🌒 exactly across CRLF.\r\nThe second line retains spaces.  \r\n',
+      '  Aukora preserves Cafe\u0301, 星 and 🌒 exactly across CRLF.\r\nThe second line retains spaces.  \r\n',
       'The observatory preserves a long non-ASCII calibration span: e\u0301 星🌒.\r\n'.repeat(28) + 'Trailing bytes stay here.  ',
     ]
     await store.rememberBatch(texts.map((text, index) => ({ text, from: `fixture-${index}` })))
@@ -197,11 +211,62 @@ try {
     assert.ok(run.calls.filter(call => call.path === '/api/v1/content/read').every(call => call.raw === 'true'))
     for (const note of notes) {
       const documents = contentDocuments(config.user, note)
+      assert.ok(documents.every(document => document.uri.startsWith(`viking://user/${config.user}/resources/kira/content/`)))
       assert.equal(documents.map(document => document.content).join(''), note.statement)
       assert.ok(documents.every(document => Buffer.byteLength(document.content, 'utf8') <= MAX_EMBEDDING_CONTENT_BYTES))
       for (const document of documents) assert.equal(run.files.get(document.uri), document.content)
     }
     assert.ok(contentDocuments(config.user, notes.find(note => note.statement.length > 1000)).length > 1)
+  })
+  await check('exact resource migration retains old memory index bytes and acknowledges only new resource parts', async () => {
+    const run = fixture(), stateDir = join(work, 'exact-migration'), store = createTrackedMemory({ stateDir, subject })
+    await store.remember({ text: 'The observatory retains the prior memory index during byte-preserving resource migration. 星🌒\n'.repeat(6), from: 'migration' })
+    const note = store.read().notes[0], documents = contentDocuments(config.user, note), oldAck = {}, prior = 'Old index bytes remain available for investigation.'
+    for (const document of documents) {
+      const uri = document.uri.replace('/resources/kira/', '/memories/kira/')
+      run.files.set(uri, prior); oldAck[uri] = { ids: [note.id], contentHash: note.contentHash, vectorStatus: 'complete', status: 'quarantined' }
+    }
+    const path = join(stateDir, 'remembered/index/ack.json')
+    mkdirSync(join(stateDir, 'remembered/index'), { recursive: true }); writeFileSync(path, JSON.stringify(oldAck))
+    const bridge = createOpenVikingRecall({ stateDir, config, fetch: run.fetch })
+    const report = await bridge.sync(() => store.ledger(), { budget: 8 })
+    assert.equal(report.pending, 0); assert.deepEqual(report.failedIds, []); assert.equal(report.removed, 0)
+    for (const uri of Object.keys(oldAck)) assert.equal(run.files.get(uri), prior)
+    for (const document of documents) assert.equal(run.files.get(document.uri), document.content)
+    assert.equal(run.calls.some(call => call.method === 'DELETE'), false)
+    const ack = JSON.parse(readFileSync(path, 'utf8'))
+    for (const uri of Object.keys(oldAck)) assert.equal(ack[uri].status, 'quarantined')
+    const answer = await bridge.recall({ question: 'calibration', live: () => store.ledger() })
+    assert.equal(answer.hits.length, 1); assert.ok(answer.hits[0].uri.includes('/resources/kira/'))
+  })
+  await check('exact mismatches report prefix suffix infix and extra-byte hashes without accepting wrappers or neighbours', async () => {
+    const run = fixture(), stateDir = join(work, 'exact-extra'), store = createTrackedMemory({ stateDir, subject })
+    const texts = Array.from({ length: 4 }, (_, i) => `The observatory preserves synthetic extra-byte diagnostic record ${i} with Cafe\u0301 星🌒.`)
+    await store.rememberBatch(texts.map(text => ({ text, from: 'extra-fixture' })))
+    const notes = store.read().notes, release = syntheticRelease(stateDir)
+    assert.equal((await syncRelease({ release, maxMinutes: 1 }, { request: run.fetch })).ok, true)
+    const trailer = '\n\n<!-- MEMORY_FIELDS\n{\n  "version": 1\n}\n-->', header = 'id: 00000000-0000-4000-8000-000000000000\n'
+    const additions = [[ '', trailer, 'prefix' ], [ header, '', 'suffix' ], [ header, trailer, 'infix' ], [ '', '', 'absent' ]]
+    assert.equal(Buffer.byteLength(trailer), 43)
+    for (const [i, note] of notes.entries()) {
+      const [before, after] = additions[i]
+      run.files.set(contentUri(config.user, note.contentHash), i === 3 ? 'A different synthetic record has no expected span.' : before + note.statement + after)
+    }
+    const report = await syncRelease({ release, maxMinutes: 1 }, { request: run.fetch })
+    assert.equal(report.ok, false); assert.deepEqual(report.failedIds, notes.map(note => note.id).sort())
+    for (const [i, note] of notes.entries()) {
+      const [before, after, placement] = additions[i], row = report.recordFailures.find(row => row.id === note.id), line = syncFailureLine(row)
+      assert.equal(row.expectedPlacement, placement); assert.ok(line.includes(`expectedPlacement=${placement}`))
+      if (i === 3) assert.equal(row.extraBytesSha256, undefined)
+      else {
+        const hash = createHash('sha256').update(before + after).digest('hex')
+        assert.equal(row.extraBytesSha256, hash); assert.ok(line.includes(`extraBytesSha256=${hash}`))
+      }
+      assert.ok(!line.includes(header)); assert.ok(!line.includes('MEMORY_FIELDS')); assert.ok(!texts.some(text => line.includes(text)))
+    }
+    const bridge = createOpenVikingRecall({ stateDir, config, fetch: run.fetch })
+    const answer = await bridge.recall({ question: 'calibration', live: () => store.ledger() })
+    assert.equal(answer.hits.length, 0); assert.equal(answer.dropped.tampered.length, 4)
   })
   await check('exact store truncation and older bytes remain mismatches with content-free offsets', async () => {
     const run = fixture(), stateDir = join(work, 'exact-mismatch'), store = createTrackedMemory({ stateDir, subject })
