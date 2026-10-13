@@ -291,16 +291,31 @@ function workflowCheck(text) {
   assert.match(text, /continue-on-error: \$\{\{ matrix.continue_on_error \}\}/);
   assert.match(text, /fail-fast: false/);
   for (const use of text.matchAll(/uses: (\S+)/g)) assert.match(use[1], /^actions\/[a-z-]+@[a-f0-9]{40}$/);
-  assert.equal((text.match(/persist-credentials: false/g) ?? []).length, 2);
-  assert.equal((text.match(/node-version: '24\.11\.1'/g) ?? []).length, 2);
-  assert.equal((text.match(/runs-on: ubuntu-latest/g) ?? []).length, 2);
-  assert.equal((text.match(/if: always\(\)/g) ?? []).length, 3);
-  assert.equal((text.match(/if-no-files-found: error/g) ?? []).length, 2);
+  assert.equal((text.match(/persist-credentials: false/g) ?? []).length, 3);
+  assert.equal((text.match(/node-version: '24\.11\.1'/g) ?? []).length, 3);
+  assert.equal((text.match(/runs-on: ubuntu-latest/g) ?? []).length, 3);
+  assert.equal((text.match(/if: always\(\)/g) ?? []).length, 5);
+  assert.equal((text.match(/if-no-files-found: error/g) ?? []).length, 3);
   assert.match(text, /node --test scripts\/ci\/checks.test.mjs/);
   assert.match(text, /node scripts\/ci\/checks.mjs plan/);
   assert.match(text, /node scripts\/ci\/checks.mjs run "\$CHECK_GROUP" "\$CHECK_PARTITION"/);
   assert.match(text, /PASS 0 \/ FAIL 0 \/ UNPERFORMED 1/);
   assert.doesNotMatch(text, /\$\{\{\s*secrets\./);
+  assert.match(text, /on:\n  push:\n/);
+  const fresh = text.match(/\n  fresh_clone:\n([\s\S]*?)\n  policy:\n/)?.[1];
+  assert.ok(fresh, 'fresh clone job required');
+  assert.match(fresh, /name: fresh clone boots\n/);
+  assert.match(fresh, /timeout-minutes: 15\n/);
+  assert.match(fresh, /echo "archive=\$\(node -p '[^\n]+\.archiveSha256'\)" >> "\$GITHUB_OUTPUT"/);
+  assert.match(fresh, /npm install --global "\$\(node -p '[^\n]+\.packageManager'\)"/);
+  assert.match(fresh, /path: \.cache\/fresh-clone\n/);
+  assert.match(fresh, /key: fresh-clone-\$\{\{ runner.os \}\}-\$\{\{ runner.arch \}\}-node-24\.11\.1-\$\{\{ steps.harness.outputs.archive \}\}-\$\{\{ hashFiles\(/);
+  for (const path of ['upstream-dsh.json', 'patches/**', 'scripts/build-dsh.py',
+    'scripts/artifact-record.mjs', 'scripts/artifacts-coverage.json', 'scripts/lib/artifact-integrity.mjs'])
+    assert.ok(fresh.includes(`'${path}'`), `cache input required: ${path}`);
+  assert.match(fresh, /run: \.\/scripts\/fresh-clone-check\.sh \. --cache \.cache\/fresh-clone > "\$RUNNER_TEMP\/fresh-clone.log" 2>&1\n/);
+  assert.doesNotMatch(fresh, /--built\b|restore-keys:|continue-on-error:|\n    if:/);
+  assert.match(fresh, /UNPERFORMED: setup did not reach the fresh clone check\./);
 }
 test('workflow requires pinned actions, exact Node, read-only permissions and retained failure output', () => workflowCheck(workflow));
 
@@ -396,11 +411,29 @@ test('removed protections are caught by the same assertions', async () => {
     ['matrix.continue_on_error', 'true'],
     ['fail-fast: false', 'fail-fast: true'],
     ['actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803', 'actions/checkout@main'],
+    ['actions/cache@5a3ec84eff668545956fd18022155c47e93e2684', 'actions/cache@main'],
     ["node-version: '24.11.1'", "node-version: '24'"],
     ['persist-credentials: false', 'persist-credentials: true'],
     ['if: always()', 'if: success()'],
     ['if-no-files-found: error', 'if-no-files-found: ignore'],
     ['PASS 0 / FAIL 0 / UNPERFORMED 1', 'PASS 1 / FAIL 0 / UNPERFORMED 0'],
+    ['  push:\n', '  workflow_dispatch:\n'],
+    ['name: fresh clone boots', 'name: source checks'],
+    ['timeout-minutes: 15', 'timeout-minutes: 210'],
+    ['.packageManager', '.unverifiedPackageManager'],
+    ['.archiveSha256', '.unverifiedArchiveSha256'],
+    ['path: .cache/fresh-clone', 'path: .cache/unverified'],
+    ['-${{ steps.harness.outputs.archive }}-', '-'],
+    ["'patches/**'", "'ignored-patches/**'"],
+    ["'upstream-dsh.json'", "'ignored-pin.json'"],
+    ["'scripts/build-dsh.py'", "'ignored-build.py'"],
+    ["'scripts/artifact-record.mjs'", "'ignored-record.mjs'"],
+    ["'scripts/artifacts-coverage.json'", "'ignored-coverage.json'"],
+    ["'scripts/lib/artifact-integrity.mjs'", "'ignored-integrity.mjs'"],
+    ['path: .cache/fresh-clone\n', 'path: .cache/fresh-clone\n          restore-keys: unverified\n'],
+    ['name: fresh clone boots\n', "name: fresh clone boots\n    if: github.event_name == 'pull_request'\n"],
+    ['./scripts/fresh-clone-check.sh . --cache', './scripts/fresh-clone-check.sh . --built vendor/dsh --cache'],
+    ['UNPERFORMED: setup did not reach the fresh clone check.', 'PASS: setup completed.'],
   ]) {
     assert.ok(workflow.includes(before));
     assert.throws(() => workflowCheck(workflow.replace(before, after)), undefined, `survived: ${before}`);

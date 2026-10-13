@@ -27,3 +27,12 @@ bash live-switch-main.sh --recover /root/aukora-backup-pre-<sha7>-<suffix>
 A terminal/SSH invocation re-executes under `nohup` with closed terminal input and a private `/root/aukora-switch-log-*` log; the parent prints its PID and `tail -f` command. Existing `nohup`, session-leader `setsid`, and systemd launches with a matching journal stream retain their launch route. Detachment's initial exit does not mean the switch succeeded: read the log. `ROOT` changes installed absolute paths only for tests and is refused unless `PILOT_SWITCH_TEST=1`; production defaults to the original paths. No harness source archive or build is needed by these switch tests.
 
 After a qualified switch, as the harness user, the additional door acceptance and memory probe remain: `plugins/aukora-buzz-door/checks/installed-accept.mjs <release> --scratch-home <dir in the harness user's home>` and `scripts/kira/release-recall-probe.mjs <release> --scratch-state <empty 0700 dir>` (environment in `plugins/aukora-kira/README.md`).
+
+## Rehearsals of the rewritten script (2026-10-13, staging container, stand-in key)
+
+1. Waited for approval with the old release up, then stopped at the floor check and restored: the approval folders had been created unreadable to the harness user (the script runs under a private file mask).
+2. Same class, one file further: the release-floor file was written unreadable. Restored.
+3. `SWITCH_DONE`: approval installed, harness on the new release, self-check timer active, the script's own screen probe and plugin-load check passed.
+
+Both faults are fixed in the script. Neither was visible to the fake-machine tests, which is the reason a staging rehearsal is required before any live run. The rewritten script has NOT run on the live pilot.
+
