@@ -406,6 +406,7 @@ check_tap 'node --test --test-reporter=tap tests/aukora-board-context.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-eye-action-gate.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/desktop-eye-privacy.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/desktop-owner-privacy.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/desktop-ipc-origin.test.mjs'
 # Split the switch fault matrix so each command stays below 30 seconds with synthetic system services.
 check_tap 'node --test --test-reporter=tap --test-skip-pattern="failure restores|a port that never drains" tests/pilot-switch-order.test.mjs'
 check_tap 'node --test --test-reporter=tap --test-name-pattern="failure restores" tests/pilot-switch-order.test.mjs'

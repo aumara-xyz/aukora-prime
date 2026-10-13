@@ -34,6 +34,8 @@ Statuses below are recorded observations in [NORTH-STAR.md](../plan/NORTH-STAR.m
 - The Buzz desktop app's Touch ID path and the pilot gate approval remain two separate paths with two keys ([NORTH-STAR](../plan/NORTH-STAR.md)).
 - Recalled memory is not guaranteed true; remembered records are unreviewed and possibly wrong ([Kira README](../plugins/aukora-kira/README.md)).
 
+The eye is denied by the action gate before capture, and source courts exercise the desktop's shared private-surface latch across image, accessibility and input awaits, native owner presenters and IPC-origin changes ([action-gate court](../tests/aukora-eye-action-gate.test.mjs), [read-fence court](../tests/desktop-eye-privacy.test.mjs), [native-presenter court](../tests/desktop-owner-privacy.test.mjs), [IPC-origin court](../tests/desktop-ipc-origin.test.mjs)). These courts are registered in `scripts/check.sh`; none runs in `./security-review`. They use synthetic windows, frames and callbacks, so they do not prove that an installed Electron build routes every actual private surface through the latch, that compositor pixels have disappeared when a real window closes, or that a real eye request is refused during such a transition.
+
 ## Known open issues
 
 - Full Linux containment and inherited guest descriptors remain open; the file fence has four retained failing check/open-race cases ([SECURITY-BOUNDARY.md](../SECURITY-BOUNDARY.md#open-obligations), [NORTH-STAR](../plan/NORTH-STAR.md), [file-fence-race.test.mjs](../plugins/aukora-action-gate/file-fence-race.test.mjs)).
