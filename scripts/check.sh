@@ -418,6 +418,7 @@ check_tap 'node --test --test-reporter=tap tests/pilot-switch-mutations-recovery
 check_tap 'node --test --test-reporter=tap tests/pilot-switch-mutations-runtime.test.mjs'
 check_tap 'node --experimental-vm-modules --test --test-reporter=tap tests/aukora-overlay-mounts.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/release-plugins-load.test.mjs'
+check_tap 'node --test --test-reporter=tap tests/threat-model-links.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/aukora-messages-node.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/face-bundle-build.test.mjs'
 check_tap 'node --test --test-reporter=tap tests/face-bundle-freshness.test.mjs'

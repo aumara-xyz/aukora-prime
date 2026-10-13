@@ -491,3 +491,13 @@ What it does not show: a model reply (no key), a real owner or real containment 
 Also done today: the rewritten pilot switch script completed a full staging rehearsal on its third try (two permission faults found and fixed by rehearsing); `tests/release-plugins-load.test.mjs` loads all 25 mounted plugins on Linux and macOS.
 
 Open: `./prime boot` (the NEXT composition) still cannot be started by a stranger: its verifier requires root-owned manifest ancestry, and an example for it is blocked on a design decision (`plan/PROPOSAL-prime-up.md` is parked, not landed). The practical one-command start should be built on the fresh-clone machinery instead.
+
+### 2026-10-13, later: the live pilot runs `c603bbf`, switched by the rewritten script with Peter's click
+
+RAN on the live pilot with Peter's real touch. The rewritten `ops/pilot/live-switch-main.sh` raised one card with the old release fully up; Peter approved it in his app (plugin set `776100bc…`, record `c86aee14…`). First attempt after the approval: stopped at installing the approval (`gate unavailable (ENOENT)`: the gate unit was active a moment before its sockets existed) and restored cleanly. The script now waits for both sockets. Second attempt, no further click: `SWITCH_DONE`, having itself verified the signed-in screen probe (thread icon and every stock app served) and that no plugin threw at load. Self-check timer active afterwards.
+
+On the live release, RAN: `ops/pilot/ui-probe.mjs` all served; `scripts/kira/attach-check.mjs` on a scratch copy: 147 and 66 notes eligible in the two mapped workspaces, none dropped for scope; `scripts/kira/viking-sync.mjs`: stuck at 23 indexed because three notes fail and the tool stopped there (fixed in source since; NOT yet rerun on the node).
+
+Done and then set aside as off-priority, by Peter's ruling the same hour: Auma was given a relay key, door settings for his test channel and a session on the live node, and posted one line there; the door registered. He does not want Buzz worked on now. It is idle; nothing depends on it.
+
+Peter's rulings this day, final: the product for now is BROWSER-BASED, a window onto a person's own node in the cloud; Electron and self-hosting come later. This week's target: a FRESH node (C1), not the pilot, opened in a normal browser and bound to him by the binding ceremony; then a second. Fresh nodes will be containers on the machine already paid for. Nothing counts as done until he has opened it himself.

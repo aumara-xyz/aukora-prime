@@ -1,5 +1,7 @@
 # AUKORA Prime
 
+[Threat model](docs/THREAT-MODEL.md): adversaries, defended actions, limits and evidence.
+
 ![AUKORA's intended human-first architecture](docs/assets/aukora-human-first.png)
 
 *Human first. AI next.*
