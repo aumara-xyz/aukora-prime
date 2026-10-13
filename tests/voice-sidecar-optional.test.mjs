@@ -18,6 +18,7 @@ const source = readFileSync(sourceUrl, 'utf8')
 const voiceRoot = '/synthetic/package/vendor/auma-live/voice'
 const runtimeRoot = '/synthetic/installed-voice'
 const pinPath = '/etc/aukora/auma-live-voice/environment.sha256'
+const pythonPinPath = '/etc/aukora/auma-live-voice/python.sha256'
 const launcher = join(voiceRoot, '..', 'source', 'voice', 'launch.py')
 const executable = join(runtimeRoot, '.venv', 'bin', 'python')
 const models = join(runtimeRoot, 'models')
@@ -32,9 +33,9 @@ function metadata(kind, mode = kind === 'directory' ? 0o700 : 0o644, uid = 0) {
 
 async function fixture(options = {}, input = source) {
   const files = new Map([
-    [runtimeRoot, metadata('directory')], [models, metadata('directory')],
+    [runtimeRoot, metadata('directory', 0o750)], [models, metadata('directory')],
     [join(runtimeRoot, '.venv'), metadata('directory')], [executable, metadata('file', 0o755)],
-    [launcher, metadata('file')], [pinPath, metadata('file')], [sidecar, metadata('file')],
+    [launcher, metadata('file')], [pinPath, metadata('file')], [pythonPinPath, metadata('file')], [sidecar, metadata('file')],
     [join(runtimeRoot, 'sidecar.py'), metadata('file')],
     ['/usr/bin/python3', metadata('file', 0o755)],
   ])
@@ -59,7 +60,9 @@ async function fixture(options = {}, input = source) {
     readFileSync(path) {
       reads.push(['read', path])
       if (!files.has(path)) throw missing(path)
-      return path === pinPath ? options.pin ?? environmentPin : Buffer.from('synthetic interpreter bytes')
+      if (path === pinPath) return options.pin ?? environmentPin
+      if (path === pythonPinPath) return options.pythonPin ?? baseline
+      return Buffer.from('synthetic interpreter bytes')
     },
   }
   const context = vm.createContext({ process: { platform: options.platform ?? 'linux', env: {} }, console, Buffer })
@@ -116,6 +119,7 @@ async function refused(options, input = source, { spawned = false } = {}) {
 
 const missingCases = [
   ['Linux pin', { absent: [pinPath], code: 'voice-pin-unavailable' }],
+  ['Linux Python pin', { absent: [pythonPinPath], code: 'voice-python-pin-unavailable' }],
   ['Linux runtime', { absent: [runtimeRoot], code: 'voice-runtime-unavailable' }],
   ['Linux venv', { absent: [executable], code: 'voice-venv-unavailable' }],
   ['Linux models', { absent: [models], code: 'voice-models-unavailable' }],
@@ -135,15 +139,20 @@ test('missing optional installation components disable voice with one named warn
 })
 
 const integrityCases = [
-  ['OS interpreter digest', { hash: '0'.repeat(64) }, `baselineHash !== '${baseline}'`],
-  ['runtime is directory', { metadata: [[runtimeRoot, metadata('file', 0o600)]] }, '!root.isDirectory()'],
-  ['runtime is private', { metadata: [[runtimeRoot, metadata('directory', 0o775)]] }, '(root.mode & 0o077) !== 0'],
+  ['OS interpreter pin syntax', { pythonPin: 'invalid pin', hash: 'invalid pin' }, '!/^[a-f0-9]{64}$/.test(expectedPython)'],
+  ['OS interpreter digest', { hash: '0'.repeat(64) }, 'baselineHash !== expectedPython'],
+  ['runtime is directory', { metadata: [[runtimeRoot, metadata('file', 0o750)]] }, '!root.isDirectory()'],
+  ['runtime is root owned', { metadata: [[runtimeRoot, metadata('directory', 0o750, 1)]] }, 'root.uid !== 0'],
+  ['runtime is service traversable', { metadata: [[runtimeRoot, metadata('directory', 0o700)]] }, '(root.mode & 0o777) !== 0o750'],
   ['launcher is regular file', { metadata: [[launcher, metadata('symlink')]] }, '!launcherMetadata.isFile()'],
   ['launcher is root owned', { metadata: [[launcher, metadata('file', 0o644, 1)]] }, 'launcherMetadata.uid !== 0'],
   ['launcher is immutable to service', { metadata: [[launcher, metadata('file', 0o664)]] }, '(launcherMetadata.mode & 0o022) !== 0'],
   ['pin is regular file', { metadata: [[pinPath, metadata('symlink')]] }, '!pin.isFile()'],
   ['pin is root owned', { metadata: [[pinPath, metadata('file', 0o644, 1)]] }, 'pin.uid !== 0'],
   ['pin is immutable to service', { metadata: [[pinPath, metadata('file', 0o664)]] }, '(pin.mode & 0o022) !== 0'],
+  ['Python pin is regular file', { metadata: [[pythonPinPath, metadata('symlink')]] }, '!pythonPin.isFile()'],
+  ['Python pin is root owned', { metadata: [[pythonPinPath, metadata('file', 0o644, 1)]] }, 'pythonPin.uid !== 0'],
+  ['Python pin is immutable to service', { metadata: [[pythonPinPath, metadata('file', 0o664)]] }, '(pythonPin.mode & 0o022) !== 0'],
   ['pin has exact digest syntax', { pin: 'invalid pin' }, '!/^[a-f0-9]{64}$/.test(expected)'],
 ]
 

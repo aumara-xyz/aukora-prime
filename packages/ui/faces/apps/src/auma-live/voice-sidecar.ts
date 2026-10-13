@@ -153,13 +153,19 @@ export class VoiceSidecarSupervisor {
     let argv: string[]
     if (process.platform === 'linux') {
       const pinPath = '/etc/aukora/auma-live-voice/environment.sha256'
+      const pythonPinPath = '/etc/aukora/auma-live-voice/python.sha256'
       this.refusal = 'voice-pin-unavailable'
       this.missing = pinPath
       const pin = lstatSync(pinPath)
+      this.refusal = 'voice-python-pin-unavailable'
+      this.missing = pythonPinPath
+      const pythonPin = lstatSync(pythonPinPath)
+      const expectedPython = readFileSync(pythonPinPath, 'utf8').trim()
+      if (!/^[a-f0-9]{64}$/.test(expectedPython)) throw new Error('voice OS interpreter pin unavailable')
       this.refusal = 'voice-interpreter-invalid'
-      this.missing = '/usr/bin/python3 interpreter pin'
+      this.missing = '/usr/bin/python3 interpreter'
       const baselineHash = createHash('sha256').update(readFileSync('/usr/bin/python3')).digest('hex')
-      if (baselineHash !== 'e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7') {
+      if (baselineHash !== expectedPython) {
         throw new Error('voice OS interpreter pin mismatch; no interpreter was executed')
       }
       // The OS interpreter verifies pinned runtime bytes BEFORE executing its venv interpreter.
@@ -172,9 +178,10 @@ export class VoiceSidecarSupervisor {
       const root = lstatSync(runtimeDirectory)
       this.refusal = 'voice-ownership-invalid'
       this.missing = 'runtime/launcher/pin ownership or mode'
-      if (!root.isDirectory() || (root.mode & 0o077) !== 0
+      if (!root.isDirectory() || root.uid !== 0 || (root.mode & 0o777) !== 0o750
         || !launcherMetadata.isFile() || launcherMetadata.uid !== 0 || (launcherMetadata.mode & 0o022) !== 0
-        || !pin.isFile() || pin.uid !== 0 || (pin.mode & 0o022) !== 0) {
+        || !pin.isFile() || pin.uid !== 0 || (pin.mode & 0o022) !== 0
+        || !pythonPin.isFile() || pythonPin.uid !== 0 || (pythonPin.mode & 0o022) !== 0) {
         throw new Error('voice runtime/pin must be operator-owned and immutable to the service user')
       }
       this.refusal = 'voice-pin-invalid'

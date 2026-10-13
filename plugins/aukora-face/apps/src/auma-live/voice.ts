@@ -2,7 +2,6 @@
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer } from 'ws'
-import { isTrustedLocalRequest } from './http.ts'
 // THE SIDECAR SUPERVISOR AND ITS LOG SINK LIVE IN THEIR OWN MODULE. They are re-exported here because every
 // caller already imports this file, and they were MOVED rather than copied: `ws` does not resolve from the
 // repository root, and a module that cannot be imported cannot be run by a court.
@@ -36,15 +35,66 @@ interface VoiceOwnerLease {
   token: VoiceOwnerToken
 }
 
-/** Same-origin WebSocket bridge with one host-enforced explicit voice owner. */
+interface VoiceProxyDependencies {
+  /** The harness Host, Origin, Fetch Metadata, and authenticated-cookie decision. */
+  requestRejection(req: IncomingMessage): 401 | 403 | undefined
+  /** Whether the separately verified loopback sidecar is available. */
+  voiceAvailable(): boolean
+}
+
+export interface VoiceUpgradeRefusal {
+  status: 401 | 403
+  code: 'voice-auth-required' | 'voice-harness-refused' | 'voice-carrier-refused'
+}
+
+/** Preserve harness admission while requiring a loopback carrier and an exact browser origin. */
+export function voiceUpgradeRefusal(
+  req: IncomingMessage,
+  requestRejection: VoiceProxyDependencies['requestRejection'],
+): VoiceUpgradeRefusal | undefined {
+  const rejection = requestRejection(req)
+  if (rejection !== undefined) {
+    return { status: rejection, code: rejection === 401 ? 'voice-auth-required' : 'voice-harness-refused' }
+  }
+  if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    return { status: 403, code: 'voice-carrier-refused' }
+  }
+  const authority = req.headers.host
+  if (authority === undefined) return { status: 403, code: 'voice-carrier-refused' }
+  const loopback = isLoopbackAuthority(authority)
+  const origin = req.headers.origin
+  if (origin === undefined) {
+    return loopback ? undefined : { status: 403, code: 'voice-carrier-refused' }
+  }
+  try {
+    const parsed = new URL(origin)
+    const protocolAccepted = loopback
+      ? parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      : parsed.protocol === 'https:'
+    if (!protocolAccepted || parsed.origin !== origin || parsed.host !== authority) {
+      return { status: 403, code: 'voice-carrier-refused' }
+    }
+  } catch {
+    return { status: 403, code: 'voice-carrier-refused' }
+  }
+  return undefined
+}
+
+/** Authenticated same-origin WebSocket bridge with one host-enforced explicit voice owner. */
 export class VoiceWebSocketProxy {
   private readonly server = new WebSocketServer({ noServer: true, maxPayload: MAX_QUEUED_BYTES })
   private readonly bridges = new Set<VoiceBridge>()
   private readonly retiredOwnerTokens = new Set<VoiceOwnerToken>()
   private ownerLease: VoiceOwnerLease | undefined
 
-  /** @param port - Private loopback sidecar port. */
-  constructor(private readonly port: number) {}
+  /**
+   * @param port - Private loopback sidecar port.
+   * @param dependencies - Harness admission and verified sidecar availability.
+   */
+  constructor(
+    private readonly port: number,
+    private readonly dependencies: VoiceProxyDependencies,
+  ) {}
 
   /**
    * Accept a trusted browser upgrade and relay frames bidirectionally.
@@ -59,8 +109,13 @@ export class VoiceWebSocketProxy {
    * @param head - Bytes read beyond the HTTP upgrade headers.
    */
   handle(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-    if (!isTrustedLocalRequest(req)) {
-      rejectUpgrade(socket, 403, 'forbidden')
+    const refusal = voiceUpgradeRefusal(req, this.dependencies.requestRejection)
+    if (refusal !== undefined) {
+      rejectUpgrade(socket, refusal.status, refusal.code)
+      return
+    }
+    if (!this.dependencies.voiceAvailable()) {
+      rejectUpgrade(socket, 503, 'voice-not-installed')
       return
     }
     const ownerRequest = parseVoiceOwner(req)
@@ -194,8 +249,28 @@ function terminateWebSocket(socket: WebSocket): void {
   if (socket.readyState !== WebSocket.CLOSED) socket.terminate()
 }
 
-function rejectUpgrade(socket: Duplex, status: 400 | 403 | 409, body: string): void {
-  const statusText = status === 400 ? 'Bad Request' : status === 403 ? 'Forbidden' : 'Conflict'
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (address === undefined) return false
+  return address === '::1'
+    || address.startsWith('127.')
+    || address.startsWith('::ffff:127.')
+}
+
+function isLoopbackAuthority(authority: string): boolean {
+  try {
+    const hostname = new URL(`http://${authority}`).hostname.replace(/^\[|\]$/g, '')
+    return hostname === 'localhost' || hostname === '::1' || hostname.startsWith('127.')
+  } catch {
+    return false
+  }
+}
+
+function rejectUpgrade(socket: Duplex, status: 400 | 401 | 403 | 409 | 503, body: string): void {
+  const statusText = status === 400 ? 'Bad Request'
+    : status === 401 ? 'Unauthorized'
+      : status === 403 ? 'Forbidden'
+        : status === 409 ? 'Conflict'
+          : 'Service Unavailable'
   socket.end([
     `HTTP/1.1 ${String(status)} ${statusText}`,
     'Connection: close',

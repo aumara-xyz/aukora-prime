@@ -14,7 +14,7 @@
     "documents",
     "settings"
   ],
-  "source_asset_policy": "Historical donor inventory with reviewed current source pins and rebuilt face bundles. All nine faces were compiled offline from canonical source against the seven-patch pinned harness; lib/.build-inputs.json binds current source and output bytes. The organism comment-only privacy adaptation and historical donor build observations are retained; adapters live outside faces/. Aura settings uses byte-identical copies of the maintained desktop Pentora derivation, with separate snapshot and motion helpers. Removed helper identities remain under excluded; rebuilt settings source/output pins include the authenticated snapshot route.",
+  "source_asset_policy": "Historical donor inventory with reviewed current source pins and rebuilt face bundles. All nine faces were compiled offline from canonical source against the eight-patch pinned harness; lib/.build-inputs.json binds current source and output bytes. The organism comment-only privacy adaptation and historical donor build observations are retained; adapters live outside faces/. Aura settings uses byte-identical copies of the maintained desktop Pentora derivation, with separate snapshot and motion helpers. Removed helper identities remain under excluded; rebuilt settings source/output pins include the authenticated snapshot route.",
   "public_main_observed": "645d3213b8aede3b544269b4224ae09df06b0a42",
   "pending_items": [
     {
@@ -771,7 +771,7 @@
       "source": "plugins/aukora-face/apps/lib/.build-inputs.json",
       "path": "faces/apps/lib/.build-inputs.json",
       "bytes": 13599,
-      "sha256": "831787edf478d33f006efe631c7f3be9dafed07a749f9c2f18b2891c6dcd6372",
+      "sha256": "260955f7c4372f587246be6bb9cc00eb21a8455d555b003f8dd7da5890863662",
       "role": "bundle"
     },
     {
@@ -791,8 +791,8 @@
     {
       "source": "plugins/aukora-face/apps/lib/index.js",
       "path": "faces/apps/lib/index.js",
-      "bytes": 345965,
-      "sha256": "057b4bb0f6c15ac9c9af00dba7bf6c33c98e63d737f207308426e21178d3ca35",
+      "bytes": 348059,
+      "sha256": "4d6cfe5312a2b09e6d5f4736e10be96b4b9643c61c1273808c5c852e70d0ddc4",
       "role": "bundle"
     },
     {
@@ -1071,15 +1071,15 @@
     {
       "source": "plugins/aukora-face/apps/src/auma-live/voice-sidecar.ts",
       "path": "faces/apps/src/auma-live/voice-sidecar.ts",
-      "bytes": 12032,
-      "sha256": "9cb9e5138bfbf36709c82b1b675043576fb1035302b1a117fa3854ba8397e9af",
+      "bytes": 12472,
+      "sha256": "dd07788ce35e2c37792f147dc28e83dd10353a89d888bed457d36da6e09c0864",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/apps/src/auma-live/voice.ts",
       "path": "faces/apps/src/auma-live/voice.ts",
-      "bytes": 7739,
-      "sha256": "3abd528b4365681104a663da8b463c68c6609256e04b9f52a7735a35c45ebd3e",
+      "bytes": 10426,
+      "sha256": "d3f86bb06cae554e7823bd412843eeb958cb59ce0011c13df1e462e24ed1d6f5",
       "role": "source"
     },
     {
@@ -1225,8 +1225,8 @@
     {
       "source": "plugins/aukora-face/apps/src/index.ts",
       "path": "faces/apps/src/index.ts",
-      "bytes": 70397,
-      "sha256": "8f616dd2d4ed5f432ff8661ee4b930d9a90ed71df76068c3c158e86521a4ab08",
+      "bytes": 69875,
+      "sha256": "5380779ab7254f6ce1b1a3537746940a693d40e236ca5d3554bb214e6a74e63b",
       "role": "source"
     },
     {
@@ -3180,7 +3180,7 @@
     },
     {
       "source": "plugins/aukora-face/apps/vendor/auma-live/source/voice/README.md",
-      "sha256": "53f7c75ec53e51c98562630af20ec57ed4d354864d42210af1865094be867c43",
+      "sha256": "9442be723cdb07d958bc9cffe835377266a37e17c07b46a3d41a91b5a6991a08",
       "reason": "not consumed by current UI runtime/build; historical tooling, original closure, voice backend, or donor documentation/evidence"
     },
     {

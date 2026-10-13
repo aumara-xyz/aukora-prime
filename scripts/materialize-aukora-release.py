@@ -45,6 +45,7 @@ FACE_PACKAGES = ('layout', 'sidebar', 'threads', 'apps', 'messages', 'documents'
 #: this list: it is `anthropic/claude-opus-5.5`, the mind Peter asked for by name, so a release that
 #: omitted it would ship the powerful mind DARK — present in the code, unofferable in the UI.
 OFFERED_MINDS = ('balanced', 'deep', 'quick', 'muse', 'opus')
+VOICE_RUNTIME_DIRECTORY = '/opt/aukora-voice/runtime'
 
 #: THE LIVE STATE ROOT, DERIVED ONCE. Two readers need it — the retention policy looks for a launch and a
 #: rollback record here, and the face config's `organismDshHome` must point at the DSH home the LANES
@@ -1650,6 +1651,9 @@ def main() -> int:
             + (
                 "      config:\n"
                 f"        organismDshHome: {json.dumps(str(LIVE_DSH_HOME))}\n"
+                "        voiceEnabled: false\n"
+                "        voiceAutoStart: false\n"
+                f"        voiceRuntimeDirectory: {json.dumps(VOICE_RUNTIME_DIRECTORY)}\n"
                 "        offeredMinds:\n"
                 + ''.join(f"          - {mind}\n" for mind in OFFERED_MINDS)
                 if face == 'apps' else ''

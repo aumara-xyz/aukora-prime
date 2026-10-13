@@ -118,7 +118,7 @@ function recorder() {
   return { ctx, routes, upgrades, logs, stdout, async settle() { await Promise.all(pending) }, async close() { for (const cleanup of cleanups.reverse()) await cleanup() } }
 }
 
-async function mount(face, platform, replacement) {
+async function mount(face, platform, replacement, configOverrides = {}) {
   const file = join(fixture, `plugins/aukora-face-${face}/lib/index.js`)
   assert.ok(fs.existsSync(file), `face-load:compiled-face-not-carried:${face}`)
   const recorded = recorder()
@@ -189,7 +189,7 @@ async function mount(face, platform, replacement) {
     await bundle.link(external)
     await bundle.evaluate()
     assert.equal(typeof bundle.namespace.apply, 'function', `face-load:apply-absent:${face}`)
-    const config = bundle.namespace.Config?.value ?? {}
+    const config = { ...(bundle.namespace.Config?.value ?? {}), ...configOverrides }
     await bundle.namespace.apply(recorded.ctx, config)
     await recorded.settle()
     return recorded
@@ -277,7 +277,19 @@ async function checkVoice(recorded) {
   let reply = ''
   upgrade.handler({ url: '/stock-apps/auma-live/voice', headers: { host: '127.0.0.1' }, socket: { remoteAddress: '127.0.0.1' } }, { end(body) { reply = body } }, Buffer.alloc(0))
   assert.match(reply, /^HTTP\/1\.1 503 Service Unavailable\r\n/u, 'face-load:voice-upgrade-unavailable')
-  assert.ok(reply.endsWith('voice not installed on this node'), 'face-load:voice-upgrade-status')
+  assert.ok(reply.endsWith('voice-not-installed'), 'face-load:voice-upgrade-status')
+}
+
+async function checkVoiceDisabled(recorded) {
+  for (const endpoint of ['minds', 'status']) {
+    const result = await response(recorded, `/api/auma-live/${endpoint}`)
+    assert.equal(result.statusCode, 200, `face-load:voice-disabled-response:${endpoint}`)
+    assert.deepEqual(JSON.parse(result.body).voice, {
+      available: false, code: 'voice-disabled', message: 'voice disabled on this node',
+    }, `face-load:voice-disabled:${endpoint}`)
+  }
+  assert.equal(recorded.upgrades.some(route => route.path === '/stock-apps/auma-live/voice'), false,
+    'face-load:voice-disabled-upgrade')
 }
 
 function pageVoice(text) {
@@ -418,9 +430,14 @@ test('compiled apps register every stock route and serve all static files from t
   try {
     checkRoutes(recorded)
     await checkAssets(recorded)
-    await checkVoice(recorded)
+    await checkVoiceDisabled(recorded)
     t.diagnostic(`${appRoutes.length} required routes and ${appFiles().length} carried static responses checked`)
   } finally { await recorded.close() }
+  const enabled = await mount('apps', 'linux', undefined, {
+    voiceEnabled: true, voiceAutoStart: true, voiceRuntimeDirectory: '/opt/aukora-voice/runtime',
+  })
+  try { await checkVoice(enabled) }
+  finally { await enabled.close() }
 })
 
 test('the carried Auma Live page displays missing voice before an empty roster, then clears it', () => {
@@ -453,9 +470,11 @@ test('load-time host lstat, repo throw, removed route, carried asset and voice s
     fs.rmSync(asset)
     await assert.rejects(checkAssets(recorded), /face-load:asset-not-carried:/u)
   } finally { fs.writeFileSync(asset, bytes); await recorded.close() }
-  const upgradeAnchor = 'if (voiceStatus().available === false) {'
+  const upgradeAnchor = 'if (!this.dependencies.voiceAvailable()) {'
   assert.equal(bundle.split(upgradeAnchor).length - 1, 1, 'face-load:voice-upgrade-mutation-anchor')
-  const unguarded = await mount('apps', 'linux', bundle.replace(upgradeAnchor, 'if (false) {'))
+  const unguarded = await mount('apps', 'linux', bundle.replace(upgradeAnchor, 'if (false) {'), {
+    voiceEnabled: true, voiceAutoStart: true, voiceRuntimeDirectory: '/opt/aukora-voice/runtime',
+  })
   try { await assert.rejects(checkVoice(unguarded), /face-load:voice-upgrade-unavailable/u) }
   finally { await unguarded.close() }
   const statusAnchor = 'voice: this.dependencies.voiceStatus?.()'

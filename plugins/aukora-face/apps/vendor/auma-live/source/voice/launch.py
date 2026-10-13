@@ -9,6 +9,7 @@ import stat
 import sys
 
 PIN_PATH = Path('/etc/aukora/auma-live-voice/environment.sha256')
+PYTHON_PIN_PATH = Path('/etc/aukora/auma-live-voice/python.sha256')
 
 
 def digest(path):
@@ -63,9 +64,9 @@ def verify(root, expected):
 
 def require_operator_ownership(root):
     # The source and expected digest are outside the service-writable runtime.
-    # The service may own runtime 0700; it cannot redefine the approved digest.
+    # The service group may read/traverse runtime 0750; it cannot redefine either approved digest.
     source = Path(__file__).resolve()
-    for path in [PIN_PATH, *PIN_PATH.parents, source, *source.parents]:
+    for path in [PIN_PATH, PYTHON_PIN_PATH, *PIN_PATH.parents, source, *source.parents]:
         resolved = path.resolve(strict=True)
         metadata = resolved.stat()
         if metadata.st_uid != 0 or metadata.st_mode & 0o022:

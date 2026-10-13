@@ -293,8 +293,8 @@ export const Config: z<Config> = z.object({
   apiKeyEnv: z.string().role('credential-ref').default('OPENROUTER_API_KEY'),
   maxRequestBodyBytes: z.natural().min(1).default(16 * 1024),
   voicePort: z.natural().min(1).max(65_535).default(7_512),
-  voiceEnabled: z.boolean().default(true),
-  voiceAutoStart: z.boolean().default(true),
+  voiceEnabled: z.boolean().default(false),
+  voiceAutoStart: z.boolean().default(false),
   voiceRuntimeDirectory: z.string().default(''),
   repoLensRoot: z.string().default('.'),
   providerSendConsent: z.boolean().default(false).description('Owner consent for Auma Live provider prompts and conversation history. Enable explicitly in the existing aukora-face-apps composition config; false disables sending. The release disclosure policy still checks every data class and continuation.'),
@@ -963,24 +963,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => ctx.webServer.register(gated(route)), `ui-stock-apps: ${route.path}`)
   })
   if (config.voiceEnabled) {
-    const voiceProxy = new VoiceWebSocketProxy(config.voicePort)
+    const voiceProxy = new VoiceWebSocketProxy(config.voicePort, {
+      requestRejection: req => gate().requestRejection(req),
+      voiceAvailable: () => voiceStatus().available !== false,
+    })
     ctx.effect(() => ctx.webServer.registerUpgrade({
       path: '/stock-apps/auma-live/voice',
-      // The upgrade carries the browser's cookies too, and a socket that proxies audio
-      // to the local sidecar is not something an unauthenticated process may open.
-      handler: (req, socket, head) => {
-        const rejection = gate().requestRejection(req)
-        if (rejection !== undefined) {
-          socket.write(`HTTP/1.1 ${rejection} ${rejection === 401 ? 'Unauthorized' : 'Forbidden'}\r\nconnection: close\r\n\r\n`)
-          socket.destroy()
-          return
-        }
-        if (voiceStatus().available === false) {
-          socket.end('HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\nvoice not installed on this node')
-          return
-        }
-        voiceProxy.handle(req, socket, head)
-      },
+      handler: (req, socket, head) => { voiceProxy.handle(req, socket, head) },
     }), 'ui-stock-apps: Auma Live voice WebSocket')
     ctx.effect(() => () => voiceProxy.close(), 'ui-stock-apps: Auma Live voice proxy')
     ctx.effect(() => {

@@ -4606,23 +4606,23 @@ function recentChatSessionId(req) {
 * @returns Whether the peer and authority are loopback and Origin is same-authority or absent.
 */
 function isTrustedLocalRequest(req) {
-	if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
+	if (!isLoopbackAddress$1(req.socket.remoteAddress)) return false;
 	const authority = req.headers.host;
-	if (authority === void 0 || !isLoopbackAuthority(authority)) return false;
+	if (authority === void 0 || !isLoopbackAuthority$1(authority)) return false;
 	const origin = req.headers.origin;
 	if (origin === void 0) return true;
 	try {
 		const parsed = new URL(origin);
-		return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.host === authority && isLoopbackAuthority(parsed.host);
+		return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.host === authority && isLoopbackAuthority$1(parsed.host);
 	} catch {
 		return false;
 	}
 }
-function isLoopbackAddress(address) {
+function isLoopbackAddress$1(address) {
 	if (address === void 0) return false;
 	return address === "::1" || address.startsWith("127.") || address.startsWith("::ffff:127.");
 }
-function isLoopbackAuthority(authority) {
+function isLoopbackAuthority$1(authority) {
 	try {
 		const hostname = new URL(`http://${authority}`).hostname.replace(/^\[|\]$/g, "");
 		return hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
@@ -7020,12 +7020,18 @@ var VoiceSidecarSupervisor = class {
 		let argv;
 		if (process.platform === "linux") {
 			const pinPath = "/etc/aukora/auma-live-voice/environment.sha256";
+			const pythonPinPath = "/etc/aukora/auma-live-voice/python.sha256";
 			this.refusal = "voice-pin-unavailable";
 			this.missing = pinPath;
 			const pin = lstatSync(pinPath);
+			this.refusal = "voice-python-pin-unavailable";
+			this.missing = pythonPinPath;
+			const pythonPin = lstatSync(pythonPinPath);
+			const expectedPython = readFileSync(pythonPinPath, "utf8").trim();
+			if (!/^[a-f0-9]{64}$/.test(expectedPython)) throw new Error("voice OS interpreter pin unavailable");
 			this.refusal = "voice-interpreter-invalid";
-			this.missing = "/usr/bin/python3 interpreter pin";
-			if (createHash("sha256").update(readFileSync("/usr/bin/python3")).digest("hex") !== "e1efa562c2cc2e35521a5c9c9b9939921001ff8ca9708a13ef15ace68cc2ccd7") throw new Error("voice OS interpreter pin mismatch; no interpreter was executed");
+			this.missing = "/usr/bin/python3 interpreter";
+			if (createHash("sha256").update(readFileSync("/usr/bin/python3")).digest("hex") !== expectedPython) throw new Error("voice OS interpreter pin mismatch; no interpreter was executed");
 			const launcher = join(AUMA_LIVE_VOICE_ROOT, "..", "source", "voice", "launch.py");
 			this.refusal = "voice-launcher-unavailable";
 			this.missing = "operator-owned voice launcher";
@@ -7035,7 +7041,7 @@ var VoiceSidecarSupervisor = class {
 			const root = lstatSync(runtimeDirectory);
 			this.refusal = "voice-ownership-invalid";
 			this.missing = "runtime/launcher/pin ownership or mode";
-			if (!root.isDirectory() || (root.mode & 63) !== 0 || !launcherMetadata.isFile() || launcherMetadata.uid !== 0 || (launcherMetadata.mode & 18) !== 0 || !pin.isFile() || pin.uid !== 0 || (pin.mode & 18) !== 0) throw new Error("voice runtime/pin must be operator-owned and immutable to the service user");
+			if (!root.isDirectory() || root.uid !== 0 || (root.mode & 511) !== 488 || !launcherMetadata.isFile() || launcherMetadata.uid !== 0 || (launcherMetadata.mode & 18) !== 0 || !pin.isFile() || pin.uid !== 0 || (pin.mode & 18) !== 0 || !pythonPin.isFile() || pythonPin.uid !== 0 || (pythonPin.mode & 18) !== 0) throw new Error("voice runtime/pin must be operator-owned and immutable to the service user");
 			this.refusal = "voice-pin-invalid";
 			this.missing = pinPath;
 			const expected = readFileSync(pinPath, "utf8").trim();
@@ -7138,9 +7144,45 @@ function voiceEnvironment(port, runtimeDirectory) {
 const MAX_QUEUED_BYTES = 2 * 1024 * 1024;
 const MAX_RETIRED_VOICE_OWNERS = 64;
 const VOICE_OWNER_PATTERN = /^\d{13}:[A-Za-z0-9][A-Za-z0-9._-]{7,79}:\d{6,10}$/;
-/** Same-origin WebSocket bridge with one host-enforced explicit voice owner. */
+/** Preserve harness admission while requiring a loopback carrier and an exact browser origin. */
+function voiceUpgradeRefusal(req, requestRejection) {
+	const rejection = requestRejection(req);
+	if (rejection !== void 0) return {
+		status: rejection,
+		code: rejection === 401 ? "voice-auth-required" : "voice-harness-refused"
+	};
+	if (!isLoopbackAddress(req.socket.remoteAddress)) return {
+		status: 403,
+		code: "voice-carrier-refused"
+	};
+	const authority = req.headers.host;
+	if (authority === void 0) return {
+		status: 403,
+		code: "voice-carrier-refused"
+	};
+	const loopback = isLoopbackAuthority(authority);
+	const origin = req.headers.origin;
+	if (origin === void 0) return loopback ? void 0 : {
+		status: 403,
+		code: "voice-carrier-refused"
+	};
+	try {
+		const parsed = new URL(origin);
+		if (!(loopback ? parsed.protocol === "http:" || parsed.protocol === "https:" : parsed.protocol === "https:") || parsed.origin !== origin || parsed.host !== authority) return {
+			status: 403,
+			code: "voice-carrier-refused"
+		};
+	} catch {
+		return {
+			status: 403,
+			code: "voice-carrier-refused"
+		};
+	}
+}
+/** Authenticated same-origin WebSocket bridge with one host-enforced explicit voice owner. */
 var VoiceWebSocketProxy = class {
 	port;
+	dependencies;
 	server = new WebSocketServer({
 		noServer: true,
 		maxPayload: MAX_QUEUED_BYTES
@@ -7148,9 +7190,13 @@ var VoiceWebSocketProxy = class {
 	bridges = /* @__PURE__ */ new Set();
 	retiredOwnerTokens = /* @__PURE__ */ new Set();
 	ownerLease;
-	/** @param port - Private loopback sidecar port. */
-	constructor(port) {
+	/**
+	* @param port - Private loopback sidecar port.
+	* @param dependencies - Harness admission and verified sidecar availability.
+	*/
+	constructor(port, dependencies) {
 		this.port = port;
+		this.dependencies = dependencies;
 	}
 	/**
 	* Accept a trusted browser upgrade and relay frames bidirectionally.
@@ -7165,8 +7211,13 @@ var VoiceWebSocketProxy = class {
 	* @param head - Bytes read beyond the HTTP upgrade headers.
 	*/
 	handle(req, socket, head) {
-		if (!isTrustedLocalRequest(req)) {
-			rejectUpgrade(socket, 403, "forbidden");
+		const refusal = voiceUpgradeRefusal(req, this.dependencies.requestRejection);
+		if (refusal !== void 0) {
+			rejectUpgrade(socket, refusal.status, refusal.code);
+			return;
+		}
+		if (!this.dependencies.voiceAvailable()) {
+			rejectUpgrade(socket, 503, "voice-not-installed");
 			return;
 		}
 		const ownerRequest = parseVoiceOwner(req);
@@ -7297,8 +7348,20 @@ function closeWebSocket(socket, code = 1e3, reason = "") {
 function terminateWebSocket(socket) {
 	if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
 }
+function isLoopbackAddress(address) {
+	if (address === void 0) return false;
+	return address === "::1" || address.startsWith("127.") || address.startsWith("::ffff:127.");
+}
+function isLoopbackAuthority(authority) {
+	try {
+		const hostname = new URL(`http://${authority}`).hostname.replace(/^\[|\]$/g, "");
+		return hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
+	} catch {
+		return false;
+	}
+}
 function rejectUpgrade(socket, status, body) {
-	const statusText = status === 400 ? "Bad Request" : status === 403 ? "Forbidden" : "Conflict";
+	const statusText = status === 400 ? "Bad Request" : status === 401 ? "Unauthorized" : status === 403 ? "Forbidden" : status === 409 ? "Conflict" : "Service Unavailable";
 	socket.end([
 		`HTTP/1.1 ${String(status)} ${statusText}`,
 		"Connection: close",
@@ -7325,8 +7388,8 @@ const Config = z.object({
 	apiKeyEnv: z.string().role("credential-ref").default("OPENROUTER_API_KEY"),
 	maxRequestBodyBytes: z.natural().min(1).default(16 * 1024),
 	voicePort: z.natural().min(1).max(65535).default(7512),
-	voiceEnabled: z.boolean().default(true),
-	voiceAutoStart: z.boolean().default(true),
+	voiceEnabled: z.boolean().default(false),
+	voiceAutoStart: z.boolean().default(false),
 	voiceRuntimeDirectory: z.string().default(""),
 	repoLensRoot: z.string().default("."),
 	providerSendConsent: z.boolean().default(false).description("Owner consent for Auma Live provider prompts and conversation history. Enable explicitly in the existing aukora-face-apps composition config; false disables sending. The release disclosure policy still checks every data class and continuation."),
@@ -7845,20 +7908,13 @@ async function apply(ctx, config) {
 		ctx.effect(() => ctx.webServer.register(gated(route)), `ui-stock-apps: ${route.path}`);
 	});
 	if (config.voiceEnabled) {
-		const voiceProxy = new VoiceWebSocketProxy(config.voicePort);
+		const voiceProxy = new VoiceWebSocketProxy(config.voicePort, {
+			requestRejection: (req) => gate().requestRejection(req),
+			voiceAvailable: () => voiceStatus().available !== false
+		});
 		ctx.effect(() => ctx.webServer.registerUpgrade({
 			path: "/stock-apps/auma-live/voice",
 			handler: (req, socket, head) => {
-				const rejection = gate().requestRejection(req);
-				if (rejection !== void 0) {
-					socket.write(`HTTP/1.1 ${rejection} ${rejection === 401 ? "Unauthorized" : "Forbidden"}\r\nconnection: close\r\n\r\n`);
-					socket.destroy();
-					return;
-				}
-				if (voiceStatus().available === false) {
-					socket.end("HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\nvoice not installed on this node");
-					return;
-				}
 				voiceProxy.handle(req, socket, head);
 			}
 		}), "ui-stock-apps: Auma Live voice WebSocket");

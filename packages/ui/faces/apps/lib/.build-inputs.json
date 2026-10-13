@@ -1,7 +1,7 @@
 {
   "formatVersion": 2,
   "face": "apps",
-  "srcDigest": "97e3b28963328d7a0dbca9640499e19eca807963e96154251883981060566a40",
+  "srcDigest": "697473d0e0f012c82614f776de1dc966999bcb80bd75874640351006a9a5e6d2",
   "files": [
     "../../../scripts/build-face-bundles.sh",
     "../../../scripts/build-face.py",
@@ -263,7 +263,7 @@
   "outputs": {
     "auma-canvas-tool.js": "dc9089966199892f8e634ef40763d1b0d45273fc852610d59bee6571442f16f9",
     "client.js": "a199f627698e2b87631fe2b3fb33fe0be4f58f7427d544951a0c77ab7a2abe45",
-    "index.js": "057b4bb0f6c15ac9c9af00dba7bf6c33c98e63d737f207308426e21178d3ca35",
+    "index.js": "4d6cfe5312a2b09e6d5f4736e10be96b4b9643c61c1273808c5c852e70d0ddc4",
     "invariant.js": "3b8afb228be987e733eb733646c241242d9ad6f2ba47f58f0f10c1aaa2c1b190"
   }
 }

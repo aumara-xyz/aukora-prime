@@ -252,8 +252,10 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // Reviewed browser-node opt-in: omits relay/Buzz bytes and rows, disables effect providers
   // in host/preset scopes and records the global all-tool refusal before the artifact record.
   // Both Kira rows/config, proposal socket and ordinary release defaults remain unchanged.
+  // Reviewed voice runtime wiring: Apps keeps voice and automatic sidecar start disabled while
+  // naming the fixed Linux runtime directory; Kira rows/config and proposal socket are unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '23498525b845b30b4c33f2e930759d0311dccf9927c3f8a0d376b398076ead3d')
+    '06fbc2f2608c7d259d08ac70716e301e9fb36464172f1084d2303ab612b99a7b')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
