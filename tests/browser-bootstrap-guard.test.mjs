@@ -17,7 +17,7 @@ const unavailable = 'browser-node:binding-guard-unavailable'
 const policyURL = new URL('../plugins/aukora-action-gate/lib/browser-bootstrap.mjs', import.meta.url)
 const policySource = readFileSync(policyURL, 'utf8')
 const request = (url, method = 'GET') => ({ url, method, headers: {} })
-const reads = ['/api/aukora/theme', '/api/aukora/aura-snapshot', '/api/aukora/aumlok-control', '/api/aukora/aumlok-identity']
+const reads = ['/api/aukora/theme', '/api/aukora/aura-snapshot', '/api/aukora/aumlok-control']
 const bindings = ['prepare', 'bind', 'cancel', 'status'].map(name => `/api/aukora/aumlok-binding/${name}`)
 const staticFiles = ['/', '/favicon.ico', '/assets/main.js', '/plugins/plugin/client.js']
 
@@ -47,6 +47,10 @@ function checkPolicy(api) {
     assert.equal(access.rpcRejection(endpoint), reason)
     assert.equal(access.requestRejection(request(`/api/${endpoint}`, 'POST')), reason)
   }
+  // The contact card is refused before binding (independent review, 2026-10-14), and brand images are served.
+  assert.equal(access.requestRejection(request('/api/aukora/aumlok-identity')), reason)
+  assert.equal(access.requestRejection(request('/branding/aumara-icon-96.png')), undefined)
+  assert.equal(access.requestRejection(request('/plugins//events')), reason)
   assert.equal(access.requestRejection(request('/assets/main.js?version=1')), undefined)
   assert.equal(access.requestRejection(request('/api/aukora/theme?version=1')), undefined)
   assert.equal(access.requestRejection(request('/assets/../api/session/create')), reason)

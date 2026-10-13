@@ -257,3 +257,24 @@ plugin name. Kira rows/configuration/proposal socket and the gate.mjs hash are
 unchanged. The bootstrap's recipe pin and the default surface fingerprint were
 refreshed. This does not join a browser session to an exact owner/passkey,
 isolate active content, prove containment, or establish usable installed boot.
+
+## Independent review of the pre-binding restriction (Grok, read-only, 2026-10-14)
+
+A second model family reviewed `plugins/aukora-action-gate/lib/browser-bootstrap.mjs`, its harness patch, its
+composition rows and `tests/browser-bootstrap-*.test.mjs` without write access. Its findings and what was done:
+
+| Finding (reviewer's label) | Status |
+| --- | --- |
+| `GET /api/aukora/aumlok-identity` was readable before binding and can create a messaging identity (CONFIRMED) | FIXED IN SOURCE: removed from the pre-binding reads; a test asserts its refusal |
+| `/plugins//events` and encoded-slash forms are not covered by the events denial (SUSPECT) | CONFIRMED by a new test at the guard, then FIXED IN SOURCE: any path with an empty segment, an encoded slash or a backslash is refused before binding |
+| `bound()` means only that a control record can be read; a leftover or copied record lifts the whole guard (CONFIRMED) | OPEN, accepted for a fresh node: the installer names a binding directory that does not exist until the ceremony creates it. Not a defence against whoever can write that directory (the node's own harness user or root) |
+| `prepare` returns the drawn words, so a signed-in client can prepare and bind without a person typing (CONFIRMED) | OPEN by design in this version: the words are drawn on the node and shown once. A binding proves the holder of the signed-in session completed the routes, not that a person read or typed anything |
+| `/plugins/` is an open prefix for GET and HEAD apart from events (CONFIRMED; no other live handler found) | OPEN, accepted: bundles and maps live there; a new handler under `/plugins/` would need its own rule |
+| RPC names are an exact set; no method-name trick found (CONFIRMED) | holds |
+| The multiplexed socket is filtered before providers run; only the readiness frame passes (CONFIRMED) | holds |
+| The guard is the first step of HTTP handling and of the upgrade; OPTIONS is refused (CONFIRMED) | holds |
+
+The reviewer's verdict: ship to a test node whose binding directory is fresh and empty; do not describe it as
+more than that. RAN ON A NODE (rehearsal `aukora-r1`, stand-in approval, real browser over HTTPS): the app
+booted, the binding screen opened by itself, session creation, session listing and file upload answered 403
+`browser-node:binding-required`, and the after-approval acceptance passed in its unbound mode.
