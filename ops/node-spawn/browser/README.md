@@ -16,7 +16,9 @@ and installs it. Gate restart rotates the private bearer (12-hour lifetime).
 
 The runtime composition verifier accepts the same exact page label as the
 protected verifier and no other page label. Do not relabel a page receipt as a
-socket approval. Browser enrollment/session/ceremony/TLS work is separate.
+socket approval. The installer supplies the HTTPS-origin and one-use app claim
+plumbing; owner enrollment/binding and host DNS/certificates still require their
+separate protected flow and operator actions.
 
 Pre-stage four inputs in a private root-owned directory, with no symlink/hardlink
 inputs. Use a **clean committed** checkout containing this change; preserve its
@@ -65,19 +67,43 @@ disabled. This runbook requires a standalone daemon on the intended host;
 bash ops/node-spawn/browser/create.sh --name C1 --image "$IMAGE_FINGERPRINT" \
   --inputs "$INPUTS" --checkout-sha256 "$CHECKOUT_SHA256" --revision "$REVISION" \
   --node-sha256 "$NODE_SHA256" --dependencies-sha256 "$DEPENDENCIES_SHA256" \
-  --app-port "$HOST_APP_PORT" --owner-port "$HOST_OWNER_PORT"
+  --app-host "$APP_HOST" --owner-host "$OWNER_HOST" \
+  --app-port "$HOST_APP_PORT" --owner-port "$HOST_OWNER_PORT" --claim-port "$HOST_CLAIM_PORT"
 bash ops/node-spawn/browser/acceptance.sh --name C1 --phase before
 ```
 
 LXD's non-NAT proxy enters the container's network namespace and forwards to its
-loopback; the two host listeners bind **only 127.0.0.1**. Verify this on the real
+loopback; the three distinct host listeners bind **only 127.0.0.1**. Hostnames
+must be distinct lowercase DNS names without a scheme, wildcard, port or path;
+numeric final labels are refused. The installer writes root-owned, readable
+`/etc/aukora/public-origin` and `/etc/aukora/owner-public-origin`, pins both names
+in its installation record, and refuses a rerun with different names. Verify this on the real
 host (`ss -ltnp`, `lxc --force-local config show C1 --expanded`), including that
-raw app/owner ports are unreachable externally. A separate reviewed host HTTPS
+raw app/owner/claim ports are unreachable externally. The app proxy targets
+the harness on container port 18735; the owner proxy targets the gate on 17792;
+the claim proxy targets `aukora-browser-claim.service` on 18736. The broker is
+root-owned and runs as root on container loopback to read the private launch
+descriptor. It serves exact claim/sign-in/sign-out endpoints and does not
+forward app WebSocket or SSE traffic. A separate reviewed host HTTPS
 proxy must use operator-provided app/owner hostnames and certificates, preserve
 Host/Origin/WS/SSE, overwrite spoofed forwarding headers and omit access/query
-logs on the owner route. No hostname, DNS, TLS configuration, login broker or
-public claim is supplied here. Do not expose either origin publicly until the
-other browser-node parts and their negative ingress tests are qualified.
+logs on the owner route. Render its exact three upstreams on the LXD host:
+
+```bash
+python3 ops/node-spawn/ingress/render.py \
+  --app-host "$APP_HOST" --owner-host "$OWNER_HOST" \
+  --harness-port "$HOST_APP_PORT" --owner-port "$HOST_OWNER_PORT" --claim-port "$HOST_CLAIM_PORT" \
+  --output "$CADDY_CANDIDATE"
+sudo caddy validate --config "$CADDY_CANDIDATE" --adapter caddyfile
+sudo install -o root -g root -m 0644 "$CADDY_CANDIDATE" /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+`CADDY_CANDIDATE` is an operator-selected file; preserve any other existing host
+routes before installing it. Caddy sends only the exact broker endpoints to
+the claim port; app HTTP, WebSocket and SSE go directly to the harness. No DNS,
+certificate or public-browser observation is supplied by these scripts. See
+the [ingress runbook](../ingress/README.md) for the public negative checks.
 
 Deliver the current owner bearer to Peter through the host's existing private
 operator route, directly from `/home/aukora-gate/owner-secret.json` inside C1.
@@ -85,6 +111,17 @@ These scripts never print it. Peter opens the separate HTTPS owner page with
 that bearer at the owner origin's `/?k=<private bearer>` himself, reviews the
 initial exact release card, types its digest,
 and confirms. Do not click for him or export the raw owner Unix socket.
+To invalidate the current owner bearer, run inside C1 as root:
+
+```bash
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py rotate-owner-link
+```
+
+This requests a gate restart, waits for its sockets, and prints no bearer. Deliver
+the replacement through the same private operator route.
+The harness requires the gate; systemd's restart propagation is unverified here.
+After a rotation or passkey activation, inspect `status.sh`; if the approved
+harness is inactive, run `start.sh`, then repeat after-approval acceptance.
 
 ```bash
 lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/start.sh
@@ -92,11 +129,55 @@ bash ops/node-spawn/browser/acceptance.sh --name C1 --phase after
 lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/status.sh
 ```
 
-`after` checks installed users/modes/pins, loopback listeners, exact approved
+`after` checks installed users/modes/pins, all three loopback proxies, exact approved
 floor, the existing signed-in UI probe and current service invocation's plugin
-load errors. It uses the private launch descriptor inside C1; no launch token is
-delivered to a browser. Then Peter must open the actual HTTPS app and perform his
-binding ceremony through the separately implemented owner flow. No script here
+load errors. It also requires the claim service, protected public origin files,
+401 without a cookie at the public app authority, and a fresh claim that exchanges
+once for an authority-bound cookie: the authenticated request succeeds and reuse
+is refused. These requests stay inside C1 with a public Host header; they do not
+test TLS, Caddy, a real browser or WebSocket/SSE streaming. The probe spends its
+own claim and prints no link or cookie. Mint a separate five-minute link for Peter:
+
+```bash
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py claim
+```
+
+This root command prints only the link. Give it directly through the private
+operator route; do not log it. It carries a one-use fragment, never the harness
+launch token. Then Peter must open the actual HTTPS app and perform his
+binding ceremony through the separately implemented owner flow. Returning
+sign-in at `https://APP_HOST/__aukora/signin` goes through the broker to the
+owner origin's `/owner/signin`; it requires protected passkey gate configuration
+and enrollment. The installer pins complete authority/contracts/Aumlok packages
+in the gate manifest, initially selects the bearer owner page, and creates no
+enrollment or synthetic identity. After the initial release approval, prepare
+the actual protected passkey setup and browser binding configuration following
+the [gate procedure](../../../packages/boundary-gate/README.md#returning-browser-sign-in-and-final-subject-binding).
+Use the actual app's configured `local-control.json` path, never a copied
+projection; arrange gate read/traverse access only to that public record without
+exposing the machine seed. For this install the gate's primary group is `skgate`:
+
+```bash
+# Inside C1 as root, after mint-passkey-claim wrote the exclusive setup file:
+chown root:skgate /etc/aukora-boundary-gate/passkey-setup.json
+chmod 0640 /etc/aukora-boundary-gate/passkey-setup.json
+# Root writes browser-join.json with the actual app origin and binding_record,
+# root:skgate 0640, under the protected /etc/aukora-boundary-gate directory.
+/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py enable-owner-signin
+```
+
+`enable-owner-signin` verifies the installed package, checks both configurations
+with the existing gate readers as the gate user, matches their app/owner origins
+and gate signer, and writes a fixed root-owned service drop-in selecting both
+passkey and browser-join modes. A conflicting drop-in is refused. It reloads
+systemd, restarts the gate and waits for its sockets; it neither enrolls nor
+approves. Peter opens `https://OWNER_HOST/owner/enroll`, enters the private
+passkey enrollment claim and uses his authenticator. After the phrase ceremony
+he signs the gate's exact final subject/node binding. Returning sign-in is
+available after enrollment at `https://APP_HOST/__aukora/signin`; a retained
+binding must remain valid. Missing setup, configuration, read permission or
+enrollment refuses sign-in. Missing final binding refuses approvals/effects;
+it cannot reopen bearer approval for an enrolled owner. No script here
 enrolls him, installs a synthetic subject, proves a model reply, memory, browser
 streaming, device custody, human uniqueness, consent or complete containment.
 
@@ -110,7 +191,7 @@ failure record or discard that fresh test container and create another from inpu
 UNVERIFIED host assumptions: stock image provenance and prerequisites; standalone LXD
 local CLI/proxy options, isolated UID allocation and kernel namespace support;
 storage pool/quota capacity; build resource limits and complete offline store;
-unused loopback ports; proxy UID 65534 reaching container loopback; systemd,
+three unused loopback ports; proxy UID 65534 reaching container loopback; systemd,
 journald, socket permissions and Ubuntu inherited umask; DNS/certificates/private
-bearer delivery, HTTPS origin/session integration, real authenticator and Peter's
+bearer delivery, installed HTTPS origin/session integration, real authenticator and Peter's
 approval/binding. Repeat acceptance after reboot; no real host was inspected here.

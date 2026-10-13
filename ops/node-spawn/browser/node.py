@@ -47,6 +47,15 @@ def digest(value, revision=False):
     return value
 
 
+def hostname(value):
+    labels = value.split('.')
+    need(value == value.lower() and value != 'localhost' and len(value) <= 253 and len(labels) >= 2
+         and re.search(r'[a-z]', labels[-1]) is not None
+         and all(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) is not None for label in labels),
+         'HOST_INVALID')
+    return value
+
+
 def protected(path, directory=False, uid=0, private=False, linked=False):
     info = path.lstat()
     need(info.st_uid == uid and not info.st_mode & (0o077 if private else 0o022)
@@ -203,11 +212,14 @@ def profile(release, checkout=None):
 
 def install(options):
     root_check()
+    app_host, owner_host = hostname(options.app_host), hostname(options.owner_host)
+    need(app_host != owner_host, 'HOST_CONFLICT')
     here = Path(__file__).resolve().parent
     stage = module(here.parent / 'stage.py' if (here.parent / 'stage.py').is_file() else here / 'stage.py')
     inputs = checked_inputs(options, stage)
     binding = {'checkout': options.checkout_sha256, 'node': options.node_sha256,
-               'dependencies': options.dependencies_sha256, 'harness': stage.digest_file(inputs / 'dsh-source.tar.gz')}
+               'dependencies': options.dependencies_sha256, 'harness': stage.digest_file(inputs / 'dsh-source.tar.gz'),
+               'app_host': app_host, 'owner_host': owner_host}
     if (STATE / 'installed.json').exists():
         need(installed() == {'revision': options.revision, 'inputs': binding}, 'RERUN_CONFLICT')
         bootstrap('check-package')
@@ -221,7 +233,10 @@ def install(options):
         result = subprocess.run(['getent', 'passwd', name], env=ENV, capture_output=True)
         need(result.returncode == 2, 'USER_EXISTS')
     for name in ('/opt/aukora-genesis', '/opt/aukora-node', '/opt/aukora-boundary-gate', '/opt/owner-key',
+                 '/opt/authority', '/opt/contracts', '/opt/aukora-aumlok',
                  '/etc/aukora-boundary-gate', '/etc/aukora-approvals', '/etc/aukora-genesis',
+                 '/etc/aukora', '/etc/systemd/system/aukora-browser-claim.service',
+                 '/etc/systemd/system/aukora-boundary-gate.service.d',
                  '/home/aukora-gate', '/home/aukora-host', '/etc/systemd/system/aukora-browser.service',
                  '/etc/systemd/system/aukora-boundary-gate.service'):
         need(not Path(name).exists() and not Path(name).is_symlink(), 'INSTALL_EXISTS')
@@ -229,7 +244,7 @@ def install(options):
                  '/usr', '/usr/local', '/usr/local/lib', '/var/lib/aukora-boundary', '/usr/local/lib/aukora-boundary'):
         if Path(name).exists() or Path(name).is_symlink():
             protected(Path(name), True)
-    # The stock image listens for SSH on every address; this node is reached only through its two proxies.
+    # The stock image listens for SSH on every address; this node uses loopback proxies.
     run(['systemctl', 'mask', '--now', 'ssh.socket', 'ssh.service'], 'SSH_DISABLE_REFUSED')
     STATE.mkdir(mode=0o700)
     deps = STATE / 'dependencies'
@@ -276,6 +291,7 @@ def install(options):
     release.parent.mkdir(mode=0o755)
     env['AUKORA_STATE'] = '/home/aukora-host/genesis/state'
     fresh.run(['python3', str(checkout / 'scripts/materialize-aukora-release.py'), '--browser-node',
+               '--public-origin', 'https://' + app_host,
                '--from', str(checkout / 'vendor/dsh'), '--to', str(release)], 'materialize', checkout, env)
     stage.public_modes(release)
     profile(release, checkout)
@@ -283,6 +299,11 @@ def install(options):
     owner = STATE / 'owner-key'
     shutil.copytree(checkout / 'packages/boundary-gate', gate)
     shutil.copytree(checkout / 'packages/owner-key', owner)
+    profiles = [('authority', checkout / 'packages/authority', '/opt/authority', '--passkey-authority'),
+                ('contracts', checkout / 'packages/contracts', '/opt/contracts', '--passkey-contracts'),
+                ('browser-aumlok', checkout / 'plugins/aukora-aumlok', '/opt/aukora-aumlok', '--browser-aumlok')]
+    for name, source, destination, flag in profiles:
+        shutil.copytree(source, STATE / name)
     run(['groupadd', '--system', 'skgate'], 'GROUP_CREATE_REFUSED')
     for name, group in [('aukora-gate', 'skgate'), ('aukora-host', 'aukora-host')]:
         arguments = ['useradd', '--system', '--home-dir', '/home/' + name, '--shell', '/usr/sbin/nologin']
@@ -292,6 +313,9 @@ def install(options):
     for tree, output in [(gate, '/opt/aukora-boundary-gate'), (owner, '/opt/owner-key')]:
         stage.public_modes(tree)
         tree.rename(output)
+    for name, source, destination, flag in profiles:
+        stage.public_modes(STATE / name)
+        (STATE / name).rename(destination)
     run(['runuser', '-u', 'aukora-gate', '--', NODE, '--input-type=module', '-e',
          (checkout / 'ops/node-spawn/browser/keys.mjs').read_text()], 'KEY_GENERATION_REFUSED')
     epochs = STATE / 'signer-epochs.json'
@@ -299,9 +323,13 @@ def install(options):
     # Manifest generator requires staged inputs outside all installed paths.
     shutil.copytree('/opt/aukora-boundary-gate', gate)
     shutil.copytree('/opt/owner-key', owner)
+    profile_args = []
+    for name, source, destination, flag in profiles:
+        shutil.copytree(destination, STATE / name)
+        profile_args += [flag, str(STATE / name)]
     run(['python3', '-I', '-S', str(gate / 'host/install/generate-manifest.py'), '--package', str(gate),
          '--owner-key', str(owner), '--launcher-checkout', str(checkout), '--signer-epochs', str(epochs),
-         '--output', str(STATE / 'manifest.json')], 'MANIFEST_REFUSED')
+         *profile_args, '--output', str(STATE / 'manifest.json')], 'MANIFEST_REFUSED')
     stage.public_modes(checkout)
     checkout.rename(CHECKOUT)
     # The harness user reads the root-owned checkout's recorded pin through git; git refuses a
@@ -322,11 +350,14 @@ def install(options):
     config_path.write_text(json.dumps({'release_commit': options.revision}))
     config_path.chmod(0o600)
     run(['python3', '-I', '-S', str(CHECKOUT / 'ops/node-spawn/configure-host.py'), 'release-env', str(config_path), '/'], 'RELEASE_ENV_REFUSED')
+    config.write(Path('/etc/aukora/public-origin'), ('https://' + app_host + '\n').encode(), Path('/'))
+    config.write(Path('/etc/aukora/owner-public-origin'), ('https://' + owner_host + '\n').encode(), Path('/'))
     units(config)
     bootstrap('check-package')
     bootstrap('check-runtime')
     run(['systemctl', 'daemon-reload'], 'SYSTEMD_REFUSED')
     run(['systemctl', 'enable', '--now', 'aukora-boundary-gate.service'], 'GATE_START_REFUSED')
+    run(['systemctl', 'enable', '--now', 'aukora-browser-claim.service'], 'CLAIM_START_REFUSED')
     sockets()
     bootstrap('approval', 'raise', '--release-dir', release)
     value = {'revision': options.revision, 'inputs': binding}
@@ -363,13 +394,87 @@ ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstra
 ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap check-runtime
 ExecStartPre=/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py verify-profile --release ${AUKORA_RELEASE_DIR}
 ExecStartPre=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap floor check --release-dir ${AUKORA_RELEASE_DIR} --approval-state-root ${AUKORA_APPROVAL_ROOT}
-ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release ${AUKORA_RELEASE_DIR} --state-root /home/aukora-host/genesis/state --port 18735 --foreground --node /opt/aukora-node/bin/node --approval-state-root ${AUKORA_APPROVAL_ROOT} --approved-record-sha ${AUKORA_RECORD_SHA} --patch ${AUKORA_RELEASE_DIR}/aukora-composition.patch.yml
+ExecStart=/usr/bin/python3 scripts/launch-dsh.py --release ${AUKORA_RELEASE_DIR} --state-root /home/aukora-host/genesis/state --port 18735 --foreground --public-origin-file /etc/aukora/public-origin --node /opt/aukora-node/bin/node --approval-state-root ${AUKORA_APPROVAL_ROOT} --approved-record-sha ${AUKORA_RECORD_SHA} --patch ${AUKORA_RELEASE_DIR}/aukora-composition.patch.yml
 KillMode=control-group
 Restart=no
 [Install]
 WantedBy=multi-user.target
 '''
     config.write(Path('/etc/systemd/system/aukora-browser.service'), data.encode(), Path('/'))
+    claim_unit = '''[Unit]
+Description=AUKORA one-use browser claim broker
+After=aukora-boundary-gate.service
+[Service]
+User=root
+Group=root
+Type=exec
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/aukora-browser
+PrivateTmp=yes
+WorkingDirectory=/opt/aukora-genesis/src
+UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
+ExecStart=/usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/ingress/claim.py serve --public-origin-file /etc/aukora/public-origin --owner-origin-file /etc/aukora/owner-public-origin --state-file /var/lib/aukora-browser/claims.json --launch-url-file /home/aukora-host/genesis/state/launch-url.json --harness-port 18735 --owner-page-port 17792 --listen-port 18736
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+'''
+    config.write(Path('/etc/systemd/system/aukora-browser-claim.service'), claim_unit.encode(), Path('/'))
+
+
+def claim():
+    root_check()
+    installed()
+    for name in ('aukora-browser.service', 'aukora-browser-claim.service'):
+        run(['systemctl', 'is-active', '--quiet', name], 'CLAIM_SERVICE_INACTIVE')
+    link = run(['/usr/bin/python3', '-I', '-S', '-B', str(CHECKOUT / 'ops/node-spawn/ingress/claim.py'),
+                'mint', '--public-origin-file', '/etc/aukora/public-origin',
+                '--state-file', str(STATE / 'claims.json')], 'CLAIM_MINT_REFUSED')
+    print(link, end='')
+
+
+def rotate_owner_link():
+    root_check()
+    installed()
+    bootstrap('check-package')
+    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_ROTATE_REFUSED')
+    sockets()
+    print('BROWSER_OWNER_LINK_ROTATED; retrieve bearer through the private operator route')
+
+
+def enable_owner_signin():
+    root_check()
+    installed()
+    bootstrap('check-package')
+    ingress = module(CHECKOUT / 'ops/node-spawn/ingress/claim.py')
+    app_origin, _ = ingress.read_origin_file(Path('/etc/aukora/public-origin'))
+    owner_origin, _ = ingress.read_origin_file(Path('/etc/aukora/owner-public-origin'))
+    script = '''import { passkeySetupReader } from '/opt/aukora-boundary-gate/src/owner-state.mjs';
+import { browserJoinReader } from '/opt/aukora-boundary-gate/src/browser-join.mjs';
+import { createHash, createPublicKey } from 'node:crypto';
+import fs from 'node:fs';
+const setup = passkeySetupReader('/etc/aukora-boundary-gate/passkey-setup.json')();
+const join = browserJoinReader('/etc/aukora-boundary-gate/browser-join.json')();
+if (setup.origin !== process.argv[1] || join.app_origin !== process.argv[2]) throw new Error('BROWSER_OWNER_SIGNIN_ORIGIN_MISMATCH');
+const signer = createPublicKey(fs.readFileSync('/home/aukora-gate/receipt-ed25519.pem'));
+if (setup.gate !== createHash('sha256').update(signer.export({ type: 'spki', format: 'der' })).digest('hex')) throw new Error('BROWSER_OWNER_SIGNIN_GATE_MISMATCH');
+'''
+    run(['runuser', '-u', 'aukora-gate', '--', NODE, '--input-type=module', '-e', script,
+         owner_origin, app_origin], 'OWNER_SIGNIN_CONFIG_REFUSED')
+    group = run(['getent', 'group', 'skgate'], 'GROUP_MISSING').strip().split(':')[2]
+    need(group.isdigit(), 'GROUP_INVALID')
+    config = module(CHECKOUT / 'ops/node-spawn/configure-host.py')
+    dropin = '''[Service]
+ExecStart=
+ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-boundary/gate-bootstrap serve --home /home/aukora-gate --run /run/aukora-gate --target-root /var/lib/aukora-boundary/targets --port 17792 --gid GROUP --time-zone Asia/Makassar --journal-id aukora-gate-pilot --passkey-setup /etc/aukora-boundary-gate/passkey-setup.json --browser-join /etc/aukora-boundary-gate/browser-join.json
+'''.replace('GROUP', group)
+    config.write(Path('/etc/systemd/system/aukora-boundary-gate.service.d/browser-owner.conf'), dropin.encode(), Path('/'))
+    run(['systemctl', 'daemon-reload'], 'SYSTEMD_REFUSED')
+    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_SIGNIN_START_REFUSED')
+    sockets()
+    print('BROWSER_OWNER_SIGNIN_ENABLED; owner enrollment and final binding required')
 
 
 def start():
@@ -426,7 +531,8 @@ def accept(phase):
         if name == 'aukora-gate':
             for file in ('owner-secret.json', 'receipt-ed25519.pem'):
                 protected(Path(row[5]) / file, uid=int(row[2]), private=True)
-    for path in (Path('/opt/aukora-boundary-gate'), Path('/opt/owner-key'), Path('/opt/aukora-node'), CHECKOUT, release):
+    for path in (Path('/opt/aukora-boundary-gate'), Path('/opt/owner-key'), Path('/opt/authority'),
+                 Path('/opt/contracts'), Path('/opt/aukora-aumlok'), Path('/opt/aukora-node'), CHECKOUT, release):
         for folder, dirs, files in os.walk(path, followlinks=False):
             for entry in [Path(folder)] + [Path(folder) / name for name in dirs + files]:
                 if entry.is_symlink():
@@ -466,6 +572,58 @@ def accept(phase):
         need(bool(re.fullmatch(r'[0-9a-f]{32}', invocation)), 'JOURNAL_UNAVAILABLE')
         journal = run(['journalctl', '--no-pager', '-o', 'cat', '_SYSTEMD_INVOCATION_ID=' + invocation], 'JOURNAL_UNAVAILABLE')
         need(not re.search(r'^aukora-[a-z-]+ \(file://.*\): Error', journal, re.M), 'PLUGIN_LOAD_FAILED')
+        run(['systemctl', 'is-active', '--quiet', 'aukora-browser-claim.service'], 'CLAIM_INACTIVE')
+        need('127.0.0.1:18736' in endpoints, 'CLAIM_LISTENER_MISSING')
+        claim = module(CHECKOUT / 'ops/node-spawn/ingress/claim.py')
+        try:
+            public_origin, authority = claim.read_origin_file(Path('/etc/aukora/public-origin'))
+            _, owner_authority = claim.read_origin_file(Path('/etc/aukora/owner-public-origin'))
+        except (OSError, claim.ClaimRefusal):
+            refuse('PUBLIC_ORIGIN_INVALID')
+        need(authority != owner_authority, 'PUBLIC_HOSTS_MUST_DIFFER')
+        import http.client
+
+        def request(port, method, target, body=None, cookie=None):
+            headers = {'Host': authority, 'Origin': public_origin, 'Sec-Fetch-Site': 'same-origin'}
+            if body is not None:
+                headers['Content-Type'] = 'text/plain'
+            if cookie is not None:
+                headers['Cookie'] = cookie
+            connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+            try:
+                connection.request(method, target, body=body, headers=headers)
+                response = connection.getresponse()
+                payload = response.read(1024 * 1024 + 1)
+                response_headers = response.getheaders()
+                need(len(payload) <= 1024 * 1024, 'ACCEPTANCE_RESPONSE_LIMIT')
+                return response.status, response_headers, payload
+            except OSError:
+                refuse('ACCEPTANCE_HTTP_UNAVAILABLE')
+            finally:
+                connection.close()
+
+        status, _, _ = request(18735, 'GET', '/')
+        need(status == 401, 'ANONYMOUS_HARNESS_ACCEPTED')
+        link = run(['/usr/bin/python3', '-I', '-S', str(CHECKOUT / 'ops/node-spawn/ingress/claim.py'),
+                    'mint', '--public-origin-file', '/etc/aukora/public-origin',
+                    '--state-file', '/var/lib/aukora-browser/claims.json'], 'CLAIM_MINT_REFUSED')
+        match = re.fullmatch(re.escape(public_origin + claim.CLAIM_PATH) + r'#([A-Za-z0-9_-]{43})\n', link)
+        need(match is not None, 'CLAIM_LINK_INVALID')
+        code = match[1].encode('ascii')
+        status, headers, payload = request(18736, 'POST', claim.CLAIM_PATH, code)
+        need(status == 204 and not payload, 'CLAIM_EXCHANGE_REFUSED')
+        cookies = [value for name, value in headers if name.lower() == 'set-cookie']
+        need(len(cookies) == 1, 'CLAIM_COOKIE_INVALID')
+        try:
+            cookie = claim.bounded_cookie(cookies[0], authority, time.time()).split(';', 1)[0]
+        except claim.ClaimRefusal:
+            refuse('CLAIM_COOKIE_INVALID')
+        status, _, payload = request(18735, 'GET', '/', cookie=cookie)
+        need(status == 200 and bool(payload), 'PUBLIC_SESSION_REFUSED')
+        status, headers, payload = request(18736, 'POST', claim.CLAIM_PATH, code)
+        need(status == 403 and payload == b'CLAIM_SPENT\n'
+             and not any(name.lower() == 'set-cookie' for name, _ in headers), 'CLAIM_REPLAY_ACCEPTED')
+        print('PASS | protected public origins, anonymous 401 and one-use public-authority claim cookie')
         print('PASS | approved signed-in UI and plugin load')
     print('PASS | users modes package pins and loopback listeners')
 
@@ -477,26 +635,34 @@ class Parser(argparse.ArgumentParser):
 
 def main(args):
     parser = Parser(add_help=False)
-    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile'])
+    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'enable-owner-signin'])
     parser.add_argument('--inputs')
+    parser.add_argument('--app-host')
+    parser.add_argument('--owner-host')
     for key in ('checkout-sha256', 'revision', 'node-sha256', 'dependencies-sha256'):
         parser.add_argument('--' + key)
     parser.add_argument('--phase', choices=['before', 'after'])
     parser.add_argument('--release')
     need(len([a for a in args if a.startswith('--')]) == len(set(a for a in args if a.startswith('--'))), 'USAGE')
     options = parser.parse_args(args)
-    fields = ('inputs', 'checkout_sha256', 'revision', 'node_sha256', 'dependencies_sha256')
+    fields = ('inputs', 'checkout_sha256', 'revision', 'node_sha256', 'dependencies_sha256', 'app_host', 'owner_host')
     need(all(getattr(options, key) is not None for key in fields) if options.action == 'install'
          else all(getattr(options, key) is None for key in fields), 'USAGE')
     need((options.phase is not None) == (options.action == 'accept'), 'USAGE')
     need((options.release is not None) == (options.action == 'verify-profile'), 'USAGE')
     if options.action == 'install':
         absolute(options.inputs)
-        for key in fields[1:]:
+        for key in fields[1:5]:
             digest(getattr(options, key), key == 'revision')
         install(options)
     elif options.action == 'start':
         start()
+    elif options.action == 'claim':
+        claim()
+    elif options.action == 'rotate-owner-link':
+        rotate_owner_link()
+    elif options.action == 'enable-owner-signin':
+        enable_owner_signin()
     elif options.action == 'accept':
         accept(options.phase)
     elif options.action == 'verify-profile':
@@ -509,7 +675,7 @@ def main(args):
     elif options.action == 'remove':
         root_check()
         installed()
-        run(['systemctl', 'disable', '--now', 'aukora-browser.service', 'aukora-boundary-gate.service'], 'REMOVE_REFUSED')
+        run(['systemctl', 'disable', '--now', 'aukora-browser.service', 'aukora-browser-claim.service', 'aukora-boundary-gate.service'], 'REMOVE_REFUSED')
         print('BROWSER_DEACTIVATED; protected state and floor retained')
     else:
         root_check()
@@ -517,7 +683,7 @@ def main(args):
         release, approval = release_paths(value)
         bootstrap('check-package')
         print('BROWSER_INSTALLED revision=' + value['revision'])
-        for name in ('aukora-boundary-gate.service', 'aukora-browser.service'):
+        for name in ('aukora-boundary-gate.service', 'aukora-browser.service', 'aukora-browser-claim.service'):
             result = subprocess.run(['systemctl', 'is-active', name], env=ENV, capture_output=True)
             print(name + ' ' + ('active' if result.returncode == 0 else 'inactive'))
         result = subprocess.run(['/usr/bin/python3', '-I', '-S', BOOT, 'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)], env=ENV, capture_output=True)

@@ -12,9 +12,9 @@ try:
     value=json.load(sys.stdin);config=value["expanded_config"];devices=value["expanded_devices"]
     assert config.get("security.privileged")=="false" and config.get("security.nesting")=="false"
     assert config.get("security.idmap.isolated")=="true" and config.get("security.devlxd")=="false"
-    assert set(devices)=={"root","browser-app","browser-owner"} and devices["root"]["type"]=="disk"
+    assert set(devices)=={"root","browser-app","browser-owner","browser-claim"} and devices["root"]["type"]=="disk"
     ports=[]
-    for name,target in [("browser-app","18735"),("browser-owner","17792")]:
+    for name,target in [("browser-app","18735"),("browser-owner","17792"),("browser-claim","18736")]:
         device=devices[name]
         assert device["type"]=="proxy" and device.get("bind")=="host" and device.get("nat")=="false"
         assert device.get("security.uid")=="65534" and device.get("security.gid")=="65534"
@@ -22,7 +22,7 @@ try:
         match=re.fullmatch(r"tcp:127\.0\.0\.1:([1-9][0-9]{3,4})",device["listen"])
         assert match and 1024<=int(match[1])<=65535
         ports.append(match[1])
-    assert ports[0]!=ports[1]
+    assert len(set(ports))==3
 except Exception:
     print("REFUSED BROWSER_ACCEPTANCE_TRANSPORT",file=sys.stderr);sys.exit(1)
 '

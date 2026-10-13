@@ -20,107 +20,68 @@ export OWNER_HOST='owner.example.invalid'
 export PUBLIC_IP='203.0.113.10'
 export HOST_HARNESS_PORT='28735'
 export HOST_OWNER_PORT='28736'
+export HOST_CLAIM_PORT='28737'
 ```
 
 Replace the example values. The two hostnames must be different lowercase DNS
 names. Create public `A` records for both names pointing to `PUBLIC_IP`; create
 `AAAA` records only when the host's IPv6 route and firewall are ready. Allow
-inbound TCP 80 and 443. Do not allow the two high ports or the container's
+inbound TCP 80 and 443. Do not allow the three high ports or the container's
 addresses from the internet.
 
 ## C1 preparation
 
-Run these inside C1 from the clean reviewed clone after the pinned harness has
-been rebuilt with this repository's patch set:
+Prepare the offline inputs and standalone LXD image described in the
+[browser installer runbook](../browser/README.md). On the local LXD host, create
+the fresh node with all three distinct host-loopback ports and both hostnames:
 
 ```sh
-sudo install -d -o root -g root -m 0700 /etc/aukora /var/lib/aukora-claim
-printf 'https://%s\n' "$APP_HOST" | sudo tee /etc/aukora/public-origin >/dev/null
-printf 'https://%s\n' "$OWNER_HOST" | sudo tee /etc/aukora/owner-origin >/dev/null
-sudo chown root:root /etc/aukora/public-origin /etc/aukora/owner-origin
-sudo chmod 0644 /etc/aukora/public-origin /etc/aukora/owner-origin
-sudo install -o root -g root -m 0755 ops/node-spawn/ingress/claim.py /usr/local/lib/aukora-claim.py
+bash ops/node-spawn/browser/create.sh --name C1 --image "$IMAGE_FINGERPRINT" \
+  --inputs "$INPUTS" --checkout-sha256 "$CHECKOUT_SHA256" --revision "$REVISION" \
+  --node-sha256 "$NODE_SHA256" --dependencies-sha256 "$DEPENDENCIES_SHA256" \
+  --app-host "$APP_HOST" --owner-host "$OWNER_HOST" \
+  --app-port "$HOST_HARNESS_PORT" --owner-port "$HOST_OWNER_PORT" \
+  --claim-port "$HOST_CLAIM_PORT"
+bash ops/node-spawn/browser/acceptance.sh --name C1 --phase before
 ```
 
-Add this exact argument to the existing foreground `launch-dsh.py` invocation,
-without changing its release, approval, state, patch, user, or loopback flags:
+The installer writes root-owned, non-writable
+`/etc/aukora/public-origin` and `/etc/aukora/owner-public-origin`, enables the
+root-owned `aukora-browser-claim.service`, and adds
+`--public-origin-file /etc/aukora/public-origin` to `aukora-browser.service`.
+The harness receives only the validated hostname as `--trusted-host`. The
+reviewed browser release sets `cookieMaxAgeDays: 1`; the broker refuses a cookie
+whose signed lifetime or emitted `Max-Age` exceeds one day. It reads the current
+private launch descriptor on every exchange.
 
-```text
---public-origin-file /etc/aukora/public-origin
-```
-
-The public values are world-readable so the unprivileged harness service can
-read them, but remain root-owned and non-writable. The launcher refuses a
-non-root-controlled file and any value other than one
-canonical `https://hostname`. It passes only the hostname as `--trusted-host`.
-Restarting the harness changes its private launch token; the claim broker reads
-the current descriptor for each exchange.
-
-Set the installed release's existing `client-connection` configuration to
-`cookieMaxAgeDays: 1` through the reviewed release/approval procedure before
-using this broker. The pinned harness supports whole days, with a minimum of
-one and a default of thirty. The broker refuses a cookie whose signed
-`expiresAt - issuedAt` or emitted `Max-Age` exceeds one day; changing just a
-cookie attribute would not shorten the harness's signed authority. This source
-change does not materialize or approve that release configuration.
-
-The gate owner page must listen only at `127.0.0.1:17792`. Install this unit
-inside C1 after checking the source and paths against the installed release:
-
-```ini
-[Unit]
-Description=AUKORA one-time browser claim broker
-After=aukora-genesis.service aukora-boundary-gate.service
-
-[Service]
-Type=simple
-User=root
-Group=root
-ExecStart=/usr/bin/python3 -I -S /usr/local/lib/aukora-claim.py serve --public-origin-file /etc/aukora/public-origin --owner-origin-file /etc/aukora/owner-origin --state-file /var/lib/aukora-claim/claims.json --launch-url-file /home/aukora-host/genesis/state/launch-url.json --harness-port 18735 --owner-page-port 17792 --listen-port 18736
-Restart=on-failure
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/var/lib/aukora-claim
-RestrictAddressFamilies=AF_INET AF_INET6
-IPAddressDeny=any
-IPAddressAllow=localhost
-StandardOutput=null
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Save it as `/etc/systemd/system/aukora-claim.service`, then run:
-
-```sh
-sudo systemctl daemon-reload
-sudo systemctl enable --now aukora-claim.service
-sudo ss -ltnp | grep -E '127\.0\.0\.1:(17792|18735|18736)\b'
-```
-
-Only these three container-loopback listeners are expected. The broker handles
-claim, sign-in and sign-out paths for the application host and forwards the
-separate owner host to the owner page. Returning sign-in requires passkey mode;
-the legacy bearer page supplies no passkey login.
+The broker listens on container `127.0.0.1:18736`; the gate uses `17792` and the
+harness uses `18735`. The broker handles app claim, sign-in and sign-out paths.
+It does not forward harness WebSocket upgrades or SSE: normal app traffic must
+reach the harness directly. Returning sign-in requires the gate's protected
+`--passkey-setup` and `--browser-join` configuration; the installer's initial
+legacy bearer page supplies no passkey login and is not owner enrollment.
 
 ## Host proxy and Caddy
 
-On the LXD host, map exactly two host-loopback ports to C1:
+Creation already maps three host-loopback ports with LXD non-NAT proxies. Do
+not add duplicate devices. Inspect the actual standalone host's listeners and
+expanded configuration (LXD 5.21 does not support `config show --format`):
 
 ```sh
-sudo lxc config device add C1 aukora-app proxy "listen=tcp:127.0.0.1:${HOST_HARNESS_PORT}" connect=tcp:127.0.0.1:18735
-sudo lxc config device add C1 aukora-owner proxy "listen=tcp:127.0.0.1:${HOST_OWNER_PORT}" connect=tcp:127.0.0.1:18736
-sudo ss -ltnp | grep -E "127\\.0\\.0\\.1:(${HOST_HARNESS_PORT}|${HOST_OWNER_PORT})\\b"
+lxc --force-local config show C1 --expanded
+sudo ss -ltnp | grep -E "127\\.0\\.0\\.1:(${HOST_HARNESS_PORT}|${HOST_OWNER_PORT}|${HOST_CLAIM_PORT})\\b"
 ```
 
-Render and validate the Caddy configuration on the host:
+`browser-app` connects to container `127.0.0.1:18735`, `browser-owner` to
+`127.0.0.1:17792`, and `browser-claim` to `127.0.0.1:18736`. All use
+`bind=host nat=false` and listen only on host `127.0.0.1`; the container has no
+NIC. Render and validate the Caddy configuration on the host:
 
 ```sh
 python3 ops/node-spawn/ingress/render.py \
   --app-host "$APP_HOST" --owner-host "$OWNER_HOST" \
   --harness-port "$HOST_HARNESS_PORT" --owner-port "$HOST_OWNER_PORT" \
+  --claim-port "$HOST_CLAIM_PORT" \
   --output /tmp/Caddyfile.c1
 sudo caddy validate --config /tmp/Caddyfile.c1 --adapter caddyfile
 sudo install -o root -g root -m 0644 /tmp/Caddyfile.c1 /etc/caddy/Caddyfile
@@ -137,15 +98,39 @@ so its hash-pinned passkey script can run; it supplies no replacement policy.
 
 ## Mint and use one claim
 
-Run inside C1 as root immediately before Peter opens the node:
+After Peter approves the initial card through the separate owner page, start
+and check the node, then mint one link as root inside C1:
 
 ```sh
-sudo /usr/bin/python3 -I -S /usr/local/lib/aukora-claim.py mint \
-  --public-origin-file /etc/aukora/public-origin \
-  --state-file /var/lib/aukora-claim/claims.json --ttl-seconds 300
+lxc --force-local exec C1 -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/start.sh
+bash ops/node-spawn/browser/acceptance.sh --name C1 --phase after
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B \
+  /opt/aukora-genesis/src/ops/node-spawn/browser/node.py claim
 ```
 
-Give the printed link directly to Peter. Do not pipe it to a log or put it in a
+`claim` prints only the link. The after-approval acceptance checks the claim
+service is active, protected origin-file custody, anonymous public-authority
+`401`, one claim's exchange for a bounded public-authority cookie, cookie access
+to the harness, and refusal on its second use. These requests stay on container
+loopback with the configured public Host and Origin; they do not qualify TLS,
+Caddy, actual browser storage, WebSocket or SSE. Acceptance spends its own test
+claim and never prints it or its cookie.
+
+To expire the prior private owner bearer, request a gate restart through:
+
+```sh
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B \
+  /opt/aukora-genesis/src/ops/node-spawn/browser/node.py rotate-owner-link
+```
+
+The harness requires the gate; inspect installed status after rotation or passkey
+activation and run `start.sh` if it became inactive, then repeat acceptance.
+Activate returning sign-in from the actual protected setup and browser binding
+configuration using the [browser runbook](../browser/README.md)'s
+`node.py enable-owner-signin` command. It selects passkey/browser-join mode;
+Peter still creates his credential and signs his final binding himself.
+
+Give the printed claim link directly to Peter. Do not pipe it to a log or put it in a
 ticket. Its code is in the URL fragment, so browsers do not send it in the URL;
 the page removes the fragment and posts a bounded same-origin body. The store
 contains only its SHA-256 digest. A valid attempt is durably marked spent before
@@ -171,28 +156,22 @@ with matching Path, Secure, HttpOnly and SameSite attributes. It does not revoke
 a stolen copy or close an already open WebSocket. A browser tab should close
 its active app connections when signing out.
 
-## Revoke every browser session
+## Session revocation limit
 
 The pinned harness has no per-session registry or revoke API. It caches the
 signing secret at activation and stores it in `DSH_HOME/.credentials.yaml`,
 `records['client-connection/browser-session']`, a version-1 grant. Restart alone
-retains that secret and does not revoke cookies. The root command below stops
+retains that secret and does not revoke cookies. The separate existing
+`revoke-sessions.mjs` helper is fixed to `aukora-genesis.service`; it cannot
+operate on this installer's `aukora-browser.service` and requires a reviewed
+adaptation before use on a browser node. On its original service the helper stops
 `aukora-genesis.service`, requires it to be inactive, rotates only that grant's
 secret with an atomic private write, then starts the service and requires it
 to be active. Stopping also drops active connections. If rotation or restart
 fails, repair the named refusal before reopening the app; the command never
 prints the signing secret or other credentials.
 
-Install the helper as root-owned reviewed code, and run on C1 using the pinned
-Node and root-controlled built harness already used by the service:
-
-```sh
-sudo install -o root -g root -m 0644 ops/node-spawn/ingress/revoke-sessions.mjs /usr/local/lib/aukora-revoke-sessions.mjs
-sudo "$PINNED_NODE" /usr/local/lib/aukora-revoke-sessions.mjs \
-  --harness-root "$PINNED_HARNESS"
-```
-
-`PINNED_HARNESS` is the complete reviewed build root; the helper reuses its
+The helper requires a complete reviewed build root and reuses its
 existing `yaml` dependency from `packages/credentials/credentials-local`.
 It checks the resolved YAML package's complete directory and file tree for
 root ownership, write protection and absence of links before loading code.
@@ -224,8 +203,8 @@ curl -kfsS --resolve "wrong.invalid:443:${PUBLIC_IP}" "https://wrong.invalid/" >
 
 The first two commands must show valid public certificates and HSTS; the owner
 response must also refuse framing. The three hostile browser-marker probes must
-return `403`, never `101`. The unknown host must not answer. From outside, both
-high ports and the container addresses must be unreachable. After Peter uses the
+return `403`, never `101`. The unknown host must not answer. From outside, all
+three high ports and the container addresses must be unreachable. After Peter uses the
 claim, browser storage must show a `dsh-auth-*` cookie with `Secure`, `HttpOnly`
 and `SameSite=Strict`; repeating the same link must be refused.
 

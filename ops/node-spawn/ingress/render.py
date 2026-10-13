@@ -15,6 +15,7 @@ def hostname(value):
     labels = value.split(".")
     if (value != value.lower() or value == "localhost" or "*" in value
             or len(value) > 253 or len(labels) < 2
+            or re.search(r"[a-z]", labels[-1]) is None
             or any(DNS_LABEL.fullmatch(label) is None for label in labels)):
         raise argparse.ArgumentTypeError("require a lowercase DNS hostname without wildcard, port or path")
     return value
@@ -27,10 +28,10 @@ def port(value):
     return parsed
 
 
-def render(template, app_host, owner_host, harness_port, owner_port):
+def render(template, app_host, owner_host, harness_port, owner_port, claim_port):
     if app_host == owner_host:
         raise ValueError("INGRESS_HOSTS_MUST_DIFFER")
-    if harness_port == owner_port:
+    if len({harness_port, owner_port, claim_port}) != 3:
         raise ValueError("INGRESS_PORTS_MUST_DIFFER")
     result = template
     for marker, value in {
@@ -38,6 +39,7 @@ def render(template, app_host, owner_host, harness_port, owner_port):
         "__OWNER_HOST__": owner_host,
         "__HARNESS_PORT__": str(harness_port),
         "__OWNER_PORT__": str(owner_port),
+        "__CLAIM_PORT__": str(claim_port),
     }.items():
         result = result.replace(marker, value)
     if re.search(r"__[A-Z_]+__", result):
@@ -68,11 +70,12 @@ def main():
     parser.add_argument("--owner-host", type=hostname, required=True)
     parser.add_argument("--harness-port", type=port, required=True)
     parser.add_argument("--owner-port", type=port, required=True)
+    parser.add_argument("--claim-port", type=port, required=True)
     parser.add_argument("--output", type=Path)
     arguments = parser.parse_args()
     template = Path(__file__).with_name("Caddyfile.template").read_text(encoding="utf-8")
     payload = render(template, arguments.app_host, arguments.owner_host,
-                     arguments.harness_port, arguments.owner_port)
+                     arguments.harness_port, arguments.owner_port, arguments.claim_port)
     if arguments.output is None:
         print(payload, end="")
     else:

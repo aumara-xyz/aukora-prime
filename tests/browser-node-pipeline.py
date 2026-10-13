@@ -1,6 +1,9 @@
 # Execute installer transitions with synthetic commands and paths kept inside the clone.
 import contextlib
 import hashlib
+import base64
+import http.client
+import importlib.util
 import io
 import json
 import os
@@ -19,6 +22,8 @@ SOURCE = ROOT / 'ops/node-spawn/browser/node.py'
 SCRATCH = ROOT / '.runtime/browser-pipeline'
 SCRATCH.mkdir(parents=True, exist_ok=True)
 sha = lambda data: hashlib.sha256(data).hexdigest()
+REAL_RUN = subprocess.run
+PINNED_NODE = shutil.which('node')
 
 
 class World:
@@ -42,7 +47,8 @@ class World:
                            ('dependencies.tar.gz', b'offline dependencies'), ('dsh-source.tar.gz', b'pinned harness')]:
             (self.inputs / name).write_bytes(data)
         self.options = types.SimpleNamespace(inputs=str(self.inputs), checkout_sha256=sha(b'clean bundle'),
-            node_sha256=sha(b'pinned node'), dependencies_sha256=sha(b'offline dependencies'), revision='a' * 40)
+            node_sha256=sha(b'pinned node'), dependencies_sha256=sha(b'offline dependencies'), revision='a' * 40,
+            app_host='app.example.test', owner_host='owner.example.test')
         for name in ('opt', 'home', 'etc', 'var/lib'):
             (self.root / name).mkdir(parents=True, exist_ok=True)
         self.stage = types.SimpleNamespace(digest_file=lambda file: sha(file.read_bytes()),
@@ -108,9 +114,12 @@ class World:
     def clone(self, target):
         target.mkdir()
         for name in ('vendor', 'scripts', 'ops/node-spawn/browser', 'packages/owner-key',
+                     'packages/authority', 'packages/contracts', 'plugins/aukora-aumlok',
                      'packages/boundary-gate/host/install', 'packages/boundary-gate/host/systemd'):
             (target / name).mkdir(parents=True, exist_ok=True)
-        (target / 'upstream-dsh.json').write_text(json.dumps({'archiveSha256': sha(b'pinned harness'), 'packageManager': 'pnpm@10.13.1'}))
+        for name in ('packages/authority', 'packages/contracts', 'plugins/aukora-aumlok'):
+            (target / name / 'fixture.mjs').write_text('// synthetic package inventory\n')
+        (target / 'upstream-dsh.json').write_text(json.dumps({'archiveSha256': sha(b'pinned harness'), 'packageManager': 'pnpm@11.7.0'}))
         (target / 'ops/node-spawn/browser/keys.mjs').write_text('fixture keys')
         (target / 'packages/boundary-gate/host/install/gate-bootstrap.py').write_text('fixture bootstrap')
         shutil.copyfile(ROOT / 'packages/boundary-gate/host/systemd/aukora-boundary-gate.service',
@@ -147,7 +156,7 @@ class World:
         elif code == 'NODE_INVALID':
             return 'v22.0.0' if self.attack == 'node-version' else 'v24.11.1'
         elif code == 'PNPM_INVALID':
-            return '0.0.0' if self.attack == 'pnpm-version' else '10.13.1'
+            return '0.0.0' if self.attack == 'pnpm-version' else '11.7.0'
         elif code == 'GROUP_MISSING':
             return 'aukora-host skgate' if command[0] == 'id' and command[-1] == 'aukora-host' and not self.bad_groups else 'skgate' if command[0] == 'id' else 'skgate:x:123:aukora-host'
         elif code == 'USER_MISSING':
@@ -265,6 +274,18 @@ class Pipeline(unittest.TestCase):
                 (w.root / 'opt/aukora-node').mkdir()
             self.refuses(lambda: w.m.install(w.options), code)
             self.assertNotIn(('build',), w.events)
+        w = self.world()
+        w.options.owner_host = w.options.app_host
+        self.refuses(lambda: w.m.install(w.options), 'HOST_CONFLICT')
+        self.assertEqual(w.commands, [])
+        for path in ('/opt/authority', '/opt/contracts', '/opt/aukora-aumlok', '/etc/aukora',
+                     '/etc/systemd/system/aukora-browser-claim.service',
+                     '/etc/systemd/system/aukora-boundary-gate.service.d'):
+            w = self.world()
+            occupied = w.root / path[1:]
+            occupied.mkdir(parents=True)
+            self.refuses(lambda: w.m.install(w.options), 'INSTALL_EXISTS')
+            self.assertNotIn(('build',), w.events)
 
     def test_success_publishes_marker_after_sockets_and_raise_without_starting_harness(self):
         w = self.world()
@@ -278,12 +299,26 @@ class Pipeline(unittest.TestCase):
         self.assertLess(w.events.index(('build-binding',)), w.events.index(('materialize',)))
         self.assertEqual(sum(event == ('run', 'KEY_GENERATION_REFUSED') for event in w.events), 1)
         self.assertFalse(any(command[0] == 'systemctl' and 'aukora-browser.service' in command for command in w.commands))
+        self.assertIn(['systemctl', 'enable', '--now', 'aukora-browser-claim.service'], w.commands)
+        for name, host in [('public-origin', w.options.app_host), ('owner-public-origin', w.options.owner_host)]:
+            file = w.root / 'etc/aukora' / name
+            self.assertEqual(file.read_text(), 'https://' + host + '\n')
+            self.assertEqual(file.stat().st_mode & 0o777, 0o644)
+        manifest = next(command for command in w.commands if any(item.endswith('/generate-manifest.py') for item in command))
+        for name, destination, flag in [('authority', 'authority', '--passkey-authority'),
+                ('contracts', 'contracts', '--passkey-contracts'),
+                ('browser-aumlok', 'aukora-aumlok', '--browser-aumlok')]:
+            installed = w.root / 'opt' / destination
+            self.assertEqual((installed / 'fixture.mjs').read_text(), '// synthetic package inventory\n')
+            self.assertIn(('modes', str(w.m.STATE / name)), w.events)
+            self.assertEqual(manifest[manifest.index(flag) + 1], str(w.m.STATE / name))
+            self.assertEqual((w.m.STATE / name / 'fixture.mjs').read_bytes(), (installed / 'fixture.mjs').read_bytes())
 
     def test_external_refusals_never_publish_install_marker(self):
         for failure in ('OS_DEPENDENCIES_REFUSED', 'CLONE_REFUSED', 'BUNDLE_INVALID', 'REVISION_MISSING', 'GROUP_CREATE_REFUSED',
             'USER_CREATE_REFUSED', 'HOME_CREATE_REFUSED', 'KEY_GENERATION_REFUSED', 'MANIFEST_REFUSED',
             'TARGET_CREATE_REFUSED', 'STATE_CREATE_REFUSED', 'RELEASE_ENV_REFUSED', 'GROUP_MISSING',
-            'bootstrap-check-package', 'bootstrap-check-runtime', 'SYSTEMD_REFUSED', 'GATE_START_REFUSED', 'sockets', 'bootstrap-approval-raise'):
+            'bootstrap-check-package', 'bootstrap-check-runtime', 'SYSTEMD_REFUSED', 'GATE_START_REFUSED', 'CLAIM_START_REFUSED', 'sockets', 'bootstrap-approval-raise'):
             with self.subTest(failure=failure):
                 w = self.world()
                 w.fail = failure
@@ -297,6 +332,9 @@ class Pipeline(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             w.m.install(w.options)
         self.assertNotIn(('run', 'KEY_GENERATION_REFUSED'), w.events)
+        w.options.app_host = 'other.example.test'
+        self.refuses(lambda: w.m.install(w.options), 'RERUN_CONFLICT')
+        w.options.app_host = 'app.example.test'
         w.options.revision = 'b' * 40
         self.refuses(lambda: w.m.install(w.options), 'RERUN_CONFLICT')
 
@@ -379,6 +417,129 @@ class Pipeline(unittest.TestCase):
         w.fail = 'SIGNER_REFUSED'
         self.refuses(lambda: w.m.accept('after'), 'SIGNER_REFUSED')
 
+    def public_world(self, attack=None, text=None):
+        w = self.world(text)
+        w.installed_world()
+        w.approved, w.active = True, True
+        w.public_requests, w.origin_reads = [], []
+        claim_file = ROOT / 'ops/node-spawn/ingress/claim.py'
+        spec = importlib.util.spec_from_file_location('claim_acceptance_fixture', claim_file)
+        claim = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(claim)
+        for name, value in [('public-origin', 'https://app.example.test'), ('owner-public-origin', 'https://owner.example.test')]:
+            file = w.root / 'etc/aukora' / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(value + '\n')
+            file.chmod(0o644)
+        if attack in ('public-invalid', 'owner-invalid'):
+            (w.root / 'etc/aukora' / ('public-origin' if attack.startswith('public') else 'owner-public-origin')).write_text('http://invalid.test\n')
+        if attack == 'same-authority':
+            (w.root / 'etc/aukora/owner-public-origin').write_text('https://app.example.test\n')
+        if attack in ('public-custody', 'owner-custody'):
+            (w.root / 'etc/aukora' / ('public-origin' if attack.startswith('public') else 'owner-public-origin')).chmod(0o666)
+        if attack in ('public-link', 'owner-link'):
+            file = w.root / 'etc/aukora' / ('public-origin' if attack.startswith('public') else 'owner-public-origin')
+            target = file.with_name(file.name + '-target')
+            file.rename(target)
+            file.symlink_to(target)
+        def origin(file):
+            w.origin_reads.append(file.name)
+            # Synthetic root is the fixture UID; the production reader enforces actual UID zero.
+            if file.resolve() != file or file.lstat().st_uid != os.getuid() or file.lstat().st_mode & 0o022:
+                raise claim.ClaimRefusal('PROTECTED_FILE_INVALID')
+            return claim.parse_origin(file.read_text())
+        claim.read_origin_file = origin
+        old_module, old_run = w.m.module, w.m.run
+        w.m.module = lambda file: claim if file.name == 'claim.py' else old_module(file)
+        def run(command, code, *args, **kwargs):
+            if code == 'CLAIM_INACTIVE' and attack == 'claim-inactive':
+                raise ValueError('BROWSER_CLAIM_INACTIVE')
+            if code == 'CLAIM_MINT_REFUSED':
+                w.commands.append(command)
+                if attack == 'mint-refused':
+                    raise ValueError('BROWSER_CLAIM_MINT_REFUSED')
+                return ('https://other.example.test' if attack == 'claim-link' else 'https://app.example.test') + claim.CLAIM_PATH + '#' + 'P' * 43 + '\n'
+            result = old_run(command, code, *args, **kwargs)
+            if code == 'LISTENERS_UNAVAILABLE' and attack != 'claim-listener':
+                result += 'LISTEN 0 1 127.0.0.1:18736 *:*\n'
+            return result
+        w.m.run = run
+        now = int(w.m.time.time() * 1000)
+        audience = 'other.example.test' if attack == 'cookie-authority' else 'app.example.test'
+        payload = {'version': 1, 'authority': audience, 'issuedAt': now, 'expiresAt': now + 86400000}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+        cookie = claim.cookie_name('app.example.test') + '=v1.' + encoded + '.PRIVATE_COOKIE; Max-Age=86400; Path=/; Secure; HttpOnly; SameSite=Strict'
+        if attack == 'cookie-flags':
+            cookie = cookie.replace('; Secure', '')
+        if attack == 'cookie-name':
+            cookie = cookie.replace(claim.cookie_name('app.example.test'), claim.cookie_name('127.0.0.1:18735'))
+        replies = [
+            (200 if attack == 'anonymous' else 401, [], b'private' if attack == 'anonymous' else b''),
+            (403 if attack == 'exchange-status' else 204,
+             [] if attack == 'cookie-missing' else [('Set-Cookie', cookie)] * (2 if attack == 'cookie-multiple' else 1),
+             b'unexpected' if attack == 'exchange-body' else b''),
+            (401 if attack == 'session-status' else 200, [], b'' if attack == 'session-empty' else b'<html>synthetic</html>'),
+            (204 if attack == 'replay-status' else 403,
+             [('Set-Cookie', cookie)] if attack == 'replay-cookie' else [],
+             b'CLAIM_INVALID\n' if attack == 'replay-reason' else b'CLAIM_SPENT\n'),
+        ]
+        class Connection:
+            def __init__(self, host, port, timeout):
+                assert host == '127.0.0.1' and timeout == 5
+                self.port = port
+            def request(self, method, target, body=None, headers=None):
+                w.public_requests.append((self.port, method, target, body, headers))
+                if attack == 'http-unavailable':
+                    raise OSError('PRIVATE_NETWORK_DETAIL')
+            def getresponse(self):
+                status, headers, payload = replies.pop(0)
+                if attack == 'response-limit':
+                    payload = b'P' * (1024 * 1024 + 1)
+                return types.SimpleNamespace(status=status, getheaders=lambda: headers, read=lambda limit: payload[:limit])
+            def close(self):
+                pass
+        w.stack.enter_context(patch.object(http.client, 'HTTPConnection', Connection))
+        return w
+
+    def test_public_authority_claim_acceptance_guards(self):
+        attacks = [('claim-inactive', 'CLAIM_INACTIVE'), ('claim-listener', 'CLAIM_LISTENER_MISSING'),
+            ('public-invalid', 'PUBLIC_ORIGIN_INVALID'), ('owner-invalid', 'PUBLIC_ORIGIN_INVALID'),
+            ('public-custody', 'PUBLIC_ORIGIN_INVALID'), ('owner-custody', 'PUBLIC_ORIGIN_INVALID'),
+            ('public-link', 'PUBLIC_ORIGIN_INVALID'), ('owner-link', 'PUBLIC_ORIGIN_INVALID'),
+            ('same-authority', 'PUBLIC_HOSTS_MUST_DIFFER'), ('anonymous', 'ANONYMOUS_HARNESS_ACCEPTED'),
+            ('claim-link', 'CLAIM_LINK_INVALID'), ('mint-refused', 'CLAIM_MINT_REFUSED'),
+            ('exchange-status', 'CLAIM_EXCHANGE_REFUSED'), ('exchange-body', 'CLAIM_EXCHANGE_REFUSED'),
+            ('cookie-missing', 'CLAIM_COOKIE_INVALID'), ('cookie-multiple', 'CLAIM_COOKIE_INVALID'),
+            ('cookie-name', 'CLAIM_COOKIE_INVALID'), ('cookie-authority', 'CLAIM_COOKIE_INVALID'),
+            ('cookie-flags', 'CLAIM_COOKIE_INVALID'), ('session-status', 'PUBLIC_SESSION_REFUSED'),
+            ('session-empty', 'PUBLIC_SESSION_REFUSED'), ('replay-status', 'CLAIM_REPLAY_ACCEPTED'),
+            ('replay-cookie', 'CLAIM_REPLAY_ACCEPTED'), ('replay-reason', 'CLAIM_REPLAY_ACCEPTED'),
+            ('http-unavailable', 'ACCEPTANCE_HTTP_UNAVAILABLE'), ('response-limit', 'ACCEPTANCE_RESPONSE_LIMIT')]
+        for attack, code in attacks:
+            with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()) as output:
+                w = self.public_world(attack)
+                self.refuses(lambda: w.m.accept('after'), code)
+                self.assertNotIn('PRIVATE_', output.getvalue())
+                self.assertNotIn('P' * 43, output.getvalue())
+                w.stack.close()
+        w = self.public_world()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            w.m.accept('after')
+        self.assertIn('anonymous 401 and one-use public-authority claim cookie', output.getvalue())
+        self.assertNotIn('PRIVATE_', output.getvalue())
+        self.assertNotIn('P' * 43, output.getvalue())
+        self.assertEqual(w.origin_reads, ['public-origin', 'owner-public-origin'])
+        self.assertEqual([(port, method, target) for port, method, target, _, _ in w.public_requests], [
+            (18735, 'GET', '/'), (18736, 'POST', '/__aukora/claim'),
+            (18735, 'GET', '/'), (18736, 'POST', '/__aukora/claim')])
+        for _, _, _, _, headers in w.public_requests:
+            self.assertEqual(headers['Host'], 'app.example.test')
+            self.assertEqual(headers['Origin'], 'https://app.example.test')
+            self.assertEqual(headers['Sec-Fetch-Site'], 'same-origin')
+        self.assertNotIn('Cookie', w.public_requests[0][4])
+        self.assertEqual(w.public_requests[1][3], w.public_requests[3][3])
+        self.assertIn('Cookie', w.public_requests[2][4])
+
     def test_status_is_read_only_and_remove_retains_state_and_floor(self):
         w = self.world()
         w.installed_world()
@@ -393,9 +554,217 @@ class Pipeline(unittest.TestCase):
         w.fail = 'REMOVE_REFUSED'
         self.refuses(lambda: w.m.main(['remove']), 'REMOVE_REFUSED')
 
+    def test_claim_and_rotation_require_root_installed_services_and_hide_secrets(self):
+        w = self.world()
+        w.installed_world()
+        for action in ('claim', 'rotate-owner-link'):
+            with patch.object(w.m, 'root_check', side_effect=ValueError('BROWSER_ROOT_REQUIRED')):
+                self.refuses(lambda: w.m.main([action]), 'ROOT_REQUIRED')
+        link = 'https://app.example.test/__aukora/claim#' + 'A' * 43 + '\n'
+        original_run = w.run
+        def run(command, code, *args, **kwargs):
+            result = original_run(command, code, *args, **kwargs)
+            return link if code == 'CLAIM_MINT_REFUSED' else result
+        with patch.object(w.m, 'run', run), contextlib.redirect_stdout(io.StringIO()) as output:
+            w.m.main(['claim'])
+        self.assertEqual(output.getvalue(), link)
+        mint = next(command for command in w.commands if 'mint' in command)
+        self.assertEqual(mint[0:4], ['/usr/bin/python3', '-I', '-S', '-B'])
+        self.assertIn(str(w.root / 'etc/aukora/public-origin'), mint)
+        self.assertIn(str(w.m.STATE / 'claims.json'), mint)
+        self.assertEqual([command[-1] for command in w.commands if command[:2] == ['systemctl', 'is-active']],
+                         ['aukora-browser.service', 'aukora-browser-claim.service'])
+        for failure in ('CLAIM_SERVICE_INACTIVE', 'CLAIM_MINT_REFUSED'):
+            w.fail = failure
+            self.refuses(w.m.claim, failure)
+        w.fail = None
+        w.events.clear()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            w.m.main(['rotate-owner-link'])
+        self.assertEqual(output.getvalue(), 'BROWSER_OWNER_LINK_ROTATED; retrieve bearer through the private operator route\n')
+        self.assertIn(['systemctl', 'restart', 'aukora-boundary-gate.service'], w.commands)
+        self.assertIn(('bootstrap', 'check-package'), w.events)
+        self.assertIn(('sockets',), w.events)
+        w.fail = 'OWNER_ROTATE_REFUSED'
+        self.refuses(w.m.rotate_owner_link, 'OWNER_ROTATE_REFUSED')
+
+    def owner_signin_world(self):
+        w = self.world()
+        w.installed_world()
+        spec = importlib.util.spec_from_file_location('owner_signin_ingress_fixture', ROOT / 'ops/node-spawn/ingress/claim.py')
+        ingress = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ingress)
+        read_origin = ingress.read_origin_file
+        ingress.read_origin_file = lambda path: read_origin(path, require_root=None)
+        spec = importlib.util.spec_from_file_location('owner_signin_config_fixture', ROOT / 'ops/node-spawn/configure-host.py')
+        config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config)
+        write = config.write
+        expected = w.root / 'etc/systemd/system/aukora-boundary-gate.service.d/browser-owner.conf'
+        def protected_write(path, data, root, mode=0o644):
+            self.assertEqual(path, expected)
+            self.assertEqual(root, Path('/'))
+            self.assertEqual(mode, 0o644)
+            w.events.append(('write', path.name))
+            write(path, data, w.root, mode)
+        config.write = protected_write
+        old_module = w.m.module
+        w.m.module = lambda path: ingress if path.name == 'claim.py' else config if path.name == 'configure-host.py' else old_module(path)
+        return w, expected
+
+    def test_owner_signin_transition_guards(self):
+        w, dropin = self.owner_signin_world()
+        for name in ('root_check', 'installed'):
+            with patch.object(w.m, name, side_effect=ValueError('BROWSER_ROOT_REQUIRED' if name == 'root_check' else 'BROWSER_INSTALL_RECORD_INVALID')):
+                self.refuses(w.m.enable_owner_signin, 'ROOT_REQUIRED' if name == 'root_check' else 'INSTALL_RECORD_INVALID')
+            self.assertFalse(dropin.exists())
+        for failure in ('bootstrap-check-package', 'OWNER_SIGNIN_CONFIG_REFUSED', 'SYSTEMD_REFUSED', 'OWNER_SIGNIN_START_REFUSED', 'sockets'):
+            bad, file = self.owner_signin_world()
+            bad.fail = failure
+            with self.assertRaises(ValueError):
+                bad.m.enable_owner_signin()
+            if failure in ('bootstrap-check-package', 'OWNER_SIGNIN_CONFIG_REFUSED'):
+                self.assertFalse(file.exists())
+        with patch.object(w.m, 'run', return_value='skgate:x:invalid:'):
+            self.refuses(w.m.enable_owner_signin, 'GROUP_INVALID')
+        self.assertFalse(dropin.exists())
+        for origin in ('public-origin', 'owner-public-origin'):
+            bad, file = self.owner_signin_world()
+            (bad.root / 'etc/aukora' / origin).chmod(0o666)
+            with self.assertRaises(Exception):
+                bad.m.enable_owner_signin()
+            self.assertFalse(file.exists())
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            w.m.main(['enable-owner-signin'])
+        self.assertEqual(output.getvalue(), 'BROWSER_OWNER_SIGNIN_ENABLED; owner enrollment and final binding required\n')
+        preflight = next(command for command in w.commands if '--input-type=module' in command)
+        self.assertEqual(preflight[:6], ['runuser', '-u', 'aukora-gate', '--', str(w.root / 'opt/aukora-node/bin/node'), '--input-type=module'])
+        self.assertEqual(preflight[-2:], ['https://owner.example.test', 'https://app.example.test'])
+        script = preflight[preflight.index('-e') + 1]
+        for invariant in ('passkeySetupReader(', 'browserJoinReader(', 'setup.origin !== process.argv[1]',
+                          'join.app_origin !== process.argv[2]', 'createPublicKey(', 'setup.gate !== createHash('):
+            self.assertIn(invariant, script)
+        self.assertLess(w.events.index(('bootstrap', 'check-package')), w.events.index(('run', 'OWNER_SIGNIN_CONFIG_REFUSED')))
+        ordered = [('run', 'OWNER_SIGNIN_CONFIG_REFUSED'), ('write', 'browser-owner.conf'),
+                   ('run', 'SYSTEMD_REFUSED'), ('run', 'OWNER_SIGNIN_START_REFUSED'), ('sockets',)]
+        self.assertEqual([event for event in w.events if event in ordered], ordered)
+        text = dropin.read_text()
+        self.assertEqual(dropin.stat().st_mode & 0o777, 0o644)
+        self.assertTrue(text.startswith('[Service]\nExecStart=\nExecStart=/usr/bin/python3 -I -S '))
+        for invariant in ('gate-bootstrap serve', '--home ' + str(w.root / 'home/aukora-gate'),
+                          '--run /run/aukora-gate', '--port 17792 --gid 123', '--journal-id aukora-gate-pilot',
+                          '--passkey-setup ' + str(w.root / 'etc/aukora-boundary-gate/passkey-setup.json'),
+                          '--browser-join ' + str(w.root / 'etc/aukora-boundary-gate/browser-join.json')):
+            self.assertIn(invariant, text)
+        self.assertNotIn('--owner-page', text)
+        self.assertNotIn('mint-passkey-claim', script)
+        with contextlib.redirect_stdout(io.StringIO()):
+            w.m.enable_owner_signin()
+        dropin.write_text('different unit\n')
+        with self.assertRaisesRegex(ValueError, '^SPAWN_CONFIG_CONFLICT$'):
+            w.m.enable_owner_signin()
+        dropin.chmod(0o666)
+        with self.assertRaisesRegex(ValueError, '^SPAWN_CONFIG_CUSTODY$'):
+            w.m.enable_owner_signin()
+
+    def test_owner_signin_preflight_executes_real_schema_origin_and_gate_readers(self):
+        w, dropin = self.owner_signin_world()
+        old_run = w.m.run
+        scripts = []
+        def execute(command, code, *args, **kwargs):
+            if code != 'OWNER_SIGNIN_CONFIG_REFUSED':
+                return old_run(command, code, *args, **kwargs)
+            script = command[command.index('-e') + 1]
+            script = script.replace(str(w.root / 'opt/aukora-boundary-gate/src'), str(ROOT / 'packages/boundary-gate/src'))
+            # Root ownership is simulated; file type, mode, no-follow and exact bytes use the real readers.
+            shim = '''import syntheticFs from 'node:fs';
+const realLstat = syntheticFs.lstatSync, realFstat = syntheticFs.fstatSync;
+syntheticFs.lstatSync = path => { const st = realLstat(path); st.uid = 0;
+  if (!String(path).startsWith(process.env.FIXTURE_ROOT + '/')) st.mode &= ~0o022; return st; };
+syntheticFs.fstatSync = fd => { const st = realFstat(fd); st.uid = 0; return st; };
+'''
+            scripts.append(script)
+            result = REAL_RUN([str(PINNED_NODE), '--input-type=module', '-e', shim + script, *command[-2:]],
+                              capture_output=True, env={**os.environ, 'FIXTURE_ROOT': str(w.root)})
+            if result.returncode:
+                raise ValueError('BROWSER_OWNER_SIGNIN_CONFIG_REFUSED')
+            self.assertEqual(result.stdout, b'')
+            return ''
+        w.m.run = execute
+        setup_file = w.root / 'etc/aukora-boundary-gate/passkey-setup.json'
+        join_file = setup_file.with_name('browser-join.json')
+        setup_file.parent.mkdir(parents=True, exist_ok=True)
+        key = w.root / 'home/aukora-gate/receipt-ed25519.pem'
+        keygen = "import{generateKeyPairSync,createHash}from'node:crypto';import fs from'node:fs';const{privateKey,publicKey}=generateKeyPairSync('ed25519');fs.writeFileSync(process.argv[1],privateKey.export({type:'pkcs8',format:'pem'}),{mode:0o600});console.log(createHash('sha256').update(publicKey.export({type:'spki',format:'der'})).digest('hex'))"
+        generated = REAL_RUN([str(PINNED_NODE), '--input-type=module', '-e', keygen, str(key)], capture_output=True)
+        self.assertEqual(generated.returncode, 0)
+        setup = {'version': 1, 'kind': 'aukora-gate-passkey-setup/v1', 'gate': generated.stdout.decode().strip(),
+                 'node': '2' * 64, 'origin': 'https://owner.example.test', 'rp_id': 'owner.example.test',
+                 'claim_sha256': '3' * 64, 'expires_at_ms': 1000,
+                 'binding': {'identity': {'authorization_epoch': 1, 'subject': 'aukora:1:' + '4' * 64},
+                             'passkey_profile': {'profile': 'https', 'origin': 'https://owner.example.test', 'rp_id': 'owner.example.test'},
+                             'existing_credential_ids': []}}
+        join = {'version': 1, 'kind': 'aukora-browser-join/v1', 'app_origin': 'https://app.example.test',
+                'binding_record': str(w.root / 'home/aukora-host/browser-controller/local-control.json')}
+        def reset():
+            setup_file.write_text(json.dumps(setup)); setup_file.chmod(0o640)
+            join_file.write_text(json.dumps(join)); join_file.chmod(0o644)
+        for file, field, value in [(setup_file, 'origin', 'https://wrong.example.test'),
+                                  (join_file, 'app_origin', 'https://wrong.example.test'),
+                                  (setup_file, 'gate', '5' * 64), (setup_file, 'kind', 'wrong'),
+                                  (join_file, 'kind', 'wrong')]:
+            reset()
+            invalid = json.loads(file.read_text()); invalid[field] = value
+            if file == setup_file and field == 'origin':
+                invalid['rp_id'] = 'wrong.example.test'
+                invalid['binding']['passkey_profile'].update(origin=value, rp_id='wrong.example.test')
+            file.write_text(json.dumps(invalid))
+            self.refuses(w.m.enable_owner_signin, 'OWNER_SIGNIN_CONFIG_REFUSED')
+            self.assertFalse(dropin.exists())
+        for file in (setup_file, join_file):
+            reset(); file.chmod(0o666)
+            self.refuses(w.m.enable_owner_signin, 'OWNER_SIGNIN_CONFIG_REFUSED')
+            self.assertFalse(dropin.exists())
+        reset()
+        with contextlib.redirect_stdout(io.StringIO()):
+            w.m.enable_owner_signin()
+        self.assertTrue(dropin.exists())
+        self.assertEqual(len(scripts), 8)
+
 
 def mutations():
     cases = [
+        ('passkey-authority-installed', "profiles = [('authority', checkout / 'packages/authority', '/opt/authority', '--passkey-authority'),\n", 'profiles = [\n', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('passkey-contracts-installed', "                ('contracts', checkout / 'packages/contracts', '/opt/contracts', '--passkey-contracts'),\n", '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('passkey-aumlok-installed', "                ('browser-aumlok', checkout / 'plugins/aukora-aumlok', '/opt/aukora-aumlok', '--browser-aumlok')", '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('passkey-profile-modes', '        stage.public_modes(STATE / name)\n', '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('passkey-profile-manifests', '        profile_args += [flag, str(STATE / name)]\n', '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('owner-signin-root', 'def enable_owner_signin():\n    root_check()\n', 'def enable_owner_signin():\n', 'test_owner_signin_transition_guards'),
+        ('owner-signin-installed', 'def enable_owner_signin():\n    root_check()\n    installed()\n', 'def enable_owner_signin():\n    root_check()\n', 'test_owner_signin_transition_guards'),
+        ('owner-signin-package', "def enable_owner_signin():\n    root_check()\n    installed()\n    bootstrap('check-package')\n", 'def enable_owner_signin():\n    root_check()\n    installed()\n', 'test_owner_signin_transition_guards'),
+        ('owner-signin-gate-user', "    run(['runuser', '-u', 'aukora-gate', '--', NODE, '--input-type=module', '-e', script,", "    run(['runuser', '-u', 'root', '--', NODE, '--input-type=module', '-e', script,", 'test_owner_signin_transition_guards'),
+        ('owner-signin-app-file-custody', "app_origin, _ = ingress.read_origin_file(Path('/etc/aukora/public-origin'))", "app_origin, _ = ingress.parse_origin(Path('/etc/aukora/public-origin').read_text())", 'test_owner_signin_transition_guards'),
+        ('owner-signin-owner-file-custody', "owner_origin, _ = ingress.read_origin_file(Path('/etc/aukora/owner-public-origin'))", "owner_origin, _ = ingress.parse_origin(Path('/etc/aukora/owner-public-origin').read_text())", 'test_owner_signin_transition_guards'),
+        ('owner-signin-setup-reader', "passkeySetupReader('/etc/aukora-boundary-gate/passkey-setup.json')()", "JSON.parse(fs.readFileSync('/etc/aukora-boundary-gate/passkey-setup.json', 'utf8'))", 'test_owner_signin_preflight_executes_real_schema_origin_and_gate_readers'),
+        ('owner-signin-join-reader', "browserJoinReader('/etc/aukora-boundary-gate/browser-join.json')()", "JSON.parse(fs.readFileSync('/etc/aukora-boundary-gate/browser-join.json', 'utf8'))", 'test_owner_signin_preflight_executes_real_schema_origin_and_gate_readers'),
+        ('owner-signin-owner-audience', 'setup.origin !== process.argv[1]', 'false', 'test_owner_signin_preflight_executes_real_schema_origin_and_gate_readers'),
+        ('owner-signin-app-audience', 'join.app_origin !== process.argv[2]', 'false', 'test_owner_signin_preflight_executes_real_schema_origin_and_gate_readers'),
+        ('owner-signin-signer-pin', "if (setup.gate !== createHash('sha256').update(signer.export({ type: 'spki', format: 'der' })).digest('hex')) throw new Error('BROWSER_OWNER_SIGNIN_GATE_MISMATCH');", '', 'test_owner_signin_preflight_executes_real_schema_origin_and_gate_readers'),
+        ('owner-signin-fixed-dropin', '/etc/systemd/system/aukora-boundary-gate.service.d/browser-owner.conf', '/etc/systemd/system/aukora-boundary-gate.service.d/other.conf', 'test_owner_signin_transition_guards'),
+        ('owner-signin-clear-execstart', "dropin = '''[Service]\nExecStart=\n", "dropin = '''[Service]\n", 'test_owner_signin_transition_guards'),
+        ('owner-signin-passkey-mode', '--passkey-setup /etc/aukora-boundary-gate/passkey-setup.json --browser-join /etc/aukora-boundary-gate/browser-join.json\n', '\n', 'test_owner_signin_transition_guards'),
+        ('owner-signin-write-mode', "dropin.encode(), Path('/'))", "dropin.encode(), Path('/'), 0o666)", 'test_owner_signin_transition_guards'),
+        ('owner-signin-reload', "    run(['systemctl', 'daemon-reload'], 'SYSTEMD_REFUSED')\n    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_SIGNIN_START_REFUSED')", "    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_SIGNIN_START_REFUSED')", 'test_owner_signin_transition_guards'),
+        ('owner-signin-restart', "    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_SIGNIN_START_REFUSED')\n", '', 'test_owner_signin_transition_guards'),
+        ('owner-signin-sockets', "    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_SIGNIN_START_REFUSED')\n    sockets()", "    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_SIGNIN_START_REFUSED')", 'test_owner_signin_transition_guards'),
+        ('app-origin-written', "    config.write(Path('/etc/aukora/public-origin'), ('https://' + app_host + '\\n').encode(), Path('/'))\n", '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('owner-origin-written', "    config.write(Path('/etc/aukora/owner-public-origin'), ('https://' + owner_host + '\\n').encode(), Path('/'))\n", '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('claim-started', "    run(['systemctl', 'enable', '--now', 'aukora-browser-claim.service'], 'CLAIM_START_REFUSED')\n", '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
+        ('claim-root', 'def claim():\n    root_check()\n', 'def claim():\n', 'test_claim_and_rotation_require_root_installed_services_and_hide_secrets'),
+        ('rotation-root', 'def rotate_owner_link():\n    root_check()\n', 'def rotate_owner_link():\n', 'test_claim_and_rotation_require_root_installed_services_and_hide_secrets'),
+        ('claim-active-services', "        run(['systemctl', 'is-active', '--quiet', name], 'CLAIM_SERVICE_INACTIVE')\n", '        pass\n', 'test_claim_and_rotation_require_root_installed_services_and_hide_secrets'),
+        ('claim-single-link-output', "    print(link, end='')\n", "    print('claim: ' + link, end='')\n", 'test_claim_and_rotation_require_root_installed_services_and_hide_secrets'),
+        ('rotation-restart', "    run(['systemctl', 'restart', 'aukora-boundary-gate.service'], 'OWNER_ROTATE_REFUSED')\n", '', 'test_claim_and_rotation_require_root_installed_services_and_hide_secrets'),
         ('input-digest', 'stage.digest_file(file) == digest(expected)', 'True', 'test_each_input_digest'),
         ('fresh-source', "    stage.source_check({'source_checkout': str(checkout), 'release_commit': options.revision})\n", '', 'test_clean_source_and_pinned_harness_precede_build'),
         ('harness-digest', "    fresh.verify_archive(inputs / 'dsh-source.tar.gz', pin)\n", '', 'test_clean_source_and_pinned_harness_precede_build'),
@@ -414,6 +783,13 @@ def mutations():
         ('plugin-load', "not re.search(r'^aukora-[a-z-]+ \\(file://.*\\): Error', journal, re.M)", 'True', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation'),
         ('installed-listener', "'127.0.0.1:18735' in endpoints", 'True', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation'),
         ('package-link', "entry.resolve().is_relative_to(path)", 'True', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation'),
+        ('claim-service', "        run(['systemctl', 'is-active', '--quiet', 'aukora-browser-claim.service'], 'CLAIM_INACTIVE')\n", '', 'test_public_authority_claim_acceptance_guards'),
+        ('public-origin-custody', "claim.read_origin_file(Path('/etc/aukora/public-origin'))", "claim.parse_origin(Path('/etc/aukora/public-origin').read_text())", 'test_public_authority_claim_acceptance_guards'),
+        ('owner-origin-custody', "claim.read_origin_file(Path('/etc/aukora/owner-public-origin'))", "claim.parse_origin(Path('/etc/aukora/owner-public-origin').read_text())", 'test_public_authority_claim_acceptance_guards'),
+        ('cookie-authority', "cookie = claim.bounded_cookie(cookies[0], authority, time.time()).split(';', 1)[0]", "cookie = cookies[0].split(';', 1)[0]", 'test_public_authority_claim_acceptance_guards'),
+        ('claim-mint', "'--state-file', '/var/lib/aukora-browser/claims.json'], 'CLAIM_MINT_REFUSED')", "'--state-file', '/var/lib/aukora-browser/claims.json'], 'IGNORED_MINT')", 'test_public_authority_claim_acceptance_guards'),
+        ('request-host', "{'Host': authority, 'Origin': public_origin, 'Sec-Fetch-Site': 'same-origin'}", "{'Host': '127.0.0.1', 'Origin': public_origin, 'Sec-Fetch-Site': 'same-origin'}", 'test_public_authority_claim_acceptance_guards'),
+        ('session-cookie', "                headers['Cookie'] = cookie\n", '                pass\n', 'test_public_authority_claim_acceptance_guards'),
         ('floor-before-start', "         'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)], 'FLOOR_REFUSED')",
          "         'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)], 'IGNORED_FLOOR')", 'test_start_requires_approval_and_exact_floor_and_can_restart'),
         ('marker-after-raise', "    bootstrap('approval', 'raise', '--release-dir', release)\n    value = {'revision': options.revision, 'inputs': binding}\n    config.write(STATE / 'installed.json', (json.dumps(value, sort_keys=True) + '\\n').encode(), Path('/'))",

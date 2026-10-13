@@ -66,6 +66,9 @@ with tempfile.TemporaryDirectory() as temporary:
     refused(lambda: app.handle('POST', module.CLAIM_PATH, {**headers, 'origin': 'https://wrong.example.test'}, claim.encode()), 'CLAIM_ORIGIN_REFUSED')
     status, response_headers, body = app.handle('POST', module.CLAIM_PATH, headers, claim.encode())
     assert status == 204 and body == b'' and ('Set-Cookie', cookie) in response_headers and calls == ['exchange']
+    for target, streaming in [('/api/remote.mux', {'connection': 'Upgrade', 'upgrade': 'websocket'}),
+                              ('/plugins/events', {'accept': 'text/event-stream'})]:
+        refused(lambda: app.handle('GET', target, {**headers, **streaming}, b''), 'CLAIM_ROUTE_REFUSED')
 
     burned = fresh(base, 'burned')
     burn_code = burned.mint(authority, now, 60)
@@ -133,6 +136,7 @@ test('one-time claim protections and focused guard-removal mutations', t => {
     ['public file non-writable', 'or (not private and info.st_mode & 0o022)):', 'or False):'],
     ['launch descriptor private', 'or (private and info.st_mode & 0o077)', 'or False'],
     ['public DNS hostname', 'or re.search(r"[a-z]", labels[-1]) is None', 'or False'],
+    ['broker refuses harness streaming routes', 'if method != "POST" or target not in (CLAIM_PATH, SIGNIN_PATH, SIGNOUT_PATH):', 'if False:'],
   ]
   const scratch = mkdtempSync(join(tmpdir(), 'aukora-claim-mutants-'))
   for (const [name, before, after] of mutations) {
@@ -200,7 +204,8 @@ test('launcher accepts only the exact root-file HTTPS hostname and passes only i
 
 function render(args = []) {
   return spawnSync(python, ['-I', '-S', renderPath, '--app-host', 'node.example.test',
-    '--owner-host', 'owner.example.test', '--harness-port', '28735', '--owner-port', '28736', ...args],
+    '--owner-host', 'owner.example.test', '--harness-port', '28735', '--owner-port', '28736',
+    '--claim-port', '28737', ...args],
   { encoding: 'utf8' })
 }
 
@@ -214,6 +219,9 @@ function assertCaddy(text) {
   assert.match(text, /Strict-Transport-Security "max-age=31536000"/u)
   assert.match(text, /request_body \{\s+max_size 8MB/u)
   assert.equal(text.match(/reverse_proxy 127\.0\.0\.1:/gu)?.length, 3)
+  assert.match(text, /handle @claim \{\s+reverse_proxy 127\.0\.0\.1:28737 \{/u)
+  assert.match(text, /\thandle \{\s+reverse_proxy 127\.0\.0\.1:28735 \{/u)
+  assert.match(text, /https:\/\/owner\.example\.test \{\s+import aukora_headers\s+header X-Frame-Options "DENY"\s+reverse_proxy 127\.0\.0\.1:28736 \{/u)
   assert.equal(text.match(/flush_interval -1/gu)?.length, 3)
   assert.equal(text.match(/header_up -X-Forwarded-\*/gu)?.length, 3)
   assert.equal(text.match(/header_up Host \{http\.request\.host\}/gu)?.length, 3, 'Host')
@@ -243,7 +251,9 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
   assertCaddy(result.stdout)
   for (const invalid of [
     ['--app-host', '*.example.test'], ['--app-host', 'https://node.example.test'],
+    ['--app-host', '127.0.0.1'],
     ['--owner-host', 'node.example.test'], ['--harness-port', '28736'],
+    ['--claim-port', '28735'], ['--claim-port', '28736'],
   ]) {
     const attempted = render(invalid)
     assert.notEqual(attempted.status, 0, invalid.join('='))
@@ -261,6 +271,9 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
     ['public launch token refused', 'handle @launch_token {\n\t\trespond 404', 'handle @launch_token {\n\t\trespond 200'],
     ['returning signin route', '/__aukora/signin /__aukora/signin.js', '/removed/signin /removed/signin.js'],
     ['signout route', '/__aukora/signout', '/removed/signout'],
+    ['claim upstream separated', 'handle @claim {\n\t\treverse_proxy 127.0.0.1:28737', 'handle @claim {\n\t\treverse_proxy 127.0.0.1:28736'],
+    ['harness streaming upstream direct', 'reverse_proxy 127.0.0.1:28735', 'reverse_proxy 127.0.0.1:28737'],
+    ['owner upstream direct', 'reverse_proxy 127.0.0.1:28736', 'reverse_proxy 127.0.0.1:28737'],
   ]
   for (const [name, before, after] of mutations) {
     assert.ok(result.stdout.includes(before), name)
@@ -272,4 +285,56 @@ test('rendered Caddy text has the two-host TLS, proxy and privacy contract', t =
   assert.throws(() => assertCaddy(result.stdout + '\nheader Content-Security-Policy "default-src none"\n'), assert.AssertionError,
     'owner CSP overwrite must fail')
   t.diagnostic(`MUTATION Caddy protections: ${mutations.length + 2}/${mutations.length + 2} killed`)
+})
+
+const rendererCourt = String.raw`
+import importlib.util, pathlib, sys
+source = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location('render_under_test', source)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+template = source.with_name('Caddyfile.template').read_text()
+for value in ['127.0.0.1', 'node.example.123']:
+    try: module.hostname(value)
+    except module.argparse.ArgumentTypeError: pass
+    else: raise AssertionError('numeric authority accepted')
+for ports in [(28735, 28735, 28737), (28735, 28736, 28735), (28735, 28736, 28736)]:
+    try: module.render(template, 'node.example.test', 'owner.example.test', *ports)
+    except ValueError as error: assert str(error) == 'INGRESS_PORTS_MUST_DIFFER'
+    else: raise AssertionError('colliding upstreams accepted')
+print('PASS renderer: DNS authority and three distinct loopback upstreams')
+`
+
+test('renderer refuses numeric authorities and colliding broker upstreams', t => {
+  const source = readFileSync(renderPath, 'utf8')
+  const run = file => spawnSync(python, ['-I', '-S', '-c', rendererCourt, file], { encoding: 'utf8' })
+  const baseline = run(renderPath)
+  assert.equal(baseline.status, 0, baseline.stderr)
+  assert.match(baseline.stdout, /^PASS renderer:/mu)
+  const mutations = [
+    ['DNS authority', 'or re.search(r"[a-z]", labels[-1]) is None', 'or False'],
+    ['three distinct upstreams', 'if len({harness_port, owner_port, claim_port}) != 3:', 'if False:'],
+  ]
+  const scratch = mkdtempSync(join(tmpdir(), 'aukora-ingress-render-mutants-'))
+  writeFileSync(join(scratch, 'Caddyfile.template'), readFileSync(templatePath))
+  for (const [name, before, after] of mutations) {
+    assert.equal(source.split(before).length, 2, `mutation anchor: ${name}`)
+    const file = join(scratch, `${name.replaceAll(' ', '-')}.py`)
+    writeFileSync(file, source.replace(before, after), { mode: 0o600 })
+    const result = run(file)
+    assert.notEqual(result.status, 0, `surviving mutant: ${name}`)
+    assert.match(result.stderr, /AssertionError/u)
+    t.diagnostic(`MUTATION CAUGHT renderer ${name}`)
+  }
+  const args = ['-I', '-S', renderPath, '--app-host', 'node.example.test', '--owner-host',
+    'owner.example.test', '--harness-port', '28735', '--owner-port', '28736']
+  assert.notEqual(spawnSync(python, args, { encoding: 'utf8' }).status, 0)
+  const required = 'parser.add_argument("--claim-port", type=port, required=True)'
+  assert.equal(source.split(required).length, 2)
+  const file = join(scratch, 'claim-port-required.py')
+  writeFileSync(file, source.replace(required, required.replace('True', 'False')), { mode: 0o600 })
+  const mutant = spawnSync(python, args.map(value => value === renderPath ? file : value), { encoding: 'utf8' })
+  assert.throws(() => assert.notEqual(mutant.status, 0), assert.AssertionError,
+    'removing required claim port must fail the missing-port refusal check')
+  t.diagnostic('MUTATION renderer protections: 3/3 killed')
 })

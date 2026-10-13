@@ -21,7 +21,7 @@ https://__APP_HOST__ {
 
 	@claim path /__aukora/claim /__aukora/claim.js /__aukora/signin /__aukora/signin.js /__aukora/signout
 	handle @claim {
-		reverse_proxy 127.0.0.1:__OWNER_PORT__ {
+		reverse_proxy 127.0.0.1:__CLAIM_PORT__ {
 			flush_interval -1
 			header_up -Forwarded
 			header_up -X-Forwarded-*

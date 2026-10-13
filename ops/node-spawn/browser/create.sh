@@ -4,7 +4,7 @@
 set -euo pipefail
 umask 077
 refuse() { printf 'REFUSED %s\n' "$1" >&2; exit 1; }
-name= image= inputs= checkout_sha= revision= node_sha= dependencies_sha= app_port= owner_port= seen=
+name= image= inputs= checkout_sha= revision= node_sha= dependencies_sha= app_port= owner_port= claim_port= app_host= owner_host= seen=
 while [[ $# -gt 0 ]]; do
   [[ $# -ge 2 ]] || refuse BROWSER_CREATE_USAGE
   [[ "|$seen|" != *"|$1|"* ]] || refuse BROWSER_CREATE_DUPLICATE_ARGUMENT
@@ -19,25 +19,39 @@ while [[ $# -gt 0 ]]; do
     --dependencies-sha256) dependencies_sha=$2 ;;
     --app-port) app_port=$2 ;;
     --owner-port) owner_port=$2 ;;
+    --claim-port) claim_port=$2 ;;
+    --app-host) app_host=$2 ;;
+    --owner-host) owner_host=$2 ;;
     *) refuse BROWSER_CREATE_USAGE ;;
   esac
   shift 2
 done
-[[ -n $name && -n $image && -n $inputs && -n $checkout_sha && -n $revision && -n $node_sha && -n $dependencies_sha && -n $app_port && -n $owner_port ]] || refuse BROWSER_CREATE_USAGE
+[[ -n $name && -n $image && -n $inputs && -n $checkout_sha && -n $revision && -n $node_sha && -n $dependencies_sha && -n $app_port && -n $owner_port && -n $claim_port && -n $app_host && -n $owner_host ]] || refuse BROWSER_CREATE_USAGE
 [[ ${#name} -le 63 && $name =~ ^[A-Za-z][A-Za-z0-9]*(-[A-Za-z0-9]+)*$ ]] || refuse BROWSER_CREATE_NAME_INVALID
 [[ $image =~ ^[0-9a-f]{64}$ ]] || refuse BROWSER_CREATE_IMAGE_INVALID
 [[ $revision =~ ^[0-9a-f]{40}$ ]] || refuse BROWSER_CREATE_REVISION_INVALID
 for pin in "$checkout_sha" "$node_sha" "$dependencies_sha"; do
   [[ $pin =~ ^[0-9a-f]{64}$ ]] || refuse BROWSER_CREATE_DIGEST_INVALID
 done
-for port in "$app_port" "$owner_port"; do
+for port in "$app_port" "$owner_port" "$claim_port"; do
   [[ $port =~ ^[1-9][0-9]{3,4}$ && $port -ge 1024 && $port -le 65535 ]] || refuse BROWSER_CREATE_PORT_INVALID
 done
-[[ $app_port != "$owner_port" ]] || refuse BROWSER_CREATE_PORT_CONFLICT
+[[ $app_port != "$owner_port" && $claim_port != "$app_port" && $claim_port != "$owner_port" ]] || refuse BROWSER_CREATE_PORT_CONFLICT
+[[ $app_host != "$owner_host" ]] || refuse BROWSER_CREATE_HOST_CONFLICT
 [[ $inputs == /* && $inputs != / && $inputs != *$'\n'* && $inputs != *$'\r'* ]] || refuse BROWSER_CREATE_INPUTS_INVALID
 [[ ${LD_PRELOAD+x} != x && ${LD_LIBRARY_PATH+x} != x && ${LD_AUDIT+x} != x ]] || refuse BROWSER_CREATE_PRELOAD_FORBIDDEN
 [[ $(uname -s) == Linux ]] || refuse BROWSER_CREATE_LINUX_REQUIRED
 for tool in python3 git lxc; do command -v "$tool" >/dev/null 2>&1 || refuse BROWSER_CREATE_TOOL_REQUIRED; done
+python3 -I -S - "$app_host" "$owner_host" <<'PY'
+import re, sys
+for value in sys.argv[1:]:
+    labels = value.split('.')
+    if (value != value.lower() or value == 'localhost' or len(value) > 253 or len(labels) < 2
+            or re.search(r'[a-z]', labels[-1]) is None
+            or any(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) is None for label in labels)):
+        print('REFUSED BROWSER_CREATE_HOST_INVALID', file=sys.stderr)
+        sys.exit(1)
+PY
 lxc() { command lxc --force-local "$@"; }
 inputs=${inputs%/}
 work=
@@ -166,8 +180,9 @@ for script in "$work/checkout/ops/node-spawn/browser/"*; do
   run BROWSER_CREATE_COPY_FAILED lxc file push "$script" "$name/root/aukora-browser-installer/${script##*/}" --mode 0700 --uid 0 --gid 0
 done
 run BROWSER_CREATE_COPY_FAILED lxc file push "$work/checkout/ops/node-spawn/stage.py" "$name/root/aukora-browser-installer/stage.py" --mode 0700 --uid 0 --gid 0
-run BROWSER_CREATE_INSTALL_FAILED lxc exec "$name" -- /bin/bash /root/aukora-browser-installer/install.sh --inputs /root/aukora-browser-inputs --checkout-sha256 "$checkout_sha" --revision "$revision" --node-sha256 "$node_sha" --dependencies-sha256 "$dependencies_sha"
+run BROWSER_CREATE_INSTALL_FAILED lxc exec "$name" -- /bin/bash /root/aukora-browser-installer/install.sh --inputs /root/aukora-browser-inputs --checkout-sha256 "$checkout_sha" --revision "$revision" --node-sha256 "$node_sha" --dependencies-sha256 "$dependencies_sha" --app-host "$app_host" --owner-host "$owner_host"
 run BROWSER_CREATE_PROXY_FAILED lxc config device add "$name" browser-app proxy "listen=tcp:127.0.0.1:$app_port" connect=tcp:127.0.0.1:18735 bind=host nat=false security.uid=65534 security.gid=65534
 run BROWSER_CREATE_PROXY_FAILED lxc config device add "$name" browser-owner proxy "listen=tcp:127.0.0.1:$owner_port" connect=tcp:127.0.0.1:17792 bind=host nat=false security.uid=65534 security.gid=65534
+run BROWSER_CREATE_PROXY_FAILED lxc config device add "$name" browser-claim proxy "listen=tcp:127.0.0.1:$claim_port" connect=tcp:127.0.0.1:18736 bind=host nat=false security.uid=65534 security.gid=65534
 complete=1
 printf 'CREATED %s; harness stopped pending owner approval\n' "$name"

@@ -66,7 +66,8 @@ class BrowserInstaller(unittest.TestCase):
 
     def test_usage_every_option(self):
         valid = ['install', '--inputs', str(self.root), '--checkout-sha256', 'a' * 64,
-                 '--revision', 'a' * 40, '--node-sha256', 'b' * 64, '--dependencies-sha256', 'c' * 64]
+                 '--revision', 'a' * 40, '--node-sha256', 'b' * 64, '--dependencies-sha256', 'c' * 64,
+                 '--app-host', 'app.example.test', '--owner-host', 'owner.example.test']
         with patch.object(M, 'install') as install:
             M.main(valid)
             self.assertEqual(install.call_count, 1)
@@ -85,7 +86,7 @@ class BrowserInstaller(unittest.TestCase):
             args = valid.copy()
             args[2] = '../outside'
             rejects(lambda: M.main(args), 'PATH_INVALID')
-        for command in ['start', 'status', 'remove', 'accept']:
+        for command in ['start', 'status', 'remove', 'accept', 'claim', 'rotate-owner-link', 'enable-owner-signin']:
             with patch.object(M, 'root_check', side_effect=ValueError('BROWSER_ROOT_REQUIRED')):
                 rejects(lambda: M.main([command] + (['--phase', 'before'] if command == 'accept' else [])), 'ROOT_REQUIRED')
 
@@ -99,6 +100,14 @@ class BrowserInstaller(unittest.TestCase):
             rejects(lambda: M.digest(value), 'DIGEST_INVALID')
         for value in ['a' * 39, 'a' * 41, 'a' * 64]:
             rejects(lambda: M.digest(value, True), 'DIGEST_INVALID')
+
+    def test_hostname(self):
+        self.assertEqual(M.hostname('app.example.test'), 'app.example.test')
+        for value in ['', 'localhost', 'App.example.test', '*.example.test', '127.0.0.1',
+                      'https://app.example.test', 'app.example.test:443', 'app.example.test/path',
+                      'app.example.test\n', '-app.example.test', 'a' * 64 + '.test',
+                      '.'.join(['a' * 63] * 4) + '.test']:
+            rejects(lambda: M.hostname(value), 'HOST_INVALID')
 
     def test_root_environment(self):
         for key in M.PRELOAD:
@@ -197,6 +206,7 @@ class BrowserInstaller(unittest.TestCase):
             M.units(config)
         gate = writes['aukora-boundary-gate.service']
         harness = writes['aukora-browser.service']
+        claim = writes['aukora-browser-claim.service']
         self.assertIn('--owner-page --port 17792', gate)
         self.assertIn('--gid 123', gate)
         for invariant in ('UMask=0077', 'NoNewPrivileges=yes', 'ProtectSystem=strict', 'check-package', 'check-runtime',
@@ -204,6 +214,16 @@ class BrowserInstaller(unittest.TestCase):
             self.assertIn(invariant, harness)
         self.assertNotIn('unsafe-preview', harness)
         self.assertNotIn('linux-openshell.patch.yml', harness)
+        self.assertIn('--public-origin-file /etc/aukora/public-origin', harness)
+        for invariant in ('User=root', 'Group=root', 'UMask=0077', 'NoNewPrivileges=yes',
+                          'ProtectSystem=strict', 'ProtectHome=read-only', 'ReadWritePaths=/var/lib/aukora-browser',
+                          'python3 -I -S -B', 'ops/node-spawn/ingress/claim.py serve',
+                          '--public-origin-file /etc/aukora/public-origin',
+                          '--owner-origin-file /etc/aukora/owner-public-origin',
+                          '--state-file /var/lib/aukora-browser/claims.json',
+                          '--launch-url-file /home/aukora-host/genesis/state/launch-url.json',
+                          '--harness-port 18735', '--owner-page-port 17792', '--listen-port 18736'):
+            self.assertIn(invariant, claim)
         with patch.object(M, 'run', return_value='skgate:x:not-number:'):
             rejects(lambda: M.units(config), 'GROUP_INVALID')
 
@@ -290,7 +310,33 @@ def mutations():
         else:
             raise AssertionError('mutation survived: ' + before)
     print('SOURCE-ONLY browser installer guard mutations: %d/%d killed' % (killed, len(cases)))
+    unit_mutations()
     guard_mutations()
+
+
+def unit_mutations():
+    global M
+    original = M
+    cases = [('harness public origin', '--foreground --public-origin-file /etc/aukora/public-origin', '--foreground')]
+    for value in ('User=root', 'Group=root', 'UMask=0077', 'NoNewPrivileges=yes',
+                  'ProtectSystem=strict', 'ProtectHome=read-only', 'ReadWritePaths=/var/lib/aukora-browser',
+                  'python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/ingress/claim.py serve',
+                  '--owner-origin-file /etc/aukora/owner-public-origin',
+                  '--state-file /var/lib/aukora-browser/claims.json',
+                  '--launch-url-file /home/aukora-host/genesis/state/launch-url.json',
+                  '--harness-port 18735', '--owner-page-port 17792', '--listen-port 18736'):
+        cases.append((value, value, ''))
+    start = TEXT.index('    claim_unit = ')
+    for label, before, after in cases:
+        # Broker policy mutations target its unit, even when the harness uses the same directive.
+        mutated = TEXT.replace(before, after, 1) if label == 'harness public origin' else TEXT[:start] + TEXT[start:].replace(before, after, 1)
+        assert mutated != TEXT, label
+        M = load(mutated)
+        result = unittest.TestResult()
+        BrowserInstaller('test_units_preserve_approval_no_preview').run(result)
+        assert result.failures or result.errors, 'unit mutation survived: ' + label
+    M = original
+    print('SOURCE-ONLY browser ingress unit mutations: %d/%d killed' % (len(cases), len(cases)))
 
 
 def guard_mutations():
@@ -300,7 +346,7 @@ def guard_mutations():
     pipeline = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(pipeline)
     unit_methods = {
-        'absolute': ['test_path_and_digest'], 'digest': ['test_path_and_digest'],
+        'absolute': ['test_path_and_digest'], 'digest': ['test_path_and_digest'], 'hostname': ['test_hostname'],
         'protected': ['test_custody'], 'root_check': ['test_root_environment'],
         'extract': ['test_archives'], 'run': ['test_run_refuses_and_hides_output'],
         'profile': ['test_profile_integrity'], 'profile_rules': ['test_profile_rules_and_service_preflight'],
@@ -310,7 +356,9 @@ def guard_mutations():
     pipeline_methods = {
         'checked_inputs': ['test_each_input_digest'], 'installed': ['test_install_record_is_closed_and_revision_checked'],
         'install': ['test_dependency_and_node_package_checks', 'test_fresh_install_does_not_adopt_existing_state_or_users', 'test_rerun_is_exact_and_never_regenerates_keys'],
-        'accept': ['test_before_acceptance_refuses_any_floor_start_listener_or_descriptor', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation'],
+        'accept': ['test_before_acceptance_refuses_any_floor_start_listener_or_descriptor', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation',
+                   'test_public_authority_claim_acceptance_guards'],
+        'enable_owner_signin': ['test_owner_signin_transition_guards'],
     }
     lines = TEXT.splitlines(keepends=True)
     offsets = [0]

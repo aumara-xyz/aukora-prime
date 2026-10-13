@@ -15,6 +15,8 @@ const base = { config: { 'security.privileged': 'false', 'security.nesting': 'fa
     'security.gid': '65534', connect: 'tcp:127.0.0.1:18735', listen: 'tcp:127.0.0.1:28735' },
   'browser-owner': { type: 'proxy', bind: 'host', nat: 'false', 'security.uid': '65534',
     'security.gid': '65534', connect: 'tcp:127.0.0.1:17792', listen: 'tcp:127.0.0.1:27792' },
+  'browser-claim': { type: 'proxy', bind: 'host', nat: 'false', 'security.uid': '65534',
+    'security.gid': '65534', connect: 'tcp:127.0.0.1:18736', listen: 'tcp:127.0.0.1:28736' },
 } }
 
 function fixture(t) {
@@ -39,7 +41,7 @@ const attacks = [
   ['nested', 'assert config.get("security.privileged")=="false" and config.get("security.nesting")=="false"', v => v.config['security.nesting'] = 'true'],
   ['idmap', 'assert config.get("security.idmap.isolated")=="true" and config.get("security.devlxd")=="false"', v => v.config['security.idmap.isolated'] = 'false'],
   ['devlxd', 'assert config.get("security.idmap.isolated")=="true" and config.get("security.devlxd")=="false"', v => v.config['security.devlxd'] = 'true'],
-  ['NIC', 'assert set(devices)=={"root","browser-app","browser-owner"} and devices["root"]["type"]=="disk"', v => v.devices.net = { type: 'nic' }],
+  ['NIC', 'assert set(devices)=={"root","browser-app","browser-owner","browser-claim"} and devices["root"]["type"]=="disk"', v => v.devices.net = { type: 'nic' }],
   ['proxy type', 'assert device["type"]=="proxy" and device.get("bind")=="host" and device.get("nat")=="false"', v => v.devices['browser-app'].type = 'disk'],
   ['proxy namespace', 'assert device["type"]=="proxy" and device.get("bind")=="host" and device.get("nat")=="false"', v => v.devices['browser-app'].bind = 'container'],
   ['NAT', 'assert device["type"]=="proxy" and device.get("bind")=="host" and device.get("nat")=="false"', v => v.devices['browser-app'].nat = 'true'],
@@ -48,7 +50,8 @@ const attacks = [
   ['target', 'assert device["connect"]=="tcp:127.0.0.1:"+target', v => v.devices['browser-owner'].connect = 'tcp:0.0.0.0:17792'],
   ['low port', 'assert match and 1024<=int(match[1])<=65535', v => v.devices['browser-app'].listen = 'tcp:127.0.0.1:1000'],
   ['high port', 'assert match and 1024<=int(match[1])<=65535', v => v.devices['browser-app'].listen = 'tcp:127.0.0.1:65536'],
-  ['same port', 'assert ports[0]!=ports[1]', v => v.devices['browser-owner'].listen = v.devices['browser-app'].listen],
+  ['same port', 'assert len(set(ports))==3', v => v.devices['browser-owner'].listen = v.devices['browser-app'].listen],
+  ['claim port collision', 'assert len(set(ports))==3', v => v.devices['browser-claim'].listen = v.devices['browser-app'].listen],
 ]
 test('acceptance validates arguments, local proxy readback and embedded Python syntax', t => {
   const call = fixture(t)
@@ -63,6 +66,8 @@ test('acceptance validates arguments, local proxy readback and embedded Python s
   }
   const config = call(base, undefined, undefined, { REFUSE_CONFIG: '1' })
   assert.equal(config.status, 1); assert.match(config.stderr, /BROWSER_ACCEPTANCE_CONFIG/)
+  const missingClaim = clone(); delete missingClaim.devices['browser-claim']
+  assert.equal(call(missingClaim).status, 1)
   for (const value of ['not json PRIVATE_SENTINEL', {}, { ...base, config: {} }]) {
     const bad = call(value)
     assert.equal(bad.status, 1); assert.match(bad.stderr, /BROWSER_ACCEPTANCE_TRANSPORT/)

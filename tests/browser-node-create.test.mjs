@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const fast = process.env.AUKORA_BROWSER_CREATE_FAST === '1';
 // Fast registration retains argument refusals, one real-Git install flow and shell syntax.
-const quick = /^create (?:refuses (?:missing --|duplicate --|incomplete and unknown|--|matching proxy|non-Linux|LD_)|requests fresh restricted|shell parses)/;
+const quick = /^create (?:refuses (?:missing --|duplicate --|incomplete and unknown|--|matching proxy|matching public|non-Linux|LD_)|requests fresh restricted|shell parses)/;
 function test(name, fn) { if (!fast || quick.test(name)) nodeTest(name, fn); }
 if (fast) console.log('SOURCE-ONLY browser create fast registration; full input and LXD mutation court NOT RUN');
 
@@ -134,7 +134,7 @@ shift
 source \"$entry\" \"$@\"
 `, { mode: 0o700 });
   fs.writeFileSync(path.join(bin, 'uname'), '#!/bin/bash\nprintf "%s\\n" "${MOCK_SYSTEM:-Linux}"\n', { mode: 0o700 });
-  const args = ['--name', 'C1', '--image', image, '--inputs', inputs, '--checkout-sha256', cached.sha, '--revision', revision, '--node-sha256', digest('synthetic node'), '--dependencies-sha256', digest('synthetic dependencies'), '--app-port', '28735', '--owner-port', '27792'];
+  const args = ['--name', 'C1', '--image', image, '--inputs', inputs, '--checkout-sha256', cached.sha, '--revision', revision, '--node-sha256', digest('synthetic node'), '--dependencies-sha256', digest('synthetic dependencies'), '--app-host', 'c1.example.test', '--owner-host', 'owner.example.test', '--app-port', '28735', '--owner-port', '27792', '--claim-port', '28736'];
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, MOCK_LOG: log };
   for (const key of ['LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT']) delete env[key];
   const call = (values = args, extra = {}, entry = script) => spawnSync('/bin/bash', [wrapper, entry, ...values], { cwd: root, env: { ...env, ...extra }, encoding: 'utf8', timeout: 15000 });
@@ -158,7 +158,7 @@ function within(options, fn) {
   try { fn(f); } finally { f.close(); }
 }
 
-const flags = ['--name', '--image', '--inputs', '--checkout-sha256', '--revision', '--node-sha256', '--dependencies-sha256', '--app-port', '--owner-port'];
+const flags = ['--name', '--image', '--inputs', '--checkout-sha256', '--revision', '--node-sha256', '--dependencies-sha256', '--app-host', '--owner-host', '--app-port', '--owner-port', '--claim-port'];
 for (const flag of flags) {
   test(`create refuses missing ${flag}`, () => within({}, f => {
     const args = [...f.args];
@@ -180,10 +180,19 @@ const invalid = [
   ['--inputs', 'relative', 'INPUTS_INVALID'], ['--inputs', '/', 'INPUTS_INVALID'], ['--inputs', '/tmp/\nsecret', 'INPUTS_INVALID'], ['--inputs', '/tmp/\rsecret', 'INPUTS_INVALID'],
 ];
 for (const [flag, value, suffix] of invalid) test(`create refuses ${flag} ${JSON.stringify(value)}`, () => within({}, f => expectRefusal(f, `BROWSER_CREATE_${suffix}`, changed(f.args, flag, value))));
-for (const flag of ['--app-port', '--owner-port']) for (const port of ['0', '80', '1023', '65536', '028735', '1e4', '-1', '18735:80', '999999999999999999999999']) {
+for (const flag of ['--app-host', '--owner-host']) for (const host of ['localhost', 'single', '0.1', 'C1.example.test', '*.example.test', 'https://c1.example.test', 'c1.example.test:443', 'c1.example.test/path', '-c1.example.test', 'c1-.example.test', 'c_1.example.test', '.example.test', 'c1..example.test', 'c1.example.test.', 'c1.example.test\n', 'a'.repeat(64) + '.test', ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(62)].join('.')]) {
+  test(`create refuses ${flag} ${JSON.stringify(host)}`, () => within({}, f => {
+    expectRefusal(f, 'BROWSER_CREATE_HOST_INVALID', changed(f.args, flag, host));
+    assert.deepEqual(f.commands(), []);
+  }));
+}
+test('create refuses matching public hosts', () => within({}, f => expectRefusal(f, 'BROWSER_CREATE_HOST_CONFLICT', changed(f.args, '--owner-host', 'c1.example.test'))));
+for (const flag of ['--app-port', '--owner-port', '--claim-port']) for (const port of ['0', '80', '1023', '65536', '028735', '1e4', '-1', '18735:80', '999999999999999999999999']) {
   test(`create refuses ${flag} ${port}`, () => within({}, f => expectRefusal(f, 'BROWSER_CREATE_PORT_INVALID', changed(f.args, flag, port))));
 }
-test('create refuses matching proxy ports', () => within({}, f => expectRefusal(f, 'BROWSER_CREATE_PORT_CONFLICT', changed(f.args, '--owner-port', '28735'))));
+for (const [flag, value] of [['--owner-port', '28735'], ['--claim-port', '28735'], ['--claim-port', '27792']]) {
+  test(`create refuses matching proxy ports ${flag} ${value}`, () => within({}, f => expectRefusal(f, 'BROWSER_CREATE_PORT_CONFLICT', changed(f.args, flag, value))));
+}
 test('create refuses non-Linux and missing tools', () => within({}, f => {
   expectRefusal(f, 'BROWSER_CREATE_LINUX_REQUIRED', f.args, { MOCK_SYSTEM: 'Darwin' });
   expectRefusal(f, 'BROWSER_CREATE_TOOL_REQUIRED', f.args, { PATH: f.bin });
@@ -288,7 +297,13 @@ function verifyCreated(f, entry = script) {
   assert.deepEqual(proxies, [
     ['config', 'device', 'add', 'C1', 'browser-app', 'proxy', 'listen=tcp:127.0.0.1:28735', 'connect=tcp:127.0.0.1:18735', 'bind=host', 'nat=false', 'security.uid=65534', 'security.gid=65534'],
     ['config', 'device', 'add', 'C1', 'browser-owner', 'proxy', 'listen=tcp:127.0.0.1:27792', 'connect=tcp:127.0.0.1:17792', 'bind=host', 'nat=false', 'security.uid=65534', 'security.gid=65534'],
+    ['config', 'device', 'add', 'C1', 'browser-claim', 'proxy', 'listen=tcp:127.0.0.1:28736', 'connect=tcp:127.0.0.1:18736', 'bind=host', 'nat=false', 'security.uid=65534', 'security.gid=65534'],
   ]);
+  const install = commands.find(command => command.slice(0, 4).join('|') === 'exec|C1|--|/bin/bash');
+  for (const [flag, value] of [['--app-host', 'c1.example.test'], ['--owner-host', 'owner.example.test']]) {
+    assert.equal(install.filter(argument => argument === flag).length, 1);
+    assert.equal(install[install.indexOf(flag) + 1], value);
+  }
   assert.ok(commands.some(command => command.slice(0, 2).join('|') === 'file|push' && command[3] === 'C1/root/aukora-browser-installer/stage.py'));
   assert.ok(commands.filter(command => command.slice(0, 2).join('|') === 'file|push').every(command => command.includes('--uid') && command.includes('--gid') && command.includes('--mode')));
   assert.ok(!commands.some(command => command.includes('nic') || command.includes('start') || command.includes('restart') || command.includes('systemctl') || command[0] === 'delete'));
@@ -299,6 +314,11 @@ test('create accepts the lowest and highest unprivileged proxy ports', () => wit
   const args = changed(changed(f.args, '--app-port', '1024'), '--owner-port', '65535');
   assert.equal(f.call(args).status, 0);
 }));
+test('create accepts the ingress hostname boundary and numeric labels', () => {
+  for (const host of ['0.1.example', ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.')]) within({}, f => {
+    assert.equal(f.call(changed(f.args, '--app-host', host)).status, 0);
+  });
+});
 test('create shell parses', () => assert.equal(spawnSync('/bin/bash', ['-n', script], { timeout: 10000 }).status, 0));
 
 test('create focused protection mutations fail their regressions', () => {
@@ -311,6 +331,27 @@ test('create focused protection mutations fail their regressions', () => {
     ['digest syntax', ']] || refuse BROWSER_CREATE_DIGEST_INVALID', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_DIGEST_INVALID', changed(f.args, '--node-sha256', 'x'))],
     ['port range', ']] || refuse BROWSER_CREATE_PORT_INVALID', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_PORT_INVALID', changed(f.args, '--app-port', '80'))],
     ['port separation', ']] || refuse BROWSER_CREATE_PORT_CONFLICT', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_PORT_CONFLICT', changed(f.args, '--owner-port', '28735'))],
+    ...[['--app-host', 'app_host'], ['--owner-host', 'owner_host'], ['--claim-port', 'claim_port']].map(([flag, variable]) => [
+      `required ${flag}`, ` && -n $${variable}`, '', f => {
+        const args = [...f.args];
+        args.splice(args.indexOf(flag), 2);
+        expectRefusal(f, 'BROWSER_CREATE_USAGE', args);
+      },
+    ]),
+    ...['--app-host', '--owner-host', '--claim-port'].map(flag => [
+      `duplicate ${flag}`, ']] || refuse BROWSER_CREATE_DUPLICATE_ARGUMENT', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_DUPLICATE_ARGUMENT', [...f.args, flag, f.args[f.args.indexOf(flag) + 1]]),
+    ]),
+    ...['--app-host', '--owner-host'].map(flag => [
+      `${flag} DNS syntax`, "print('REFUSED BROWSER_CREATE_HOST_INVALID', file=sys.stderr)\n        sys.exit(1)", 'pass', f => expectRefusal(f, 'BROWSER_CREATE_HOST_INVALID', changed(f.args, flag, '*.example.test')),
+    ]),
+    ['hostname length', ' or len(value) > 253', '', f => expectRefusal(f, 'BROWSER_CREATE_HOST_INVALID', changed(f.args, '--app-host', ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(62)].join('.')))],
+    ['hostname label count', ' or len(labels) < 2', '', f => expectRefusal(f, 'BROWSER_CREATE_HOST_INVALID', changed(f.args, '--app-host', 'single'))],
+    ['numeric TLD refusal', "or re.search(r'[a-z]', labels[-1]) is None", 'or False', f => expectRefusal(f, 'BROWSER_CREATE_HOST_INVALID', changed(f.args, '--app-host', '0.1'))],
+    ['DNS label syntax', "or any(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) is None for label in labels)", 'or False', f => expectRefusal(f, 'BROWSER_CREATE_HOST_INVALID', changed(f.args, '--app-host', 'c1.example.test/path'))],
+    ['public host separation', ']] || refuse BROWSER_CREATE_HOST_CONFLICT', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_HOST_CONFLICT', changed(f.args, '--owner-host', 'c1.example.test'))],
+    ['claim port range', 'for port in "$app_port" "$owner_port" "$claim_port"', 'for port in "$app_port" "$owner_port"', f => expectRefusal(f, 'BROWSER_CREATE_PORT_INVALID', changed(f.args, '--claim-port', '80'))],
+    ['claim/app port separation', ' && $claim_port != "$app_port"', '', f => expectRefusal(f, 'BROWSER_CREATE_PORT_CONFLICT', changed(f.args, '--claim-port', '28735'))],
+    ['claim/owner port separation', ' && $claim_port != "$owner_port"', '', f => expectRefusal(f, 'BROWSER_CREATE_PORT_CONFLICT', changed(f.args, '--claim-port', '27792'))],
     ['input path', ']] || refuse BROWSER_CREATE_INPUTS_INVALID', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_INPUTS_INVALID', changed(f.args, '--inputs', 'relative'))],
     ['preloads', ']] || refuse BROWSER_CREATE_PRELOAD_FORBIDDEN', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_PRELOAD_FORBIDDEN', f.args, { LD_PRELOAD: '' })],
     ['Linux host', ']] || refuse BROWSER_CREATE_LINUX_REQUIRED', ']] || true', f => expectRefusal(f, 'BROWSER_CREATE_LINUX_REQUIRED', f.args, { MOCK_SYSTEM: 'Darwin' })],
@@ -333,6 +374,14 @@ test('create focused protection mutations fail their regressions', () => {
     ...['security.privileged=false', 'security.nesting=false', 'security.idmap.isolated=true', 'security.devlxd=false', 'limits.cpu=2', 'limits.memory=4GiB', 'limits.memory.swap=false', 'limits.processes=512', 'boot.autostart=false'].map(setting => [`profile ${setting}`, ` ${setting}`, '', verifyCreated]),
     ['loopback app listener', 'listen=tcp:127.0.0.1:$app_port', 'listen=tcp:0.0.0.0:$app_port', verifyCreated],
     ['loopback owner listener', 'listen=tcp:127.0.0.1:$owner_port', 'listen=tcp:0.0.0.0:$owner_port', verifyCreated],
+    ['loopback claim listener', 'listen=tcp:127.0.0.1:$claim_port', 'listen=tcp:0.0.0.0:$claim_port', verifyCreated],
+    ['streaming remains on harness proxy', 'connect=tcp:127.0.0.1:18735', 'connect=tcp:127.0.0.1:18736', verifyCreated],
+    ['claim proxy target', 'connect=tcp:127.0.0.1:18736', 'connect=tcp:127.0.0.1:18735', verifyCreated],
+    ['claim proxy namespace', 'connect=tcp:127.0.0.1:18736 bind=host', 'connect=tcp:127.0.0.1:18736 bind=container', verifyCreated],
+    ['claim proxy NAT refused', 'connect=tcp:127.0.0.1:18736 bind=host nat=false', 'connect=tcp:127.0.0.1:18736 bind=host nat=true', verifyCreated],
+    ['claim proxy privilege', 'connect=tcp:127.0.0.1:18736 bind=host nat=false security.uid=65534 security.gid=65534', 'connect=tcp:127.0.0.1:18736 bind=host nat=false security.uid=0 security.gid=0', verifyCreated],
+    ['installed app hostname', '--app-host "$app_host"', '--app-host c2.example.test', verifyCreated],
+    ['installed owner hostname', '--owner-host "$owner_host"', '--owner-host other-owner.example.test', verifyCreated],
     ['host proxy namespace', 'bind=host nat=false', 'bind=container nat=false', verifyCreated],
     ['proxy NAT refused', 'bind=host nat=false', 'bind=host nat=true', verifyCreated],
     ['proxy privilege', 'security.uid=65534 security.gid=65534', 'security.uid=0 security.gid=0', verifyCreated],

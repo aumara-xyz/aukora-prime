@@ -26,6 +26,7 @@ import re
 import os
 import shutil
 import subprocess
+import urllib.parse
 import sys
 from pathlib import Path
 
@@ -589,11 +590,14 @@ def buzz_door_rows(browser_node: bool = False) -> str:
     )
 
 
+# 'file-upload' stays mounted: it is the browser client's upload transport, and without it the session
+# controller and every screen that waits on sessions never start (seen on the first real node). The
+# terminal sidebar is disabled with the terminal providers it would wait for.
 BROWSER_DISABLED_ROWS = (
     'tool-bash', 'tool-pwsh', 'persistent-shell', 'pty', 'terminal-bash', 'terminal-pwsh',
     'persistent-bash', 'persistent-pwsh', 'tool-jobs', 'terminal-controller',
     'tool-fs', 'tool-fs-search', 'tool-skill', 'skill-filesystem', 'agent-instructions',
-    'workspace-files', 'file-reference-local', 'file-upload', 'present',
+    'workspace-files', 'file-reference-local', 'present', 'ui-sidebar-terminal',
     'subagent-spawn-in-process', 'subagent-fork-in-process', 'subagent-codex', 'subagent-claude-code',
     'delegation', 'tool-subagent-control', 'tool-subagent-list-agents', 'tool-subagent',
     'tool-subagent-fork', 'tool-subagent-codex', 'tool-subagent-claude-code',
@@ -620,7 +624,23 @@ def browser_node_options(browser_node: bool, with_legacy_relay: bool, developmen
         fail('browser-node:composition-overlay')
 
 
-def browser_node_rows(browser_node: bool = False) -> str:
+def browser_binding_rows(public_origin: str) -> str:
+    """The binding screen's exact public origin and the node's own state paths, as release bytes."""
+    if not public_origin:
+        return ''
+    state = os.environ.get('AUKORA_STATE', '').rstrip('/')
+    if not state.startswith('/'):
+        fail('browser-node:public-origin-needs-absolute-state')
+    q = json.dumps
+    directory = state + '/aumlok-binding'
+    return (f'- id: aukora-aumlok\n  config:\n    directory: {q(directory)}\n'
+            f'- id: aukora-face-aumlok\n  config:\n    directory: {q(directory)}\n'
+            f'    browserBinding:\n      publicOrigin: {q(public_origin)}\n'
+            f'      supportRoot: {q(os.path.dirname(state) + "/support")}\n'
+            f'      stateRoot: {q(state + "/home")}\n')
+
+
+def browser_node_rows(browser_node: bool = False, public_origin: str = '') -> str:
     """Disable the pinned shell, file, network and delegation providers."""
     if not browser_node:
         return ''
@@ -629,6 +649,7 @@ def browser_node_rows(browser_node: bool = False) -> str:
     return ('\n' + ''.join(f'- id: {name}\n  disabled: true\n' for name in BROWSER_DISABLED_ROWS)
             + '- id: connection\n  config:\n    trustedHosts: !!js ctx.webRuntime.trustedHosts\n'
             + '    cookieMaxAgeDays: 1\n'
+            + browser_binding_rows(public_origin)
             + '- insert:\n    - id: aukora-browser-refusal\n'
             + f'      name: ./{BROWSER_REFUSAL_ENTRY}\n')
 
@@ -1140,6 +1161,8 @@ def main() -> int:
     parser.add_argument('--with-legacy-relay', action='store_true',
                         help='mount the deprecated HTTP relay plugin and allow relay_read/relay_post; '
                              'retains the existing key, gate and workspace configuration.')
+    parser.add_argument('--public-origin', default='',
+                        help='with --browser-node: the exact https origin the binding screen answers on')
     parser.add_argument('--browser-node', action='store_true',
                         help='omit relay and Buzz; disable pinned shell/file/network/delegation providers, '
                              'including preset-local providers. Does not establish process containment.')
@@ -1164,6 +1187,11 @@ def main() -> int:
                              'measures the guard without cutting a release.')
     args = parser.parse_args()
     browser_node_options(args.browser_node, args.with_legacy_relay, args.development)
+    if args.public_origin:
+        parsed = urllib.parse.urlsplit(args.public_origin)
+        if (not args.browser_node or parsed.scheme != 'https' or not parsed.hostname or parsed.port
+                or args.public_origin != 'https://' + parsed.hostname or parsed.hostname != parsed.hostname.lower()):
+            fail('browser-node:public-origin-invalid')
     kira_openviking_config(args.kira_openviking_home, 8)
     kira_project_mapping_config(args.kira_project_map, 8)
     assert_harness_clean(args.source.resolve())
@@ -1826,7 +1854,7 @@ def main() -> int:
         + '      name: ./plugins/aukora-eye/lib/index.js\n'
         + '      config:\n'
         + "        stateDir: !!js dshHomePath('eye-state')\n"
-        + browser_node_rows(args.browser_node)
+        + browser_node_rows(args.browser_node, getattr(args, 'public_origin', ''))
     )
 
     # ── aura-81 (3): THE CUT FAILS WHEN THE COMPOSED KIRA SUBJECT IS NOT `aukora:1:<64hex>` ──────────
@@ -2004,7 +2032,7 @@ def main() -> int:
     shutil.copy2(ROOT / 'overlays' / 'action-gate.patch.yml', target / 'action-gate.patch.yml')
     if args.with_legacy_relay or args.browser_node:
         (target / 'action-gate.patch.yml').write_text(
-            action_gate_overlay(args.with_legacy_relay, args.browser_node) + browser_node_rows(args.browser_node),
+            action_gate_overlay(args.with_legacy_relay, args.browser_node) + browser_node_rows(args.browser_node, getattr(args, 'public_origin', '')),
             encoding='utf-8')
     # The same, for the Seatbelt provider swap. Carrying the file mounts nothing; a deployment lists it to mount it.
     shutil.copy2(ROOT / 'overlays' / 'seatbelt.patch.yml', target / 'seatbelt.patch.yml')
