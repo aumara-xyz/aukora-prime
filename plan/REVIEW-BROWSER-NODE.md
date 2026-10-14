@@ -302,3 +302,41 @@ with a closed catch-all; fixed sign-in fallback and `/` harness redirect;
 Transfer-Encoding refusal, one request per broker connection, and CR/LF cookie
 refusal. These checks do not prove safe internet deployment, root containment,
 hardware passkey custody, sibling-host isolation or installed revocation.
+
+## Independent review of the binding ceremony (Grok, read-only, 2026-10-14)
+
+Checked against base `d5998c07f99a1f6e9244b2baf9714bd7843c9676` and this
+working tree. All six findings were checked in the current binding, custody,
+strict-read, attempt-limit and face-route source rather than relying on the
+reviewer's line numbers. **FIXED IN SOURCE** describes these local repairs;
+no installed node, browser or real owner ceremony was inspected or changed.
+
+| Finding | Reviewer's label | Status |
+| --- | --- | --- |
+| 1. Record remains after overlay failure; status reads only the record | CONFIRMED | FIXED IN SOURCE: startup and status validate the kept machine seed and public control, derive a missing or disagreeing overlay from the record and configured state path, durably write it and check agreement before reporting bound. An unreadable overlay returns a named refusal rather than bound. |
+| 2. Exclusive record and seed writes lack fsync; an orphan overlay blocks retry | CONFIRMED | FIXED IN SOURCE: exclusive custody writes fsync their file and containing directory. Recovery removes an overlay with no record. A stale marker permits durable removal of missing or torn first-write custody, leaving UNBOUND; complete custody yields BOUND only after overlay agreement. Other validation, metadata or I/O failures preserve custody and refuse for inspection. |
+| 3. A crash leaves an exclusive lock that no ceremony verb can free | CONFIRMED | FIXED IN SOURCE: startup and status reclaim a stale marker after recovery succeeds; failed repair retains it for retry. Successful bind removes and directory-syncs its owned marker before returning success. Status reports `unbound`, `binding-in-progress` only while this process holds the lock, or `bound` after agreement. Live lock ownership and inode-matched release preserve exclusivity. This assumes one harness process owns the binding directory. |
+| 4. Draw expiry and the persisted limiter use wall-clock time | CONFIRMED | FIXED IN SOURCE for draw expiry: a process-local monotonic clock determines its lifetime; wall time remains for persisted dates/deadlines. OPEN for the persisted limiter: its last-seen floor prevents rollback from shortening a lock, but a forward jump can unlock it before the real elapsed interval. Acceptable only with an owner-accepted trusted-clock assumption for the test stage. |
+| 5. Deletion refuses, but a same-uid matching empty attempt database resets failures | SUSPECT against a filesystem attacker; CONFIRMED deletion does not reopen guessing | OPEN: reopen still uses `initialize: false` and missing state refuses. A disposable source probe confirmed that replacing the closed database with a matching empty one resets failures. File ownership/mode checks do not stop its own user rewriting state; binding to a readable directory identity cannot close that threat. The record has the same custody class. |
+| 6. Status is an authenticated same-origin POST and returns public binding fields only after authentication | CONFIRMED | NOT A DEFECT: the shared route handler applies the cookie fence before the action, requires exact POST URL/Host/Origin, and unauthenticated refusal contains no bound bit or subject fields. Authenticated status intentionally returns subject, handle, boundAt and rootId. Source route checks remove the fence, URL and exception-redaction guards and require their regressions to fail. |
+
+RAN under Node v24.11.1: `node tests/aumlok-browser-binding.test.mjs --mutate`
+reported `36 passed, 0 failed` and `51 killed, 0 survived`;
+`node tests/aumlok-browser-record-durability.test.mjs` reported `12 PASS, 0 FAIL`
+and killed all five mutations. `node tests/aumlok-browser-recovery.test.mjs`
+reported `4 PASS, 0 FAIL` after abrupt process exits at LOCK, RECORD, SEED and
+OVERLAY, including fresh binds after UNBOUND. `./security-review` reported
+`pass=19 fail=0 skipped=0 unperformed=11` (exit 2, profile UNPERFORMED);
+host-capture-retention passed `36/36`, and no guarded pins changed.
+The four crash steps follow initial attempt-store provisioning. A crash during
+that provisioning is not covered; missing attempt state deliberately refuses.
+
+The additional observations also hold in the inspected source: exclusive lock
+creation and record `wx` prevent two successful first binds; submitted words are
+absent from URLs and bind/cancel/status/error responses; overlay reads use
+`O_NOFOLLOW`; the public handle is NFKC-folded at prepare and bind reuses that
+saved handle. These checks do not prove phrase secrecy on a compromised host,
+power-loss behavior of installed storage, Kira activation, owner/passkey custody,
+or that a kept identity was minted on a real node. The owner must decide whether
+trusted clock and harness-user filesystem custody suffice for a disposable test;
+they do not establish protection against that user or malicious storage rollback.

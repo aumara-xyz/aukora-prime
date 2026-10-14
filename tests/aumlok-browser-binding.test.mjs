@@ -13,6 +13,8 @@ const sourcePath = join(root, 'plugins/aukora-aumlok/lib/browser-binding.mjs')
 const source = readFileSync(sourcePath, 'utf8')
 const HOOK = Symbol.for('aumlok.browser.test.bind')
 const WRITE_HOOK = Symbol.for('aumlok.browser.test.overlay')
+const SYNC_HOOK = Symbol.for('aumlok.browser.test.sync')
+const READ_HOOK = Symbol.for('aumlok.browser.test.read')
 const handle = 'fixture-owner'
 const scratch = mkdtempSync(join(root, '.aumlok-browser-'))
 const recordName = 'local-control.json', seedName = 'machine-seed-v3.json'
@@ -25,17 +27,23 @@ function moduleUrl(text) {
     ? `from ${JSON.stringify(new URL(name, pathToFileURL(sourcePath)).href)}` : all)
     .replace('import { bindV3, BIND_REFUSE }', 'import { bindV3 as actualBindV3, BIND_REFUSE }')
     .replace('import { durableWrite, readJsonStrictBytes', 'import { durableWrite as actualDurableWrite, readJsonStrictBytes')
-  return `data:text/javascript;base64,${Buffer.from(`${imports}\nconst bindV3 = input => globalThis[Symbol.for('aumlok.browser.test.bind')]?.(input) ?? actualBindV3(input)\nconst durableWrite = (path, text) => globalThis[Symbol.for('aumlok.browser.test.overlay')] ? globalThis[Symbol.for('aumlok.browser.test.overlay')](path, text, actualDurableWrite) : actualDurableWrite(path, text)\n`).toString('base64')}`
+    .replace('fstatSync, fsyncSync,', 'fstatSync, fsyncSync as actualFsyncSync,')
+    .replace('readTextStrict, syncDirectory }', 'readTextStrict, syncDirectory as actualSyncDirectory }')
+    .replace('readJsonStrictBytes, readTextStrict', 'readJsonStrictBytes as actualReadJsonStrictBytes, readTextStrict')
+  return `data:text/javascript;base64,${Buffer.from(`${imports}\nconst bindV3 = input => globalThis[Symbol.for('aumlok.browser.test.bind')]?.(input) ?? actualBindV3(input)\nconst durableWrite = (path, text) => globalThis[Symbol.for('aumlok.browser.test.overlay')] ? globalThis[Symbol.for('aumlok.browser.test.overlay')](path, text, actualDurableWrite) : actualDurableWrite(path, text)\nconst fsyncSync = fd => { actualFsyncSync(fd); globalThis[Symbol.for('aumlok.browser.test.sync')]?.(fd) }\nconst syncDirectory = path => { actualSyncDirectory(path); globalThis[Symbol.for('aumlok.browser.test.sync')]?.(path) }\nconst readJsonStrictBytes = (...args) => { globalThis[Symbol.for('aumlok.browser.test.read')]?.(...args); return actualReadJsonStrictBytes(...args) }\n`).toString('base64')}`
 }
 
 async function fixture(url, test) {
   const base = mkdtempSync(join(scratch, 'case-'))
-  const config = { dir: join(base, 'controller'), supportRoot: join(base, 'support'), stateRoot: join(base, 'state'), now: () => clock }
+  const config = { dir: join(base, 'controller'), supportRoot: join(base, 'support'), stateRoot: join(base, 'state'),
+    now: () => clock, monotonicNow: () => elapsed }
   let clock = 1_700_000_000_000
+  let elapsed = 0
   const { createBrowserBinding } = await import(url)
   const services = []
   const c = { ...config, base,
-    setTime(value) { clock = value },
+    setTime(value) { elapsed += value - clock; clock = value },
+    setWallTime(value) { clock = value },
     time() { return clock },
     open(overrides = {}) { const service = createBrowserBinding({ ...config, ...overrides }); services.push(service); return service },
     drawn(service, options = {}) {
@@ -58,6 +66,8 @@ async function fixture(url, test) {
   try { await test(c) } finally {
     delete globalThis[HOOK]
     delete globalThis[WRITE_HOOK]
+    delete globalThis[SYNC_HOOK]
+    delete globalThis[READ_HOOK]
     for (const service of services) service.close()
     rmSync(base, { recursive: true, force: true })
   }
@@ -168,7 +178,7 @@ const cases = new Map([
   }],
   ['restart before the first draw retains usable attempt state', c => {
     const service = c.open()
-    assert.deepEqual(service.status(), { ok: true, bound: false })
+    assert.deepEqual(service.status(), { ok: true, bound: false, state: 'unbound' })
     service.close()
     assert.equal(c.open().prepare({ handle }).ok, true)
     noRecord(c)
@@ -183,6 +193,7 @@ const cases = new Map([
   ['closed coordinator cannot draw', c => {
     const service = c.open(); service.close()
     reason(service.prepare({ handle }), 'aumlok:browser-binding-storage')
+    reason(service.status(), 'aumlok:browser-binding-storage')
   }],
   ['occupied record and retained lock refuse before derivation', c => {
     const service = c.open()
@@ -208,7 +219,7 @@ const cases = new Map([
     release(); const completed = await pending
     reason(competing, 'aumlok:browser-binding-busy')
     assert.equal(completed.ok, true, completed.reason); assert.equal(calls, 1)
-    assert.equal(existsSync(join(c.dir, lockName)), true)
+    assert.equal(existsSync(join(c.dir, lockName)), false)
   }],
   ['saved record must match the binding result', async c => {
     const service = c.open(), draw = c.drawn(service)
@@ -264,7 +275,7 @@ const cases = new Map([
     const service = c.open(), draw = c.drawn(service)
     globalThis[WRITE_HOOK] = (path, text, write) => write(path, text.replace(/subject: "aukora:1:[0-9a-f]{64}"/u, `subject: "aukora:1:${'f'.repeat(64)}"`))
     reason(await c.submit(service, draw), 'aumlok:browser-memory-overlay-refused')
-    assert.equal(service.status().bound, true)
+    reason(service.status(), 'aumlok:browser-memory-overlay-refused')
   }],
   ['unknown exception codes cannot echo phrase material', async c => {
     const service = c.open(), draw = c.drawn(service)
@@ -283,6 +294,124 @@ const cases = new Map([
     assert.equal(readFileSync(path, 'utf8'), 'another in-flight binding')
     noRecord(c)
   }],
+  ['wall-clock jumps cannot spend or extend a draw', async c => {
+    const service = c.open(), draw = c.drawn(service)
+    c.setWallTime(c.time() + 86_400_000)
+    reason(service.prepare({ handle }), 'aumlok:browser-binding-busy')
+    assert.equal((await c.submit(service, draw)).ok, true)
+  }],
+  ['rollback cannot extend a monotonic draw', async c => {
+    const service = c.open(), draw = c.drawn(service)
+    c.setTime(c.time() + 600_000)
+    c.setWallTime(1)
+    reason(await c.submit(service, draw), 'aumlok:browser-draw-expired')
+  }],
+  ['startup reclaims a stale lock and incomplete custody', async c => {
+    c.open().close()
+    c.install({ directory: c.dir })
+    unlinkSync(join(c.dir, seedName))
+    writeFileSync(join(c.dir, lockName), '', { mode: 0o600 })
+    const service = c.open()
+    noRecord(c)
+    assert.equal(existsSync(join(c.dir, lockName)), false)
+    assert.deepEqual(service.status(), { ok: true, bound: false, state: 'unbound' })
+    assert.equal((await c.submit(service, c.drawn(service))).ok, true)
+  }],
+  ['startup and status remove orphan overlays and seeds', async c => {
+    const one = c.open(), path = join(c.supportRoot, overlayName)
+    const orphan = `- id: aukora-kira\n  config:\n    memoryOwner:\n      subject: "aukora:1:${'f'.repeat(64)}"\n`
+    writeFileSync(path, orphan, { mode: 0o600 })
+    copyFileSync(join(sample.directory, seedName), join(c.dir, seedName))
+    one.close()
+    const service = c.open()
+    assert.equal(existsSync(path), false)
+    assert.equal(existsSync(join(c.dir, seedName)), false)
+    writeFileSync(path, orphan, { mode: 0o600 })
+    assert.deepEqual(service.status(), { ok: true, bound: false, state: 'unbound' })
+    assert.equal(existsSync(path), false)
+    assert.equal((await c.submit(service, c.drawn(service))).ok, true)
+  }],
+  ['startup derives a missing overlay and status repairs disagreement', c => {
+    c.open().close(); c.install({ directory: c.dir })
+    const path = join(c.supportRoot, overlayName), service = c.open()
+    assert.equal(existsSync(path), true)
+    for (const text of [undefined, readFileSync(path, 'utf8').replace(sample.bound.projection.subject, `aukora:1:${'f'.repeat(64)}`),
+      readFileSync(path, 'utf8').replace(join(c.stateRoot, 'kira-memory'), '/wrong/state')]) {
+      if (text === undefined) unlinkSync(path)
+      else writeFileSync(path, text, { mode: 0o600 })
+      const result = service.status()
+      assert.equal(result.ok, true, result.reason); assert.equal(result.state, 'bound')
+      assert.equal(result.subject, sample.bound.projection.subject)
+      assert.equal(existsSync(path), true, 'bound status requires a stored overlay')
+      assert.deepEqual(resolveMemoryIdentity({ supportRoot: c.supportRoot, installed: true, env: {} }), {
+        subject: result.subject, stateDir: join(c.stateRoot, 'kira-memory'),
+      })
+    }
+  }],
+  ['status repairs only after the process releases its lock', async c => {
+    const one = c.open(), draw = c.drawn(one)
+    let release, entered
+    const reached = new Promise(resolve => { entered = resolve })
+    const held = new Promise(resolve => { release = resolve })
+    c.hook(async input => { c.install(input); entered(); await held; return sample.bound })
+    const pending = c.submit(one, draw)
+    await reached
+    const two = c.open()
+    for (const service of [one, two]) assert.deepEqual(service.status(), { ok: true, bound: false, state: 'binding-in-progress' })
+    assert.equal(existsSync(join(c.dir, lockName)), true)
+    assert.equal(existsSync(join(c.supportRoot, overlayName)), false)
+    release(); assert.equal((await pending).ok, true)
+    assert.equal(two.status().state, 'bound')
+  }],
+  ['lock is durable before custody writes', async c => {
+    const service = c.open(), draw = c.drawn(service), events = []
+    globalThis[SYNC_HOOK] = value => events.push(typeof value === 'number' ? 'file' : value)
+    c.hook(input => { assert.deepEqual(events, ['file', c.dir]); return c.install(input) })
+    assert.equal((await c.submit(service, draw)).ok, true)
+  }],
+  ['recovery removals are directory-synced', c => {
+    const service = c.open(), events = []
+    copyFileSync(join(sample.directory, seedName), join(c.dir, seedName))
+    writeFileSync(join(c.dir, lockName), '', { mode: 0o600 })
+    writeFileSync(join(c.supportRoot, overlayName), 'orphan', { mode: 0o600 })
+    globalThis[SYNC_HOOK] = value => events.push(value)
+    assert.equal(service.status().state, 'unbound')
+    assert.deepEqual(events, [c.dir, c.supportRoot, c.dir])
+  }],
+  ['read failures cannot roll back complete custody', c => {
+    c.open().close(); c.install({ directory: c.dir })
+    writeFileSync(join(c.dir, lockName), '', { mode: 0o600 })
+    const record = readFileSync(join(c.dir, recordName)), seed = readFileSync(join(c.dir, seedName))
+    globalThis[READ_HOOK] = () => { throw Object.assign(new Error('fixture I/O failure'), { code: 'EIO' }) }
+    const service = c.open()
+    reason(service.status(), 'aumlok:bind-record-unreadable')
+    assert.deepEqual(readFileSync(join(c.dir, recordName)), record)
+    assert.deepEqual(readFileSync(join(c.dir, seedName)), seed)
+    assert.equal(existsSync(join(c.dir, lockName)), true)
+    delete globalThis[READ_HOOK]
+    assert.equal(service.status().state, 'bound')
+    chmodSync(c.dir, 0o750)
+    writeFileSync(join(c.dir, lockName), '', { mode: 0o600 })
+    reason(service.status(), 'aumlok:bind-record-unreadable')
+    assert.deepEqual(readFileSync(join(c.dir, recordName)), record)
+    assert.deepEqual(readFileSync(join(c.dir, seedName)), seed)
+  }],
+  ['torn custody with a stale marker recovers to unbound', async c => {
+    for (const file of [recordName, seedName, 'record-newline']) {
+      const service = c.open()
+      c.install({ directory: c.dir })
+      if (file === 'record-newline') {
+        const path = join(c.dir, recordName)
+        writeFileSync(path, readFileSync(path, 'utf8').trimEnd(), { mode: 0o600 })
+      } else writeFileSync(join(c.dir, file), '{"version":', { mode: 0o600 })
+      writeFileSync(join(c.dir, lockName), '', { mode: 0o600 })
+      assert.deepEqual(service.status(), { ok: true, bound: false, state: 'unbound' })
+      noRecord(c)
+      assert.equal(existsSync(join(c.dir, seedName)), false)
+      assert.equal((await c.submit(service, c.drawn(service))).ok, true)
+      unlinkSync(join(c.dir, recordName)); service.status(); service.close()
+    }
+  }],
 ])
 
 const mutations = [
@@ -299,7 +428,7 @@ const mutations = [
   ['consume', 'pending = null\n    try {', 'try {', 'mismatched valid words spend the draw'],
   ['compare', 'offered.some((word, at) => word !== expected.words[at])', 'false', 'mismatched valid words spend the draw'],
   ['expiry', 'if (at >= expected.expiresAt) fail(BROWSER_BIND_REFUSE.EXPIRED)', '', 'expiry and invalid clocks refuse'],
-  ['clock', 'if (!Number.isSafeInteger(at) || at < 0) fail(BROWSER_BIND_REFUSE.CONFIG)', '', 'expiry and invalid clocks refuse'],
+  ['clock', 'if (!Number.isFinite(at) || at < 0) fail(BROWSER_BIND_REFUSE.CONFIG)', '', 'expiry and invalid clocks refuse'],
   ['limiter', "if (!attempts(true).ok) fail('aumlok:enrollment-refused')", '', 'fifth wrong type-back locks the node across reopen'],
   ['limiter-before-kdf', "if (!attempts(true).ok) fail('aumlok:enrollment-refused')\n      const previousOverlay", 'const previousOverlay', 'already drawn valid words refuse a later limiter lock'],
   ['attempt-accounting', 'attempts(false); fail(BROWSER_BIND_REFUSE.MISMATCH)', 'fail(BROWSER_BIND_REFUSE.MISMATCH)', 'fifth wrong type-back locks the node across reopen'],
@@ -316,7 +445,27 @@ const mutations = [
   ['overlay-race', 'if (currentOverlay !== previousOverlay) fail(BROWSER_BIND_REFUSE.OVERLAY)', '', 'changed overlay refuses rather than replacing it'],
   ['overlay-read-back', "if (stored.subject !== projection.subject || stored.stateDir !== join(stateRoot, 'kira-memory')) fail(BROWSER_BIND_REFUSE.OVERLAY)", '', 'saved memory identity is checked before success'],
   ['named-errors', 'knownCodes.has(cause.code)', "cause.code.startsWith('aumlok:')", 'unknown exception codes cannot echo phrase material'],
-  ['lock-identity', 'if (seen.ino === inode.ino && seen.dev === inode.dev) unlinkSync(path)', 'unlinkSync(path)', 'failed bind cannot unlink a replacement lock'],
+  ['lock-identity', 'if (seen.ino !== inode.ino || seen.dev !== inode.dev) return false', '', 'failed bind cannot unlink a replacement lock'],
+  ['completed-lock', 'if (!releaseLock(dir, inode)) fail(BROWSER_BIND_REFUSE.STORAGE)', '', 'concurrent bind uses the exclusive persistent lock'],
+  ['monotonic-draw', 'const at = monotonicNow()', 'const at = now()', 'wall-clock jumps cannot spend or extend a draw'],
+  ['monotonic-bind', 'const at = monotonicNow()\n      if (!Number.isFinite(at) || at < 0)', 'const at = now()\n      if (!Number.isFinite(at) || at < 0)', 'rollback cannot extend a monotonic draw'],
+  ['startup-recovery', 'try { recover() } catch {', 'try { /* removed */ } catch {', 'startup reclaims a stale lock and incomplete custody'],
+  ['stale-lock-reclaim', 'remove(lockPath, dir)', '', 'startup reclaims a stale lock and incomplete custody'],
+  ['incomplete-custody', 'remove(join(dir, LOCAL_AUMLOK_CONTROL_FILENAME), dir)', '', 'startup reclaims a stale lock and incomplete custody'],
+  ['orphan-overlay', 'remove(join(supportRoot, MEMORY_OVERLAY_NAME), supportRoot)', '', 'startup and status remove orphan overlays and seeds'],
+  ['orphan-seed', 'remove(join(dir, MACHINE_SEED_FILE), dir)', '', 'startup and status remove orphan overlays and seeds'],
+  ['derive-overlay', 'durableWrite(path, overlayForSubject(previous, projection.subject, stateRoot))', '', 'startup derives a missing overlay and status repairs disagreement'],
+  ['status-recovery', 'const projection = recover()', 'const projection = loadLocalAumlokPublicControl(dir).projection', 'startup derives a missing overlay and status repairs disagreement'],
+  ['active-lock-recovery', 'if (heldLocks.has(dir)) return undefined', '', 'status repairs only after the process releases its lock'],
+  ['active-lock-status', "if (heldLocks.has(dir)) return { ok: true, bound: false, state: 'binding-in-progress' }", '', 'status repairs only after the process releases its lock'],
+  ['recovery-read-back', "if (projection.subject !== stored.subject || join(stateRoot, 'kira-memory') !== stored.stateDir) fail(BROWSER_BIND_REFUSE.OVERLAY)", '', 'saved memory identity is checked before success'],
+  ['lock-file-sync', '      fsyncSync(lock)\n', '', 'lock is durable before custody writes'],
+  ['lock-directory-sync', '      syncDirectory(dir)\n      available()', '      available()', 'lock is durable before custody writes'],
+  ['recovery-directory-sync', 'try { unlinkSync(path); syncDirectory(parent) }', 'try { unlinkSync(path) }', 'recovery removals are directory-synced'],
+  ['recovery-io-failure', "if (cause?.code !== 'ENOENT' && cause?.code !== 'json:malformed') fail(BROWSER_BIND_REFUSE.RECORD)", '', 'read failures cannot roll back complete custody'],
+  ['unmarked-custody', 'if (!interrupted) fail(BROWSER_BIND_REFUSE.RECORD)', '', 'occupied record and retained lock refuse before derivation'],
+  ['record-newline', "incomplete = !saved.text.endsWith('\\n')", 'incomplete = false', 'torn custody with a stale marker recovers to unbound'],
+  ['closed-status', 'if (closed) fail(BROWSER_BIND_REFUSE.STORAGE)\n      const projection', 'const projection', 'closed coordinator cannot draw'],
 ]
 
 try {

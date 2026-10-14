@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// One expiring draw, one first binding, and a verified deployment memory identity.
+// First binding recovers incomplete custody and derives memory identity from the record.
 import { createHash, randomBytes } from 'node:crypto'
 import { chmodSync, closeSync, constants as FS, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, unlinkSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { bindV3, BIND_REFUSE } from './bind-v3.mjs'
 import { requireHandle, DERIVE_REFUSE } from './derive-v3.mjs'
 import { generatePhrase, validatePhrase, PHRASE_REFUSE } from './ceremony-phrase.mjs'
 import { openAttemptLimiter, ATTEMPT_REFUSE } from './attempt-limit.mjs'
 import { loadLocalAumlokPublicControl, LOCAL_AUMLOK_CONTROL_FILENAME } from './store.mjs'
-import { readKeptMachineSeed, recordProjection } from './record-v3.mjs'
+import { MACHINE_SEED_FILE, readKeptMachineSeed, recordProjection } from './record-v3.mjs'
 import { ed25519FromSeed } from './derive-v3.mjs'
-import { durableWrite, readJsonStrictBytes, readTextStrict } from './strict-read.mjs'
+import { durableWrite, readJsonStrictBytes, readTextStrict, syncDirectory } from './strict-read.mjs'
 import { MEMORY_OVERLAY_NAME, readKiraDeploymentOverlay, UNLINKED_MEMORY_SUBJECT } from '../../aukora-kira/lib/memory-identity.mjs'
 
 export const BROWSER_BIND_REFUSE = Object.freeze({
@@ -38,6 +39,7 @@ const codeOf = (cause, fallback) => typeof cause?.code === 'string'
   && (knownCodes.has(cause.code) || /^aumlok:bind-write-failed:[A-Z][A-Z0-9]{1,15}$/u.test(cause.code))
   ? cause.code : fallback
 const hash = text => createHash('sha256').update(text).digest('hex')
+const heldLocks = new Map()
 
 function pathOf(value) {
   if (typeof value !== 'string' || !isAbsolute(value) || resolve(value) !== value
@@ -61,6 +63,14 @@ function directory(path, create = false) {
 function occupied(dir) {
   try { lstatSync(join(dir, LOCAL_AUMLOK_CONTROL_FILENAME)); return true }
   catch (cause) { if (cause?.code === 'ENOENT') return false; fail(BROWSER_BIND_REFUSE.STORAGE) }
+}
+
+function releaseLock(dir, inode) {
+  const path = join(dir, BROWSER_BIND_LOCK)
+  const seen = lstatSync(path)
+  if (seen.ino !== inode.ino || seen.dev !== inode.dev) return false
+  unlinkSync(path); syncDirectory(dir)
+  return true
 }
 
 function overlayBeforeBind(supportRoot, stateRoot) {
@@ -104,9 +114,9 @@ function overlayForSubject(previous, subject, stateRoot) {
   return text
 }
 
-export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.now } = {}) {
+export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.now, monotonicNow = () => performance.now() } = {}) {
   dir = pathOf(dir); supportRoot = pathOf(supportRoot); stateRoot = pathOf(stateRoot)
-  if (typeof now !== 'function') fail(BROWSER_BIND_REFUSE.CONFIG)
+  if (typeof now !== 'function' || typeof monotonicNow !== 'function') fail(BROWSER_BIND_REFUSE.CONFIG)
   directory(supportRoot, true); directory(stateRoot, true)
   const fresh = directory(dir, true)
   const attemptSubject = `aukora:1:${hash(`aumlok-browser-first-bind:${dir}`)}`
@@ -128,6 +138,56 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
     }
   }
   if (fresh) initializeLimiter()
+  function remove(path, parent) {
+    try { unlinkSync(path); syncDirectory(parent) }
+    catch (cause) { if (cause?.code !== 'ENOENT') fail(BROWSER_BIND_REFUSE.STORAGE) }
+  }
+  function recover() {
+    directory(dir); directory(supportRoot); directory(stateRoot)
+    if (heldLocks.has(dir)) return undefined
+    const lockPath = join(dir, BROWSER_BIND_LOCK)
+    let interrupted = false
+    try { lstatSync(lockPath); interrupted = true }
+    catch (cause) { if (cause?.code !== 'ENOENT') fail(BROWSER_BIND_REFUSE.STORAGE) }
+    let projection
+    if (occupied(dir)) {
+      let machine, incomplete = false
+      try {
+        const saved = readJsonStrictBytes(join(dir, LOCAL_AUMLOK_CONTROL_FILENAME))
+        machine = readJsonStrictBytes(join(dir, MACHINE_SEED_FILE)).value
+        incomplete = !saved.text.endsWith('\n')
+      } catch (cause) {
+        if (cause?.code !== 'ENOENT' && cause?.code !== 'json:malformed') fail(BROWSER_BIND_REFUSE.RECORD)
+        incomplete = true
+      }
+      if (incomplete) {
+        if (!interrupted) fail(BROWSER_BIND_REFUSE.RECORD)
+        remove(join(dir, LOCAL_AUMLOK_CONTROL_FILENAME), dir)
+      } else try {
+        const key = ed25519FromSeed(Buffer.from(machine.ed25519SeedHex, 'hex'))
+        if (machine.ed25519PublicKeyHex !== key.publicKeyHex) fail(BROWSER_BIND_REFUSE.RECORD)
+        projection = loadLocalAumlokPublicControl(dir, undefined, machine.ed25519PublicKeyHex).projection
+      } catch { fail(BROWSER_BIND_REFUSE.RECORD) }
+    }
+    if (projection === undefined) {
+      remove(join(dir, MACHINE_SEED_FILE), dir)
+      remove(join(supportRoot, MEMORY_OVERLAY_NAME), supportRoot)
+    } else {
+      const path = join(supportRoot, MEMORY_OVERLAY_NAME)
+      let previous, owner
+      try { previous = readTextStrict(path, { maxBytes: 64 * 1024 }); owner = readKiraDeploymentOverlay(previous) }
+      catch (cause) { if (cause?.code !== 'ENOENT') fail(BROWSER_BIND_REFUSE.OVERLAY) }
+      if (owner?.subject !== projection.subject || owner?.stateDir !== join(stateRoot, 'kira-memory')) {
+        durableWrite(path, overlayForSubject(previous, projection.subject, stateRoot))
+      }
+      const stored = readKiraDeploymentOverlay(readTextStrict(path, { maxBytes: 64 * 1024 }))
+      if (projection.subject !== stored.subject || join(stateRoot, 'kira-memory') !== stored.stateDir) fail(BROWSER_BIND_REFUSE.OVERLAY)
+    }
+    remove(lockPath, dir)
+    return projection
+  }
+  // Keep an interrupted marker until its custody and overlay have been reconciled.
+  try { recover() } catch { /* Status retries recovery and returns a named refusal. */ }
   function attempts(correct) {
     initializeLimiter()
     return limiter.present({ subject: attemptSubject, rootId: correct ? permit : '0'.repeat(64) })
@@ -139,10 +199,11 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
   }
   function status() {
     try {
-      directory(dir)
-      if (!occupied(dir)) return { ok: true, bound: false }
-      const projection = loadLocalAumlokPublicControl(dir).projection
-      return { ok: true, bound: true, subject: projection.subject, handle: projection.handle,
+      if (closed) fail(BROWSER_BIND_REFUSE.STORAGE)
+      const projection = recover()
+      if (heldLocks.has(dir)) return { ok: true, bound: false, state: 'binding-in-progress' }
+      if (projection === undefined) return { ok: true, bound: false, state: 'unbound' }
+      return { ok: true, bound: true, state: 'bound', subject: projection.subject, handle: projection.handle,
         boundAt: projection.boundAt, rootId: projection.activeControlDigest }
     } catch (cause) { return refused(codeOf(cause, BROWSER_BIND_REFUSE.RECORD)) }
   }
@@ -150,8 +211,8 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
     try {
       available()
       const normalizedHandle = requireHandle(handle)
-      const at = now()
-      if (!Number.isSafeInteger(at) || at < 0 || at > Number.MAX_SAFE_INTEGER - BROWSER_DRAW_LIFETIME_MS) fail(BROWSER_BIND_REFUSE.CONFIG)
+      const at = monotonicNow()
+      if (!Number.isFinite(at) || at < 0 || at > Number.MAX_SAFE_INTEGER - BROWSER_DRAW_LIFETIME_MS) fail(BROWSER_BIND_REFUSE.CONFIG)
       if (pending !== null && at < pending.expiresAt) fail(BROWSER_BIND_REFUSE.BUSY)
       pending = null
       const previous = overlayBeforeBind(supportRoot, stateRoot)
@@ -174,8 +235,8 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
     pending = null
     try {
       available()
-      const at = now()
-      if (!Number.isSafeInteger(at) || at < 0) fail(BROWSER_BIND_REFUSE.CONFIG)
+      const at = monotonicNow()
+      if (!Number.isFinite(at) || at < 0) fail(BROWSER_BIND_REFUSE.CONFIG)
       if (at >= expected.expiresAt) fail(BROWSER_BIND_REFUSE.EXPIRED)
       if (acknowledged !== true) { attempts(false); fail(BROWSER_BIND_REFUSE.ACK) }
       if (typeof typedPhrase !== 'string' || typedPhrase.length < 1 || typedPhrase.length > 512) {
@@ -190,7 +251,9 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
       try { lock = openSync(join(dir, BROWSER_BIND_LOCK), FS.O_WRONLY | FS.O_CREAT | FS.O_EXCL | FS.O_NOFOLLOW, 0o600) }
       catch (cause) { fail(cause?.code === 'EEXIST' ? BROWSER_BIND_REFUSE.BUSY : BROWSER_BIND_REFUSE.STORAGE) }
       inode = fstatSync(lock)
+      heldLocks.set(dir, inode)
       fsyncSync(lock)
+      syncDirectory(dir)
       available()
       const bound = await bindV3({ handle: expected.handle, words: offered, phraseLanguage: expected.language,
         directory: dir, boundAt: new Date(now()).toISOString(), custodian: 'file' })
@@ -212,6 +275,7 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
       durableWrite(join(supportRoot, MEMORY_OVERLAY_NAME), overlay)
       const stored = readKiraDeploymentOverlay(readTextStrict(join(supportRoot, MEMORY_OVERLAY_NAME), { maxBytes: 64 * 1024 }))
       if (stored.subject !== projection.subject || stored.stateDir !== join(stateRoot, 'kira-memory')) fail(BROWSER_BIND_REFUSE.OVERLAY)
+      if (!releaseLock(dir, inode)) fail(BROWSER_BIND_REFUSE.STORAGE)
       return { ok: true, reason: 'aumlok:ceremony-verified', binding: { subject: projection.subject,
         handle: projection.handle, boundAt: projection.boundAt, rootId: projection.rootId }, drawSpent: true }
     } catch (cause) { return refused(codeOf(cause, BROWSER_BIND_REFUSE.WRITE), { drawSpent: true }) }
@@ -219,12 +283,9 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
       if (lock !== undefined) {
         try {
           closeSync(lock)
-          if (!occupied(dir)) {
-            const path = join(dir, BROWSER_BIND_LOCK)
-            const seen = lstatSync(path)
-            if (seen.ino === inode.ino && seen.dev === inode.dev) unlinkSync(path)
-          }
-        } catch { /* An uncertain lock remains for operator inspection. */ }
+          if (!occupied(dir)) releaseLock(dir, inode)
+        } catch { /* Startup reclaims a marker left by an interrupted write. */ }
+        finally { heldLocks.delete(dir) }
       }
     }
   }

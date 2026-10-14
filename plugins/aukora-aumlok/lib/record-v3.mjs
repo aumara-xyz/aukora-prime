@@ -40,9 +40,9 @@
 // divergence goes red rather than being discovered as behaviour.
 import { readJsonStrictBytes } from './strict-read.mjs'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, closeSync, existsSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync,
+import { chmodSync, closeSync, existsSync, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync,
   unlinkSync, writeFileSync, writeSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { assertHandle, deriveGenesisRef } from './derive-v3.mjs'
 import { PHRASE_LANGUAGES } from './ceremony-phrase.mjs'
@@ -228,7 +228,7 @@ export function writeRecordV3({ record, directory, exclusive = false } = /** @ty
   return { path, bytes: bytes.length }
 }
 
-/** First binding owns only files it creates, including the machine seed. */
+/** First binding syncs each exclusive file and its directory before reporting it written. */
 function writeExclusiveCustody(path, bytes) {
   const descriptor = openSync(path, 'wx', CUSTODY_FILE_MODE)
   let created
@@ -240,6 +240,8 @@ function writeExclusiveCustody(path, bytes) {
       if (count === 0) throw new Error('custody write made no progress')
       done += count
     }
+    fsyncSync(descriptor)
+    syncCustodyDirectory(path)
   } catch (cause) {
     if (created !== undefined) removeIfCreated(path, created)
     throw cause
@@ -249,12 +251,18 @@ function writeExclusiveCustody(path, bytes) {
   return { dev: created.dev, ino: created.ino }
 }
 
+function syncCustodyDirectory(path) {
+  const directoryDescriptor = openSync(dirname(path), 'r')
+  try { fsyncSync(directoryDescriptor) } finally { closeSync(directoryDescriptor) }
+}
+
 /** Roll back only the regular file this exclusive write created. */
 export function removeIfCreated(path, created) {
   try {
     const now = lstatSync(path)
     if (!now.isFile() || now.dev !== created?.dev || now.ino !== created?.ino) return false
     unlinkSync(path)
+    syncCustodyDirectory(path)
     return true
   } catch {
     return false

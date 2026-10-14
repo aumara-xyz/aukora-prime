@@ -70,11 +70,34 @@ JS
 Refresh the page and repeat readback after the operator's approved restart. Kira
 must subsequently mount using this support overlay; an already failed Kira mount
 is not revived by writing the file. This default is lexical memory; it establishes
-no semantic recall. The node retains a private attempt database
-and an exclusive first-bind marker. Missing attempts, a stale marker, or a bind
-that wrote the record but failed the overlay require inspection; never delete
-these to retry. This source check proves neither real HTTPS/session policy,
-human identity, authenticator custody, a model reply nor installed containment.
+no semantic recall.
+
+The first-binding record and machine seed use exclusive creation, file fsync and
+parent-directory fsync. The overlay is derived from the validated record's subject
+and the configured state path, written durably and read back before reporting
+`state: 'bound'`. Startup and status reconcile a missing or disagreeing overlay;
+an overlay without a record is removed. A stale first-bind marker permits removal
+of missing or torn first-write custody before reclaiming that marker, leaving
+`state: 'unbound'` and allowing a fresh ceremony. Other invalid custody or read
+failures refuse for inspection. A successful bind removes and directory-syncs its
+owned marker before returning success. While this process holds
+the exclusive lock, status reports `state: 'binding-in-progress'`, never bound.
+This recovery assumes one harness process owns the binding directory and ordinary
+local filesystem fsync semantics; it does not qualify storage power-loss behavior.
+The four tested ceremony crash steps follow initial attempt-store provisioning;
+recovery from a crash during that provisioning is unqualified, and a missing
+attempt database deliberately refuses.
+
+Draw expiry uses a process-local monotonic clock. Persisted attempt deadlines and
+the record's binding date use wall time. The limiter's last-seen floor prevents a
+backward jump from shortening a lock; a forward jump can unlock it before the real
+elapsed interval. Missing attempt state refuses, but a writer with the harness
+user's access can replace it with a matching empty database and reset failures,
+in the same custody class as the record itself. Accepting those limits requires
+an owner decision about trusted clock and filesystem custody for the test stage;
+this is not a malicious-writer or storage-rollback protection. This source check
+proves neither real HTTPS/session policy, human identity, authenticator custody,
+a model reply nor installed containment.
 
 `plugins/aukora-nostr/lib/vendor/noble-curves` is canonical for the 27 payload and
 licence files under this plugin's same directory. `tests/pinned-copies.test.mjs`

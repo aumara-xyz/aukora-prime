@@ -11,8 +11,10 @@ const routes = await import(`data:text/javascript;base64,${Buffer.from(stripType
 
 async function request(api, options = {}) {
   let calls = 0
+  const verb = options.verb ?? 'bind'
+  const routePath = `/api/aukora/aumlok-binding/${verb}`
   const chunks = options.chunks ?? [JSON.stringify({ ceremonyId: 'synthetic', typedPhrase: 'synthetic private phrase', acknowledged: true })]
-  const req = { method: options.method ?? 'POST', url: options.url ?? path,
+  const req = { method: options.method ?? 'POST', url: options.url ?? routePath,
     headers: { host: new URL(origin).host, origin, 'content-type': 'application/json',
       'sec-fetch-site': 'same-origin', ...options.headers },
     async *[Symbol.asyncIterator]() { yield* chunks },
@@ -22,7 +24,7 @@ async function request(api, options = {}) {
     writeHead(status, headers) { this.status = status; Object.assign(this.headers, headers) },
     end(body) { this.body = JSON.parse(body) },
   }
-  const route = api.browserBindingRoute('bind', options.configuredOrigin ?? origin,
+  const route = api.browserBindingRoute(verb, options.configuredOrigin ?? origin,
     () => options.auth,
     async body => { calls++; if (options.error) throw new Error(body.typedPhrase); return { ok: true, binding: { subject: 'public-only' } } })
   await route.handler(req, res)
@@ -44,6 +46,12 @@ async function checks(api) {
   assert.equal(accepted.calls, 1)
   assert.equal(accepted.headers['cache-control'], 'no-store')
   assert.equal(accepted.headers['x-content-type-options'], 'nosniff')
+  for (const auth of [401, 403]) {
+    const status = await request(api, { verb: 'status', auth })
+    assert.equal(status.status, auth)
+    assert.equal(status.calls, 0)
+    assert.deepEqual(status.body, { ok: false, reason: 'aumlok:browser-auth-refused' })
+  }
   for (const [options, status, reason] of [
     [{ auth: 401 }, 401, 'auth-refused'], [{ auth: 403 }, 403, 'auth-refused'],
     [{ method: 'GET' }, 405, 'post-required'],
