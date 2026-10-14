@@ -398,7 +398,7 @@ try {
     await Promise.all([
       ['named head service', "ctx.provide('kira.head',", "ctx.provide('kira.head-missing',"],
       ['frozen head service', "ctx.provide('kira.head', Object.freeze({", "ctx.provide('kira.head', ((_service) => _service)({"],
-      ['disposed head service', 'readHead: () => associationHostLive ?', 'readHead: () => true ?'],
+      ['disposed head service', 'readHead: () => ({ ...(associationHostLive ?', 'readHead: () => ({ ...(true ?'],
     ].map(async ([name, before, after]) => {
       assert.equal(indexSource.split(before).length, 2, `${name}: unique mutation anchor`)
       await assert.rejects(() => mountedHead(indexSource.replace(before, after)), error => error.code === 'ERR_ASSERTION')

@@ -5,6 +5,7 @@ export interface AuraSnapshotSource {
   head: string | null
   entries: number | null
   absence: string | null
+  browserMemory?: { active: boolean, reason: string } | null
 }
 export interface AuraSnapshot {
   schema: 'aukora-face/aura-snapshot:v1'
@@ -19,6 +20,10 @@ export interface AuraSourceAdvance {
 }
 const NAMES = ['gate-ledger', 'kira-chain', 'code-chain']
 const HEAD = /^[0-9a-f]{64}$/u
+const BROWSER_MEMORY_REASONS = new Set(['kira.memory:aumlok-not-linked', 'kira.memory:aumlok-linked',
+  'kira.memory:browser-binding-config', 'kira.memory:browser-binding-unreadable',
+  'kira.memory:browser-overlay-unavailable', 'kira.memory:browser-identity-mismatch',
+  'kira.memory:activation-failed'])
 function refuse(code: string): never {
   throw Object.assign(new TypeError(code), { code })
 }
@@ -38,8 +43,20 @@ export function parseAuraSnapshot(value: unknown): AuraSnapshot {
         || typeof source.absence !== 'string' || !source.absence) refuse('aura-snapshot:absence')
     } else if (typeof source.head !== 'string' || !HEAD.test(source.head) || source.absence !== null
       || !Number.isSafeInteger(source.entries) || (source.entries as number) < 1) refuse('aura-snapshot:source-head')
+    let browserMemory: AuraSnapshotSource['browserMemory']
+    if (source.name === 'kira-chain' && source.browserMemory !== undefined) {
+      if (source.browserMemory === null) browserMemory = null
+      else {
+        const memory = object(source.browserMemory)
+        if (typeof memory.active !== 'boolean' || typeof memory.reason !== 'string'
+          || !BROWSER_MEMORY_REASONS.has(memory.reason)
+          || memory.active !== (memory.reason === 'kira.memory:aumlok-linked')) refuse('aura-snapshot:browser-memory')
+        browserMemory = { active: memory.active, reason: memory.reason }
+      }
+    }
     return { name: source.name as string, head: source.head as string | null,
-      entries: source.entries as number | null, absence: source.absence as string | null }
+      entries: source.entries as number | null, absence: source.absence as string | null,
+      ...(browserMemory === undefined ? {} : { browserMemory }) }
   })
   return { schema: 'aukora-face/aura-snapshot:v1', head: row.head, sources }
 }

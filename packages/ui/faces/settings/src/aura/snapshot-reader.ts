@@ -22,9 +22,13 @@ type GateCall = (socket: string, op: string, args: object, timeout: number) => P
 const KIRA_ABSENCES = new Set(['kira-ledger-missing', 'kira-ledger-empty', 'kira-ledger-unreadable',
   'kira-ledger-torn', 'kira-ledger-malformed', 'kira-ledger-broken', 'kira-ledger-unavailable',
   'kira-head-invalid', 'kira-ledger-head-invalid', 'kira-ledger-state-root-invalid'])
+const BROWSER_MEMORY_REASONS = new Set(['kira.memory:aumlok-not-linked', 'kira.memory:aumlok-linked',
+  'kira.memory:browser-binding-config', 'kira.memory:browser-binding-unreadable',
+  'kira.memory:browser-overlay-unavailable', 'kira.memory:browser-identity-mismatch',
+  'kira.memory:activation-failed'])
 
 function absent(name: AuraSnapshotSource['name'], absence: string, entries: number | null = null): AuraSnapshotSource {
-  return { name, head: null, entries, absence }
+  return { name, head: null, entries, absence, ...(name === 'kira-chain' ? { browserMemory: null } : {}) }
 }
 
 /** A failed verification never contributes a head to the snapshot. */
@@ -42,16 +46,25 @@ export function gateLedgerSource(value: unknown): AuraSnapshotSource {
 /** Copy only validated head/count fields and fixed refusal names from the read-only service. */
 export function kiraChainSource(value: unknown): AuraSnapshotSource {
   if (value === undefined) return absent('kira-chain', 'kira-service-unavailable')
-  const { head, entries, absence } = (value ?? {}) as { head?: unknown, entries?: unknown, absence?: unknown }
+  const { head, entries, absence, browserMemory } = (value ?? {}) as {
+    head?: unknown, entries?: unknown, absence?: unknown, browserMemory?: unknown
+  }
+  const readiness = (() => {
+    const state = browserMemory as { active?: unknown, reason?: unknown } | null
+    if (state === null || state === undefined) return null
+    const active = state.active, reason = state.reason
+    return typeof active === 'boolean' && typeof reason === 'string' && BROWSER_MEMORY_REASONS.has(reason)
+      && active === (reason === 'kira.memory:aumlok-linked') ? { active, reason } : null
+  })()
   if (head === null && typeof absence === 'string' && KIRA_ABSENCES.has(absence)
     && (entries === null || entries === 0)) {
-    return absent('kira-chain', absence, entries)
+    return { ...absent('kira-chain', absence, entries), browserMemory: readiness }
   }
   if (absence !== null || typeof head !== 'string' || !HEX64.test(head)
     || !Number.isSafeInteger(entries) || (entries as number) < 1) {
-    return absent('kira-chain', 'kira-head-invalid')
+    return { ...absent('kira-chain', 'kira-head-invalid'), browserMemory: readiness }
   }
-  return { name: 'kira-chain', head, entries: entries as number, absence: null }
+  return { name: 'kira-chain', head, entries: entries as number, absence: null, browserMemory: readiness }
 }
 
 /** Read bounded regular files without following a record symlink or waiting on a FIFO. */

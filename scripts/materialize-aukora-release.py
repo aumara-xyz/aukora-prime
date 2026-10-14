@@ -593,17 +593,20 @@ def buzz_door_rows(browser_node: bool = False) -> str:
 
 # 'file-upload' stays mounted: it is the browser client's upload transport, and without it the session
 # controller and every screen that waits on sessions never start (seen on the first real node). The
-# terminal sidebar is disabled with the terminal providers it would wait for.
+# terminal sidebar and deliverables are disabled with the providers they would wait for. The models
+# settings row owns both pinned first-run dialogs and has no per-dialog configuration, so the browser
+# profile disables that row and reports model-key readiness through AUMLOK instead.
 BROWSER_DISABLED_ROWS = (
     'tool-bash', 'tool-pwsh', 'persistent-shell', 'pty', 'terminal-bash', 'terminal-pwsh',
     'persistent-bash', 'persistent-pwsh', 'tool-jobs', 'terminal-controller',
     'tool-fs', 'tool-fs-search', 'tool-skill', 'skill-filesystem', 'agent-instructions',
-    'workspace-files', 'file-reference-local', 'present', 'ui-sidebar-terminal',
+    'workspace-files', 'file-reference-local', 'present', 'ui-sidebar-terminal', 'ui-deliverables',
     'subagent-spawn-in-process', 'subagent-fork-in-process', 'subagent-codex', 'subagent-claude-code',
     'delegation', 'tool-subagent-control', 'tool-subagent-list-agents', 'tool-subagent',
     'tool-subagent-fork', 'tool-subagent-codex', 'tool-subagent-claude-code',
     'ptc-runtime', 'workflow-ptc', 'tool-workflow', 'tool-ralph', 'tool-cordis', 'tool-web',
     'mcp-resources', 'mcp-client', 'mcp-client-kira-memory', 'aukora-caged-worker', 'aukora-eye',
+    'ui-settings-models',
 )
 BROWSER_REFUSAL_ENTRY = 'plugins/aukora-action-gate/lib/browser-refusal.mjs'
 BROWSER_REFUSAL_SOURCE = '''// Refuse every model tool call in the browser screen profile.
@@ -654,7 +657,7 @@ def browser_node_options(browser_node: bool, with_legacy_relay: bool, developmen
         fail('browser-node:composition-overlay')
 
 
-def browser_binding_rows(public_origin: str) -> str:
+def browser_binding_rows(public_origin: str, kira_openviking_home: 'Path | None' = None) -> str:
     """The binding screen's exact public origin and the node's own state paths, as release bytes."""
     if not public_origin:
         return ''
@@ -667,11 +670,18 @@ def browser_binding_rows(public_origin: str) -> str:
             f'- id: aukora-face-aumlok\n  config:\n    directory: {q(directory)}\n'
             f'    browserBinding:\n      publicOrigin: {q(public_origin)}\n'
             f'      supportRoot: {q(os.path.dirname(state) + "/support")}\n'
+            f'      stateRoot: {q(state + "/home")}\n'
+            '- id: aukora-kira\n  config:\n    retrieval: lexical\n'
+            f'    memoryOwner:\n      stateDir: {q(state + "/home/kira-memory")}\n'
+            '      subject: aumlok:subject:owner\n      permittedPrivacy: [local]\n'
+            + kira_openviking_config(kira_openviking_home, 4)
+            + f'    browserBinding:\n      directory: {q(directory)}\n'
+            f'      supportRoot: {q(os.path.dirname(state) + "/support")}\n'
             f'      stateRoot: {q(state + "/home")}\n')
 
 
-def browser_node_rows(browser_node: bool = False, public_origin: str = '') -> str:
-    """Disable the pinned shell, file, network and delegation providers."""
+def browser_node_rows(browser_node: bool = False, public_origin: str = '', kira_openviking_home: 'Path | None' = None) -> str:
+    """Disable the pinned effect providers and vendor-owned first-run dialogs."""
     if not browser_node:
         return ''
     # A browser session on a public address lasts one day, the harness's minimum; the claim broker
@@ -687,7 +697,7 @@ def browser_node_rows(browser_node: bool = False, public_origin: str = '') -> st
             + '    compression: gzip\n    compressionLevel: 1\n    compressionThresholdBytes: 1024\n'
             + '    browserAccessGuard: true\n'
             + '- id: typert-gateway\n  config:\n    browserAccessGuard: true\n'
-            + browser_binding_rows(public_origin)
+            + browser_binding_rows(public_origin, kira_openviking_home)
             + '- insert:\n    - id: aukora-browser-refusal\n'
             + f'      name: ./{BROWSER_REFUSAL_ENTRY}\n'
             + '    - id: aukora-browser-bootstrap\n'
@@ -1906,7 +1916,7 @@ def main() -> int:
         + '      name: ./plugins/aukora-eye/lib/index.js\n'
         + '      config:\n'
         + "        stateDir: !!js dshHomePath('eye-state')\n"
-        + browser_node_rows(args.browser_node, getattr(args, 'public_origin', ''))
+        + browser_node_rows(args.browser_node, getattr(args, 'public_origin', ''), args.kira_openviking_home)
     )
 
     # ── aura-81 (3): THE CUT FAILS WHEN THE COMPOSED KIRA SUBJECT IS NOT `aukora:1:<64hex>` ──────────
@@ -2084,7 +2094,7 @@ def main() -> int:
     shutil.copy2(ROOT / 'overlays' / 'action-gate.patch.yml', target / 'action-gate.patch.yml')
     if args.with_legacy_relay or args.browser_node:
         (target / 'action-gate.patch.yml').write_text(
-            action_gate_overlay(args.with_legacy_relay, args.browser_node) + browser_node_rows(args.browser_node, getattr(args, 'public_origin', '')),
+            action_gate_overlay(args.with_legacy_relay, args.browser_node) + browser_node_rows(args.browser_node, getattr(args, 'public_origin', ''), args.kira_openviking_home),
             encoding='utf-8')
     # The same, for the Seatbelt provider swap. Carrying the file mounts nothing; a deployment lists it to mount it.
     shutil.copy2(ROOT / 'overlays' / 'seatbelt.patch.yml', target / 'seatbelt.patch.yml')

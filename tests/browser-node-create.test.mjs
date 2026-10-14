@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const fast = process.env.AUKORA_BROWSER_CREATE_FAST === '1';
 // Fast registration retains argument refusals, one real-Git install flow and shell syntax.
-const quick = /^create (?:refuses (?:missing --|duplicate --|incomplete and unknown|--|matching proxy|matching public|non-Linux|LD_)|requests fresh restricted|shell parses)/;
+const quick = /^create (?:refuses (?:missing --|duplicate --|incomplete and unknown|--|matching proxy|matching public|non-Linux|LD_)|requests fresh restricted|shell parses)|^create .*OpenViking/;
 function test(name, fn) { if (!fast || quick.test(name)) nodeTest(name, fn); }
 if (fast) console.log('SOURCE-ONLY browser create fast registration; full input and LXD mutation court NOT RUN');
 
@@ -110,6 +110,7 @@ printf '%s\\0' \"$@\" >>\"$MOCK_LOG\"
 printf '\\n' >>\"$MOCK_LOG\"
 shift
 ${failBranches}
+if [[ \"\${MOCK_OPENVIKING_FAIL_COPY:-0}\" == 1 && \"\${1:-}\" == file && \"\${2:-}\" == push && \"\${4:-}\" == C1/root/aukora-browser-inputs/openviking.tar.gz ]]; then exit 1; fi
 if [[ \"\${1:-}\" == query ]]; then
   case \"\${2:-}\" in
     /1.0/instances) printf '%s\\n' ${shellQuote(options.instances ?? JSON.stringify(options.existingNode ? ['/1.0/instances/C1'] : []))} ;;
@@ -119,6 +120,8 @@ if [[ \"\${1:-}\" == query ]]; then
 fi
 if [[ \"\${1:-}\" == profile && \"\${2:-}\" == device && \"\${3:-}\" == get && \"\${4:-}\" == default ]]; then printf '%s\\n' ${shellQuote(options.pool ?? 'default')}; fi
 if [[ \"\${1:-}\" == exec && \"\${4:-}\" == /bin/bash ]]; then printf 'PRIVATE_OWNER_TOKEN_SENTINEL\\n'; fi
+if [[ \"\${1:-}\" == query && \"\${2:-}\" == /1.0/instances && -n \"\${MOCK_OPENVIKING_ORIGINAL:-}\" ]]; then printf 'changed after snapshot\\n' >>\"$MOCK_OPENVIKING_ORIGINAL\"; fi
+if [[ \"\${1:-}\" == file && \"\${2:-}\" == push && \"\${4:-}\" == C1/root/aukora-browser-inputs/openviking.tar.gz ]]; then cp -- \"$3\" \"$MOCK_OPENVIKING_SNAPSHOT\" || exit 1; fi
 `;
   fs.writeFileSync(path.join(bin, 'lxc'), mock, { mode: 0o700 });
   const wrapper = path.join(dir, 'run.sh');
@@ -135,11 +138,21 @@ source \"$entry\" \"$@\"
 `, { mode: 0o700 });
   fs.writeFileSync(path.join(bin, 'uname'), '#!/bin/bash\nprintf "%s\\n" "${MOCK_SYSTEM:-Linux}"\n', { mode: 0o700 });
   const args = ['--name', 'C1', '--image', image, '--inputs', inputs, '--checkout-sha256', cached.sha, '--revision', revision, '--node-sha256', digest('synthetic node'), '--dependencies-sha256', digest('synthetic dependencies'), '--app-host', 'c1.example.test', '--owner-host', 'owner.example.test', '--app-port', '28735', '--owner-port', '27792', '--claim-port', '28736'];
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, MOCK_LOG: log };
+  const snapshot = path.join(dir, 'openviking-snapshot');
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, MOCK_LOG: log, MOCK_OPENVIKING_SNAPSHOT: snapshot,
+    MOCK_OPENVIKING_FAIL_COPY: options.failOpenvikingCopy ? '1' : '0' };
   for (const key of ['LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT']) delete env[key];
   const call = (values = args, extra = {}, entry = script) => spawnSync('/bin/bash', [wrapper, entry, ...values], { cwd: root, env: { ...env, ...extra }, encoding: 'utf8', timeout: 15000 });
   const commands = () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map(line => { const command = line.split('\0').slice(0, -1); assert.equal(command.shift(), '--force-local'); return command; }) : [];
-  return { dir, inputs, bin, args, env, call, commands, close: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { dir, inputs, bin, args, env, snapshot, call, commands, close: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+function addOpenviking(f) {
+  const file = path.join(f.dir, 'offline-openviking.tar.gz');
+  const bytes = Buffer.from('synthetic offline OpenViking bundle');
+  fs.writeFileSync(file, bytes, { mode: 0o600 });
+  const sha = digest(bytes);
+  f.args.push('--openviking-bundle', file, '--openviking-sha256', sha);
+  return { file, bytes, sha };
 }
 function changed(args, option, value) {
   const result = [...args];
@@ -229,6 +242,45 @@ test('create refuses input file hardlinks, writable files, symlinks and director
     expectRefusal(f, variant === 'symlink' ? 'BROWSER_CREATE_INPUTS_UNAVAILABLE' : 'BROWSER_CREATE_INPUT_FILE_CUSTODY');
   });
 });
+test('create refuses unpaired OpenViking bundle arguments before LXD', () => within({}, f => {
+  const { file, sha } = addOpenviking(f);
+  for (const flag of ['--openviking-bundle', '--openviking-sha256']) {
+    const args = [...f.args];
+    args.splice(args.indexOf(flag), 2);
+    expectRefusal(f, 'BROWSER_CREATE_OPENVIKING_PAIR_REQUIRED', args);
+  }
+  for (const [flag, value] of [['--openviking-bundle', file], ['--openviking-sha256', sha]]) {
+    expectRefusal(f, 'BROWSER_CREATE_DUPLICATE_ARGUMENT', [...f.args, flag, value]);
+  }
+  assert.deepEqual(f.commands(), []);
+}));
+test('create refuses invalid OpenViking digest and path syntax before LXD', () => within({}, f => {
+  addOpenviking(f);
+  for (const sha of ['x', '0'.repeat(63), 'F'.repeat(64), 'g'.repeat(64), '0'.repeat(64) + '\n']) {
+    expectRefusal(f, 'BROWSER_CREATE_OPENVIKING_DIGEST_INVALID', changed(f.args, '--openviking-sha256', sha));
+  }
+  for (const file of ['relative.tar.gz', '/', '/tmp/\nprivate', '/tmp/\rprivate']) {
+    expectRefusal(f, 'BROWSER_CREATE_OPENVIKING_PATH_INVALID', changed(f.args, '--openviking-bundle', file));
+  }
+  assert.deepEqual(f.commands(), []);
+}));
+test('create refuses changed, missing and unsafe OpenViking files before LXD', () => {
+  for (const variant of ['changed', 'missing', 'hardlink', 'writable', 'symlink', 'directory', 'non-normalized']) within({}, f => {
+    const { file } = addOpenviking(f);
+    if (variant === 'changed') fs.appendFileSync(file, 'changed');
+    if (variant === 'missing') fs.unlinkSync(file);
+    if (variant === 'hardlink') fs.linkSync(file, path.join(f.dir, 'hardlink'));
+    if (variant === 'writable') fs.chmodSync(file, 0o666);
+    if (variant === 'symlink') { fs.renameSync(file, path.join(f.dir, 'linked-bundle')); fs.symlinkSync(path.join(f.dir, 'linked-bundle'), file); }
+    if (variant === 'directory') { fs.unlinkSync(file); fs.mkdirSync(file); }
+    const args = variant === 'non-normalized' ? changed(f.args, '--openviking-bundle', f.dir + '/../' + path.basename(f.dir) + '/offline-openviking.tar.gz') : f.args;
+    const code = variant === 'changed' ? 'INPUT_DIGEST_MISMATCH' : variant === 'missing' ? 'INPUTS_UNAVAILABLE'
+      : ['symlink', 'non-normalized'].includes(variant) ? 'INPUTS_CUSTODY' : 'INPUT_FILE_CUSTODY';
+    expectRefusal(f, 'BROWSER_CREATE_' + code, args);
+    assert.deepEqual(f.commands(), []);
+    assert.ok(!fs.readdirSync(f.inputs).some(name => name.startsWith('.browser-create-')));
+  });
+});
 test('create refuses invalid bundle and unavailable revision', () => {
   within({ realGit: true }, f => {
     fs.writeFileSync(path.join(f.inputs, 'checkout.bundle'), 'not a bundle');
@@ -305,11 +357,47 @@ function verifyCreated(f, entry = script) {
     assert.equal(install[install.indexOf(flag) + 1], value);
   }
   assert.ok(commands.some(command => command.slice(0, 2).join('|') === 'file|push' && command[3] === 'C1/root/aukora-browser-installer/stage.py'));
+  if (!f.args.includes('--openviking-bundle')) {
+    assert.deepEqual(commands.filter(command => command.slice(0, 2).join('|') === 'file|push'
+      && command[3].startsWith('C1/root/aukora-browser-inputs/')).map(command => path.basename(command[3])),
+    ['checkout.bundle', 'dsh-source.tar.gz', 'node.tar.xz', 'dependencies.tar.gz']);
+    assert.ok(!install.some(argument => argument.startsWith('--openviking-')));
+    assert.ok(!fs.existsSync(f.snapshot));
+  }
   assert.ok(commands.filter(command => command.slice(0, 2).join('|') === 'file|push').every(command => command.includes('--uid') && command.includes('--gid') && command.includes('--mode')));
   assert.ok(!commands.some(command => command.includes('nic') || command.includes('start') || command.includes('restart') || command.includes('systemctl') || command[0] === 'delete'));
   assert.ok(!fs.readdirSync(f.inputs).some(name => name.startsWith('.browser-create-')));
 }
 test('create requests fresh restricted no-NIC profile, installs verified snapshots, and binds only host loopback', () => within({ realGit: true }, f => verifyCreated(f)));
+function verifyOpenvikingCreated(f, entry = script) {
+  const { file, bytes, sha } = addOpenviking(f);
+  f.env.MOCK_OPENVIKING_ORIGINAL = file;
+  verifyCreated(f, entry);
+  assert.notDeepEqual(fs.readFileSync(file), bytes);
+  assert.ok(fs.existsSync(f.snapshot));
+  assert.deepEqual(fs.readFileSync(f.snapshot), bytes);
+  const commands = f.commands();
+  const push = commands.filter(command => command.slice(0, 2).join('|') === 'file|push'
+    && command[3] === 'C1/root/aukora-browser-inputs/openviking.tar.gz');
+  assert.equal(push.length, 1);
+  assert.match(push[0][2], /\/inputs\/\.browser-create-[^/]+\/openviking\.tar\.gz$/);
+  assert.deepEqual(push[0].slice(4), ['--mode', '0600', '--uid', '0', '--gid', '0']);
+  const install = commands.find(command => command.slice(0, 4).join('|') === 'exec|C1|--|/bin/bash');
+  for (const [flag, value] of [['--openviking-bundle', '/root/aukora-browser-inputs/openviking.tar.gz'], ['--openviking-sha256', sha]]) {
+    assert.equal(install.filter(argument => argument === flag).length, 1);
+    assert.equal(install[install.indexOf(flag) + 1], value);
+  }
+  assert.ok(!commands.some(command => command.includes('connect=tcp:127.0.0.1:1933') || command.includes('connect=tcp:127.0.0.1:1934')));
+}
+test('create delivers only the verified OpenViking snapshot and passes its fixed path and digest', () => within({}, f => verifyOpenvikingCreated(f)));
+test('create rolls back when copying the optional OpenViking snapshot fails', () => within({ failOpenvikingCopy: true }, f => {
+  addOpenviking(f);
+  expectRefusal(f, 'BROWSER_CREATE_COPY_FAILED');
+  assert.ok(f.commands().some(command => command[3] === 'C1/root/aukora-browser-inputs/openviking.tar.gz'));
+  assert.ok(!f.commands().some(command => command.slice(0, 4).join('|') === 'exec|C1|--|/bin/bash'));
+  assert.ok(f.commands().some(command => command.slice(0, 2).join('|') === 'delete|--force'));
+  assert.ok(!fs.readdirSync(f.inputs).some(name => name.startsWith('.browser-create-')));
+}));
 test('create accepts the lowest and highest unprivileged proxy ports', () => within({}, f => {
   const args = changed(changed(f.args, '--app-port', '1024'), '--owner-port', '65535');
   assert.equal(f.call(args).status, 0);
@@ -320,6 +408,60 @@ test('create accepts the ingress hostname boundary and numeric labels', () => {
   });
 });
 test('create shell parses', () => assert.equal(spawnSync('/bin/bash', ['-n', script], { timeout: 10000 }).status, 0));
+
+test('create OpenViking protection mutations fail their regressions', () => {
+  const unpaired = f => {
+    addOpenviking(f);
+    const args = [...f.args];
+    args.splice(args.indexOf('--openviking-sha256'), 2);
+    expectRefusal(f, 'BROWSER_CREATE_OPENVIKING_PAIR_REQUIRED', args);
+  };
+  const mutations = [
+    ['paired input', ']] || refuse BROWSER_CREATE_OPENVIKING_PAIR_REQUIRED', ']] || true', unpaired],
+    ['digest syntax', ']] || refuse BROWSER_CREATE_OPENVIKING_DIGEST_INVALID', ']] || true', f => {
+      addOpenviking(f);
+      expectRefusal(f, 'BROWSER_CREATE_OPENVIKING_DIGEST_INVALID', changed(f.args, '--openviking-sha256', 'x'));
+    }],
+    ['path syntax', ']] || refuse BROWSER_CREATE_OPENVIKING_PATH_INVALID', ']] || true', f => {
+      addOpenviking(f);
+      expectRefusal(f, 'BROWSER_CREATE_OPENVIKING_PATH_INVALID', changed(f.args, '--openviking-bundle', 'relative'));
+    }],
+    ['normalized input', "if bundle.resolve() != bundle:\n            raise ValueError('BROWSER_CREATE_INPUTS_CUSTODY')", 'if False:\n            pass', f => {
+      addOpenviking(f);
+      expectRefusal(f, 'BROWSER_CREATE_INPUTS_CUSTODY', changed(f.args, '--openviking-bundle', f.dir + '/../' + path.basename(f.dir) + '/offline-openviking.tar.gz'));
+    }],
+    ['single-link custody', ' or info.st_nlink != 1', '', f => {
+      const { file } = addOpenviking(f);
+      fs.linkSync(file, path.join(f.dir, 'hardlink'));
+      expectRefusal(f, 'BROWSER_CREATE_INPUT_FILE_CUSTODY');
+    }],
+    ['file mode custody', ' or info.st_mode & 0o022:\n            os.close(fd)', ':\n            os.close(fd)', f => {
+      const { file } = addOpenviking(f);
+      fs.chmodSync(file, 0o666);
+      expectRefusal(f, 'BROWSER_CREATE_INPUT_FILE_CUSTODY');
+    }],
+    ['bundle digest', "raise ValueError('BROWSER_CREATE_INPUT_DIGEST_MISMATCH')", 'pass', f => {
+      const { file } = addOpenviking(f);
+      fs.appendFileSync(file, 'changed');
+      expectRefusal(f, 'BROWSER_CREATE_INPUT_DIGEST_MISMATCH');
+    }],
+    ['bundle snapshot inclusion', "artifacts.append(('openviking.tar.gz', bundle, sys.argv[6]))", 'pass', verifyOpenvikingCreated],
+    ['snapshot delivery', 'lxc file push "$work/openviking.tar.gz"', 'lxc file push "$openviking_bundle"', verifyOpenvikingCreated],
+    ['fixed install path', '--openviking-bundle /root/aukora-browser-inputs/openviking.tar.gz', '--openviking-bundle /root/other-openviking.tar.gz', verifyOpenvikingCreated],
+    ['install digest', '--openviking-sha256 "$openviking_sha")', '--openviking-sha256 "' + '0'.repeat(64) + '")', verifyOpenvikingCreated],
+    ['install flags', ' \u0024{openviking_args[@]+"\u0024{openviking_args[@]}"}', '', verifyOpenvikingCreated],
+    ['absent path', 'if sys.argv[5]:', 'if True:', verifyCreated],
+  ];
+  for (const [label, before, after, check] of mutations) within({}, f => {
+    assert.ok(source.includes(before), label);
+    const entry = path.join(f.dir, 'mutant.sh');
+    fs.writeFileSync(entry, source.replace(before, after));
+    const adapted = Object.create(f);
+    adapted.call = (args = f.args, extra = {}) => f.call(args, extra, entry);
+    assert.throws(() => check(adapted), assert.AssertionError, label);
+  });
+  console.log('SOURCE-ONLY browser create OpenViking guard mutations: ' + mutations.length + '/' + mutations.length + ' killed; mocked LXD only');
+});
 
 test('create focused protection mutations fail their regressions', () => {
   const mutations = [

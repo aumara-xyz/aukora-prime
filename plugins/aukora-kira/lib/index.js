@@ -427,8 +427,15 @@ export function readConfig(config) {
  * @param {unknown} config - composition-supplied configuration.
  * @returns {Promise<void>} resolves once both tools are registered.
  */
-export async function apply(ctx, config, gateCaptureHost) {
+export async function apply(ctx, config, gateCaptureHost, browserMemory) {
   const normalized = readConfig(config)
+  if (browserMemory !== undefined && (browserMemory === null || typeof browserMemory !== 'object'
+    || Array.isArray(browserMemory) || Object.keys(browserMemory).length !== 2
+    || browserMemory.active !== true || browserMemory.reason !== 'kira.memory:aumlok-linked')) {
+    throw Object.assign(new Error('kira.memory:readiness-invalid'), { code: 'kira.memory:readiness-invalid' })
+  }
+  const readiness = browserMemory === undefined ? undefined
+    : Object.freeze({ active: true, reason: 'kira.memory:aumlok-linked' })
   const projectIdentity = normalized.projectIdentity ?? createProjectIdentityResolver()
   const projectScopeFor = agent => projectScopeOf(agent, projectIdentity)
   const captureScopeFor = agent => captureScopeOf(agent, projectIdentity)
@@ -456,8 +463,9 @@ export async function apply(ctx, config, gateCaptureHost) {
   let associationHostLive = true
   if (memoryOwner !== undefined && typeof ctx.provide === 'function') {
     ctx.provide('kira.head', Object.freeze({
-      readHead: () => associationHostLive ? readMemoryLedgerHead({ stateDir: memoryOwner.stateDir })
-        : { head: null, entries: null, absence: 'kira-ledger-unavailable' },
+      readHead: () => ({ ...(associationHostLive ? readMemoryLedgerHead({ stateDir: memoryOwner.stateDir })
+        : { head: null, entries: null, absence: 'kira-ledger-unavailable' }),
+      ...(readiness === undefined ? {} : { browserMemory: readiness }) }),
     }))
   }
   const owner = memoryOwner === undefined ? await loadReadOwner(normalized.readOwner) : {

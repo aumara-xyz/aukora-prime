@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Read a named container and test approval-gated startup or its signed-in UI.
 set -euo pipefail
-[[ ( $# == 4 || $# == 6 && $5 == --evidence && -n $6 && $4 == after ) && $1 == --name && $3 == --phase && $2 =~ ^[A-Za-z][A-Za-z0-9-]{0,62}$ && ( $4 == before || $4 == after || $4 == passkey ) ]] || {
+[[ ( $# == 4 || $# == 6 && $5 == --evidence && -n $6 && ( $4 == after || $4 == bound ) ) && $1 == --name && $3 == --phase && $2 =~ ^[A-Za-z][A-Za-z0-9-]{0,62}$ && ( $4 == before || $4 == after || $4 == bound || $4 == passkey ) ]] || {
   printf 'REFUSED BROWSER_ACCEPTANCE_USAGE\n' >&2; exit 1;
 }
 # LXD 5.21 has no JSON form of "config show"; the instance API object carries the same expanded values.
@@ -30,7 +30,7 @@ if [[ $# == 4 ]]; then
   exec lxc --force-local exec "$2" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py accept --phase "$4"
 fi
 # Preserve failed observations too; exclusive creation refuses overwrites and symlink leaves.
-lxc --force-local exec "$2" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py accept --phase after --evidence |
+lxc --force-local exec "$2" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py accept --phase "$4" --evidence |
   python3 -I -S -c '
 import json,os,sys
 try:

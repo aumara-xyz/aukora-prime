@@ -72,6 +72,91 @@ bash ops/node-spawn/browser/create.sh --name C1 --image "$IMAGE_FINGERPRINT" \
 bash ops/node-spawn/browser/acceptance.sh --name C1 --phase before
 ```
 
+Optional offline meaning-based recall (SOURCE-ONLY, no node qualified here):
+on a connected **Linux x86_64** preparation machine with Python 3.11 and pip,
+supply an existing complete llama.cpp **b11381** CPU release tree. The repository's
+`host/pins/llama-server-b11381.json` pins every file and symlink; it does not
+provide an archive URL, compiler recipe or interpreter pin. Recompiling a different
+tree does not satisfy it. Build into a new file in the private input directory:
+
+```bash
+bash ops/node-spawn/browser/openviking-bundle.sh \
+  --llama-tree "$PINNED_LLAMA_TREE" --output "$INPUTS/openviking.tar.gz"
+# Add to the create.sh command above, using the printed BUNDLE sha256:
+# --openviking-bundle "$INPUTS/openviking.tar.gz" --openviking-sha256 "$OPENVIKING_SHA256"
+```
+
+The builder downloads binary Linux Python 3.11 wheels for all 163 exact locked
+distributions, verifies their hashes and metadata against the existing hash-locked
+closure, checks the pinned Linux OpenViking wheel named by `openviking-setup.sh`,
+the 639,150,592-byte Qwen embedding model and the complete llama tree. It prints
+every artifact's byte count and SHA-256, then the archive's count and digest.
+Wheel selection fixes the Ubuntu 24.04 glibc 2.39, x86_64 and CPython 3.11 tags.
+Tar entry order, ownership, modes and timestamps and gzip timestamps are fixed;
+identical pinned artifacts produce identical bundle bytes. The wheel selection
+must succeed without source builds; absent Linux wheels or incompatible metadata
+refuse. No version or hash is relaxed. Use the same Ubuntu 24.04/glibc target
+environment for preparation. Python 3.11 **with venv/ensurepip** and the pinned
+llama build's system libraries must already exist in the image or the reviewed
+offline `.deb` inputs. These system bytes are operator-selected, not covered by
+the OpenViking artifact pins; the optional installer refuses missing Python.
+
+Creation snapshots the optional file before LXD actions and checks its supplied
+digest; missing pairs, malformed digests, unsafe files and changed bytes refuse.
+Installation rechecks it, bounds extraction to 6 GiB/512 entries, and checks the
+internal pins rather than trusting the archive manifest. It installs from local
+wheels with `--no-index --no-deps --require-hashes`, then runs `pip check`.
+The venv/model live under root-owned read-only `/opt/aukora-openviking`; the exact
+llama tree lives at `/opt/llama.cpp/b11381`. The harness-owned private store is
+`/home/aukora-host/genesis/state/home/openviking`; its fresh `root.key` is 0600
+and never printed. Only that store is writable in the OpenViking unit.
+The release receives `--kira-openviking-home`; its deployment overlay is seeded
+before binding and retains `openVikingHome` when the binding writes its subject.
+Kira uses this home to opt into semantic recall while retaining its lexical fallback.
+Without the optional input, there is no runtime, store or service added; installation
+and after-acceptance say `KIRA_RECALL lexical; no OpenViking bundle`.
+
+Memory uses the supervisor's existing knobs: two CPU threads, a 2,048-token
+context, one slot, mmap, no 8 GiB prompt cache and a 1,536 MiB sampled embedder
+RSS+swap limit. The pair's unit has `MemoryHigh=2048M`, `MemoryMax=2304M`,
+`MemorySwapMax=0`, `TasksMax=64`, `CPUQuota=200%`. Its hard cap leaves 1,792 MiB
+of the 4 GiB node for the harness, gate and OS; both services can contend for
+the two CPUs. Suitability and latency are unmeasured. Every two seconds the
+supervisor samples its owned embedder group; exceeding 1,536 MiB kills/restarts
+that embedder, interrupts requests, and retains OpenViking through ordinary
+recycling. Retries back off 2/4/8/16/30 seconds; a sixth failure stops the pair.
+Systemd retries after 10 seconds, at most three starts in 300 seconds. The hard
+cgroup cap can kill either server before a sample and restart the pair.
+
+Disk includes the 609.5 MiB model, the full llama tree, an expanded Python venv
+and growing store. Exact Linux cost is unmeasured: the builder reports artifact
+totals and installation prints `OPENVIKING_RUNTIME_BYTES` for the installed
+runtime/model/llama, excluding store, input archive and base OS. Installation
+requires 8 GiB free before extraction (6 GiB payload ceiling plus 2 GiB runtime
+headroom); runtime expansion, harness build and retained input/store bytes still
+share the node's 20 GiB quota. The extracted wheel payload is removed after install.
+Observe actual `du` and quota headroom before using a node for retained memories.
+
+After the owner's existing release approval and start, run `acceptance.sh --phase
+after`; after real browser binding, run `acceptance.sh --phase bound`. Both repeat
+the normal browser checks and require the OpenViking unit active, both HTTP
+`/health` endpoints on container `127.0.0.1:1933/1934`, no non-loopback TCP/UDP
+listeners, a private single-link harness-owned key, read-only runtime custody,
+the pinned llama tree and the retained overlay home. `bound` additionally requires
+the public binding record. These checks share the existing loopback checkpoint
+in the public evidence schema; that exporter does not record the optional bundle
+digest or prove the probes occurred. OpenViking has no host proxy or public port.
+
+An operator must observe on a real offline node: successful wheel installation
+and `pip check`; loaded release and overlay home before/after binding; both health
+responses and loopback-only TCP/UDP listeners; actual service cgroup limits and
+private key ownership/mode; measured peak RAM, disk and latency under two-CPU load;
+embedder over-limit restart and retained store; restart/reboot health; a saved
+synthetic note found through a differently worded query and again after restart;
+and a separate no-bundle node staying lexical. Retain a miss/failure as such.
+Fixtures and health checks do not prove semantic relevance, real indexing, durable
+recall, owner approval, whole-node containment, or acceptable resource use.
+
 LXD's non-NAT proxy enters the container's network namespace and forwards to its
 loopback; the three distinct host listeners bind **only 127.0.0.1**. Hostnames
 must be distinct lowercase DNS names without a scheme, wildcard, port or path;
@@ -187,6 +272,62 @@ This root command prints only the link. Give it directly through the private
 operator route; do not log it. It carries a one-use fragment, never the harness
 launch token. Then Peter must open the actual HTTPS app and perform his
 binding ceremony through the separately implemented owner flow.
+
+The browser Kira row waits quietly as `kira.memory:aumlok-not-linked`
+before binding. Its ordinary configuration reads the deployment overlay only
+when mounting, so rewriting that file alone cannot start an already-failed row.
+The browser wrapper now checks the verified public binding and overlay every
+250 ms, requires their subject and state directory to agree, and mounts one
+owned Kira child in the same harness process. No manual restart is required.
+The supported child API is in the pinned `vendor/dsh-source.tar.gz`,
+`vendor/cordis/src/registry.ts:310-337`; child disposal belongs to the parent at
+`vendor/cordis/src/fiber.ts:265-297`. `upstream-dsh.json` pins the archive digest.
+These source changes and local fixtures do not verify an installed node.
+
+For a **throwaway rehearsal node only**, after initial release approval and
+start, mark it and drive the ceremony through its own routes:
+
+```bash
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py mark-rehearsal
+lxc --force-local exec C1 -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/rehearse-bind.py
+```
+
+**Never mark or run this driver on a node an owner will bind.** It creates a
+throwaway `rehearsal-only` identity and permanently spends the first-binding
+ceremony. `mark-rehearsal` requires an installed node with no binding record and
+creates `/var/lib/aukora-browser/rehearsal-only` exclusively, owned by root with
+mode `0600`. The driver requires root and that exact protected marker before
+minting a claim. It exchanges the claim on container loopback with the node's
+public Host and Origin, checks unbound status, prepares seven words, verifies a
+wrong phrase is refused, prepares a fresh draw because the wrong attempt spent
+the first, binds the correct phrase, and checks another prepare is refused.
+It prints one PASS/FAIL line per step and never prints words, claim code,
+ceremony ID or cookie. It does not approve a release, prove owner consent,
+qualify custody on a real node, or test public TLS or a browser.
+
+After binding, require the separate bound acceptance phase and retain its public
+evidence in a new local file:
+
+```bash
+bash ops/node-spawn/browser/acceptance.sh --name C1 --phase bound --evidence "$PUBLIC_EVIDENCE"
+node scripts/audit/browser-node-evidence.mjs "$PUBLIC_EVIDENCE"
+```
+
+`bound` requires the `0600` harness-owned binding record, machine seed, attempts
+database and lock, the same subject in the Kira overlay, active memory in the
+current service invocation, served apps and admitted session RPC, refusal of
+another prepare, and zero `did not activate` log entries since that start. It
+creates or adopts the fixed `browser-node-bound-acceptance` Session without a
+prompt or turn. It
+checks Aura's gate/code heads, writes one harmless note through Kira's own
+`remember` method, then requires the Kira head. The note command runs as
+`runuser -u aukora-host -- /opt/aukora-node/bin/node --input-type=module -e` with
+the exact `bound_remember` script in `node.py`, the approved release, verified
+public subject and `/home/aukora-host/genesis/state/home/kira-memory`. That script
+calls `createTrackedMemory({stateDir,subject}).remember({text:'Browser node
+acceptance memory probe.',from:'browser-node-acceptance'})`. The note is fixed
+and contains no owner data. This does not exercise a native model tool, prove
+owner approval or qualify containment.
 
 To enable a model reply, set the one permitted DeepSeek credential inside C1
 as root. The safest interactive route prompts on the container terminal with

@@ -32,10 +32,11 @@ export function evidenceFixture() {
     floor: { kind: 'aukora-release-floor/v2', release: revision, release_dir: 'release-abcdef0', record: sha('record'),
       signer_epoch: 1, ledger_seq: 5, signer_key_sha256: fingerprint, ledger_hash: '', history: [] },
     installer_inputs: Object.fromEntries(['checkout', 'node', 'dependencies', 'harness'].map(name => [name, sha(name)])),
-    checks: ['host_transport', 'root_platform', 'installation_record', 'browser_profile', 'users_modes', 'package_custody', 'node_version',
-      'package_pins', 'gate_sockets', 'signer_pin', 'loopback_listeners', 'approved_floor', 'harness_service',
-      'signed_in_ui', 'plugin_load', 'claim_service', 'public_origins', 'anonymous_session', 'claim_exchange',
-      'claim_cookie', 'public_session', 'claim_replay'].map(name => ({ name, status: 'PASS' })), record_signature: null }
+    checks: ['host_transport', 'root_platform', 'installation_record', 'browser_profile', 'users_modes', 'aura_collector_custody',
+      'package_custody', 'node_version', 'package_pins', 'gate_sockets', 'signer_pin', 'loopback_listeners', 'approved_floor',
+      'aura_collector', 'harness_service', 'signed_in_ui', 'browser_binding_guard', 'plugin_load', 'claim_service', 'public_origins',
+      'anonymous_session', 'claim_exchange', 'claim_cookie', 'public_session', 'claim_replay', 'aura_sources']
+      .map(name => ({ name, status: 'PASS' })), record_signature: null }
   function signRow(value = record) {
     const row = value.approval.ledger_entry
     row.hash = hash(JSON.stringify([row.seq, row.at, row.event, row.proposal, row.target, row.base_sha, row.new_sha, row.detail, row.prev]))
@@ -52,6 +53,21 @@ export function evidenceFixture() {
   }
   signReceipt()
   return { record, pair, signReceipt, signRow }
+}
+
+function retainedEvidenceFixture() {
+  const f = evidenceFixture(), prior = f.record.approval.receipt
+  f.record.approval.receipt = { v: 3, kind: prior.kind, proposal: prior.proposal, target: prior.target,
+    base_sha: prior.base_sha, new_sha: prior.new_sha, applied_at: prior.applied_at,
+    approver: 'aukora:1:' + 'a'.repeat(64), pubkey_fp: prior.pubkey_fp,
+    gate_pubkey_sha256: f.record.signer.sha256,
+    owner_authorization: { version: 1, kind: 'aukora-owner-authorization-ref/v1',
+      authorization_id: sha('authorization'), proof_sha256: sha('proof') },
+    owner_accepted_at_ms: Date.parse(prior.applied_at) - 1,
+    owner_consumption: { ledger_seq: 3, ledger_hash: sha('consumption'),
+      review_issue: { ledger_seq: 2, ledger_hash: sha('review') } } }
+  f.signReceipt()
+  return f
 }
 
 const attacks = [
@@ -91,7 +107,8 @@ const attacks = [
   ['checks-completion', (r) => { r.checks.pop() }],
   ['unsupported-record-signature', (r) => { r.record_signature = zeroSignature }],
 ]
-const guardNames = attacks.map(([name]) => name), specialMutants = ['strict-json', 'detail-json', 'approval-content-grammar', 'input-complete', 'input-size', 'input-utf8'], mutant = process.env.BROWSER_EVIDENCE_MUTANT ?? ''
+const guardNames = attacks.map(([name]) => name), specialMutants = ['strict-json', 'detail-json', 'approval-content-grammar',
+  'input-complete', 'input-size', 'input-utf8', 'bound-phase-checks', 'legacy-revision-checks'], mutant = process.env.BROWSER_EVIDENCE_MUTANT ?? ''
 assert.ok(!mutant || guardNames.includes(mutant) || specialMutants.includes(mutant), 'known production guard mutant')
 
 function removeGuard(source, name) {
@@ -101,6 +118,8 @@ function removeGuard(source, name) {
   return source.slice(0, start) + 'void 0' + source.slice(end + ending.length)
 }
 function mutatedSource() {
+  if (mutant === 'bound-phase-checks') return original.replace("record?.phase === 'bound' ? BOUND_CHECK_NAMES", 'false ? BOUND_CHECK_NAMES')
+  if (mutant === 'legacy-revision-checks') return original.replace("LEGACY_AFTER_REVISIONS.has(record?.release?.revision) ? LEGACY_CHECK_NAMES", 'false ? LEGACY_CHECK_NAMES')
   if (mutant === 'strict-json') return original.replace('strictJson(text, MAX_BYTES, 12)', 'JSON.parse(text)')
   if (mutant === 'detail-json') return original.replace('strictJson(row.detail, 4096, 4)', 'JSON.parse(row.detail)')
   if (mutant === 'approval-content-grammar') return original.replace('parseGateApprovalContent(approval.content)', 'JSON.parse(approval.content)')
@@ -137,7 +156,7 @@ const refuse = (record, name) => assert.throws(() => verifier.verifyBrowserNodeE
 
 test('offline browser evidence authenticates embedded signed bytes and states its exact limits', () => {
   const f = evidenceFixture(), result = verifier.verifyBrowserNodeEvidence(f.record)
-  assert.deepEqual(result, { ok: true, passed: true, checks: 22, ledgerSeq: 5, limitations: verifier.LIMITATIONS })
+  assert.deepEqual(result, { ok: true, passed: true, checks: 26, ledgerSeq: 5, limitations: verifier.LIMITATIONS })
   assert.match(result.limitations.join('\n'), /public key belongs to a real node/)
   assert.match(result.limitations.join('\n'), /checks really ran/)
   assert.match(result.limitations.join('\n'), /floor has no standalone signature/)
@@ -148,6 +167,45 @@ test('offline browser evidence authenticates embedded signed bytes and states it
   const first = clone(f.record); first.approval.ledger_entry.seq = first.floor.ledger_seq = 1
   first.approval.ledger_entry.prev = 'GENESIS'; f.signRow(first)
   assert.equal(verifier.verifyBrowserNodeEvidence(first).ledgerSeq, 1)
+})
+
+test('offline browser evidence accepts a closed retained owner-proof receipt and refuses missing proof fields', () => {
+  const f = retainedEvidenceFixture()
+  assert.equal(verifier.verifyBrowserNodeEvidence(f.record).passed, true)
+  delete f.record.approval.receipt.owner_authorization
+  f.signReceipt()
+  refuse(f.record, 'receipt-schema')
+})
+
+test('bound evidence requires the complete bound checks and keeps after records compatible', () => {
+  const f = evidenceFixture()
+  f.record.phase = 'bound'
+  const names = ['binding_custody', 'binding_overlay', 'kira_active', 'bound_rpc', 'bound_app', 'repeat_prepare',
+    'aura_gate_code', 'aura_kira_note', 'composition_active', 'bound_current_invocation']
+  const incomplete = clone(f.record)
+  refuse(incomplete, 'checks-completion')
+  f.record.checks.push(...names.map(name => ({ name, status: 'PASS' })))
+  assert.equal(verifier.verifyBrowserNodeEvidence(f.record).passed, true)
+  assert.equal(verifier.verifyBrowserNodeEvidence(f.record).checks, 36)
+  const container = clone(f.record); container.checks.shift()
+  assert.equal(verifier.verifyBrowserNodeEvidence(container, { containerOnly: true }).checks, 35)
+  const failed = clone(f.record); failed.checks.pop(); failed.checks.at(-1).status = 'FAIL'
+  assert.equal(verifier.verifyBrowserNodeEvidence(failed).passed, false)
+  const swapped = clone(f.record)
+  ;[swapped.checks[22], swapped.checks[23]] = [swapped.checks[23], swapped.checks[22]]
+  refuse(swapped, 'checks-schema')
+  const downgraded = clone(f.record); downgraded.phase = 'after'
+  refuse(downgraded, 'checks-schema')
+})
+
+test('the two committed revisions retain their declared historical check list only', () => {
+  for (const name of ['2026-10-13-rehearsal-r1-38004c5.json', '2026-10-14-rehearsal-r1-c18a7e4.json']) {
+    const record = JSON.parse(fs.readFileSync(resolve(root, 'evidence/browser-node', name), 'utf8'))
+    assert.equal(verifier.verifyBrowserNodeEvidence(record).checks, 22)
+  }
+  const current = evidenceFixture().record
+  current.checks = current.checks.filter(check => verifier.LEGACY_CHECK_NAMES.includes(check.name))
+  refuse(current, 'checks-schema')
 })
 
 for (const [name, attack] of attacks) test('offline evidence refuses ' + name, () => {
@@ -196,7 +254,7 @@ test('approval content uses the exact gate grammar rather than equivalent reorde
 
 test('only complete PASS or a prefix ending at its one failed observation is reported', () => {
   const f = evidenceFixture()
-  for (const length of [1, 11, 22]) {
+  for (const length of [1, 13, 26]) {
     const r = clone(f.record); r.checks = r.checks.slice(0, length); r.checks.at(-1).status = 'FAIL'
     assert.equal(verifier.verifyBrowserNodeEvidence(r).passed, false)
   }
@@ -230,10 +288,10 @@ test('offline CLI gives safe named refusal, PASS/FAIL exits and reads stdin with
   fs.writeFileSync(file, JSON.stringify(f.record))
   const pass = run([file]); assert.equal(pass.status, 0, pass.stdout + pass.stderr)
   assert.equal(pass.stdout, 'VERIFIED browser-node-evidence:receipt-signature,approval-bindings,signed-apply-row,floor-core-binding\n'
-    + 'OBSERVATIONS PASS checks=22\n' + verifier.LIMITATIONS.join('\n') + '\n')
+    + 'OBSERVATIONS PASS checks=26\n' + verifier.LIMITATIONS.join('\n') + '\n')
   assert.equal(run(['--stdin'], JSON.stringify(f.record)).status, 0)
   const container = clone(f.record); container.checks.shift()
-  assert.equal(verifier.verifyBrowserNodeEvidence(container, { containerOnly: true }).checks, 21)
+  assert.equal(verifier.verifyBrowserNodeEvidence(container, { containerOnly: true }).checks, 25)
   refuse(container, 'checks-schema')
   assert.equal(run(['--stdin-container'], JSON.stringify(container)).status, 0)
   assert.equal(run(['--stdin'], JSON.stringify(container)).status, 1)

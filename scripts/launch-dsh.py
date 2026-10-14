@@ -4,6 +4,7 @@ import sys
 import argparse, hashlib, json, math, os, re, signal, socket, subprocess, tempfile, threading, time, urllib.parse
 from collections import deque
 from pathlib import Path
+FLOOR_BOOTSTRAP=Path('/usr/local/lib/aukora-boundary/gate-bootstrap')
 parser=argparse.ArgumentParser()
 parser.add_argument('--release', required=True, type=Path)
 parser.add_argument('--state-root', required=True, type=Path)
@@ -44,6 +45,19 @@ def _root_protected(path):
         if part.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
             parser.error('service-path-not-root-protected')
     return path
+
+def check_release_floor(release, approval_state_root, runner=subprocess.run):
+    """Require the installed monotonic floor before a production node launch."""
+    command=['/usr/bin/python3','-I','-S',str(FLOOR_BOOTSTRAP),'floor','check',
+             '--release-dir',str(release),'--approval-state-root',str(approval_state_root)]
+    try:
+        result=runner(command,capture_output=True,text=True)
+    except OSError as error:
+        parser.error(f'release-floor-check-unavailable: {error}')
+    if result.returncode != 0:
+        detail='\n  '.join(part.strip() for part in (result.stderr,result.stdout) if part and part.strip())
+        parser.error('release-floor-refused: '+(detail or 'the protected floor check refused this release'))
+    if result.stdout.strip(): print(result.stdout.strip())
 
 def parse_public_origin(value):
     """Return the one public hostname accepted from a canonical HTTPS origin file."""
@@ -89,6 +103,14 @@ if a.foreground and (base == release or release in base.parents):
     parser.error('state-inside-release: service state must survive release replacement')
 if a.foreground and (base.stat().st_uid != os.getuid() or a.state_root != base):
     parser.error('service-state-owner-or-canonical-path-invalid')
+if a.launch_profile != 'disposable-preview' and (a.foreground or FLOOR_BOOTSTRAP.exists()):
+    if a.approval_state_root is None:
+        parser.error('release-floor-context-required: an installed node production launch requires the protected approval root')
+    if FLOOR_BOOTSTRAP.exists():
+        _root_protected(FLOOR_BOOTSTRAP)
+        if not FLOOR_BOOTSTRAP.is_file() or not os.access(FLOOR_BOOTSTRAP,os.X_OK):
+            parser.error('release-floor-check-unavailable: the protected gate bootstrap is not executable')
+    check_release_floor(release,a.approval_state_root)
 patches=[p.resolve() for p in a.patch]
 for patch in patches:
     if not patch.is_file(): parser.error(f'missing-patch-overlay: {patch}')

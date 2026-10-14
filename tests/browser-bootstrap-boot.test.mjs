@@ -9,6 +9,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
+import { generated, source as materializer, sourcePath } from './helpers/release-composition.mjs'
 import { BOOT_RPC, BINDING_REQUIRED, createBrowserAccess } from '../plugins/aukora-action-gate/lib/browser-bootstrap.mjs'
 
 const root = resolve(import.meta.dirname, '..')
@@ -50,6 +51,32 @@ test('source-derived read-only boot methods are exactly the permitted bootstrap 
   assert.match(source('packages/api/session-controller/src/catalog.ts'), /without requiring a Session/u)
   assert.match(source('packages/interaction/permission-presets/src/index.ts'), /return \{ options: this\.names\.map\(name => this\.optionOf\(name\)\) \}/u)
   t.diagnostic('PASS boot calls: $events, credentials/describe, agentPresets/list, session/modelCatalog, permissionPresets/catalog accepted; archive and cited source bytes verified')
+})
+
+test('pinned onboarding rows and supported suppression seams remain explicit', t => {
+  const composition = source('packages/bundle/web-app/cordis.patch.yml')
+  assert.match(composition, /- id: ui-settings-models\s+name: '@deepseek-ai\/dsh-client-ui-settings-models'/u)
+  assert.match(composition, /- id: ui-brand-official\s+name: '@deepseek-ai\/dsh-client-ui-brand-official'/u)
+  const models = source('packages/client/ui-settings-models/src/client/index.ts')
+  assert.match(models, /id: 'welcome-notice',[\s\S]*?id: 'deepseek-official'/u)
+  assert.match(models, /export function apply\(ctx: ClientContext\): void/u)
+  const copy = source('packages/client/ui-settings-models/src/onboarding-copy.ts')
+  assert.match(copy, /WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'/u)
+  assert.match(copy, /WELCOME_NOTICE_VERSION = '2026-08-13\.1'/u)
+  assert.match(source('packages/client/ui-settings-models/src/client/welcome-store.ts'),
+    /scope\.value\?\.\[WELCOME_NOTICE_ACK_FIELD\] === WELCOME_NOTICE_VERSION/u)
+  assert.match(source('packages/client/ui-settings/src/client/index.ts'),
+    /ctx\.remote\.\$host\.isLoopback \? 'host' : 'memory'/u)
+  const readiness = source('packages/client/ui-settings-models/src/client/store.ts')
+  for (const fact of ['provider-ready', 'adapter-absent', 'provider-inactive', 'credentials-unavailable',
+    'settings-read-only', 'credential-read-only', 'credential-missing']) assert.match(readiness, new RegExp(`'${fact}'`, 'u'))
+  const brand = source('packages/client/ui-brand-official/src/client/index.ts')
+  assert.match(brand, /process\.env\.DSH_CLIENT_BUILD_PROFILE !== 'official'/u)
+  assert.match(brand, /sidebar\.brand\.mark[\s\S]*sidebar\.brand\.name/u)
+  assert.equal(brand.includes('settings.models'), false)
+  assert.match(source('packages/client/locale/src/client/index.ts'),
+    /locale namespace "\$\{ns\}" already has locale/u)
+  t.diagnostic('PASS pinned onboarding evidence: rows, persisted welcome version, public-memory scope, readiness exits, brand and locale limits; archive and read-only source bytes verified')
 })
 
 test('eager writes and private reads are optional to plugin activation and refused', t => {
@@ -223,4 +250,123 @@ test('mutations reject missing core service and missing allow-list member', asyn
     assert.throws(() => { for (const method of boot()) assert.equal(access.rpcRejection(method), undefined, method) })
   }
   t.diagnostic('PASS mutation: removing file-upload reproduces pending session/layout activation; removing each of 5 boot permissions fails completeness')
+})
+
+function compositionRows(input) {
+  const entries = new Map()
+  for (const patch of [source('packages/bundle/base/cordis.patch.yml'), source('packages/bundle/web-app/cordis.patch.yml'),
+    generated(input, { browserNode: true, includeUpstream: false }).patches['aukora-composition.patch.yml']]) {
+    let row, indent
+    for (const line of patch.split('\n')) {
+      const id = /^(\s*)- id: ([\w-]+)\s*$/u.exec(line)
+      if (id) { indent = id[1].length; row = entries.get(id[2]) ?? { id: id[2] }; entries.set(row.id, row); continue }
+      const field = /^(\s*)(name|disabled): (.+)$/u.exec(line)
+      if (!row || !field || field[1].length !== indent + 2) continue
+      row[field[2]] = field[2] === 'disabled' ? field[3] === 'true' : field[3].replace(/^(['"])(.*)\1$/u, '$2')
+    }
+  }
+  return [...entries.values()]
+}
+
+const pinnedDeclarations = JSON.parse(execFileSync('/usr/bin/python3', ['-I', '-S', '-B', '-c', `
+import hashlib, json, sys, tarfile
+with tarfile.open(sys.argv[1], 'r:gz') as tar:
+    result = dict(packages={}, sources={})
+    for entry in tar.getmembers():
+        path = entry.name.partition('/')[2]
+        if entry.isfile() and path.endswith('/package.json'):
+            data = tar.extractfile(entry).read(); value = json.loads(data)
+            if isinstance(value.get('name'), str): result['packages'][value['name']] = dict(path=path, value=value, sha256=hashlib.sha256(data).hexdigest())
+        elif entry.isfile() and path.endswith('.ts') and '/src/' in path and ('/' not in path.partition('/src/')[2] or path.endswith('/src/client/index.ts')):
+            result['sources'][path] = tar.extractfile(entry).read().decode('utf-8')
+    print(json.dumps(result))
+`, archive], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }))
+const packageDeclarations = pinnedDeclarations.packages
+const localPackages = new Map()
+
+const rowDeclarations = new Map()
+function rowDeclaration(row) {
+  if (rowDeclarations.has(row.name)) return rowDeclarations.get(row.name)
+  const local = row.name.replace(/^\.\//u, '').replace(/^\/synthetic\/release\//u, '')
+  const name = Object.keys(packageDeclarations).find(name => row.name === name || row.name?.startsWith(name + '/')
+    || local.startsWith(dirname(packageDeclarations[name].path) + '/'))
+  if (!name) {
+    const path = sourcePath(row.name), text = row.id === 'aukora-browser-refusal'
+      ? materializer.match(/BROWSER_REFUSAL_SOURCE = '''([^]*?)'''/u)[1] : readFileSync(path, 'utf8')
+    const declaration = /(?:export const inject|exports\.inject)\s*=\s*(?:Object\.freeze\()?\[([^\]]*)\]/u.exec(text)
+    const packagePath = join(dirname(dirname(path)), 'package.json')
+    const metadata = existsSync(packagePath) ? JSON.parse(readFileSync(packagePath, 'utf8')) : undefined
+    if (metadata?.name) localPackages.set(metadata.name, { path: packagePath, value: metadata, local: true })
+    return { inject: [...(declaration?.[1] ?? '').matchAll(/['"]([^'"]+)['"]/gu)].map(match => match[1]),
+      provides: [...text.matchAll(/\.provide\(\s*['"]([^'"]+)['"]/gu)].map(match => match[1]),
+      client: metadata?.dsh?.client && { name: metadata.name, ...metadata.dsh.client, local: true } }
+  }
+  const declaration = packageDeclarations[name]
+  assert.equal(sha(readFileSync(join(harness, declaration.path))), declaration.sha256)
+  const directory = dirname(declaration.path), subpath = local.startsWith(directory + '/')
+    ? '/' + local.slice((directory + '/lib/').length).replace(/\.js$/u, '') : row.name.slice(name.length) || '/index'
+  const path = `${directory}/src${subpath}.ts`
+  const text = pinnedDeclarations.sources[path]
+  assert.equal(typeof text, 'string', `pinned host source: ${path}`)
+  // Inspect declarations only: application bodies, sockets and deployment state are not run.
+  const exported = declaration.value.exports?.[subpath === '/index' ? '.' : '.' + subpath]
+  const builtPath = typeof exported === 'string' ? exported : exported?.default ?? declaration.value.main
+  const built = createRequire(join(harness, 'package.json'))(join(harness, directory, builtPath))
+  const plugin = built.default ?? built
+  const inject = plugin.inject ?? built.inject ?? []
+  const required = Array.isArray(inject) ? inject : Object.keys(inject)
+  const provides = [...text.matchAll(/(?:super\(ctx,|\.provide\()\s*['"]([^'"]+)['"]/gu)].map(match => match[1])
+  const result = { inject: required, provides, client: declaration.value.dsh?.client && { name, ...declaration.value.dsh.client } }
+  rowDeclarations.set(row.name, result)
+  return result
+}
+
+async function profileDeclarationBoot(input = materializer) {
+  const rows = compositionRows(input).filter(row => row.name)
+  const declared = rows.map(row => ({ row, ...rowDeclaration(row) }))
+  const active = declared.filter(({ row }) => !row.disabled)
+  const activeProvides = new Set(active.flatMap(entry => entry.provides))
+  const absent = new Set(declared.filter(({ row }) => row.disabled).flatMap(entry => entry.provides).filter(name => !activeProvides.has(name)))
+  assert.ok(absent.has('workspaceFiles'), 'disabled pinned provider declares workspaceFiles')
+  const modules = new Map(), ctx = new Context()
+  // Other service bodies are fixture carriers. Disabled providers stay absent, as on the browser node.
+  for (const service of new Set(active.flatMap(entry => entry.inject))) {
+    if (service !== 'loader' && !absent.has(service) && ctx.get(service) === undefined) ctx.provide(service, {})
+  }
+  for (const entry of active) modules.set(entry.row.id, { inject: entry.inject, apply() {} })
+  const clients = active.filter(entry => entry.client?.platform === 'web').map(entry => entry.client)
+  for (const client of clients) {
+    for (const specifier of [...client.inject ?? [], ...client.external ?? []]) {
+      const name = specifier.replace(/\/client$/u, '')
+      const declaration = packageDeclarations[name] ?? localPackages.get(name)
+      assert.ok(declaration, `pinned client dependency has a package declaration: ${name}`)
+      if (!declaration.local) assert.equal(sha(readFileSync(join(harness, declaration.path))), declaration.sha256)
+    }
+    const directory = dirname((packageDeclarations[client.name] ?? localPackages.get(client.name)).path)
+    const clientPath = [`${directory}/src/client/index.ts`, `${directory}/src/client.ts`, ...(client.local ? [`${directory}/lib/client.js`] : [])]
+      .find(path => existsSync(client.local ? path : join(harness, path)))
+    assert.ok(clientPath, `pinned client source exists: ${client.name}`)
+    const text = client.local ? readFileSync(clientPath, 'utf8') : pinnedDeclarations.sources[clientPath]
+    if (!client.local) assert.equal(sha(readFileSync(join(harness, clientPath))), sha(text))
+    const declaration = /(?:export const inject|exports\.inject)\s*=\s*\[([^\]]*)\]/u.exec(text)
+    const inject = [...(declaration?.[1] ?? '').matchAll(/['"]([^'"]+)['"]/gu)].map(match => match[1])
+    for (const service of inject) if (service !== 'loader' && !absent.has(service) && ctx.get(service) === undefined) ctx.provide(service, {})
+    modules.set(client.name, { inject, apply() {} })
+  }
+  const { load } = clientLoader()
+  try {
+    await load('packages/client/web/src/boot-client.ts').bootClient({ ctx,
+      manifest: { plugins: [...modules.keys()].map(id => ({ id })) }, modules: { import: async name => modules.get(name) } })
+    return { host: active.length, client: clients.length }
+  } finally { await ctx.fiber.dispose() }
+}
+
+test('browser composition declaration boot has zero entries that did not activate', async t => {
+  const result = await profileDeclarationBoot()
+  const guard = "'ui-sidebar-terminal', 'ui-deliverables',"
+  assert.equal(materializer.split(guard).length, 2)
+  await assert.rejects(profileDeclarationBoot(materializer.replace(guard, "'ui-sidebar-terminal',")),
+    /ui-deliverables: pending \(waiting for service: workspaceFiles\)/u)
+  t.diagnostic(`PASS browser composition declaration boot: ${result.host} host and ${result.client} client entries; zero did not activate`)
+  t.diagnostic('MUTATION browser deliverables dependency: 1/1 killed; restoring ui-deliverables waits for disabled workspaceFiles')
 })

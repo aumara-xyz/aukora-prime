@@ -10,9 +10,9 @@
 A plugin file that changed by one byte is refused at import with `plugin-bytes-changed`, naming the
 plugin and the file; a file inside a recorded plugin directory that the record does not list is refused
 with `plugin-file-unrecorded`. Every recorded file is also checked once, at rest, when the gate installs,
-and a plugin with any changed file is refused whole. The launcher enforces the set unless it was given
-`--allow-unapproved` (the desktop's `allowUnapproved`, which now ships `false`); then every finding is
-printed as `WAIVED` and the file loads.
+and a plugin with any changed file is refused whole. A user-owned disposable-preview release may log
+findings as `WAIVED`, while a root-protected installed release refuses `waived` with
+`plugin-set-waiver-refused` and requires approval enforcement.
 
 A composition grant with identical bytes presented at another path is refused
 (`GRANT_PATH_NOT_GRANTED`): defect D3 is closed. `scripts/composition/__main__.py grant` binds

@@ -956,7 +956,7 @@ window.__ModuleLoader__.load({
 		* @param props - shell visibility, close action, ceremony source, and localized copy.
 		* @returns the always-mounted AUMLOK surface.
 		*/
-		function AumlokSurface({ activeSurface, openSurface, closeSurface, t, useControlProjection, ceremonyAvailable, browserCeremony = false, publicFirstRun = false, cancelCeremony, drawPhrase, submitPhrase, refreshControlStatus, startFirstChat }) {
+		function AumlokSurface({ activeSurface, openSurface, closeSurface, t, useControlProjection, ceremonyAvailable, browserCeremony = false, publicFirstRun = false, cancelCeremony, drawPhrase, submitPhrase, refreshControlStatus, readModelCredentialStatus, startFirstChat }) {
 			const active = activeSurface === "aumlok";
 			const projection = useControlProjection((value) => value);
 			const [refreshing, setRefreshing] = (0, react.useState)(false);
@@ -970,6 +970,7 @@ window.__ModuleLoader__.load({
 			const [acknowledged, setAcknowledged] = (0, react.useState)(false);
 			const [outcome, setOutcome] = (0, react.useState)(void 0);
 			const [explanationOpen, setExplanationOpen] = (0, react.useState)(false);
+			const [modelCredential, setModelCredential] = (0, react.useState)("idle");
 			const ceremonyGeneration = (0, react.useRef)(0);
 			const autoOpened = (0, react.useRef)(false);
 			(0, react.useLayoutEffect)(() => {
@@ -1020,6 +1021,22 @@ window.__ModuleLoader__.load({
 				bound: projection.status === "connected",
 				successfulBind: successfulBrowserBind
 			});
+			(0, react.useEffect)(() => {
+				if (!successfulBrowserBind) {
+					setModelCredential("idle");
+					return;
+				}
+				let current = true;
+				setModelCredential("checking");
+				readModelCredentialStatus().then((status) => {
+					if (current) setModelCredential(status);
+				}, () => {
+					if (current) setModelCredential("unavailable");
+				});
+				return () => {
+					current = false;
+				};
+			}, [readModelCredentialStatus, successfulBrowserBind]);
 			(0, react.useEffect)(() => {
 				if (!aumlokFirstRunOpen({
 					active,
@@ -1263,12 +1280,28 @@ window.__ModuleLoader__.load({
 										"data-aumlok-completion-handle": true,
 										children: handle
 									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									modelCredential === "checking" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+										"data-aumlok-model-key-status": "checking",
+										role: "status",
+										children: t("firstRun.complete.modelChecking")
+									}) : modelCredential === "missing" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+										"data-aumlok-model-key-status": "missing",
+										children: t("firstRun.complete.modelMissing")
+									}) : modelCredential === "unavailable" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+										"data-aumlok-model-key-status": "unavailable",
+										children: t("firstRun.complete.modelUnavailable")
+									}) : null,
+									modelCredential === "configured" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 										type: "button",
 										"data-aumlok-start-chat": true,
 										onClick: startFirstChat,
 										children: t("firstRun.complete.chat")
-									})
+									}) : modelCredential === "missing" || modelCredential === "unavailable" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										"data-aumlok-completion-ok": true,
+										onClick: closeSurface,
+										children: t("firstRun.complete.ok")
+									}) : null
 								]
 							}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 								browserCeremony ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
@@ -14998,7 +15031,11 @@ window.__ModuleLoader__.load({
 			"firstRun.step.3": "绑定",
 			"firstRun.complete.title": "你的节点属于你",
 			"firstRun.complete.handle": "已绑定句柄",
+			"firstRun.complete.modelChecking": "正在检查此节点能否对话…",
+			"firstRun.complete.modelMissing": "模型密钥由节点运营者通过 node.py model-key 设置。在此之前，此应用无法对话。",
+			"firstRun.complete.modelUnavailable": "此应用无法确认模型密钥。节点运营者通过 node.py model-key 设置密钥；确认之前，对话保持不可用。",
 			"firstRun.complete.chat": "开始第一次对话",
+			"firstRun.complete.ok": "确定",
 			"firstRun.what": "这是什么？",
 			"details": "详情",
 			"phrase.label": "这就是密语的七个词",
@@ -15141,7 +15178,11 @@ window.__ModuleLoader__.load({
 			"firstRun.step.3": "Bind",
 			"firstRun.complete.title": "Your node is yours",
 			"firstRun.complete.handle": "Bound handle",
+			"firstRun.complete.modelChecking": "Checking whether this node can chat…",
+			"firstRun.complete.modelMissing": "The model key is set by the node's operator with node.py model-key. This app cannot chat until then.",
+			"firstRun.complete.modelUnavailable": "This app could not confirm a model key. The node's operator sets it with node.py model-key; chat stays unavailable until it is confirmed.",
 			"firstRun.complete.chat": "Start your first chat",
+			"firstRun.complete.ok": "OK",
 			"firstRun.what": "What is this?",
 			"details": "details",
 			"phrase.label": "Seven-word phrase",
@@ -15212,11 +15253,20 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/index.ts
 		const NS = "aumlok";
+		const MODEL_CREDENTIAL_REF = "DEEPSEEK_API_KEY";
+		/** Project only whether the operator-managed model credential exists. */
+		async function readModelCredentialStatus(ctx) {
+			const response = await ctx.remote.credentials.describe([MODEL_CREDENTIAL_REF]);
+			if (!response.ok) return "unavailable";
+			const configured = response.value[MODEL_CREDENTIAL_REF]?.configured;
+			return configured === true ? "configured" : configured === false ? "missing" : "unavailable";
+		}
 		/** Services required by the AUMLOK browser plugin. */
 		const inject = [
 			"slots",
 			"locale",
-			"connection"
+			"connection",
+			"remote.credentials"
 		];
 		/**
 		* Register the AUMLOK dictionaries, System launcher, and center surface.
@@ -15244,6 +15294,7 @@ window.__ModuleLoader__.load({
 				return await response.json();
 			};
 			const loader = new AumlokControlStatusLoader(projection, connection);
+			const readCredential = () => readModelCredentialStatus(ctx);
 			const refreshControlStatus = () => {
 				loader.refresh();
 			};
@@ -15312,6 +15363,7 @@ window.__ModuleLoader__.load({
 						}) : browserCeremony.prepare(handle ?? "", language).then(parseAumlokDrawnPhrase),
 						submitPhrase: (intent, words, handle) => scope.aumlokControlProjection.submitPhrase(intent, words, handle),
 						refreshControlStatus,
+						readModelCredentialStatus: readCredential,
 						startFirstChat: () => {
 							scope.layout.closeSurface();
 							scope.layout.openConversation();
@@ -15338,6 +15390,7 @@ window.__ModuleLoader__.load({
 		exports.inject = inject;
 		exports.parseAumlokControlProjection = parseAumlokControlProjection;
 		exports.readAumlokCeremonyBridge = readAumlokCeremonyBridge;
+		exports.readModelCredentialStatus = readModelCredentialStatus;
 		return module.exports;
 	}
 });

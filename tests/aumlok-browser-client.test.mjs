@@ -143,7 +143,7 @@ function visibleTextAtWidth(value, width) {
 
 function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true, options = {}) {
   const slots = [], updates = [], effects = [], draws = [], submits = []
-  let cursor = 0, tree, cancelled = 0, refreshed = 0, opened = 0, started = 0
+  let cursor = 0, tree, cancelled = 0, refreshed = 0, opened = 0, started = 0, closed = 0
   let projection = options.projection ?? { status: 'not-connected' }
   const react = {
     useState(initial) { const at = cursor++; if (!(at in slots)) slots[at] = { value: typeof initial === 'function' ? initial() : initial }
@@ -170,7 +170,7 @@ function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true, opt
         default: new Proxy({}, { get: (_target, key) => key }) }
       throw Error(`unexpected import ${name}`)
     } })
-  let props = { activeSurface: options.activeSurface ?? 'aumlok', closeSurface() {}, openSurface: () => { opened += 1 },
+  let props = { activeSurface: options.activeSurface ?? 'aumlok', closeSurface: () => { closed += 1 }, openSurface: () => { opened += 1 },
     t: key => en[key], useControlProjection: () => projection,
     ceremonyAvailable: true, browserCeremony, publicFirstRun: options.publicFirstRun ?? browserCeremony,
     cancelCeremony: () => { cancelled += 1 },
@@ -181,13 +181,14 @@ function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true, opt
       activeControlDigest: 'b'.repeat(64), custodyClass: 'same-uid-posix-mode-only', revoked: false,
       boundAt: '2026-01-01T00:00:00Z', phraseLanguage: 'en', phraseLegacy: false,
     } } },
+    readModelCredentialStatus: async () => options.modelCredentialStatus ?? 'configured',
     startFirstChat: () => { started += 1 },
   }
   function render() { cursor = 0; tree = exports.AumlokSurface(props); while (effects.length) effects.shift()() }
   async function flush() { for (let step = 0; step < 40; step++) { await Promise.resolve(); while (updates.length) { updates.shift()(); render() } } }
   render()
   return { draws, submits, get tree() { return tree }, get cancelled() { return cancelled }, get refreshed() { return refreshed },
-    get opened() { return opened }, get started() { return started }, flush,
+    get opened() { return opened }, get started() { return started }, get closed() { return closed }, flush,
     async change(key, value, checked = false) { find(tree, key).props.onChange({ target: checked ? { checked: value } : { value } }); await flush() },
     async click() { find(tree, 'data-aumlok-bind-button').props.onClick(); await flush() },
     async bound() { props.refreshControlStatus(); render(); await flush() },
@@ -195,6 +196,19 @@ function screen(text = sources['AumlokSurface.tsx'], browserCeremony = true, opt
     async close() { props = { ...props, activeSurface: null }; render(); await flush() },
     unmount() { for (const slot of slots) slot?.cleanup?.() },
   }
+}
+
+async function completeBrowserBinding(ui) {
+  await ui.change('data-aumlok-handle-input', 'owner')
+  await ui.click()
+  await ui.click()
+  for (let at = 0; at < 7; at++) {
+    nodes(ui.tree).find(node => node.props?.['data-aumlok-tile-input'] === at).props.onChange({ target: { value: words[at] } })
+    await ui.flush()
+  }
+  await ui.click()
+  await ui.change('data-aumlok-confirm-checkbox', true, true)
+  await ui.click()
 }
 
 async function screenChecks(text = sources['AumlokSurface.tsx']) {
@@ -252,6 +266,29 @@ async function screenChecks(text = sources['AumlokSurface.tsx']) {
   await mountedWidthChecks(text)
 }
 
+async function modelCredentialChecks(text = sources['AumlokSurface.tsx'], locale = en) {
+  const missing = screen(text, true, { modelCredentialStatus: 'missing' })
+  await completeBrowserBinding(missing)
+  const notice = find(missing.tree, 'data-aumlok-model-key-status')
+  assert.equal(notice.props['data-aumlok-model-key-status'], 'missing')
+  assert.equal(textOf(notice), locale['firstRun.complete.modelMissing'])
+  assert.match(textOf(notice), /node\.py model-key/u)
+  assert.match(textOf(notice), /cannot chat until then/u)
+  assert.equal(find(missing.tree, 'data-aumlok-start-chat'), undefined)
+  const ok = find(missing.tree, 'data-aumlok-completion-ok')
+  assert.equal(textOf(ok), 'OK')
+  ok.props.onClick()
+  assert.equal(missing.closed, 1)
+  missing.unmount()
+
+  const unavailable = screen(text, true, { modelCredentialStatus: 'unavailable' })
+  await completeBrowserBinding(unavailable)
+  assert.equal(find(unavailable.tree, 'data-aumlok-model-key-status').props['data-aumlok-model-key-status'], 'unavailable')
+  assert.equal(find(unavailable.tree, 'data-aumlok-start-chat'), undefined)
+  assert.ok(find(unavailable.tree, 'data-aumlok-completion-ok'))
+  unavailable.unmount()
+}
+
 async function loaderChecks(Loader = AumlokControlStatusLoader) {
   const calls = [], connected = [], disconnected = []
   const projection = { connect: value => connected.push(value), disconnect: (...args) => disconnected.push(args) }
@@ -302,7 +339,7 @@ async function mountingChecks(text = sources['index.ts']) {
     { desktop: false, loopback: true },
     { desktop: true, loopback: true },
   ]) {
-    const calls = [], desktopCalls = [], injected = {}, exports = {}
+    const calls = [], credentialCalls = [], desktopCalls = [], injected = {}, exports = {}
     const fetch = async (url, init) => { calls.push({ url, init }); return reply(url.endsWith('/prepare')
       ? { ok: true, draw } : url.endsWith('/bind') ? { ok: true, binding: {} } : { ok: true }) }
     const desktopBridge = desktop ? bridgeApi.readAumlokCeremonyBridge({ available: true,
@@ -343,9 +380,14 @@ async function mountingChecks(text = sources['index.ts']) {
       register: options => { if (options.inject) injected[options.id] = options.inject(); return () => {} } },
       effect: callback => callback(), on: () => () => {}, get(name) { return this[name] ?? { isLoopback: false } },
       inject(_services, callback) { callback(this) },
+      remote: { credentials: { describe: async refs => {
+        credentialCalls.push(refs)
+        return { ok: true, value: { DEEPSEEK_API_KEY: { configured: true, writable: false } } }
+      } } },
     }
     ctx.connection = { isLoopback: loopback }
     exports.apply(ctx)
+    assert.deepEqual(JSON.parse(JSON.stringify(exports.inject)), ['slots', 'locale', 'connection', 'remote.credentials'])
     assert.equal(injected.aumlok.ceremonyAvailable, true)
     assert.equal(injected.aumlok.browserCeremony, !desktop)
     // FIRST RUN OPENS FROM THE MOUNTED PLUGIN: nothing has opened the screen, the status arrives unbound,
@@ -356,6 +398,8 @@ async function mountingChecks(text = sources['index.ts']) {
     assert.deepEqual(layoutCalls, !desktop && !loopback ? ['open:aumlok'] : [], 'one first-run open, public origin only')
     layoutCalls.length = 0
     assert.equal(injected.aumlok.publicFirstRun, !desktop && !loopback)
+    assert.equal(await injected.aumlok.readModelCredentialStatus(), 'configured')
+    assert.deepEqual(JSON.parse(JSON.stringify(credentialCalls)), [['DEEPSEEK_API_KEY']])
     assert.equal((await injected.aumlok.drawPhrase('bind', 'en', 'owner')).ok, true)
     assert.equal((await injected.aumlok.submitPhrase('bind', words, 'owner')).ok, true)
     if (desktop) assert.deepEqual(desktopCalls, [['bind', 'en'], ['bind', words, 'owner']])
@@ -452,10 +496,13 @@ async function mountedWidthChecks(text = sources['AumlokSurface.tsx']) {
   ui.unmount()
 }
 
-async function shortStepLabelsChecks(locale = en) {
+async function firstRunCopyChecks(locale = en) {
   assert.equal(locale['firstRun.step.1'], 'Handle')
   assert.equal(locale['firstRun.step.2'], 'Seven words')
   assert.equal(locale['firstRun.step.3'], 'Bind')
+  assert.equal(locale['firstRun.complete.modelMissing'],
+    "The model key is set by the node's operator with node.py model-key. This app cannot chat until then.")
+  assert.equal(locale['firstRun.complete.ok'], 'OK')
 }
 
 async function mutation(name, source, before, after, check, load) {
@@ -474,6 +521,10 @@ test('rendered screen discloses node derivation and walks draw, hide, type, ackn
   await screenChecks()
   console.log('AUMLOK BROWSER SCREEN: PASS rendered seven-word ceremony, disclosure, acknowledgment, completion state, desktop refresh preserved')
 })
+test('completion reports operator-managed model readiness without accepting a key', async () => {
+  await modelCredentialChecks()
+  console.log('AUMLOK MODEL KEY: PASS missing/unavailable status shows operator command and OK; chat action stays absent')
+})
 test('public authenticated status reads remain generation-scoped and disposable', async () => {
   await loaderChecks()
   await statusDrivenFirstRunChecks()
@@ -487,7 +538,7 @@ test('first run opens only for public-origin UNBOUND and exposes each binding st
   await firstRunDecisionChecks()
   firstRunStyleChecks()
   await mountedWidthChecks()
-  await shortStepLabelsChecks()
+  await firstRunCopyChecks()
   const publicUnbound = screen(sources['AumlokSurface.tsx'], true, {
     activeSurface: 'threads', publicFirstRun: true,
     projection: { status: 'not-connected', reason: 'controller-absent' },
@@ -561,6 +612,13 @@ test('browser client protection mutations are detected', async () => {
     'browserCeremony !== undefined && !connection.isLoopback', 'browserCeremony !== undefined',
     () => mountingChecks(sources['index.ts'].replace(
       'browserCeremony !== undefined && !connection.isLoopback', 'browserCeremony !== undefined')), () => ({}))
+  await mutation('model credential reference', sources['index.ts'],
+    "const MODEL_CREDENTIAL_REF = 'DEEPSEEK_API_KEY'", "const MODEL_CREDENTIAL_REF = 'OTHER_API_KEY'",
+    () => mountingChecks(sources['index.ts'].replace("const MODEL_CREDENTIAL_REF = 'DEEPSEEK_API_KEY'",
+      "const MODEL_CREDENTIAL_REF = 'OTHER_API_KEY'")), () => ({}))
+  await mutation('missing model credential cannot start chat', sources['AumlokSurface.tsx'],
+    "modelCredential === 'configured' ? (", 'true ? (',
+    () => modelCredentialChecks(sources['AumlokSurface.tsx'].replace("modelCredential === 'configured' ? (", 'true ? ('), en), () => ({}))
   for (const [name, before, after] of [
     ['auto-open once guard', 'if (input.alreadyOpened)', 'if (false)'],
     ['auto-open loopback guard', 'if (input.isLoopback)', 'if (false)'],
@@ -580,6 +638,8 @@ test('browser client protection mutations are detected', async () => {
   ]) await mutation(name, sources['Aumlok.module.css'], before, after,
     async () => firstRunStyleChecks(sources['Aumlok.module.css'].replace(before, after)), () => ({}))
   await mutation('short step labels', sources['locales.ts'], "'firstRun.step.2': 'Seven words'",
-    "'firstRun.step.2': 'Receive and learn seven words'", module => shortStepLabelsChecks(module.en))
-  console.log('AUMLOK BROWSER CLIENT MUTATIONS: 43/43 KILLED; mounted source fixtures, no real browser or owner binding')
+    "'firstRun.step.2': 'Receive and learn seven words'", module => firstRunCopyChecks(module.en))
+  await mutation('operator model-key copy', sources['locales.ts'], "with node.py model-key. This app cannot chat until then.",
+    'in the app.', module => firstRunCopyChecks(module.en))
+  console.log('AUMLOK BROWSER CLIENT MUTATIONS: 46/46 KILLED; mounted source fixtures, no real browser or owner binding')
 })

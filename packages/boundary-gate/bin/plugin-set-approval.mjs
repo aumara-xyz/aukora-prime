@@ -134,7 +134,13 @@ const key = createPublicKey(ping.pubkey_pem), fp = sha(key.export({ type: 'spki'
 if (fp !== receipt.pubkey_fp || fp !== ping.pubkey_fp) die('gate key fingerprint mismatch')
 if (!edVerify(null, Buffer.from(JSON.stringify(receipt)), key, Buffer.from(receipt_sig, 'base64'))) die('receipt signature does not verify')
 const approval = { kind: 'aukora-plugin-set-gate-approval/v1', content, receipt, receipt_sig, ledger_entry }
-const pin = { kind: 'aukora-boundary-gate-owner/v1', gatePubkeyPem: ping.pubkey_pem, gatePubkeyFp: fp, target: PLUGIN_SET_TARGET, approver: receipt.approver }
+const consumed = receipt.v === 3 ? log.entries.find(e => e.event === 'owner-authorization-consumed'
+  && e.proposal === receipt.proposal && e.seq === receipt.owner_consumption?.ledger_seq
+  && e.signed_entry?.hash === receipt.owner_consumption?.ledger_hash
+  && JSON.stringify(e.detail?.owner_authorization) === JSON.stringify(receipt.owner_authorization)) : null
+if (receipt.v === 3 && !consumed) die('the retained owner receipt has no matching authorization-consumption channel')
+const pin = { kind: 'aukora-boundary-gate-owner/v1', gatePubkeyPem: ping.pubkey_pem, gatePubkeyFp: fp,
+  target: PLUGIN_SET_TARGET, approver: consumed?.detail.channel ?? receipt.approver }
 const pinFile = path.join(o.out, 'plugin-set-approver.json'), apprFile = path.join(o.out, 'plugin-set-approval.json')
 if (fs.existsSync(pinFile) && !o.repin) {
   const cur = JSON.parse(trustedRead(pinFile, 64 * 1024).toString('utf8'))

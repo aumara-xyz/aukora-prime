@@ -133,12 +133,86 @@ test('browser restrictions reach nested and preset-local providers from the pinn
   const disabled = JSON.parse(success(run("print(json.dumps(ns['BROWSER_DISABLED_ROWS']))")))
   const emitted = rows(patch, 'browser')
   for (const id of disabled) assert.equal(emitted.findLast(row => row.id === id)?.disabled, true, id)
+  assert.equal(emitted.findLast(row => row.id === 'ui-settings-models')?.disabled, true,
+    'browser profile suppresses both pinned vendor onboarding dialogs')
+  const ordinary = rows(generated(undefined, { browserNode: false, includeUpstream: false }).patches['aukora-composition.patch.yml'], 'ordinary')
+  assert.notEqual(ordinary.findLast(row => row.id === 'ui-settings-models')?.disabled, true,
+    'ordinary profile retains Models settings and its upstream onboarding')
   const presetMutation = mutated("if not match or match[2] not in BROWSER_DISABLED_ROWS:", 'if True:')
   assert.notEqual(run(presets, presetMutation, [scratch(t)]).status, 0, 'preset removal mutation survived')
   const hostMutation = mutated("''.join(f'- id: {name}\\n  disabled: true\\n' for name in BROWSER_DISABLED_ROWS)", "''")
   const mutantRows = rows(generated(hostMutation, { browserNode: true, includeUpstream: false }).patches['aukora-composition.patch.yml'], 'mutant')
   assert.notEqual(mutantRows.findLast(row => row.id === 'tool-fs')?.disabled, true, 'host removal mutation survived')
-  t.diagnostic('MUTATION browser provider disabling: 2/2 killed (host, presets)')
+  const dialogMutation = mutated("    'ui-settings-models',\n", '')
+  const dialogRows = rows(generated(dialogMutation, { browserNode: true, includeUpstream: false }).patches['aukora-composition.patch.yml'], 'dialog-mutant')
+  assert.notEqual(dialogRows.findLast(row => row.id === 'ui-settings-models')?.disabled, true,
+    'vendor onboarding mutation survived')
+  t.diagnostic('MUTATION browser provider disabling: 3/3 killed (host, presets, vendor onboarding)')
+})
+
+test('browser binding config carries the paths needed to activate memory without a restart', t => {
+  const patch = success(run("print(ns['browser_binding_rows']('https://node.example.test'))", source, [],
+    { AUKORA_STATE: '/synthetic/genesis/state' }))
+  const kira = rows(patch, 'browser-binding').find(row => row.id === 'aukora-kira')
+  assert.deepEqual(kira.config, {
+    retrieval: 'lexical',
+    memoryOwner: { stateDir: '/synthetic/genesis/state/home/kira-memory', subject: 'aumlok:subject:owner', permittedPrivacy: ['local'] },
+    browserBinding: { directory: '/synthetic/genesis/state/aumlok-binding', supportRoot: '/synthetic/genesis/support', stateRoot: '/synthetic/genesis/state/home' },
+  })
+  const guard = "            + f'    browserBinding:\\n      directory: {q(directory)}\\n'\n"
+    + "            f'      supportRoot: {q(os.path.dirname(state) + \"/support\")}\\n'\n"
+    + "            f'      stateRoot: {q(state + \"/home\")}\\n'"
+  const mutant = rows(success(run("print(ns['browser_binding_rows']('https://node.example.test'))",
+    mutated(guard, "            + ''"), [], { AUKORA_STATE: '/synthetic/genesis/state' })), 'mutant')
+  assert.equal(mutant.find(row => row.id === 'aukora-kira').config.browserBinding, undefined)
+  t.diagnostic('MUTATION browser memory startup configuration: 1/1 killed (binding paths)')
+})
+
+test('browser Kira overrides keep optional semantic recall in both emitted patches', t => {
+  const body = String.raw`
+main = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+patches = {}
+class Patch:
+    def read_text(self, **kwargs): return patches.get('aukora-composition.patch.yml', '')
+ns.update(target=Path('/synthetic/release'), args=SimpleNamespace(development=False,
+          kira_openviking_home=Path('/synthetic/openviking'), kira_project_map=None,
+          with_legacy_relay=False, browser_node=True, public_origin='https://node.example.test'),
+          patch=Patch(), default_patch=Patch(), hmr_row=ns['hmr_disable_row'](False))
+for node in ast.walk(main):
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call): continue
+    call = node.value
+    if not isinstance(call.func, ast.Attribute) or call.func.attr != 'write_text': continue
+    target = call.func.value
+    name = 'aukora-composition.patch.yml' if isinstance(target, ast.Name) and target.id in ('patch', 'default_patch') else None
+    if isinstance(target, ast.BinOp) and isinstance(target.left, ast.Name) and target.left.id == 'target' and isinstance(target.right, ast.Constant):
+        name = target.right.value
+    if name in ('aukora-composition.patch.yml', 'action-gate.patch.yml'):
+        patches[name] = eval(compile(ast.Expression(call.args[0]), 'materializer', 'eval'), ns)
+print(json.dumps(patches))
+`
+  const render = input => JSON.parse(success(run(body, input, [], { AUKORA_STATE: '/synthetic/genesis/state' })))
+  const verify = input => {
+    const patches = render(input)
+    for (const name of ['aukora-composition.patch.yml', 'action-gate.patch.yml']) {
+      const kira = rows(patches[name], name).findLast(row => row.id === 'aukora-kira')
+      assert.equal(kira.config.openVikingHome, '/synthetic/openviking')
+      assert.equal(kira.config.memoryOwner.stateDir, '/synthetic/genesis/state/home/kira-memory')
+      assert.equal(kira.config.browserBinding.stateRoot, '/synthetic/genesis/state/home')
+    }
+  }
+  verify(source)
+  for (const [before, after] of [
+    ['+ kira_openviking_config(kira_openviking_home, 4)', "+ ''"],
+    ['browser_binding_rows(public_origin, kira_openviking_home)', 'browser_binding_rows(public_origin)'],
+  ]) assert.throws(() => verify(mutated(before, after)), { code: 'ERR_ASSERTION' })
+  const call = "browser_node_rows(args.browser_node, getattr(args, 'public_origin', ''), args.kira_openviking_home)"
+  assert.equal(source.split(call).length, 3)
+  for (let index = 0; index < 2; index++) {
+    let seen = 0
+    const mutant = source.replaceAll(call, match => seen++ === index ? match.replace(', args.kira_openviking_home)', ')') : match)
+    assert.throws(() => verify(mutant), { code: 'ERR_ASSERTION' })
+  }
+  t.diagnostic('MUTATION browser semantic recall configuration: 4/4 killed (row and both patch routes)')
 })
 
 test('browser refusal is a global monotonic denial including tools registered after startup', async t => {

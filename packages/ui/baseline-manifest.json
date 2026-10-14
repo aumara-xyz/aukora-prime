@@ -14,7 +14,7 @@
     "documents",
     "settings"
   ],
-  "source_asset_policy": "Historical donor inventory with reviewed current source pins and rebuilt face bundles. All nine faces were compiled offline from canonical source against the eight-patch pinned harness; lib/.build-inputs.json binds current source and output bytes. The organism comment-only privacy adaptation and historical donor build observations are retained; adapters live outside faces/. Aura settings uses byte-identical copies of the maintained desktop Pentora derivation, with separate snapshot and motion helpers. Removed helper identities remain under excluded; rebuilt settings source/output pins include the authenticated snapshot route.",
+  "source_asset_policy": "Historical donor inventory with reviewed current source pins and rebuilt face bundles. Aumlok was compiled offline from canonical source against the nine-patch pinned harness; the other eight faces retain their prior eight-patch builds. lib/.build-inputs.json binds current source and output bytes. The organism comment-only privacy adaptation and historical donor build observations are retained; adapters live outside faces/. Aura settings uses byte-identical copies of the maintained desktop Pentora derivation, with separate snapshot and motion helpers. Removed helper identities remain under excluded; rebuilt settings source/output pins include the authenticated snapshot route.",
   "public_main_observed": "645d3213b8aede3b544269b4224ae09df06b0a42",
   "pending_items": [
     {
@@ -1940,14 +1940,14 @@
       "source": "plugins/aukora-face/aumlok/lib/.build-inputs.json",
       "path": "faces/aumlok/lib/.build-inputs.json",
       "bytes": 1844,
-      "sha256": "b89eb109cbd0be4349c66fd21ce210521e6a4821cdf779d1f8f52fc750d9a9e8",
+      "sha256": "c878a3b848002b588520a11e61a5ebfaec584bac2fcf767c676ed3b97753184a",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/aumlok/lib/client.js",
       "path": "faces/aumlok/lib/client.js",
-      "bytes": 485066,
-      "sha256": "b61853477a2283d4e1d7942e066f57fb37b178a67282b8ba3c0991db8a038c23",
+      "bytes": 488179,
+      "sha256": "0e75f71c6253be5d9ab14bc61f4ecc7e02fce89d8658da3d3df690af13012ee9",
       "role": "bundle"
     },
     {
@@ -1988,8 +1988,8 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/AumlokSurface.tsx",
       "path": "faces/aumlok/src/client/AumlokSurface.tsx",
-      "bytes": 30446,
-      "sha256": "25ef32171b600f954fa8a2c82f0d5ca0e94d9e18f0cbc0b885f1a2b25d47b236",
+      "bytes": 32097,
+      "sha256": "2ccafe946ff8c335a18c5fc019a5d9a6f98113bf1d4498ecdcfbebf0de87a4e9",
       "role": "source"
     },
     {
@@ -2058,15 +2058,15 @@
     {
       "source": "plugins/aukora-face/aumlok/src/client/index.ts",
       "path": "faces/aumlok/src/client/index.ts",
-      "bytes": 6722,
-      "sha256": "f149c298adef51bd85fd7345859e733251622d187ec1e87f42a23e0b257ada8f",
+      "bytes": 7431,
+      "sha256": "3450498ca3ae44b301a5b05809112607cac9f6f22f2ff0bfb38d0c5a9e5971d9",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/aumlok/src/client/locales.ts",
       "path": "faces/aumlok/src/client/locales.ts",
-      "bytes": 23620,
-      "sha256": "8c58d7a6b0067e6d4d9f222d082e0d3b6eb761e5cb07bfa17b52013d6b93287c",
+      "bytes": 24482,
+      "sha256": "9d5203977c6d860217c7d0c2939c40f939b4b0d3672bd75c5472a87f631e6fde",
       "role": "source"
     },
     {
@@ -2332,21 +2332,21 @@
       "source": "plugins/aukora-face/settings/lib/.build-inputs.json",
       "path": "faces/settings/lib/.build-inputs.json",
       "bytes": 1770,
-      "sha256": "80ccb66f3484e0fdb57acdd68f2e6c885145a5a5d3e3130dd2a93b978607ed23",
+      "sha256": "1bcce282aa088597134d65efbf118a0410aa82a97c3682472336889963ed28fb",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/client.js",
       "path": "faces/settings/lib/client.js",
-      "bytes": 69513,
-      "sha256": "21c5c251422d9be9e6c55d5d5adea63981455f96a82a7a39dcd47b8a6c7379ef",
+      "bytes": 70445,
+      "sha256": "ae74e4b5ece33cf08125ef80e57fed6c7d1cc18afa5ac3edc62baaaf378142e1",
       "role": "bundle"
     },
     {
       "source": "plugins/aukora-face/settings/lib/index.js",
       "path": "faces/settings/lib/index.js",
-      "bytes": 26738,
-      "sha256": "90cc67a0cbb039e29bf46e1a5cd7e4e5733a4939569d39f82a687a8be999bafd",
+      "bytes": 28471,
+      "sha256": "27e62c1367ec5d0639c4e88689b509bea40496d255d8c1e7ad2a525490a4157c",
       "role": "bundle"
     },
     {
@@ -2408,15 +2408,15 @@
     {
       "source": "plugins/aukora-face/settings/src/aura/snapshot-reader.ts",
       "path": "faces/settings/src/aura/snapshot-reader.ts",
-      "bytes": 8307,
-      "sha256": "3b3a3004fd69419ec9275a03e9903b16fc79860af04e0969bc1600ff362812c6",
+      "bytes": 9237,
+      "sha256": "b028bf8bd39fee5eb0a6a0bf3d36903a5d4ce7a720319ebe637d9995d62180a3",
       "role": "source"
     },
     {
       "source": "plugins/aukora-face/settings/src/aura/snapshot.ts",
       "path": "faces/settings/src/aura/snapshot.ts",
-      "bytes": 2508,
-      "sha256": "ba016cfaba2e441f294d88221c627808dd09c959679cd1d4068acf17ae7ff1fe",
+      "bytes": 3585,
+      "sha256": "7885b213b8139ace878fdfb46eb1bf3fe09d13acdc1208f9495b163ee3cee5bc",
       "role": "source"
     },
     {
@@ -2513,8 +2513,8 @@
     {
       "source": "plugins/aukora-face/settings/src/client/aura-snapshot.ts",
       "path": "faces/settings/src/client/aura-snapshot.ts",
-      "bytes": 3190,
-      "sha256": "c56519e6aa639f20b7cb6ece5beef5a492e44845a74cbb56534ba30f92042b3d",
+      "bytes": 4232,
+      "sha256": "b0c7739ce4dc1909993b588241e1e68a172a1cfd7484e8c9af85f46e8f4bfb7b",
       "role": "source"
     },
     {
@@ -3418,5 +3418,5 @@
       "build_qualification": "Current canonical source, including this comment adaptation, participates in the rebuilt Apps lib/.build-inputs.json source digest; no installed runtime qualification."
     }
   ],
-  "current_bundle_qualification": "RAN: all nine canonical faces rebuilt offline on macOS arm64 with Node v24.11.1 and pinned harness; source/output manifests verified. Linux byte parity and installed browser composition UNPERFORMED."
+  "current_bundle_qualification": "RAN: Aumlok rebuilt offline on macOS arm64 with Node v24.11.1 and the nine-patch pinned harness; all nine source/output manifests verified. The other eight faces retain prior eight-patch builds. Linux byte parity and installed browser composition UNPERFORMED."
 }

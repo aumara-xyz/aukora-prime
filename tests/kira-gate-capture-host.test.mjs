@@ -256,10 +256,17 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // naming the fixed Linux runtime directory; Kira rows/config and proposal socket are unchanged.
   // Reviewed browser bootstrap: only browser rows enable webserver/gateway guards, mount the
   // required policy plugin and add its approved name; Kira rows/config/socket and ordinary defaults are unchanged.
+  // Reviewed browser cohesion: disables deliverables with its workspace-files dependency;
+  // the browser-only Kira override restates lexical memory config and supplies binding/state/support paths.
+  // Ordinary Kira rows and the proposal socket remain unchanged.
+  // Reviewed browser semantic join: both browser patches pass the validated OpenViking home
+  // into the complete browser Kira config; omission retains lexical defaults and binding paths.
   // Reviewed browser Aura head: a fixed public-file reader replaces the omitted Buzz transport;
   // no provider is mounted, and both Kira rows/config and the proposal socket remain unchanged.
+  // Reviewed browser onboarding: only the browser profile disables ui-settings-models;
+  // Kira rows/config/socket and ordinary defaults remain unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '6a9f82ef6de738dfc1e242fbfbb0d6ba82199ae78ec79b087e0ef68aa9942e21')
+    'c64512a0e368d95ad39bc8141398edca761db3b460771e5ffb1864378fde737c')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
@@ -274,12 +281,22 @@ test('fixed protected paths and public-only bootstrap precede dynamic installed 
   assert.match(source, /env: \{\}, timeout: 10_000/u)
   assert.match(source, /stdout\.trim\(\) !== 'RUNTIME_AURA_VERIFIED'/u)
   assert.equal(source.includes('loadAuraContext('), false)
-  assert.equal(source.includes('ctx.provide'), false); assert.equal(source.includes('ctx.reflect'), false)
+  // Reviewed browser waiting head: one owned read-only ledger reader is disposed before native memory mounts.
+  // The ordinary trusted host still provides no service or reflected capture authority.
+  const start = source.indexOf('export async function waitForBrowserMemory(')
+  const end = source.indexOf('/** Trusted host construction seam', start)
+  assert.ok(start > 0 && end > start)
+  const ordinary = source.slice(0, start) + source.slice(end), browser = source.slice(start, end)
+  assert.equal(ordinary.includes('ctx.provide'), false)
+  assert.equal([...browser.matchAll(/ctx\.provide\(/gu)].length, 1)
+  assert.match(browser, /ctx\.provide\('kira\.head', Object\.freeze\(\{/u)
+  assert.equal(source.includes('ctx.reflect'), false)
 })
 
 test('negative guard mutants are detected by unavailable-capture controls', async () => {
   const source = await readFile(wrapperUrl, 'utf8')
-  const mutant = async replaced => import(`data:text/javascript;base64,${Buffer.from(replaced).toString('base64')}`)
+  const mutant = async replaced => import(`data:text/javascript;base64,${Buffer.from(replaced.replace(
+    "'./continuity-head.mjs'", JSON.stringify(new URL('../plugins/aukora-kira/lib/continuity-head.mjs', import.meta.url).href))).toString('base64')}`)
   const guard = "if (await preflight() !== true) throw new Error(captureUnavailable.reason)"
   assert.ok(source.includes(guard))
   const missingPreflight = await mutant(source.replace(guard, ''))
@@ -325,11 +342,13 @@ async function createAcceptedEFixture() {
   // capture/association authority and project attachment predicates stay intact.
   // Reviewed: import the ledger head reader and provide frozen read-only kira.head;
   // only head/count leave it, disposal refuses reads, and no authority paths changed.
+  // Reviewed: browser readiness accepts only the trusted active/linked fourth argument
+  // and projects only that fixed public pair through kira.head.
   // Reviewed: remember schema and pass-through admit supersedes IDs; capture scope,
   // input byte bound and host authority checks remain unchanged.
   // Reviewed: final recall and selected association reads use the same eligible
   // replacement filter; returned historical snippets retain or refresh dated links.
-  assert.equal(sha(indexSource), 'd6f71047512b935ac55a16896df97c4f28b229faeff03c4b741b67c942ab3dbe',
+  assert.equal(sha(indexSource), '427393d92181b6a72e6639dcfae1613d9f5c5fa570ff87ec8281379dbe0db4d5',
     'missing-dependency:accepted-kira-index-sha256')
   assert.equal(sha(associationSource), '67dfed9006ae1bb2b094b791b417290403941648e33d8c0a26f9158fc53fdb17',
     'missing-dependency:accepted-kira-association-sha256')

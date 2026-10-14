@@ -27,6 +27,9 @@ const add = (name, run) => checks.push({ name, run })
 const previousMask = process.umask(0o002)
 const digest = value => createHash('sha256').update(value).digest('hex')
 const privateNote = 'PRIVATE_KIRA_NOTE_FIXTURE'
+const browserWaiting = { active: false, reason: 'kira.memory:aumlok-not-linked' }
+const browserActive = { active: true, reason: 'kira.memory:aumlok-linked' }
+const kiraSource = value => ({ ...value, browserMemory: null })
 let growthFixtureId = 0
 function changingHead() {
   let reads = 0
@@ -92,15 +95,15 @@ add('only verified gate head, never a partial or malformed one', (_snapshot, { g
   assert.deepEqual(gateLedgerSource({ ok: true, head: 'GENESIS', entries: 0 }), { name: 'gate-ledger', head: null, entries: 0, absence: 'gate-ledger-empty' })
 })
 add('Kira service projects only validated head, count and fixed absence codes', (_snapshot, { kiraChainSource }) => {
-  assert.deepEqual(kiraChainSource(undefined), { name: 'kira-chain', head: null, entries: null, absence: 'kira-service-unavailable' })
+  assert.deepEqual(kiraChainSource(undefined), kiraSource({ name: 'kira-chain', head: null, entries: null, absence: 'kira-service-unavailable' }))
   assert.deepEqual(kiraChainSource({ head: heads[1], entries: 7, absence: null, note: privateNote,
-    subjectId: privateNote, path: privateNote }), { name: 'kira-chain', head: heads[1], entries: 7, absence: null })
+    subjectId: privateNote, path: privateNote }), kiraSource({ name: 'kira-chain', head: heads[1], entries: 7, absence: null }))
   for (const absence of ['kira-ledger-missing', 'kira-ledger-unreadable', 'kira-ledger-torn', 'kira-ledger-malformed',
     'kira-ledger-broken', 'kira-ledger-unavailable', 'kira-head-invalid', 'kira-ledger-head-invalid', 'kira-ledger-state-root-invalid']) {
-    assert.deepEqual(kiraChainSource({ head: null, entries: null, absence }), { name: 'kira-chain', head: null, entries: null, absence })
+    assert.deepEqual(kiraChainSource({ head: null, entries: null, absence }), kiraSource({ name: 'kira-chain', head: null, entries: null, absence }))
   }
   assert.deepEqual(kiraChainSource({ head: null, entries: 0, absence: 'kira-ledger-empty' }),
-    { name: 'kira-chain', head: null, entries: 0, absence: 'kira-ledger-empty' })
+    kiraSource({ name: 'kira-chain', head: null, entries: 0, absence: 'kira-ledger-empty' }))
   for (const value of [null, [], {}, { head: heads[1], entries: 7, absence: 'kira-ledger-broken' },
     { head: heads[1], entries: 0, absence: null }, { head: heads[1], entries: -1, absence: null },
     { head: heads[1], entries: 1.5, absence: null }, { head: heads[1], entries: Number.MAX_SAFE_INTEGER + 1, absence: null },
@@ -109,15 +112,30 @@ add('Kira service projects only validated head, count and fixed absence codes', 
     { head: 'g'.repeat(64), entries: 7, absence: null }, { head: null, entries: null, absence: privateNote }]) {
     let projected
     assert.doesNotThrow(() => { projected = kiraChainSource(value) })
-    assert.deepEqual(projected, { name: 'kira-chain', head: null, entries: null, absence: 'kira-head-invalid' })
+    assert.deepEqual(projected, kiraSource({ name: 'kira-chain', head: null, entries: null, absence: 'kira-head-invalid' }))
   }
 })
+add('Kira browser readiness exposes only fixed active state and named reasons', ({ makeAuraSnapshot }, { kiraChainSource }) => {
+  assert.deepEqual(kiraChainSource({ head: null, entries: 0, absence: 'kira-ledger-missing', browserMemory: browserWaiting }),
+    { ...kiraSource({ name: 'kira-chain', head: null, entries: 0, absence: 'kira-ledger-missing' }), browserMemory: browserWaiting })
+  assert.deepEqual(kiraChainSource({ head: heads[1], entries: 7, absence: null, browserMemory: browserActive,
+    subject: privateNote, stateDir: privateNote, note: privateNote }),
+  { ...kiraSource({ name: 'kira-chain', head: heads[1], entries: 7, absence: null }), browserMemory: browserActive })
+  for (const browserMemory of [{ active: true, reason: browserWaiting.reason }, { active: false, reason: browserActive.reason },
+    { active: false, reason: privateNote }, { active: privateNote, reason: browserWaiting.reason }]) {
+    assert.equal(kiraChainSource({ head: heads[1], entries: 7, absence: null, browserMemory }).browserMemory, null)
+  }
+  refusal(() => makeAuraSnapshot(sources.map((source, index) => index === 1
+    ? { ...source, browserMemory: { active: false, reason: privateNote } } : source)), 'aura-snapshot:browser-memory-invalid')
+  refusal(() => makeAuraSnapshot(sources.map((source, index) => index === 1
+    ? { ...source, browserMemory: { active: true, reason: browserWaiting.reason } } : source)), 'aura-snapshot:browser-memory-invalid')
+})
 add('Kira fields are captured once before validating and projecting them', (_snapshot, { kiraChainSource }) => {
-  assert.deepEqual(kiraChainSource(changingHead()), { name: 'kira-chain', head: heads[1], entries: 7, absence: null })
-  assert.deepEqual(kiraChainSource(changingAbsence()), { name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-broken' })
+  assert.deepEqual(kiraChainSource(changingHead()), kiraSource({ name: 'kira-chain', head: heads[1], entries: 7, absence: null }))
+  assert.deepEqual(kiraChainSource(changingAbsence()), kiraSource({ name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-broken' }))
   let reads = 0
   assert.deepEqual(kiraChainSource({ head: heads[1], get entries() { return ++reads === 1 ? 7 : privateNote }, absence: null }),
-    { name: 'kira-chain', head: heads[1], entries: 7, absence: null })
+    kiraSource({ name: 'kira-chain', head: heads[1], entries: 7, absence: null }))
 })
 add('code source reads its own release record, validates its digest, and exposes no record detail', async (_snapshot, { readCodeSource }) => {
   const scratch = mkdtempSync(new URL('.aura-code-', import.meta.url))
@@ -279,7 +297,7 @@ add('carried read-only transport, all source changes, and route never disclose K
     }`)
     const result = await readAuraSnapshot(scratch, '/fixture/gate.sock')
     assert.equal(result.sources[0].head, heads[0]); assert.equal(result.sources[0].entries, 7)
-    assert.deepEqual(result.sources.slice(1), [{ name: 'kira-chain', head: null, entries: null, absence: 'kira-service-unavailable' },
+    assert.deepEqual(result.sources.slice(1), [kiraSource({ name: 'kira-chain', head: null, entries: null, absence: 'kira-service-unavailable' }),
       { name: 'code-chain', head: null, entries: null, absence: 'code-record-missing' }])
     assert.equal(JSON.stringify(result).includes('PRIVATE_FIXTURE_DETAIL'), false)
     const codeHead = writeCodeRecord(scratch, privateNote)
@@ -287,7 +305,7 @@ add('carried read-only transport, all source changes, and route never disclose K
     const recall = () => ({ head: kiraHead, entries: kiraEntries, absence: null,
       notes: [{ text: privateNote, subjectId: privateNote, path: privateNote }], [privateNote]: privateNote })
     const present = await readAuraSnapshot(scratch, '/fixture/gate.sock', recall)
-    assert.deepEqual(present.sources.slice(1), [{ name: 'kira-chain', head: kiraHead, entries: 9, absence: null },
+    assert.deepEqual(present.sources.slice(1), [kiraSource({ name: 'kira-chain', head: kiraHead, entries: 9, absence: null }),
       { name: 'code-chain', head: codeHead, entries: 1, absence: null }])
     assert.deepEqual(await readAuraSnapshot(scratch, '/fixture/gate.sock', recall), present)
     kiraHead = heads[2]; kiraEntries += 1
@@ -306,15 +324,16 @@ add('carried read-only transport, all source changes, and route never disclose K
       assert.equal(res.body.includes(privateNote), false, 'Kira note text, subject, path and error text never leave this route')
       const payload = JSON.parse(res.body)
       assert.deepEqual(Object.keys(payload).sort(), ['head', 'schema', 'sources'])
-      for (const source of payload.sources) assert.deepEqual(Object.keys(source).sort(), ['absence', 'entries', 'head', 'name'])
+      for (const source of payload.sources) assert.deepEqual(Object.keys(source).sort(), source.name === 'kira-chain'
+        ? ['absence', 'browserMemory', 'entries', 'head', 'name'] : ['absence', 'entries', 'head', 'name'])
     }
     const failedMemory = await readAuraSnapshot(scratch, '/fixture/gate.sock', () => { throw Error(privateNote) })
-    assert.deepEqual(failedMemory.sources[1], { name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-unreadable' })
+    assert.deepEqual(failedMemory.sources[1], kiraSource({ name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-unreadable' }))
     assert.equal(failedMemory.sources[2].head, codeChanged.sources[2].head, 'Kira read failure does not hide the code source')
     const partialMemory = await readAuraSnapshot(scratch, '/fixture/gate.sock', () => ({ head: heads[1], entries: 9, absence: 'kira-ledger-broken' }))
-    assert.deepEqual(partialMemory.sources[1], { name: 'kira-chain', head: null, entries: null, absence: 'kira-head-invalid' })
+    assert.deepEqual(partialMemory.sources[1], kiraSource({ name: 'kira-chain', head: null, entries: null, absence: 'kira-head-invalid' }))
     const missingMemory = await readAuraSnapshot(scratch, '/fixture/gate.sock', () => ({ head: null, entries: null, absence: 'kira-ledger-missing' }))
-    assert.deepEqual(missingMemory.sources[1], { name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-missing' })
+    assert.deepEqual(missingMemory.sources[1], kiraSource({ name: 'kira-chain', head: null, entries: null, absence: 'kira-ledger-missing' }))
     const failure = await readAuraSnapshot(scratch, '/fixture/other.sock')
     assert.equal(failure.sources[0].head, null); assert.equal(failure.sources[0].absence, 'gate-ledger-unavailable')
     const invalid = await readAuraSnapshot(scratch, null)
@@ -324,6 +343,9 @@ add('carried read-only transport, all source changes, and route never disclose K
 add('client accepts all server availability states and refuses malformed snapshots', (_snapshot, _reader, { parseAuraSnapshot }) => {
   const base = snapshot.makeAuraSnapshot(sources)
   assert.deepEqual(parseAuraSnapshot(base), base)
+  const ready = snapshot.makeAuraSnapshot(sources.map((source, index) => index === 1
+    ? { ...source, browserMemory: browserActive } : source))
+  assert.deepEqual(parseAuraSnapshot(ready), ready)
   const empty = snapshot.makeAuraSnapshot([{ ...absent(0), entries: 0 }, absent(1), absent(2)])
   assert.deepEqual(parseAuraSnapshot(empty), empty)
   for (const value of [null, [], { ...base, schema: 'wrong' }, { ...base, head: 'aa' },
@@ -337,6 +359,11 @@ add('client accepts all server availability states and refuses malformed snapsho
   for (const source of [{ ...sources[0], head: 'AA'.repeat(32) }, { ...sources[0], entries: 0 },
     { ...sources[0], entries: 1.5 }, { ...sources[0], entries: null }, { ...sources[0], absence: 'missing' }]) {
     refusal(() => parseAuraSnapshot({ ...base, sources: [source, ...sources.slice(1)] }), 'aura-snapshot:source-head')
+  }
+  for (const browserMemory of [{ active: false, reason: privateNote }, { active: true, reason: browserWaiting.reason },
+    { active: privateNote, reason: browserActive.reason }]) {
+    const malformed = { ...ready, sources: ready.sources.map((source, index) => index === 1 ? { ...source, browserMemory } : source) }
+    refusal(() => parseAuraSnapshot(malformed), 'aura-snapshot:browser-memory')
   }
 })
 add('client counts only observed advances, preserving high water through absence and regression', (_snapshot, _reader, { advanceSourceEntries }) => {
@@ -386,6 +413,8 @@ const mutations = [
   ['snapshot', 'if (!Array.isArray(input) || input.length !== AURA_SNAPSHOT_SOURCES.length\n    || AURA_SNAPSHOT_SOURCES.some(name => input.filter(source => source?.name === name).length !== 1))', 'if (false)'],
   ['snapshot', '!HEX64.test(source.head)', 'false'],
   ['snapshot', '!Number.isSafeInteger(source.entries)', 'false'],
+  ['snapshot', '!BROWSER_MEMORY_REASONS.has(state.reason)', 'false'],
+  ['snapshot', "state.active !== (state.reason === 'kira.memory:aumlok-linked')", 'false'],
   ['snapshot', 'if (source.head === null\n', 'if (false && (source.head === null\n', 'source.entries < 1) {', 'source.entries < 1)) {'],
   ['reader', 'if (verified?.ok !== true)', 'if (false)'],
   ['reader', '!HEX64.test(verified.head)', 'false'],
@@ -397,13 +426,16 @@ const mutations = [
   ['reader', "typeof head !== 'string' || !HEX64.test(head)", 'false'],
   ['reader', '!Number.isSafeInteger(entries)', 'false'],
   ['reader', '(entries as number) < 1', 'false'],
-  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null }",
-    "return { ...(value as object), name: 'kira-chain', head, entries: entries as number, absence: null }"],
-  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null }",
-    "return { name: 'kira-chain', head: (value as { head: string }).head, entries: entries as number, absence: null }"],
-  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null }",
-    "return { name: 'kira-chain', head, entries: (value as { entries: number }).entries, absence: null }"],
-  ['reader', "return absent('kira-chain', absence, entries)", "return absent('kira-chain', (value as { absence: string }).absence, entries)"],
+  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null, browserMemory: readiness }",
+    "return { ...(value as object), name: 'kira-chain', head, entries: entries as number, absence: null, browserMemory: readiness }"],
+  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null, browserMemory: readiness }",
+    "return { name: 'kira-chain', head: (value as { head: string }).head, entries: entries as number, absence: null, browserMemory: readiness }"],
+  ['reader', "return { name: 'kira-chain', head, entries: entries as number, absence: null, browserMemory: readiness }",
+    "return { name: 'kira-chain', head, entries: (value as { entries: number }).entries, absence: null, browserMemory: readiness }"],
+  ['reader', "{ ...absent('kira-chain', absence, entries), browserMemory: readiness }",
+    "{ ...absent('kira-chain', (value as { absence: string }).absence, entries), browserMemory: readiness }"],
+  ['reader', 'BROWSER_MEMORY_REASONS.has(reason)', 'true'],
+  ['reader', "active === (reason === 'kira.memory:aumlok-linked')", 'true'],
   ['reader', "typeof digest !== 'string' || !HEX64.test(digest)", 'false'],
   ['reader', 'record?.formatVersion !== 1', 'false'],
   ['reader', "record.kind !== 'genesis-artifact-record'", 'false'],
@@ -442,6 +474,8 @@ const mutations = [
   ['client', '!Number.isSafeInteger(source.entries)', 'false'],
   ['client', '(source.entries as number) < 1', '(source.entries as number) < 0'],
   ['client', 'source.absence !== null', 'false'],
+  ['client', '!BROWSER_MEMORY_REASONS.has(memory.reason)', 'false'],
+  ['client', "memory.active !== (memory.reason === 'kira.memory:aumlok-linked')", 'false'],
   ['client', 'const counters = new Map(previous)', 'const counters = previous'],
   ['client', 'if (source.entries === null) continue', ''],
   ['client', 'if (before !== undefined)', 'if (true)'],

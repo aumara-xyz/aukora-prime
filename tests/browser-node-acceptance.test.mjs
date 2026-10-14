@@ -83,6 +83,30 @@ test('acceptance validates arguments, local proxy readback and embedded Python s
   const code = source.match(/python3 -I -S -c '([\s\S]*?)'\n/)[1]
   assert.equal(spawnSync('python3', ['-I', '-S', '-B', '-c', 'import sys;compile(sys.stdin.read(),"acceptance-inline","exec")'], { input: code }).status, 0)
 })
+test('acceptance dispatches bound checks and allows their evidence export', t => {
+  const call = fixture(t)
+  const args = ['--name', 'C1', '--phase', 'bound']
+  const check = modified => {
+    const result = call(base, args, modified)
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.calls, /accept --phase bound\n$/)
+  }
+  check(source)
+  const out = path.join(call.directory, 'bound-evidence.json')
+  const record = JSON.stringify({ kind: 'aukora-browser-node-evidence/v1', phase: 'bound', checks: [] })
+  const evidence = call(base, [...args, '--evidence', out], source, { EVIDENCE_RECORD: record })
+  assert.equal(evidence.status, 0, evidence.stderr)
+  assert.match(evidence.calls, /accept --phase bound --evidence\n$/)
+  assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).phase, 'bound')
+  for (const [before, after] of [
+    ['( $4 == before || $4 == after || $4 == bound || $4 == passkey )', '( $4 == before || $4 == after || $4 == passkey )'],
+    ['accept --phase "$4"', 'accept --phase after'],
+  ]) {
+    assert.ok(source.includes(before))
+    assert.throws(() => check(source.replace(before, after)), assert.AssertionError)
+  }
+  console.log('SOURCE-ONLY browser bound acceptance mutations: 2/2 killed; mocked LXD only')
+})
 test('acceptance transport guard removals fail real negative readback fixtures', t => {
   const call = fixture(t)
   for (const [label, anchor, attack] of attacks) {
@@ -102,7 +126,7 @@ test('acceptance transport guard removals fail real negative readback fixtures',
   console.log(`SOURCE-ONLY browser acceptance transport mutations: ${attacks.length + 1}/${attacks.length + 1} killed; mocked LXD only`)
 })
 
-test('acceptance exports only after to a fresh file and preserves failed observations', t => {
+test('acceptance exports approved phases to a fresh file and preserves failed observations', t => {
   const call = fixture(t), out = path.join(call.directory, 'evidence.json')
   const args = ['--name', 'C1', '--phase', 'after', '--evidence', out]
   const record = JSON.stringify({ kind: 'aukora-browser-node-evidence/v1', checks: [{ name: 'root_platform', status: 'FAIL' }] })
@@ -133,7 +157,7 @@ test('acceptance exports only after to a fresh file and preserves failed observa
   const huge = path.join(call.directory, 'huge-input.json')
   fs.writeFileSync(huge, record + ' '.repeat(4 * 1024 * 1024))
   const controls = [
-    ['after-only export', ' && $4 == after', '', beforeArgs, extra],
+    ['approved-phase export', ' && ( $4 == after || $4 == bound )', '', beforeArgs, extra],
     ['exclusive output', 'os.O_EXCL', '0', args, { EVIDENCE_RECORD: record }],
     ['public record kind', 'assert isinstance(value,dict) and value.get("kind")=="aukora-browser-node-evidence/v1"', 'pass',
       ['--name', 'C1', '--phase', 'after', '--evidence', path.join(call.directory, 'private.json')], { EVIDENCE_RECORD: '{"secret":"PRIVATE_SENTINEL","checks":[]}' }],
@@ -146,7 +170,7 @@ test('acceptance exports only after to a fresh file and preserves failed observa
     assert.equal(source.split(anchor).length, 2, name)
     const result = call(base, argv, source.replace(anchor, replacement), environment)
     assert.equal(result.status, environment.ACCEPTANCE_EXIT === '1' ? 1 : 0, name)
-    if (name === 'after-only export') assert.match(result.calls, / exec /)
+    if (name === 'approved-phase export') assert.match(result.calls, / exec /)
     else assert.equal(result.status, 0)
   }
   console.log(`SOURCE-ONLY browser evidence output mutations: ${controls.length}/${controls.length} killed; mocked LXD only`)
@@ -157,6 +181,27 @@ test('acceptance exports only after to a fresh file and preserves failed observa
   assert.equal(removed.status, 0)
   assert.throws(() => assert.equal(fs.readFileSync(out, 'utf8'), exported), { code: 'ERR_ASSERTION' })
   console.log('SOURCE-ONLY browser evidence host transport removal: 1/1 killed; mocked LXD only')
+})
+
+test('acceptance dispatches bound phase and retains that phase in its export', t => {
+  const call = fixture(t)
+  const accepted = call(base, ['--name', 'C1', '--phase', 'bound'])
+  assert.equal(accepted.status, 0, accepted.stderr)
+  assert.match(accepted.calls, /accept --phase bound\n/)
+  const out = path.join(call.directory, 'bound.json')
+  const record = JSON.stringify({ kind: 'aukora-browser-node-evidence/v1', phase: 'bound', checks: [] })
+  const exported = call(base, ['--name', 'C1', '--phase', 'bound', '--evidence', out], source,
+    { EVIDENCE_RECORD: record })
+  assert.equal(exported.status, 0, exported.stderr)
+  assert.match(exported.calls, /accept --phase bound --evidence\n/)
+  assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).phase, 'bound')
+  const anchor = 'accept --phase "$4" --evidence'
+  assert.equal(source.split(anchor).length, 2)
+  fs.unlinkSync(out)
+  const changed = call(base, ['--name', 'C1', '--phase', 'bound', '--evidence', out],
+    source.replace(anchor, 'accept --phase after --evidence'), { EVIDENCE_RECORD: record })
+  assert.throws(() => assert.match(changed.calls, /accept --phase bound --evidence\n/), { code: 'ERR_ASSERTION' })
+  console.log('SOURCE-ONLY browser bound phase dispatch mutation: 1/1 killed; mocked LXD only')
 })
 
 test('Python export and host projection preserve signed receipt bytes for the offline CLI', t => {
@@ -199,7 +244,7 @@ print(m.evidence_record(record['checks'][1:]))
     encoding: 'utf8', timeout: 10000,
   })
   assert.equal(checked.status, 0, checked.stdout + checked.stderr)
-  assert.match(checked.stdout, /OBSERVATIONS PASS checks=22/)
+  assert.match(checked.stdout, /OBSERVATIONS PASS checks=26/)
   console.log('SOURCE-ONLY browser evidence Python/host/offline roundtrip: PASS; synthetic signer and mocked installation only')
 })
 

@@ -58,7 +58,7 @@ function releaseFixture(stateDir, mapping) {
   for (const path of ['plugins/aukora-kira', 'plugins/aukora-aumlok', 'vendor/aukora-packages', 'vendor/authority', 'packages/contracts'])
     cpSync(join(root, path), join(release, path), { recursive: true, dereference: true })
   const entry = join(release, 'plugins/aukora-kira/lib/index.js')
-  writeFileSync(entry, readFileSync(entry, 'utf8').replace('export async function apply(ctx, config, gateCaptureHost)', 'async function originalApply(ctx, config, gateCaptureHost)')
+  writeFileSync(entry, readFileSync(entry, 'utf8').replace('export async function apply(ctx, config, gateCaptureHost, browserMemory)', 'async function originalApply(ctx, config, gateCaptureHost, browserMemory)')
     + `\nexport async function apply(...args) { await originalApply(...args); try { await globalThis.fetch('http://127.0.0.1:1/synthetic', { method: 'POST', body: ${JSON.stringify(sentinel)} }) } catch {} }\n`)
   writeFileSync(join(release, 'package.json'), '{"type":"module"}\n')
   for (const path of ['vendor/include/lib', 'vendor/loader/lib', 'packages/util/home-paths/lib', 'node_modules/js-yaml'])

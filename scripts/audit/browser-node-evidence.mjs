@@ -6,18 +6,30 @@ import { createHash, createPublicKey, verify } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-export const CHECK_NAMES = Object.freeze(['host_transport', 'root_platform', 'installation_record', 'browser_profile', 'users_modes',
+export const LEGACY_CHECK_NAMES = Object.freeze(['host_transport', 'root_platform', 'installation_record', 'browser_profile', 'users_modes',
   'package_custody', 'node_version', 'package_pins', 'gate_sockets', 'signer_pin', 'loopback_listeners',
   'approved_floor', 'harness_service', 'signed_in_ui', 'plugin_load', 'claim_service', 'public_origins',
   'anonymous_session', 'claim_exchange', 'claim_cookie', 'public_session', 'claim_replay'])
+const LEGACY_AFTER_REVISIONS = new Set([
+  '38004c5159500b23ffaefb5df8c98e3ee4150e9f',
+  'c18a7e4bfe2fa3ee2afdd2b91f7b9d82ffa1279a',
+])
+export const CHECK_NAMES = Object.freeze(['host_transport', 'root_platform', 'installation_record', 'browser_profile', 'users_modes',
+  'aura_collector_custody', 'package_custody', 'node_version', 'package_pins', 'gate_sockets', 'signer_pin', 'loopback_listeners',
+  'approved_floor', 'aura_collector', 'harness_service', 'signed_in_ui', 'browser_binding_guard', 'plugin_load', 'claim_service',
+  'public_origins', 'anonymous_session', 'claim_exchange', 'claim_cookie', 'public_session', 'claim_replay', 'aura_sources'])
+export const BOUND_CHECK_NAMES = Object.freeze([...CHECK_NAMES, 'binding_custody', 'binding_overlay', 'kira_active',
+  'bound_rpc', 'bound_app', 'repeat_prepare', 'aura_gate_code', 'aura_kira_note', 'composition_active', 'bound_current_invocation'])
 export const LIMITATIONS = Object.freeze([
-  'CANNOT VERIFY public key belongs to a real node, owner identity or attendance, or approval-channel custody.',
+  'CANNOT VERIFY public key belongs to a real node, owner identity or attendance, approval-channel custody, or retained owner-proof history.',
   'CANNOT VERIFY checks really ran, their results, observation time, installer bytes or process-loaded release; record is unsigned.',
   'CANNOT VERIFY floor history, signer epoch, protected custody, monotonic enforcement, complete ledger chain or latest ledger head; floor has no standalone signature.',
   'CANNOT VERIFY release or plugin bytes, operation digest derivation, HTTPS/browser rendering, enrollment, containment or a model reply.',
 ])
 const MAX_BYTES = 128 * 1024
-const RECEIPT_FIELDS = ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha', 'applied_at', 'approver', 'approval_evidence_hmac', 'pubkey_fp']
+const LEGACY_RECEIPT_FIELDS = ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha', 'applied_at', 'approver', 'approval_evidence_hmac', 'pubkey_fp']
+const OWNER_RECEIPT_FIELDS = ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha', 'applied_at', 'approver', 'pubkey_fp',
+  'gate_pubkey_sha256', 'owner_authorization', 'owner_accepted_at_ms', 'owner_consumption']
 const ROW_FIELDS = ['seq', 'at', 'event', 'proposal', 'target', 'base_sha', 'new_sha', 'detail', 'prev', 'hash', 'sig']
 const TARGET = 'plugins/aukora-plugin-set/approval.json'
 const APPROVERS = new Set(['owner via owner.sock (local; 0600 gate user/root only)',
@@ -40,6 +52,18 @@ const utc = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
 const base64 = (value, length) => typeof value === 'string' && Buffer.from(value, 'base64').length === length
   && Buffer.from(value, 'base64').toString('base64') === value
+function retainedProof(receipt, keyHash) {
+  const reference = receipt.owner_authorization, consumption = receipt.owner_consumption, issue = consumption?.review_issue
+  return /^aukora:1:[0-9a-f]{64}$/u.test(receipt.approver) && receipt.gate_pubkey_sha256 === keyHash
+    && closed(reference, ['version', 'kind', 'authorization_id', 'proof_sha256'], true)
+    && reference.version === 1 && reference.kind === 'aukora-owner-authorization-ref/v1'
+    && hex(reference.authorization_id) && hex(reference.proof_sha256)
+    && Number.isSafeInteger(receipt.owner_accepted_at_ms) && receipt.owner_accepted_at_ms >= 0
+    && closed(consumption, ['ledger_seq', 'ledger_hash', 'review_issue'], true)
+    && positive(consumption.ledger_seq) && hex(consumption.ledger_hash)
+    && closed(issue, ['ledger_seq', 'ledger_hash'], true) && positive(issue.ledger_seq)
+    && issue.ledger_seq < consumption.ledger_seq && hex(issue.ledger_hash)
+}
 function signed(bytes, key, signature) {
   try { return verify(null, bytes, key, Buffer.from(signature, 'base64')) } catch { return false }
 }
@@ -97,9 +121,11 @@ export function parseBrowserNodeEvidence(text) {
 }
 
 export function verifyBrowserNodeEvidence(record, { containerOnly = false } = {}) {
-  const checkNames = containerOnly ? CHECK_NAMES.slice(1) : CHECK_NAMES
+  const phaseNames = record?.phase === 'bound' ? BOUND_CHECK_NAMES
+    : LEGACY_AFTER_REVISIONS.has(record?.release?.revision) ? LEGACY_CHECK_NAMES : CHECK_NAMES
+  const checkNames = containerOnly ? phaseNames.slice(1) : phaseNames
   require(closed(record, ['kind', 'phase', 'observed_at', 'release', 'signer', 'approval', 'floor', 'installer_inputs', 'checks', 'record_signature']), 'record-schema')
-  require(record.kind === 'aukora-browser-node-evidence/v1' && record.phase === 'after', 'record-kind')
+  require(record.kind === 'aukora-browser-node-evidence/v1' && ['after', 'bound'].includes(record.phase), 'record-kind')
   require(utc(record.observed_at), 'observation-time')
   const release = record.release, signer = record.signer, approval = record.approval, floor = record.floor
   require(closed(release, ['revision', 'record_sha256', 'plugin_set_sha256']) && hex(release.revision, SHA40)
@@ -114,12 +140,14 @@ export function verifyBrowserNodeEvidence(record, { containerOnly = false } = {}
   require(closed(approval, ['kind', 'content', 'receipt', 'receipt_sig', 'ledger_entry'])
     && approval.kind === 'aukora-plugin-set-gate-approval/v1' && typeof approval.content === 'string'
     && approval.content.length <= 1024, 'approval-schema')
-  const receipt = approval.receipt
-  require(closed(receipt, RECEIPT_FIELDS, true) && receipt.v === 2 && receipt.kind === 'change', 'receipt-schema')
+  const receipt = approval.receipt, legacy = closed(receipt, LEGACY_RECEIPT_FIELDS, true) && receipt.v === 2
+  const retained = closed(receipt, OWNER_RECEIPT_FIELDS, true) && receipt.v === 3
+  require((legacy || retained) && receipt.kind === 'change', 'receipt-schema')
   require(typeof receipt.proposal === 'string' && UUID.test(receipt.proposal) && receipt.target === TARGET
     && (receipt.base_sha === 'absent' || hex(receipt.base_sha)) && hex(receipt.new_sha)
-    && receipt.base_sha !== receipt.new_sha && utc(receipt.applied_at) && APPROVERS.has(receipt.approver)
-    && base64(receipt.approval_evidence_hmac, 32) && hex(receipt.pubkey_fp, /^[0-9a-f]{16}$/u), 'receipt-public-schema')
+    && receipt.base_sha !== receipt.new_sha && utc(receipt.applied_at) && hex(receipt.pubkey_fp, /^[0-9a-f]{16}$/u)
+    && (legacy ? APPROVERS.has(receipt.approver) && base64(receipt.approval_evidence_hmac, 32)
+      : retainedProof(receipt, keyHash)), 'receipt-public-schema')
   require(receipt.pubkey_fp === keyHash.slice(0, 16), 'receipt-fingerprint')
   require(base64(approval.receipt_sig, 64), 'receipt-signature-schema')
   require(signed(Buffer.from(JSON.stringify(receipt)), key, approval.receipt_sig), 'receipt-signature')

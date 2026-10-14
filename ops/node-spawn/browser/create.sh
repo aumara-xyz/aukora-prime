@@ -5,6 +5,7 @@ set -euo pipefail
 umask 077
 refuse() { printf 'REFUSED %s\n' "$1" >&2; exit 1; }
 name= image= inputs= checkout_sha= revision= node_sha= dependencies_sha= app_port= owner_port= claim_port= app_host= owner_host= seen=
+openviking_bundle= openviking_sha=
 while [[ $# -gt 0 ]]; do
   [[ $# -ge 2 ]] || refuse BROWSER_CREATE_USAGE
   [[ "|$seen|" != *"|$1|"* ]] || refuse BROWSER_CREATE_DUPLICATE_ARGUMENT
@@ -22,10 +23,17 @@ while [[ $# -gt 0 ]]; do
     --claim-port) claim_port=$2 ;;
     --app-host) app_host=$2 ;;
     --owner-host) owner_host=$2 ;;
+    --openviking-bundle) openviking_bundle=$2 ;;
+    --openviking-sha256) openviking_sha=$2 ;;
     *) refuse BROWSER_CREATE_USAGE ;;
   esac
   shift 2
 done
+[[ -z $openviking_bundle && -z $openviking_sha || -n $openviking_bundle && -n $openviking_sha ]] || refuse BROWSER_CREATE_OPENVIKING_PAIR_REQUIRED
+if [[ -n $openviking_bundle ]]; then
+  [[ $openviking_sha =~ ^[0-9a-f]{64}$ ]] || refuse BROWSER_CREATE_OPENVIKING_DIGEST_INVALID
+  [[ $openviking_bundle == /* && $openviking_bundle != / && $openviking_bundle != *$'\n'* && $openviking_bundle != *$'\r'* ]] || refuse BROWSER_CREATE_OPENVIKING_PATH_INVALID
+fi
 [[ -n $name && -n $image && -n $inputs && -n $checkout_sha && -n $revision && -n $node_sha && -n $dependencies_sha && -n $app_port && -n $owner_port && -n $claim_port && -n $app_host && -n $owner_host ]] || refuse BROWSER_CREATE_USAGE
 [[ ${#name} -le 63 && $name =~ ^[A-Za-z][A-Za-z0-9]*(-[A-Za-z0-9]+)*$ ]] || refuse BROWSER_CREATE_NAME_INVALID
 [[ $image =~ ^[0-9a-f]{64}$ ]] || refuse BROWSER_CREATE_IMAGE_INVALID
@@ -71,7 +79,7 @@ cleanup() {
   exit "$result"
 }
 trap cleanup EXIT
-work=$(python3 -I -S - "$inputs" "$checkout_sha" "$node_sha" "$dependencies_sha" <<'PY'
+work=$(python3 -I -S - "$inputs" "$checkout_sha" "$node_sha" "$dependencies_sha" "$openviking_bundle" "$openviking_sha" <<'PY'
 import hashlib, os, pathlib, shutil, stat, sys, tempfile
 work = None
 try:
@@ -80,8 +88,14 @@ try:
     if not base.is_absolute() or base.resolve() != base or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
         raise ValueError('BROWSER_CREATE_INPUTS_CUSTODY')
     work = pathlib.Path(tempfile.mkdtemp(prefix='.browser-create-', dir=base))
-    for name, expected in [('checkout.bundle', sys.argv[2]), ('node.tar.xz', sys.argv[3]), ('dependencies.tar.gz', sys.argv[4]), ('dsh-source.tar.gz', None)]:
-        fd = os.open(base / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    artifacts = [(name, base / name, expected) for name, expected in [('checkout.bundle', sys.argv[2]), ('node.tar.xz', sys.argv[3]), ('dependencies.tar.gz', sys.argv[4]), ('dsh-source.tar.gz', None)]]
+    if sys.argv[5]:
+        bundle = pathlib.Path(sys.argv[5])
+        if bundle.resolve() != bundle:
+            raise ValueError('BROWSER_CREATE_INPUTS_CUSTODY')
+        artifacts.append(('openviking.tar.gz', bundle, sys.argv[6]))
+    for name, file, expected in artifacts:
+        fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.geteuid() or info.st_mode & 0o022:
             os.close(fd)
@@ -175,12 +189,17 @@ run BROWSER_CREATE_COPY_FAILED lxc exec "$name" -- mkdir -m 0700 /root/aukora-br
 for file in checkout.bundle dsh-source.tar.gz node.tar.xz dependencies.tar.gz; do
   run BROWSER_CREATE_COPY_FAILED lxc file push "$work/$file" "$name/root/aukora-browser-inputs/$file" --mode 0600 --uid 0 --gid 0
 done
+openviking_args=()
+if [[ -n $openviking_bundle ]]; then
+  run BROWSER_CREATE_COPY_FAILED lxc file push "$work/openviking.tar.gz" "$name/root/aukora-browser-inputs/openviking.tar.gz" --mode 0600 --uid 0 --gid 0
+  openviking_args=(--openviking-bundle /root/aukora-browser-inputs/openviking.tar.gz --openviking-sha256 "$openviking_sha")
+fi
 for script in "$work/checkout/ops/node-spawn/browser/"*; do
   [[ -f $script && ! -L $script ]] || refuse BROWSER_CREATE_INSTALLER_INVALID
   run BROWSER_CREATE_COPY_FAILED lxc file push "$script" "$name/root/aukora-browser-installer/${script##*/}" --mode 0700 --uid 0 --gid 0
 done
 run BROWSER_CREATE_COPY_FAILED lxc file push "$work/checkout/ops/node-spawn/stage.py" "$name/root/aukora-browser-installer/stage.py" --mode 0700 --uid 0 --gid 0
-run BROWSER_CREATE_INSTALL_FAILED lxc exec "$name" -- /bin/bash /root/aukora-browser-installer/install.sh --inputs /root/aukora-browser-inputs --checkout-sha256 "$checkout_sha" --revision "$revision" --node-sha256 "$node_sha" --dependencies-sha256 "$dependencies_sha" --app-host "$app_host" --owner-host "$owner_host"
+run BROWSER_CREATE_INSTALL_FAILED lxc exec "$name" -- /bin/bash /root/aukora-browser-installer/install.sh --inputs /root/aukora-browser-inputs --checkout-sha256 "$checkout_sha" --revision "$revision" --node-sha256 "$node_sha" --dependencies-sha256 "$dependencies_sha" --app-host "$app_host" --owner-host "$owner_host" ${openviking_args[@]+"${openviking_args[@]}"}
 run BROWSER_CREATE_PROXY_FAILED lxc config device add "$name" browser-app proxy "listen=tcp:127.0.0.1:$app_port" connect=tcp:127.0.0.1:18735 bind=host nat=false security.uid=65534 security.gid=65534
 run BROWSER_CREATE_PROXY_FAILED lxc config device add "$name" browser-owner proxy "listen=tcp:127.0.0.1:$owner_port" connect=tcp:127.0.0.1:17792 bind=host nat=false security.uid=65534 security.gid=65534
 run BROWSER_CREATE_PROXY_FAILED lxc config device add "$name" browser-claim proxy "listen=tcp:127.0.0.1:$claim_port" connect=tcp:127.0.0.1:18736 bind=host nat=false security.uid=65534 security.gid=65534

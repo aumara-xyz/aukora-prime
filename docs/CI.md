@@ -9,7 +9,11 @@ credentials or request paid infrastructure.
 
 A successful **functional source check** requires all 66 jobs to close normally,
 all reviewed source pins and required assertion counters to match, **65 PASS / 0
-FAIL / 1 declared external PostgreSQL UNPERFORMED**, and verifier exit **2**. The
+FAIL / 1 declared external PostgreSQL UNPERFORMED**, and verifier exit **2**. These
+are job outcomes, not 65 counted assertions: three `assert-script` jobs
+(`packages/contracts/check.mjs`, `packages/ui/scripts/check-static.mjs`, and
+`packages/authority/check-admission.mjs admission-probe session-renewal`) count as
+PASS when their pinned process exits 0, without an assertion count. The
 one allowed exclusion is `memory-memory`'s exact title, “PostgreSQL acceptance on
 an explicitly supplied disposable database”, with the exact reason `UNPERFORMED:
 no disposable PostgreSQL runtime supplied`. Exit 2 by itself never passes CI.
@@ -19,10 +23,25 @@ Exit 0 also fails this frozen contract: it cannot silently remove the exclusion.
 PENDING.** The workflow and job names state this limit. A green functional check
 does not qualify owner enrollment, live PostgreSQL, cross-UID separation, a guest
 runtime, paid inference, composed pixels, or the other declared exclusions.
-Required assertions that fail remain failures. Missing evidence, changed source
-pins, unavailable prerequisites, timeout, zero work, unexpected skips or an IPC
-bind refusal fail CI; an environment refusal remains visibly incomplete/failed.
-The summary retains the observed status and reason for each returned job.
+Required assertions that fail remain failures. In this source-profile workflow,
+missing evidence, changed source pins, unavailable prerequisites, timeout, zero
+work, unexpected skips or an IPC bind refusal fail CI; an environment refusal
+remains visibly incomplete/failed. The summary retains the observed status and
+reason for each returned job.
+
+The separate `.github/workflows/checks.yml` workflow has a different contract:
+its matrix records named `UNPERFORMED` commands and still exits successfully when
+there are no `FAIL` rows. On the hosted runner, `browser-bootstrap-mux.test.mjs`,
+`browser-bootstrap-boot.test.mjs`, `browser-bootstrap-guard.test.mjs` and
+`browser-ingress-harness.test.mjs` are UNPERFORMED because the gitignored pinned
+harness archive (and, for the boot test, a built harness) is absent; those four
+run by hand on the Linux rehearsal host with the pinned archive/build. The same
+workflow's `scripts/check.sh` row also skips the three macOS-only confinement
+commands: `scripts/aukora/box-confinement-check.mjs`,
+`scripts/aukora/caged-worker.mjs` and
+`scripts/aukora/caged-broker-effect.mjs`. A green `checks.yml` run therefore does
+not include those four browser harness tests or the three macOS-only commands;
+the separately built **fresh clone boots** job does not change the matrix result.
 
 Each run uploads a seven-day artifact containing the verifier's unmodified
 `stdout.log` and `stderr.log`, its actual JSON summary, the separately written
@@ -52,9 +71,9 @@ qualification remains UNPERFORMED; the 66-job result does not qualify it.
 
 ## Activation and permissions
 
-The publisher must land these files on the public repository and inspect the first
-real Actions run, its summary and uploaded artifact. No Actions run is claimed by
-this patch. Repository Actions policy must allow `actions/checkout`,
+The publisher must land these files on the public repository and inspect each
+claimed Actions run, its summary and uploaded artifact; this page does not claim
+a run of the received revision. Repository Actions policy must allow `actions/checkout`,
 `actions/setup-node` and `actions/upload-artifact` at their pinned SHAs. A maintainer
 with write access can publish the workflow; their existing publication mechanism
 must permit workflow-file updates. No new credential is required by CI.

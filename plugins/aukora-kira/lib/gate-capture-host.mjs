@@ -4,6 +4,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, createPublicKey } from 'node:crypto'
+import { isAbsolute, join, resolve } from 'node:path'
+import { readMemoryLedgerHead } from './continuity-head.mjs'
 
 export const name = 'aukora-kira'
 export const inject = Object.freeze(['tools', 'sessions'])
@@ -99,13 +101,107 @@ function readLifecycle(aura, contextSha256) {
   return value
 }
 
+export const BROWSER_MEMORY = Object.freeze({
+  WAITING: 'kira.memory:aumlok-not-linked',
+  ACTIVE: 'kira.memory:aumlok-linked',
+  CONFIG: 'kira.memory:browser-binding-config',
+  BINDING: 'kira.memory:browser-binding-unreadable',
+  OVERLAY: 'kira.memory:browser-overlay-unavailable',
+  MISMATCH: 'kira.memory:browser-identity-mismatch',
+  ACTIVATION: 'kira.memory:activation-failed',
+})
+const browserFailure = reason => { throw Object.assign(new Error(reason), { code: reason }) }
+const browserReadiness = reason => Object.freeze({ active: reason === BROWSER_MEMORY.ACTIVE, reason })
+
+async function readBrowserBinding(directory) {
+  const { lstatSync } = await import('node:fs')
+  try { lstatSync(directory) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
+  const { loadLocalAumlokPublicControl, LOCAL_AUMLOK_CONTROL_REFUSE } = await import('../../aukora-aumlok/lib/store.mjs')
+  try { return loadLocalAumlokPublicControl(directory).projection }
+  catch (error) { if (error.code === LOCAL_AUMLOK_CONTROL_REFUSE.UNAVAILABLE) return null; throw error }
+}
+
+async function readBrowserOverlay(supportRoot) {
+  const { readKiraDeploymentOverlay, MEMORY_OVERLAY_NAME } = await import('./memory-identity.mjs')
+  const { readTextStrict } = await import('./strict-read.mjs')
+  return readKiraDeploymentOverlay(readTextStrict(join(supportRoot, MEMORY_OVERLAY_NAME), { maxBytes: 64 * 1024 }))
+}
+
+// Start one owned memory child only after the binding and overlay agree.
+export async function waitForBrowserMemory(ctx, config, startMemory, {
+  readBinding = readBrowserBinding, readOverlay = readBrowserOverlay,
+  schedule = check => { const timer = setInterval(check, 250); timer.unref?.(); return () => clearInterval(timer) },
+} = {}) {
+  const detached = snapshotData(config, 0, new Set(), true), binding = detached.browserBinding
+  const fields = ['directory', 'supportRoot', 'stateRoot']
+  if (!binding || Object.keys(binding).length !== fields.length || fields.some(field =>
+    typeof binding[field] !== 'string' || !isAbsolute(binding[field]) || resolve(binding[field]) !== binding[field]
+    || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(binding[field]))
+    || detached.memoryOwner?.stateDir !== join(binding.stateRoot, 'kira-memory')) browserFailure(BROWSER_MEMORY.CONFIG)
+  const { browserBinding: _binding, ...ordinary } = detached
+  let live = true, headLive = true, inFlight = false, started = false, stop = () => {}, lastReason
+  let disposeHead = () => {}
+  const report = (reason, active = false) => {
+    if (lastReason === reason) return
+    lastReason = reason
+    if (reason === BROWSER_MEMORY.WAITING || active) ctx.logger?.info?.(`aukora-kira: ${active ? 'memory active' : 'waiting'} (${reason})`)
+    else ctx.logger?.warn?.(`aukora-kira: memory unavailable (${reason})`)
+  }
+  ctx.effect(() => async () => { live = false; stop(); headLive = false; await disposeHead() }, 'aukora-kira: browser binding wait')
+  if (typeof ctx.provide === 'function') {
+    disposeHead = ctx.provide('kira.head', Object.freeze({
+      readHead: () => ({ ...(live && headLive ? readMemoryLedgerHead({ stateDir: ordinary.memoryOwner.stateDir })
+        : { head: null, entries: null, absence: 'kira-ledger-unavailable' }),
+      browserMemory: browserReadiness(lastReason ?? BROWSER_MEMORY.WAITING) }),
+    }))
+  }
+  const check = async () => {
+    if (!live || inFlight || started) return
+    inFlight = true
+    let child
+    try {
+      let publicBinding, owner
+      try { publicBinding = await readBinding(binding.directory) }
+      catch { browserFailure(BROWSER_MEMORY.BINDING) }
+      if (!live) return
+      if (publicBinding === null) { report(BROWSER_MEMORY.WAITING); return }
+      try { owner = await readOverlay(binding.supportRoot) }
+      catch { browserFailure(BROWSER_MEMORY.OVERLAY) }
+      if (!live) return
+      if (typeof publicBinding?.subject !== 'string' || !/^aukora:1:[0-9a-f]{64}$/u.test(publicBinding.subject)
+        || owner?.subject !== publicBinding.subject || owner?.stateDir !== ordinary.memoryOwner.stateDir
+        || !['aumlok:subject:owner', publicBinding.subject].includes(ordinary.memoryOwner.subject)) browserFailure(BROWSER_MEMORY.MISMATCH)
+      const linked = Object.freeze({ ...ordinary,
+        memoryOwner: Object.freeze({ ...ordinary.memoryOwner, subject: publicBinding.subject }) })
+      headLive = false
+      await disposeHead()
+      if (!live) return
+      child = ctx.plugin({ name: 'aukora-kira-browser-memory',
+        apply: childCtx => startMemory(childCtx, linked, browserReadiness(BROWSER_MEMORY.ACTIVE)) })
+      await child
+      if (!live) return
+      started = true
+      stop()
+      report(BROWSER_MEMORY.ACTIVE, true)
+    } catch (error) {
+      if (child) await child.dispose()
+      if (live) report(Object.values(BROWSER_MEMORY).includes(error.code) ? error.code : BROWSER_MEMORY.ACTIVATION)
+    } finally { inFlight = false }
+  }
+  await check()
+  if (live && !started) stop = schedule(() => { void check() })
+}
+
 /** Trusted host construction seam for disposable dependency fixtures. These
  * functions are never read from Cordis config, model input or reflected services. */
 export function createGateCaptureHostPlugin({ platform, preflight, loadKira, loadAura, loadCapture, gateCall } = {}) {
   if (typeof platform !== 'string' || [preflight, loadKira, loadAura, loadCapture, gateCall]
     .some(value => typeof value !== 'function')) throw new Error(captureUnavailable.reason)
-  return Object.freeze({ name, inject,
-    async apply(ctx, existingConfig) {
+    async function apply(ctx, existingConfig, browserMemory) {
+      if (existingConfig?.browserBinding !== undefined) {
+        return waitForBrowserMemory(ctx, existingConfig,
+          (childCtx, linked, readiness) => apply(childCtx, linked, readiness))
+      }
       let trustedThirdArg, setup, effectiveConfig = existingConfig, origin, disposeOwned = () => {}
       const warnUnavailable = () => ctx.logger?.warn?.(`aukora-kira: gate capture unavailable (${captureUnavailable.reason})`)
       if (platform === 'linux') {
@@ -258,10 +354,10 @@ export function createGateCaptureHostPlugin({ platform, preflight, loadKira, loa
           warnUnavailable()
         }
       }
-      try { return await kira.apply(ctx, effectiveConfig, trustedThirdArg) }
+      try { return await kira.apply(ctx, effectiveConfig, trustedThirdArg, browserMemory) }
       catch (error) { disposeOwned(); throw error }
-    },
-  })
+    }
+  return Object.freeze({ name, inject, apply })
 }
 
 const production = createGateCaptureHostPlugin({ platform: process.platform, preflight: checkRuntimeAura,

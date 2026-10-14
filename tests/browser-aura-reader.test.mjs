@@ -116,7 +116,7 @@ try {
   const snapshot = await readAuraSnapshot(scratch, '/run/aukora-gate/gate.sock',
     () => ({ head: null, entries: 0, absence: 'kira-ledger-missing' }))
   assert.deepEqual(snapshot.sources, [{ name: 'gate-ledger', head, entries: 5, absence: null },
-    { name: 'kira-chain', head: null, entries: 0, absence: 'kira-ledger-missing' },
+    { name: 'kira-chain', head: null, entries: 0, absence: 'kira-ledger-missing', browserMemory: null },
     { name: 'code-chain', head: digest(record), entries: 1, absence: null }])
   console.log('PASS browser Aura reader: fixed read-only operation, bounded public summary, explicit empty Kira, code head')
   const mutations = [

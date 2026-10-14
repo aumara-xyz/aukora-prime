@@ -49,6 +49,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 /** Connection state of the parent-reported local controller. */
 export type AumlokBindingStatus = AumlokControlProjectionState['status']
+export type ModelCredentialStatus = 'configured' | 'missing' | 'unavailable'
 
 /** Projection source, and ceremony source, injected by the browser plugin. */
 export interface AumlokSurfaceInjected {
@@ -71,6 +72,8 @@ export interface AumlokSurfaceInjected {
     handle?: string) => Promise<AumlokCeremonyResult>
   /** Re-read the controller's public control, which is what flips the screen's state. */
   refreshControlStatus: () => void
+  /** Read only whether the operator-managed model credential exists. */
+  readModelCredentialStatus: () => Promise<ModelCredentialStatus>
   /** Leave binding and open the resident first conversation. */
   startFirstChat: () => void
 }
@@ -215,6 +218,7 @@ export function AumlokSurface({
   drawPhrase,
   submitPhrase,
   refreshControlStatus,
+  readModelCredentialStatus,
   startFirstChat,
 }: AumlokSurfaceProps) {
   const active = activeSurface === 'aumlok'
@@ -237,6 +241,7 @@ export function AumlokSurface({
   const [acknowledged, setAcknowledged] = useState(false)
   const [outcome, setOutcome] = useState<AumlokCeremonyResult | undefined>(undefined)
   const [explanationOpen, setExplanationOpen] = useState(false)
+  const [modelCredential, setModelCredential] = useState<ModelCredentialStatus | 'idle' | 'checking'>('idle')
   const ceremonyGeneration = useRef(0)
   const autoOpened = useRef(false)
   useLayoutEffect(() => {
@@ -278,6 +283,20 @@ export function AumlokSurface({
     bound: projection.status === 'connected',
     successfulBind: successfulBrowserBind,
   })
+  useEffect(() => {
+    if (!successfulBrowserBind) {
+      setModelCredential('idle')
+      return
+    }
+    let current = true
+    setModelCredential('checking')
+    void readModelCredentialStatus().then(status => {
+      if (current) setModelCredential(status)
+    }, () => {
+      if (current) setModelCredential('unavailable')
+    })
+    return () => { current = false }
+  }, [readModelCredentialStatus, successfulBrowserBind])
   useEffect(() => {
     const decision = aumlokFirstRunOpen({
       active,
@@ -530,9 +549,22 @@ export function AumlokSurface({
                 <h3 id="aumlok-completion-title">{t('firstRun.complete.title')}</h3>
                 <p>{t('firstRun.complete.handle')}</p>
                 <strong data-aumlok-completion-handle>{handle}</strong>
-                <button type="button" data-aumlok-start-chat onClick={startFirstChat}>
-                  {t('firstRun.complete.chat')}
-                </button>
+                {modelCredential === 'checking' ? (
+                  <p data-aumlok-model-key-status="checking" role="status">{t('firstRun.complete.modelChecking')}</p>
+                ) : modelCredential === 'missing' ? (
+                  <p data-aumlok-model-key-status="missing">{t('firstRun.complete.modelMissing')}</p>
+                ) : modelCredential === 'unavailable' ? (
+                  <p data-aumlok-model-key-status="unavailable">{t('firstRun.complete.modelUnavailable')}</p>
+                ) : null}
+                {modelCredential === 'configured' ? (
+                  <button type="button" data-aumlok-start-chat onClick={startFirstChat}>
+                    {t('firstRun.complete.chat')}
+                  </button>
+                ) : modelCredential === 'missing' || modelCredential === 'unavailable' ? (
+                  <button type="button" data-aumlok-completion-ok onClick={closeSurface}>
+                    {t('firstRun.complete.ok')}
+                  </button>
+                ) : null}
               </section>
             ) : <>
             {browserCeremony ? <p className={css.warning} data-aumlok-browser-derivation>

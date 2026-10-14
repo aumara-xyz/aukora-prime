@@ -1033,6 +1033,15 @@ window.__ModuleLoader__.load({
 			"code-chain"
 		];
 		const HEAD = /^[0-9a-f]{64}$/u;
+		const BROWSER_MEMORY_REASONS = new Set([
+			"kira.memory:aumlok-not-linked",
+			"kira.memory:aumlok-linked",
+			"kira.memory:browser-binding-config",
+			"kira.memory:browser-binding-unreadable",
+			"kira.memory:browser-overlay-unavailable",
+			"kira.memory:browser-identity-mismatch",
+			"kira.memory:activation-failed"
+		]);
 		function refuse(code) {
 			throw Object.assign(new TypeError(code), { code });
 		}
@@ -1049,11 +1058,22 @@ window.__ModuleLoader__.load({
 				if (source.head === null) {
 					if (source.entries !== null && source.entries !== 0 || typeof source.absence !== "string" || !source.absence) refuse("aura-snapshot:absence");
 				} else if (typeof source.head !== "string" || !HEAD.test(source.head) || source.absence !== null || !Number.isSafeInteger(source.entries) || source.entries < 1) refuse("aura-snapshot:source-head");
+				let browserMemory;
+				if (source.name === "kira-chain" && source.browserMemory !== void 0) if (source.browserMemory === null) browserMemory = null;
+				else {
+					const memory = object(source.browserMemory);
+					if (typeof memory.active !== "boolean" || typeof memory.reason !== "string" || !BROWSER_MEMORY_REASONS.has(memory.reason) || memory.active !== (memory.reason === "kira.memory:aumlok-linked")) refuse("aura-snapshot:browser-memory");
+					browserMemory = {
+						active: memory.active,
+						reason: memory.reason
+					};
+				}
 				return {
 					name: source.name,
 					head: source.head,
 					entries: source.entries,
-					absence: source.absence
+					absence: source.absence,
+					...browserMemory === void 0 ? {} : { browserMemory }
 				};
 			});
 			return {

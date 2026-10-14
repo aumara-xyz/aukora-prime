@@ -75,7 +75,13 @@ export const GATE_PIN_KIND = 'aukora-boundary-gate-owner/v1'
 export const GATE_APPROVAL_KIND = 'aukora-plugin-set-gate-approval/v1'
 export const GATE_PLUGIN_SET_TARGET = 'plugins/aukora-plugin-set/approval.json'
 const GATE_CONTENT = /^\{"v":1,"kind":"aukora-plugin-set-approval\/v1","release":"([0-9a-f]{40})","release_dir":"(release-[0-9a-f]{7})","plugin_set":"([0-9a-f]{64})","operation":"([0-9a-f]{64})","record":"([0-9a-f]{64})"\}$/u
-const GATE_RECEIPT_KEYS = ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha', 'applied_at', 'approver', 'approval_evidence_hmac', 'pubkey_fp']
+const LEGACY_RECEIPT_KEYS = ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha', 'applied_at', 'approver', 'approval_evidence_hmac', 'pubkey_fp']
+const OWNER_RECEIPT_KEYS = ['v', 'kind', 'proposal', 'target', 'base_sha', 'new_sha', 'applied_at', 'approver', 'pubkey_fp',
+  'gate_pubkey_sha256', 'owner_authorization', 'owner_accepted_at_ms', 'owner_consumption']
+const OWNER_SOCKET_APPROVER = 'owner via owner.sock (local; 0600 gate user/root only)'
+const PAGE_APPROVER = 'owner via gate approval page (bearer token, typed 2-step confirm)'
+const PASSKEY_PAGE_APPROVER = 'owner via gate passkey page'
+const GATE_APPROVERS = new Set([OWNER_SOCKET_APPROVER, PAGE_APPROVER, PASSKEY_PAGE_APPROVER])
 
 const refuse = (code, detail) => Object.assign(new Error(`${code}: ${detail}`), { code, reason: detail })
 export const digestOf = (bytes) => createHash('sha256').update(bytes).digest('hex')
@@ -126,29 +132,49 @@ export function parseGateApprovalContent(content) {
   return m ? { release: m[1], release_dir: m[2], plugin_set: m[3], operation: m[4], record: m[5] } : null
 }
 
+const exactKeys = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value)
+  && Object.keys(value).join(',') === keys.join(',')
+const hex = value => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value)
+function ownerReceipt(receipt) {
+  const reference = receipt?.owner_authorization, consumption = receipt?.owner_consumption, issue = consumption?.review_issue
+  return exactKeys(receipt, OWNER_RECEIPT_KEYS) && receipt.v === 3 && receipt.kind === 'change'
+    && /^aukora:1:[0-9a-f]{64}$/u.test(String(receipt.approver)) && hex(receipt.gate_pubkey_sha256)
+    && exactKeys(reference, ['version', 'kind', 'authorization_id', 'proof_sha256'])
+    && reference.version === 1 && reference.kind === 'aukora-owner-authorization-ref/v1'
+    && hex(reference.authorization_id) && hex(reference.proof_sha256)
+    && Number.isSafeInteger(receipt.owner_accepted_at_ms) && receipt.owner_accepted_at_ms >= 0
+    && exactKeys(consumption, ['ledger_seq', 'ledger_hash', 'review_issue'])
+    && Number.isSafeInteger(consumption.ledger_seq) && consumption.ledger_seq > 0 && hex(consumption.ledger_hash)
+    && exactKeys(issue, ['ledger_seq', 'ledger_hash']) && Number.isSafeInteger(issue.ledger_seq)
+    && issue.ledger_seq > 0 && issue.ledger_seq < consumption.ledger_seq && hex(issue.ledger_hash)
+}
+
 /** The gate-signed approval checked against the root pin and the (data) record: the same verdict the composition gate reaches. */
 export function verifyGateSetApproval({ record, approval, pin }) {
   const content = setOperationContent(record)
   const operationDigest = operationDigestOf(content)
   const { setDigest, count } = checkPluginSetRecord(record)
   if (pin === null || typeof pin !== 'object' || pin.kind !== GATE_PIN_KIND || typeof pin.gatePubkeyPem !== 'string' || !/^[0-9a-f]{16}$/u.test(String(pin.gatePubkeyFp))
-    || pin.target !== GATE_PLUGIN_SET_TARGET || typeof pin.approver !== 'string'
-    || (!pin.approver.startsWith('owner via owner.sock')
-      && pin.approver !== 'owner via gate approval page (bearer token, typed 2-step confirm)')) {
+    || pin.target !== GATE_PLUGIN_SET_TARGET || !GATE_APPROVERS.has(pin.approver)) {
     throw refuse('plugin-set-approver-not-pinned', 'the gate pin does not name a gate key, the plugin-set target and the owner-channel approver')
   }
   const receipt = approval?.receipt
+  const legacy = exactKeys(receipt, LEGACY_RECEIPT_KEYS) && receipt.v === 2 && receipt.kind === 'change'
+  const retained = ownerReceipt(receipt)
   if (approval === null || typeof approval !== 'object' || approval.kind !== GATE_APPROVAL_KIND || typeof approval.content !== 'string'
     || typeof approval.receipt_sig !== 'string' || receipt === null || typeof receipt !== 'object'
-    || Object.keys(receipt).join(',') !== GATE_RECEIPT_KEYS.join(',') || receipt.v !== 2 || receipt.kind !== 'change') {
-    throw refuse('plugin-set-approval-malformed', `the approval is not a complete ${GATE_APPROVAL_KIND} record with a v2 gate receipt`)
+    || (!legacy && !retained) || (pin.approver === PASSKEY_PAGE_APPROVER && !retained)) {
+    throw refuse('plugin-set-approval-malformed', `the approval is not a complete ${GATE_APPROVAL_KIND} record with the required gate receipt`)
   }
   let key
   try { key = createPublicKey(pin.gatePubkeyPem) } catch { throw refuse('plugin-set-approver-not-pinned', 'the pinned gate key is not a public key') }
   const fp = digestOf(key.export({ type: 'spki', format: 'der' })).slice(0, 16)
   if (key.asymmetricKeyType !== 'ed25519' || fp !== pin.gatePubkeyFp) throw refuse('plugin-set-approver-not-pinned', 'the pinned gate key is not the pinned Ed25519 key')
   if (receipt.pubkey_fp !== fp) throw refuse('plugin-set-approval-by-unpinned-key', `the receipt names gate key ${String(receipt.pubkey_fp)}, the pin ${fp}`)
-  if (receipt.target !== pin.target || receipt.approver !== pin.approver) throw refuse('plugin-set-approval-for-other-identity', 'another target or approver than the pinned owner channel')
+  if (retained && receipt.gate_pubkey_sha256 !== digestOf(key.export({ type: 'spki', format: 'der' })))
+    throw refuse('plugin-set-approval-by-unpinned-key', 'the retained owner receipt names another gate key')
+  if (receipt.target !== pin.target || (legacy && receipt.approver !== pin.approver))
+    throw refuse('plugin-set-approval-for-other-identity', 'another target or approver than the pinned owner channel')
   let ok = false
   try { ok = cryptoVerify(null, Buffer.from(JSON.stringify(receipt), 'utf8'), key, Buffer.from(approval.receipt_sig, 'base64')) } catch { ok = false }
   if (!ok) throw refuse('plugin-set-approval-signature-invalid', `the gate receipt's signature does not verify under gate key ${fp}`)

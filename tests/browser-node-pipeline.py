@@ -247,6 +247,25 @@ class Pipeline(unittest.TestCase):
                 (w.inputs / file).write_bytes(b'changed')
                 self.refuses(lambda: w.m.install(w.options), 'INPUT_DIGEST_MISMATCH')
                 self.assertEqual(w.commands, [])
+        w = self.world()
+        bundle = w.inputs / 'openviking.tar.gz'
+        bundle.write_bytes(b'pinned recall bundle')
+        w.options.openviking_bundle, w.options.openviking_sha256 = str(bundle), sha(bundle.read_bytes())
+        w.m.checked_inputs(w.options, w.stage)
+        bundle.write_bytes(b'changed recall bundle')
+        self.refuses(lambda: w.m.install(w.options), 'OPENVIKING_DIGEST_MISMATCH')
+        self.assertEqual(w.commands, [])
+        w.options.openviking_bundle = 'relative-bundle'
+        self.refuses(lambda: w.m.checked_inputs(w.options, w.stage), 'PATH_INVALID')
+        w.options.openviking_bundle = str(bundle)
+        w.options.openviking_sha256 = 'INVALID'
+        self.refuses(lambda: w.m.checked_inputs(w.options, w.stage), 'DIGEST_INVALID')
+        def bundle_custody(path, *args, **kwargs):
+            if path == bundle:
+                raise ValueError('BROWSER_CUSTODY_INVALID')
+        w.options.openviking_sha256 = sha(bundle.read_bytes())
+        with patch.object(w.m, 'protected', side_effect=bundle_custody):
+            self.refuses(lambda: w.m.checked_inputs(w.options, w.stage), 'CUSTODY_INVALID')
 
     def test_clean_source_and_pinned_harness_precede_build(self):
         for attack, code in [('source', 'FIXTURE_SOURCE_MISMATCH'), ('build-binding', 'FIXTURE_BUILD_MISMATCH')]:
@@ -437,6 +456,10 @@ class Pipeline(unittest.TestCase):
             self.refuses(lambda: w.m.accept('before'), code)
 
     def test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation(self):
+        w = self.world()
+        w.installed_world()
+        w.approved, w.active = True, True
+        self.refuses(lambda: w.m.accept('bound'), 'BINDING_REQUIRED')
         for attack, code in [('inactive', 'HARNESS_INACTIVE'), ('listener', 'HARNESS_LISTENER_MISSING'), ('ui', 'UI_PROBE_REFUSED'),
             ('invocation', 'JOURNAL_UNAVAILABLE'), ('journal', 'PLUGIN_LOAD_FAILED'), ('groups', 'USER_GROUP_INVALID'),
             ('user', 'USER_INVALID'), ('node-version', 'NODE_VERSION_MISMATCH')]:
@@ -471,12 +494,17 @@ class Pipeline(unittest.TestCase):
         (folder / 'release-floor.json').write_text(json.dumps(floor))
         aura = {'schema': 'aukora-face/aura-snapshot:v1', 'head': 'a' * 64, 'sources': [
             {'name': 'gate-ledger', 'head': 'b' * 64, 'entries': 5, 'absence': None},
-            {'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'},
+            {'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-missing',
+             'browserMemory': {'active': False, 'reason': 'kira.memory:aumlok-not-linked'}},
             {'name': 'code-chain', 'head': 'c' * 64, 'entries': 1, 'absence': None}]}
         gate_head = {'head': 'b' * 64, 'entries': 5}
         kira_head = {'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'}
+        w.aura, w.gate_head, w.kira_head = aura, gate_head, kira_head
         if attack in ('aura-kira-present', 'aura-kira-missing', 'aura-kira-head', 'aura-kira-count', 'aura-bound-empty'):
-            (w.root / 'home/aukora-host/genesis/state/aumlok-binding').mkdir()
+            directory = w.root / 'home/aukora-host/genesis/state/aumlok-binding'
+            directory.mkdir()
+            (directory / 'local-control.json').write_text('synthetic bound control')
+            aura['sources'][1]['browserMemory'] = {'active': True, 'reason': 'kira.memory:aumlok-linked'}
         if attack in ('aura-kira-present', 'aura-kira-missing', 'aura-kira-head', 'aura-kira-count'):
             kira_head.update(head='d' * 64, entries=1, absence=None)
             if attack != 'aura-kira-missing':
@@ -497,6 +525,14 @@ class Pipeline(unittest.TestCase):
             aura['sources'][2].update(head=None, entries=None, absence='code-chain-unavailable')
         if attack == 'aura-kira-absence':
             aura['sources'][1]['absence'] = None
+        if attack == 'aura-order':
+            aura['sources'][1:] = reversed(aura['sources'][1:])
+        if attack == 'aura-source-extra':
+            aura['sources'][0]['unverified'] = True
+        if attack == 'aura-gate-boolean':
+            aura['sources'][0]['entries'] = True
+        if attack == 'aura-kira-boolean':
+            aura['sources'][1]['entries'] = False
         claim_file = ROOT / 'ops/node-spawn/ingress/claim.py'
         spec = importlib.util.spec_from_file_location('claim_acceptance_fixture', claim_file)
         claim = importlib.util.module_from_spec(spec)
@@ -588,6 +624,226 @@ class Pipeline(unittest.TestCase):
         w.stack.enter_context(patch.object(http.client, 'HTTPConnection', Connection))
         return w
 
+    def test_bound_phase_requires_same_current_invocation(self):
+        for changed in (False, True):
+            w = self.public_world('aura-bound-empty')
+            old_run, reads = w.m.run, []
+            def run(command, code, *args, **kwargs):
+                if command[:2] == ['systemctl', 'show'] and 'InvocationID' in command:
+                    reads.append(command)
+                    return ('b' if changed and len(reads) > 1 else 'a') * 32 + '\n'
+                if command[0] == 'journalctl':
+                    self.assertEqual(command[-1], '_SYSTEMD_INVOCATION_ID=' + 'a' * 32)
+                    return 'aukora-kira: memory active (kira.memory:aumlok-linked)\n'
+                return old_run(command, code, *args, **kwargs)
+            w.m.run = run
+            with patch.object(w.m, 'accept_bound') as bound, contextlib.redirect_stdout(io.StringIO()):
+                if changed:
+                    self.refuses(lambda: w.m.accept('bound'), 'BOUND_INVOCATION_CHANGED')
+                else:
+                    w.m.accept('bound')
+                bound.assert_called_once()
+                self.assertEqual(len(reads), 2)
+            w.stack.close()
+        w = self.public_world()
+        (w.root / 'home/aukora-host/genesis/state/aumlok-binding').mkdir()
+        with contextlib.redirect_stdout(io.StringIO()):
+            w.m.accept('after')
+        probes = [command for command in w.commands if any('ui-probe.mjs' in str(item) for item in command)]
+        self.assertEqual(len(probes), 2)
+        self.assertIn('--expect-unbound', probes[0])
+        self.assertIn('--ui-only', probes[0])
+        self.assertIn('--expect-unbound', probes[1])
+        self.assertIn('--guard-only', probes[1])
+        w.stack.close()
+
+    def bound_world(self, attack=None, text=None):
+        w = self.public_world(text=text)
+        old_run, connection = w.m.run, http.client.HTTPConnection
+        directory = w.root / 'home/aukora-host/genesis/state/aumlok-binding'
+        directory.mkdir()
+        (directory / 'local-control.json').write_text('synthetic bound control')
+        subject = 'aukora:1:' + 'a' * 64
+        identity = {'subject': subject, 'overlaySubject': subject,
+                    'stateDir': str(w.root / 'home/aukora-host/genesis/state/home/kira-memory')}
+        snapshot = json.loads(json.dumps(w.aura))
+        snapshot['sources'][1]['browserMemory'] = {'active': True, 'reason': 'kira.memory:aumlok-linked'}
+        if attack == 'readiness-active':
+            snapshot['sources'][1]['browserMemory']['active'] = False
+        elif attack == 'readiness-reason':
+            snapshot['sources'][1]['browserMemory']['reason'] = 'kira.memory:aumlok-not-linked'
+        elif attack == 'readiness-shape':
+            snapshot['sources'][1]['browserMemory']['extra'] = True
+        w.bound_snapshot, w.remembered, w.bound_started, w.aura_requests = snapshot, False, False, 0
+        def remember(*args):
+            w.remembered = True
+            w.kira_head.update(head='d' * 64, entries=1, absence=None)
+            snapshot['sources'][1].update(w.kira_head)
+            if attack == 'aura-order':
+                snapshot['sources'][1:] = reversed(snapshot['sources'][1:])
+            elif attack == 'aura-source-extra':
+                snapshot['sources'][0]['unverified'] = True
+            elif attack == 'aura-gate-missing':
+                snapshot['sources'][0].update(head=None, entries=None, absence='gate-ledger-unavailable')
+            elif attack == 'aura-gate-short':
+                snapshot['sources'][0]['entries'] = 4
+            elif attack == 'aura-gate-head':
+                snapshot['sources'][0]['head'] = 'e' * 64
+            elif attack == 'aura-gate-count':
+                w.gate_head['entries'] = 6
+            elif attack == 'aura-gate-boolean':
+                snapshot['sources'][0]['entries'] = True
+            elif attack == 'aura-code-missing':
+                snapshot['sources'][2].update(head=None, entries=None, absence='code-chain-unavailable')
+            elif attack == 'aura-kira-missing':
+                snapshot['sources'][1].update(head=None, entries=0, absence='kira-ledger-missing')
+            elif attack == 'aura-kira-head':
+                snapshot['sources'][1]['head'] = 'e' * 64
+            elif attack == 'aura-kira-count':
+                snapshot['sources'][1]['entries'] = 2
+            elif attack == 'aura-kira-boolean':
+                snapshot['sources'][1]['entries'] = True
+            elif attack == 'aura-floor':
+                file = w.root / 'etc/aukora-approvals/release-floor.json'
+                floor = json.loads(file.read_text())
+                floor['ledger_seq'] = True
+                file.write_text(json.dumps(floor))
+        def run(command, code, *args, **kwargs):
+            if command[0] == 'journalctl':
+                self.assertEqual(command[-1], '_SYSTEMD_INVOCATION_ID=' + 'a' * 32)
+                return 'MemoryIdentityError\n' if attack == 'memory-error' else ''
+            if w.remembered and code in ('AURA_GATE_READ_REFUSED', 'AURA_KIRA_READ_REFUSED'):
+                if attack == ('aura-gate-read' if code == 'AURA_GATE_READ_REFUSED' else 'aura-kira-read'):
+                    raise ValueError('BROWSER_' + code)
+                if attack == 'aura-head-invalid':
+                    return 'not-json'
+            return old_run(command, code, *args, **kwargs)
+        class BoundConnection:
+            def __init__(self, *args, **kwargs):
+                self.base = connection(*args, **kwargs)
+                self.reply = None
+            def request(self, method, target, body=None, headers=None):
+                if target == '/api/kira/memories?limit=1':
+                    w.bound_started = True
+                    self.reply = {'items': []}
+                elif target == '/api/session/create':
+                    sent = json.loads(body)
+                    assert sent['type'] == 'client-request' and sent['method'] == 'session/create'
+                    assert sent['payload'] == {'args': {'request': {'sessionId': 'browser-node-bound-acceptance'}}}
+                    assert headers['Content-Type'] == 'application/json'
+                    self.reply = {'type': 'server-response', 'rpcId': sent['rpcId'],
+                                  'result': {'ok': True, 'value': {'sessionId': 'browser-node-bound-acceptance'}}}
+                elif target == '/api/session/list':
+                    sent = json.loads(body)
+                    assert sent['type'] == 'client-request' and sent['payload'] == {'args': {'_request': {}}}
+                    assert headers['Content-Type'] == 'application/json'
+                    self.reply = {'type': 'server-response', 'rpcId': sent['rpcId'], 'result': {'ok': True, 'value': {'items': []}}}
+                elif target == '/stock-apps/auma-lingwa.html':
+                    self.reply = b'<html>synthetic app</html>'
+                elif target.endswith('/prepare'):
+                    self.reply = {'ok': False, 'reason': 'aumlok:bind-already-bound'}
+                elif target.endswith('/aura-snapshot'):
+                    w.aura_requests += 1
+                    if attack == 'aura-initial-guard':
+                        snapshot['sources'][0]['head'] = 'e' * 64 if w.bound_started and not w.remembered else w.gate_head['head']
+                    self.reply = b'not-json' if w.remembered and attack == 'aura-json' else snapshot
+                else:
+                    self.base.request(method, target, body, headers)
+            def getresponse(self):
+                if self.reply is None:
+                    return self.base.getresponse()
+                body = self.reply if isinstance(self.reply, bytes) else json.dumps(self.reply).encode()
+                status = 403 if w.remembered and attack == 'aura-status' and self.reply is snapshot else 200
+                return types.SimpleNamespace(status=status, getheaders=lambda: [], read=lambda limit: body[:limit])
+            def close(self):
+                self.base.close()
+        w.m.run = run
+        for name, value in [('harness_identity', lambda: (os.getuid(), os.getgid())), ('binding_custody', lambda *args: None),
+                            ('bound_identity', lambda *args: identity), ('bound_remember', remember)]:
+            w.stack.enter_context(patch.object(w.m, name, value))
+        w.stack.enter_context(patch.object(w.m.time, 'sleep', lambda *args: None))
+        w.stack.enter_context(patch.object(http.client, 'HTTPConnection', BoundConnection))
+        return w
+
+    def test_bound_phase_records_all_live_join_checks(self):
+        w = self.bound_world()
+        checks = []
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            w.m.accept('bound', checks)
+        self.assertTrue(w.remembered)
+        self.assertIn('KIRA_RECALL lexical; no OpenViking bundle', output.getvalue())
+        self.assertEqual(w.events.count(('run', 'AURA_GATE_READ_REFUSED')), 3)
+        self.assertEqual(w.events.count(('run', 'AURA_KIRA_READ_REFUSED')), 3)
+        self.assertEqual(len(checks), 35)
+        probes = [command for command in w.commands if any('ui-probe.mjs' in str(item) for item in command)]
+        self.assertEqual(len(probes), 2)
+        self.assertTrue(all('--expect-bound' in command for command in probes))
+        self.assertEqual(checks[-10:], [{'name': name, 'status': 'PASS'} for name in [
+            'binding_custody', 'binding_overlay', 'kira_active', 'bound_rpc', 'bound_app', 'repeat_prepare',
+            'aura_gate_code', 'aura_kira_note', 'composition_active', 'bound_current_invocation']])
+        w.stack.close()
+
+    def test_bound_aura_matches_independent_heads_after_remember(self):
+        for attack in ('memory-error', 'readiness-active', 'readiness-reason', 'readiness-shape'):
+            with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()):
+                w = self.bound_world(attack)
+                checks = []
+                self.refuses(lambda: w.m.accept('bound', checks), 'BOUND_KIRA_INACTIVE')
+                self.assertFalse(w.remembered)
+                self.assertEqual(checks[-1], {'name': 'kira_active' if attack == 'memory-error' else 'aura_sources', 'status': 'FAIL'})
+                w.stack.close()
+        attacks = [('aura-status', 'AURA_SNAPSHOT_REFUSED'), ('aura-json', 'BOUND_RESPONSE_INVALID'),
+            ('aura-floor', 'AURA_FLOOR_INVALID'), ('aura-gate-read', 'AURA_GATE_READ_REFUSED'),
+            ('aura-kira-read', 'AURA_KIRA_READ_REFUSED'), ('aura-head-invalid', 'AURA_HEAD_READ_INVALID'),
+            ('aura-order', 'AURA_SNAPSHOT_INVALID'), ('aura-source-extra', 'AURA_SNAPSHOT_INVALID'),
+            ('aura-gate-missing', 'AURA_GATE_MISSING'), ('aura-gate-short', 'AURA_GATE_BELOW_APPROVAL'),
+            ('aura-gate-head', 'AURA_GATE_HEAD_MISMATCH'), ('aura-gate-count', 'AURA_GATE_HEAD_MISMATCH'),
+            ('aura-gate-boolean', 'AURA_GATE_MISSING'), ('aura-code-missing', 'AURA_CODE_MISSING'),
+            ('aura-kira-missing', 'AURA_KIRA_HEAD_MISMATCH'), ('aura-kira-head', 'AURA_KIRA_HEAD_MISMATCH'),
+            ('aura-kira-count', 'AURA_KIRA_HEAD_MISMATCH'), ('aura-kira-boolean', 'AURA_KIRA_HEAD_MISMATCH')]
+        for attack, code in attacks:
+            with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()):
+                w = self.bound_world(attack)
+                checks = []
+                self.refuses(lambda: w.m.accept('bound', checks), code)
+                self.assertTrue(w.remembered)
+                self.assertEqual(checks[-1], {'name': 'aura_kira_note', 'status': 'FAIL'})
+                self.assertTrue(all(row['status'] == 'PASS' for row in checks[:-1]))
+                w.stack.close()
+        for change in ({'absence': None}, {'head': 'd' * 64, 'entries': 1, 'absence': None}, {'entries': False}):
+            with self.subTest(empty_kira=change), contextlib.redirect_stdout(io.StringIO()):
+                w = self.bound_world()
+                w.bound_snapshot['sources'][1].update(change)
+                checks = []
+                self.refuses(lambda: w.m.accept('bound', checks), 'AURA_KIRA_ABSENCE_INVALID')
+                self.assertFalse(w.remembered)
+                self.assertEqual(checks[-1], {'name': 'aura_sources', 'status': 'FAIL'})
+                w.stack.close()
+
+    def test_bound_aura_checks_the_pre_remember_snapshot(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            w = self.bound_world('aura-initial-guard')
+            checks = []
+            self.refuses(lambda: w.m.accept('bound', checks), 'AURA_GATE_HEAD_MISMATCH')
+            self.assertFalse(w.remembered)
+            self.assertEqual(checks[-1], {'name': 'aura_gate_code', 'status': 'FAIL'})
+            w.stack.close()
+
+    def test_openviking_acceptance_dispatches_after_and_bound_only_when_bundled(self):
+        for phase in ('after', 'bound'):
+            with self.subTest(phase=phase), contextlib.redirect_stdout(io.StringIO()):
+                w = self.public_world() if phase == 'after' else self.bound_world()
+                file = w.m.STATE / 'installed.json'
+                record = json.loads(file.read_text())
+                record['inputs']['openviking'] = 'f' * 64
+                file.write_text(json.dumps(record))
+                old_module, calls = w.m.module, []
+                viking = types.SimpleNamespace(accept=lambda node, endpoints, current: calls.append((endpoints, current)))
+                w.m.module = lambda path: viking if path.name == 'openviking-node.py' else old_module(path)
+                w.m.accept(phase)
+                self.assertEqual(calls, [(['127.0.0.1:17792', '127.0.0.1:18735', '127.0.0.1:18736'], phase)])
+                w.stack.close()
+
     def test_public_authority_claim_acceptance_guards(self):
         attacks = [('claim-inactive', 'CLAIM_INACTIVE'), ('claim-listener', 'CLAIM_LISTENER_MISSING'),
             ('public-invalid', 'PUBLIC_ORIGIN_INVALID'), ('owner-invalid', 'PUBLIC_ORIGIN_INVALID'),
@@ -619,9 +875,9 @@ class Pipeline(unittest.TestCase):
         self.assertEqual([check['name'] for check in checks], [
             'root_platform', 'installation_record', 'browser_profile', 'users_modes', 'aura_collector_custody', 'package_custody',
             'node_version', 'package_pins', 'gate_sockets', 'signer_pin', 'loopback_listeners', 'approved_floor',
-            'aura_collector', 'harness_service', 'signed_in_ui', 'plugin_load', 'claim_service', 'public_origins',
+            'aura_collector', 'harness_service', 'signed_in_ui', 'browser_binding_guard', 'plugin_load', 'claim_service', 'public_origins',
             'anonymous_session', 'claim_exchange', 'claim_cookie', 'public_session', 'claim_replay', 'aura_sources'])
-        self.assertEqual([check['status'] for check in checks], ['PASS'] * 24)
+        self.assertEqual([check['status'] for check in checks], ['PASS'] * 25)
         self.assertIn('anonymous 401 and one-use public-authority claim cookie', output.getvalue())
         self.assertNotIn('PRIVATE_', output.getvalue())
         self.assertNotIn('P' * 43, output.getvalue())
@@ -644,8 +900,10 @@ class Pipeline(unittest.TestCase):
             ('aura-status', 'AURA_SNAPSHOT_REFUSED'), ('aura-json', 'AURA_SNAPSHOT_INVALID'), ('aura-floor', 'AURA_FLOOR_INVALID'),
             ('aura-gate-read', 'AURA_GATE_READ_REFUSED'), ('aura-kira-read', 'AURA_KIRA_READ_REFUSED'),
             ('aura-head-invalid', 'AURA_HEAD_READ_INVALID'), ('aura-gate-missing', 'AURA_GATE_MISSING'),
+            ('aura-order', 'AURA_SNAPSHOT_INVALID'), ('aura-source-extra', 'AURA_SNAPSHOT_INVALID'),
             ('aura-gate-short', 'AURA_GATE_BELOW_APPROVAL'), ('aura-gate-head', 'AURA_GATE_HEAD_MISMATCH'),
-            ('aura-gate-count', 'AURA_GATE_HEAD_MISMATCH'), ('aura-code-missing', 'AURA_CODE_MISSING'),
+            ('aura-gate-count', 'AURA_GATE_HEAD_MISMATCH'), ('aura-gate-boolean', 'AURA_GATE_MISSING'),
+            ('aura-code-missing', 'AURA_CODE_MISSING'), ('aura-kira-boolean', 'AURA_KIRA_ABSENCE_INVALID'),
             ('aura-kira-missing', 'AURA_KIRA_HEAD_MISMATCH'), ('aura-kira-head', 'AURA_KIRA_HEAD_MISMATCH'),
             ('aura-kira-count', 'AURA_KIRA_HEAD_MISMATCH'), ('aura-kira-absence', 'AURA_KIRA_ABSENCE_INVALID')]:
             with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()):
@@ -898,6 +1156,15 @@ def mutations():
         ('aura-accept-timer', "        run(['systemctl', 'is-active', '--quiet', 'aukora-aura-head.timer'], 'AURA_TIMER_INACTIVE')\n", '', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
         ('aura-accept-refresh', "        run(['systemctl', 'start', 'aukora-aura-head.service'], 'AURA_COLLECT_REFUSED')\n", '', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
         ('aura-accept-guard', "        browser_aura_sources(snapshot, gate, kira, floor, not unbound)\n", '', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
+        ('aura-bound-initial-guard', "    browser_aura_sources(snapshot, gate, kira, floor, True)\n    checkpoint('aura_kira_note')", "    checkpoint('aura_kira_note')", 'test_bound_aura_checks_the_pre_remember_snapshot'),
+        ('aura-bound-note-guard', "            browser_aura_sources(snapshot, gate, kira, floor, True)\n", '', 'test_bound_aura_matches_independent_heads_after_remember'),
+        ('browser-memory-active', "state.get('active') is True", 'True', 'test_bound_aura_matches_independent_heads_after_remember'),
+        ('browser-memory-reason', "state.get('reason') == 'kira.memory:aumlok-linked'", 'True', 'test_bound_aura_matches_independent_heads_after_remember'),
+        ('browser-memory-shape', "set(state) == {'active', 'reason'}", 'True', 'test_bound_aura_matches_independent_heads_after_remember'),
+        ('browser-memory-journal-error', "need('MemoryIdentityError' not in journal, 'BOUND_KIRA_INACTIVE')",
+         "need(True, 'BOUND_KIRA_INACTIVE')", 'test_bound_aura_matches_independent_heads_after_remember'),
+        ('openviking-bound-acceptance', "if phase != 'before' and 'openviking' in value['inputs']:", "if phase == 'after' and 'openviking' in value['inputs']:", 'test_openviking_acceptance_dispatches_after_and_bound_only_when_bundled'),
+        ('lexical-without-openviking', "        print('KIRA_RECALL lexical; no OpenViking bundle')\n", '        pass\n', 'test_bound_phase_records_all_live_join_checks'),
         ('aura-snapshot-cookie', "request(18735, 'GET', '/api/aukora/aura-snapshot', cookie=cookie)", "request(18735, 'GET', '/api/aukora/aura-snapshot')", 'test_public_authority_claim_acceptance_guards'),
         ('aura-gate-reader-identity', "['runuser', '-u', 'aukora-gate', '--', NODE, helper, 'gate', floor['signer_key_sha256']]", "['runuser', '-u', 'root', '--', NODE, helper, 'gate', floor['signer_key_sha256']]", 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
         ('aura-kira-reader-identity', "['runuser', '-u', 'aukora-host', '--', NODE, helper, 'kira']", "['runuser', '-u', 'root', '--', NODE, helper, 'kira']", 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
@@ -949,6 +1216,7 @@ def mutations():
         ('listener-readback', "        endpoints = listeners(run(['ss', '-ltn'], 'LISTENERS_UNAVAILABLE'))\n", '', 'test_before_acceptance_refuses_any_floor_start_listener_or_descriptor'),
         ('unapproved-listener', "'127.0.0.1:18735' not in endpoints", 'True', 'test_before_acceptance_refuses_any_floor_start_listener_or_descriptor'),
         ('unapproved-descriptor', "not Path('/home/aukora-host/genesis/state/launch-url.json').exists()", 'True', 'test_before_acceptance_refuses_any_floor_start_listener_or_descriptor'),
+        ('binding-guard-probe', "        print(run(['runuser', '-u', 'aukora-host', '--', NODE, str(CHECKOUT / 'ops/pilot/ui-probe.mjs'),\n                   binding_mode, '--guard-only'], 'BINDING_GUARD_PROBE_REFUSED').strip())\n", '', 'test_bound_phase_requires_same_current_invocation'),
         ('plugin-load', "not re.search(r'^aukora-[a-z-]+ \\(file://.*\\): Error', journal, re.M)", 'True', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation'),
         ('installed-listener', "'127.0.0.1:18735' in endpoints", 'True', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation'),
         ('package-link', "entry.resolve().is_relative_to(path)", 'True', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation'),

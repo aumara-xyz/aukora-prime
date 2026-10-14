@@ -14,7 +14,7 @@ import * as canon from '../plugin-set-canon.mjs'
 import { validateSignerEpochs } from './signer-epochs.mjs'
 
 const TARGET = canon.GATE_PLUGIN_SET_TARGET
-const APPROVER = 'owner via owner.sock (synthetic source fixture)'
+const APPROVER = 'owner via owner.sock (local; 0600 gate user/root only)'
 const columns = ['seq', 'at', 'event', 'proposal', 'target', 'base_sha', 'new_sha', 'detail', 'prev', 'hash', 'sig']
 const digest = n => n.toString(16).padStart(64, '0')
 const errorCode = code => error => error?.code === code

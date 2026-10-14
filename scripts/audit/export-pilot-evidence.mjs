@@ -22,7 +22,7 @@ const EVENTS = new Set(['genesis-target', 'gate-start', 'owner-bearer-rotated', 
   'propose', 'review-issued', 'decide', 'apply', 'revert-applied', 'expire'])
 const WORDS = new Set(['', 'change', 'revert', 'owner', 'owner-review', 'owner.sock', 'allowed-once', 'rejected',
   'owner-raise', 'owner via owner.sock (local; 0600 gate user/root only)',
-  'owner via gate approval page (bearer token, typed 2-step confirm)', 'owner via gate approval page (bearer token)',
+  'owner via gate approval page (bearer token, typed 2-step confirm)', 'owner via gate passkey page', 'owner via gate approval page (bearer token)',
   'current bytes adopted at gate start', 'ttl elapsed', 'propose-socket/harness', 'caller-reported-unverified'])
 const NUMBERS = new Set(['v', 'version', 'pid', 'entries', 'nonascii', 'expired_pending', 'preserved_pending'])
 const BOOLEANS = new Set(['displayable', 'spent', 'ledger_ok_before_start', 'rotated'])

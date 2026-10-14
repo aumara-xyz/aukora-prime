@@ -23,7 +23,7 @@ const mutations = {
   hashes: ['../packages/boundary-gate/src/owner-page.mjs', [["else if (p.base_sha !== f.get('base') || p.new_sha !== f.get('new'))", 'else if (false)']]],
   claim: ['../packages/boundary-gate/src/card.mjs', [['if (IMPERSONATION.test(nn))', 'if (false)']]],
   enrolled: ['../packages/boundary-gate/src/gate.mjs', [['function ownerAuthorizationRequired() {', 'function ownerAuthorizationRequired() { return false;']]],
-  approver: ['../packages/boundary-gate/src/plugin-set-canon.mjs', [["pin.approver !== 'owner via gate approval page (bearer token, typed 2-step confirm)'", 'false']]],
+  approver: ['../packages/boundary-gate/src/plugin-set-canon.mjs', [['!GATE_APPROVERS.has(pin.approver)', 'false']]],
 }
 const mutant = process.env.BROWSER_OWNER_MUTANT ?? ''
 if (mutant && !Object.hasOwn(mutations, mutant)) throw new Error('unknown browser owner mutant')

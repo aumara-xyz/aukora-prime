@@ -74,6 +74,79 @@ class BrowserInstaller(unittest.TestCase):
             rejects(M.discard_passkey_claim, 'PASSKEY_CLAIM_DIRECTORY')
         self.assertTrue(claim.is_dir())
 
+    def test_rehearsal_marker(self):
+        state = self.root / 'state'
+        state.mkdir(mode=0o700)
+        marker = state / M.REHEARSAL_MARKER
+        gate_config = self.root / 'gate-config'
+        gate_config.mkdir(mode=0o755)
+        gate_marker = gate_config / 'rehearsal.json'
+        record = self.root / 'local-control.json'
+        selected = lambda value: gate_marker if value == '/etc/aukora-boundary-gate/rehearsal.json' else \
+            record if value == '/home/aukora-host/genesis/state/aumlok-binding/local-control.json' else Path(value)
+        real_fstat = os.fstat
+        def root_stat(descriptor):
+            values = list(real_fstat(descriptor))
+            values[4] = 0
+            return os.stat_result(values)
+        with patch.object(M, 'STATE', state), patch.object(M, 'root_check'), \
+                patch.object(M, 'installed') as installed, patch.object(M, 'protected') as protected, \
+                patch.object(M, 'Path', side_effect=selected), patch.object(M.os, 'fchown') as fchown, \
+                patch.object(M.os, 'fstat', side_effect=root_stat):
+            rejects(M.check_rehearsal_marker, 'REHEARSAL_MARKER_REQUIRED')
+            with contextlib.redirect_stdout(io.StringIO()):
+                protected.reset_mock()
+                M.main(['mark-rehearsal'])
+                installed.assert_called_once()
+                custody = [unittest.mock.call(parent, True, private=parent == state) for parent in [state, *state.parents]]
+                gate_custody = [unittest.mock.call(parent, True) for parent in [gate_config, *gate_config.parents]]
+                self.assertEqual(protected.call_args_list, custody + custody + gate_custody)
+                self.assertEqual(marker.read_bytes(), M.REHEARSAL_MARKER_BYTES)
+                self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
+                self.assertEqual(gate_marker.read_bytes(), b'{"version":1,"kind":"aukora-passkey-rehearsal/v1"}\n')
+                self.assertEqual(stat.S_IMODE(gate_marker.stat().st_mode), 0o644)
+                self.assertEqual(fchown.call_count, 1)
+                self.assertEqual(fchown.call_args.args[1:], (0, 0))
+                M.check_rehearsal_marker()
+                rejects(M.mark_rehearsal, 'REHEARSAL_MARKER_CREATE_REFUSED')
+                rejects(M.mark_gate_rehearsal, 'REHEARSAL_MARKER_EXISTS')
+            for symlink in (False, True):
+                if symlink:
+                    record.symlink_to(self.root / 'missing-control-record')
+                else:
+                    record.write_text('{}')
+                rejects(lambda: M.main(['mark-rehearsal']), 'REHEARSAL_ALREADY_BOUND')
+                record.unlink()
+            for index, value in [(0, stat.S_IFDIR | 0o600), (0, stat.S_IFREG | 0o644), (3, 2), (4, 500), (6, 999)]:
+                def bad_stat(descriptor, index=index, value=value):
+                    values = list(root_stat(descriptor))
+                    values[index] = value
+                    return os.stat_result(values)
+                with patch.object(M.os, 'fstat', side_effect=bad_stat):
+                    rejects(M.check_rehearsal_marker, 'REHEARSAL_MARKER_INVALID')
+            marker.write_bytes(b'X' * len(M.REHEARSAL_MARKER_BYTES))
+            rejects(M.check_rehearsal_marker, 'REHEARSAL_MARKER_INVALID')
+            marker.unlink()
+            target = state / 'target'
+            target.write_bytes(M.REHEARSAL_MARKER_BYTES)
+            target.chmod(0o600)
+            marker.symlink_to(target)
+            rejects(M.check_rehearsal_marker, 'REHEARSAL_MARKER_REQUIRED')
+            marker.unlink()
+            os.mkfifo(marker, 0o600)
+            real_open = os.open
+            def bounded_open(file, flags, *args):
+                if file == marker:
+                    self.assertTrue(flags & os.O_NONBLOCK, 'marker read can block on a FIFO')
+                return real_open(file, flags, *args)
+            with patch.object(M.os, 'open', side_effect=bounded_open):
+                rejects(M.check_rehearsal_marker, 'REHEARSAL_MARKER_INVALID')
+            self.assertIn(unittest.mock.call(state, True, private=True), protected.call_args_list)
+            for parent in state.parents:
+                self.assertIn(unittest.mock.call(parent, True, private=False), protected.call_args_list)
+        with patch.object(M, 'root_check', side_effect=ValueError('BROWSER_ROOT_REQUIRED')):
+            rejects(lambda: M.main(['mark-rehearsal']), 'ROOT_REQUIRED')
+
     def test_usage_every_option(self):
         valid = ['install', '--inputs', str(self.root), '--checkout-sha256', 'a' * 64,
                  '--revision', 'a' * 40, '--node-sha256', 'b' * 64, '--dependencies-sha256', 'c' * 64,
@@ -81,6 +154,13 @@ class BrowserInstaller(unittest.TestCase):
         with patch.object(M, 'install') as install:
             M.main(valid)
             self.assertEqual(install.call_count, 1)
+            bundled = valid + ['--openviking-bundle', str(self.root / 'openviking.tar.gz'), '--openviking-sha256', 'd' * 64]
+            M.main(bundled)
+            self.assertEqual(install.call_args.args[0].openviking_sha256, 'd' * 64)
+            for args in (valid + bundled[-4:-2], valid + bundled[-2:],
+                         ['status'] + bundled[-4:], ['start'] + bundled[-4:],
+                         ['accept', '--phase', 'after'] + bundled[-4:]):
+                rejects(lambda: M.main(args), 'OPENVIKING_PAIR_REQUIRED' if len(args) == len(valid) + 2 else 'USAGE')
             for index in range(1, len(valid), 2):
                 rejects(lambda: M.main(valid[:index] + valid[index + 2:]), 'USAGE')
                 rejects(lambda: M.main(valid + valid[index:index + 2]), 'USAGE')
@@ -109,6 +189,9 @@ class BrowserInstaller(unittest.TestCase):
         with patch.object(M, 'model_key') as model_key:
             M.main(['model-key', '--remove'])
             model_key.assert_called_once_with(True, False)
+        with patch.object(M, 'accept') as accept:
+            M.main(['accept', '--phase', 'bound'])
+            accept.assert_called_once_with('bound')
 
     def test_path_and_digest(self):
         self.assertEqual(M.absolute(str(self.root)), self.root)
@@ -358,6 +441,211 @@ m.main(["model-key"])
         self.assertEqual(stdout.decode(), 'MODEL_KEY_SET provider=deepseek sha256='
                          + hashlib.sha256(secret.encode()).hexdigest()[:12] + '\n')
         self.assertEqual(stderr, b'')
+    def test_binding_custody(self):
+        directory = self.root / 'aumlok-binding'
+        directory.mkdir(mode=0o700)
+        names = ('local-control.json', 'machine-seed-v3.json', 'browser-binding-attempts.sqlite')
+        for name in names:
+            (directory / name).write_text('synthetic')
+            (directory / name).chmod(0o600)
+        uid = os.getuid()
+        self.assertFalse((directory / 'browser-first-bind.lock').exists())
+        M.binding_custody(directory, uid)
+        rejects(lambda: M.binding_custody(directory, uid + 1), 'CUSTODY_INVALID')
+        directory.chmod(0o500)
+        rejects(lambda: M.binding_custody(directory, uid), 'BOUND_DIRECTORY_MODE')
+        directory.chmod(0o700)
+        for name in names:
+            file = directory / name
+            file.chmod(0o400)
+            rejects(lambda: M.binding_custody(directory, uid), 'BOUND_FILE_MODE')
+            file.chmod(0o644)
+            rejects(lambda: M.binding_custody(directory, uid), 'CUSTODY_INVALID')
+            file.chmod(0o600)
+            target = directory / 'target'
+            file.rename(target)
+            file.symlink_to(target)
+            rejects(lambda: M.binding_custody(directory, uid), 'CUSTODY_INVALID')
+            file.unlink()
+            os.link(target, file)
+            rejects(lambda: M.binding_custody(directory, uid), 'CUSTODY_INVALID')
+            file.unlink()
+            target.rename(file)
+        alias = self.root / 'alias'
+        alias.symlink_to(directory)
+        rejects(lambda: M.binding_custody(alias, uid), 'CUSTODY_INVALID')
+
+    def test_bound_remember_uses_release_path_as_harness_user(self):
+        release = Path('/opt/aukora-genesis/release-aaaaaaa')
+        subject, state = 'aukora:1:' + 'a' * 64, str(self.root / 'kira-memory')
+        with patch.object(M, 'run', return_value='KIRA_BOUND_NOTE_PRESENT\n') as command:
+            M.bound_remember(release, subject, state)
+            argv = command.call_args.args[0]
+            self.assertEqual(argv[:7], ['runuser', '-u', 'aukora-host', '--', M.NODE, '--input-type=module', '-e'])
+            self.assertEqual(argv[-3:], [str(release), subject, state])
+            self.assertIn(".remember({ text: 'Browser node acceptance memory probe.'", argv[7])
+            command.return_value = 'WRONG_MARKER\n'
+            rejects(lambda: M.bound_remember(release, subject, state), 'BOUND_REMEMBER_REFUSED')
+        def real_run(argv, code):
+            command = [shutil.which('node'), *argv[5:]]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+        with patch.object(M, 'run', side_effect=real_run):
+            M.bound_remember(ROOT, subject, state)
+        self.assertTrue((Path(state) / 'remembered').is_dir())
+        def empty_note(argv, code):
+            command = [shutil.which('node'), *argv[5:]]
+            command[3] = command[3].replace(
+                "const { createTrackedMemory } = await import(pathToFileURL(root + '/plugins/aukora-kira/lib/tracked-memory.mjs'));",
+                'const createTrackedMemory = () => ({ remember: async () => ({ ids: [] }) });')
+            result = subprocess.run(command, capture_output=True, text=True)
+            M.need(result.returncode == 0, code)
+            return result.stdout
+        with patch.object(M, 'run', side_effect=empty_note):
+            rejects(lambda: M.bound_remember(ROOT, subject, state), 'BOUND_REMEMBER_REFUSED')
+
+    def test_bound_observations_refuse_missing_or_mismatched_joins(self):
+        subject = 'aukora:1:' + 'a' * 64
+        identity = {'subject': subject, 'overlaySubject': subject, 'stateDir': '/home/aukora-host/genesis/state/home/kira-memory'}
+        heads = [{'name': 'gate-ledger', 'head': 'b' * 64, 'entries': 5, 'absence': None},
+                 {'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-missing',
+                  'browserMemory': {'active': True, 'reason': 'kira.memory:aumlok-linked'}},
+                 {'name': 'code-chain', 'head': 'c' * 64, 'entries': 1, 'absence': None}]
+        snapshot = {'schema': 'aukora-face/aura-snapshot:v1', 'head': 'a' * 64, 'sources': heads}
+
+        def observe(attack=None):
+            owner = dict(identity)
+            if attack == 'subject':
+                owner['subject'] = owner['overlaySubject'] = 'invalid'
+            if attack == 'overlay':
+                owner['overlaySubject'] = 'aukora:1:' + 'c' * 64
+            if attack == 'state':
+                owner['stateDir'] = '/wrong/state'
+            journal = ''
+            if attack in ('memory-error', 'composition'):
+                journal += '\n' + ('MemoryIdentityError' if attack == 'memory-error' else 'row did not activate')
+            requests, checkpoints, writes = [], [], []
+            def request(port, method, target, body=None, cookie=None, content_type='text/plain'):
+                self.assertEqual((port, cookie), (18735, 'synthetic-cookie'))
+                requests.append((method, target))
+                if target.startswith('/api/kira/memories'):
+                    if attack == 'json':
+                        return 200, [], b'PRIVATE_SENTINEL not json'
+                    value = [] if attack == 'response' else {'error': 'not-linked'} if attack == 'memory-route' else {'items': []}
+                elif target == '/api/session/create':
+                    self.assertEqual(json.loads(body), {'type': 'client-request', 'rpcId': 'acceptance-session-create',
+                                                        'method': 'session/create',
+                                                        'payload': {'args': {'request': {'sessionId': 'browser-node-bound-acceptance'}}}})
+                    self.assertEqual(content_type, 'application/json')
+                    result = {'ok': attack != 'rpc-create', 'value': {'sessionId': 'browser-node-bound-acceptance'}}
+                    if attack == 'rpc-create-id':
+                        result['value']['sessionId'] = 'different-session'
+                    value = {'type': 'server-response', 'rpcId': 'acceptance-session-create', 'result': result}
+                    if attack == 'rpc-envelope':
+                        value = result
+                elif target == '/api/session/list':
+                    self.assertEqual(json.loads(body), {'type': 'client-request', 'rpcId': 'acceptance-session-list',
+                                                        'method': 'session/list', 'payload': {'args': {'_request': {}}}})
+                    self.assertEqual(content_type, 'application/json')
+                    value = {'type': 'server-response', 'rpcId': 'acceptance-session-list',
+                             'result': {'ok': attack != 'rpc', 'value': {'items': []}}}
+                elif target == '/stock-apps/auma-lingwa.html':
+                    return (403 if attack == 'app' else 200), [], b'<html>synthetic app</html>'
+                elif target.endswith('/prepare'):
+                    self.assertEqual(content_type, 'application/json')
+                    value = {'ok': attack == 'prepare', 'reason': 'aumlok:bind-already-bound'}
+                else:
+                    value = json.loads(json.dumps(snapshot))
+                    if attack == 'inactive':
+                        value['sources'][1]['browserMemory'] = {
+                            'active': False, 'reason': 'kira.memory:aumlok-not-linked'}
+                    if attack == 'readiness-missing':
+                        del value['sources'][1]['browserMemory']
+                    if attack == 'readiness-reason':
+                        value['sources'][1]['browserMemory']['reason'] = 'PRIVATE_REASON'
+                    if writes and attack != 'note-missing':
+                        value['sources'][1].update(head='d' * 64, entries=1, absence=None)
+                    if attack == 'gate' or attack == 'code' or attack == 'kira' and writes:
+                        name = {'gate': 'gate-ledger', 'code': 'code-chain', 'kira': 'kira-chain'}[attack]
+                        next(row for row in value['sources'] if row['name'] == name).update(
+                            head=None, entries=0, absence='kira-ledger-missing' if name == 'kira-chain' else 'source-unavailable')
+                    if attack in ('entries-bool', 'entries-unsafe', 'duplicate-source'):
+                        if attack == 'duplicate-source':
+                            value['sources'].append({'name': 'gate-ledger', 'head': None, 'entries': 0, 'absence': 'gate-ledger-invalid'})
+                        else:
+                            value['sources'][0]['entries'] = True if attack == 'entries-bool' else 2**53
+                    if writes and attack in ('kira-entries-bool', 'kira-entries-unsafe', 'duplicate-kira'):
+                        if attack == 'duplicate-kira':
+                            value['sources'].append({'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-broken'})
+                        else:
+                            value['sources'][1]['entries'] = True if attack == 'kira-entries-bool' else 2**53
+                    if writes and attack in ('kira-head', 'kira-count'):
+                        value['sources'][1].update({'head': 'e' * 64} if attack == 'kira-head' else {'entries': 2})
+                    snapshot_reads = requests.count(('GET', '/api/aukora/aura-snapshot'))
+                    if attack == 'aura-status' and not writes and snapshot_reads == 2 or attack == 'note-aura-status' and writes:
+                        return 403, [], json.dumps(value).encode()
+                    # Only the readiness read is refused, so a later snapshot cannot supply the same code.
+                    if attack == 'readiness-status' and snapshot_reads == 1:
+                        return 403, [], json.dumps(value).encode()
+                return 200, [], json.dumps(value).encode()
+            def independent_heads():
+                kira = {'head': 'd' * 64, 'entries': 1, 'absence': None} if writes and attack != 'note-missing' else \
+                    {'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'}
+                return {'head': 'b' * 64, 'entries': 5}, kira, {'ledger_seq': 5, 'signer_key_sha256': 'f' * 64}
+            with patch.object(M, 'harness_identity', return_value=(os.getuid(), os.getgid())), \
+                    patch.object(M, 'binding_custody') as custody, patch.object(M, 'bound_identity', return_value=owner), \
+                    patch.object(M, 'browser_aura_heads', side_effect=independent_heads), \
+                    patch.object(M, 'bound_remember', side_effect=lambda *args: writes.append(args)), patch.object(M.time, 'sleep'):
+                current = journal + ('\nMemoryIdentityError' if attack == 'late-memory-error' else '')
+                M.accept_bound(ROOT, request, 'synthetic-cookie', checkpoints.append, journal, lambda: current)
+                custody.assert_called_once_with(Path('/home/aukora-host/genesis/state/aumlok-binding'), os.getuid())
+            return checkpoints, writes, requests
+
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            checkpoints, writes, requests = observe()
+        self.assertEqual(checkpoints, ['binding_custody', 'binding_overlay', 'kira_active', 'bound_rpc', 'bound_app',
+                                      'repeat_prepare', 'aura_gate_code', 'aura_kira_note', 'composition_active'])
+        self.assertEqual(writes, [(ROOT, subject, identity['stateDir'])])
+        self.assertEqual(requests[-2:], [('GET', '/api/aukora/aura-snapshot')] * 2)
+        self.assertNotIn('synthetic-cookie', output.getvalue())
+        for attack, code in [('subject', 'BOUND_SUBJECT_INVALID'), ('overlay', 'BOUND_OVERLAY_MISMATCH'),
+                             ('state', 'BOUND_OVERLAY_MISMATCH'), ('inactive', 'BOUND_KIRA_INACTIVE'),
+                             ('readiness-missing', 'BOUND_KIRA_INACTIVE'), ('readiness-reason', 'BOUND_KIRA_INACTIVE'),
+                             ('readiness-status', 'AURA_SNAPSHOT_REFUSED'),
+                             ('memory-error', 'BOUND_KIRA_INACTIVE'), ('memory-route', 'BOUND_KIRA_ROUTE_REFUSED'),
+                             ('json', 'BOUND_RESPONSE_INVALID'), ('response', 'BOUND_RESPONSE_INVALID'),
+                             ('rpc', 'BOUND_RPC_REFUSED'), ('rpc-create', 'BOUND_RPC_CREATE_REFUSED'),
+                             ('rpc-envelope', 'BOUND_RPC_CREATE_REFUSED'),
+                             ('rpc-create-id', 'BOUND_RPC_CREATE_REFUSED'), ('app', 'BOUND_APP_REFUSED'), ('prepare', 'BOUND_PREPARE_ACCEPTED'),
+                             ('gate', 'AURA_GATE_MISSING'), ('code', 'AURA_CODE_MISSING'),
+                             ('entries-bool', 'AURA_GATE_MISSING'), ('entries-unsafe', 'AURA_GATE_MISSING'),
+                             ('duplicate-source', 'AURA_SNAPSHOT_INVALID'),
+                             ('kira', 'AURA_KIRA_HEAD_MISMATCH'), ('composition', 'BOUND_COMPOSITION_INACTIVE'),
+                             ('note-missing', 'BOUND_AURA_KIRA_MISSING'),
+                             ('aura-status', 'AURA_SNAPSHOT_REFUSED'), ('note-aura-status', 'AURA_SNAPSHOT_REFUSED'),
+                             ('kira-head', 'AURA_KIRA_HEAD_MISMATCH'), ('kira-count', 'AURA_KIRA_HEAD_MISMATCH'),
+                             ('kira-entries-bool', 'AURA_KIRA_HEAD_MISMATCH'), ('kira-entries-unsafe', 'AURA_KIRA_HEAD_MISMATCH'),
+                             ('duplicate-kira', 'AURA_SNAPSHOT_INVALID'),
+                             ('late-memory-error', 'BOUND_COMPOSITION_INACTIVE')]:
+            with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()):
+                rejects(lambda: observe(attack), code)
+
+    def test_bound_rpc_matches_pinned_harness(self):
+        pin = json.loads((ROOT / 'upstream-dsh.json').read_text())
+        file = ROOT / 'vendor/dsh-source.tar.gz'
+        if not file.is_file():
+            self.skipTest('UNPERFORMED: pinned harness archive vendor/dsh-source.tar.gz absent')
+        self.assertEqual(hashlib.sha256(file.read_bytes()).hexdigest(), pin['archiveSha256'])
+        with tarfile.open(file, 'r:gz') as archive:
+            prefix = archive.next().name.split('/')[0]
+            source = lambda name: archive.extractfile(prefix + '/packages/api/session-controller/src/' + name).read().decode()
+            self.assertIn("@Remote('create')\n  create(request: SessionCreateRequest)", source('index.ts'))
+            self.assertIn('readonly sessionId?: SessionId', source('types.ts'))
+            self.assertIn('readonly sessionId: SessionId', source('types.ts'))
+            self.assertIn('const sessionId = request.sessionId ??', source('commands.ts'))
+            self.assertIn('request.sessionId !== undefined,', source('commands.ts'))
+
     def test_evidence_reads_bound_public_sources(self):
         file = self.root / 'record.json'
         file.write_text('{"public":true}')
@@ -413,6 +701,7 @@ m.main(["model-key"])
             self.assertIn((Path(M.NODE),), [call.args for call in custody.call_args_list])
             checker = M.CHECKOUT / 'scripts/audit/browser-node-evidence.mjs'
             self.assertIn((checker,), [call.args for call in custody.call_args_list])
+            self.assertEqual(json.loads(M.evidence_record(checks, 'bound'))['phase'], 'bound')
             sources['release-floor.json']['release'] = 'b' * 40
             rejects(lambda: M.evidence_record(checks), 'EVIDENCE_REVISION_MISMATCH')
             sources['release-floor.json']['release'] = 'a' * 40
@@ -541,7 +830,7 @@ m.main(["model-key"])
             checks.append({'name': 'root_platform', 'status': 'FAIL'})
             raise ValueError('PRIVATE_FAILURE')
         with patch.object(M, 'root_check'), patch.object(M, 'accept', side_effect=observe), \
-                patch.object(M, 'evidence_record', side_effect=lambda checks: json.dumps({'checks': checks})), \
+                patch.object(M, 'evidence_record', side_effect=lambda checks, phase='after': json.dumps({'checks': checks})), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
             rejects(lambda: M.accept_evidence('before'), 'EVIDENCE_PHASE_INVALID')
             rejects(lambda: M.accept_evidence('after'), 'ACCEPTANCE_FAILED')
@@ -573,15 +862,18 @@ m.main(["model-key"])
         def values():
             snapshot = {'schema': 'aukora-face/aura-snapshot:v1', 'head': 'a' * 64, 'sources': [
                 {'name': 'gate-ledger', 'head': 'b' * 64, 'entries': 5, 'absence': None},
-                {'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'},
+                {'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-missing',
+                 'browserMemory': {'active': True, 'reason': 'kira.memory:aumlok-linked'}},
                 {'name': 'code-chain', 'head': 'c' * 64, 'entries': 1, 'absence': None}]}
             return snapshot, {'head': 'b' * 64, 'entries': 5}, {'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'}, \
                 {'ledger_seq': 5, 'signer_key_sha256': 'd' * 64}
         snapshot, gate, kira, floor = values()
         M.browser_aura_sources(snapshot, gate, kira, floor, True)
+        M.browser_aura_sources(snapshot, gate, kira, floor, False)
         kira.update(head='e' * 64, entries=1, absence=None)
         snapshot['sources'][1].update(kira)
         M.browser_aura_sources(snapshot, gate, kira, floor, True)
+        rejects(lambda: M.browser_aura_sources(snapshot, gate, kira, floor, False), 'AURA_KIRA_HEAD_MISMATCH')
         for label, change, code in [
             ('schema', lambda s, g, k, f: s.update(schema='wrong'), 'AURA_SNAPSHOT_INVALID'),
             ('combined head', lambda s, g, k, f: s.update(head=None), 'AURA_SNAPSHOT_INVALID'),
@@ -617,7 +909,7 @@ m.main(["model-key"])
         kira['absence'] = snapshot['sources'][1]['absence'] = 'kira-ledger-empty'
         M.browser_aura_sources(snapshot, gate, kira, floor, True)
         snapshot['sources'][1].update(entries=None, absence='kira-service-unavailable')
-        M.browser_aura_sources(snapshot, gate, kira, floor, False)
+        rejects(lambda: M.browser_aura_sources(snapshot, gate, kira, floor, False), 'AURA_KIRA_ABSENCE_INVALID')
         rejects(lambda: M.browser_aura_sources(snapshot, gate, kira, floor, True), 'AURA_KIRA_ABSENCE_INVALID')
 
     def test_aura_collector_custody(self):
@@ -847,7 +1139,49 @@ def mutations():
     aura_unit_mutations()
     aura_custody_mutations()
     model_mutations()
-    guard_mutations()
+    rehearsal_marker_mutations()
+
+
+def rehearsal_marker_mutations():
+    global M
+    original = M
+    start = TEXT.index('def check_rehearsal_marker():')
+    end = TEXT.index('def claim():', start)
+    scoped = TEXT[start:end]
+    cases = [
+        ('read symlink refusal', 'descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)', 'descriptor = os.open(file, os.O_RDONLY | os.O_NONBLOCK)'),
+        ('bounded marker read', 'descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)', 'descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW)'),
+        ('exclusive creation', 'os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW', 'os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW'),
+        ('protected ancestry', '    for parent in [STATE, *STATE.parents]:\n        protected(parent, True, private=parent == STATE)\n', ''),
+        ('installed node', '    installed()\n', ''),
+        ('root command', '    root_check()\n', ''),
+        ('both rehearsal markers', '    mark_gate_rehearsal()\n', ''),
+    ]
+    for label, before, after in cases:
+        assert scoped.count(before) >= 1, label
+        M = load(TEXT[:start] + scoped.replace(before, after) + TEXT[end:])
+        result = unittest.TestResult()
+        with contextlib.redirect_stdout(io.StringIO()):
+            BrowserInstaller('test_rehearsal_marker').run(result)
+        assert result.failures or result.errors, 'rehearsal marker mutation survived: ' + label
+    start = TEXT.index('def mark_gate_rehearsal():')
+    end = TEXT.index('def passkey_claim():', start)
+    scoped = TEXT[start:end]
+    gate_cases = [
+        ('gate ancestry', '    for parent in [marker.parent, *marker.parent.parents]:\n        protected(parent, True)\n', ''),
+        ('gate root ownership', '        os.fchown(output.fileno(), 0, 0)\n', ''),
+        ('gate readable marker mode', '        os.fchmod(output.fileno(), 0o644)\n', '        os.fchmod(output.fileno(), 0o600)\n'),
+        ('gate exclusive marker', "output = marker.open('xb')", "output = marker.open('wb')"),
+    ]
+    for label, before, after in gate_cases:
+        assert scoped.count(before) == 1, label
+        M = load(TEXT[:start] + scoped.replace(before, after) + TEXT[end:])
+        result = unittest.TestResult()
+        with contextlib.redirect_stdout(io.StringIO()):
+            BrowserInstaller('test_rehearsal_marker').run(result)
+        assert result.failures or result.errors, 'rehearsal marker mutation survived: ' + label
+    M = original
+    print('SOURCE-ONLY browser rehearsal marker mutations: %d/%d killed' % (len(cases) + len(gate_cases), len(cases) + len(gate_cases)))
 
 
 def unit_mutations():
@@ -943,8 +1277,11 @@ def aura_custody_mutations():
     print('SOURCE-ONLY browser Aura custody mutations: %d/%d killed' % (len(cases), len(cases)))
 
 
-def guard_mutations():
-    # Every named Python refusal is exercised with its actual predicate removed.
+REFUSAL_PARTS = 3
+
+
+def guard_mutations(part=None):
+    # Every named Python refusal is exercised with its actual predicate removed; part k of PARTS runs every PARTS-th one.
     global M
     spec = importlib.util.spec_from_file_location('browser_pipeline_mutation_fixture', ROOT / 'tests/browser-node-pipeline.py')
     pipeline = importlib.util.module_from_spec(spec)
@@ -961,6 +1298,12 @@ def guard_mutations():
         'read_model_key': ['test_model_key_input_refusals_and_prompt'],
         'model_store_key': ['test_model_key_custody_and_store_refusals'],
         'discard_passkey_claim': ['test_legacy_passkey_claim_directory_refuses'],
+        'check_rehearsal_marker': ['test_rehearsal_marker'],
+        'mark_rehearsal': ['test_rehearsal_marker'],
+        'binding_custody': ['test_binding_custody'],
+        'bound_remember': ['test_bound_remember_uses_release_path_as_harness_user'],
+        'accept_bound': ['test_bound_observations_refuse_missing_or_mismatched_joins'],
+        'browser_memory_active': ['test_bound_observations_refuse_missing_or_mismatched_joins'],
         'main': ['test_usage_every_option', 'test_profile_rules_and_service_preflight'],
         'evidence_custody': ['test_evidence_reads_bound_public_sources'],
         'evidence_json': ['test_evidence_reads_bound_public_sources'],
@@ -975,7 +1318,9 @@ def guard_mutations():
         'checked_inputs': ['test_each_input_digest'], 'installed': ['test_install_record_is_closed_and_revision_checked'],
         'install': ['test_dependency_and_node_package_checks', 'test_fresh_install_does_not_adopt_existing_state_or_users', 'test_rerun_is_exact_and_never_regenerates_keys'],
         'accept': ['test_before_acceptance_refuses_any_floor_start_listener_or_descriptor', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation',
-                   'test_public_authority_claim_acceptance_guards', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'],
+                   'test_public_authority_claim_acceptance_guards', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes',
+                   'test_bound_phase_requires_same_current_invocation'],
+        'browser_aura_heads': ['test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'],
         'enable_owner_signin': ['test_owner_signin_transition_guards'],
     }
     lines = TEXT.splitlines(keepends=True)
@@ -990,6 +1335,9 @@ def guard_mutations():
         for call in ast.walk(function):
             if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'need':
                 guards.append((function.name, call))
+    total = len(guards)
+    if part is not None:
+        guards = guards[part - 1::REFUSAL_PARTS]
     for function, call in guards:
         arg = call.args[0]
         start, stop = offsets[arg.lineno - 1] + arg.col_offset, offsets[arg.end_lineno - 1] + arg.end_col_offset
@@ -1007,8 +1355,21 @@ def guard_mutations():
                     pipeline.Pipeline(method).run(result)
         M = original_module
         assert result.failures or result.errors, 'named refusal removal survived: %s:%s' % (function, call.lineno)
-    print('SOURCE-ONLY browser named Python refusals: %d/%d removals killed' % (len(guards), len(guards)))
+    print('SOURCE-ONLY browser named Python refusals: %d/%d removals killed%s' % (len(guards), len(guards), '' if part is None else ' (part %d of %d, %d in all)' % (part, REFUSAL_PARTS, total)))
+    if part not in (None, REFUSAL_PARTS):
+        return
     controls = [
+        ('completed binding releases lock', "('local-control.json', 'machine-seed-v3.json', 'browser-binding-attempts.sqlite')",
+         "('local-control.json', 'machine-seed-v3.json', 'browser-binding-attempts.sqlite', 'browser-first-bind.lock')",
+         'test_binding_custody'),
+        ('Aura integer entry count', "type(value) is int and 0 < value <= 9007199254740991", "isinstance(value, int) and 0 < value <= 9007199254740991",
+         'test_bound_observations_refuse_missing_or_mismatched_joins'),
+        ('Aura safe entry count', "0 < value <= 9007199254740991", "value > 0",
+         'test_bound_observations_refuse_missing_or_mismatched_joins'),
+        ('Aura unique source row', "len(snapshot['sources']) == 3", "len(snapshot['sources']) >= 3",
+         'test_bound_observations_refuse_missing_or_mismatched_joins'),
+        ('remember returned note', 'if (!Array.isArray(reply.ids) || reply.ids.length < 1) process.exit(1);', '',
+         'test_bound_remember_uses_release_path_as_harness_user'),
         ('input privacy', "{name: value['inputs'][name] for name in ('checkout', 'node', 'dependencies', 'harness')}", "dict(value['inputs'])", 'test_evidence_projection_revision_and_public_schema'),
         ('source parent custody', '    for parent in file.parents:\n        protected(parent, True)\n', '', 'test_evidence_reads_bound_public_sources'),
         ('output privacy', 'with contextlib.redirect_stdout(io.StringIO()):', 'with contextlib.nullcontext():', 'test_evidence_hides_output_and_preserves_failure'),
@@ -1062,7 +1423,10 @@ def sockets_mutant(m):
 
 
 if __name__ == '__main__':
-    if '--mutations' in sys.argv:
+    # The named-refusal removals run on their own so each half fits the check runner's time limit.
+    if '--refusal-mutations' in sys.argv:
+        guard_mutations(int(sys.argv[sys.argv.index('--refusal-mutations') + 1]))
+    elif '--mutations' in sys.argv:
         mutations()
     else:
         with contextlib.redirect_stdout(io.StringIO()):

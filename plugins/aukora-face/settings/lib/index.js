@@ -309,6 +309,15 @@ const AURA_SNAPSHOT_SOURCES = [
 ];
 const DOMAIN = "aukora.aura.snapshot.v1\0";
 const HEX64$1 = /^[0-9a-f]{64}$/u;
+const BROWSER_MEMORY_REASONS$1 = new Set([
+	"kira.memory:aumlok-not-linked",
+	"kira.memory:aumlok-linked",
+	"kira.memory:browser-binding-config",
+	"kira.memory:browser-binding-unreadable",
+	"kira.memory:browser-overlay-unavailable",
+	"kira.memory:browser-identity-mismatch",
+	"kira.memory:activation-failed"
+]);
 function refuse(code) {
 	throw Object.assign(new TypeError(code), { code });
 }
@@ -325,11 +334,22 @@ function makeAuraSnapshot(input) {
 		if (source.head !== null && (typeof source.head !== "string" || !HEX64$1.test(source.head))) refuse("aura-snapshot:head-invalid");
 		if (source.entries !== null && (!Number.isSafeInteger(source.entries) || source.entries < 0)) refuse("aura-snapshot:entries-invalid");
 		if (source.head === null ? source.entries !== null && source.entries !== 0 || typeof source.absence !== "string" || source.absence.length === 0 : source.absence !== null || source.entries === null || source.entries < 1) refuse("aura-snapshot:availability-invalid");
+		let browserMemory;
+		if (name === "kira-chain" && source.browserMemory !== void 0) {
+			const state = source.browserMemory;
+			if (state === null) browserMemory = null;
+			else if (typeof state?.active !== "boolean" || typeof state.reason !== "string" || !BROWSER_MEMORY_REASONS$1.has(state.reason) || state.active !== (state.reason === "kira.memory:aumlok-linked")) refuse("aura-snapshot:browser-memory-invalid");
+			else browserMemory = {
+				active: state.active,
+				reason: state.reason
+			};
+		}
 		return {
 			name,
 			head: source.head,
 			entries: source.entries,
-			absence: source.absence
+			absence: source.absence,
+			...browserMemory === void 0 ? {} : { browserMemory }
 		};
 	});
 	const hash = createHash("sha256").update(DOMAIN, "utf8");
@@ -368,12 +388,22 @@ const KIRA_ABSENCES = new Set([
 	"kira-ledger-head-invalid",
 	"kira-ledger-state-root-invalid"
 ]);
+const BROWSER_MEMORY_REASONS = new Set([
+	"kira.memory:aumlok-not-linked",
+	"kira.memory:aumlok-linked",
+	"kira.memory:browser-binding-config",
+	"kira.memory:browser-binding-unreadable",
+	"kira.memory:browser-overlay-unavailable",
+	"kira.memory:browser-identity-mismatch",
+	"kira.memory:activation-failed"
+]);
 function absent(name, absence, entries = null) {
 	return {
 		name,
 		head: null,
 		entries,
-		absence
+		absence,
+		...name === "kira-chain" ? { browserMemory: null } : {}
 	};
 }
 /** A failed verification never contributes a head to the snapshot. */
@@ -392,14 +422,30 @@ function gateLedgerSource(value) {
 /** Copy only validated head/count fields and fixed refusal names from the read-only service. */
 function kiraChainSource(value) {
 	if (value === void 0) return absent("kira-chain", "kira-service-unavailable");
-	const { head, entries, absence } = value ?? {};
-	if (head === null && typeof absence === "string" && KIRA_ABSENCES.has(absence) && (entries === null || entries === 0)) return absent("kira-chain", absence, entries);
-	if (absence !== null || typeof head !== "string" || !HEX64.test(head) || !Number.isSafeInteger(entries) || entries < 1) return absent("kira-chain", "kira-head-invalid");
+	const { head, entries, absence, browserMemory } = value ?? {};
+	const readiness = (() => {
+		const state = browserMemory;
+		if (state === null || state === void 0) return null;
+		const active = state.active, reason = state.reason;
+		return typeof active === "boolean" && typeof reason === "string" && BROWSER_MEMORY_REASONS.has(reason) && active === (reason === "kira.memory:aumlok-linked") ? {
+			active,
+			reason
+		} : null;
+	})();
+	if (head === null && typeof absence === "string" && KIRA_ABSENCES.has(absence) && (entries === null || entries === 0)) return {
+		...absent("kira-chain", absence, entries),
+		browserMemory: readiness
+	};
+	if (absence !== null || typeof head !== "string" || !HEX64.test(head) || !Number.isSafeInteger(entries) || entries < 1) return {
+		...absent("kira-chain", "kira-head-invalid"),
+		browserMemory: readiness
+	};
 	return {
 		name: "kira-chain",
 		head,
 		entries,
-		absence: null
+		absence: null,
+		browserMemory: readiness
 	};
 }
 /** Read bounded regular files without following a record symlink or waiting on a FIFO. */

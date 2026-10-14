@@ -6,7 +6,7 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@aukora/face-layout/client'
 import { AumlokMenu } from './AumlokMenu.tsx'
-import { AumlokSurface, type AumlokSurfaceInjected } from './AumlokSurface.tsx'
+import { AumlokSurface, type AumlokSurfaceInjected, type ModelCredentialStatus } from './AumlokSurface.tsx'
 import { IdentityMenu, IdentitySurface, type IdentitySurfaceInjected } from './IdentitySurface.tsx'
 import { AumlokControlProjectionService } from './control-projection.ts'
 import { AumlokControlStatusLoader } from './control-status-loader.ts'
@@ -35,9 +35,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 const NS = 'aumlok'
+const MODEL_CREDENTIAL_REF = 'DEEPSEEK_API_KEY'
+
+/** Project only whether the operator-managed model credential exists. */
+export async function readModelCredentialStatus(ctx: ClientContext): Promise<ModelCredentialStatus> {
+  const response = await ctx.remote.credentials.describe([MODEL_CREDENTIAL_REF])
+  if (!response.ok) return 'unavailable'
+  const configured = response.value[MODEL_CREDENTIAL_REF]?.configured
+  return configured === true ? 'configured' : configured === false ? 'missing' : 'unavailable'
+}
 
 /** Services required by the AUMLOK browser plugin. */
-export const inject = ['slots', 'locale', 'connection']
+export const inject = ['slots', 'locale', 'connection', 'remote.credentials']
 
 /**
  * Register the AUMLOK dictionaries, System launcher, and center surface.
@@ -57,6 +66,7 @@ export function apply(ctx: ClientContext): void {
     return await response.json() as AumlokContactIdentity
   }
   const loader = new AumlokControlStatusLoader(projection, connection)
+  const readCredential = (): Promise<ModelCredentialStatus> => readModelCredentialStatus(ctx)
   const refreshControlStatus = (): void => { void loader.refresh() }
   ctx.effect(() => {
     const disposeReset = ctx.on('connection/reset', () => { void loader.refresh() })
@@ -124,6 +134,7 @@ export function apply(ctx: ClientContext): void {
         // becomes the seven public fields without a page reload, and a changed phrase
         // moves the record to its new epoch. A refusal never reaches this.
         refreshControlStatus,
+        readModelCredentialStatus: readCredential,
         startFirstChat: () => {
           scope.layout.closeSurface()
           scope.layout.openConversation()

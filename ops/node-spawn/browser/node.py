@@ -24,6 +24,7 @@ import sys
 import tarfile
 import time
 import warnings
+from types import SimpleNamespace
 
 STATE = Path('/var/lib/aukora-browser')
 CHECKOUT = Path('/opt/aukora-genesis/src')
@@ -49,6 +50,8 @@ EVIDENCE_JSON_LIMITS = {
 # A real 15,700-entry artifact record is about 2 MiB; 8 MiB permits growth while keeping the streamed read finite.
 EVIDENCE_ARTIFACT_RECORD_MAX_BYTES = 8 * 1024 * 1024
 EVIDENCE_DIGEST_CHUNK_BYTES = 64 * 1024
+REHEARSAL_MARKER = 'rehearsal-only'
+REHEARSAL_MARKER_BYTES = b'AUKORA_REHEARSAL_ONLY\n'
 
 
 def refuse(code):
@@ -164,6 +167,10 @@ def checked_inputs(options, stage):
         protected(file)
         need(stage.digest_file(file) == digest(expected), 'INPUT_DIGEST_MISMATCH')
     protected(inputs / 'dsh-source.tar.gz')
+    if getattr(options, 'openviking_bundle', None) is not None:
+        file = absolute(options.openviking_bundle)
+        protected(file)
+        need(stage.digest_file(file) == digest(options.openviking_sha256), 'OPENVIKING_DIGEST_MISMATCH')
     digest(options.revision, True)
     return inputs
 
@@ -440,6 +447,10 @@ def install(options):
     binding = {'checkout': options.checkout_sha256, 'node': options.node_sha256,
                'dependencies': options.dependencies_sha256, 'harness': stage.digest_file(inputs / 'dsh-source.tar.gz'),
                'app_host': app_host, 'owner_host': owner_host}
+    viking = None
+    if getattr(options, 'openviking_bundle', None) is not None:
+        binding['openviking'] = options.openviking_sha256
+        viking = module(here / 'openviking-node.py')
     if (STATE / 'installed.json').exists():
         need(installed() == {'revision': options.revision, 'inputs': binding}, 'RERUN_CONFLICT')
         bootstrap('check-package')
@@ -479,6 +490,8 @@ def install(options):
     run(['git', 'bundle', 'verify', str(inputs / 'checkout.bundle')], 'BUNDLE_INVALID', cwd=checkout)
     run(['git', '-C', str(checkout), 'checkout', '--quiet', '--detach', options.revision], 'REVISION_MISSING')
     stage.source_check({'source_checkout': str(checkout), 'release_commit': options.revision})
+    if viking is not None:
+        viking.prepare(SimpleNamespace(**globals()), Path(options.openviking_bundle), checkout)
     pin = json.loads((checkout / 'upstream-dsh.json').read_text())
     fresh = module(checkout / 'scripts/fresh_clone.py')
     fresh.verify_archive(inputs / 'dsh-source.tar.gz', pin)
@@ -514,6 +527,7 @@ def install(options):
     env['AUKORA_STATE'] = '/home/aukora-host/genesis/state'
     fresh.run(['python3', str(checkout / 'scripts/materialize-aukora-release.py'), '--browser-node',
                '--public-origin', 'https://' + app_host,
+               *(['--kira-openviking-home', str(viking.HOME)] if viking is not None else []),
                '--from', str(checkout / 'vendor/dsh'), '--to', str(release)], 'materialize', checkout, env)
     stage.public_modes(release)
     profile(release, checkout)
@@ -574,6 +588,8 @@ def install(options):
     run(['install', '-d', '-m', '0750', '-o', 'aukora-gate', '-g', 'skgate', str(target)], 'TARGET_CREATE_REFUSED')
     for name in ('', 'state', 'support', 'state/home', 'state/agents', 'state/workspace', 'state/logs'):
         run(['install', '-d', '-m', '0700', '-o', 'aukora-host', '-g', 'aukora-host', '/home/aukora-host/genesis/' + name], 'STATE_CREATE_REFUSED')
+    if viking is not None:
+        viking.install(SimpleNamespace(**globals()), release, config)
     config_path = STATE / 'spawn.json'
     config_path.write_text(json.dumps({'release_commit': options.revision}))
     config_path.chmod(0o600)
@@ -584,6 +600,8 @@ def install(options):
     bootstrap('check-package')
     bootstrap('check-runtime')
     run(['systemctl', 'daemon-reload'], 'SYSTEMD_REFUSED')
+    if viking is not None:
+        run(['systemctl', 'enable', '--now', 'aukora-openviking.service'], 'OPENVIKING_START_REFUSED')
     run(['systemctl', 'enable', '--now', 'aukora-boundary-gate.service'], 'GATE_START_REFUSED')
     run(['systemctl', 'enable', '--now', 'aukora-browser-claim.service'], 'CLAIM_START_REFUSED')
     sockets()
@@ -592,6 +610,7 @@ def install(options):
     run(['systemctl', 'enable', '--now', 'aukora-aura-head.timer'], 'AURA_TIMER_START_REFUSED')
     value = {'revision': options.revision, 'inputs': binding}
     config.write(STATE / 'installed.json', (json.dumps(value, sort_keys=True) + '\n').encode(), Path('/'))
+    print('KIRA_RECALL ' + ('semantic configured; verify both loopback services' if viking is not None else 'lexical; no OpenViking bundle'))
     print('BROWSER_INSTALLED_PENDING_OWNER_APPROVAL; harness stopped; bearer never printed')
 
 
@@ -688,6 +707,56 @@ WantedBy=multi-user.target
     config.write(Path('/etc/systemd/system/aukora-browser-claim.service'), claim_unit.encode(), Path('/'))
 
 
+def check_rehearsal_marker():
+    # Only a private root-owned marker permits the synthetic binding ceremony.
+    for parent in [STATE, *STATE.parents]:
+        protected(parent, True, private=parent == STATE)
+    file = STATE / REHEARSAL_MARKER
+    try:
+        descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        refuse('REHEARSAL_MARKER_REQUIRED')
+    try:
+        info = os.fstat(descriptor)
+        need(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+             and stat.S_IMODE(info.st_mode) == 0o600
+             and info.st_size == len(REHEARSAL_MARKER_BYTES), 'REHEARSAL_MARKER_INVALID')
+        need(os.read(descriptor, len(REHEARSAL_MARKER_BYTES) + 1) == REHEARSAL_MARKER_BYTES,
+             'REHEARSAL_MARKER_INVALID')
+    finally:
+        os.close(descriptor)
+
+
+def mark_rehearsal():
+    root_check()
+    installed()
+    for parent in [STATE, *STATE.parents]:
+        protected(parent, True, private=parent == STATE)
+    record = Path('/home/aukora-host/genesis/state/aumlok-binding/local-control.json')
+    need(not record.exists() and not record.is_symlink(), 'REHEARSAL_ALREADY_BOUND')
+    file = STATE / REHEARSAL_MARKER
+    try:
+        descriptor = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except OSError:
+        refuse('REHEARSAL_MARKER_CREATE_REFUSED')
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(REHEARSAL_MARKER_BYTES)
+            output.flush()
+            os.fsync(output.fileno())
+        directory = os.open(STATE, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except OSError:
+        refuse('REHEARSAL_MARKER_CREATE_REFUSED')
+    check_rehearsal_marker()
+    mark_gate_rehearsal()
+    print('BROWSER_REHEARSAL_MARKED; never give this node to an owner for binding')
+
+
 def claim():
     root_check()
     installed()
@@ -726,10 +795,8 @@ def discard_passkey_claim():
         os.close(fd)
 
 
-def mark_rehearsal():
-    # Only root in an installed node can designate a rehearsal.
-    root_check()
-    installed()
+def mark_gate_rehearsal():
+    # The gate's enrollment page reads this root-owned marker; one command writes both markers.
     marker = Path('/etc/aukora-boundary-gate/rehearsal.json')
     for parent in [marker.parent, *marker.parent.parents]:
         protected(parent, True)
@@ -748,7 +815,6 @@ def mark_rehearsal():
         os.fsync(fd)
     finally:
         os.close(fd)
-    print('BROWSER_REHEARSAL_MARKED; this node must never be given to an owner')
 
 
 def passkey_claim():
@@ -864,6 +930,37 @@ def listeners(text):
     return endpoints
 
 
+def browser_aura_heads():
+    # Read current ledger heads as their owning users under the protected approval floor.
+    try:
+        floor, _ = evidence_json(Path('/etc/aukora-approvals/release-floor.json'), 'RELEASE_FLOOR')
+    except (UnicodeError, ValueError):
+        refuse('AURA_FLOOR_INVALID')
+    need(isinstance(floor, dict) and type(floor.get('ledger_seq')) is int and floor['ledger_seq'] > 0
+         and isinstance(floor.get('signer_key_sha256'), str)
+         and re.fullmatch(r'[0-9a-f]{64}', floor['signer_key_sha256']) is not None, 'AURA_FLOOR_INVALID')
+    helper = str(CHECKOUT / 'ops/node-spawn/browser/aura-head.mjs')
+    gate_text = run(['runuser', '-u', 'aukora-gate', '--', NODE, helper, 'gate', floor['signer_key_sha256']],
+                    'AURA_GATE_READ_REFUSED')
+    kira_text = run(['runuser', '-u', 'aukora-host', '--', NODE, helper, 'kira'], 'AURA_KIRA_READ_REFUSED')
+    try:
+        gate, kira = json.loads(gate_text), json.loads(kira_text)
+    except (UnicodeError, ValueError):
+        refuse('AURA_HEAD_READ_INVALID')
+    return gate, kira, floor
+
+
+def browser_memory_active(snapshot):
+    # Bound acceptance consumes only the fixed public readiness projection.
+    sources = snapshot.get('sources') if isinstance(snapshot, dict) else None
+    kira = next((row for row in sources if isinstance(row, dict) and row.get('name') == 'kira-chain'), None) \
+        if isinstance(sources, list) else None
+    state = kira.get('browserMemory') if isinstance(kira, dict) else None
+    need(isinstance(state, dict) and set(state) == {'active', 'reason'}
+         and state.get('active') is True and state.get('reason') == 'kira.memory:aumlok-linked',
+         'BOUND_KIRA_INACTIVE')
+
+
 def browser_aura_sources(snapshot, gate, kira, floor, bound):
     # Require displayed heads to cover approval and match independent verified ledgers.
     names = ['gate-ledger', 'kira-chain', 'code-chain']
@@ -872,12 +969,16 @@ def browser_aura_sources(snapshot, gate, kira, floor, bound):
     need(isinstance(snapshot, dict) and snapshot.get('schema') == 'aukora-face/aura-snapshot:v1'
          and hex_head(snapshot.get('head')) and isinstance(snapshot.get('sources'), list)
          and len(snapshot['sources']) == 3
-         and all(isinstance(row, dict) and set(row) == {'name', 'head', 'entries', 'absence'}
+         and all(isinstance(row, dict)
+                 and set(row) == ({'name', 'head', 'entries', 'absence', 'browserMemory'}
+                                  if name == 'kira-chain' else {'name', 'head', 'entries', 'absence'})
                  and row['name'] == name for row, name in zip(snapshot['sources'], names)), 'AURA_SNAPSHOT_INVALID')
     need(isinstance(floor, dict) and count(floor.get('ledger_seq'))
          and hex_head(floor.get('signer_key_sha256')), 'AURA_FLOOR_INVALID')
     need(isinstance(gate, dict) and hex_head(gate.get('head')) and count(gate.get('entries')), 'AURA_GATE_READ_INVALID')
     gate_source, kira_source, code_source = snapshot['sources']
+    if bound:
+        browser_memory_active(snapshot)
     present = lambda row: hex_head(row['head']) and count(row['entries']) and row['absence'] is None
     need(present(gate_source), 'AURA_GATE_MISSING')
     need(gate_source['entries'] >= floor['ledger_seq'], 'AURA_GATE_BELOW_APPROVAL')
@@ -886,14 +987,132 @@ def browser_aura_sources(snapshot, gate, kira, floor, bound):
     need(isinstance(kira, dict) and (hex_head(kira.get('head')) and count(kira.get('entries')) and kira.get('absence') is None
          or kira.get('head') is None and type(kira.get('entries')) is int and kira['entries'] == 0
          and kira.get('absence') in ('kira-ledger-missing', 'kira-ledger-empty')), 'AURA_KIRA_READ_INVALID')
-    if bound and kira['entries'] > 0:
-        need(present(kira_source) and kira_source['head'] == kira['head'] and kira_source['entries'] == kira['entries'],
+    if kira['entries'] > 0:
+        need(bound and present(kira_source) and kira_source['head'] == kira['head'] and kira_source['entries'] == kira['entries'],
              'AURA_KIRA_HEAD_MISMATCH')
     elif kira['entries'] == 0:
-        need(kira_source['head'] is None and (type(kira_source['entries']) is int and kira_source['entries'] == 0
-             and kira_source['absence'] == kira['absence']
-             or not bound and kira_source['entries'] is None and kira_source['absence'] == 'kira-service-unavailable'),
+        need(kira_source['head'] is None and type(kira_source['entries']) is int and kira_source['entries'] == 0
+             and kira_source['absence'] == kira['absence'],
              'AURA_KIRA_ABSENCE_INVALID')
+
+
+def binding_custody(directory, uid):
+    protected(directory, True, uid, True)
+    need(stat.S_IMODE(directory.lstat().st_mode) == 0o700, 'BOUND_DIRECTORY_MODE')
+    for name in ('local-control.json', 'machine-seed-v3.json', 'browser-binding-attempts.sqlite'):
+        file = directory / name
+        protected(file, uid=uid, private=True)
+        need(stat.S_IMODE(file.lstat().st_mode) == 0o600, 'BOUND_FILE_MODE')
+
+
+def bound_identity(release):
+    # Read the release's validated public projection; no phrase or machine seed is exported.
+    code = '''import { pathToFileURL } from 'node:url';
+const root = process.argv[1];
+const { loadLocalAumlokPublicControl } = await import(pathToFileURL(root + '/plugins/aukora-aumlok/lib/store.mjs'));
+const { readKiraDeploymentOverlay } = await import(pathToFileURL(root + '/plugins/aukora-kira/lib/memory-identity.mjs'));
+const { readTextStrict } = await import(pathToFileURL(root + '/plugins/aukora-kira/lib/strict-read.mjs'));
+const control = loadLocalAumlokPublicControl('/home/aukora-host/genesis/state/aumlok-binding').projection;
+const owner = readKiraDeploymentOverlay(readTextStrict('/home/aukora-host/genesis/support/kira-deployment-overlay.patch.yml', { maxBytes: 65536 }));
+console.log(JSON.stringify({ subject: control.subject, overlaySubject: owner.subject, stateDir: owner.stateDir }));'''
+    return json.loads(run(['runuser', '-u', 'aukora-host', '--', NODE, '--input-type=module', '-e', code, str(release)],
+                          'BOUND_IDENTITY_REFUSED'))
+
+
+def bound_remember(release, subject, state_dir):
+    # This is the tracked-memory remember path behind kira_remember, invoked by the harness user.
+    code = '''import { pathToFileURL } from 'node:url';
+const [root, subject, stateDir] = process.argv.slice(1);
+const { createTrackedMemory } = await import(pathToFileURL(root + '/plugins/aukora-kira/lib/tracked-memory.mjs'));
+const reply = await createTrackedMemory({ stateDir, subject }).remember({ text: 'Browser node acceptance memory probe.', from: 'browser-node-acceptance' });
+if (!Array.isArray(reply.ids) || reply.ids.length < 1) process.exit(1);
+console.log('KIRA_BOUND_NOTE_PRESENT');'''
+    need(run(['runuser', '-u', 'aukora-host', '--', NODE, '--input-type=module', '-e', code,
+              str(release), subject, state_dir], 'BOUND_REMEMBER_REFUSED').strip() == 'KIRA_BOUND_NOTE_PRESENT',
+         'BOUND_REMEMBER_REFUSED')
+
+
+def accept_bound(release, request, cookie, checkpoint, journal, refresh_journal=None):
+    checkpoint('binding_custody')
+    uid, _ = harness_identity()
+    binding_custody(Path('/home/aukora-host/genesis/state/aumlok-binding'), uid)
+    identity = bound_identity(release)
+    subject = identity.get('subject')
+    need(isinstance(subject, str) and re.fullmatch(r'aukora:1:[0-9a-f]{64}', subject) is not None, 'BOUND_SUBJECT_INVALID')
+    checkpoint('binding_overlay')
+    state_dir = '/home/aukora-host/genesis/state/home/kira-memory'
+    need(identity.get('overlaySubject') == subject and identity.get('stateDir') == state_dir, 'BOUND_OVERLAY_MISMATCH')
+    def read_json(method, target, body=None):
+        status, _, raw = request(18735, method, target,
+                                 None if body is None else json.dumps(body).encode(), cookie, 'application/json')
+        try:
+            value = json.loads(raw)
+        except (ValueError, UnicodeError):
+            refuse('BOUND_RESPONSE_INVALID')
+        need(isinstance(value, dict), 'BOUND_RESPONSE_INVALID')
+        return status, value
+
+    checkpoint('kira_active')
+    need('MemoryIdentityError' not in journal, 'BOUND_KIRA_INACTIVE')
+    status, snapshot = read_json('GET', '/api/aukora/aura-snapshot')
+    need(status == 200, 'AURA_SNAPSHOT_REFUSED')
+    browser_memory_active(snapshot)
+
+    memory_ready = False
+    for _ in range(21):
+        status, memory = read_json('GET', '/api/kira/memories?limit=1')
+        if status == 200 and isinstance(memory.get('items'), list):
+            memory_ready = True
+            break
+        time.sleep(0.25)
+    need(memory_ready, 'BOUND_KIRA_ROUTE_REFUSED')
+    checkpoint('bound_rpc')
+    session_id = 'browser-node-bound-acceptance'
+    # The harness gateway takes one client-request envelope per call and answers with its result inside one.
+    def rpc(method, args):
+        status, reply = read_json('POST', '/api/' + method,
+                                  {'type': 'client-request', 'rpcId': 'acceptance-' + method.replace('/', '-'),
+                                   'method': method, 'payload': {'args': args}})
+        result = reply.get('result') if reply.get('type') == 'server-response' else None
+        return status, result if isinstance(result, dict) else {}
+    status, result = rpc('session/create', {'request': {'sessionId': session_id}})
+    need(status == 200 and result.get('ok') is True and isinstance(result.get('value'), dict)
+         and result['value'].get('sessionId') == session_id, 'BOUND_RPC_CREATE_REFUSED')
+    status, result = rpc('session/list', {'_request': {}})
+    need(status == 200 and result.get('ok') is True and isinstance(result.get('value'), dict)
+         and isinstance(result['value'].get('items'), list),
+         'BOUND_RPC_REFUSED')
+    checkpoint('bound_app')
+    status, _, body = request(18735, 'GET', '/stock-apps/auma-lingwa.html', cookie=cookie)
+    need(status == 200 and bool(body), 'BOUND_APP_REFUSED')
+    checkpoint('repeat_prepare')
+    status, result = read_json('POST', '/api/aukora/aumlok-binding/prepare', {'handle': 'acceptance-probe', 'language': 'en'})
+    need(status == 200 and result.get('ok') is False and result.get('reason') == 'aumlok:bind-already-bound',
+         'BOUND_PREPARE_ACCEPTED')
+    checkpoint('aura_gate_code')
+
+    status, snapshot = read_json('GET', '/api/aukora/aura-snapshot')
+    need(status == 200, 'AURA_SNAPSHOT_REFUSED')
+    gate, kira, floor = browser_aura_heads()
+    browser_aura_sources(snapshot, gate, kira, floor, True)
+    checkpoint('aura_kira_note')
+    bound_remember(release, subject, state_dir)
+    for attempt in range(21):
+        status, snapshot = read_json('GET', '/api/aukora/aura-snapshot')
+        need(status == 200, 'AURA_SNAPSHOT_REFUSED')
+        gate, kira, floor = browser_aura_heads()
+        try:
+            browser_aura_sources(snapshot, gate, kira, floor, True)
+            need(kira['entries'] > 0, 'BOUND_AURA_KIRA_MISSING')
+            break
+        except ValueError as error:
+            if str(error) not in ('BROWSER_AURA_KIRA_HEAD_MISMATCH', 'BROWSER_BOUND_AURA_KIRA_MISSING') or attempt == 20:
+                raise
+        time.sleep(0.25)
+    checkpoint('composition_active')
+    current = refresh_journal() if refresh_journal is not None else journal
+    need('did not activate' not in current and 'MemoryIdentityError' not in current, 'BOUND_COMPOSITION_INACTIVE')
+    print('PASS | bound custody, same memory subject, active Kira, RPC/apps, repeat-bind refusal and Aura heads after Kira remember')
 
 
 def accept(phase, checks=None):
@@ -948,6 +1167,12 @@ def accept(phase, checks=None):
     print('GATE_SIGNER_SHA256 ' + epochs['epochs'][-1]['gate_pubkey_sha256'])
     checkpoint('loopback_listeners')
     endpoints = listeners(run(['ss', '-ltn'], 'LISTENERS_UNAVAILABLE'))
+    if phase == 'bound':
+        need(Path('/home/aukora-host/genesis/state/aumlok-binding/local-control.json').is_file(), 'BINDING_REQUIRED')
+    if phase != 'before' and 'openviking' in value['inputs']:
+        module(CHECKOUT / 'ops/node-spawn/browser/openviking-node.py').accept(SimpleNamespace(**globals()), endpoints, phase)
+    elif phase != 'before':
+        print('KIRA_RECALL lexical; no OpenViking bundle')
     if phase == 'before':
         need(not Path('/etc/aukora-approvals/release-floor.json').exists(), 'ALREADY_APPROVED')
         command = ['/usr/bin/python3', '-I', '-S', BOOT, 'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)]
@@ -971,15 +1196,24 @@ def accept(phase, checks=None):
         run(['systemctl', 'is-active', '--quiet', 'aukora-browser.service'], 'HARNESS_INACTIVE')
         need('127.0.0.1:18735' in endpoints, 'HARNESS_LISTENER_MISSING')
         checkpoint('signed_in_ui')
-        # Before the binding ceremony the node serves its first screen and refuses the apps; the probe is
-        # told which state to expect from whether the binding directory exists yet.
-        unbound = not Path('/home/aukora-host/genesis/state/aumlok-binding').exists()
+        # The probe expects apps only after the durable local control record exists.
+        unbound = phase != 'bound' and not Path('/home/aukora-host/genesis/state/aumlok-binding/local-control.json').exists()
+        binding_mode = '--expect-unbound' if unbound else '--expect-bound'
         print(run(['runuser', '-u', 'aukora-host', '--', NODE, str(CHECKOUT / 'ops/pilot/ui-probe.mjs'),
-                   *(['--expect-unbound'] if unbound else [])], 'UI_PROBE_REFUSED').strip())
+                   binding_mode, '--ui-only'], 'UI_PROBE_REFUSED').strip())
+        checkpoint('browser_binding_guard')
+        print(run(['runuser', '-u', 'aukora-host', '--', NODE, str(CHECKOUT / 'ops/pilot/ui-probe.mjs'),
+                   binding_mode, '--guard-only'], 'BINDING_GUARD_PROBE_REFUSED').strip())
         checkpoint('plugin_load')
         invocation = run(['systemctl', 'show', '-p', 'InvocationID', '--value', 'aukora-browser.service'], 'JOURNAL_UNAVAILABLE').strip()
         need(bool(re.fullmatch(r'[0-9a-f]{32}', invocation)), 'JOURNAL_UNAVAILABLE')
         journal = run(['journalctl', '--no-pager', '-o', 'cat', '_SYSTEMD_INVOCATION_ID=' + invocation], 'JOURNAL_UNAVAILABLE')
+        if phase == 'bound':
+            for _ in range(20):
+                if 'aukora-kira: memory active (kira.memory:aumlok-linked)' in journal:
+                    break
+                time.sleep(0.25)
+                journal = run(['journalctl', '--no-pager', '-o', 'cat', '_SYSTEMD_INVOCATION_ID=' + invocation], 'JOURNAL_UNAVAILABLE')
         need(not re.search(r'^aukora-[a-z-]+ \(file://.*\): Error', journal, re.M), 'PLUGIN_LOAD_FAILED')
         checkpoint('claim_service')
         run(['systemctl', 'is-active', '--quiet', 'aukora-browser-claim.service'], 'CLAIM_INACTIVE')
@@ -994,10 +1228,10 @@ def accept(phase, checks=None):
         need(authority != owner_authority, 'PUBLIC_HOSTS_MUST_DIFFER')
         import http.client
 
-        def request(port, method, target, body=None, cookie=None):
+        def request(port, method, target, body=None, cookie=None, content_type='text/plain'):
             headers = {'Host': authority, 'Origin': public_origin, 'Sec-Fetch-Site': 'same-origin'}
             if body is not None:
-                headers['Content-Type'] = 'text/plain'
+                headers['Content-Type'] = content_type
             if cookie is not None:
                 headers['Cookie'] = cookie
             connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
@@ -1046,25 +1280,18 @@ def accept(phase, checks=None):
             snapshot = json.loads(payload)
         except (UnicodeError, ValueError):
             refuse('AURA_SNAPSHOT_INVALID')
-        try:
-            floor, _ = evidence_json(Path('/etc/aukora-approvals/release-floor.json'), 'RELEASE_FLOOR')
-        except (UnicodeError, ValueError):
-            refuse('AURA_FLOOR_INVALID')
-        need(isinstance(floor, dict) and type(floor.get('ledger_seq')) is int and floor['ledger_seq'] > 0
-             and isinstance(floor.get('signer_key_sha256'), str)
-             and re.fullmatch(r'[0-9a-f]{64}', floor['signer_key_sha256']) is not None, 'AURA_FLOOR_INVALID')
-        helper = str(CHECKOUT / 'ops/node-spawn/browser/aura-head.mjs')
-        gate_text = run(['runuser', '-u', 'aukora-gate', '--', NODE, helper, 'gate', floor['signer_key_sha256']],
-                        'AURA_GATE_READ_REFUSED')
-        kira_text = run(['runuser', '-u', 'aukora-host', '--', NODE, helper, 'kira'], 'AURA_KIRA_READ_REFUSED')
-        try:
-            gate, kira = json.loads(gate_text), json.loads(kira_text)
-        except (UnicodeError, ValueError):
-            refuse('AURA_HEAD_READ_INVALID')
+        gate, kira, floor = browser_aura_heads()
         browser_aura_sources(snapshot, gate, kira, floor, not unbound)
         print('PASS | Aura gate head matches verified current ledger through approval; code present; Kira absence or head explicit')
         print('PASS | protected public origins, anonymous 401 and one-use public-authority claim cookie')
         print('PASS | approved signed-in UI and plugin load')
+        if phase == 'bound':
+            accept_bound(release, request, cookie, checkpoint, journal,
+                         lambda: run(['journalctl', '--no-pager', '-o', 'cat', '_SYSTEMD_INVOCATION_ID=' + invocation],
+                                     'JOURNAL_UNAVAILABLE'))
+            checkpoint('bound_current_invocation')
+            need(run(['systemctl', 'show', '-p', 'InvocationID', '--value', 'aukora-browser.service'],
+                     'JOURNAL_UNAVAILABLE').strip() == invocation, 'BOUND_INVOCATION_CHANGED')
         if phase == 'passkey':
             print(run([NODE, str(CHECKOUT / 'ops/node-spawn/browser/passkey-acceptance.mjs')],
                       'PASSKEY_ACCEPTANCE_REFUSED').strip())
@@ -1103,7 +1330,7 @@ def evidence_digest(file):
     return digest.hexdigest()
 
 
-def evidence_record(checks):
+def evidence_record(checks, phase='after'):
     # Export only public approval proofs, digests and named check outcomes.
     value = installed()
     release, approval = release_paths(value)
@@ -1119,7 +1346,7 @@ def evidence_record(checks):
     public_key = pin['gatePubkeyPem']
     need(gate_signer() == public_key, 'EVIDENCE_SIGNER_MISMATCH')
     # The verifier derives the full fingerprint from this public key and binds it to the floor.
-    record = {'kind': 'aukora-browser-node-evidence/v1', 'phase': 'after',
+    record = {'kind': 'aukora-browser-node-evidence/v1', 'phase': phase,
               'observed_at': datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
               'release': {'revision': value['revision'], 'record_sha256': artifact_sha256,
                           'plugin_set_sha256': plugins['setDigest']},
@@ -1162,7 +1389,7 @@ def gate_signer():
 
 
 def accept_evidence(phase):
-    need(phase == 'after', 'EVIDENCE_PHASE_INVALID')
+    need(phase in ('after', 'bound'), 'EVIDENCE_PHASE_INVALID')
     root_check()
     checks = []
     failed = False
@@ -1172,7 +1399,7 @@ def accept_evidence(phase):
             accept(phase, checks)
         except Exception:
             failed = True
-    print(evidence_record(checks))
+    print(evidence_record(checks, phase))
     if failed:
         refuse('ACCEPTANCE_FAILED')
 
@@ -1190,13 +1417,17 @@ def main(args):
     parser.add_argument('--owner-host')
     for key in ('checkout-sha256', 'revision', 'node-sha256', 'dependencies-sha256'):
         parser.add_argument('--' + key)
-    parser.add_argument('--phase', choices=['before', 'after', 'passkey'])
+    parser.add_argument('--openviking-bundle')
+    parser.add_argument('--openviking-sha256')
+    parser.add_argument('--phase', choices=['before', 'after', 'bound', 'passkey'])
     parser.add_argument('--evidence', action='store_true')
     parser.add_argument('--release')
     parser.add_argument('--prompt', action='store_true')
     parser.add_argument('--remove', dest='remove_model_key', action='store_true')
     need(len([a for a in args if a.startswith('--')]) == len(set(a for a in args if a.startswith('--'))), 'USAGE')
     options = parser.parse_args(args)
+    need((options.openviking_bundle is None) == (options.openviking_sha256 is None), 'OPENVIKING_PAIR_REQUIRED')
+    need(options.openviking_bundle is None or options.action == 'install', 'USAGE')
     fields = ('inputs', 'checkout_sha256', 'revision', 'node_sha256', 'dependencies_sha256', 'app_host', 'owner_host')
     need(all(getattr(options, key) is not None for key in fields) if options.action == 'install'
          else all(getattr(options, key) is None for key in fields), 'USAGE')
@@ -1205,7 +1436,7 @@ def main(args):
     need(not options.prompt or options.action == 'model-key', 'USAGE')
     need(not options.remove_model_key or options.action == 'model-key', 'USAGE')
     need(not (options.prompt and options.remove_model_key), 'USAGE')
-    need(not options.evidence or options.action == 'accept' and options.phase == 'after', 'USAGE')
+    need(not options.evidence or options.action == 'accept' and options.phase in ('after', 'bound'), 'USAGE')
     if options.action == 'install':
         absolute(options.inputs)
         for key in fields[1:5]:
@@ -1215,6 +1446,8 @@ def main(args):
         start()
     elif options.action == 'claim':
         claim()
+    elif options.action == 'mark-rehearsal':
+        mark_rehearsal()
     elif options.action == 'rotate-owner-link':
         rotate_owner_link()
     elif options.action == 'passkey-claim':
@@ -1222,8 +1455,6 @@ def main(args):
     elif options.action == 'discard-passkey-claim':
         root_check()
         discard_passkey_claim()
-    elif options.action == 'mark-rehearsal':
-        mark_rehearsal()
     elif options.action == 'enable-owner-signin':
         enable_owner_signin()
     elif options.action == 'model-key':
@@ -1244,7 +1475,8 @@ def main(args):
         root_check()
         installed()
         run(['systemctl', 'disable', '--now', 'aukora-aura-head.timer', 'aukora-aura-head.service'], 'REMOVE_REFUSED')
-        run(['systemctl', 'disable', '--now', 'aukora-browser.service', 'aukora-browser-claim.service', 'aukora-boundary-gate.service'], 'REMOVE_REFUSED')
+        run(['systemctl', 'disable', '--now', 'aukora-browser.service', 'aukora-browser-claim.service', 'aukora-boundary-gate.service',
+             *(['aukora-openviking.service'] if 'openviking' in installed()['inputs'] else [])], 'REMOVE_REFUSED')
         print('BROWSER_DEACTIVATED; protected state and floor retained')
     else:
         model_status()

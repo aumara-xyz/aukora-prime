@@ -11,7 +11,7 @@
         "apps/aukora-desktop/aumlok-signer-airlock.mjs"
       ],
       "state": "RAN on a real node",
-      "basis": "October 4 theme approval has a retained signed export; October 13 records two real owner-approved switches: the first was rolled back the same morning; the second (release c603bbf) stands. This does not establish current gate-package parity, enrolled owner custody or comprehension.",
+      "basis": "October 4 theme approval has a retained signed export. For October 13, the operator reports two owner-approved switches: the first was rolled back that morning and the second left release c603bbf running; no signed export of either switch is retained in this tree. This does not establish current gate-package parity, enrolled owner custody or comprehension.",
       "evidence": [
         "docs/evidence/l2-demo-2026-10-04/README.md",
         "plan/NORTH-STAR.md",
@@ -106,25 +106,27 @@
       "next": "Observe the route after an owner-approved live switch; a combined display head does not turn separate histories into a complete signed master ledger."
     },
     {
-      "name": "Kira capture and append-only memory ledger",
+      "name": "Kira capture and unsigned memory history",
       "description": "Eligible durable turns and remembered notes become hashed records in a separate unsigned memory history, with forget tombstones.",
       "code": [
         "plugins/aukora-kira/lib/memory-remembered-hook.mjs",
         "plugins/aukora-kira/lib/tracked-memory.mjs",
-        "plugins/aukora-kira/lib/memory-journal.mjs"
+        "plugins/aukora-kira/lib/memory-journal.mjs",
+        "plugins/aukora-kira/lib/memory-owner.mjs",
+        "plugins/aukora-kira/lib/strict-read.mjs"
       ],
       "state": "RAN on a real node",
-      "basis": "October 13 readback reports 202 existing pilot notes. Capture can be paused or filtered, fail or miss unsupported routes; ordinary remembers do not enter the signed gate ledger and grant no authority.",
+      "basis": "October 13 readback reports 202 existing pilot notes. In source, remembered/journal.jsonl is opened with O_APPEND, while remembered/aura.jsonl and remembered/seq are rewritten by copy-then-rename under a lock that may be removed as stale after 30 seconds. Modes are 0600, but same-user replacement is not prevented. Capture can be paused or filtered, fail or miss unsupported routes; ordinary remembers do not enter the signed gate ledger and grant no authority.",
       "evidence": [
         "plan/NORTH-STAR.md",
         "plan/MORNING-2026-10-13.md",
         "ARCHITECTURE.md"
       ],
-      "command": "node --test tests/kira-a1-ledger-availability.test.mjs",
+      "command": "node tests/kira-memory-law.test.mjs",
       "commandPaths": [
-        "tests/kira-a1-ledger-availability.test.mjs"
+        "tests/kira-memory-law.test.mjs"
       ],
-      "next": "Verify the installed capture coverage and original source references; qualify the protected gate-completion capture separately."
+      "next": "The cited test drives the production capture path and opens the remembered journal; the former kira-a1-ledger-availability citation is only an unreadable-ledger fixture. Verify installed capture coverage and original source references; same-user files do not establish append-only custody."
     },
     {
       "name": "Kira recall by text and meaning",
@@ -372,7 +374,7 @@
         "plugins/aukora-buzz-door/bin/verify-channel-receipt.mjs"
       ],
       "state": "RAN on a real node",
-      "basis": "Installed staging acceptance reports 11 of 11 and a restart wake into a real session. Later on October 13, the live c603bbf node received an Auma relay key, door settings and a session, registered the door, and posted one line. Peter then parked Buzz; it is idle and nothing depends on it.",
+      "basis": "Installed staging acceptance reports 11 of 11 and a restart wake into a real session. The operator reports that the live c603bbf node later received an Auma relay key, door settings and a session, registered the door, and posted one line; no signed export of that live door state is retained in this tree. Peter then parked Buzz; it is idle and nothing depends on it.",
       "evidence": [
         "plan/NORTH-STAR.md",
         "plugins/aukora-buzz-door/checks/installed-accept.mjs"
@@ -479,9 +481,10 @@
         "plugins/aukora-action-gate/lib/browser-bootstrap.mjs"
       ],
       "state": "RAN on a real node",
-      "basis": "On October 13 the builder recorded a fresh offline build and three owner-approved starts with after-approval acceptance; a separate stand-in-approved rehearsal reached phrase retyping in a real browser. By the builder's report, rehearsal node aukora-r1 later booted with the pre-binding restriction, opened the binding screen by itself, refused session creation, session listing and file upload with 403 browser-node:binding-required, and passed acceptance in unbound mode. That node run preceded the two fixes in f47a61e: refusing the contact-card identity read and paths with empty segments, encoded slashes or backslashes. Their guard, boot and mux suites ran, but the fixes were not rerun on a node. A second model family reviewed the restriction read-only; three items remain open: a readable control record lifts the guard, prepare returns the drawn words to the signed-in client, and GET/HEAD under /plugins/ remains an open prefix. The committed rehearsal record evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json uses a stand-in approval; commit 5dd0e97 records 22 after-approval checks and offline verification of its receipt signature, approval bindings, signed apply row and floor binding. It does not record the later pre-binding fixes. Final Bind, the owner's own binding, a real authenticator, a model reply, voice, reboot and a second owner-bound node remain unperformed.",
+      "basis": "On October 13 the builder recorded a fresh offline build and three owner-approved starts with after-approval acceptance; a separate stand-in-approved rehearsal reached phrase retyping in a real browser. By the builder's report, rehearsal node aukora-r1 later booted with the pre-binding restriction, opened the binding screen by itself, refused session creation, session listing and file upload with 403 browser-node:binding-required, and passed acceptance in unbound mode. Those 403 observations were made by hand and are not fields in the retained record. That node run preceded the two fixes in f47a61e: refusing the contact-card identity read and paths with empty segments, encoded slashes or backslashes. Their guard, boot and mux suites ran, but the fixes were not rerun on a node. A second model family reviewed the restriction read-only; three items remain open: a readable control record lifts the guard, prepare returns the drawn words to the signed-in client, and GET/HEAD under /plugins/ remains an open prefix. The committed stand-in rehearsal record evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json verifies its receipt signature, approval bindings, signed apply row and floor core binding offline. The record itself is unsigned, and its 22 check results are producer-declared and unsigned; the verifier cannot establish that they ran or passed. It does not record the 403 observations or the later pre-binding fixes. Final Bind, the owner's own binding, a real authenticator, a model reply, voice, reboot and a second owner-bound node remain unperformed.",
       "evidence": [
         "evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json",
+        "scripts/audit/browser-node-evidence.mjs",
         "plan/CHECK-2026-10-13.md",
         "plan/NORTH-STAR.md",
         "plan/REVIEW-BROWSER-NODE.md",
@@ -548,8 +551,8 @@
         "ops/pilot/live-switch-main.sh",
         "ops/pilot/ui-probe.mjs"
       ],
-      "state": "RAN on a real node",
-      "basis": "The rewritten script ran on the live pilot on October 13 with the owner approving its card while the old release was up: the first attempt stopped at installing the approval (gate sockets not yet present) and restored; the second completed, including its own screen probe and plugin-load check. Before that: four staging rehearsals with a stand-in key, two of which found permission faults. An earlier script switched live that morning, showed no apps and was rolled back.",
+      "state": "SOURCE only",
+      "basis": "The operator reports that the rewritten script ran on the live pilot on October 13: the first attempt stopped at installing the approval and restored, and the second completed with its screen probe and plugin-load check. No signed export of that live switch is retained in this tree. Four staging rehearsals used a stand-in key; an earlier live script was reported to switch, show no apps and roll back.",
       "evidence": [
         "ops/pilot/README.md",
         "plan/MORNING-2026-10-13.md",
@@ -560,7 +563,7 @@
         "tests/pilot-switch-order.test.mjs",
         "tests/pilot-switch-recovery.test.mjs"
       ],
-      "next": "Retain the live c603bbf switch record and investigate any later candidate separately; one successful switch does not establish future recovery or machine-power-loss behavior."
+      "next": "Retain and independently verify a signed c603bbf switch export; the operator report alone does not establish the live switch, future recovery or machine-power-loss behavior."
     }
   ],
   "joins": [
@@ -597,7 +600,7 @@
       ]
     },
     {
-      "text": "The Buzz door joins verified channel input to agents.followup and brackets posts with gate intent/completion records; installed staging acceptance exercises that join with a recorder. A real staging session wake stopped at missing model credentials. The live c603bbf node later registered a configured door and posted one line before Peter parked Buzz idle. Invites join authoritative spending to relay member-add in source; node-spawn requires the admission service's signed confirmation. No incoming live reply, posted gate receipt, deployed closed-relay admission or fresh-node installer is qualified.",
+      "text": "The Buzz door joins verified channel input to agents.followup and brackets posts with gate intent/completion records; installed staging acceptance exercises that join with a recorder. A real staging session wake stopped at missing model credentials. The operator reports that the live c603bbf node later registered a configured door and posted one line before Peter parked Buzz idle; no signed export of that live door state is retained in this tree. Invites join authoritative spending to relay member-add in source; node-spawn requires the admission service's signed confirmation. No incoming live reply, posted gate receipt, deployed closed-relay admission or fresh-node installer is qualified.",
       "paths": [
         "plugins/aukora-buzz-door/lib/index.mjs",
         "plugins/aukora-buzz-door/checks/installed-accept.mjs",

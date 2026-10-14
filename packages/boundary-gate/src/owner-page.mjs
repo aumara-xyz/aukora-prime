@@ -12,6 +12,7 @@ import { readProtectedJson } from './owner-state.mjs'
 
 export const CONFIRM_TTL_MS = 2 * 60 * 1000
 export const PAGE_APPROVER = 'owner via gate approval page (bearer token, typed 2-step confirm)'
+export const PASSKEY_PAGE_APPROVER = 'owner via gate passkey page'
 export const PAGE_REJECTER = 'owner via gate approval page (bearer token)'
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const chip = (h) => isHex(h) ? `<span class=chip style="background:${esc(h.toUpperCase())}"></span>` : `<span class="chip dflt" title="app default: stock accent, unknown colour"></span>`
@@ -234,7 +235,7 @@ export function createPasskeyOwnerHandler(gate, { origin, rpId, appOrigin, node,
       if (!bearerOk(gate.owner, body.bearer, gate.now)) return send(res, 401, { ok: false, error: 'OWNER_PASSKEY_BEARER_REFUSED' })
       const { bearer, ...args } = body
       const result = url.pathname === '/owner/review' ? await gate.ownerOps.review(args)
-        : await gate.ownerOps.decide_review({ ...args, outcome: 'allowed-once' }, 'owner via gate passkey page')
+        : await gate.ownerOps.decide_review({ ...args, outcome: 'allowed-once' }, PASSKEY_PAGE_APPROVER)
       send(res, 200, { ok: true, result })
     } catch (error) {
       const code = /^(?:[A-Z][A-Z0-9_]+|owner-browser:[a-z-]+|passkey:[a-z-]+)$/.test(error?.message) ? error.message : 'OWNER_PASSKEY_REFUSED'

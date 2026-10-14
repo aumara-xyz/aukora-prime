@@ -45,10 +45,10 @@
 // modules may load. Removing the hook removes enforcement entirely, which is why
 // STOCK_PLUGINS_NOT_YET_UNDER_POLICY is printed rather than assumed away.
 
-import { appendFileSync, closeSync, existsSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { constants } from 'node:fs';
 import { createHash, createPublicKey, verify as cryptoVerify } from 'node:crypto';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { registerHooks } from 'node:module';
 
 import { artifactClosure, artifactDigest, asBytes, resolveModuleIdentity, verifyLoadedBytes } from './artifact.mjs';
@@ -530,9 +530,8 @@ export function governedIdFor(filePath) {
 function installPluginSet(config, log, refusals) {
   if (config.pluginSetPath === undefined || config.pluginSetPath === null) return null;
   const mode = config.pluginSetMode;
-  if (mode !== 'enforce' && mode !== 'waived') {
-    throw new Refusal(SET_REFUSE.RECORD_MALFORMED, `pluginSetMode is ${JSON.stringify(mode)}; it must be enforce or waived`);
-  }
+  requirePluginSetMode(mode, mode === 'waived'
+    ? resolve(fileURLToPath(import.meta.url), '../../../..') : null);
   const readJson = (path, code, what) => {
     if (path === undefined || path === null || !existsSync(path)) return null;
     try { return JSON.parse(readFileSync(path, 'utf8')); } catch (err) {
@@ -716,6 +715,32 @@ function installPluginSet(config, log, refusals) {
       return null;
     },
   };
+}
+
+/** An installed release has root-owned, non-writable ancestry. Inspection failure is not preview proof. */
+export function releaseRootIsProtected(releaseRoot, inspect = lstatSync, canonical = realpathSync) {
+  let current;
+  try { current = canonical(resolve(releaseRoot)); } catch { return true; }
+  for (;;) {
+    let info;
+    try { info = inspect(current); } catch { return true; }
+    if (!info.isDirectory() || info.uid !== 0 || (info.mode & 0o022) !== 0) return false;
+    const parent = dirname(current);
+    if (parent === current) return true;
+    current = parent;
+  }
+}
+
+/** Only a release outside protected installed custody may waive plugin-set approval. */
+export function requirePluginSetMode(mode, releaseRoot, inspect = lstatSync, canonical = realpathSync) {
+  if (mode !== 'enforce' && mode !== 'waived') {
+    throw new Refusal(SET_REFUSE.RECORD_MALFORMED,
+      `pluginSetMode is ${JSON.stringify(mode)}; it must be enforce or waived`);
+  }
+  if (mode === 'waived' && releaseRootIsProtected(releaseRoot, inspect, canonical)) {
+    throw new Refusal(SET_REFUSE.WAIVER_REFUSED,
+      'a root-protected installed release cannot waive plugin-set approval; use enforce');
+  }
 }
 
 let installed = null;

@@ -26,12 +26,12 @@ EXTERNAL_FILES = (SIGNER_EPOCHS,)
 LAUNCHER_ROOT = "/opt/aukora-genesis/src"
 # Six approved checkout inputs only. Selected-release admission and all other
 # checkout/release bytes are outside this named pre-Node profile.
-# Exact launcher source inventory: reviewed C1 ingress diff from a2929e0 adds the
-# bounded public-origin passthrough and Secure public-cookie harness patch.
+# Exact launcher source inventory: reviewed launcher diff adds the installed-node
+# monotonic floor recheck before any harness process can be spawned.
 # Explicit host environment overrides remain outside the pinned profile.
 # The recipe includes opt-in browser request, Remote and event admission.
 LAUNCHER_SOURCE_PINS = {
-    "scripts/launch-dsh.py": "addb516dc4a8e1e9229a67e9d307ec4f91622046d539baf6f50ab02beaac3603",
+    "scripts/launch-dsh.py": "b34d24b27cd58395dc208adb93e5ba00b0e2bcb3013a559f3674f8d9dc795343",
     "scripts/genesis-check.mjs": "238ad43612280b79d0d0303480cb1a999bcf3b413fe18c97ebd9e0aedae3b303",
     "scripts/lib/artifact-integrity.mjs": "39e2f64643ceb2e0d93fabd14467ebaf5efd6de0e0a70f76cf19ce69825b5a41",
     "scripts/lib/release-strip.mjs": "1a687a82424b84420497edbdc5e6c13cb14e065fe4d262f0e859e9e85264b641",

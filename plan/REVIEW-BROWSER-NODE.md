@@ -125,7 +125,7 @@ table above supersedes their repair state.
   draw before work and uses `O_EXCL|O_NOFOLLOW` (`browser-binding.mjs:170-229`);
   route errors are fixed strings. Binding tests reported `26 passed, 0 failed`
   and `31 killed, 0 survived`; route mutations were `21/21 KILLED`.
-- **Passkey proof replay/cross-node/counters held.** Authorization binds the
+- **Passkey proof replay/cross-node held; counters advance when reported, while WebAuthn permits 0-to-0 for non-counting authenticators such as synced passkeys.** Authorization binds the
   node, RP, exact origin, credential, challenge/card digest, expiry and durable
   review; the gate compare-and-sets the counter in the consumption transaction
   (`packages/owner-key/src/authorization.mjs:325-342`;
@@ -340,3 +340,38 @@ power-loss behavior of installed storage, Kira activation, owner/passkey custody
 or that a kept identity was minted on a real node. The owner must decide whether
 trusted clock and harness-user filesystem custody suffice for a disposable test;
 they do not establish protection against that user or malicious storage rollback.
+
+## Whole-repository red team of GitHub main d5998c0 (Grok, read-only, 2026-10-14)
+
+Three read-only Grok reviews ran on fresh clones of GitHub main at `d5998c0`:
+owner authority, claims against code and CI, and the installer. The installer
+review returned no findings on two attempts. An Antigravity (Gemini) review was
+NOT RUN: its local CLI needs a project already opened in that app for this
+repository, and none exists. Each finding was checked against the current tree
+before it is listed here.
+
+| Finding | Verdict | State |
+|---|---|---|
+| A release approved on the gate's passkey page cannot install: the page writes approver `owner via gate passkey page`, and `verifyGateSetApproval` accepts only the socket and bearer-page strings; once passkey setup exists the bearer path is refused | CONFIRMED in source (`plugin-set-canon.mjs`, `owner-page.mjs`) | FIXED IN SOURCE: the passkey-page approver is accepted only with the retained v3 owner proof; an in-process software-passkey approval verifies as the installer verifies. NOT RUN with a real authenticator or on an installed node |
+| The release floor is checked only by the unit's pre-start and by `node.py`, never by `scripts/launch-dsh.py`, so the harness user can run the launcher by hand against an older release tree still on disk | CONFIRMED in source | FIXED IN SOURCE and booted on the rehearsal node: the launcher runs the protected floor check before spawning. A by-hand old-release launch was NOT RUN |
+| The composition hook skips plugin-set verification when `gate-config.json`, in a state root the harness user owns, says `waived` | CONFIRMED in source | FIXED IN SOURCE: a root-protected installed release refuses `waived`. The first build of this fix failed to boot on the rehearsal node (missing import its tests had injected); fixed, with a test that calls the real readers |
+| Passkey counters: 0 then 0 is accepted | CONFIRMED; that is how WebAuthn treats authenticators that keep no counter (synced passkeys) | Wording corrected |
+| `ui-probe --expect-unbound` refuses only the apps; session create/list and upload refusals were seen by hand, not checked by acceptance or recorded in evidence | CONFIRMED | FIXED and RAN on the rehearsal node: unbound acceptance proves the five boot reads answer and session create, list and upload are refused with `browser-node:binding-required`; bound acceptance proves the same calls pass, sent in the gateway's real `client-request` envelope (the first version used the wrong shape and was caught on the node) |
+| Acceptance read "unbound" from the binding directory, which the binding service creates before any binding | CONFIRMED at `d5998c0` | FIXED on local main: acceptance reads `local-control.json` |
+| CI: UNPERFORMED rows pass the checks job, so a green run does not include the harness-dependent browser tests; `docs/CI.md` says otherwise | CONFIRMED | FIXED: `docs/CI.md` describes the workflow as it is |
+| STATUS, CLAIMS and THREAT-MODEL disagree on whether the rewritten pilot switch ran live; no signed switch export is in the tree | CONFIRMED (documents) | FIXED: all three now say operator-reported, no signed export retained |
+| The memory row cites a readability fixture; the Aura log is rewritten by copy and rename under a lock that can be taken after 30 s | CONFIRMED | FIXED (documents): the row names which file is O_APPEND and which is rewritten, and that same-user replacement is not prevented |
+| Three `assert-script` jobs count as PASS on exit 0 with no assertion count | CONFIRMED | OPEN |
+
+Rehearsal at the integrated revision of this commit, RAN on the rehearsal node
+with a stand-in approval and a throwaway identity: unbound acceptance passed
+(first screen and boot reads served; apps, session create/list and upload
+refused), the scripted binding passed all nine steps, and bound acceptance
+passed without a restart: binding custody, the same memory subject, Kira
+reported active by the Aura snapshot, session RPCs and apps answering, repeat
+binding refused, and Aura heads matching the independent ledgers after a Kira
+note. Before this, the bound check looked for a Kira log line that never
+reaches any output: plugin `ctx.logger` lines are only buffered in memory
+because no console exporter is mounted (`vendor/cordis/src/logger.ts`), so the
+check could not pass on any node. Memory readiness is now read from the
+snapshot instead. Not run: a real owner, a real authenticator, a model reply.

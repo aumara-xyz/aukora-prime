@@ -34,6 +34,9 @@ const mutants = {
   'entry-location': ["if (entry !== `${OPERATOR_ROOT}/bin/plugin-set-approval.mjs`)", 'if (false)', 1],
   'candidate-overlap': ['if (under(real, OPERATOR_ROOT) || under(OPERATOR_ROOT, real))', 'if (false)', 1],
   'checked-buffer': ["const checkedModule = bytes => import(`data:text/javascript;base64,${bytes.toString('base64')}`)", "const checkedModule = bytes => import('file://' + OPERATOR_ROOT + '/' + [...buffers].find(([, b]) => b === bytes)[0])", 1],
+  'passkey-channel-pin': ['approver: consumed?.detail.channel ?? receipt.approver', 'approver: receipt.approver', 1],
+  'passkey-consumption-required': ["if (receipt.v === 3 && !consumed) die('the retained owner receipt has no matching authorization-consumption channel')", '', 1],
+  'passkey-consumption-binding': ['e.proposal === receipt.proposal && e.seq === receipt.owner_consumption?.ledger_seq', 'e.proposal === receipt.proposal && true', 1],
 }
 if (process.argv.includes('--mutations') || typeof vm.SourceTextModule !== 'function') {
   const run = m => spawnSync(process.execPath, ['--experimental-vm-modules', '--test', '--test-reporter=tap', self], {
@@ -43,7 +46,8 @@ if (process.argv.includes('--mutations') || typeof vm.SourceTextModule !== 'func
   const base = run(); process.stdout.write(base.stdout)
   if (base.status !== 0) { console.error('BASELINE FAILED'); process.exitCode = 1 }
   else if (process.argv.includes('--mutations')) for (const name of Object.keys(mutants)) {
-    const r = run(name), expected = name === 'candidate-import' ? 2 : name.endsWith('-hash') ? 3 : name === 'entry-location' || name === 'candidate-overlap' ? 6 : name === 'checked-buffer' ? 7 : 4
+    const r = run(name), expected = name === 'candidate-import' ? 2 : name.endsWith('-hash') ? 3 : name === 'entry-location' || name === 'candidate-overlap' ? 6
+      : name === 'checked-buffer' ? 7 : name.startsWith('passkey-') ? 10 : 4
     const failure = r.stdout.match(new RegExp('^not ok ' + expected + ' - .*$', 'mu'))?.[0]
     if (r.status === 0 || !failure) { console.error(`SURVIVED ${name}`); process.exitCode = 1 }
     else console.log(`KILLED ${name}: ${failure}`)
@@ -58,7 +62,7 @@ if (selected) {
 const canon = await import(`data:text/javascript;base64,${Buffer.from(source[names[0]]).toString('base64')}`)
 const data = await import(`data:text/javascript;base64,${Buffer.from(source[names[2]]).toString('base64')}`)
 const retained = []
-function world() {
+function world({ retainedOwner = false } = {}) {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'operator-pin-'))); retained.push(tmp)
   const release = path.join(tmp, 'release-abcdef0'), build = path.join(release, '.dsh-build')
   fs.mkdirSync(build, { recursive: true })
@@ -77,10 +81,18 @@ function world() {
   const fields = { ...data.installedRelease(tmp, 'release-abcdef0'), operation: canon.operationDigestOf(canon.setOperationContent(record)) }
   const content = data.pluginSetApprovalText(fields), key = crypto.generateKeyPairSync('ed25519')
   const pem = key.publicKey.export({ type: 'spki', format: 'pem' }), fp = sha(key.publicKey.export({ type: 'spki', format: 'der' })).slice(0, 16)
-  const receipt = { v: 2, kind: 'change', proposal: 'synthetic', target: data.PLUGIN_SET_TARGET, base_sha: 'absent', new_sha: sha(Buffer.from(content)),
-    applied_at: '2026-10-04T00:00:00.000Z', approver: 'owner via owner.sock (synthetic)', approval_evidence_hmac: 'a'.repeat(64), pubkey_fp: fp }
+  const common = { kind: 'change', proposal: 'synthetic', target: data.PLUGIN_SET_TARGET, base_sha: 'absent', new_sha: sha(Buffer.from(content)),
+    applied_at: '2026-10-04T00:00:00.000Z' }
+  const receipt = retainedOwner ? { v: 3, ...common, approver: 'aukora:1:' + 'a'.repeat(64), pubkey_fp: fp,
+    gate_pubkey_sha256: sha(key.publicKey.export({ type: 'spki', format: 'der' })),
+    owner_authorization: { version: 1, kind: 'aukora-owner-authorization-ref/v1', authorization_id: 'c'.repeat(64), proof_sha256: 'd'.repeat(64) },
+    owner_accepted_at_ms: Date.parse(common.applied_at) - 1,
+    owner_consumption: { ledger_seq: 6, ledger_hash: 'e'.repeat(64), review_issue: { ledger_seq: 5, ledger_hash: 'f'.repeat(64) } } }
+    : { v: 2, ...common, approver: 'owner via owner.sock (local; 0600 gate user/root only)',
+      approval_evidence_hmac: 'a'.repeat(64), pubkey_fp: fp }
   const target = path.join(tmp, 'targets', data.PLUGIN_SET_TARGET); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content)
-  const pin = { kind: canon.GATE_PIN_KIND, gatePubkeyPem: pem, gatePubkeyFp: fp, target: data.PLUGIN_SET_TARGET, approver: receipt.approver }
+  const pin = { kind: canon.GATE_PIN_KIND, gatePubkeyPem: pem, gatePubkeyFp: fp, target: data.PLUGIN_SET_TARGET,
+    approver: retainedOwner ? 'owner via gate passkey page' : receipt.approver }
   const ordering = { seq:7 }
   const approval = () => {
     const receipt_sig = crypto.sign(null, Buffer.from(JSON.stringify(receipt)), key.privateKey).toString('base64')
@@ -92,7 +104,10 @@ function world() {
     return { kind: canon.GATE_APPROVAL_KIND, content, receipt, receipt_sig, ledger_entry: row }
   }
   const epochs = {version:1,kind:'aukora-signer-epochs/v1',epochs:[{epoch:1,gate_pubkey_sha256:sha(key.publicKey.export({type:'spki',format:'der'}))}]}
-  return { tmp, release, marker, helperMarker, record, fields, content, pem, fp, receipt, pin, approval, epochs, ordering, requests: [] }
+  const consumption = retainedOwner ? { event: 'owner-authorization-consumed', proposal: receipt.proposal,
+    seq: receipt.owner_consumption.ledger_seq, signed_entry: { hash: receipt.owner_consumption.ledger_hash },
+    detail: { channel: pin.approver, owner_authorization: receipt.owner_authorization } } : null
+  return { tmp, release, marker, helperMarker, record, fields, content, pem, fp, receipt, pin, approval, epochs, ordering, consumption, requests: [] }
 }
 const noCandidate = w => { assert.equal(fs.existsSync(w.marker), false, 'candidate marker absent'); assert.equal(fs.existsSync(w.helperMarker), false, 'candidate helper marker absent') }
 const synthetic = (exports, context) => new vm.SyntheticModule(Object.keys(exports), function () { for (const [k, v] of Object.entries(exports)) this.setExport(k, v) }, { context })
@@ -148,7 +163,8 @@ async function cli(w, command, options = {}) {
     const c = new EventEmitter(); c.destroy = () => {}; c.write = wire => {
       const r = JSON.parse(wire); w.requests.push(r); let result
       if (r.op === 'raise') result = { id: 'synthetic', expires: Date.now() + 10000 }
-      if (r.op === 'log') result = { verify: { ok: true }, entries: [{ event: 'apply', seq: 7, detail: w.approval(), signed_entry: w.approval().ledger_entry }] }
+      if (r.op === 'log') result = { verify: { ok: true }, entries: [...(w.consumption ? [w.consumption] : []),
+        { event: 'apply', seq: 7, detail: w.approval(), signed_entry: w.approval().ledger_entry }] }
       if (r.op === 'ping') result = { pubkey_pem: w.pem, pubkey_fp: w.fp }
       queueMicrotask(() => { c.emit('data', Buffer.from(JSON.stringify({ ok: true, result }))); c.emit('end') })
     }; queueMicrotask(() => c.emit('connect')); return c
@@ -231,6 +247,16 @@ test('same verifier validates genuine synthetic receipt and refuses signature/se
   const bad = structuredClone(input); bad.approval.receipt_sig = Buffer.alloc(64).toString('base64'); assert.throws(() => canon.verifyGateSetApproval(bad), /signature-invalid/)
   const other = structuredClone(input); other.record.setDigest = 'f'.repeat(64); assert.throws(() => canon.verifyGateSetApproval(other), /record-malformed/)
   const owner = structuredClone(input); owner.pin.approver = 'other'; assert.throws(() => canon.verifyGateSetApproval(owner), /approver-not-pinned/)
+})
+test('actual install pins the retained passkey channel and refuses a missing consumption row', async () => {
+  const w = world({ retainedOwner: true }); await cli(w, 'install')
+  const pin = JSON.parse(fs.readFileSync(path.join(w.tmp, 'state/gate-state/plugin-set-approver.json')))
+  assert.equal(pin.approver, 'owner via gate passkey page')
+  assert.equal(canon.verifyGateSetApproval({ record: w.record, approval: w.approval(), pin }).release, w.fields.release)
+  const missing = world({ retainedOwner: true }); missing.consumption = null
+  await assert.rejects(cli(missing, 'install'), /no matching authorization-consumption channel/)
+  const mismatched = world({ retainedOwner: true }); mismatched.consumption.seq--
+  await assert.rejects(cli(mismatched, 'install'), /no matching authorization-consumption channel/)
 })
 test('no disk helper closure or candidate subprocess survives in either operator entrypoint', () => {
   const unit = read('host/systemd/aukora-genesis.service')

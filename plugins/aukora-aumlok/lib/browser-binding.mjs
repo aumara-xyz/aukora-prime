@@ -171,7 +171,9 @@ export function createBrowserBinding({ dir, supportRoot, stateRoot, now = Date.n
     }
     if (projection === undefined) {
       remove(join(dir, MACHINE_SEED_FILE), dir)
-      remove(join(supportRoot, MEMORY_OVERLAY_NAME), supportRoot)
+      let unlinked = false
+      try { unlinked = overlayBeforeBind(supportRoot, stateRoot) !== undefined } catch { /* Orphan overlays are removed. */ }
+      if (!unlinked) remove(join(supportRoot, MEMORY_OVERLAY_NAME), supportRoot)
     } else {
       const path = join(supportRoot, MEMORY_OVERLAY_NAME)
       let previous, owner

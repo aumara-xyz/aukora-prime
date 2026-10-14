@@ -6,12 +6,22 @@ export const AURA_SNAPSHOT_SCHEMA = 'aukora-face/aura-snapshot:v1'
 export const AURA_SNAPSHOT_SOURCES = ['gate-ledger', 'kira-chain', 'code-chain'] as const
 const DOMAIN = 'aukora.aura.snapshot.v1\0'
 const HEX64 = /^[0-9a-f]{64}$/u
+const BROWSER_MEMORY_REASONS = new Set(['kira.memory:aumlok-not-linked', 'kira.memory:aumlok-linked',
+  'kira.memory:browser-binding-config', 'kira.memory:browser-binding-unreadable',
+  'kira.memory:browser-overlay-unavailable', 'kira.memory:browser-identity-mismatch',
+  'kira.memory:activation-failed'])
+
+export interface BrowserMemoryReadiness {
+  active: boolean
+  reason: string
+}
 
 export interface AuraSnapshotSource {
   name: typeof AURA_SNAPSHOT_SOURCES[number]
   head: string | null
   entries: number | null
   absence: string | null
+  browserMemory?: BrowserMemoryReadiness | null
 }
 
 export interface AuraSnapshot {
@@ -49,7 +59,18 @@ export function makeAuraSnapshot(input: readonly AuraSnapshotSource[]): AuraSnap
       : source.absence !== null || source.entries === null || source.entries < 1) {
       refuse('aura-snapshot:availability-invalid')
     }
-    return { name, head: source.head, entries: source.entries, absence: source.absence }
+    let browserMemory: BrowserMemoryReadiness | null | undefined
+    if (name === 'kira-chain' && source.browserMemory !== undefined) {
+      const state = source.browserMemory
+      if (state === null) browserMemory = null
+      else if (typeof state?.active !== 'boolean' || typeof state.reason !== 'string'
+        || !BROWSER_MEMORY_REASONS.has(state.reason)
+        || state.active !== (state.reason === 'kira.memory:aumlok-linked')) {
+        refuse('aura-snapshot:browser-memory-invalid')
+      } else browserMemory = { active: state.active, reason: state.reason }
+    }
+    return { name, head: source.head, entries: source.entries, absence: source.absence,
+      ...(browserMemory === undefined ? {} : { browserMemory }) }
   })
   const hash = createHash('sha256').update(DOMAIN, 'utf8')
   for (const source of sources) {

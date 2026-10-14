@@ -253,8 +253,8 @@ test('mutations detect loss of composition mount, required policy and browser-on
     ['gateway opt-in', "+ '- id: typert-gateway\\n  config:\\n    browserAccessGuard: true\\n'", "+ ''"],
     ['service mount', "+ '    - id: aukora-browser-bootstrap\\n'\n            + '      name: ./plugins/aukora-action-gate/lib/browser-bootstrap.mjs\\n'", "+ ''"],
     ['required policy', "policy['pluginSet'] = sorted(policy['pluginSet'] + ['aukora-browser-bootstrap'])", 'pass'],
-    ['browser-only mount', "def browser_node_rows(browser_node: bool = False, public_origin: str = '') -> str:\n    \"\"\"Disable the pinned shell, file, network and delegation providers.\"\"\"\n    if not browser_node:",
-      "def browser_node_rows(browser_node: bool = False, public_origin: str = '') -> str:\n    \"\"\"Disable the pinned shell, file, network and delegation providers.\"\"\"\n    if False:"],
+    ['browser-only mount', "def browser_node_rows(browser_node: bool = False, public_origin: str = '', kira_openviking_home: 'Path | None' = None) -> str:\n    \"\"\"Disable the pinned effect providers and vendor-owned first-run dialogs.\"\"\"\n    if not browser_node:",
+      "def browser_node_rows(browser_node: bool = False, public_origin: str = '', kira_openviking_home: 'Path | None' = None) -> str:\n    \"\"\"Disable the pinned effect providers and vendor-owned first-run dialogs.\"\"\"\n    if False:"],
   ]
   for (const [label, before, after] of mutations) {
     assert.equal(materializerSource.split(before).length, 2, `unique mutation anchor: ${label}`)

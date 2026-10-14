@@ -252,16 +252,52 @@ const cases = new Map([
     reason(service.prepare({ handle }), 'aumlok:browser-memory-overlay-refused')
     noRecord(c)
   }],
-  ['placeholder overlay preserves unrelated deployment options', async c => {
+  ['placeholder overlay preserves OpenViking deployment options', async c => {
     const service = c.open(), path = join(c.supportRoot, overlayName)
-    writeFileSync(path, `- id: aukora-kira\n  config:\n    openvikingHome: /private/synthetic-viking\n    memoryOwner:\n      subject: aumlok:subject:owner\n      permittedPrivacy: [local]\n`, { mode: 0o600 })
+    const previous = `- id: aukora-kira\n  config:\n    retrieval: lexical\n    openVikingHome: "/private/synthetic-viking"\n    projectIdentityFile: "/private/synthetic-project-map.json"\n    memoryOwner:\n      subject: aumlok:subject:owner\n      permittedPrivacy: [local]\n`
+    writeFileSync(path, previous, { mode: 0o600 })
     const draw = c.drawn(service); c.hook(input => c.install(input))
     const result = await c.submit(service, draw)
     assert.equal(result.ok, true, result.reason)
-    assert.match(readFileSync(path, 'utf8'), /openvikingHome: \/private\/synthetic-viking/u)
+    assert.equal(readFileSync(path, 'utf8'), previous.replace('      subject: aumlok:subject:owner',
+      `      stateDir: ${JSON.stringify(join(c.stateRoot, 'kira-memory'))}\n      subject: ${JSON.stringify(result.binding.subject)}`))
     assert.deepEqual(resolveMemoryIdentity({ supportRoot: c.supportRoot, installed: true, env: {} }), {
       subject: result.binding.subject, stateDir: join(c.stateRoot, 'kira-memory'),
     })
+  }],
+  ['OpenViking overlay with an existing state path changes only its subject', async c => {
+    const service = c.open(), path = join(c.supportRoot, overlayName)
+    const previous = `# Synthetic deployment overlay\n- id: aukora-kira\n  config:\n    retrieval: lexical\n    openVikingHome: "/private/synthetic-viking"\n    memoryOwner:\n      stateDir: ${JSON.stringify(join(c.stateRoot, 'kira-memory'))}\n      subject: aumlok:subject:owner\n      permittedPrivacy: [local]\n`
+    writeFileSync(path, previous, { mode: 0o600 })
+    const draw = c.drawn(service), result = await c.submit(service, draw)
+    assert.equal(result.ok, true, result.reason)
+    assert.equal(readFileSync(path, 'utf8'), previous.replace('subject: aumlok:subject:owner',
+      `subject: ${JSON.stringify(result.binding.subject)}`))
+  }],
+  ['startup and unbound status preserve OpenViking deployment options before binding', async c => {
+    mkdirSync(c.supportRoot, { mode: 0o700 })
+    const path = join(c.supportRoot, overlayName)
+    const previous = `# Synthetic installed deployment overlay\n- id: aukora-kira\n  config:\n    retrieval: lexical\n    openVikingHome: "/private/synthetic-viking"\n    memoryOwner:\n      stateDir: ${JSON.stringify(join(c.stateRoot, 'kira-memory'))}\n      subject: "aumlok:subject:owner"\n      permittedPrivacy: [local]\n`
+    writeFileSync(path, previous, { mode: 0o600 })
+    const service = c.open()
+    assert.equal(existsSync(path), true, 'startup retains validated installer options')
+    assert.equal(readFileSync(path, 'utf8'), previous)
+    assert.deepEqual(service.status(), { ok: true, bound: false, state: 'unbound' })
+    assert.equal(readFileSync(path, 'utf8'), previous)
+    const result = await c.submit(service, c.drawn(service))
+    assert.equal(result.ok, true, result.reason)
+    const boundOverlay = previous.replace('subject: "aumlok:subject:owner"',
+      `subject: ${JSON.stringify(result.binding.subject)}`)
+    assert.equal(readFileSync(path, 'utf8'), boundOverlay)
+    service.close()
+    assert.equal(c.open().status().state, 'bound')
+    assert.equal(readFileSync(path, 'utf8'), boundOverlay)
+  }],
+  ['absent deployment overlay stays lexical without an OpenViking home', async c => {
+    const service = c.open(), draw = c.drawn(service), result = await c.submit(service, draw)
+    assert.equal(result.ok, true, result.reason)
+    assert.equal(readFileSync(join(c.supportRoot, overlayName), 'utf8'),
+      `- id: aukora-kira\n  config:\n    retrieval: lexical\n    memoryOwner:\n      stateDir: ${JSON.stringify(join(c.stateRoot, 'kira-memory'))}\n      subject: ${JSON.stringify(result.binding.subject)}\n      permittedPrivacy: [local]\n`)
   }],
   ['changed overlay refuses rather than replacing it', async c => {
     const service = c.open(), draw = c.drawn(service), path = join(c.supportRoot, overlayName)
@@ -442,6 +478,9 @@ const mutations = [
   ['seed-match', 'if (key.publicKeyHex !== machine.ed25519PublicKeyHex) fail(BROWSER_BIND_REFUSE.RECORD)', '', 'kept seed must reproduce its registered public key'],
   ['overlay-identity', 'owner.subject !== UNLINKED_MEMORY_SUBJECT', 'false', 'existing overlay identity or wrong memory path refuses'],
   ['overlay-path', "(owner.stateDir !== undefined && owner.stateDir !== join(stateRoot, 'kira-memory'))", 'false', 'existing overlay identity or wrong memory path refuses'],
+  ['overlay-options', 'const lines = previous.split(/\\r?\\n/u)', 'return overlayForSubject(undefined, subject, stateRoot)\n  const lines = previous.split(/\\r?\\n/u)', 'placeholder overlay preserves OpenViking deployment options'],
+  ['unlinked-overlay-recovery', 'unlinked = overlayBeforeBind(supportRoot, stateRoot) !== undefined', 'unlinked = false', 'startup and unbound status preserve OpenViking deployment options before binding'],
+  ['lexical-default', 'retrieval: lexical', 'retrieval: semantic', 'absent deployment overlay stays lexical without an OpenViking home'],
   ['overlay-race', 'if (currentOverlay !== previousOverlay) fail(BROWSER_BIND_REFUSE.OVERLAY)', '', 'changed overlay refuses rather than replacing it'],
   ['overlay-read-back', "if (stored.subject !== projection.subject || stored.stateDir !== join(stateRoot, 'kira-memory')) fail(BROWSER_BIND_REFUSE.OVERLAY)", '', 'saved memory identity is checked before success'],
   ['named-errors', 'knownCodes.has(cause.code)', "cause.code.startsWith('aumlok:')", 'unknown exception codes cannot echo phrase material'],
@@ -452,7 +491,7 @@ const mutations = [
   ['startup-recovery', 'try { recover() } catch {', 'try { /* removed */ } catch {', 'startup reclaims a stale lock and incomplete custody'],
   ['stale-lock-reclaim', 'remove(lockPath, dir)', '', 'startup reclaims a stale lock and incomplete custody'],
   ['incomplete-custody', 'remove(join(dir, LOCAL_AUMLOK_CONTROL_FILENAME), dir)', '', 'startup reclaims a stale lock and incomplete custody'],
-  ['orphan-overlay', 'remove(join(supportRoot, MEMORY_OVERLAY_NAME), supportRoot)', '', 'startup and status remove orphan overlays and seeds'],
+  ['orphan-overlay', 'if (!unlinked) remove(join(supportRoot, MEMORY_OVERLAY_NAME), supportRoot)', '', 'startup and status remove orphan overlays and seeds'],
   ['orphan-seed', 'remove(join(dir, MACHINE_SEED_FILE), dir)', '', 'startup and status remove orphan overlays and seeds'],
   ['derive-overlay', 'durableWrite(path, overlayForSubject(previous, projection.subject, stateRoot))', '', 'startup derives a missing overlay and status repairs disagreement'],
   ['status-recovery', 'const projection = recover()', 'const projection = loadLocalAumlokPublicControl(dir).projection', 'startup derives a missing overlay and status repairs disagreement'],
