@@ -144,6 +144,125 @@ In the table, **G** is the signed gate ledger (and, when collected, its encrypte
    `workspace-write` bash in `/sandbox` → `sbx-exec` runs it in the sandbox as `auma` → output returns. Paths under
    the gate's and approvals' directories are refused before bash runs.
 
+## Browser node: how the pieces connect
+
+This is the browser-node route described by the later [component status](docs/STATUS.md) and
+[North Star](plan/NORTH-STAR.md). The owner approval line is a prerequisite to the app path, not a later browser
+action: the harness is stopped until that line has completed.
+
+```
+ owner browser
+      | HTTPS app host
+      v
+ Caddy app host -> one-time claim broker -> host-only one-day cookie -> harness pre-binding guard
+                                                                    -> Aumlok Bind -> Kira owner overlay -> Aura snapshot
+                              ^
+ owner browser -> Caddy owner host -> gate owner page -> signed release approval -> floor + launcher
+
+ after-approval acceptance --evidence -> public evidence record -> offline verifier
+```
+
+1. **Browser to Caddy — RAN on a real node; two-node routing is builder-reported.**
+   `ops/node-spawn/ingress/render.py` requires two distinct hostnames and three distinct loopback ports per node,
+   and rejects reuse across a multi-node file. `ops/node-spawn/ingress/Caddyfile.template` sends the app hostname
+   to that node's harness or claim broker, sends the owner hostname to that node's owner page, rejects public
+   launch-token queries, and aborts unmatched hosts. A rehearsal browser reached one node over HTTPS. By the
+   builder's report, C1 and R1 later answered on their own two hostnames behind one Caddy; no committed machine
+   record independently retains that two-node observation.
+2. **Caddy to the one-time claim broker — RAN on a real node by the builder's report.**
+   The app host routes only `/__aukora/claim`, sign-in and sign-out paths to
+   `ops/node-spawn/ingress/claim.py`. Its protected claim store retains claim hashes, expires them, bounds attempts
+   and spends a claim under a file lock before exchanging it. The broker reads the root-protected loopback launch
+   descriptor and sends the launch token to the harness itself; the public request never receives that token.
+3. **Claim broker to harness session cookie — RAN on a real node by the builder's report.**
+   The pinned harness patch `patches/public-browser-secure-cookie.patch.json` mints a public-host
+   `__Host-dsh-auth-*` cookie. The broker accepts only the configured authority, `Secure`, `HttpOnly`,
+   `SameSite=Strict`, `Path=/`, no `Domain`, and a signed lifetime of at most one day. R1 reportedly passed the
+   one-use exchange and host-only cookie checks. The cookie authenticates an app session; it grants no owner
+   approval. Sign-out clears that browser's cookie but does not revoke a copied cookie or an upgraded socket before
+   expiry; `plan/REVIEW-BROWSER-NODE.md` retains that open limit.
+4. **Cookie to pre-binding restriction — RAN on a real node by the builder's report, with open limits.**
+   `plugins/aukora-action-gate/lib/browser-bootstrap.mjs` allows only the first-screen HTTP paths, binding POSTs and
+   five named bootstrap RPCs until it can read a binding control record. Its harness hook,
+   `patches/browser-bootstrap-guard.patch.json`, checks HTTP and upgrades before routing and checks Remote dispatch
+   before providers run. On rehearsal R1 at the fixed revision, the first screen and brand image served while the
+   contact card, malformed plugin path, app page and session creation were refused; after-approval acceptance passed
+   in unbound mode. This rests on the builder's report and has no committed run record. A readable control record
+   lifts the guard, `prepare` returns the drawn words to the signed-in client, and GET/HEAD under most of `/plugins/`
+   remains an admitted static prefix.
+5. **Restriction to Aumlok binding routes — partial RAN; final Bind is NOT YET.**
+   `plugins/aukora-face/aumlok/src/index.ts` registers the prepare, bind, cancel and status routes, and
+   `plugins/aukora-face/aumlok/src/client/binding-bridge.ts` uses same-origin HTTPS POSTs.
+   `plugins/aukora-aumlok/lib/browser-binding.mjs` permits one expiring draw, requires acknowledgement and exact
+   phrase retyping, rate-limits attempts and makes the first durable v3 binding. A stand-in-approved rehearsal
+   reached phrase generation and retyping in a real browser. The final Bind action and the owner's own binding have
+   not run.
+6. **Binding to Kira identity overlay — SOURCE only on a browser node.**
+   On a successful bind, `plugins/aukora-aumlok/lib/browser-binding.mjs` derives the bound subject, rewrites the
+   release's `aukora-kira` memory-owner overlay to that subject, durably writes it under the support root and reads
+   it back. Because final Bind has not run, no browser-node observation joins that overlay to Kira capture, indexing
+   or semantic recall.
+7. **Owner page to gate approval — RAN on a real node.**
+   This happens before steps 1–6 can reach a running harness. `ops/node-spawn/browser/node.py` installs the release,
+   starts the separate gate and claim services, raises the operator-only plugin-set proposal and leaves the harness
+   stopped. The owner hostname exposes the bounded page implemented by
+   `packages/boundary-gate/src/owner-page.mjs`; the gate binds review and the decision to the exact proposal bytes
+   and signs the apply row. The North Star records the owner's own click on three fresh builds; each then started
+   and passed after-approval acceptance. This is release approval, not the later Aumlok identity Bind and not a
+   passkey qualification.
+8. **Gate approval to release floor and launcher — RAN on a real node.**
+   The browser unit in `ops/node-spawn/browser/node.py` checks the installed gate package, runtime, browser profile
+   and monotonic release floor before invoking `scripts/launch-dsh.py`. The launcher rechecks the approved artifact
+   record, pinned harness build, authority inputs and owner-approved plugin set before it spawns the harness. The
+   retained rehearsal record uses a stand-in approval; the three owner-approved starts are builder reports.
+9. **Running release to Aura snapshot — RAN on staging and the pilot; SOURCE only as a browser-node hop.**
+   `plugins/aukora-face/settings/src/aura/snapshot-reader.ts` forms one display snapshot from three separate heads:
+   the gate ledger, Kira's remembered chain and the checked running-release artifact record. The signed-in route ran
+   on the live pilot and all three heads were shown in staging. No report or retained evidence shows that snapshot
+   on a browser node. It does not merge those histories or prove their completeness.
+10. **Acceptance to evidence record — RAN on a stand-in-approved rehearsal node.**
+    `ops/node-spawn/browser/acceptance.sh --evidence` asks `ops/node-spawn/browser/node.py` for public check outcomes,
+    the gate-signed plugin-set receipt and apply row, release floor and installer-input digests, then creates a new
+    file exclusively. `scripts/audit/browser-node-evidence.mjs` verifies the receipt signature, approval bindings,
+    signed apply row and floor core binding offline. The committed record
+    `evidence/browser-node/2026-10-13-rehearsal-r1-38004c5.json` predates the pre-binding restriction, uses a stand-in
+    approval and is itself unsigned; its claimed check outcomes and observation time are not independently proved.
+
+### What each piece trusts
+
+| Piece | What it takes on trust from the hop before it |
+| --- | --- |
+| Caddy | The operator's DNS/TLS setup and the root-owned renderer input correctly associate each hostname with that node's three loopback ports. |
+| Claim broker | Its protected origin, claim store and launch descriptor name the intended running harness; it trusts the loopback harness to mint the cookie whose shape and lifetime it checks. |
+| Harness session | The cookie HMAC and request Host/Origin checks identify an authenticated browser session; they do not identify the owner or grant approval. |
+| Pre-binding guard | A failed control-record refresh means unbound; any readable record in the configured binding directory means bound. |
+| Aumlok binding | The authenticated session holder received and returned the node's draw; that does not prove a person read or typed the words. |
+| Kira overlay | The binding's stored subject and the configured support/state roots are the identity and location Kira should use. |
+| Boundary gate | The separate owner-page bearer route and exact review response came from the approving owner; a gate signature alone cannot prove that human fact. |
+| Floor and launcher | The protected gate package, installed approval/floor, artifact record and release-local pins are the authorized inputs. |
+| Aura snapshot | Each provider's supplied head represents its own history; combining three heads does not make one complete ledger. |
+| Evidence verifier | Signed gate/floor fields are cryptographically bound, but the unsigned node record's check results, time and installer observations are producer claims. |
+
+### Not joined yet
+
+- Cross-node claim and cookie isolation has no retained real-node refusal record; the two-node success is the
+  builder's report, and sibling-site request isolation remains open.
+- The current pre-binding fixes have only builder-reported installed execution. The readable-record, returned-word
+  and open `/plugins/` limits above remain accepted gaps, and ordinary sign-out is not per-session revocation.
+- Final Aumlok Bind by the owner, the resulting Kira owner overlay and a second owner-bound node are NOT YET.
+- Passkey approval with a real authenticator on an installed browser node, and its join to the node gate, are NOT
+  YET. Source enrollment and owner-sign-in routes do not establish authenticator custody or approval attendance.
+- Kira capture, current indexing and semantic recall have not run through a browser node. A separate builder report
+  about real embeddings on another store is not that join.
+- The three-head Aura snapshot has not been observed on a browser node, and the committed browser evidence predates
+  the pre-binding restriction and does not carry an owner approval.
+- Co-presence evidence is not connected to browser-node binding or authority; a co-presence receipt grants nothing.
+- Admission and the Buzz relay are intentionally absent from the relay-free browser release. No invitation,
+  closed-relay admission, channel join or reply is part of this path.
+- Voice is disabled by default and no browser node has run the Linux speech runtime, microphone or spoken reply.
+- No model reply has run on a browser node. The rehearsal evidence therefore does not establish a usable assistant,
+  owner identity, containment or an end-to-end sovereign node.
+
 ## Not mounted, fixtures, history
 
 Present in the tree but not part of the live organism (see [lab index](labs/README.md)): `plugins/aukora-gate-demo` (a one-file fixture for the
