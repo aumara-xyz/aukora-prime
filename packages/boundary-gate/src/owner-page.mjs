@@ -4,9 +4,11 @@
 // "Confirm apply" works (single-use nonce, 2 min). Tab/Enter/Space alone cannot approve. Every POST must echo
 // the exact base and result sha256 the page showed, or it is refused.
 import { createHash, randomBytes } from 'node:crypto'
+import fs from 'node:fs'
 import { bearerOk } from './secrets.mjs'
 import { colorName, isHex } from './card.mjs'
 import { OWNER_PASSKEY_SCRIPT } from './owner-passkey-script.mjs'
+import { readProtectedJson } from './owner-state.mjs'
 
 export const CONFIRM_TTL_MS = 2 * 60 * 1000
 export const PAGE_APPROVER = 'owner via gate approval page (bearer token, typed 2-step confirm)'
@@ -120,6 +122,23 @@ export function createOwnerPage(gate, { timeZone = 'UTC', confirmTtlMs = CONFIRM
   return { pageHtml, act, handler, confirms }
 }
 
+// Only a protected root designation enables the enrollment page's rehearsal marker.
+export function readRehearsalMarker() {
+  let value
+  try {
+    fs.lstatSync('/etc/aukora-boundary-gate/rehearsal.json')
+    value = readProtectedJson('/etc/aukora-boundary-gate/rehearsal.json')
+  }
+  catch (error) {
+    if (error.code === 'ENOENT') return false
+    throw new Error('OWNER_PASSKEY_REHEARSAL_MARKER_REFUSED')
+  }
+  if (!value || typeof value !== 'object' || Object.keys(value).length !== 2
+    || value.version !== 1 || value.kind !== 'aukora-passkey-rehearsal/v1')
+    throw new Error('OWNER_PASSKEY_REHEARSAL_MARKER_REFUSED')
+  return true
+}
+
 // Passkey routes accept only the configured HTTPS owner origin and bounded same-origin JSON.
 export function createPasskeyOwnerHandler(gate, { origin, rpId, appOrigin, node, gateId } = {}) {
   const fail = code => { throw new Error(code) }
@@ -134,7 +153,7 @@ export function createPasskeyOwnerHandler(gate, { origin, rpId, appOrigin, node,
   const headers = { 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff', 'permissions-policy': 'publickey-credentials-create=(self), publickey-credentials-get=(self)',
     'content-security-policy': `default-src 'none'; script-src 'sha256-${scriptHash}'; style-src 'sha256-${hash(css)}'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` }
-  const html = (mode, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Boundary gate — owner passkey</title><style>${css}</style><script defer src="/owner/passkey.js" integrity="sha256-${scriptHash}"></script></head><body data-owner-passkey data-origin="${esc(origin)}" data-rp-id="${esc(rpId)}" data-app-origin="${esc(appOrigin ?? '')}" data-node="${esc(node ?? '')}" data-gate="${esc(gateId ?? '')}" data-mode="${mode}"><h1>Boundary gate — owner passkey</h1><p>This page is served by the gate. A browser session alone cannot approve an effect.</p><p>A passkey signs exact card bytes after the device’s local user check. It does not prove a unique person; synced passkeys can leave the device.</p><p id="status" role="status"></p>${body}</body></html>`
+  const html = (mode, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${mode === 'enroll' && readRehearsalMarker() ? '<meta name="aukora-node-mode" content="rehearsal">' : ''}<title>Boundary gate — owner passkey</title><style>${css}</style><script defer src="/owner/passkey.js" integrity="sha256-${scriptHash}"></script></head><body data-owner-passkey data-origin="${esc(origin)}" data-rp-id="${esc(rpId)}" data-app-origin="${esc(appOrigin ?? '')}" data-node="${esc(node ?? '')}" data-gate="${esc(gateId ?? '')}" data-mode="${mode}"><h1>Boundary gate — owner passkey</h1><p>This page is served by the gate. A browser session alone cannot approve an effect.</p><p>A passkey signs exact card bytes after the device’s local user check. It does not prove a unique person; synced passkeys can leave the device.</p><p id="status" role="status"></p>${body}</body></html>`
   const send = (res, status, body, type = 'application/json; charset=utf-8') => { res.writeHead(status, { ...headers, 'content-type': type }); res.end(type.startsWith('application/json') ? JSON.stringify(body) : body) }
   const closed = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === keys.length && keys.every(key => Object.hasOwn(body, key))
   const readBody = req => new Promise((resolve, reject) => {

@@ -325,6 +325,91 @@ public-browser behavior, model replies, memory, streaming or complete containmen
 Synced versus device-only credentials and expired-claim/device-loss recovery
 remain owner policy choices; none attestation permits backup-eligible passkeys.
 
+### Software passkey rehearsal
+
+Use a disposable, already release-approved and app-bound rehearsal node built
+with these changes. Never use an owner's node, identity or credentials. Mark it
+before minting its first passkey claim; this root-only command writes the
+protected `/etc/aukora-boundary-gate/rehearsal.json` marker. The gate exposes
+`<meta name="aukora-node-mode" content="rehearsal">` on enrollment only when that
+marker is valid. The driver refuses before enrollment if the marker is absent.
+Marking is a permanent operator designation: destroy this node afterwards;
+never hand it to an owner or remove the marker to repurpose it.
+
+```bash
+lxc --force-local exec "$REHEARSAL_NODE" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py mark-rehearsal
+export PATH=$HOME/.local/node-v24.11.1/bin:$PATH
+set +x
+set -o pipefail
+# Two private stdin lines: single-use enrollment link, then current cards link.
+# The bearer is needed to read cards; it cannot approve them. No secret arguments.
+{
+  lxc --force-local exec "$REHEARSAL_NODE" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py passkey-claim
+  lxc --force-local exec "$REHEARSAL_NODE" -- /opt/aukora-node/bin/node --input-type=module -e '
+    import fs from "node:fs";
+    const origin = fs.readFileSync("/etc/aukora/owner-public-origin", "utf8").trim();
+    const { bearer } = JSON.parse(fs.readFileSync("/home/aukora-gate/owner-secret.json", "utf8"));
+    console.log(origin + "/owner/cards?bearer=" + encodeURIComponent(bearer));'
+} | node ops/node-spawn/browser/rehearse-passkey.mjs --owner-origin "$OWNER_ORIGIN" --app-origin "$APP_ORIGIN"
+```
+
+Do not tee, log or save this pipeline's input. The driver keeps its software
+private key only in memory, follows GET redirects only within those two exact
+HTTPS origins, refuses POST redirects, and prints one secret-free PASS/FAIL line
+per step. It refuses extra pending cards and approves only canonical theme
+bytes. In a second host terminal, after `PASS bearer-refused`, raise exactly one
+theme proposal (this command approves nothing):
+
+```bash
+lxc --force-local exec "$REHEARSAL_NODE" -- runuser -u aukora-host -- /opt/aukora-node/bin/node --input-type=module -e '
+  import { call } from "/opt/aukora-boundary-gate/src/server.mjs";
+  const socket = "/run/aukora-gate/gate.sock", target = "plugins/auma-theme/theme.json";
+  const current = await call(socket, "read", { target });
+  const content = current.content === '\''{"accent": "#112233"}'\'' ? '\''{"accent": "#223344"}'\'' : '\''{"accent": "#112233"}'\'';
+  await call(socket, "propose", { target, content, claimed_base: current.sha256, why: "Software rehearsal theme", session: "rehearsal" });'
+```
+
+Wrong RP ID, origin and challenge assertions each use a fresh review **before**
+the successful approval. After APPLIED they would only test the spent review.
+The driver then requires an applied result, a receipt bound to the exact proof,
+removal of the pending card, and refusal of the unchanged proof's replay. It does
+not independently verify the receipt signature or ledger inclusion.
+
+After `PASS replay-refused`, enable returning sign-in in that second terminal.
+The already-bound activation deliberately starts without browser join. Select
+its existing public binding record, then use the existing protected startup
+command. First returning sign-in does not read that record until final subject
+binding is selected; this rehearsal does not grant record or seed access:
+
+```bash
+lxc --force-local exec "$REHEARSAL_NODE" -- /usr/bin/python3 -I -S -c '
+import json, os, sys
+path = "/etc/aukora-boundary-gate/browser-join.json"
+value = {"version": 1, "kind": "aukora-browser-join/v1", "app_origin": sys.argv[1], "binding_record": "/home/aukora-host/genesis/state/aumlok-binding/local-control.json"}
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+os.fchmod(fd, 0o644)
+with os.fdopen(fd, "w") as output: json.dump(value, output)
+' "$APP_ORIGIN"
+lxc --force-local exec "$REHEARSAL_NODE" -- /usr/bin/python3 -I -S -B /opt/aukora-genesis/src/ops/node-spawn/browser/node.py enable-owner-signin
+# If its gate restart stopped the harness:
+lxc --force-local exec "$REHEARSAL_NODE" -- bash /opt/aukora-genesis/src/ops/node-spawn/browser/start.sh
+```
+
+The driver waits up to five minutes each for the card and sign-in page. It signs
+the gate's sign-in statement, exchanges the one-use returned code at the app
+origin, and requires a Secure, HttpOnly, SameSite=Strict, Path=/, `__Host-` cookie
+without Domain. This does not perform the join's final subject-binding touch;
+future card approvals with join selected require that separate step. Destroy
+the rehearsal node rather than recovering or reusing its software credential.
+
+`node --test ops/node-spawn/browser/rehearse-passkey.test.mjs` runs real gate
+handlers in process with a software authenticator. The rehearsal marker,
+operator proposal/startup, HTTPS transport and harness cookie exchange are
+simulated there; sign-in code redemption uses the real gate handler. No installed
+node was reachable for this change. Running this driver on an installed node
+proves the exercised protocol with a **software authenticator**, not a real
+device, a person, informed consent, rendered browser behavior or containment.
+
 To deactivate, run `remove.sh` inside C1; it stops/disables only these units and
 retains keys, release bytes, approvals and floor. To destroy this test node,
 operator runs `lxc --force-local delete --force C1` and

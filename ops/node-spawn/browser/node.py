@@ -650,6 +650,31 @@ def discard_passkey_claim():
         os.close(fd)
 
 
+def mark_rehearsal():
+    # Only root in an installed node can designate a rehearsal.
+    root_check()
+    installed()
+    marker = Path('/etc/aukora-boundary-gate/rehearsal.json')
+    for parent in [marker.parent, *marker.parent.parents]:
+        protected(parent, True)
+    try:
+        output = marker.open('xb')
+    except FileExistsError:
+        refuse('REHEARSAL_MARKER_EXISTS')
+    with output:
+        os.fchown(output.fileno(), 0, 0)
+        os.fchmod(output.fileno(), 0o644)
+        output.write(b'{"version":1,"kind":"aukora-passkey-rehearsal/v1"}\n')
+        output.flush()
+        os.fsync(output.fileno())
+    fd = os.open(marker.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    print('BROWSER_REHEARSAL_MARKED; this node must never be given to an owner')
+
+
 def passkey_claim():
     root_check()
     discard_passkey_claim()
@@ -1021,7 +1046,7 @@ class Parser(argparse.ArgumentParser):
 
 def main(args):
     parser = Parser(add_help=False)
-    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'passkey-claim', 'discard-passkey-claim', 'enable-owner-signin', 'model-key'])
+    parser.add_argument('action', choices=['install', 'start', 'status', 'remove', 'accept', 'verify-profile', 'claim', 'rotate-owner-link', 'passkey-claim', 'discard-passkey-claim', 'mark-rehearsal', 'enable-owner-signin', 'model-key'])
     parser.add_argument('--inputs')
     parser.add_argument('--app-host')
     parser.add_argument('--owner-host')
@@ -1059,6 +1084,8 @@ def main(args):
     elif options.action == 'discard-passkey-claim':
         root_check()
         discard_passkey_claim()
+    elif options.action == 'mark-rehearsal':
+        mark_rehearsal()
     elif options.action == 'enable-owner-signin':
         enable_owner_signin()
     elif options.action == 'model-key':
