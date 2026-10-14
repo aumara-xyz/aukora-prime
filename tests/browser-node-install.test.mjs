@@ -4,8 +4,17 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import './browser-node-aura-collector.test.mjs'
+import './browser-aura-reader.test.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const checks = ['browser-node-unit.py', 'browser-node-pipeline.py'].map(name => path.join(root, 'tests', name))
+
+test('browser Aura independent head reader and mutations', () => {
+  const result = spawnSync(process.execPath, ['tests/browser-node-aura-head.test.mjs', '--mutate'],
+    { cwd: root, encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  process.stdout.write(result.stdout)
+})
 
 for (const unit of checks) for (const args of [[], ['--mutations']]) {
   const name = path.basename(unit, '.py'), mode = args.length === 0 ? 'checks' : 'guard mutations'

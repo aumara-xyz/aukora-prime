@@ -613,6 +613,35 @@ export function apply(ctx) {
   ctx.effect(() => ctx.tools.guard(() => 'browser-node:effect-providers-disabled'))
 }
 '''
+BROWSER_AURA_READER_ENTRY = 'plugins/aukora-buzz-door/lib/index.mjs'
+BROWSER_AURA_READER_SOURCE = '''// Project only the collector's verified public head; expose no effect provider.
+import { constants as FS } from 'node:fs'
+import { open } from 'node:fs/promises'
+const refuse = code => { throw Object.assign(new Error(code), { code }) }
+export async function gateCall(socket, op, args) {
+  if (socket !== '/run/aukora-gate/gate.sock' || op !== 'log'
+    || args === null || typeof args !== 'object' || Array.isArray(args)
+    || Object.keys(args).length !== 1 || args.limit !== 1) refuse('aura-head:read-only')
+  const handle = await open('/var/lib/aukora-aura/head/gate.json', FS.O_RDONLY | FS.O_NOFOLLOW | FS.O_NONBLOCK)
+  try {
+    const stat = await handle.stat()
+    if (!stat.isFile() || stat.size > 4096) refuse('aura-head:file-invalid')
+    const bytes = Buffer.alloc(stat.size + 1)
+    let offset = 0
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, null)
+      if (read.bytesRead === 0) break
+      offset += read.bytesRead
+    }
+    if (offset !== stat.size) refuse('aura-head:file-changed')
+    const value = JSON.parse(bytes.subarray(0, offset).toString('utf8'))
+    if (value?.ok !== true || !Number.isSafeInteger(value.entries) || value.entries < 0
+      || typeof value.head !== 'string'
+      || (value.entries === 0 ? value.head !== 'GENESIS' : !/^[0-9a-f]{64}$/.test(value.head))) refuse('aura-head:head-invalid')
+    return { verify: { ok: true, entries: value.entries, head: value.head } }
+  } finally { await handle.close() }
+}
+'''
 
 
 def browser_node_options(browser_node: bool, with_legacy_relay: bool, development: bool) -> None:
@@ -723,9 +752,13 @@ def install_browser_profile(target: Path, doomed=()) -> None:
     refusal = target / BROWSER_REFUSAL_ENTRY
     refusal.parent.mkdir(parents=True, exist_ok=True)
     refusal.write_text(BROWSER_REFUSAL_SOURCE, encoding='utf-8')
+    reader = target / BROWSER_AURA_READER_ENTRY
+    reader.parent.mkdir(parents=True, exist_ok=True)
+    reader.write_text(BROWSER_AURA_READER_SOURCE, encoding='utf-8')
     profile = {'formatVersion': 1, 'kind': 'aukora-browser-node-profile', 'relay': False, 'buzz': False,
                'disabledRows': list(BROWSER_DISABLED_ROWS), 'presets': presets,
-               'refusalEntry': BROWSER_REFUSAL_ENTRY, 'refusalSha256': sha256(refusal)}
+               'refusalEntry': BROWSER_REFUSAL_ENTRY, 'refusalSha256': sha256(refusal),
+               'auraReaderEntry': BROWSER_AURA_READER_ENTRY, 'auraReaderSha256': sha256(reader)}
     (target / 'browser-node-profile.patch.yml').write_text(
         '# aukora-browser-node-profile ' + json.dumps(profile, separators=(',', ':'), sort_keys=True) + '\n',
         encoding='utf-8')

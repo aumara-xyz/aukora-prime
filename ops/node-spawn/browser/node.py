@@ -358,11 +358,34 @@ def sockets():
     refuse('GATE_SOCKETS_MISSING')
 
 
+def aura_custody():
+    row = run(['getent', 'passwd', 'aukora-aura'], 'AURA_USER_MISSING').strip().split(':')
+    need(len(row) == 7 and row[2].isdigit() and row[2] != '0'
+         and row[5] == '/var/lib/aukora-aura' and row[6] == '/usr/sbin/nologin', 'AURA_USER_INVALID')
+    groups = run(['id', '-nG', 'aukora-aura'], 'AURA_GROUP_MISSING').split()
+    need(set(groups) == {'aukora-aura', 'skgate'}, 'AURA_GROUP_INVALID')
+    group = run(['getent', 'group', 'aukora-host'], 'AURA_GROUP_MISSING').strip().split(':')
+    need(len(group) == 4 and group[2].isdigit() and group[2] != '0', 'AURA_GROUP_INVALID')
+    uid, gid = int(row[2]), int(group[2])
+    parent, directory = Path('/var/lib/aukora-aura'), Path('/var/lib/aukora-aura/head')
+    protected(parent, True)
+    protected(directory, True, uid=uid)
+    info = directory.lstat()
+    need(info.st_gid == gid and stat.S_IMODE(info.st_mode) == 0o2750, 'AURA_OUTPUT_CUSTODY_INVALID')
+    for name in ('aukora-aura-head.service', 'aukora-aura-head.timer'):
+        protected(Path('/etc/systemd/system') / name)
+    file = directory / 'gate.json'
+    protected(file, uid=uid)
+    info = file.lstat()
+    need(info.st_gid == gid and stat.S_IMODE(info.st_mode) == 0o640, 'AURA_OUTPUT_CUSTODY_INVALID')
+
+
 def profile_rules(checkout=None):
     # During install the reviewed checkout has not yet moved to its installed path.
     file = (checkout or CHECKOUT) / 'scripts/materialize-aukora-release.py'
     protected(file)
-    names = {'BROWSER_DISABLED_ROWS', 'BROWSER_REFUSAL_ENTRY', 'BROWSER_REFUSAL_SOURCE'}
+    names = {'BROWSER_DISABLED_ROWS', 'BROWSER_REFUSAL_ENTRY', 'BROWSER_REFUSAL_SOURCE',
+             'BROWSER_AURA_READER_ENTRY', 'BROWSER_AURA_READER_SOURCE'}
     rules = {}
     for node in ast.parse(file.read_text()).body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in names:
@@ -378,12 +401,21 @@ def profile(release, checkout=None):
     text = file.read_text()
     need(text.startswith(prefix) and text.count('\n') == 1, 'PROFILE_INVALID')
     value = json.loads(text[len(prefix):])
-    need(set(value) == {'formatVersion', 'kind', 'relay', 'buzz', 'disabledRows', 'presets', 'refusalEntry', 'refusalSha256'}
+    need(set(value) == {'formatVersion', 'kind', 'relay', 'buzz', 'disabledRows', 'presets', 'refusalEntry', 'refusalSha256',
+                        'auraReaderEntry', 'auraReaderSha256'}
          and value.get('formatVersion') == 1 and value.get('kind') == 'aukora-browser-node-profile'
          and value.get('relay') is False and value.get('buzz') is False
          and isinstance(value.get('presets'), dict) and bool(value['presets'])
          and value.get('disabledRows') == list(rules['BROWSER_DISABLED_ROWS']), 'PROFILE_INVALID')
-    need(not any((release / 'plugins' / name).exists() for name in ('aukora-relay-auma', 'aukora-buzz-door')), 'NETWORK_PLUGIN_PRESENT')
+    need(not (release / 'plugins/aukora-relay-auma').exists(), 'NETWORK_PLUGIN_PRESENT')
+    reader = release / rules['BROWSER_AURA_READER_ENTRY']
+    need(value.get('auraReaderEntry') == rules['BROWSER_AURA_READER_ENTRY']
+         and value.get('auraReaderSha256') == hashlib.sha256(rules['BROWSER_AURA_READER_SOURCE'].encode()).hexdigest()
+         and reader.is_file() and not reader.is_symlink()
+         and hashlib.sha256(reader.read_bytes()).hexdigest() == value.get('auraReaderSha256')
+         and sorted(str(file.relative_to(release / 'plugins/aukora-buzz-door'))
+                    for file in (release / 'plugins/aukora-buzz-door').rglob('*')) == ['lib', 'lib/index.mjs'],
+         'AURA_READER_CHANGED')
     need(value.get('refusalEntry') == rules['BROWSER_REFUSAL_ENTRY']
          and value.get('refusalSha256') == hashlib.sha256(rules['BROWSER_REFUSAL_SOURCE'].encode()).hexdigest()
          and hashlib.sha256((release / value['refusalEntry']).read_bytes()).hexdigest()
@@ -417,7 +449,7 @@ def install(options):
         print('BROWSER_ALREADY_INSTALLED')
         return
     need(not STATE.exists() and not STATE.is_symlink(), 'PARTIAL_INSTALL_REQUIRES_REVIEW')
-    for name in ('aukora-host', 'aukora-gate'):
+    for name in ('aukora-host', 'aukora-gate', 'aukora-aura'):
         result = subprocess.run(['getent', 'passwd', name], env=ENV, capture_output=True)
         need(result.returncode == 2, 'USER_EXISTS')
     for name in ('/opt/aukora-genesis', '/opt/aukora-node', '/opt/aukora-boundary-gate', '/opt/owner-key',
@@ -425,6 +457,8 @@ def install(options):
                  '/etc/aukora-boundary-gate', '/etc/aukora-approvals', '/etc/aukora-genesis',
                  '/etc/aukora', '/etc/systemd/system/aukora-browser-claim.service',
                  '/etc/systemd/system/aukora-boundary-gate.service.d',
+                 '/var/lib/aukora-aura', '/etc/systemd/system/aukora-aura-head.service',
+                 '/etc/systemd/system/aukora-aura-head.timer',
                  '/home/aukora-gate', '/home/aukora-host', '/etc/systemd/system/aukora-browser.service',
                  '/etc/systemd/system/aukora-boundary-gate.service'):
         need(not Path(name).exists() and not Path(name).is_symlink(), 'INSTALL_EXISTS')
@@ -498,6 +532,12 @@ def install(options):
         arguments += ['--gid', group] if name == 'aukora-gate' else ['--user-group', '--groups', 'skgate']
         run(arguments + [name], 'USER_CREATE_REFUSED')
         run(['install', '-d', '-m', '0700', '-o', name, '-g', group, '/home/' + name], 'HOME_CREATE_REFUSED')
+    run(['useradd', '--system', '--home-dir', '/var/lib/aukora-aura', '--shell', '/usr/sbin/nologin',
+         '--user-group', '--groups', 'skgate', 'aukora-aura'], 'AURA_USER_CREATE_REFUSED')
+    run(['install', '-d', '-m', '0755', '-o', 'root', '-g', 'root', '/var/lib/aukora-aura'],
+        'AURA_STATE_CREATE_REFUSED')
+    run(['install', '-d', '-m', '2750', '-o', 'aukora-aura', '-g', 'aukora-host', '/var/lib/aukora-aura/head'],
+        'AURA_STATE_CREATE_REFUSED')
     for tree, output in [(gate, '/opt/aukora-boundary-gate'), (owner, '/opt/owner-key')]:
         stage.public_modes(tree)
         tree.rename(output)
@@ -548,6 +588,8 @@ def install(options):
     run(['systemctl', 'enable', '--now', 'aukora-browser-claim.service'], 'CLAIM_START_REFUSED')
     sockets()
     bootstrap('approval', 'raise', '--release-dir', release)
+    run(['systemctl', 'start', 'aukora-aura-head.service'], 'AURA_COLLECT_REFUSED')
+    run(['systemctl', 'enable', '--now', 'aukora-aura-head.timer'], 'AURA_TIMER_START_REFUSED')
     value = {'revision': options.revision, 'inputs': binding}
     config.write(STATE / 'installed.json', (json.dumps(value, sort_keys=True) + '\n').encode(), Path('/'))
     print('BROWSER_INSTALLED_PENDING_OWNER_APPROVAL; harness stopped; bearer never printed')
@@ -559,6 +601,40 @@ def units(config):
     gate = (CHECKOUT / 'packages/boundary-gate/host/systemd/aukora-boundary-gate.service').read_text()
     gate = gate.replace('SKGATE_GID', group).replace(' --port 17792', ' --owner-page --port 17792')
     config.write(Path('/etc/systemd/system/aukora-boundary-gate.service'), gate.encode(), Path('/'))
+    collector = '''[Unit]
+Description=AUKORA read-only gate head collector
+After=aukora-boundary-gate.service
+Requires=aukora-boundary-gate.service
+[Service]
+Type=oneshot
+User=aukora-aura
+Group=aukora-aura
+SupplementaryGroups=skgate
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/aukora-aura/head
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
+ExecStart=/opt/aukora-node/bin/node /opt/aukora-genesis/src/scripts/aura/collect-head.mjs
+'''
+    config.write(Path('/etc/systemd/system/aukora-aura-head.service'), collector.encode(), Path('/'))
+    timer = '''[Unit]
+Description=AUKORA refresh the observed gate head
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+Unit=aukora-aura-head.service
+[Install]
+WantedBy=timers.target
+'''
+    config.write(Path('/etc/systemd/system/aukora-aura-head.timer'), timer.encode(), Path('/'))
     data = '''[Unit]
 Description=AUKORA restricted browser node (effect providers disabled)
 After=aukora-boundary-gate.service
@@ -770,6 +846,7 @@ def start():
     Path('/etc/aukora-approvals/release-floor.json').chmod(0o644)
     run(['runuser', '-u', 'aukora-host', '--', '/usr/bin/python3', '-I', '-S', BOOT,
          'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)], 'FLOOR_REFUSED')
+    run(['systemctl', 'start', 'aukora-aura-head.service'], 'AURA_COLLECT_REFUSED')
     run(['systemctl', 'enable', '--now', 'aukora-browser.service'], 'HARNESS_START_REFUSED')
     print('BROWSER_STARTED; verify acceptance and the actual browser separately')
 
@@ -785,6 +862,38 @@ def listeners(text):
     need(len(endpoints) == len(rows) and local, 'NON_LOOPBACK_LISTENER')
     need('127.0.0.1:17792' in endpoints, 'OWNER_LISTENER_MISSING')
     return endpoints
+
+
+def browser_aura_sources(snapshot, gate, kira, floor, bound):
+    # Require displayed heads to cover approval and match independent verified ledgers.
+    names = ['gate-ledger', 'kira-chain', 'code-chain']
+    hex_head = lambda value: isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value) is not None
+    count = lambda value: type(value) is int and 0 < value <= 9007199254740991
+    need(isinstance(snapshot, dict) and snapshot.get('schema') == 'aukora-face/aura-snapshot:v1'
+         and hex_head(snapshot.get('head')) and isinstance(snapshot.get('sources'), list)
+         and len(snapshot['sources']) == 3
+         and all(isinstance(row, dict) and set(row) == {'name', 'head', 'entries', 'absence'}
+                 and row['name'] == name for row, name in zip(snapshot['sources'], names)), 'AURA_SNAPSHOT_INVALID')
+    need(isinstance(floor, dict) and count(floor.get('ledger_seq'))
+         and hex_head(floor.get('signer_key_sha256')), 'AURA_FLOOR_INVALID')
+    need(isinstance(gate, dict) and hex_head(gate.get('head')) and count(gate.get('entries')), 'AURA_GATE_READ_INVALID')
+    gate_source, kira_source, code_source = snapshot['sources']
+    present = lambda row: hex_head(row['head']) and count(row['entries']) and row['absence'] is None
+    need(present(gate_source), 'AURA_GATE_MISSING')
+    need(gate_source['entries'] >= floor['ledger_seq'], 'AURA_GATE_BELOW_APPROVAL')
+    need(gate_source['head'] == gate['head'] and gate_source['entries'] == gate['entries'], 'AURA_GATE_HEAD_MISMATCH')
+    need(present(code_source), 'AURA_CODE_MISSING')
+    need(isinstance(kira, dict) and (hex_head(kira.get('head')) and count(kira.get('entries')) and kira.get('absence') is None
+         or kira.get('head') is None and type(kira.get('entries')) is int and kira['entries'] == 0
+         and kira.get('absence') in ('kira-ledger-missing', 'kira-ledger-empty')), 'AURA_KIRA_READ_INVALID')
+    if bound and kira['entries'] > 0:
+        need(present(kira_source) and kira_source['head'] == kira['head'] and kira_source['entries'] == kira['entries'],
+             'AURA_KIRA_HEAD_MISMATCH')
+    elif kira['entries'] == 0:
+        need(kira_source['head'] is None and (type(kira_source['entries']) is int and kira_source['entries'] == 0
+             and kira_source['absence'] == kira['absence']
+             or not bound and kira_source['entries'] is None and kira_source['absence'] == 'kira-service-unavailable'),
+             'AURA_KIRA_ABSENCE_INVALID')
 
 
 def accept(phase, checks=None):
@@ -812,6 +921,8 @@ def accept(phase, checks=None):
         if name == 'aukora-gate':
             for file in ('owner-secret.json', 'receipt-ed25519.pem'):
                 protected(Path(row[5]) / file, uid=int(row[2]), private=True)
+    checkpoint('aura_collector_custody')
+    aura_custody()
     checkpoint('package_custody')
     for path in (Path('/opt/aukora-boundary-gate'), Path('/opt/owner-key'), Path('/opt/authority'),
                  Path('/opt/contracts'), Path('/opt/aukora-aumlok'), Path('/opt/aukora-node'), CHECKOUT, release):
@@ -853,6 +964,9 @@ def accept(phase, checks=None):
     else:
         checkpoint('approved_floor')
         bootstrap('floor', 'check', '--release-dir', release, '--approval-state-root', approval)
+        checkpoint('aura_collector')
+        run(['systemctl', 'is-active', '--quiet', 'aukora-aura-head.timer'], 'AURA_TIMER_INACTIVE')
+        run(['systemctl', 'start', 'aukora-aura-head.service'], 'AURA_COLLECT_REFUSED')
         checkpoint('harness_service')
         run(['systemctl', 'is-active', '--quiet', 'aukora-browser.service'], 'HARNESS_INACTIVE')
         need('127.0.0.1:18735' in endpoints, 'HARNESS_LISTENER_MISSING')
@@ -925,6 +1039,30 @@ def accept(phase, checks=None):
         status, headers, payload = request(18736, 'POST', claim.CLAIM_PATH, code)
         need(status == 403 and payload == b'CLAIM_SPENT\n'
              and not any(name.lower() == 'set-cookie' for name, _ in headers), 'CLAIM_REPLAY_ACCEPTED')
+        checkpoint('aura_sources')
+        status, _, payload = request(18735, 'GET', '/api/aukora/aura-snapshot', cookie=cookie)
+        need(status == 200, 'AURA_SNAPSHOT_REFUSED')
+        try:
+            snapshot = json.loads(payload)
+        except (UnicodeError, ValueError):
+            refuse('AURA_SNAPSHOT_INVALID')
+        try:
+            floor, _ = evidence_json(Path('/etc/aukora-approvals/release-floor.json'), 'RELEASE_FLOOR')
+        except (UnicodeError, ValueError):
+            refuse('AURA_FLOOR_INVALID')
+        need(isinstance(floor, dict) and type(floor.get('ledger_seq')) is int and floor['ledger_seq'] > 0
+             and isinstance(floor.get('signer_key_sha256'), str)
+             and re.fullmatch(r'[0-9a-f]{64}', floor['signer_key_sha256']) is not None, 'AURA_FLOOR_INVALID')
+        helper = str(CHECKOUT / 'ops/node-spawn/browser/aura-head.mjs')
+        gate_text = run(['runuser', '-u', 'aukora-gate', '--', NODE, helper, 'gate', floor['signer_key_sha256']],
+                        'AURA_GATE_READ_REFUSED')
+        kira_text = run(['runuser', '-u', 'aukora-host', '--', NODE, helper, 'kira'], 'AURA_KIRA_READ_REFUSED')
+        try:
+            gate, kira = json.loads(gate_text), json.loads(kira_text)
+        except (UnicodeError, ValueError):
+            refuse('AURA_HEAD_READ_INVALID')
+        browser_aura_sources(snapshot, gate, kira, floor, not unbound)
+        print('PASS | Aura gate head matches verified current ledger through approval; code present; Kira absence or head explicit')
         print('PASS | protected public origins, anonymous 401 and one-use public-authority claim cookie')
         print('PASS | approved signed-in UI and plugin load')
         if phase == 'passkey':
@@ -1105,6 +1243,7 @@ def main(args):
     elif options.action == 'remove':
         root_check()
         installed()
+        run(['systemctl', 'disable', '--now', 'aukora-aura-head.timer', 'aukora-aura-head.service'], 'REMOVE_REFUSED')
         run(['systemctl', 'disable', '--now', 'aukora-browser.service', 'aukora-browser-claim.service', 'aukora-boundary-gate.service'], 'REMOVE_REFUSED')
         print('BROWSER_DEACTIVATED; protected state and floor retained')
     else:

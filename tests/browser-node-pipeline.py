@@ -65,6 +65,8 @@ class World:
             ('sockets', self.sockets), ('profile', lambda path, checkout=None: self.events.append(('profile', str(path))))]:
             self.stack.enter_context(patch.object(self.m, name, replacement))
         self.stack.enter_context(patch.object(self.m.subprocess, 'run', self.subprocess))
+        if hasattr(self.m, 'aura_custody'):
+            self.stack.enter_context(patch.object(self.m, 'aura_custody', lambda: self.events.append(('aura-custody',))))
 
     def close(self):
         self.stack.close()
@@ -144,7 +146,7 @@ class World:
             raise ValueError('BROWSER_' + code)
         if code == 'CLONE_REFUSED':
             self.clone(Path(command[-1]))
-        elif code in ('HOME_CREATE_REFUSED', 'STATE_CREATE_REFUSED', 'TARGET_CREATE_REFUSED'):
+        elif code in ('HOME_CREATE_REFUSED', 'STATE_CREATE_REFUSED', 'TARGET_CREATE_REFUSED', 'AURA_STATE_CREATE_REFUSED'):
             Path(command[-1]).mkdir(parents=True, exist_ok=True)
         elif code == 'KEY_GENERATION_REFUSED':
             file = self.root / 'home/aukora-gate/signer-epochs.json'
@@ -282,7 +284,9 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(w.commands, [])
         for path in ('/opt/authority', '/opt/contracts', '/opt/aukora-aumlok', '/etc/aukora',
                      '/etc/systemd/system/aukora-browser-claim.service',
-                     '/etc/systemd/system/aukora-boundary-gate.service.d'):
+                     '/etc/systemd/system/aukora-boundary-gate.service.d',
+                     '/var/lib/aukora-aura', '/etc/systemd/system/aukora-aura-head.service',
+                     '/etc/systemd/system/aukora-aura-head.timer'):
             w = self.world()
             occupied = w.root / path[1:]
             occupied.mkdir(parents=True)
@@ -320,13 +324,45 @@ class Pipeline(unittest.TestCase):
         for failure in ('OS_DEPENDENCIES_REFUSED', 'CLONE_REFUSED', 'BUNDLE_INVALID', 'REVISION_MISSING', 'GROUP_CREATE_REFUSED',
             'USER_CREATE_REFUSED', 'HOME_CREATE_REFUSED', 'KEY_GENERATION_REFUSED', 'MANIFEST_REFUSED',
             'TARGET_CREATE_REFUSED', 'STATE_CREATE_REFUSED', 'RELEASE_ENV_REFUSED', 'GROUP_MISSING',
-            'bootstrap-check-package', 'bootstrap-check-runtime', 'SYSTEMD_REFUSED', 'GATE_START_REFUSED', 'CLAIM_START_REFUSED', 'sockets', 'bootstrap-approval-raise'):
+            'bootstrap-check-package', 'bootstrap-check-runtime', 'SYSTEMD_REFUSED', 'GATE_START_REFUSED', 'CLAIM_START_REFUSED',
+            'AURA_USER_CREATE_REFUSED', 'AURA_STATE_CREATE_REFUSED', 'AURA_COLLECT_REFUSED', 'AURA_TIMER_START_REFUSED',
+            'sockets', 'bootstrap-approval-raise'):
             with self.subTest(failure=failure):
                 w = self.world()
                 w.fail = failure
                 with self.assertRaises(ValueError):
                     w.m.install(w.options)
                 self.assertFalse((w.m.STATE / 'installed.json').exists(), failure)
+
+    def test_aura_collector_install_custody_and_order(self):
+        w = self.world()
+        with contextlib.redirect_stdout(io.StringIO()):
+            w.m.install(w.options)
+        user = next(command for command in w.commands if command[0] == 'useradd' and command[-1] == 'aukora-aura')
+        self.assertEqual(user[user.index('--home-dir') + 1], str(w.root / 'var/lib/aukora-aura'))
+        self.assertEqual(user[user.index('--shell') + 1], '/usr/sbin/nologin')
+        self.assertIn('--system', user)
+        self.assertIn('--user-group', user)
+        self.assertEqual(user[user.index('--groups') + 1], 'skgate')
+        for path, owner, group, mode in [('var/lib/aukora-aura', 'root', 'root', 0o755),
+                                        ('var/lib/aukora-aura/head', 'aukora-aura', 'aukora-host', 0o2750)]:
+            directory = next(command for command in w.commands if command[0] == 'install' and command[-1] == str(w.root / path))
+            self.assertEqual(directory[directory.index('-o') + 1], owner)
+            self.assertEqual(directory[directory.index('-g') + 1], group)
+            self.assertEqual(int(directory[directory.index('-m') + 1], 8), mode)
+        for name in ('aukora-aura-head.service', 'aukora-aura-head.timer'):
+            file = w.root / 'etc/systemd/system' / name
+            self.assertTrue(file.is_file())
+            self.assertEqual(file.stat().st_mode & 0o777, 0o644)
+        collect = w.events.index(('run', 'AURA_COLLECT_REFUSED'))
+        timer = w.events.index(('run', 'AURA_TIMER_START_REFUSED'))
+        raised = next(i for i, event in enumerate(w.events) if event[:3] == ('bootstrap', 'approval', 'raise'))
+        self.assertGreater(collect, w.events.index(('sockets',)))
+        self.assertGreater(collect, raised)
+        self.assertGreater(timer, collect)
+        self.assertGreater(w.events.index(('write', 'installed.json')), timer)
+        self.assertIn(['systemctl', 'start', 'aukora-aura-head.service'], w.commands)
+        self.assertIn(['systemctl', 'enable', '--now', 'aukora-aura-head.timer'], w.commands)
 
     def test_rerun_is_exact_and_never_regenerates_keys(self):
         w = self.world()
@@ -370,7 +406,10 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(len(starts), 2)
         self.assertEqual(len(floor_checks), 2)
         self.assertTrue(all(check < start for check, start in zip(floor_checks, starts)))
-        for failure in ('bootstrap-check-package', 'bootstrap-check-runtime', 'sockets', 'FLOOR_REFUSED', 'HARNESS_START_REFUSED'):
+        collect = [i for i, event in enumerate(w.events) if event == ('run', 'AURA_COLLECT_REFUSED')]
+        self.assertEqual(len(collect), 2)
+        self.assertTrue(all(check < refresh < start for check, refresh, start in zip(floor_checks, collect, starts)))
+        for failure in ('bootstrap-check-package', 'bootstrap-check-runtime', 'sockets', 'FLOOR_REFUSED', 'AURA_COLLECT_REFUSED', 'HARNESS_START_REFUSED'):
             w.fail = failure
             with self.assertRaises(ValueError):
                 w.m.start()
@@ -424,6 +463,40 @@ class Pipeline(unittest.TestCase):
         w.installed_world()
         w.approved, w.active = True, True
         w.public_requests, w.origin_reads = [], []
+        floor = {'ledger_seq': 5, 'signer_key_sha256': '1' * 64}
+        if attack == 'aura-floor':
+            floor['ledger_seq'] = True
+        folder = w.root / 'etc/aukora-approvals'
+        folder.mkdir(exist_ok=True)
+        (folder / 'release-floor.json').write_text(json.dumps(floor))
+        aura = {'schema': 'aukora-face/aura-snapshot:v1', 'head': 'a' * 64, 'sources': [
+            {'name': 'gate-ledger', 'head': 'b' * 64, 'entries': 5, 'absence': None},
+            {'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'},
+            {'name': 'code-chain', 'head': 'c' * 64, 'entries': 1, 'absence': None}]}
+        gate_head = {'head': 'b' * 64, 'entries': 5}
+        kira_head = {'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'}
+        if attack in ('aura-kira-present', 'aura-kira-missing', 'aura-kira-head', 'aura-kira-count', 'aura-bound-empty'):
+            (w.root / 'home/aukora-host/genesis/state/aumlok-binding').mkdir()
+        if attack in ('aura-kira-present', 'aura-kira-missing', 'aura-kira-head', 'aura-kira-count'):
+            kira_head.update(head='d' * 64, entries=1, absence=None)
+            if attack != 'aura-kira-missing':
+                aura['sources'][1].update(kira_head)
+            if attack == 'aura-kira-head':
+                aura['sources'][1]['head'] = 'e' * 64
+            if attack == 'aura-kira-count':
+                aura['sources'][1]['entries'] = 2
+        if attack == 'aura-gate-missing':
+            aura['sources'][0].update(head=None, entries=None, absence='gate-ledger-unavailable')
+        if attack == 'aura-gate-short':
+            aura['sources'][0]['entries'] = 4
+        if attack == 'aura-gate-head':
+            aura['sources'][0]['head'] = 'e' * 64
+        if attack == 'aura-gate-count':
+            gate_head['entries'] = 6
+        if attack == 'aura-code-missing':
+            aura['sources'][2].update(head=None, entries=None, absence='code-chain-unavailable')
+        if attack == 'aura-kira-absence':
+            aura['sources'][1]['absence'] = None
         claim_file = ROOT / 'ops/node-spawn/ingress/claim.py'
         spec = importlib.util.spec_from_file_location('claim_acceptance_fixture', claim_file)
         claim = importlib.util.module_from_spec(spec)
@@ -454,6 +527,16 @@ class Pipeline(unittest.TestCase):
         old_module, old_run = w.m.module, w.m.run
         w.m.module = lambda file: claim if file.name == 'claim.py' else old_module(file)
         def run(command, code, *args, **kwargs):
+            if code in ('AURA_GATE_READ_REFUSED', 'AURA_KIRA_READ_REFUSED'):
+                w.commands.append(command)
+                w.events.append(('run', code))
+                if attack == ('aura-gate-read' if code == 'AURA_GATE_READ_REFUSED' else 'aura-kira-read'):
+                    raise ValueError('BROWSER_' + code)
+                if attack == 'aura-head-invalid':
+                    return 'not-json'
+                return json.dumps(gate_head if code == 'AURA_GATE_READ_REFUSED' else kira_head)
+            if code in ('AURA_TIMER_INACTIVE', 'AURA_COLLECT_REFUSED') and attack == ('aura-timer' if code == 'AURA_TIMER_INACTIVE' else 'aura-collect'):
+                raise ValueError('BROWSER_' + code)
             if code == 'CLAIM_INACTIVE' and attack == 'claim-inactive':
                 raise ValueError('BROWSER_CLAIM_INACTIVE')
             if code == 'CLAIM_MINT_REFUSED':
@@ -484,6 +567,8 @@ class Pipeline(unittest.TestCase):
             (204 if attack == 'replay-status' else 403,
              [('Set-Cookie', cookie)] if attack == 'replay-cookie' else [],
              b'CLAIM_INVALID\n' if attack == 'replay-reason' else b'CLAIM_SPENT\n'),
+            (403 if attack == 'aura-status' else 200, [],
+             b'not-json' if attack == 'aura-json' else json.dumps(aura).encode()),
         ]
         class Connection:
             def __init__(self, host, port, timeout):
@@ -532,18 +617,19 @@ class Pipeline(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             w.m.accept('after', checks)
         self.assertEqual([check['name'] for check in checks], [
-            'root_platform', 'installation_record', 'browser_profile', 'users_modes', 'package_custody',
+            'root_platform', 'installation_record', 'browser_profile', 'users_modes', 'aura_collector_custody', 'package_custody',
             'node_version', 'package_pins', 'gate_sockets', 'signer_pin', 'loopback_listeners', 'approved_floor',
-            'harness_service', 'signed_in_ui', 'plugin_load', 'claim_service', 'public_origins',
-            'anonymous_session', 'claim_exchange', 'claim_cookie', 'public_session', 'claim_replay'])
-        self.assertEqual([check['status'] for check in checks], ['PASS'] * 21)
+            'aura_collector', 'harness_service', 'signed_in_ui', 'plugin_load', 'claim_service', 'public_origins',
+            'anonymous_session', 'claim_exchange', 'claim_cookie', 'public_session', 'claim_replay', 'aura_sources'])
+        self.assertEqual([check['status'] for check in checks], ['PASS'] * 24)
         self.assertIn('anonymous 401 and one-use public-authority claim cookie', output.getvalue())
         self.assertNotIn('PRIVATE_', output.getvalue())
         self.assertNotIn('P' * 43, output.getvalue())
         self.assertEqual(w.origin_reads, ['public-origin', 'owner-public-origin'])
         self.assertEqual([(port, method, target) for port, method, target, _, _ in w.public_requests], [
             (18735, 'GET', '/'), (18736, 'POST', '/__aukora/claim'),
-            (18735, 'GET', '/'), (18736, 'POST', '/__aukora/claim')])
+            (18735, 'GET', '/'), (18736, 'POST', '/__aukora/claim'),
+            (18735, 'GET', '/api/aukora/aura-snapshot')])
         for _, _, _, _, headers in w.public_requests:
             self.assertEqual(headers['Host'], 'app.example.test')
             self.assertEqual(headers['Origin'], 'https://app.example.test')
@@ -551,17 +637,63 @@ class Pipeline(unittest.TestCase):
         self.assertNotIn('Cookie', w.public_requests[0][4])
         self.assertEqual(w.public_requests[1][3], w.public_requests[3][3])
         self.assertIn('Cookie', w.public_requests[2][4])
+        self.assertIn('Cookie', w.public_requests[4][4])
+
+    def test_aura_acceptance_matches_independent_heads_and_preserves_no_notes(self):
+        for attack, code in [('aura-timer', 'AURA_TIMER_INACTIVE'), ('aura-collect', 'AURA_COLLECT_REFUSED'),
+            ('aura-status', 'AURA_SNAPSHOT_REFUSED'), ('aura-json', 'AURA_SNAPSHOT_INVALID'), ('aura-floor', 'AURA_FLOOR_INVALID'),
+            ('aura-gate-read', 'AURA_GATE_READ_REFUSED'), ('aura-kira-read', 'AURA_KIRA_READ_REFUSED'),
+            ('aura-head-invalid', 'AURA_HEAD_READ_INVALID'), ('aura-gate-missing', 'AURA_GATE_MISSING'),
+            ('aura-gate-short', 'AURA_GATE_BELOW_APPROVAL'), ('aura-gate-head', 'AURA_GATE_HEAD_MISMATCH'),
+            ('aura-gate-count', 'AURA_GATE_HEAD_MISMATCH'), ('aura-code-missing', 'AURA_CODE_MISSING'),
+            ('aura-kira-missing', 'AURA_KIRA_HEAD_MISMATCH'), ('aura-kira-head', 'AURA_KIRA_HEAD_MISMATCH'),
+            ('aura-kira-count', 'AURA_KIRA_HEAD_MISMATCH'), ('aura-kira-absence', 'AURA_KIRA_ABSENCE_INVALID')]:
+            with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()):
+                w = self.public_world(attack)
+                checks = []
+                self.refuses(lambda: w.m.accept('after', checks), code)
+                self.assertEqual(checks[-1]['status'], 'FAIL')
+                self.assertTrue(all(row['status'] == 'PASS' for row in checks[:-1]))
+                if attack == 'aura-floor':
+                    self.assertFalse(any(event in [('run', 'AURA_GATE_READ_REFUSED'), ('run', 'AURA_KIRA_READ_REFUSED')]
+                                         for event in w.events))
+                w.stack.close()
+        for attack in (None, 'aura-bound-empty', 'aura-kira-present'):
+            with self.subTest(attack=attack), contextlib.redirect_stdout(io.StringIO()) as output:
+                w = self.public_world(attack)
+                checks = []
+                w.m.accept('after', checks)
+                self.assertTrue(all(row['status'] == 'PASS' for row in checks))
+                self.assertIn('Aura gate head matches verified current ledger through approval', output.getvalue())
+                self.assertEqual(w.events.count(('run', 'AURA_GATE_READ_REFUSED')), 1)
+                self.assertEqual(w.events.count(('run', 'AURA_KIRA_READ_REFUSED')), 1)
+                self.assertEqual(w.events.count(('aura-custody',)), 1)
+                gate = next(command for command in w.commands if command[-2:] == ['gate', '1' * 64])
+                kira = next(command for command in w.commands if command[-1] == 'kira')
+                self.assertEqual(gate[:4], ['runuser', '-u', 'aukora-gate', '--'])
+                self.assertEqual(kira[:4], ['runuser', '-u', 'aukora-host', '--'])
+                refresh = w.events.index(('run', 'AURA_COLLECT_REFUSED'))
+                self.assertLess(refresh, w.events.index(('run', 'UI_PROBE_REFUSED')))
+                w.stack.close()
 
     def test_status_is_read_only_and_remove_retains_state_and_floor(self):
         w = self.world()
         w.installed_world()
         before = (w.m.STATE / 'installed.json').read_bytes()
+        floor = w.root / 'etc/aukora-approvals/release-floor.json'
+        floor.parent.mkdir(exist_ok=True)
+        floor.write_text('retained signed floor')
         with patch.object(w.m, 'model_status') as model_status, contextlib.redirect_stdout(io.StringIO()) as output:
             w.m.main(['status'])
+            self.assertEqual(w.commands, [])
             w.m.main(['remove'])
         model_status.assert_called_once_with()
         self.assertIn('protected state and floor retained', output.getvalue())
         self.assertEqual((w.m.STATE / 'installed.json').read_bytes(), before)
+        self.assertEqual(floor.read_text(), 'retained signed floor')
+        self.assertEqual(w.commands, [
+            ['systemctl', 'disable', '--now', 'aukora-aura-head.timer', 'aukora-aura-head.service'],
+            ['systemctl', 'disable', '--now', 'aukora-browser.service', 'aukora-browser-claim.service', 'aukora-boundary-gate.service']])
         self.assertFalse(any(command[0] == 'systemctl' and ('start' in command or 'enable' in command) for command in w.commands))
         w.fail = 'REMOVE_REFUSED'
         self.refuses(lambda: w.m.main(['remove']), 'REMOVE_REFUSED')
@@ -746,6 +878,31 @@ syntheticFs.fstatSync = fd => { const st = realFstat(fd); st.uid = 0; return st;
 
 def mutations():
     cases = [
+        ('aura-user-installed', "    run(['useradd', '--system', '--home-dir', '/var/lib/aukora-aura', '--shell', '/usr/sbin/nologin',\n         '--user-group', '--groups', 'skgate', 'aukora-aura'], 'AURA_USER_CREATE_REFUSED')\n", '', 'test_aura_collector_install_custody_and_order'),
+        ('aura-system-user', "['useradd', '--system', '--home-dir', '/var/lib/aukora-aura'", "['useradd', '--home-dir', '/var/lib/aukora-aura'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-private-group', "'--user-group', '--groups', 'skgate', 'aukora-aura'", "'--groups', 'skgate', 'aukora-aura'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-user-shell', "'/var/lib/aukora-aura', '--shell', '/usr/sbin/nologin'", "'/var/lib/aukora-aura', '--shell', '/bin/sh'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-user-groups', "'--user-group', '--groups', 'skgate', 'aukora-aura'", "'--user-group', '--groups', 'sudo', 'aukora-aura'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-parent-owner', "'-m', '0755', '-o', 'root', '-g', 'root', '/var/lib/aukora-aura'", "'-m', '0755', '-o', 'aukora-aura', '-g', 'root', '/var/lib/aukora-aura'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-parent-group', "'-m', '0755', '-o', 'root', '-g', 'root', '/var/lib/aukora-aura'", "'-m', '0755', '-o', 'root', '-g', 'aukora-host', '/var/lib/aukora-aura'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-parent-mode', "'-m', '0755', '-o', 'root', '-g', 'root', '/var/lib/aukora-aura'", "'-m', '0777', '-o', 'root', '-g', 'root', '/var/lib/aukora-aura'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-output-mode', "'-m', '2750', '-o', 'aukora-aura', '-g', 'aukora-host'", "'-m', '2770', '-o', 'aukora-aura', '-g', 'aukora-host'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-output-owner', "'-m', '2750', '-o', 'aukora-aura', '-g', 'aukora-host'", "'-m', '2750', '-o', 'aukora-host', '-g', 'aukora-host'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-output-read-group', "'-m', '2750', '-o', 'aukora-aura', '-g', 'aukora-host'", "'-m', '2750', '-o', 'aukora-aura', '-g', 'aukora-aura'", 'test_aura_collector_install_custody_and_order'),
+        ('aura-service-write-mode', "collector.encode(), Path('/'))", "collector.encode(), Path('/'), 0o666)", 'test_aura_collector_install_custody_and_order'),
+        ('aura-timer-write-mode', "timer.encode(), Path('/'))", "timer.encode(), Path('/'), 0o666)", 'test_aura_collector_install_custody_and_order'),
+        ('aura-install-refresh', "    bootstrap('approval', 'raise', '--release-dir', release)\n    run(['systemctl', 'start', 'aukora-aura-head.service'], 'AURA_COLLECT_REFUSED')", "    bootstrap('approval', 'raise', '--release-dir', release)", 'test_aura_collector_install_custody_and_order'),
+        ('aura-timer-enabled', "    run(['systemctl', 'enable', '--now', 'aukora-aura-head.timer'], 'AURA_TIMER_START_REFUSED')\n", '', 'test_aura_collector_install_custody_and_order'),
+        ('aura-start-refresh', "'FLOOR_REFUSED')\n    run(['systemctl', 'start', 'aukora-aura-head.service'], 'AURA_COLLECT_REFUSED')", "'FLOOR_REFUSED')", 'test_start_requires_approval_and_exact_floor_and_can_restart'),
+        ('aura-accept-custody', "    checkpoint('aura_collector_custody')\n    aura_custody()", "    checkpoint('aura_collector_custody')", 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
+        ('aura-accept-timer', "        run(['systemctl', 'is-active', '--quiet', 'aukora-aura-head.timer'], 'AURA_TIMER_INACTIVE')\n", '', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
+        ('aura-accept-refresh', "        run(['systemctl', 'start', 'aukora-aura-head.service'], 'AURA_COLLECT_REFUSED')\n", '', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
+        ('aura-accept-guard', "        browser_aura_sources(snapshot, gate, kira, floor, not unbound)\n", '', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
+        ('aura-snapshot-cookie', "request(18735, 'GET', '/api/aukora/aura-snapshot', cookie=cookie)", "request(18735, 'GET', '/api/aukora/aura-snapshot')", 'test_public_authority_claim_acceptance_guards'),
+        ('aura-gate-reader-identity', "['runuser', '-u', 'aukora-gate', '--', NODE, helper, 'gate', floor['signer_key_sha256']]", "['runuser', '-u', 'root', '--', NODE, helper, 'gate', floor['signer_key_sha256']]", 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
+        ('aura-kira-reader-identity', "['runuser', '-u', 'aukora-host', '--', NODE, helper, 'kira']", "['runuser', '-u', 'root', '--', NODE, helper, 'kira']", 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'),
+        ('aura-remove-timer', "'disable', '--now', 'aukora-aura-head.timer', 'aukora-aura-head.service'", "'disable', '--now', 'aukora-aura-head.service'", 'test_status_is_read_only_and_remove_retains_state_and_floor'),
+        ('aura-remove-service', "'disable', '--now', 'aukora-aura-head.timer', 'aukora-aura-head.service'", "'disable', '--now', 'aukora-aura-head.timer'", 'test_status_is_read_only_and_remove_retains_state_and_floor'),
         ('passkey-authority-installed', "profiles = [('authority', checkout / 'packages/authority', '/opt/authority', '--passkey-authority'),\n", 'profiles = [\n', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
         ('passkey-contracts-installed', "                ('contracts', checkout / 'packages/contracts', '/opt/contracts', '--passkey-contracts'),\n", '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
         ('passkey-aumlok-installed', "                ('browser-aumlok', checkout / 'plugins/aukora-aumlok', '/opt/aukora-aumlok', '--browser-aumlok')", '', 'test_success_publishes_marker_after_sockets_and_raise_without_starting_harness'),
@@ -804,8 +961,8 @@ def mutations():
         ('session-cookie', "                headers['Cookie'] = cookie\n", '                pass\n', 'test_public_authority_claim_acceptance_guards'),
         ('floor-before-start', "         'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)], 'FLOOR_REFUSED')",
          "         'floor', 'check', '--release-dir', str(release), '--approval-state-root', str(approval)], 'IGNORED_FLOOR')", 'test_start_requires_approval_and_exact_floor_and_can_restart'),
-        ('marker-after-raise', "    bootstrap('approval', 'raise', '--release-dir', release)\n    value = {'revision': options.revision, 'inputs': binding}\n    config.write(STATE / 'installed.json', (json.dumps(value, sort_keys=True) + '\\n').encode(), Path('/'))",
-         "    value = {'revision': options.revision, 'inputs': binding}\n    config.write(STATE / 'installed.json', (json.dumps(value, sort_keys=True) + '\\n').encode(), Path('/'))\n    bootstrap('approval', 'raise', '--release-dir', release)", 'test_external_refusals_never_publish_install_marker'),
+        ('marker-after-raise', "    bootstrap('approval', 'raise', '--release-dir', release)\n",
+         "    value = {'revision': options.revision, 'inputs': binding}\n    config.write(STATE / 'installed.json', (json.dumps(value, sort_keys=True) + '\\n').encode(), Path('/'))\n    bootstrap('approval', 'raise', '--release-dir', release)\n", 'test_external_refusals_never_publish_install_marker'),
     ]
     original = SOURCE.read_text()
     killed = 0

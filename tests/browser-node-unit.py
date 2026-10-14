@@ -569,6 +569,115 @@ m.main(["model-key"])
         rejects(lambda: M.listeners(head + 'bad\n'), 'NON_LOOPBACK_LISTENER')
         rejects(lambda: M.listeners(head + row.replace('17792', '18735')), 'OWNER_LISTENER_MISSING')
 
+    def test_aura_sources_require_approval_current_gate_code_and_explicit_kira(self):
+        def values():
+            snapshot = {'schema': 'aukora-face/aura-snapshot:v1', 'head': 'a' * 64, 'sources': [
+                {'name': 'gate-ledger', 'head': 'b' * 64, 'entries': 5, 'absence': None},
+                {'name': 'kira-chain', 'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'},
+                {'name': 'code-chain', 'head': 'c' * 64, 'entries': 1, 'absence': None}]}
+            return snapshot, {'head': 'b' * 64, 'entries': 5}, {'head': None, 'entries': 0, 'absence': 'kira-ledger-missing'}, \
+                {'ledger_seq': 5, 'signer_key_sha256': 'd' * 64}
+        snapshot, gate, kira, floor = values()
+        M.browser_aura_sources(snapshot, gate, kira, floor, True)
+        kira.update(head='e' * 64, entries=1, absence=None)
+        snapshot['sources'][1].update(kira)
+        M.browser_aura_sources(snapshot, gate, kira, floor, True)
+        for label, change, code in [
+            ('schema', lambda s, g, k, f: s.update(schema='wrong'), 'AURA_SNAPSHOT_INVALID'),
+            ('combined head', lambda s, g, k, f: s.update(head=None), 'AURA_SNAPSHOT_INVALID'),
+            ('source count', lambda s, g, k, f: s['sources'].pop(), 'AURA_SNAPSHOT_INVALID'),
+            ('source order', lambda s, g, k, f: s['sources'].reverse(), 'AURA_SNAPSHOT_INVALID'),
+            ('source fields', lambda s, g, k, f: s['sources'][0].update(extra=True), 'AURA_SNAPSHOT_INVALID'),
+            ('approval sequence', lambda s, g, k, f: f.update(ledger_seq=True), 'AURA_FLOOR_INVALID'),
+            ('approval signer', lambda s, g, k, f: f.update(signer_key_sha256='wrong'), 'AURA_FLOOR_INVALID'),
+            ('independent gate head', lambda s, g, k, f: g.update(head=None), 'AURA_GATE_READ_INVALID'),
+            ('independent gate entries', lambda s, g, k, f: g.update(entries=True), 'AURA_GATE_READ_INVALID'),
+            ('missing gate', lambda s, g, k, f: s['sources'][0].update(head=None, entries=None, absence='gate-ledger-unavailable'), 'AURA_GATE_MISSING'),
+            ('short gate', lambda s, g, k, f: s['sources'][0].update(entries=4), 'AURA_GATE_BELOW_APPROVAL'),
+            ('different gate head', lambda s, g, k, f: s['sources'][0].update(head='f' * 64), 'AURA_GATE_HEAD_MISMATCH'),
+            ('different gate count', lambda s, g, k, f: g.update(entries=6), 'AURA_GATE_HEAD_MISMATCH'),
+            ('missing code', lambda s, g, k, f: s['sources'][2].update(head=None, entries=None, absence='code-chain-unavailable'), 'AURA_CODE_MISSING'),
+            ('invalid Kira reader', lambda s, g, k, f: k.update(entries=True), 'AURA_KIRA_READ_INVALID'),
+            ('Kira absence hidden', lambda s, g, k, f: s['sources'][1].update(absence=None), 'AURA_KIRA_ABSENCE_INVALID'),
+            ('Kira absence boolean', lambda s, g, k, f: s['sources'][1].update(entries=False), 'AURA_KIRA_ABSENCE_INVALID'),
+            ('Kira absence invented', lambda s, g, k, f: s['sources'][1].update(head='f' * 64, entries=1, absence=None), 'AURA_KIRA_ABSENCE_INVALID'),
+        ]:
+            with self.subTest(label=label):
+                snapshot, gate, kira, floor = values()
+                change(snapshot, gate, kira, floor)
+                rejects(lambda: M.browser_aura_sources(snapshot, gate, kira, floor, True), code)
+        for change in [lambda row: row.update(head=None, entries=0, absence='kira-ledger-missing'),
+                       lambda row: row.update(head='f' * 64), lambda row: row.update(entries=2)]:
+            snapshot, gate, kira, floor = values()
+            kira.update(head='e' * 64, entries=1, absence=None)
+            snapshot['sources'][1].update(kira)
+            change(snapshot['sources'][1])
+            rejects(lambda: M.browser_aura_sources(snapshot, gate, kira, floor, True), 'AURA_KIRA_HEAD_MISMATCH')
+        snapshot, gate, kira, floor = values()
+        kira['absence'] = snapshot['sources'][1]['absence'] = 'kira-ledger-empty'
+        M.browser_aura_sources(snapshot, gate, kira, floor, True)
+        snapshot['sources'][1].update(entries=None, absence='kira-service-unavailable')
+        M.browser_aura_sources(snapshot, gate, kira, floor, False)
+        rejects(lambda: M.browser_aura_sources(snapshot, gate, kira, floor, True), 'AURA_KIRA_ABSENCE_INVALID')
+
+    def test_aura_collector_custody(self):
+        def observe(change=None, user=None, groups=None, group=None):
+            values = {
+                '/var/lib/aukora-aura': (0, 0, stat.S_IFDIR | 0o755, 2),
+                '/var/lib/aukora-aura/head': (1002, 1001, stat.S_IFDIR | 0o2750, 2),
+                '/var/lib/aukora-aura/head/gate.json': (1002, 1001, stat.S_IFREG | 0o640, 1),
+                '/etc/systemd/system/aukora-aura-head.service': (0, 0, stat.S_IFREG | 0o644, 1),
+                '/etc/systemd/system/aukora-aura-head.timer': (0, 0, stat.S_IFREG | 0o644, 1),
+            }
+            if change:
+                path, index, value = change
+                fields = list(values[path])
+                fields[index] = value
+                values[path] = tuple(fields)
+            class File:
+                def __init__(self, path):
+                    self.path = str(path)
+                def __truediv__(self, name):
+                    return File(self.path + '/' + name)
+                def lstat(self):
+                    uid, gid, mode, links = values[self.path]
+                    return types.SimpleNamespace(st_uid=uid, st_gid=gid, st_mode=mode, st_nlink=links)
+            def run(command, code):
+                if command[:2] == ['getent', 'passwd']:
+                    return user if user is not None else 'aukora-aura:x:1002:1002::/var/lib/aukora-aura:/usr/sbin/nologin'
+                if command[0] == 'id':
+                    return groups if groups is not None else 'aukora-aura skgate'
+                return group if group is not None else 'aukora-host:x:1001:'
+            with patch.object(M, 'Path', File), patch.object(M, 'run', side_effect=run):
+                M.aura_custody()
+        observe()
+        for user in ('missing', 'aukora-aura:x:0:1002::/var/lib/aukora-aura:/usr/sbin/nologin',
+                     'aukora-aura:x:nan:1002::/var/lib/aukora-aura:/usr/sbin/nologin',
+                     'aukora-aura:x:1002:1002::/home/aukora-aura:/usr/sbin/nologin',
+                     'aukora-aura:x:1002:1002::/var/lib/aukora-aura:/bin/sh'):
+            rejects(lambda: observe(user=user), 'AURA_USER_INVALID')
+        for groups in ('aukora-aura', 'aukora-aura skgate sudo', 'aukora-host skgate'):
+            rejects(lambda: observe(groups=groups), 'AURA_GROUP_INVALID')
+        for group in ('missing', 'aukora-host:x:0:', 'aukora-host:x:nan:'):
+            rejects(lambda: observe(group=group), 'AURA_GROUP_INVALID')
+        for path, change, code in [
+            ('/var/lib/aukora-aura', (0, 1002), 'CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura', (2, stat.S_IFDIR | 0o777), 'CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head', (0, 1001), 'CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head', (1, 1002), 'AURA_OUTPUT_CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head', (2, stat.S_IFDIR | 0o750), 'AURA_OUTPUT_CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head/gate.json', (0, 1001), 'CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head/gate.json', (1, 1002), 'AURA_OUTPUT_CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head/gate.json', (2, stat.S_IFREG | 0o600), 'AURA_OUTPUT_CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head/gate.json', (2, stat.S_IFREG | 0o644), 'AURA_OUTPUT_CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head/gate.json', (2, stat.S_IFLNK | 0o640), 'CUSTODY_INVALID'),
+            ('/var/lib/aukora-aura/head/gate.json', (3, 2), 'CUSTODY_INVALID'),
+            ('/etc/systemd/system/aukora-aura-head.service', (0, 1002), 'CUSTODY_INVALID'),
+            ('/etc/systemd/system/aukora-aura-head.timer', (2, stat.S_IFREG | 0o666), 'CUSTODY_INVALID'),
+        ]:
+            with self.subTest(path=path, change=change):
+                rejects(lambda: observe((path, *change)), code)
+
     def test_units_preserve_approval_no_preview(self):
         checkout = self.root / 'checkout'
         folder = checkout / 'packages/boundary-gate/host/systemd'
@@ -581,6 +690,8 @@ m.main(["model-key"])
         gate = writes['aukora-boundary-gate.service']
         harness = writes['aukora-browser.service']
         claim = writes['aukora-browser-claim.service']
+        aura = writes['aukora-aura-head.service']
+        aura_timer = writes['aukora-aura-head.timer']
         self.assertIn('--owner-page --port 17792', gate)
         self.assertIn('--gid 123', gate)
         for invariant in ('UMask=0077', 'NoNewPrivileges=yes', 'ProtectSystem=strict', 'check-package', 'check-runtime',
@@ -598,6 +709,22 @@ m.main(["model-key"])
                           '--launch-url-file /home/aukora-host/genesis/state/launch-url.json',
                           '--harness-port 18735', '--owner-page-port 17792', '--listen-port 18736'):
             self.assertIn(invariant, claim)
+        for invariant in ('After=aukora-boundary-gate.service', 'Requires=aukora-boundary-gate.service',
+                          'User=aukora-aura', 'Group=aukora-aura', 'SupplementaryGroups=skgate',
+                          'Type=oneshot', 'UMask=0027', 'NoNewPrivileges=yes', 'ProtectSystem=strict',
+                          'ProtectHome=yes', 'ReadWritePaths=/var/lib/aukora-aura/head', 'PrivateTmp=yes',
+                          'PrivateNetwork=yes', 'RestrictAddressFamilies=AF_UNIX',
+                          'ProtectKernelTunables=yes', 'ProtectControlGroups=yes', 'RestrictSUIDSGID=yes',
+                          'UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT',
+                          '/opt/aukora-node/bin/node /opt/aukora-genesis/src/scripts/aura/collect-head.mjs'):
+            self.assertIn(invariant, aura)
+        self.assertEqual([line for line in aura.splitlines() if line.startswith('ReadWritePaths=')],
+                         ['ReadWritePaths=/var/lib/aukora-aura/head'])
+        self.assertNotIn('/home/aukora-gate', aura)
+        self.assertIn('Unit=aukora-aura-head.service', aura_timer)
+        self.assertIn('OnBootSec=30s', aura_timer)
+        self.assertIn('OnUnitActiveSec=30s', aura_timer)
+        self.assertIn('WantedBy=timers.target', aura_timer)
         with patch.object(M, 'run', return_value='skgate:x:not-number:'):
             rejects(lambda: M.units(config), 'GROUP_INVALID')
 
@@ -606,11 +733,16 @@ m.main(["model-key"])
         source = self.root / relative
         source.parent.mkdir(parents=True)
         source.write_text('guard')
+        reader_relative = 'plugins/aukora-buzz-door/lib/index.mjs'
+        reader = self.root / reader_relative
+        reader.parent.mkdir(parents=True)
+        reader.write_text('readonly reader')
         preset = self.root / 'agent.cordis.yml'
         preset.write_text('disabled: true\n')
         value = {'formatVersion': 1, 'kind': 'aukora-browser-node-profile', 'relay': False, 'buzz': False,
                  'disabledRows': ['tool-bash'], 'presets': {'agent.cordis.yml': hashlib.sha256(preset.read_bytes()).hexdigest()},
-                 'refusalEntry': relative, 'refusalSha256': hashlib.sha256(source.read_bytes()).hexdigest()}
+                 'refusalEntry': relative, 'refusalSha256': hashlib.sha256(source.read_bytes()).hexdigest(),
+                 'auraReaderEntry': reader_relative, 'auraReaderSha256': hashlib.sha256(reader.read_bytes()).hexdigest()}
         marker = self.root / 'browser-node-profile.patch.yml'
         (self.root / 'aukora-composition.patch.yml').write_text('name: ./' + relative + '\n')
         folder = self.root / 'plugins/aukora-composition-gate'
@@ -618,7 +750,8 @@ m.main(["model-key"])
         (folder / 'policy.json').write_text(json.dumps({'pluginSet': ['aukora-browser-refusal']}))
         write = lambda: marker.write_text('# aukora-browser-node-profile ' + json.dumps(value) + '\n')
         write()
-        rules = {'BROWSER_DISABLED_ROWS': ['tool-bash'], 'BROWSER_REFUSAL_ENTRY': relative, 'BROWSER_REFUSAL_SOURCE': 'guard'}
+        rules = {'BROWSER_DISABLED_ROWS': ['tool-bash'], 'BROWSER_REFUSAL_ENTRY': relative, 'BROWSER_REFUSAL_SOURCE': 'guard',
+                 'BROWSER_AURA_READER_ENTRY': reader_relative, 'BROWSER_AURA_READER_SOURCE': 'readonly reader'}
         with patch.object(M, 'profile_rules', return_value=rules):
             self.profile_attacks(value, marker, source, preset, write)
 
@@ -637,9 +770,35 @@ m.main(["model-key"])
         rejects(lambda: M.profile(self.root), 'PROFILE_INVALID')
         value['buzz'] = False
         write()
-        (self.root / 'plugins/aukora-buzz-door').mkdir()
+        (self.root / 'plugins/aukora-relay-auma').mkdir()
         rejects(lambda: M.profile(self.root), 'NETWORK_PLUGIN_PRESENT')
-        (self.root / 'plugins/aukora-buzz-door').rmdir()
+        (self.root / 'plugins/aukora-relay-auma').rmdir()
+        reader = self.root / value['auraReaderEntry']
+        reader.write_text('effect provider')
+        rejects(lambda: M.profile(self.root), 'AURA_READER_CHANGED')
+        reader.write_text('readonly reader')
+        target = self.root / 'reader-target.mjs'
+        target.write_text(reader.read_text())
+        reader.unlink()
+        reader.symlink_to(target)
+        rejects(lambda: M.profile(self.root), 'AURA_READER_CHANGED')
+        reader.unlink()
+        reader.write_text('readonly reader')
+        provider = reader.parent / 'provider.mjs'
+        provider.write_text('effect provider')
+        rejects(lambda: M.profile(self.root), 'AURA_READER_CHANGED')
+        provider.unlink()
+        value['auraReaderSha256'] = '0' * 64
+        write()
+        rejects(lambda: M.profile(self.root), 'AURA_READER_CHANGED')
+        value['auraReaderSha256'] = hashlib.sha256(reader.read_bytes()).hexdigest()
+        write()
+        entry = value['auraReaderEntry']
+        value['auraReaderEntry'] = 'plugins/aukora-buzz-door/lib/wrong.mjs'
+        write()
+        rejects(lambda: M.profile(self.root), 'AURA_READER_CHANGED')
+        value['auraReaderEntry'] = entry
+        write()
         source.write_text('changed')
         rejects(lambda: M.profile(self.root), 'REFUSAL_MODULE_CHANGED')
         source.write_text('guard')
@@ -685,6 +844,8 @@ def mutations():
             raise AssertionError('mutation survived: ' + before)
     print('SOURCE-ONLY browser installer guard mutations: %d/%d killed' % (killed, len(cases)))
     unit_mutations()
+    aura_unit_mutations()
+    aura_custody_mutations()
     model_mutations()
     guard_mutations()
 
@@ -738,6 +899,50 @@ def model_mutations():
     print('SOURCE-ONLY model credential mutations: %d/%d killed' % (len(cases), len(cases)))
 
 
+def aura_unit_mutations():
+    global M
+    original = M
+    start = TEXT.index('    collector = ')
+    end = TEXT.index('    data = ', start)
+    cases = ['After=aukora-boundary-gate.service', 'Requires=aukora-boundary-gate.service',
+             'User=aukora-aura', 'Group=aukora-aura', 'SupplementaryGroups=skgate', 'Type=oneshot',
+             'UMask=0027', 'NoNewPrivileges=yes', 'ProtectSystem=strict', 'ProtectHome=yes',
+             'ReadWritePaths=/var/lib/aukora-aura/head', 'PrivateTmp=yes', 'PrivateNetwork=yes',
+             'RestrictAddressFamilies=AF_UNIX', 'ProtectKernelTunables=yes', 'ProtectControlGroups=yes',
+             'RestrictSUIDSGID=yes',
+             'UnsetEnvironment=NODE_OPTIONS NODE_PATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT',
+             '/opt/aukora-node/bin/node /opt/aukora-genesis/src/scripts/aura/collect-head.mjs',
+             'Unit=aukora-aura-head.service', 'OnBootSec=30s', 'OnUnitActiveSec=30s', 'WantedBy=timers.target']
+    for before in cases:
+        region = TEXT[start:end]
+        assert region.count(before) == 1, before
+        M = load(TEXT[:start] + region.replace(before, '', 1) + TEXT[end:])
+        result = unittest.TestResult()
+        BrowserInstaller('test_units_preserve_approval_no_preview').run(result)
+        assert result.failures or result.errors, 'Aura unit mutation survived: ' + before
+    M = original
+    print('SOURCE-ONLY browser Aura unit mutations: %d/%d killed' % (len(cases), len(cases)))
+
+
+def aura_custody_mutations():
+    global M
+    original = M
+    start = TEXT.index('def aura_custody():')
+    end = TEXT.index('\ndef ', start + 1)
+    cases = [('    protected(parent, True)\n', ''), ('    protected(directory, True, uid=uid)\n', ''),
+             ("        protected(Path('/etc/systemd/system') / name)\n", '        pass\n'),
+             ('    protected(file, uid=uid)\n', '')]
+    for before, after in cases:
+        region = TEXT[start:end]
+        assert region.count(before) == 1, before
+        M = load(TEXT[:start] + region.replace(before, after, 1) + TEXT[end:])
+        result = unittest.TestResult()
+        BrowserInstaller('test_aura_collector_custody').run(result)
+        assert result.failures or result.errors, 'Aura custody mutation survived: ' + before
+    M = original
+    print('SOURCE-ONLY browser Aura custody mutations: %d/%d killed' % (len(cases), len(cases)))
+
+
 def guard_mutations():
     # Every named Python refusal is exercised with its actual predicate removed.
     global M
@@ -763,12 +968,14 @@ def guard_mutations():
         'evidence_record': ['test_evidence_projection_revision_and_public_schema'],
         'accept_evidence': ['test_evidence_hides_output_and_preserves_failure'],
         'gate_signer': ['test_evidence_gate_ping_is_bounded_read_only_and_public'],
+        'browser_aura_sources': ['test_aura_sources_require_approval_current_gate_code_and_explicit_kira'],
+        'aura_custody': ['test_aura_collector_custody'],
     }
     pipeline_methods = {
         'checked_inputs': ['test_each_input_digest'], 'installed': ['test_install_record_is_closed_and_revision_checked'],
         'install': ['test_dependency_and_node_package_checks', 'test_fresh_install_does_not_adopt_existing_state_or_users', 'test_rerun_is_exact_and_never_regenerates_keys'],
         'accept': ['test_before_acceptance_refuses_any_floor_start_listener_or_descriptor', 'test_after_acceptance_requires_signed_in_ui_and_clean_current_invocation',
-                   'test_public_authority_claim_acceptance_guards'],
+                   'test_public_authority_claim_acceptance_guards', 'test_aura_acceptance_matches_independent_heads_and_preserves_no_notes'],
         'enable_owner_signin': ['test_owner_signin_transition_guards'],
     }
     lines = TEXT.splitlines(keepends=True)

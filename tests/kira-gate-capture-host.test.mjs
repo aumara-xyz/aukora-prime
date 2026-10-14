@@ -256,8 +256,10 @@ test('materializer keeps both host mounts, reviewed Kira configuration and propo
   // naming the fixed Linux runtime directory; Kira rows/config and proposal socket are unchanged.
   // Reviewed browser bootstrap: only browser rows enable webserver/gateway guards, mount the
   // required policy plugin and add its approved name; Kira rows/config/socket and ordinary defaults are unchanged.
+  // Reviewed browser Aura head: a fixed public-file reader replaces the omitted Buzz transport;
+  // no provider is mounted, and both Kira rows/config and the proposal socket remain unchanged.
   assert.equal(sha(Buffer.from(source.replaceAll(entry, './plugins/aukora-kira/lib/index.js'))),
-    '40281f4f7d9951ba3bbf79dfcdb9b2566cb9650e87c89c25ac24c1dd8b063963')
+    '6a9f82ef6de738dfc1e242fbfbb0d6ba82199ae78ec79b087e0ef68aa9942e21')
   assert.equal(source.split('proposeSocket: /run/aukora-gate/gate.sock').length - 1, 1)
 })
 
